@@ -324,6 +324,7 @@
 "send_to_tv_error_cloud_conflict" = "Der CloudKit-Mediathekdatensatz wurde auf einem anderen Gerät geändert und steht nach dem erneuten Versuch weiterhin in Konflikt.";
 "send_to_tv_error_cloud_upload" = "CloudKit-Upload der Mediathek fehlgeschlagen: %@";
 "send_to_tv_error_cloud_schema" = "Der iCloud-Übertragungskanal ist in dieser Version nicht aktiviert (auf dem Server fehlt „%@“); ein erneuter Versuch hilft nicht. Verwende stattdessen die QR-Code-Direktübertragung auf der Musikquellen-Seite des Apple TV.";
+"icloud_cloud_schema_missing" = "Im iCloud-Produktionsschema fehlt „%@“. Ein erneuter Versuch hilft nicht; der Entwickler muss das CloudKit-Schema bereitstellen.";
 "send_to_tv_error_source_data" = "Die Musikquellen-Konfiguration konnte nicht gelesen werden: %@";
 "send_to_tv_error_credential_temporary" = "Die Anmeldedaten „%@“ (%@) sind im Schlüsselbund vorübergehend nicht verfügbar (OSStatus %@). Entsperre das Gerät und versuche es erneut.";
 "send_to_tv_error_credential_read" = "Die Anmeldedaten „%@“ (%@) konnten nicht aus dem Schlüsselbund gelesen werden (OSStatus %@).";

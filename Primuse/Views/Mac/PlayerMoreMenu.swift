@@ -25,6 +25,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showScrapeOptions = false
     @State private var showSongInfo = false
     @State private var showTagEditor = false
+    @State private var showLyricsEditor = false
     @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
@@ -101,6 +102,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 TagEditorView(song: song) { updated in
                     player.syncSongMetadata(updated)
                     player.forceRefreshNowPlayingArtwork()
+                }
+            }
+        }
+        .sheet(isPresented: $showLyricsEditor) {
+            if let song = player.currentSong {
+                LyricsEditorSheet(song: song) { updated in
+                    player.syncSongMetadata(updated)
                 }
             }
         }
@@ -210,6 +218,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     symbol: "tag",
                     disabled: player.currentSong == nil) {
                 showTagEditor = true
+            }
+            menuRow(title: "lyrics_editor_menu",
+                    symbol: "quote.bubble",
+                    disabled: player.currentSong == nil) {
+                showLyricsEditor = true
             }
             menuRow(title: "scrape_song", symbol: "wand.and.stars",
                     disabled: player.currentSong == nil || isScrapingCurrentSong) {

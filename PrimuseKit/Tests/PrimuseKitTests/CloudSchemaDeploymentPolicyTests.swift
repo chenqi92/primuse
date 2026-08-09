@@ -32,6 +32,41 @@ struct CloudSchemaDeploymentPolicyTests {
         #expect(gap == .field("radioStationsGz"))
     }
 
+    @Test("The server description is inspected when the localized text is generic")
+    func detectsServerDescription() {
+        let error = NSError(
+            domain: domain,
+            code: code,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Invalid Arguments",
+                "ServerErrorDescription":
+                    "Cannot create new field 'logoData' in production schema",
+            ]
+        )
+        #expect(CloudSchemaDeploymentPolicy.gap(in: error) == .field("logoData"))
+    }
+
+    @Test("A schema rejection nested in a partial failure is detected")
+    func detectsNestedPartialFailure() {
+        let recordError = NSError(
+            domain: domain,
+            code: code,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Cannot create new type RadioStation in production schema",
+            ]
+        )
+        let partialFailure = NSError(
+            domain: domain,
+            code: 2,
+            userInfo: ["CKPartialErrors": ["RadioStation/1": recordError]]
+        )
+        #expect(
+            CloudSchemaDeploymentPolicy.gap(in: partialFailure)
+                == .recordType("RadioStation")
+        )
+    }
+
     @Test("Unrelated CloudKit failures are not misread as schema gaps")
     func ignoresUnrelatedFailures() {
         #expect(CloudSchemaDeploymentPolicy.gap(

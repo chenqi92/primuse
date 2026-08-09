@@ -324,6 +324,7 @@
 "send_to_tv_error_cloud_conflict" = "CloudKit のライブラリレコードが別のデバイスで変更され、再試行後も競合しています。";
 "send_to_tv_error_cloud_upload" = "CloudKit へのライブラリアップロードに失敗しました：%@";
 "send_to_tv_error_cloud_schema" = "このリリースでは iCloud 転送チャンネルが有効になっていません（サーバー側に「%@」がありません）。再試行しても解決しません。Apple TV の音楽ソース画面から QR コードの直接転送をご利用ください。";
+"icloud_cloud_schema_missing" = "iCloud の本番スキーマに「%@」がありません。再試行では解決できないため、開発者が CloudKit スキーマをデプロイする必要があります。";
 "send_to_tv_error_source_data" = "音楽ソースの設定を読み込めませんでした：%@";
 "send_to_tv_error_credential_temporary" = "「%@」の%@はキーチェーンで一時的に利用できません（OSStatus %@）。デバイスのロックを解除して再試行してください。";
 "send_to_tv_error_credential_read" = "「%@」の%@をキーチェーンから読み込めませんでした（OSStatus %@）。";

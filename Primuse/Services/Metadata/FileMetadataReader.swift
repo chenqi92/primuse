@@ -826,131 +826,26 @@ enum FileMetadataReader {
 
         // ID3 text frames may carry a leading text encoding byte.
         let firstByte = data[data.startIndex]
-        if [0, 1, 2, 3].contains(firstByte) {
-            let payload = data.dropFirst()
-            let decoded: String?
-
-            switch firstByte {
-            case 0:
-                decoded = bestDecodedString(from: Data(payload), encodings: [gb18030Encoding, .isoLatin1, .windowsCP1252])
-            case 1:
-                decoded = bestDecodedString(from: Data(payload), encodings: [.utf16, .utf16LittleEndian, .utf16BigEndian])
-            case 2:
-                decoded = bestDecodedString(from: Data(payload), encodings: [.utf16BigEndian])
-            case 3:
-                decoded = bestDecodedString(from: Data(payload), encodings: [.utf8])
-            default:
-                decoded = nil
-            }
-
-            if let decoded {
-                return repairLegacyChineseMojibake(decoded)
-            }
+        if [0, 1, 2, 3].contains(firstByte),
+           let decoded = TextEncodingRepair.decodeID3Text(
+               Data(data.dropFirst()),
+               encodingByte: firstByte
+           ) {
+            return decoded
         }
 
-        return bestDecodedString(from: data, encodings: [.utf8, gb18030Encoding, .utf16, .isoLatin1, .windowsCP1252])
-            .map(repairLegacyChineseMojibake)
+        guard let decoded = TextEncodingRepair.bestDecoding(
+            of: data,
+            encodings: TextEncodingRepair.legacyTextEncodings
+        ) else {
+            return nil
+        }
+        return repairLegacyChineseMojibake(decoded)
     }
 
     static func repairLegacyChineseMojibake(_ text: String) -> String {
         let normalized = text.replacingOccurrences(of: "\0", with: "")
-        guard looksLikeLegacyChineseMojibake(normalized) else { return normalized }
-
-        let candidates = repairedTextCandidates(from: normalized)
-        guard let best = candidates.max(by: { candidateScore($0, original: normalized) < candidateScore($1, original: normalized) }),
-              shouldUseRepairedText(best, over: normalized) else {
-            return normalized
-        }
-
-        return best
-    }
-
-    private static let gb18030Encoding = String.Encoding(
-        rawValue: CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
-        )
-    )
-
-    private static func bestDecodedString(from data: Data, encodings: [String.Encoding]) -> String? {
-        let candidates = encodings.compactMap { String(data: data, encoding: $0) }
-        guard !candidates.isEmpty else { return nil }
-
-        return candidates.max { lhs, rhs in
-            decodedStringScore(lhs) < decodedStringScore(rhs)
-        }?.replacingOccurrences(of: "\0", with: "")
-    }
-
-    private static func repairedTextCandidates(from text: String) -> [String] {
-        var candidates: [String] = []
-
-        for sourceEncoding in [String.Encoding.isoLatin1, .windowsCP1252] {
-            guard let bytes = text.data(using: sourceEncoding) else { continue }
-
-            if let utf8 = String(data: bytes, encoding: .utf8) {
-                candidates.append(utf8.replacingOccurrences(of: "\0", with: ""))
-            }
-
-            if let gb18030 = String(data: bytes, encoding: gb18030Encoding) {
-                candidates.append(gb18030.replacingOccurrences(of: "\0", with: ""))
-            }
-        }
-
-        var seen = Set<String>()
-        return candidates.filter { seen.insert($0).inserted }
-    }
-
-    private static func looksLikeLegacyChineseMojibake(_ text: String) -> Bool {
-        suspiciousMojibakeScalarCount(in: text) >= 2
-    }
-
-    private static func shouldUseRepairedText(_ candidate: String, over original: String) -> Bool {
-        candidate != original
-            && cjkScalarCount(in: candidate) > cjkScalarCount(in: original)
-            && cjkScalarCount(in: candidate) > 0
-            && suspiciousMojibakeScalarCount(in: candidate) < suspiciousMojibakeScalarCount(in: original)
-            && replacementCharacterCount(in: candidate) == 0
-    }
-
-    private static func candidateScore(_ candidate: String, original: String) -> Int {
-        decodedStringScore(candidate)
-            + cjkScalarCount(in: candidate) * 8
-            - abs(candidate.count - original.count)
-    }
-
-    private static func decodedStringScore(_ text: String) -> Int {
-        cjkScalarCount(in: text) * 5
-            - suspiciousMojibakeScalarCount(in: text) * 3
-            - replacementCharacterCount(in: text) * 12
-    }
-
-    private static func cjkScalarCount(in text: String) -> Int {
-        text.unicodeScalars.reduce(0) { count, scalar in
-            let value = scalar.value
-            return count + (isCJKScalar(value) ? 1 : 0)
-        }
-    }
-
-    private static func suspiciousMojibakeScalarCount(in text: String) -> Int {
-        text.unicodeScalars.reduce(0) { count, scalar in
-            let value = scalar.value
-            return count + ((0x00A1...0x00FF).contains(value) ? 1 : 0)
-        }
-    }
-
-    private static func replacementCharacterCount(in text: String) -> Int {
-        text.unicodeScalars.reduce(0) { count, scalar in
-            count + (scalar.value == 0xFFFD ? 1 : 0)
-        }
-    }
-
-    private static func isCJKScalar(_ value: UInt32) -> Bool {
-        (0x3400...0x4DBF).contains(value)
-            || (0x4E00...0x9FFF).contains(value)
-            || (0xF900...0xFAFF).contains(value)
-            || (0x20000...0x2A6DF).contains(value)
-            || (0x2A700...0x2B73F).contains(value)
-            || (0x2B740...0x2B81F).contains(value)
-            || (0x2B820...0x2CEAF).contains(value)
+        return TextEncodingRepair.repaired(normalized) ?? normalized
     }
 }
 

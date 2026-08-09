@@ -249,12 +249,14 @@ struct MacSettingsView: View {
 private struct MacSTRadioView: View {
     @Environment(RadioStationsStore.self) private var store
     @State private var showingNewStation = false
+    @State private var showingBatchAdd = false
     @State private var editingStation: RadioStation?
 
     var body: some View {
         Group {
             MacSTSection(String(localized: "radio_title")) {
                 MacSTGroup {
+                    // divider 画在行上方，所以首行不要，后面的用默认 true。
                     MacSTRow(
                         String(localized: "radio_add"),
                         hint: store.stations.isEmpty
@@ -264,6 +266,14 @@ private struct MacSTRadioView: View {
                     ) {
                         Button(String(localized: "radio_add")) { showingNewStation = true }
                             .buttonStyle(.borderedProminent)
+                    }
+
+                    MacSTRow(
+                        String(localized: "radio_batch_add_title"),
+                        hint: String(localized: "radio_batch_paste_hint")
+                    ) {
+                        Button(String(localized: "radio_batch_add_title")) { showingBatchAdd = true }
+                            .buttonStyle(.bordered)
                     }
 
                     if !store.stations.isEmpty {
@@ -327,10 +337,13 @@ private struct MacSTRadioView: View {
             }
         }
         .sheet(isPresented: $showingNewStation) {
-            RadioStationEditorView(station: nil)
+            MacRadioStationEditorView(station: nil)
+        }
+        .sheet(isPresented: $showingBatchAdd) {
+            MacRadioBatchAddView()
         }
         .sheet(item: $editingStation) { station in
-            RadioStationEditorView(station: station)
+            MacRadioStationEditorView(station: station)
         }
     }
 }

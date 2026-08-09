@@ -62,9 +62,18 @@ actor MetadataService {
         // 防御: 历史上 FileMetadataReader 在没 TIT2 时会自动把 url basename
         // 塞进 embedded.title。这里再校一次, 万一别的读取路径返回 sanitized
         // 名 (如 "_music_xxx") 也当成空, 走真正的 fallback。
+        //
+        // 标签解码猜错时也走 fallback: 文件名是独立来源, 通常还是好的
+        // (详见 MediaMetadataTextRepair.preferred)。之前只判空不判乱码,
+        // 于是非空的乱码标签会盖掉正确的文件名。
         let trustedEmbeddedTitle: String? = {
             guard let t = embedded.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
-            return t == rawURLBasedFallback || t == urlBasedFallback ? nil : embedded.title
+            guard t != rawURLBasedFallback, t != urlBasedFallback else { return nil }
+            guard !MediaMetadataTextRepair.isSuspicious(t)
+                    || MediaMetadataTextRepair.isSuspicious(titleFallback) else {
+                return nil
+            }
+            return embedded.title
         }()
 
         var result = SongMetadata(

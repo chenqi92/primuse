@@ -36,6 +36,10 @@ struct SongRowView: View {
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
     @State private var showTagEditor = false
+    /// 歌词编辑跟标签编辑平级，各自独立的 sheet。
+    @State private var showLyricsEditor = false
+    /// 标签编辑器翻页到的那一首。nil 表示还停在本行这首歌上。
+    @State private var tagEditorSongID: String?
     @State private var showSimilarSongs = false
     @State private var deleteErrorMessage: String?
 
@@ -164,6 +168,12 @@ struct SongRowView: View {
                         }
 
                         Button {
+                            showLyricsEditor = true
+                        } label: {
+                            Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                        }
+
+                        Button {
                             showAddToPlaylist = true
                         } label: {
                             Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
@@ -260,6 +270,12 @@ struct SongRowView: View {
                 }
 
                 Button {
+                    showLyricsEditor = true
+                } label: {
+                    Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                }
+
+                Button {
                     showAddToPlaylist = true
                 } label: {
                     Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
@@ -311,9 +327,19 @@ struct SongRowView: View {
             // 搜索数量 picker 挤到下方,用户不知道要上滑会以为功能消失。
             .presentationDetents([.large])
         }
-        .sheet(isPresented: $showTagEditor) {
-            TagEditorView(song: song)
-                .presentationDetents([.large])
+        .sheet(isPresented: $showTagEditor, onDismiss: { tagEditorSongID = nil }) {
+            TagEditorView(
+                song: tagEditorSong,
+                queue: tagEditorQueue,
+                onNavigate: { tagEditorSongID = $0.id }
+            )
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showLyricsEditor) {
+            LyricsEditorSheet(song: library.song(id: song.id) ?? song) { updated in
+                player.syncSongMetadata(updated)
+            }
+            .presentationDetents([.large])
         }
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(song: song)
@@ -349,6 +375,31 @@ struct SongRowView: View {
 
     private var supportsOfflineAudioCache: Bool {
         song.sourceID != AppleMusicLibraryService.systemSourceID
+    }
+
+    /// 编辑器当前显示的那首。翻页只换 id，行本身不动。
+    private var tagEditorSong: Song {
+        guard let tagEditorSongID, let resolved = library.song(id: tagEditorSongID) else {
+            return library.song(id: song.id) ?? song
+        }
+        return resolved
+    }
+
+    /// 翻页队列 = 同源同目录的歌，按文件名排。整理标签基本都是一个文件夹一个
+    /// 文件夹地过，跨目录翻页反而乱。
+    private var tagEditorQueue: [Song] {
+        let directory = (song.filePath as NSString).deletingLastPathComponent
+        guard !directory.isEmpty else { return [] }
+        let siblings = library.visibleSongs.filter {
+            $0.sourceID == song.sourceID
+                && ($0.filePath as NSString).deletingLastPathComponent == directory
+        }
+        guard siblings.count > 1 else { return [] }
+        return siblings.sorted {
+            ($0.filePath as NSString).lastPathComponent
+                .localizedStandardCompare(($1.filePath as NSString).lastPathComponent)
+                == .orderedAscending
+        }
     }
 
     @ViewBuilder

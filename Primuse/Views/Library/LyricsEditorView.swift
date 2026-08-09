@@ -1,5 +1,10 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// 结构化歌词编辑器。逐行编辑 + 边听边打轴 + 整体偏移,替代原来在标签编辑器里
 /// 那个塞在 Form 中的固定高度 TextEditor。
@@ -11,6 +16,9 @@ import PrimuseKit
 struct LyricsEditorView: View {
     let song: Song
     @Binding var text: String
+    /// 非 nil 时，「完成」把序列化结果交给它而不是自己 dismiss —— 独立入口
+    /// 需要先落盘(可能失败/需确认)再决定关不关。
+    let onCommit: ((String) -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
@@ -27,14 +35,25 @@ struct LyricsEditorView: View {
     /// 累加式在负向撞到 0 被 clamp 后就回不去了。
     @State private var shiftBaseline: LyricsEditorDocument?
     @State private var pendingShift: TimeInterval = 0
+    /// 时间戳折叠开关。收起后就是纯文本,理词和读起来都清爽 ——
+    /// 打轴模式下强制展开,否则看不见自己打到哪了。
+    @State private var showTimestamps = true
+    /// 粘贴后的拆句预览。非 nil 时占满整屏,让用户先确认拆得对不对再落库。
+    @State private var pasteDraft: LyricsTextTools.SplitResult?
+    /// 边听边写。歌在放,打字 + 回车即记时间戳。
+    @State private var isLiveWriting = false
+    @State private var liveDraft = ""
+    @State private var showClearConfirm = false
 
     @FocusState private var focusedLine: UUID?
+    @FocusState private var liveDraftFocused: Bool
 
     enum Mode { case structured, source }
 
-    init(song: Song, text: Binding<String>) {
+    init(song: Song, text: Binding<String>, onCommit: ((String) -> Void)? = nil) {
         self.song = song
         self._text = text
+        self.onCommit = onCommit
         let parsed = LyricsEditorDocument(parsing: text.wrappedValue)
         _document = State(initialValue: parsed)
         _originalDocument = State(initialValue: parsed)
@@ -44,6 +63,7 @@ struct LyricsEditorView: View {
     var body: some View {
         content
             .task(id: song.id) { await trackPlaybackTime() }
+            .onAppear { refreshClipboardPreview() }
     }
 
     // MARK: - 容器
@@ -149,17 +169,530 @@ struct LyricsEditorView: View {
 
     private var editorStack: some View {
         VStack(spacing: 0) {
+            if let draft = pasteDraft {
+                // 拆句预览是一次性的中间态：确认之前不显示常规编辑器，
+                // 免得用户以为已经落库了。
+                pasteReviewStack(draft)
+            } else if isLiveWriting {
+                liveWritingStack
+            } else if document.lines.isEmpty, mode == .structured {
+                emptyLyricsStack
+            } else {
+                transportBar
+                Divider()
+
+                switch mode {
+                case .structured:
+                    textToolbar
+                    Divider()
+                    lineList
+                    bottomBar
+                case .source:
+                    sourceEditor
+                }
+            }
+        }
+        .confirmationDialog(
+            String(localized: "lyrics_editor_clear_confirm_title"),
+            isPresented: $showClearConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "lyrics_editor_clear_all"), role: .destructive) {
+                document = LyricsEditorDocument()
+                sourceText = ""
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+    }
+
+    // MARK: - 零歌词空状态
+
+    /// 完全没歌词时不给一个空白输入框 —— 那等于把「从哪开始」的问题丢回给用户。
+    /// 给三条具体的路：剪贴板里现成的、边听边写、或者去在线匹配。
+    private var emptyLyricsStack: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 20)
+
+            VStack(spacing: 12) {
+                Image(systemName: "text.badge.xmark")
+                    .font(.system(size: 38))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 84, height: 84)
+                    .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                Text("lyrics_editor_empty_title")
+                    .font(.title3.weight(.semibold))
+
+                Text("\(song.title) · \(song.artistName ?? String(localized: "unknown_artist"))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Text("lyrics_editor_empty_subtitle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 30)
+
+            Spacer(minLength: 20)
+
+            VStack(spacing: 10) {
+                if let clipboardPreview {
+                    emptyOption(
+                        icon: "doc.on.clipboard.fill",
+                        title: String(
+                            format: String(localized: "lyrics_editor_empty_paste %lld"),
+                            clipboardPreview.lines.count
+                        ),
+                        subtitle: String(localized: "lyrics_editor_empty_paste_detail"),
+                        prominent: true
+                    ) {
+                        pasteDraft = clipboardPreview
+                    }
+                }
+
+                emptyOption(
+                    icon: "mic.fill",
+                    title: String(localized: "lyrics_editor_empty_live"),
+                    subtitle: String(localized: "lyrics_editor_empty_live_detail")
+                ) {
+                    startLiveWriting()
+                }
+
+                emptyOption(
+                    icon: "square.and.pencil",
+                    title: String(localized: "lyrics_editor_empty_manual"),
+                    subtitle: String(localized: "lyrics_editor_empty_manual_detail")
+                ) {
+                    let id = document.insertLine(at: 0)
+                    focusedLine = id
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+    }
+
+    /// 剪贴板里像歌词的一段文字。iOS 16 起读剪贴板会弹系统「已粘贴」横幅，
+    /// 所以只在进入编辑器时探一次，绝不能放在 body 里每帧求值。
+    @State private var clipboardPreview: LyricsTextTools.SplitResult?
+
+    private func refreshClipboardPreview() {
+        #if os(iOS)
+        guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string else {
+            clipboardPreview = nil
+            return
+        }
+        #elseif os(macOS)
+        guard let text = NSPasteboard.general.string(forType: .string) else {
+            clipboardPreview = nil
+            return
+        }
+        #else
+        let text = ""
+        #endif
+        let result = LyricsTextTools.splitIntoLines(text)
+        // 一两行的剪贴板内容多半不是歌词(复制的歌名/链接)，别误导用户。
+        clipboardPreview = result.lines.count >= 3 ? result : nil
+    }
+
+    private func emptyOption(
+        icon: String,
+        title: String,
+        subtitle: String,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(prominent ? Color.accentColor : .secondary)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(prominent ? .semibold : .medium))
+                        .foregroundStyle(prominent ? Color.accentColor : .primary)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(prominent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
+            }
+            .padding(15)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(prominent ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(
+                                prominent ? Color.accentColor.opacity(0.45) : Color.secondary.opacity(0.14),
+                                lineWidth: prominent ? 1 : 0.5
+                            )
+                    }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 粘贴拆句预览
+
+    /// 粘完先看拆得对不对再进下一步。自动做掉的事(合并空行、去版权行)明写出来，
+    /// 用户才知道少的那几行去哪了。
+    private func pasteReviewStack(_ draft: LyricsTextTools.SplitResult) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 11) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 19))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(String(
+                        format: String(localized: "lyrics_editor_paste_parsed %lld"),
+                        draft.lines.count
+                    ))
+                    .font(.subheadline.weight(.medium))
+
+                    if draft.removedBlankRuns > 0 || !draft.droppedCreditLines.isEmpty {
+                        Text(pasteAdjustmentSummary(draft))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            List {
+                ForEach(Array(draft.lines.enumerated()), id: \.offset) { index, line in
+                    HStack(spacing: 11) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, alignment: .trailing)
+                        Text(line)
+                            .font(.system(size: 13.5))
+                            .lineLimit(2)
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                }
+                .onDelete { offsets in
+                    var lines = draft.lines
+                    for index in offsets.sorted(by: >) where lines.indices.contains(index) {
+                        lines.remove(at: index)
+                    }
+                    pasteDraft = LyricsTextTools.SplitResult(
+                        lines: lines,
+                        removedBlankRuns: draft.removedBlankRuns,
+                        droppedCreditLines: draft.droppedCreditLines
+                    )
+                }
+            }
+            .listStyle(.plain)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button {
+                    pasteDraft = nil
+                } label: {
+                    Label(String(localized: "lyrics_editor_paste_redo"), systemImage: "arrow.counterclockwise")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .clipShape(Capsule())
+
+                Button {
+                    acceptPasteDraft(draft)
+                } label: {
+                    Label(String(localized: "lyrics_editor_paste_accept"), systemImage: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .clipShape(Capsule())
+                .disabled(draft.lines.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func pasteAdjustmentSummary(_ draft: LyricsTextTools.SplitResult) -> String {
+        var parts: [String] = []
+        if draft.removedBlankRuns > 0 {
+            parts.append(String(
+                format: String(localized: "lyrics_editor_paste_merged_blanks %lld"),
+                draft.removedBlankRuns
+            ))
+        }
+        if !draft.droppedCreditLines.isEmpty {
+            parts.append(String(
+                format: String(localized: "lyrics_editor_paste_dropped_credits %lld"),
+                draft.droppedCreditLines.count
+            ))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func acceptPasteDraft(_ draft: LyricsTextTools.SplitResult) {
+        document = LyricsEditorDocument(
+            metadataLines: document.metadataLines,
+            lines: draft.lines.map { EditableLyricLine(timestamp: nil, text: $0) }
+        )
+        sourceText = document.serialized()
+        pasteDraft = nil
+    }
+
+    // MARK: - 边听边写
+
+    /// 歌在放，用户只管打字；按回车的那一刻把当前播放时间记成这句的时间戳。
+    /// 写完一首，歌词和时间轴同时完成，不用再单独打一遍轴。
+    private var liveWritingStack: some View {
+        VStack(spacing: 0) {
             transportBar
             Divider()
 
-            switch mode {
-            case .structured:
-                lineList
-                bottomBar
-            case .source:
-                sourceEditor
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(document.lines.enumerated()), id: \.element.id) { index, line in
+                            HStack(alignment: .firstTextBaseline, spacing: 11) {
+                                Text(line.timestamp.map(timeLabel) ?? "—")
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(Color.accentColor)
+                                Text(line.text)
+                                    .font(.system(size: 14.5))
+                                    .lineLimit(2)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, 5)
+                            .id(index)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onChange(of: document.lines.count) { _, count in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(max(0, count - 1), anchor: .bottom)
+                    }
+                }
+            }
+
+            Divider()
+
+            VStack(spacing: 8) {
+                HStack(spacing: 11) {
+                    Text(timeLabel(playbackTime))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+
+                    TextField(
+                        String(localized: "lyrics_editor_live_placeholder"),
+                        text: $liveDraft
+                    )
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15, weight: .medium))
+                    .focused($liveDraftFocused)
+                    .submitLabel(.next)
+                    .onSubmit { commitLiveLine() }
+                }
+                .padding(.horizontal, 13)
+                .padding(.vertical, 11)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.08))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
+                        }
+                }
+
+                HStack {
+                    Text("lyrics_editor_live_hint")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        undoLiveLine()
+                    } label: {
+                        Label(String(localized: "lyrics_editor_live_undo"), systemImage: "arrow.uturn.backward")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(document.lines.isEmpty ? .secondary : Color.accentColor)
+                    .disabled(document.lines.isEmpty)
+
+                    Button(String(localized: "done")) {
+                        finishLiveWriting()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func startLiveWriting() {
+        isLiveWriting = true
+        liveDraft = ""
+        if isLinkedToPlayback {
+            if !player.isPlaying { player.resume() }
+        } else {
+            Task { await player.play(song: song) }
+        }
+        liveDraftFocused = true
+    }
+
+    /// 回车 = 这句从当前播放位置开始。用 `interpolatedTime()` 而不是 `currentTime`，
+    /// 后者是 0.5s 采样，直接拿来记会系统性偏早。
+    private func commitLiveLine() {
+        let text = liveDraft.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        let stamp = isLinkedToPlayback ? player.interpolatedTime() : playbackTime
+        document.lines.append(EditableLyricLine(timestamp: max(0, stamp), text: text))
+        liveDraft = ""
+        liveDraftFocused = true
+    }
+
+    /// 写错了退回上一句 —— 把它的文字放回输入框，改完再回车。
+    private func undoLiveLine() {
+        guard let last = document.lines.popLast() else { return }
+        liveDraft = last.text
+        liveDraftFocused = true
+    }
+
+    private func finishLiveWriting() {
+        // 输入框里还剩半句时一并收下，别让用户白打。
+        let pending = liveDraft.trimmingCharacters(in: .whitespaces)
+        if !pending.isEmpty { commitLiveLine() }
+        isLiveWriting = false
+        liveDraftFocused = false
+        sourceText = document.serialized()
+    }
+
+    // MARK: - 整篇文本操作
+
+    /// 文本模式顶部的三个整篇操作 + 时间戳折叠开关。
+    private var textToolbar: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                textToolButton(
+                    titleKey: "lyrics_editor_paste_replace",
+                    systemImage: "doc.on.clipboard",
+                    enabled: clipboardPreview != nil
+                ) {
+                    pasteReplace()
+                }
+
+                // 重新分行会把整篇拼回一段再拆，已打的轴必然对不上，
+                // 所以打过轴之后就不给点了。
+                textToolButton(
+                    titleKey: "lyrics_editor_resplit",
+                    systemImage: "text.append",
+                    enabled: document.stampedCount == 0 && !document.lines.isEmpty
+                ) {
+                    resplitLines()
+                }
+
+                textToolButton(
+                    titleKey: "lyrics_editor_drop_blanks",
+                    systemImage: "wand.and.rays",
+                    enabled: document.lines.contains {
+                        $0.text.trimmingCharacters(in: .whitespaces).isEmpty
+                    }
+                ) {
+                    dropBlankLines()
+                }
+            }
+
+            HStack {
+                Text(String(
+                    format: String(localized: "lyrics_editor_line_summary %lld %lld"),
+                    document.lines.count,
+                    document.stampedCount
+                ))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { showTimestamps.toggle() }
+                } label: {
+                    Label(
+                        String(localized: "lyrics_editor_show_timestamps"),
+                        systemImage: showTimestamps ? "checkmark.square.fill" : "square"
+                    )
+                    .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func textToolButton(
+        titleKey: String.LocalizationValue,
+        systemImage: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(String(localized: titleKey), systemImage: systemImage)
+                .font(.caption)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(Color.secondary.opacity(0.10), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+    }
+
+    /// 用剪贴板整段替换。走跟空状态同一个预览，替换前用户还能反悔。
+    private func pasteReplace() {
+        guard let preview = clipboardPreview else { return }
+        pasteDraft = preview
+    }
+
+    /// 重新分行 —— 把当前所有行拼回一整段再按标点拆。时间戳会因此失效，
+    /// 所以只对没打过轴的文档开放。
+    private func resplitLines() {
+        let joined = document.lines.map(\.text).joined(separator: "\n")
+        let result = LyricsTextTools.splitIntoLines(joined, dropCredits: false)
+        guard !result.isEmpty else { return }
+        pasteDraft = result
+    }
+
+    private func dropBlankLines() {
+        let before = document.lines.count
+        document.lines.removeAll { $0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+        if document.lines.count != before { sourceText = document.serialized() }
     }
 
     private var modePicker: some View {
@@ -302,7 +835,11 @@ struct LyricsEditorView: View {
         let isNextToStamp = isTapSyncing && document.nextUnstampedIndex == index
 
         return HStack(alignment: .top, spacing: 10) {
-            timestampChip(line: line, index: index)
+            // 折叠时间戳后就是纯文本，理词和读起来都清爽。打轴模式强制展开 ——
+            // 收起来就看不见自己打到哪了。
+            if showTimestamps || isTapSyncing {
+                timestampChip(line: line, index: index)
+            }
 
             TextField(
                 String(localized: "lyrics_editor_line_placeholder"),
@@ -429,6 +966,15 @@ struct LyricsEditorView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    Button(role: .destructive) {
+                        showClearConfirm = true
+                    } label: {
+                        Label(String(localized: "lyrics_editor_clear_all"), systemImage: "trash")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
 
                     Spacer()
 
@@ -670,7 +1216,15 @@ struct LyricsEditorView: View {
         }
         // 没改就不回写,免得规范化后的文本让标签编辑器误判有改动。
         if hasEdits { text = document.serialized() }
-        dismiss()
+
+        // 独立入口(LyricsEditorSheet)要在关闭前先把歌词落盘，落盘可能失败、
+        // 也可能需要二次确认，所以由它决定何时 dismiss。嵌在标签编辑器里时
+        // 没有这个回调，保持原来的"改完就关"。
+        if let onCommit {
+            onCommit(document.serialized())
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder

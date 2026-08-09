@@ -152,34 +152,14 @@ public enum ID3TextMetadataParser {
 
     private static func decodedText(_ frame: Data) -> String? {
         guard let encodingByte = frame.first else { return nil }
-        let payload = Data(frame.dropFirst())
-        let decoded: String?
-
-        switch encodingByte {
-        case 0:
-            // ID3v2.3 specifies ISO-8859-1, but many legacy libraries wrote
-            // UTF-8/GBK bytes while leaving this flag at zero.
-            decoded = String(data: payload, encoding: .utf8)
-                ?? String(data: payload, encoding: .isoLatin1)
-                ?? String(data: payload, encoding: .windowsCP1252)
-        case 1:
-            decoded = String(data: payload, encoding: .utf16)
-                ?? String(data: payload, encoding: .utf16LittleEndian)
-                ?? String(data: payload, encoding: .utf16BigEndian)
-        case 2:
-            decoded = String(data: payload, encoding: .utf16BigEndian)
-        case 3:
-            decoded = String(data: payload, encoding: .utf8)
-        default:
-            return nil
-        }
-
-        guard let decoded else { return nil }
-        let normalized = decoded
-            .replacingOccurrences(of: "\0", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
-        return MediaMetadataTextRepair.repaired(normalized) ?? normalized
+        // ID3v2.3 specifies ISO-8859-1 for encoding byte 0, but many legacy
+        // taggers wrote GBK/Big5/Shift_JIS bytes while leaving the flag at
+        // zero. ISO-8859-1 decoding never fails, so the candidates have to be
+        // scored rather than chained with `??`.
+        return TextEncodingRepair.decodeID3Text(
+            Data(frame.dropFirst()),
+            encodingByte: encodingByte
+        )
     }
 
     private static func extendedHeaderLength(in tag: Data, version: Int, flags: UInt8) -> Int {

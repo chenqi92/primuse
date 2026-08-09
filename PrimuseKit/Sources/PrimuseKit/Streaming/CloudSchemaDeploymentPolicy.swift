@@ -40,6 +40,44 @@ public enum CloudSchemaDeploymentPolicy {
         return nil
     }
 
+    /// Finds a schema rejection in either the error itself or a nested
+    /// per-record error from a CloudKit partial failure. CloudKit sometimes
+    /// keeps the useful server text in `ServerErrorDescription` instead of the
+    /// localized description, so both representations are inspected.
+    public static func gap(in error: any Error) -> Gap? {
+        gap(in: error as NSError, depth: 0)
+    }
+
+    private static func gap(in error: NSError, depth: Int) -> Gap? {
+        let messages = [
+            error.userInfo["ServerErrorDescription"] as? String,
+            error.userInfo[NSLocalizedDescriptionKey] as? String,
+            error.localizedDescription,
+        ].compactMap { $0 }
+
+        for message in messages {
+            if let gap = gap(domain: error.domain, code: error.code, message: message) {
+                return gap
+            }
+        }
+
+        guard depth < 4 else { return nil }
+        for value in error.userInfo.values {
+            if let nested = value as? any Error,
+               let gap = gap(in: nested as NSError, depth: depth + 1) {
+                return gap
+            }
+            if let nestedByItem = value as? [AnyHashable: any Error] {
+                for nested in nestedByItem.values {
+                    if let gap = gap(in: nested as NSError, depth: depth + 1) {
+                        return gap
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
     /// First whitespace-delimited token following `marker`, stripped of the
     /// quoting CloudKit puts around field names.
     private static func token(after marker: String, in message: String) -> String? {

@@ -134,6 +134,8 @@ struct NowPlayingView: View {
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
     @State private var showTagEditor = false
+    /// 歌词编辑跟标签编辑平级 —— 调歌词是自成一件事的高频操作。
+    @State private var showLyricsEditor = false
     @State private var showSimilarSongs = false
     @State private var showMusicVideoFullScreen = false
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
@@ -404,6 +406,15 @@ struct NowPlayingView: View {
                     // 这里只重拉歌词(标题改了可能影响 LRC 命中)。
                     Task { await loadLyrics() }
                     _ = updated
+                }
+                .presentationDetents([.large])
+            }
+        }
+        .sheet(isPresented: $showLyricsEditor) {
+            if let song = player.currentSong {
+                LyricsEditorSheet(song: song) { _ in
+                    // 歌词落盘后重新拉一次，正在播放的这首立刻用上新词。
+                    Task { await loadLyrics() }
                 }
                 .presentationDetents([.large])
             }
@@ -1624,6 +1635,7 @@ struct NowPlayingView: View {
             onScrape: { openScrapeForCurrentSong() },
             onShowSimilarSongs: { showSimilarSongs = true },
             onEditTags: { showTagEditor = true },
+            onEditLyrics: { showLyricsEditor = true },
             onShowSongInfo: { showSongInfo = true },
             onOpenAlbum: {
                 guard let album = currentAlbum else { return }
@@ -3197,6 +3209,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onScrape: () -> Void
     let onShowSimilarSongs: () -> Void
     let onEditTags: () -> Void
+    let onEditLyrics: () -> Void
     let onShowSongInfo: () -> Void
     let onOpenAlbum: () -> Void
     let onOpenArtist: () -> Void
@@ -3239,6 +3252,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 if !snapshot.isAppleMusicMode {
                     Button(action: onEditTags) {
                         Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                    }
+                    .disabled(!snapshot.hasSong)
+
+                    Button(action: onEditLyrics) {
+                        Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
                     }
                     .disabled(!snapshot.hasSong)
                 }

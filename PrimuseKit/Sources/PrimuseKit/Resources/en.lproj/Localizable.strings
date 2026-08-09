@@ -322,6 +322,7 @@
 "send_to_tv_error_cloud_conflict" = "The CloudKit library record changed on another device and still conflicted after retrying.";
 "send_to_tv_error_cloud_upload" = "CloudKit library upload failed: %@";
 "send_to_tv_error_cloud_schema" = "The iCloud transfer channel is not enabled in this release (the server is missing “%@”), so retrying will not help. Use the QR-code direct transfer on the Apple TV music sources screen instead.";
+"icloud_cloud_schema_missing" = "The iCloud Production schema is missing “%@”. Retrying cannot fix this; the developer must deploy the CloudKit schema.";
 "send_to_tv_error_source_data" = "The music source configuration could not be read: %@";
 "send_to_tv_error_credential_temporary" = "The “%@” %@ is temporarily unavailable in Keychain (OSStatus %@). Unlock the device and try again.";
 "send_to_tv_error_credential_read" = "The “%@” %@ could not be read from Keychain (OSStatus %@).";

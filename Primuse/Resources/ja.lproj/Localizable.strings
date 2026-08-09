@@ -85,6 +85,12 @@
 "tag_editor_reset" = "元に戻す";
 "tag_editor_reset_confirm" = "編集内容を破棄しますか？";
 "tag_editor_footer" = "タグとカバーの編集内容は Primuse 内に保存されます。歌詞は上記のソースへの書き戻し状態に従います。";
+"tag_editor_encoding_fix" = "文字化けを修正…";
+"encoding_fix_title" = "文字エンコーディング";
+"encoding_fix_section_header" = "正しく表示されているものを選択";
+"encoding_fix_footer" = "タイトル・アーティスト・アルバム・ジャンルにまとめて適用されます。保存するまで書き込まれません。";
+"encoding_fix_empty_title" = "修正候補なし";
+"encoding_fix_empty_message" = "このテキストは他のエンコーディングとして読み直せません。表示がまだ正しくない場合、元の文字は失われているため手動で入力し直す必要があります。";
 "tag_editor_lyrics_section" = "歌詞";
 "tag_editor_lyrics_placeholder" = "プレーンテキスト、LRC、ELRC の歌詞を入力…";
 "tag_editor_lyrics_format_hint" = "プレーンテキスト、LRC [mm:ss.xxx]、ELRC <mm:ss.xxx>単語 に対応しています。既存のタイムスタンプは保持されます。";
@@ -2432,3 +2438,95 @@
 "source_connection_path_prefix" = "パス接頭辞（任意）";
 "source_connection_no_route" = "使用可能な接続アドレスが設定されていません";
 "rate_on_app_store" = "Leave a nice review";
+
+/* MARK: - Home mode switch */
+"home_mode_music" = "ミュージック";
+"home_mode_radio" = "ラジオ";
+"home_mode_switch_a11y" = "ミュージックとラジオを切り替える";
+"home_mode_face_music" = "A面・ミュージック";
+"home_mode_face_radio" = "B面・ラジオ";
+"home_mode_flip_to_music" = "A面・ミュージックに切り替える";
+"home_mode_flip_to_radio" = "B面・ラジオに切り替える";
+"home_radio_wall_title" = "マイ局";
+"home_radio_wall_manage %lld" = "管理 · %lld";
+"home_radio_wall_badge" = "LIVE";
+"select_all" = "すべて選択";
+
+/* MARK: - Radio batch add */
+"radio_batch_add_title" = "ラジオ局を一括追加";
+"radio_batch_entry_paste" = "ペースト";
+"radio_batch_entry_file" = "m3u / pls";
+"radio_batch_entry_directory" = "ディレクトリ";
+"radio_batch_paste_hint" = "1 行に 1 つのストリーム URL。「名前, URL」の形式も使えます。";
+"radio_batch_paste_from_clipboard" = "クリップボードからペースト";
+"radio_batch_clear" = "消去";
+"radio_batch_clipboard_empty" = "クリップボードにテキストがありません。";
+"radio_batch_file_hint" = ".m3u / .m3u8 / .pls を選択します。ファイル内の局名はそのまま使われます。";
+"radio_batch_pick_file" = "ファイルを選択";
+"radio_batch_file_unreadable" = "このファイルはテキストとして読み込めませんでした。";
+"radio_batch_file_no_entries" = "このファイルにストリーム URL が見つかりません。";
+"radio_batch_directory_hint" = "radio-browser.info のコミュニティ局ディレクトリを検索します。";
+"radio_batch_directory_placeholder" = "局名";
+"radio_batch_directory_empty" = "その名前に一致する局はありません。";
+"radio_batch_directory_failed" = "局ディレクトリに接続できません。";
+"radio_batch_status_playable" = "OK";
+"radio_batch_status_duplicate" = "重複";
+"radio_batch_status_invalid" = "無効";
+"radio_batch_duplicate_of %@" = "「%@」として登録済み";
+"radio_batch_select_playable" = "使える局をすべて選択";
+"radio_batch_add_count %lld" = "%lld 局を追加";
+"radio_batch_add_none" = "先に局を選択してください";
+"radio_batch_add_footer" = "追加後、各ストリームをバックグラウンドで接続テストします。";
+"radio_batch_error_title" = "読み込みに失敗しました";
+
+/* MARK: - Radio manage */
+"radio_manage_footer" = "ドラッグで並べ替え。行をスワイプで名称変更・先頭固定・削除。";
+"radio_manage_pin_top" = "先頭に固定";
+"radio_manage_export" = "書き出す";
+"radio_manage_deselect_all" = "選択を解除";
+"radio_manage_delete_confirm_title" = "選択した局を削除しますか？";
+"radio_manage_delete_confirm_message" = "同じアカウントのすべてのデバイスから削除されます。";
+"radio_manage_delete_count %lld" = "%lld 局を削除";
+
+/* MARK: - Tag editor */
+"tag_editor_filename_label" = "ファイル名";
+"tag_editor_split_filename" = "分割して入力";
+"tag_editor_split_preview %@ %@" = "→「%1$@」·「%2$@」";
+"tag_editor_tap_candidate_hint" = "候補をタップで入力";
+"tag_editor_next_song %@" = "次へ · %@";
+"tag_editor_queue_last" = "このフォルダの最後の曲";
+"tag_editor_queue_position %lld %lld" = "このフォルダの %1$lld / %2$lld 曲目";
+
+/* MARK: - Lyrics editor */
+"lyrics_editor_empty_title" = "歌詞がまだありません";
+"lyrics_editor_empty_subtitle" = "始め方を選んでください。あとから変更できます。";
+"lyrics_editor_empty_paste %lld" = "%lld 行をペースト";
+"lyrics_editor_empty_paste_detail" = "クリップボードに歌詞が見つかりました";
+"lyrics_editor_empty_live" = "聴きながら入力";
+"lyrics_editor_empty_live_detail" = "改行ごとに 1 行。入力しながら時間も記録されます";
+"lyrics_editor_empty_manual" = "空から始める";
+"lyrics_editor_empty_manual_detail" = "自分で入力して、あとで時間を合わせる";
+"lyrics_editor_paste_parsed %lld" = "%lld 行に分割しました";
+"lyrics_editor_paste_merged_blanks %lld" = "空行 %lld 箇所をまとめました";
+"lyrics_editor_paste_dropped_credits %lld" = "クレジット %lld 行を除きました";
+"lyrics_editor_paste_redo" = "やり直す";
+"lyrics_editor_paste_accept" = "この行を使う";
+"lyrics_editor_paste_replace" = "ペーストで置換";
+"lyrics_editor_resplit" = "分割し直す";
+"lyrics_editor_drop_blanks" = "空行を削除";
+"lyrics_editor_show_timestamps" = "タイムスタンプ";
+"lyrics_editor_line_summary %lld %lld" = "%1$lld 行 · %2$lld 行が時間付き";
+"lyrics_editor_clear_all" = "すべて消去";
+"lyrics_editor_clear_confirm_title" = "すべての行を削除しますか？";
+"lyrics_editor_live_placeholder" = "聞こえたとおりに入力…";
+"lyrics_editor_live_hint" = "改行でこの行が現在の時間から始まります";
+"lyrics_editor_live_undo" = "1 行戻す";
+
+/* MARK: - Radio (macOS) */
+"Live Radio" = "ライブラジオ";
+"radio_mac_count %lld" = "%lld 局";
+"radio_mac_now_playing %@" = "再生中 · %@";
+
+/* MARK: - Lyrics editor / radio selection */
+"lyrics_editor_menu" = "歌詞を編集";
+"radio_manage_selected %lld" = "%lld 件選択";

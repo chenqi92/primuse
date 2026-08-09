@@ -466,7 +466,7 @@ struct MacHomeView: View {
                     .foregroundStyle(PMColor.text)
                 Spacer()
                 NavigationLink("home_section_view_all") {
-                    RadioStationsView()
+                    MacRadioStationsView()
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12.5, weight: .semibold))
@@ -477,7 +477,7 @@ struct MacHomeView: View {
                 radioSpotlightCard(station)
             } else {
                 NavigationLink {
-                    RadioStationsView()
+                    MacRadioStationsView()
                 } label: {
                     HStack(spacing: PMSpace.l24) {
                         Image(systemName: "radio.fill")

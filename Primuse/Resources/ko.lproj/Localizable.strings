@@ -84,6 +84,12 @@
 "tag_editor_reset" = "원래대로 되돌리기";
 "tag_editor_reset_confirm" = "편집 내용을 취소하시겠습니까?";
 "tag_editor_footer" = "태그와 커버 변경은 Primuse에만 저장됩니다. 가사는 위에 표시된 소스 쓰기 상태를 따릅니다.";
+"tag_editor_encoding_fix" = "깨진 문자 복구…";
+"encoding_fix_title" = "문자 인코딩";
+"encoding_fix_section_header" = "올바르게 표시되는 항목을 선택하세요";
+"encoding_fix_footer" = "제목, 아티스트, 앨범, 장르에 함께 적용됩니다. 저장을 누르기 전까지 기록되지 않습니다.";
+"encoding_fix_empty_title" = "복구할 항목 없음";
+"encoding_fix_empty_message" = "이 텍스트는 다른 인코딩으로 다시 읽을 수 없습니다. 여전히 잘못 보인다면 원본 문자가 이미 손실된 것이므로 직접 다시 입력해야 합니다.";
 "tag_editor_lyrics_section" = "가사";
 "tag_editor_lyrics_placeholder" = "일반 텍스트, LRC 또는 ELRC 가사를 입력하세요…";
 "tag_editor_lyrics_format_hint" = "일반 텍스트, LRC [mm:ss.xxx], ELRC <mm:ss.xxx>단어 형식을 지원하며 기존 타임스탬프를 유지합니다.";
@@ -2431,3 +2437,95 @@
 "source_connection_path_prefix" = "경로 접두사(선택 사항)";
 "source_connection_no_route" = "사용 가능한 연결 주소가 설정되지 않았습니다";
 "rate_on_app_store" = "좋은 평가 남기기";
+
+/* MARK: - Home mode switch */
+"home_mode_music" = "음악";
+"home_mode_radio" = "라디오";
+"home_mode_switch_a11y" = "음악과 라디오 전환";
+"home_mode_face_music" = "A면 · 음악";
+"home_mode_face_radio" = "B면 · 라디오";
+"home_mode_flip_to_music" = "A면 · 음악으로 전환";
+"home_mode_flip_to_radio" = "B면 · 라디오로 전환";
+"home_radio_wall_title" = "내 방송국";
+"home_radio_wall_manage %lld" = "관리 · %lld";
+"home_radio_wall_badge" = "LIVE";
+"select_all" = "전체 선택";
+
+/* MARK: - Radio batch add */
+"radio_batch_add_title" = "방송국 일괄 추가";
+"radio_batch_entry_paste" = "붙여넣기";
+"radio_batch_entry_file" = "m3u / pls";
+"radio_batch_entry_directory" = "디렉터리";
+"radio_batch_paste_hint" = "한 줄에 스트림 URL 하나. 「이름, URL」 형식도 됩니다.";
+"radio_batch_paste_from_clipboard" = "클립보드에서 붙여넣기";
+"radio_batch_clear" = "지우기";
+"radio_batch_clipboard_empty" = "클립보드에 텍스트가 없습니다.";
+"radio_batch_file_hint" = ".m3u, .m3u8, .pls 목록을 선택하세요. 파일의 방송국 이름은 그대로 유지됩니다.";
+"radio_batch_pick_file" = "파일 선택";
+"radio_batch_file_unreadable" = "이 파일을 텍스트로 읽을 수 없습니다.";
+"radio_batch_file_no_entries" = "이 파일에서 스트림 URL을 찾지 못했습니다.";
+"radio_batch_directory_hint" = "radio-browser.info 커뮤니티 방송국 디렉터리를 검색합니다.";
+"radio_batch_directory_placeholder" = "방송국 이름";
+"radio_batch_directory_empty" = "그 이름과 일치하는 방송국이 없습니다.";
+"radio_batch_directory_failed" = "방송국 디렉터리에 연결할 수 없습니다.";
+"radio_batch_status_playable" = "사용 가능";
+"radio_batch_status_duplicate" = "중복";
+"radio_batch_status_invalid" = "무효";
+"radio_batch_duplicate_of %@" = "이미 「%@」(으)로 저장됨";
+"radio_batch_select_playable" = "사용 가능한 항목 모두 선택";
+"radio_batch_add_count %lld" = "방송국 %lld개 추가";
+"radio_batch_add_none" = "먼저 방송국을 선택하세요";
+"radio_batch_add_footer" = "추가 후 각 스트림을 백그라운드에서 연결 테스트합니다.";
+"radio_batch_error_title" = "가져오기 실패";
+
+/* MARK: - Radio manage */
+"radio_manage_footer" = "끌어서 순서 변경. 행을 쓸어넘겨 이름 변경, 맨 위 고정, 삭제.";
+"radio_manage_pin_top" = "맨 위로";
+"radio_manage_export" = "내보내기";
+"radio_manage_deselect_all" = "선택 해제";
+"radio_manage_delete_confirm_title" = "선택한 방송국을 삭제할까요?";
+"radio_manage_delete_confirm_message" = "계정에 로그인된 모든 기기에서 삭제됩니다.";
+"radio_manage_delete_count %lld" = "방송국 %lld개 삭제";
+
+/* MARK: - Tag editor */
+"tag_editor_filename_label" = "파일 이름";
+"tag_editor_split_filename" = "나눠서 채우기";
+"tag_editor_split_preview %@ %@" = "→「%1$@」·「%2$@」";
+"tag_editor_tap_candidate_hint" = "후보를 눌러 채우기";
+"tag_editor_next_song %@" = "다음 · %@";
+"tag_editor_queue_last" = "이 폴더의 마지막 곡";
+"tag_editor_queue_position %lld %lld" = "이 폴더의 %1$lld / %2$lld번째";
+
+/* MARK: - Lyrics editor */
+"lyrics_editor_empty_title" = "아직 가사가 없습니다";
+"lyrics_editor_empty_subtitle" = "시작 방법을 고르세요. 나중에 언제든 바꿀 수 있습니다.";
+"lyrics_editor_empty_paste %lld" = "%lld줄 붙여넣기";
+"lyrics_editor_empty_paste_detail" = "클립보드에서 가사를 발견했습니다";
+"lyrics_editor_empty_live" = "들으며 입력";
+"lyrics_editor_empty_live_detail" = "줄바꿈마다 한 줄 — 입력하면서 시간도 기록됩니다";
+"lyrics_editor_empty_manual" = "빈 상태로 시작";
+"lyrics_editor_empty_manual_detail" = "직접 입력하고 시간은 나중에 맞추기";
+"lyrics_editor_paste_parsed %lld" = "%lld줄로 나눴습니다";
+"lyrics_editor_paste_merged_blanks %lld" = "빈 줄 %lld곳을 합쳤습니다";
+"lyrics_editor_paste_dropped_credits %lld" = "제작 정보 %lld줄을 뺐습니다";
+"lyrics_editor_paste_redo" = "다시 하기";
+"lyrics_editor_paste_accept" = "이 줄 사용";
+"lyrics_editor_paste_replace" = "붙여넣어 교체";
+"lyrics_editor_resplit" = "다시 나누기";
+"lyrics_editor_drop_blanks" = "빈 줄 제거";
+"lyrics_editor_show_timestamps" = "타임스탬프";
+"lyrics_editor_line_summary %lld %lld" = "%1$lld줄 · %2$lld줄 시간 지정됨";
+"lyrics_editor_clear_all" = "모두 지우기";
+"lyrics_editor_clear_confirm_title" = "모든 줄을 삭제할까요?";
+"lyrics_editor_live_placeholder" = "들리는 대로 입력…";
+"lyrics_editor_live_hint" = "줄바꿈하면 이 줄이 현재 시간부터 시작합니다";
+"lyrics_editor_live_undo" = "한 줄 되돌리기";
+
+/* MARK: - Radio (macOS) */
+"Live Radio" = "라이브 라디오";
+"radio_mac_count %lld" = "방송국 %lld개";
+"radio_mac_now_playing %@" = "재생 중 · %@";
+
+/* MARK: - Lyrics editor / radio selection */
+"lyrics_editor_menu" = "가사 편집";
+"radio_manage_selected %lld" = "%lld개 선택됨";

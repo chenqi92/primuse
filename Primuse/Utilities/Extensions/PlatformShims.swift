@@ -59,6 +59,24 @@ enum NavigationBarItem {
     enum TitleDisplayMode { case automatic, inline, large }
 }
 
+/// Mirror of SwiftUI's iOS-only `EditMode`. macOS lists have no edit mode —
+/// selection and reordering are always available — so shared code can keep
+/// its `editMode` state and the value simply never drives anything here.
+enum EditMode {
+    case inactive, transient, active
+
+    var isEditing: Bool { self == .active || self == .transient }
+}
+
+extension EnvironmentValues {
+    /// Absorbs `.environment(\.editMode, $state)` on macOS. Reads back the
+    /// default because no macOS control writes to it.
+    var editMode: Binding<EditMode>? {
+        get { nil }
+        set { _ = newValue }
+    }
+}
+
 /// Mirror of UIKit's `UIKeyboardType` cases. The few cases the project
 /// actually uses (`.URL`, `.numberPad`) are enumerated here; expand if a
 /// new keyboard type starts being referenced from shared code.

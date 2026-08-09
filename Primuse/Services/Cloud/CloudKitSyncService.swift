@@ -30,9 +30,17 @@ enum AccountUnavailableReason: Equatable, Sendable {
     }
 }
 
+private struct CloudSchemaNotDeployedSyncError: LocalizedError, Sendable {
+    let gap: CloudSchemaDeploymentPolicy.Gap
+
+    var errorDescription: String? {
+        PMString("icloud_cloud_schema_missing", gap.name)
+    }
+}
+
 /// Entity payloads flowing through CKSyncEngine. Each conforms to `Codable` so we can
-/// stash them inside a single CKRecord blob field, which sidesteps schema management
-/// for CloudKit dashboard.
+/// stash them inside a single CKRecord blob field. This reduces schema churn, but each
+/// record type and blob field still has to be deployed to CloudKit Production.
 @MainActor
 @Observable
 final class CloudKitSyncService {
@@ -332,12 +340,7 @@ final class CloudKitSyncService {
             let newShare = CKShare(rootRecord: existingHolder)
             newShare[CKShare.SystemFieldKey.title] = "Primuse Family" as CKRecordValue
             newShare.publicPermission = .none
-            let (rebuiltResults, _) = try await db.modifyRecords(
-                saving: [existingHolder, newShare], deleting: []
-            )
-            for (_, result) in rebuiltResults {
-                if case .failure(let err) = result { throw err }
-            }
+            try await saveFamilyRecords([existingHolder, newShare], in: db)
             Self.familySharingEnabled = true
             isParticipantOfShare = false
             scheduleInitialUpload()
@@ -355,10 +358,7 @@ final class CloudKitSyncService {
         share[CKShare.SystemFieldKey.title] = "Primuse Family" as CKRecordValue
         share.publicPermission = .none
 
-        let (results, _) = try await db.modifyRecords(saving: [holder, share], deleting: [])
-        for (_, result) in results {
-            if case .failure(let err) = result { throw err }
-        }
+        try await saveFamilyRecords([holder, share], in: db)
 
         Self.familySharingEnabled = true
         isParticipantOfShare = false
@@ -367,6 +367,20 @@ final class CloudKitSyncService {
         scheduleInitialUpload()
         plog("☁️ Family sharing enabled, share created")
         return share
+    }
+
+    private func saveFamilyRecords(_ records: [CKRecord], in database: CKDatabase) async throws {
+        do {
+            let (results, _) = try await database.modifyRecords(
+                saving: records,
+                deleting: []
+            )
+            for (_, result) in results {
+                if case .failure(let error) = result { throw error }
+            }
+        } catch {
+            throw Self.userFacingCloudError(error)
+        }
     }
 
     /// Owner 解散家庭包 / participant 退出。
@@ -610,6 +624,17 @@ final class CloudKitSyncService {
         }
     }
 
+    private static func schemaError(
+        in error: any Error
+    ) -> CloudSchemaNotDeployedSyncError? {
+        guard let gap = CloudSchemaDeploymentPolicy.gap(in: error) else { return nil }
+        return CloudSchemaNotDeployedSyncError(gap: gap)
+    }
+
+    private static func userFacingCloudError(_ error: any Error) -> any Error {
+        schemaError(in: error) ?? error
+    }
+
     @discardableResult
     private func resolveRecoverablePartialFailure(_ error: any Error, syncEngine: CKSyncEngine) -> Bool {
         guard let ckError = error as? CKError,
@@ -661,6 +686,10 @@ final class CloudKitSyncService {
             resolveServerRecordChanged(local: local, error: error, syncEngine: syncEngine)
             return true
         case .invalidArguments:
+            // A missing Production schema is also CKError 12, but unlike a
+            // duplicate save it must stay pending so it can succeed after the
+            // server schema is deployed.
+            guard Self.schemaError(in: error) == nil else { return false }
             dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
             return true
         case .unknownItem:
@@ -703,6 +732,10 @@ final class CloudKitSyncService {
     }
 
     private func mapToSyncStatus(_ error: any Error) -> CloudSyncStatus {
+        if let schemaError = Self.schemaError(in: error) {
+            didCompleteInitialUpload = false
+            return .error(schemaError.localizedDescription)
+        }
         guard let ckError = error as? CKError else {
             return .error(error.localizedDescription)
         }
@@ -1930,6 +1963,18 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     ) {
         let recordID = failed.record.recordID
         let ckError = failed.error
+
+        if let schemaError = Self.schemaError(in: ckError) {
+            let message = schemaError.localizedDescription
+            didCompleteInitialUpload = false
+            unresolvedRecordSaveError = message
+            status = .error(message)
+            plog(
+                "CloudKitSync: Production schema missing for "
+                    + "\(failed.record.recordType): \(message)"
+            )
+            return
+        }
 
         switch ckError.code {
         case .serverRecordChanged:

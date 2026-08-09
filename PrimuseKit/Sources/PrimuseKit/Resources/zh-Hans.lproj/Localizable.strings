@@ -321,6 +321,7 @@
 "send_to_tv_error_cloud_conflict" = "另一台设备修改了 CloudKit 曲库记录，重试后仍然冲突。";
 "send_to_tv_error_cloud_upload" = "CloudKit 曲库上传失败：%@";
 "send_to_tv_error_cloud_schema" = "此版本的 iCloud 传输通道尚未启用（服务端缺少「%@」），重试无效。请改用 Apple TV 音乐源页面的扫码直传。";
+"icloud_cloud_schema_missing" = "iCloud 正式环境缺少服务端架构「%@」，重试无法修复。请联系开发者完成 CloudKit 架构部署。";
 "send_to_tv_error_source_data" = "无法读取音乐源配置：%@";
 "send_to_tv_error_credential_temporary" = "钥匙串中的“%@”%@暂时不可用（OSStatus %@），请解锁设备后重试。";
 "send_to_tv_error_credential_read" = "无法从钥匙串读取“%@”%@（OSStatus %@）。";

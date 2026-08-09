@@ -144,6 +144,12 @@ final class RadioStationsStore {
         applyPriorityOrder(ordered.map(\.id))
     }
 
+    /// 一次性把顺序设成给定的 id 序列。批量操作(置顶 / 归组)用它，
+    /// 逐个 `update` 会按站数触发同样多次落盘和同步。
+    func applyOrder(_ stationIDs: [String]) {
+        applyPriorityOrder(stationIDs)
+    }
+
     func remove(id: String) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
         allStations[index].isDeleted = true

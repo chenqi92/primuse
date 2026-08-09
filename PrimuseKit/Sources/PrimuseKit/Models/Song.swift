@@ -132,10 +132,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// Repairs metadata text returned by media servers when legacy GBK/GB18030
-/// bytes were decoded as ISO-8859-1. It also exposes filename fallbacks for
-/// fields that already contain U+FFFD and therefore cannot be losslessly
-/// recovered from the server response.
+/// Repairs metadata text that a media server or tagger decoded with the wrong
+/// character set. The encoding analysis lives in `TextEncodingRepair`; this
+/// type adds the library-specific policy on top of it — which fields are worth
+/// re-deriving from a filename once the original bytes are unrecoverable.
 public enum MediaMetadataTextRepair {
     public struct FileNameIdentity: Sendable, Equatable {
         public let artist: String
@@ -231,50 +231,29 @@ public enum MediaMetadataTextRepair {
         return nil
     }
 
+    /// 在文件内嵌标签与文件名之间挑更可信的一个。
+    ///
+    /// 这是两条完全独立的来源: 标签是文件内部的裸字节, 没有可靠的编码声明,
+    /// 解码全靠猜; 文件名来自目录列表 —— 网盘 API 给的是 UTF-8 JSON, 本地
+    /// 是文件系统 —— 基本不会错。所以标签解坏时, 文件名往往还是好的。
+    ///
+    /// 两边都可疑时保留标签值: 至少让用户看见原文, 也还能用手动编码修正去救。
+    public static func preferred(embedded: String?, fromFileName: String?) -> String? {
+        let tag = embedded?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = fromFileName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let tag, !tag.isEmpty, !isSuspicious(tag) { return embedded }
+        if let name, !name.isEmpty, !isSuspicious(name) { return fromFileName }
+        if let tag, !tag.isEmpty { return embedded }
+        return fromFileName
+    }
+
     private static func legacyChineseCandidate(for value: String) -> String? {
-        guard value.unicodeScalars.allSatisfy({ $0.value <= 0xFF }),
-              let latin1Data = value.data(using: .isoLatin1) else {
-            return nil
-        }
-
-        let gb18030 = CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
-        )
-        guard let decoded = String(data: latin1Data, encoding: String.Encoding(rawValue: gb18030)),
-              decoded != value,
-              !decoded.contains("\u{FFFD}") else {
-            return nil
-        }
-
-        let originalExtendedLatinCount = value.unicodeScalars.filter { (0xA1...0xFF).contains($0.value) }.count
-        let decodedHanCount = decoded.unicodeScalars.filter { isHan($0.value) }.count
-
-        // Requiring several extended-Latin bytes and at least two resulting
-        // Han characters avoids rewriting normal Western names such as
-        // "Beyoncé" while still covering short mojibake titles like "¹ý»ð".
-        guard originalExtendedLatinCount >= 3, decodedHanCount >= 2 else {
-            return nil
-        }
-        return decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        TextEncodingRepair.repaired(value)
     }
 
     private static func containsUnrecoverableReplacement(in value: String) -> Bool {
-        if value.contains("\u{FFFD}") {
-            return true
-        }
-
-        // Some media servers replace undecodable trailing Chinese bytes with
-        // literal ASCII question marks instead of U+FFFD. Requiring existing
-        // Han text plus a repeated "??" avoids rejecting ordinary Western
-        // titles that intentionally contain question marks.
-        return value.contains("??")
-            && value.unicodeScalars.contains(where: { isHan($0.value) })
-    }
-
-    private static func isHan(_ scalar: UInt32) -> Bool {
-        (0x3400...0x4DBF).contains(scalar)
-            || (0x4E00...0x9FFF).contains(scalar)
-            || (0xF900...0xFAFF).contains(scalar)
+        TextEncodingRepair.hasUnrecoverableReplacement(in: value)
     }
 }
 

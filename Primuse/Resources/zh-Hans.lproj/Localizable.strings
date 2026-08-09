@@ -1013,6 +1013,12 @@
 "tag_editor_reset" = "恢复为原始信息";
 "tag_editor_reset_confirm" = "放弃你的修改？";
 "tag_editor_footer" = "标签和封面修改仅保存在猿音；歌词是否写回音乐源以上方提示为准。";
+"tag_editor_encoding_fix" = "修正乱码…";
+"encoding_fix_title" = "文字编码";
+"encoding_fix_section_header" = "选择显示正常的那一项";
+"encoding_fix_footer" = "标题、艺术家、专辑、流派会一起改。点保存前不会写入。";
+"encoding_fix_empty_title" = "无可修正";
+"encoding_fix_empty_message" = "这段文字无法按其他编码重新解读。如果它看上去仍然不对，说明原始字符已经丢失，只能手动重新输入。";
 "tag_editor_lyrics_section" = "歌词";
 "tag_editor_lyrics_placeholder" = "输入纯文本、LRC 或 ELRC 歌词…";
 "tag_editor_lyrics_format_hint" = "支持纯文本、LRC [分:秒.xxx] 和 ELRC <分:秒.xxx>逐字格式；已有时间戳会被保留。";
@@ -2535,3 +2541,95 @@
 "source_connection_path_prefix" = "路径前缀（可选）";
 "source_connection_no_route" = "没有配置可用的连接地址";
 "rate_on_app_store" = "给个好评";
+
+/* MARK: - 首页模式切换 */
+"home_mode_music" = "音乐";
+"home_mode_radio" = "电台";
+"home_mode_switch_a11y" = "在音乐和电台之间切换";
+"home_mode_face_music" = "A 面 · 音乐";
+"home_mode_face_radio" = "B 面 · 电台";
+"home_mode_flip_to_music" = "翻到 A 面 · 音乐";
+"home_mode_flip_to_radio" = "翻到 B 面 · 电台";
+"home_radio_wall_title" = "我的电台";
+"home_radio_wall_manage %lld" = "管理 · %lld";
+"home_radio_wall_badge" = "直播";
+"select_all" = "全选";
+
+/* MARK: - 电台批量添加 */
+"radio_batch_add_title" = "批量添加电台";
+"radio_batch_entry_paste" = "粘贴";
+"radio_batch_entry_file" = "m3u / pls";
+"radio_batch_entry_directory" = "在线目录";
+"radio_batch_paste_hint" = "一行一个流地址，也支持「名字, 地址」的写法。";
+"radio_batch_paste_from_clipboard" = "从剪贴板粘贴";
+"radio_batch_clear" = "清空";
+"radio_batch_clipboard_empty" = "剪贴板里没有文字。";
+"radio_batch_file_hint" = "选择 .m3u、.m3u8 或 .pls 清单，文件里的电台名会一并保留。";
+"radio_batch_pick_file" = "选择文件";
+"radio_batch_file_unreadable" = "这个文件无法按文本读取。";
+"radio_batch_file_no_entries" = "文件里没有找到流地址。";
+"radio_batch_directory_hint" = "搜索 radio-browser.info 的社区电台目录。";
+"radio_batch_directory_placeholder" = "电台名称";
+"radio_batch_directory_empty" = "没有匹配这个名称的电台。";
+"radio_batch_directory_failed" = "连不上电台目录。";
+"radio_batch_status_playable" = "可用";
+"radio_batch_status_duplicate" = "重复";
+"radio_batch_status_invalid" = "无效";
+"radio_batch_duplicate_of %@" = "已存在「%@」";
+"radio_batch_select_playable" = "全选可用";
+"radio_batch_add_count %lld" = "添加 %lld 个电台";
+"radio_batch_add_none" = "请先勾选电台";
+"radio_batch_add_footer" = "添加后会在后台逐个试连。";
+"radio_batch_error_title" = "导入失败";
+
+/* MARK: - 电台管理 */
+"radio_manage_footer" = "拖动可调序，左右滑动单行可重命名、置顶或删除。";
+"radio_manage_pin_top" = "置顶";
+"radio_manage_export" = "导出";
+"radio_manage_deselect_all" = "取消全选";
+"radio_manage_delete_confirm_title" = "删除选中的电台？";
+"radio_manage_delete_confirm_message" = "这些电台会从你账号下的所有设备上移除。";
+"radio_manage_delete_count %lld" = "删除 %lld 个电台";
+
+/* MARK: - 标签编辑 */
+"tag_editor_filename_label" = "文件名";
+"tag_editor_split_filename" = "一键拆分填入";
+"tag_editor_split_preview %@ %@" = "→「%1$@」·「%2$@」";
+"tag_editor_tap_candidate_hint" = "点候选即可填入";
+"tag_editor_next_song %@" = "下一首 · %@";
+"tag_editor_queue_last" = "本文件夹最后一首";
+"tag_editor_queue_position %lld %lld" = "本文件夹第 %1$lld / %2$lld 首";
+
+/* MARK: - 歌词编辑 */
+"lyrics_editor_empty_title" = "这首还没有歌词";
+"lyrics_editor_empty_subtitle" = "选一种方式开始，之后随时能改。";
+"lyrics_editor_empty_paste %lld" = "粘贴 %lld 行";
+"lyrics_editor_empty_paste_detail" = "剪贴板里检测到一段歌词";
+"lyrics_editor_empty_live" = "边听边写";
+"lyrics_editor_empty_live_detail" = "一句一行，写完时间轴也就有了";
+"lyrics_editor_empty_manual" = "从空白开始";
+"lyrics_editor_empty_manual_detail" = "自己逐句录入，之后再打轴";
+"lyrics_editor_paste_parsed %lld" = "已拆成 %lld 句";
+"lyrics_editor_paste_merged_blanks %lld" = "合并了 %lld 处空行";
+"lyrics_editor_paste_dropped_credits %lld" = "去掉了 %lld 行制作信息";
+"lyrics_editor_paste_redo" = "重来";
+"lyrics_editor_paste_accept" = "就用这些行";
+"lyrics_editor_paste_replace" = "粘贴替换";
+"lyrics_editor_resplit" = "重新分行";
+"lyrics_editor_drop_blanks" = "去空行";
+"lyrics_editor_show_timestamps" = "时间戳";
+"lyrics_editor_line_summary %lld %lld" = "%1$lld 行 · 已打轴 %2$lld 行";
+"lyrics_editor_clear_all" = "清空全部";
+"lyrics_editor_clear_confirm_title" = "删除所有行？";
+"lyrics_editor_live_placeholder" = "听到什么就打什么…";
+"lyrics_editor_live_hint" = "回车 = 这句从当前时间开始";
+"lyrics_editor_live_undo" = "退回上一句";
+
+/* MARK: - 电台（macOS） */
+"Live Radio" = "在线电台";
+"radio_mac_count %lld" = "%lld 个电台";
+"radio_mac_now_playing %@" = "正在播放 · %@";
+
+/* MARK: - 歌词编辑入口 / 电台多选 */
+"lyrics_editor_menu" = "编辑歌词";
+"radio_manage_selected %lld" = "已选 %lld 项";

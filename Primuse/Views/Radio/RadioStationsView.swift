@@ -15,12 +15,35 @@ struct RadioStationsView: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
+    @State private var showingBatchAdd = false
     @State private var pendingInsecureStation: RadioStation?
-    @State private var isReordering = false
+    /// 管理态 —— 设计上用「先选后做」的多选替代每行一个 ⋯ 菜单。
+    /// 进入即编辑态，没有中间的"看着像可选但没勾选圈"的过渡。
+    @State private var isManaging = false
+    @State private var selection: Set<String> = []
+    @State private var showDeleteConfirm = false
+    @State private var showExporter = false
+    @State private var exportDocument = RadioPlaylistDocument()
 
     private let columns = [
-        GridItem(.adaptive(minimum: 190, maximum: 280), spacing: 16)
+        GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)
     ]
+
+    private var selectedStations: [RadioStation] {
+        store.stations.filter { selection.contains($0.id) }
+    }
+
+    /// 管理态且有选中时，标题让位给计数 —— 批量操作藏在菜单里，选了几条
+    /// 得有个地方看得见。
+    private var navigationTitleText: String {
+        guard isManaging, !selection.isEmpty else {
+            return String(localized: "radio_title")
+        }
+        return String(
+            format: String(localized: "radio_manage_selected %lld"),
+            selection.count
+        )
+    }
 
     var body: some View {
         Group {
@@ -30,45 +53,49 @@ struct RadioStationsView: View {
                 } description: {
                     Text("radio_empty_description")
                 } actions: {
-                    Button("radio_add") { showingNewStation = true }
-                        .buttonStyle(.borderedProminent)
+                    VStack(spacing: 10) {
+                        Button("radio_batch_add_title") { showingBatchAdd = true }
+                            .buttonStyle(.borderedProminent)
+                        Button("radio_add") { showingNewStation = true }
+                    }
                 }
-            } else if isReordering {
-                priorityEditor
+            } else if isManaging {
+                manageList
             } else {
                 stationGrid
             }
         }
-        .navigationTitle("radio_title")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if !store.stations.isEmpty {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isReordering.toggle()
-                        }
-                    } label: {
-                        Label(
-                            isReordering
-                                ? String(localized: "done")
-                                : String(localized: "radio_priority_title"),
-                            systemImage: isReordering ? "checkmark" : "arrow.up.arrow.down"
-                        )
-                    }
-                }
-
-                Button {
-                    showingNewStation = true
-                } label: {
-                    Label("radio_add", systemImage: "plus")
-                }
-            }
-        }
+        .navigationTitle(navigationTitleText)
+        .toolbar { toolbarContent }
         .sheet(isPresented: $showingNewStation) {
             RadioStationEditorView(station: nil)
         }
+        .sheet(isPresented: $showingBatchAdd) {
+            RadioBatchAddView()
+        }
         .sheet(item: $editingStation) { station in
             RadioStationEditorView(station: station)
+        }
+        .fileExporter(
+            isPresented: $showExporter,
+            document: exportDocument,
+            contentType: .m3uPlaylist,
+            defaultFilename: "primuse-radio"
+        ) { _ in }
+        .confirmationDialog(
+            String(localized: "radio_manage_delete_confirm_title"),
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(
+                String(format: String(localized: "radio_manage_delete_count %lld"), selection.count),
+                role: .destructive
+            ) {
+                deleteSelected()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("radio_manage_delete_confirm_message")
         }
         .alert("insecure_http_warning_title", isPresented: Binding(
             get: { pendingInsecureStation != nil },
@@ -90,6 +117,112 @@ struct RadioStationsView: View {
                 format: String(localized: "insecure_http_warning_message %@"),
                 pendingInsecureStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
             ))
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if isManaging {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("done") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isManaging = false
+                        selection = []
+                    }
+                }
+            }
+
+            // 批量操作收进右上角菜单 —— 这个页面是 push 进 tab 里的，底部已经
+            // 被系统 tab bar 和 mini player accessory 占满，任何自绘的底部条
+            // 都会被盖住(mini player 是 zIndex overlay，不贡献安全区)。
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Section {
+                        Button {
+                            if selection.count == store.stations.count {
+                                selection = []
+                            } else {
+                                selection = Set(store.stations.map(\.id))
+                            }
+                        } label: {
+                            Label(
+                                selection.count == store.stations.count
+                                    ? String(localized: "radio_manage_deselect_all")
+                                    : String(localized: "select_all"),
+                                systemImage: selection.count == store.stations.count
+                                    ? "circle"
+                                    : "checkmark.circle"
+                            )
+                        }
+                        .disabled(store.stations.isEmpty)
+                    }
+
+                    Section {
+                        Button {
+                            moveToTop(selection)
+                        } label: {
+                            Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
+                        }
+                        .disabled(selection.isEmpty)
+
+                        Button {
+                            guard let id = selection.first,
+                                  let station = store.stations.first(where: { $0.id == id })
+                            else { return }
+                            editingStation = station
+                        } label: {
+                            Label("edit", systemImage: "pencil")
+                        }
+                        // 编辑是单条操作，多选时没有明确目标。
+                        .disabled(selection.count != 1)
+
+                        Button {
+                            exportSelected()
+                        } label: {
+                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(selection.isEmpty)
+                    }
+
+                    Section {
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("delete", systemImage: "trash")
+                        }
+                        .disabled(selection.isEmpty)
+                    }
+                } label: {
+                    Label("radio_manage", systemImage: "ellipsis.circle")
+                }
+            }
+        } else {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if !store.stations.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isManaging = true }
+                    } label: {
+                        Label("radio_manage", systemImage: "checklist")
+                    }
+                }
+
+                Menu {
+                    Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
+                        showingBatchAdd = true
+                    }
+                    Button("radio_add", systemImage: "plus") {
+                        showingNewStation = true
+                    }
+                    if !store.stations.isEmpty {
+                        Divider()
+                        Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
+                            store.sortStationsByName()
+                        }
+                    }
+                } label: {
+                    Label("radio_add", systemImage: "plus")
+                }
+            }
         }
     }
 
@@ -120,68 +253,82 @@ struct RadioStationsView: View {
         }
     }
 
-    @ViewBuilder
-    private var priorityEditor: some View {
+    // MARK: - 管理态
+
+    /// 管理态的多选列表。`editMode` 常开 —— 用户点「管理」就是来批量操作的，
+    /// 再要求他去菜单里点一次「选择」才出现勾选圈，中间那个状态看着像坏了。
+    /// 勾选圈、拖动柄、批量选中手势全由系统提供。
+    ///
+    /// 单条操作不在这里：网格态的卡片自带 ⋯ 菜单(编辑/上移/下移/删除)，
+    /// 所以这一屏可以专心做多选，不必再兼顾左右滑 —— 编辑态下系统本来也会
+    /// 吞掉滑动手势。
+    private var manageList: some View {
+        List(selection: $selection) {
+            Section {
+                ForEach(store.stations) { station in
+                    manageRow(station: station)
+                        .tag(station.id)
+                }
+                .onMove(perform: store.moveStations)
+                .onDelete { offsets in
+                    let ordered = store.stations
+                    for index in offsets where ordered.indices.contains(index) {
+                        store.remove(id: ordered[index].id)
+                    }
+                }
+            } footer: {
+                Text("radio_manage_footer")
+            }
+        }
         #if os(iOS)
-        priorityList
-            .environment(\.editMode, .constant(.active))
-        #else
-        priorityList
+        .listStyle(.insetGrouped)
+        .environment(\.editMode, .constant(.active))
         #endif
     }
 
-    private var priorityList: some View {
-        List {
-            Section {
-                ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
-                    HStack(spacing: 12) {
-                        Text("#\(index + 1)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, alignment: .trailing)
-                        RadioStationArtworkView(station: station, size: 42, cornerRadius: 9)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(station.name)
-                                .lineLimit(1)
-                            Text(station.playbackSubtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
+    private func manageRow(station: RadioStation) -> some View {
+        HStack(spacing: 12) {
+            RadioStationArtworkView(station: station, size: 52, cornerRadius: 11)
 
-                        #if os(macOS)
-                        Button {
-                            store.moveStation(id: station.id, by: -1)
-                        } label: {
-                            Image(systemName: "arrow.up")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(index == 0)
-                        .help(String(localized: "radio_priority_move_up"))
-
-                        Button {
-                            store.moveStation(id: station.id, by: 1)
-                        } label: {
-                            Image(systemName: "arrow.down")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(index == store.stations.count - 1)
-                        .help(String(localized: "radio_priority_move_down"))
-                        #endif
-                    }
-                }
-                .onMove(perform: store.moveStations)
-            } footer: {
-                Text("radio_priority_footer")
+            VStack(alignment: .leading, spacing: 4) {
+                Text(station.name)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                Text(station.playbackSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(station.streamURL)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
-            Section {
-                Button("radio_priority_sort_by_name") {
-                    store.sortStationsByName()
-                }
-            }
+            Spacer(minLength: 4)
         }
+        .padding(.vertical, 6)
+    }
+
+    /// 置顶保持选中项之间的相对顺序，其余的原样跟在后面。
+    private func moveToTop(_ ids: Set<String>) {
+        let ordered = store.stations
+        let picked = ordered.filter { ids.contains($0.id) }
+        guard !picked.isEmpty else { return }
+        let rest = ordered.filter { !ids.contains($0.id) }
+        store.applyOrder((picked + rest).map(\.id))
+    }
+
+    private func exportSelected() {
+        let stations = selectedStations
+        guard !stations.isEmpty else { return }
+        exportDocument = RadioPlaylistDocument(stations: stations)
+        showExporter = true
+    }
+
+    private func deleteSelected() {
+        for id in selection { store.remove(id: id) }
+        selection = []
     }
 
     private func toggle(_ station: RadioStation) {
@@ -205,6 +352,39 @@ struct RadioStationsView: View {
     }
 }
 
+/// 导出选中电台为 `.m3u`。带 `#EXTINF` 名字，导回来时 `RadioImportParser` 能还原。
+struct RadioPlaylistDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.m3uPlaylist, .plainText] }
+
+    var stations: [RadioStation]
+
+    init(stations: [RadioStation] = []) {
+        self.stations = stations
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        stations = []
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        var lines = ["#EXTM3U"]
+        for station in stations {
+            lines.append("#EXTINF:-1,\(station.name)")
+            lines.append(station.streamURL)
+        }
+        let data = Data(lines.joined(separator: "\n").utf8)
+        return FileWrapper(regularFileWithContents: data)
+    }
+}
+
+extension UTType {
+    /// 系统没有内建 m3u 的常量；从扩展名解析，解不到就退回纯文本。
+    static var m3uPlaylist: UTType {
+        UTType(filenameExtension: "m3u") ?? .plainText
+    }
+}
+
+
 private struct RadioStationCard: View {
     let station: RadioStation
     let priority: Int
@@ -222,8 +402,8 @@ private struct RadioStationCard: View {
     var body: some View {
         HStack(spacing: 8) {
             Button(action: onPlay) {
-                HStack(spacing: 13) {
-                    RadioStationArtworkView(station: station, size: 64, cornerRadius: 14)
+                HStack(spacing: 14) {
+                    RadioStationArtworkView(station: station, size: 72, cornerRadius: 16)
 
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 6) {
@@ -236,18 +416,37 @@ private struct RadioStationCard: View {
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
+
+                        if isCurrent {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 6, height: 6)
+                                Text("LIVE")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .tracking(0.8)
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+
                         Text(metadataTitle ?? station.playbackSubtitle)
                             .font(.caption)
                             .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
                             .lineLimit(2)
+
+                        Text(station.streamURL)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
                     Spacer(minLength: 4)
 
                     Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 40, height: 40)
                         .background(.thinMaterial, in: Circle())
                 }
                 .contentShape(Rectangle())
@@ -264,8 +463,8 @@ private struct RadioStationCard: View {
             }
             .accessibilityLabel("radio_manage")
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
         .background(
             isCurrent ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.07),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)

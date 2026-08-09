@@ -84,6 +84,12 @@
 "tag_editor_reset" = "Rétablir l'original";
 "tag_editor_reset_confirm" = "Abandonner vos modifications ?";
 "tag_editor_footer" = "Les tags et la pochette restent dans Primuse. Pour les paroles, consultez l’état de réécriture affiché ci-dessus.";
+"tag_editor_encoding_fix" = "Corriger les caractères illisibles…";
+"encoding_fix_title" = "Encodage du texte";
+"encoding_fix_section_header" = "Choisissez la version qui s’affiche correctement";
+"encoding_fix_footer" = "S’applique au titre, à l’artiste, à l’album et au genre à la fois. Rien n’est enregistré avant d’appuyer sur Enregistrer.";
+"encoding_fix_empty_title" = "Rien à corriger";
+"encoding_fix_empty_message" = "Ce texte ne peut pas être relu avec un autre encodage. S’il paraît toujours incorrect, les caractères d’origine sont déjà perdus et vous devrez les ressaisir.";
 "tag_editor_lyrics_section" = "Paroles";
 "tag_editor_lyrics_placeholder" = "Saisissez des paroles en texte brut, LRC ou ELRC…";
 "tag_editor_lyrics_format_hint" = "Prend en charge le texte brut, LRC [mm:ss.xxx] et ELRC <mm:ss.xxx>mot. Les horodatages existants sont conservés.";
@@ -2431,3 +2437,95 @@
 "source_connection_path_prefix" = "Préfixe de chemin (facultatif)";
 "source_connection_no_route" = "Aucune adresse de connexion utilisable n’est configurée";
 "rate_on_app_store" = "Laissez-nous un bon avis";
+
+/* MARK: - Accueil : bascule de mode */
+"home_mode_music" = "Musique";
+"home_mode_radio" = "Radio";
+"home_mode_switch_a11y" = "Basculer entre musique et radio";
+"home_mode_face_music" = "FACE A · MUSIQUE";
+"home_mode_face_radio" = "FACE B · RADIO";
+"home_mode_flip_to_music" = "Passer à la face A · Musique";
+"home_mode_flip_to_radio" = "Passer à la face B · Radio";
+"home_radio_wall_title" = "Mes stations";
+"home_radio_wall_manage %lld" = "Gérer · %lld";
+"home_radio_wall_badge" = "LIVE";
+"select_all" = "Tout sélectionner";
+
+/* MARK: - Radio : ajout en lot */
+"radio_batch_add_title" = "Ajouter des stations en lot";
+"radio_batch_entry_paste" = "Coller";
+"radio_batch_entry_file" = "m3u / pls";
+"radio_batch_entry_directory" = "Annuaire";
+"radio_batch_paste_hint" = "Une URL de flux par ligne. « Nom, URL » fonctionne aussi.";
+"radio_batch_paste_from_clipboard" = "Coller depuis le presse-papiers";
+"radio_batch_clear" = "Effacer";
+"radio_batch_clipboard_empty" = "Le presse-papiers ne contient aucun texte.";
+"radio_batch_file_hint" = "Choisissez une liste .m3u, .m3u8 ou .pls. Les noms de stations du fichier sont conservés.";
+"radio_batch_pick_file" = "Choisir un fichier";
+"radio_batch_file_unreadable" = "Ce fichier n’a pas pu être lu comme du texte.";
+"radio_batch_file_no_entries" = "Aucune URL de flux trouvée dans ce fichier.";
+"radio_batch_directory_hint" = "Rechercher dans l’annuaire communautaire radio-browser.info.";
+"radio_batch_directory_placeholder" = "Nom de la station";
+"radio_batch_directory_empty" = "Aucune station ne correspond à ce nom.";
+"radio_batch_directory_failed" = "Impossible de joindre l’annuaire des stations.";
+"radio_batch_status_playable" = "OK";
+"radio_batch_status_duplicate" = "Doublon";
+"radio_batch_status_invalid" = "Invalide";
+"radio_batch_duplicate_of %@" = "Déjà enregistrée sous « %@ »";
+"radio_batch_select_playable" = "Sélectionner les valides";
+"radio_batch_add_count %lld" = "Ajouter %lld stations";
+"radio_batch_add_none" = "Sélectionnez d’abord des stations";
+"radio_batch_add_footer" = "Chaque flux est testé en arrière-plan après l’ajout.";
+"radio_batch_error_title" = "Échec de l’import";
+
+/* MARK: - Radio : gestion */
+"radio_manage_footer" = "Glissez pour réordonner. Balayez une ligne pour renommer, épingler ou supprimer.";
+"radio_manage_pin_top" = "Épingler en haut";
+"radio_manage_export" = "Exporter";
+"radio_manage_deselect_all" = "Tout désélectionner";
+"radio_manage_delete_confirm_title" = "Supprimer les stations sélectionnées ?";
+"radio_manage_delete_confirm_message" = "Les stations sont retirées de tous les appareils liés à votre compte.";
+"radio_manage_delete_count %lld" = "Supprimer %lld stations";
+
+/* MARK: - Éditeur de tags */
+"tag_editor_filename_label" = "Nom du fichier";
+"tag_editor_split_filename" = "Découper en champs";
+"tag_editor_split_preview %@ %@" = "→ « %1$@ » · « %2$@ »";
+"tag_editor_tap_candidate_hint" = "Touchez une suggestion pour remplir";
+"tag_editor_next_song %@" = "Suivant · %@";
+"tag_editor_queue_last" = "Dernier titre de ce dossier";
+"tag_editor_queue_position %lld %lld" = "%1$lld sur %2$lld dans ce dossier";
+
+/* MARK: - Éditeur de paroles */
+"lyrics_editor_empty_title" = "Pas encore de paroles";
+"lyrics_editor_empty_subtitle" = "Choisissez un point de départ — modifiable à tout moment.";
+"lyrics_editor_empty_paste %lld" = "Coller %lld lignes";
+"lyrics_editor_empty_paste_detail" = "Paroles détectées dans le presse-papiers";
+"lyrics_editor_empty_live" = "Écrire en écoutant";
+"lyrics_editor_empty_live_detail" = "Une ligne par retour — le minutage se fait au passage";
+"lyrics_editor_empty_manual" = "Partir de zéro";
+"lyrics_editor_empty_manual_detail" = "Tapez les lignes vous-même, minutez plus tard";
+"lyrics_editor_paste_parsed %lld" = "Découpé en %lld lignes";
+"lyrics_editor_paste_merged_blanks %lld" = "%lld espaces vides fusionnés";
+"lyrics_editor_paste_dropped_credits %lld" = "%lld lignes de crédits retirées";
+"lyrics_editor_paste_redo" = "Recommencer";
+"lyrics_editor_paste_accept" = "Utiliser ces lignes";
+"lyrics_editor_paste_replace" = "Coller";
+"lyrics_editor_resplit" = "Redécouper";
+"lyrics_editor_drop_blanks" = "Ôter les vides";
+"lyrics_editor_show_timestamps" = "Horodatages";
+"lyrics_editor_line_summary %lld %lld" = "%1$lld lignes · %2$lld minutées";
+"lyrics_editor_clear_all" = "Tout effacer";
+"lyrics_editor_clear_confirm_title" = "Supprimer toutes les lignes ?";
+"lyrics_editor_live_placeholder" = "Tapez ce que vous entendez…";
+"lyrics_editor_live_hint" = "Retour démarre la ligne au temps courant";
+"lyrics_editor_live_undo" = "Annuler la ligne";
+
+/* MARK: - Radio (macOS) */
+"Live Radio" = "Radio en direct";
+"radio_mac_count %lld" = "%lld stations";
+"radio_mac_now_playing %@" = "En lecture · %@";
+
+/* MARK: - Éditeur de paroles / sélection radio */
+"lyrics_editor_menu" = "Modifier les paroles";
+"radio_manage_selected %lld" = "%lld sélectionnées";

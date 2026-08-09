@@ -1437,15 +1437,29 @@ final class MetadataBackfillService {
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
         let metadataTitle = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 文件名是一条独立于内嵌标签的来源, 且通常更可信 —— 详见
+        // MediaMetadataTextRepair.preferred。之前这里只要标签非空就无条件
+        // 覆盖 bare.title(文件名), 于是标签解码猜错时, 乱码盖掉了好数据。
+        let nameTitle = MediaMetadataTextRepair.fileNameTitle(from: bare.filePath) ?? bare.title
+        let nameArtist = MediaMetadataTextRepair.fileNameArtist(from: bare.filePath)
+
         // A CUE track's text belongs to the virtual track. Embedded tags in
         // the referenced image describe the whole album and must not replace
         // every track with the same title/track number.
         let mergedTitle = bare.isCueTrack
             ? bare.title
-            : (metadataTitle.isEmpty ? bare.title : metadata.title)
+            : (MediaMetadataTextRepair.preferred(
+                embedded: metadataTitle.isEmpty ? nil : metadata.title,
+                fromFileName: nameTitle
+              ) ?? bare.title)
         let mergedArtist = bare.isCueTrack
             ? (bare.artistName ?? metadata.artist)
-            : (metadata.artist ?? bare.artistName)
+            : (MediaMetadataTextRepair.preferred(
+                embedded: metadata.artist,
+                fromFileName: nameArtist
+              ) ?? bare.artistName)
+        // 专辑名没有文件名兜底源 —— 目录名不可靠(常是 "音乐"、"新建文件夹"),
+        // 拿它冒充专辑比留着乱码更糟。这里只做取舍不做替换。
         let mergedAlbum = bare.isCueTrack
             ? (bare.albumTitle ?? metadata.albumTitle)
             : (metadata.albumTitle ?? bare.albumTitle)

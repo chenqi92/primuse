@@ -12,6 +12,11 @@ enum HomeSectionKind: String, CaseIterable, Codable, Identifiable {
 
     var id: String { rawValue }
 
+    /// 电台不再是首页的一个分区 —— 它有了自己的模式(右上角切换)，音乐态里
+    /// 再放一块电台就是重复内容。case 本身保留，否则老用户存下来的排序 JSON
+    /// 解不出来会被整个丢弃、自定义顺序全丢。
+    var isUserConfigurable: Bool { self != .radio }
+
     var title: LocalizedStringKey {
         switch self {
         case .continueListening: return "home_section_continue_listening"
@@ -90,10 +95,16 @@ struct HomeSectionsSettingsView: View {
         HomeSectionConfiguration.decode(sectionOrderRawValue)
     }
 
+    /// 设置页只列可配置的分区。电台被排除 —— 它归模式切换管，不该在这里
+    /// 出现一个开不开都不影响首页的死开关。
+    private var editableSections: [HomeSectionKind] {
+        sectionOrder.filter(\.isUserConfigurable)
+    }
+
     var body: some View {
         List {
             Section {
-                ForEach(sectionOrder) { section in
+                ForEach(editableSections) { section in
                     Toggle(isOn: visibilityBinding(for: section)) {
                         Label(section.title, systemImage: section.icon)
                     }
@@ -132,9 +143,17 @@ struct HomeSectionsSettingsView: View {
         }
     }
 
+    /// `source` / `destination` 是**过滤后列表**的下标，不能直接套到完整顺序上 ──
+    /// 那样会把不可配置的分区算进去，挪错位置。先在可见列表里完成移动，再把
+    /// 结果按原顺序缝回去(不可配置项留在它原来的槽位)。
     private func moveSections(from source: IndexSet, to destination: Int) {
-        var updated = sectionOrder
-        updated.move(fromOffsets: source, toOffset: destination)
-        sectionOrderRawValue = HomeSectionConfiguration.encode(updated)
+        var visible = editableSections
+        visible.move(fromOffsets: source, toOffset: destination)
+
+        var iterator = visible.makeIterator()
+        let merged = sectionOrder.map { section in
+            section.isUserConfigurable ? (iterator.next() ?? section) : section
+        }
+        sectionOrderRawValue = HomeSectionConfiguration.encode(merged)
     }
 }

@@ -100,6 +100,62 @@ private struct HomeLibraryRevisionObserver: View {
     }
 }
 
+private struct HomeFaceFlipModifier: ViewModifier {
+    let angle: Double
+    let opacity: Double
+    let scale: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .scaleEffect(scale)
+            .rotation3DEffect(
+                .degrees(angle),
+                axis: (x: 0, y: 1, z: 0),
+                anchor: .center,
+                perspective: 0.68
+            )
+    }
+}
+
+private struct HomeModeFlipButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.58 : 1)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// 首页的两种模式。电台和音乐互斥 —— 同一时刻只有一个「正在播放」，所以首页
+/// 也只呈现其中一态，避免用户觉得在管理两个 App。
+enum HomeMode: String, CaseIterable, Hashable {
+    case music
+    case radio
+
+    var titleKey: String.LocalizationValue {
+        self == .music ? "home_mode_music" : "home_mode_radio"
+    }
+
+    var icon: String {
+        self == .music ? "music.note" : "radio.fill"
+    }
+
+    var faceTitleKey: String.LocalizationValue {
+        self == .music ? "home_mode_face_music" : "home_mode_face_radio"
+    }
+
+    var opposite: HomeMode {
+        self == .music ? .radio : .music
+    }
+
+    /// The toolbar describes the destination, not the current state: while the
+    /// user is on Side A it should read “Flip to Side B · Radio”.
+    var flipTitleKey: String.LocalizationValue {
+        opposite == .music ? "home_mode_flip_to_music" : "home_mode_flip_to_radio"
+    }
+}
+
 struct HomeView: View {
     var switchToSettingsTab: (() -> Void)?
     @Environment(AudioPlayerService.self) private var player
@@ -107,8 +163,10 @@ struct HomeView: View {
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(RadioStationsStore.self) private var radioStationsStore
 
+    /// 音乐态是否有内容可展示。电台不再计入 —— 它有独立模式，光有电台
+    /// 不该让音乐态藏起"去添加音乐源"的引导。
     private var hasContent: Bool {
-        homeSnapshot.hasContent || (showRadio && !radioStationsStore.stations.isEmpty)
+        homeSnapshot.hasContent
     }
 
     private var greeting: String {
@@ -123,23 +181,36 @@ struct HomeView: View {
 
     @Environment(AppUpdateChecker.self) private var updateChecker
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
+    @State private var homeModeSwitchTurn = 0
+    /// 首页当前处在音乐态还是电台态。持久化 —— 常听电台的人不该每次回首页
+    /// 都手动切一次。
+    @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
+    @State private var showRadioBatchAdd = false
+
+    private var homeMode: HomeMode {
+        HomeMode(rawValue: homeModeRawValue) ?? .music
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-                    if !hasPreparedInitialSnapshot {
+                    if homeMode == .radio {
+                        radioModeContent
+                            .transition(homeFaceTransition)
+                    } else if !hasPreparedInitialSnapshot {
                         initialLoadingView
-                            .transition(.opacity)
+                            .transition(homeFaceTransition)
                     } else if hasContent {
                         contentView
-                            .transition(.opacity)
+                            .transition(homeFaceTransition)
                     } else {
                         emptyView
-                            .transition(.opacity)
+                            .transition(homeFaceTransition)
                     }
                 }
                 .padding(.bottom, 100)
@@ -173,6 +244,27 @@ struct HomeView: View {
             }
             .navigationTitle("home_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbar {
+                #if os(iOS)
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        modeToggleButton
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        modeToggleButton
+                    }
+                }
+                #else
+                ToolbarItem(placement: .primaryAction) {
+                    modeToggleButton
+                }
+                #endif
+            }
+            .sheet(isPresented: $showRadioBatchAdd) {
+                RadioBatchAddView()
+            }
             .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
             .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
             .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
@@ -229,7 +321,6 @@ struct HomeView: View {
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded: Bool = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening: Bool = true
-    @AppStorage("primuse.home.showRadio") private var showRadio: Bool = true
     @AppStorage("primuse.home.showQuickAccess") private var showQuickAccess: Bool = true
     @AppStorage("primuse.home.showPlaylists") private var showPlaylists: Bool = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
@@ -347,9 +438,8 @@ struct HomeView: View {
                 continueListeningSection
             }
         case .radio:
-            if showRadio {
-                radioSpotlightSection
-            }
+            // 电台有自己的模式(右上角切换)，音乐态里不再重复一块。
+            EmptyView()
         case .quickAccess:
             if showQuickAccess, !homeSnapshot.quickItems.isEmpty {
                 quickAccessSection
@@ -390,134 +480,83 @@ struct HomeView: View {
         return stations.first
     }
 
-    private var radioSpotlightSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("radio_title")
-                    .font(.title3.weight(.bold))
-                Spacer()
-                NavigationLink("home_section_view_all") {
-                    RadioStationsView()
-                }
-                .font(.subheadline.weight(.medium))
-            }
-            .padding(.horizontal, 20)
-
-            Group {
-                if let station = selectedHomeRadio {
-                    radioSpotlightCard(station)
-                } else {
-                    NavigationLink {
-                        RadioStationsView()
-                    } label: {
-                        HStack(spacing: 16) {
-                            Image(systemName: "radio.fill")
-                                .font(.system(size: 36, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 88, height: 88)
-                                .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 18))
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("radio_empty_title")
-                                    .font(.headline)
-                                Text("radio_empty_description")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.78))
-                                    .lineLimit(3)
-                            }
-                            Spacer()
-                            Image(systemName: "plus.circle.fill")
-                                .font(.title2)
-                        }
-                        .foregroundStyle(.white)
-                        .padding(18)
-                        .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
-                        .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: 22))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-        .onChange(of: player.currentRadioStation?.id) { _, stationID in
-            guard let stationID,
-                  radioStationsStore.stations.contains(where: { $0.id == stationID }) else { return }
-            selectedHomeRadioID = stationID
-        }
-    }
-
     private func radioSpotlightCard(_ station: RadioStation) -> some View {
         let stations = radioStationsStore.stations
         let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
         let isCurrent = player.currentRadioStation?.id == station.id
         let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
 
-        return HStack(spacing: 16) {
-            RadioStationArtworkView(
-                station: station,
-                size: sizeClass == .regular ? 126 : 106,
-                cornerRadius: 20
-            )
-            .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
+        return VStack(alignment: .leading, spacing: 14) {
+            homeFaceHeader(.radio, onDarkSurface: true)
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 7, height: 7)
-                    Text("LIVE")
-                        .font(.caption2.weight(.bold))
-                        .tracking(0.8)
-                    Spacer()
-                    Text("\(currentIndex + 1) / \(stations.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.72))
-                }
+            HStack(spacing: 16) {
+                RadioStationArtworkView(
+                    station: station,
+                    size: sizeClass == .regular ? 126 : 106,
+                    cornerRadius: 20
+                )
+                .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
 
-                Text(station.name)
-                    .font(.title3.weight(.bold))
-                    .lineLimit(2)
-
-                Text(isCurrent ? (player.radioMetadataTitle ?? station.playbackSubtitle) : station.playbackSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.76))
-                    .lineLimit(2)
-
-                Spacer(minLength: 2)
-
-                HStack(spacing: 10) {
-                    Button {
-                        selectHomeRadio(relativeTo: station, offset: -1)
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 7, height: 7)
+                        Text("LIVE")
+                            .font(.caption2.weight(.bold))
+                            .tracking(0.8)
+                        Spacer()
+                        Text("\(currentIndex + 1) / \(stations.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.72))
                     }
-                    .buttonStyle(.plain)
-                    .background(.white.opacity(0.14), in: Circle())
-                    .disabled(stations.count < 2)
-                    .accessibilityLabel("radio_previous_station")
 
-                    Button {
-                        toggleHomeRadio(station)
-                    } label: {
-                        Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                            .font(.system(size: 15, weight: .bold))
-                            .frame(width: 38, height: 38)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.purple)
-                    .background(.white, in: Circle())
-                    .accessibilityLabel(isPlaying ? "radio_stop" : "play")
+                    Text(station.name)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(2)
 
-                    Button {
-                        selectHomeRadio(relativeTo: station, offset: 1)
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .frame(width: 32, height: 32)
+                    Text(isCurrent ? (player.radioMetadataTitle ?? station.playbackSubtitle) : station.playbackSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.76))
+                        .lineLimit(2)
+
+                    Spacer(minLength: 2)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            selectHomeRadio(relativeTo: station, offset: -1)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .background(.white.opacity(0.14), in: Circle())
+                        .disabled(stations.count < 2)
+                        .accessibilityLabel("radio_previous_station")
+
+                        Button {
+                            toggleHomeRadio(station)
+                        } label: {
+                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .frame(width: 38, height: 38)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.purple)
+                        .background(.white, in: Circle())
+                        .accessibilityLabel(isPlaying ? "radio_stop" : "play")
+
+                        Button {
+                            selectHomeRadio(relativeTo: station, offset: 1)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .background(.white.opacity(0.14), in: Circle())
+                        .disabled(stations.count < 2)
+                        .accessibilityLabel("radio_next_station")
                     }
-                    .buttonStyle(.plain)
-                    .background(.white.opacity(0.14), in: Circle())
-                    .disabled(stations.count < 2)
-                    .accessibilityLabel("radio_next_station")
                 }
             }
         }
@@ -541,6 +580,308 @@ struct HomeView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+    }
+
+    // MARK: - 模式切换
+
+    /// 固定在导航栏里的“翻面”入口。文案始终描述目的地，让用户不用先猜当前
+    /// 图标代表状态还是动作；无底色的轻按钮也不会和页面主操作争夺视觉层级。
+    private var modeToggleButton: some View {
+        Button {
+            switchHomeMode()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .semibold))
+                    .rotationEffect(.degrees(Double(homeModeSwitchTurn) * 180))
+
+                Text(String(localized: homeMode.flipTitleKey))
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .contentTransition(.opacity)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 6)
+            .contentShape(.rect)
+        }
+        .buttonStyle(HomeModeFlipButtonStyle())
+        .accessibilityLabel(String(localized: homeMode.flipTitleKey))
+        .accessibilityHint(String(localized: "home_mode_switch_a11y"))
+    }
+
+    private var homeFaceTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .modifier(
+                active: HomeFaceFlipModifier(angle: -78, opacity: 0, scale: 0.96),
+                identity: HomeFaceFlipModifier(angle: 0, opacity: 1, scale: 1)
+            ),
+            removal: .modifier(
+                active: HomeFaceFlipModifier(angle: 78, opacity: 0, scale: 0.96),
+                identity: HomeFaceFlipModifier(angle: 0, opacity: 1, scale: 1)
+            )
+        )
+    }
+
+    private func switchHomeMode(to destination: HomeMode? = nil) {
+        let nextMode = destination ?? homeMode.opposite
+        guard nextMode != homeMode else { return }
+
+        if player.isPlaying || player.isLoading {
+            player.pause()
+        }
+
+        if reduceMotion {
+            homeModeRawValue = nextMode.rawValue
+        } else {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+                homeModeSwitchTurn += 1
+                homeModeRawValue = nextMode.rawValue
+            }
+        }
+
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        #endif
+    }
+
+    private func homeFaceHeader(_ mode: HomeMode, onDarkSurface: Bool = false) -> some View {
+        HStack(spacing: 12) {
+            Text(String(localized: mode.faceTitleKey))
+                .font(.caption.weight(.semibold))
+                .tracking(0.6)
+                .foregroundStyle(onDarkSurface ? Color.white.opacity(0.72) : Color.secondary)
+
+            Spacer()
+
+            Button {
+                switchHomeMode(to: mode.opposite)
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 13, weight: .semibold))
+                    .rotationEffect(.degrees(Double(homeModeSwitchTurn) * 180))
+                    .frame(width: 32, height: 32)
+                    .contentShape(.circle)
+                    .background(
+                        onDarkSurface ? Color.white.opacity(0.12) : Color.primary.opacity(0.06),
+                        in: Circle()
+                    )
+            }
+            .buttonStyle(HomeModeFlipButtonStyle())
+            .accessibilityLabel(String(localized: mode.flipTitleKey))
+        }
+    }
+
+    // MARK: - 电台态
+
+    /// 电台态整页：正在直播的大卡 + 我的电台墙。跟音乐态互斥，切过来时
+    /// 用户面对的只有电台这一件事。
+    @ViewBuilder
+    private var radioModeContent: some View {
+        let stations = radioStationsStore.stations
+
+        LazyVStack(alignment: .leading, spacing: 24) {
+            if stations.isEmpty {
+                radioModeEmptyState
+            } else {
+                if let station = selectedHomeRadio {
+                    radioSpotlightCard(station)
+                        .padding(.horizontal, 16)
+                }
+
+                radioWallSection(stations)
+            }
+        }
+        .onChange(of: player.currentRadioStation?.id) { _, stationID in
+            guard let stationID,
+                  radioStationsStore.stations.contains(where: { $0.id == stationID }) else { return }
+            selectedHomeRadioID = stationID
+        }
+    }
+
+    private func radioWallSection(_ stations: [RadioStation]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("home_radio_wall_title")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                NavigationLink {
+                    RadioStationsView()
+                } label: {
+                    Text(String(
+                        format: String(localized: "home_radio_wall_manage %lld"),
+                        stations.count
+                    ))
+                    .font(.subheadline.weight(.medium))
+                }
+            }
+            .padding(.horizontal, 20)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(stations) { station in
+                        radioWallCard(station)
+                    }
+                    radioWallAddCard
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    /// 电台墙的尺寸基准。封面是正方形，下面固定留两行文字的高度 ——
+    /// 「批量添加」卡跟着用同一套值，两种卡的顶边和底边才对得齐。
+    private static let radioWallArtSize: CGFloat = 132
+    private static let radioWallCaptionHeight: CGFloat = 38
+
+    private var radioWallAddCard: some View {
+        Button {
+            showRadioBatchAdd = true
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 24, weight: .medium))
+                    Text("radio_batch_add_title")
+                        .font(.caption)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                .foregroundStyle(.secondary)
+                .frame(width: Self.radioWallArtSize, height: Self.radioWallArtSize)
+                .background {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(homeCardSurface)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(
+                                    .primary.opacity(0.12),
+                                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                                )
+                        }
+                }
+
+                // 占位撑出跟电台卡等高的文字区，不放内容。
+                Color.clear
+                    .frame(height: Self.radioWallCaptionHeight)
+            }
+            .frame(width: Self.radioWallArtSize)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func radioWallCard(_ station: RadioStation) -> some View {
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+
+        return Button {
+            selectedHomeRadioID = station.id
+            toggleHomeRadio(station)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .topLeading) {
+                    RadioStationArtworkView(
+                        station: station,
+                        size: Self.radioWallArtSize,
+                        cornerRadius: 16
+                    )
+
+                    Text(isPlaying ? "LIVE" : String(localized: "home_radio_wall_badge"))
+                        .font(.system(size: 9.5, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            (isPlaying ? Color.red.opacity(0.9) : Color.black.opacity(0.35)),
+                            in: RoundedRectangle(cornerRadius: 5)
+                        )
+                        .padding(9)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
+                }
+
+                // 名字长短不一，固定文字区高度让整排卡底边齐平。
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(station.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(isCurrent
+                         ? (player.radioMetadataTitle ?? station.playbackSubtitle)
+                         : station.playbackSubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(
+                    width: Self.radioWallArtSize,
+                    height: Self.radioWallCaptionHeight,
+                    alignment: .topLeading
+                )
+            }
+            .frame(width: Self.radioWallArtSize)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var radioModeEmptyState: some View {
+        VStack(spacing: 16) {
+            homeFaceHeader(.radio)
+                .padding(.horizontal, 20)
+
+            Spacer(minLength: 40)
+
+            Image(systemName: "radio")
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+                .frame(width: 96, height: 96)
+                .background(homeCardSurface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+
+            Text("radio_empty_title")
+                .font(.title3.weight(.semibold))
+
+            Text("radio_empty_description")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            VStack(spacing: 10) {
+                Button {
+                    showRadioBatchAdd = true
+                } label: {
+                    Label("radio_batch_add_title", systemImage: "square.and.arrow.down")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+                .clipShape(Capsule())
+
+                NavigationLink {
+                    RadioStationsView()
+                } label: {
+                    Label("radio_add", systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.bordered)
+                .clipShape(Capsule())
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 4)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func selectHomeRadio(relativeTo station: RadioStation, offset: Int) {
@@ -1280,6 +1621,8 @@ struct HomeView: View {
     @ViewBuilder
     private func todaysPickHero(pick: Song) -> some View {
         VStack(alignment: .leading, spacing: 14) {
+            homeFaceHeader(.music)
+
             HStack(alignment: .center, spacing: 14) {
                 CachedArtworkView(
                     coverRef: pick.coverArtFileName,
@@ -1367,6 +1710,8 @@ struct HomeView: View {
     /// old library-mix CTA so the user always has something to tap.
     private var libraryMixHeroFallback: some View {
         VStack(spacing: 14) {
+            homeFaceHeader(.music)
+
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(greeting)

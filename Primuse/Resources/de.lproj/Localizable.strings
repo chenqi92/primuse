@@ -84,6 +84,12 @@
 "tag_editor_reset" = "Auf Original zurücksetzen";
 "tag_editor_reset_confirm" = "Deine Änderungen verwerfen?";
 "tag_editor_footer" = "Tag- und Coveränderungen bleiben in Primuse. Für Songtexte gilt der oben angezeigte Rückschreibstatus.";
+"tag_editor_encoding_fix" = "Zeichensalat korrigieren…";
+"encoding_fix_title" = "Textkodierung";
+"encoding_fix_section_header" = "Wähle die Variante, die korrekt aussieht";
+"encoding_fix_footer" = "Gilt für Titel, Interpret, Album und Genre gemeinsam. Es wird nichts gespeichert, bis du auf Sichern tippst.";
+"encoding_fix_empty_title" = "Nichts zu korrigieren";
+"encoding_fix_empty_message" = "Dieser Text lässt sich nicht mit einer anderen Kodierung neu lesen. Wenn er weiterhin falsch aussieht, sind die ursprünglichen Zeichen bereits verloren und müssen neu eingegeben werden.";
 "tag_editor_lyrics_section" = "Songtext";
 "tag_editor_lyrics_placeholder" = "Songtext als Klartext, LRC oder ELRC eingeben…";
 "tag_editor_lyrics_format_hint" = "Unterstützt Klartext, LRC [mm:ss.xxx] und ELRC <mm:ss.xxx>Wort. Vorhandene Zeitstempel bleiben erhalten.";
@@ -2431,3 +2437,95 @@
 "source_connection_path_prefix" = "Pfadpräfix (optional)";
 "source_connection_no_route" = "Keine verwendbare Verbindungsadresse konfiguriert";
 "rate_on_app_store" = "Gib uns eine gute Bewertung";
+
+/* MARK: - Startseite: Modusumschalter */
+"home_mode_music" = "Musik";
+"home_mode_radio" = "Radio";
+"home_mode_switch_a11y" = "Zwischen Musik und Radio wechseln";
+"home_mode_face_music" = "SEITE A · MUSIK";
+"home_mode_face_radio" = "SEITE B · RADIO";
+"home_mode_flip_to_music" = "Zu Seite A · Musik wechseln";
+"home_mode_flip_to_radio" = "Zu Seite B · Radio wechseln";
+"home_radio_wall_title" = "Meine Sender";
+"home_radio_wall_manage %lld" = "Verwalten · %lld";
+"home_radio_wall_badge" = "LIVE";
+"select_all" = "Alle auswählen";
+
+/* MARK: - Radio: Sammelimport */
+"radio_batch_add_title" = "Sender im Bulk hinzufügen";
+"radio_batch_entry_paste" = "Einsetzen";
+"radio_batch_entry_file" = "m3u / pls";
+"radio_batch_entry_directory" = "Verzeichnis";
+"radio_batch_paste_hint" = "Eine Stream-URL pro Zeile. „Name, URL“ funktioniert ebenfalls.";
+"radio_batch_paste_from_clipboard" = "Aus Zwischenablage einsetzen";
+"radio_batch_clear" = "Leeren";
+"radio_batch_clipboard_empty" = "In der Zwischenablage ist kein Text.";
+"radio_batch_file_hint" = "Wähle eine .m3u-, .m3u8- oder .pls-Datei. Sendernamen aus der Datei bleiben erhalten.";
+"radio_batch_pick_file" = "Datei wählen";
+"radio_batch_file_unreadable" = "Diese Datei konnte nicht als Text gelesen werden.";
+"radio_batch_file_no_entries" = "In dieser Datei wurden keine Stream-URLs gefunden.";
+"radio_batch_directory_hint" = "Durchsuche das Community-Verzeichnis von radio-browser.info.";
+"radio_batch_directory_placeholder" = "Sendername";
+"radio_batch_directory_empty" = "Kein Sender passt zu diesem Namen.";
+"radio_batch_directory_failed" = "Das Senderverzeichnis ist nicht erreichbar.";
+"radio_batch_status_playable" = "OK";
+"radio_batch_status_duplicate" = "Doppelt";
+"radio_batch_status_invalid" = "Ungültig";
+"radio_batch_duplicate_of %@" = "Bereits gespeichert als „%@“";
+"radio_batch_select_playable" = "Alle nutzbaren auswählen";
+"radio_batch_add_count %lld" = "%lld Sender hinzufügen";
+"radio_batch_add_none" = "Zuerst Sender auswählen";
+"radio_batch_add_footer" = "Jeder Stream wird nach dem Hinzufügen im Hintergrund geprüft.";
+"radio_batch_error_title" = "Import fehlgeschlagen";
+
+/* MARK: - Radio: Verwaltung */
+"radio_manage_footer" = "Zum Sortieren ziehen. Zeile streichen zum Umbenennen, Anheften oder Löschen.";
+"radio_manage_pin_top" = "Nach oben";
+"radio_manage_export" = "Exportieren";
+"radio_manage_deselect_all" = "Auswahl aufheben";
+"radio_manage_delete_confirm_title" = "Ausgewählte Sender löschen?";
+"radio_manage_delete_confirm_message" = "Die Sender werden von allen Geräten mit deinem Account entfernt.";
+"radio_manage_delete_count %lld" = "%lld Sender löschen";
+
+/* MARK: - Tag-Editor */
+"tag_editor_filename_label" = "Dateiname";
+"tag_editor_split_filename" = "In Felder aufteilen";
+"tag_editor_split_preview %@ %@" = "→ „%1$@“ · „%2$@“";
+"tag_editor_tap_candidate_hint" = "Vorschlag tippen zum Übernehmen";
+"tag_editor_next_song %@" = "Weiter · %@";
+"tag_editor_queue_last" = "Letzter Titel in diesem Ordner";
+"tag_editor_queue_position %lld %lld" = "%1$lld von %2$lld in diesem Ordner";
+
+/* MARK: - Songtext-Editor */
+"lyrics_editor_empty_title" = "Noch kein Songtext";
+"lyrics_editor_empty_subtitle" = "Wähle einen Startpunkt — änderbar ist er jederzeit.";
+"lyrics_editor_empty_paste %lld" = "%lld Zeilen einsetzen";
+"lyrics_editor_empty_paste_detail" = "Songtext in der Zwischenablage erkannt";
+"lyrics_editor_empty_live" = "Mitschreiben";
+"lyrics_editor_empty_live_detail" = "Eine Zeile pro Return — die Zeit wird dabei erfasst";
+"lyrics_editor_empty_manual" = "Leer beginnen";
+"lyrics_editor_empty_manual_detail" = "Zeilen selbst tippen, später timen";
+"lyrics_editor_paste_parsed %lld" = "In %lld Zeilen aufgeteilt";
+"lyrics_editor_paste_merged_blanks %lld" = "%lld Leerstellen zusammengefasst";
+"lyrics_editor_paste_dropped_credits %lld" = "%lld Credit-Zeilen entfernt";
+"lyrics_editor_paste_redo" = "Neu beginnen";
+"lyrics_editor_paste_accept" = "Diese Zeilen nehmen";
+"lyrics_editor_paste_replace" = "Einsetzen";
+"lyrics_editor_resplit" = "Neu aufteilen";
+"lyrics_editor_drop_blanks" = "Leerzeilen weg";
+"lyrics_editor_show_timestamps" = "Zeitmarken";
+"lyrics_editor_line_summary %lld %lld" = "%1$lld Zeilen · %2$lld getimt";
+"lyrics_editor_clear_all" = "Alles löschen";
+"lyrics_editor_clear_confirm_title" = "Alle Zeilen löschen?";
+"lyrics_editor_live_placeholder" = "Tippe, was du hörst …";
+"lyrics_editor_live_hint" = "Return startet die Zeile bei der aktuellen Zeit";
+"lyrics_editor_live_undo" = "Zeile zurück";
+
+/* MARK: - Radio (macOS) */
+"Live Radio" = "Live-Radio";
+"radio_mac_count %lld" = "%lld Sender";
+"radio_mac_now_playing %@" = "Läuft gerade · %@";
+
+/* MARK: - Songtext-Editor / Radioauswahl */
+"lyrics_editor_menu" = "Songtext bearbeiten";
+"radio_manage_selected %lld" = "%lld ausgewählt";
