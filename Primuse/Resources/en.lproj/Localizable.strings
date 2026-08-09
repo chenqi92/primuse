@@ -2385,3 +2385,17 @@
 "lyrics_editor_timing_info_line" = "Titles and credits are kept out of timing";
 "lyrics_editor_info_line_badge" = "Info";
 "lyrics_editor_no_timing_lines" = "No lyric lines to time";
+
+/* MARK: - Siri and App Intents */
+"intent_playing_album_format" = "Playing album %@.";
+"intent_playing_artist_format" = "Playing %@.";
+"intent_playing_genre_format" = "Playing %@ music.";
+"intent_playing_radio_format" = "Playing radio station %@.";
+"intent_playing_similar_format" = "Playing songs similar to %@.";
+"intent_scrape_started_lyrics_format" = "Started looking for lyrics for %@.";
+"intent_scrape_started_metadata_format" = "Started filling missing metadata for %@.";
+"intent_scrape_busy" = "A metadata scrape is already running.";
+"intent_scrape_deferred" = "The metadata scrape will start when Primuse becomes active.";
+"intent_scrape_nothing_missing_format" = "No missing metadata was found for %@.";
+"intent_scrape_no_source" = "Enable a metadata source in Primuse before scraping.";
+"intent_scrape_live_radio_unsupported" = "Live radio cannot be scraped.";

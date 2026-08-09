@@ -160,10 +160,168 @@ struct PrimuseShuffleAllIntent: AudioPlaybackIntent {
     }
 }
 
+struct PrimuseResumePlaybackIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Resume Playback"
+    static let description = IntentDescription("Resume the current Primuse song or radio station.")
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let resumed = await PrimuseIntentBridge.shared.resumePlayback()
+        let message = resumed
+            ? "Resuming playback."
+            : "There is no Primuse playback session to resume."
+        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: message)))
+    }
+}
+
+struct PrimusePlayAlbumIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Play Album"
+    static let description = IntentDescription("Find an album in Primuse and play it in track order.")
+
+    @Parameter(title: "Album")
+    var name: String
+
+    @Parameter(title: "Artist", description: "Optional, narrows albums with the same name.")
+    var artist: String?
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let description = await PrimuseIntentBridge.shared.playAlbum(name, artist) else {
+            return .result(dialog: IntentDialog("No matching album in your library."))
+        }
+        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
+    }
+}
+
+struct PrimusePlayArtistIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Play Artist"
+    static let description = IntentDescription("Find an artist in Primuse and play their songs.")
+
+    @Parameter(title: "Artist")
+    var name: String
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let description = await PrimuseIntentBridge.shared.playArtist(name) else {
+            return .result(dialog: IntentDialog("No matching artist in your library."))
+        }
+        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
+    }
+}
+
+struct PrimusePlayGenreIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Play Genre"
+    static let description = IntentDescription("Play songs matching a genre in Primuse.")
+
+    @Parameter(title: "Genre")
+    var name: String
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let description = await PrimuseIntentBridge.shared.playGenre(name) else {
+            return .result(dialog: IntentDialog("No matching genre in your library."))
+        }
+        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
+    }
+}
+
+struct PrimusePlayRadioIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Play Radio Station"
+    static let description = IntentDescription("Play a saved internet-radio station in Primuse.")
+
+    @Parameter(title: "Station")
+    var name: String
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let description = await PrimuseIntentBridge.shared.playRadio(name) else {
+            return .result(dialog: IntentDialog("No matching saved radio station."))
+        }
+        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
+    }
+}
+
+struct PrimusePlaySongRadioIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Play Similar Songs"
+    static let description = IntentDescription("Build a song radio from the current Primuse song.")
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let description = await PrimuseIntentBridge.shared.playSongRadio() else {
+            return .result(dialog: IntentDialog("Play a song first, then try again."))
+        }
+        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
+    }
+}
+
+enum PrimuseIntentRepeatMode: String, AppEnum {
+    case off
+    case all
+    case one
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Repeat Mode")
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .off: "Off",
+        .all: "Repeat All",
+        .one: "Repeat One",
+    ]
+
+    var playerValue: RepeatMode {
+        switch self {
+        case .off: .off
+        case .all: .all
+        case .one: .one
+        }
+    }
+}
+
+struct PrimuseSetRepeatModeIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Set Repeat Mode"
+    static let description = IntentDescription("Change the Primuse repeat mode.")
+
+    @Parameter(title: "Mode")
+    var mode: PrimuseIntentRepeatMode
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        PrimuseIntentBridge.shared.setRepeatMode(mode.playerValue)
+        return .result()
+    }
+}
+
+struct PrimuseSetPlaybackSpeedIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Set Playback Speed"
+    static let description = IntentDescription("Set Primuse playback speed from 0.5 to 2 times.")
+
+    @Parameter(title: "Speed", inclusiveRange: (0.5, 2.0))
+    var speed: Double
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let effective = PrimuseIntentBridge.shared.setPlaybackSpeed(speed)
+        return .result(dialog: IntentDialog(
+            "Playback speed set to \(effective.formatted()) times."
+        ))
+    }
+}
+
 // MARK: - App Shortcuts (Siri phrases)
 
 /// 给系统注册一组语音短语让 Siri 直接说出来。Apple 要求每个 phrase 必须含
 /// `.applicationName` token, 跟 app 显示名拼起来 (例如 "用 猿音 暂停")。
+#if os(macOS)
 struct PrimuseShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
@@ -221,5 +379,33 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             shortTitle: "Play Playlist",
             systemImageName: "music.note.list"
         )
+        AppShortcut(
+            intent: PrimuseResumePlaybackIntent(),
+            phrases: [
+                "用 \(.applicationName) 继续播放",
+                "Resume \(.applicationName)",
+            ],
+            shortTitle: "Resume",
+            systemImageName: "play.circle"
+        )
+        AppShortcut(
+            intent: PrimusePlayRadioIntent(),
+            phrases: [
+                "用 \(.applicationName) 播放电台",
+                "Play radio in \(.applicationName)",
+            ],
+            shortTitle: "Play Radio",
+            systemImageName: "radio"
+        )
+        AppShortcut(
+            intent: PrimusePlaySongRadioIntent(),
+            phrases: [
+                "用 \(.applicationName) 播放相似歌曲",
+                "Play similar songs in \(.applicationName)",
+            ],
+            shortTitle: "Similar Songs",
+            systemImageName: "dot.radiowaves.left.and.right"
+        )
     }
 }
+#endif

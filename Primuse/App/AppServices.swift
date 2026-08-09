@@ -601,8 +601,13 @@ final class AppServices {
         }
         bridge.next = { await player.next(caller: "AppIntent") }
         bridge.previous = { await player.previous() }
+        bridge.resumePlayback = {
+            guard player.currentSong != nil else { return false }
+            player.resume()
+            return true
+        }
 
-        bridge.playSong = { title, artist in
+        bridge.playSong = { [self] title, artist in
             let query = SiriMediaSearchQuery(
                 kind: .song,
                 mediaName: title,
@@ -614,12 +619,10 @@ final class AppServices {
             ), let song = match.queue.first else {
                 return nil
             }
-            // 命中歌 + 整库剩下的拼起来当队列,播完会自然往下接。
-            let rest = library.visibleSongs
-                .filter { $0.id != song.id }
-                .filteredPlayable()
-            player.setQueue([song] + rest, startAt: 0)
-            await player.play(song: song, caller: "AppIntent")
+            // A named selection is an exact request. Keeping a one-item queue
+            // prevents the player's failure auto-advance from silently playing
+            // an unrelated library song when that source is temporarily down.
+            guard startIntentQueue([song]) != nil else { return nil }
             if let artist = song.artistName, !artist.isEmpty {
                 return String(
                     format: String(localized: "intent_playing_song_by_format"),
@@ -633,26 +636,123 @@ final class AppServices {
             )
         }
 
-        bridge.playPlaylist = { name in
-            let trimmed = name.lowercased()
-            let exact = library.playlists.first(where: { $0.name.lowercased() == trimmed })
-            let target = exact ?? library.playlists.first(where: { $0.name.lowercased().contains(trimmed) })
-            guard let playlist = target else { return nil }
-            let songs = library.songs(forPlaylist: playlist.id).filteredPlayable()
-            guard let first = songs.first else { return nil }
-            player.setQueue(songs, startAt: 0)
-            await player.play(song: first, caller: "AppIntent")
+        bridge.playAlbum = { [self] title, artist in
+            guard let result = SiriMediaSearchResolver.resolve(
+                query: SiriMediaSearchQuery(
+                    kind: .album,
+                    mediaName: title,
+                    artistName: artist
+                ),
+                songs: library.visibleSongs
+            ), let first = startIntentQueue(result.queue) else {
+                return nil
+            }
             return String(
-                format: String(localized: "intent_playing_playlist_format"),
-                playlist.name
+                format: String(localized: "intent_playing_album_format"),
+                first.albumTitle ?? title
             )
         }
 
-        bridge.shuffleLibrary = {
-            let pool = library.visibleSongs.filteredPlayable().shuffled()
-            guard let first = pool.first else { return }
-            player.setQueue(pool, startAt: 0)
-            await player.play(song: first, caller: "AppIntent")
+        bridge.playArtist = { [self] name in
+            guard let result = SiriMediaSearchResolver.resolve(
+                query: SiriMediaSearchQuery(kind: .artist, mediaName: name),
+                songs: library.visibleSongs
+            ), let first = startIntentQueue(result.queue) else {
+                return nil
+            }
+            return String(
+                format: String(localized: "intent_playing_artist_format"),
+                first.artistName ?? name
+            )
+        }
+
+        bridge.playGenre = { [self] name in
+            guard let result = SiriMediaSearchResolver.resolve(
+                query: SiriMediaSearchQuery(kind: .genre, genreNames: [name]),
+                songs: library.visibleSongs
+            ), startIntentQueue(result.queue) != nil else {
+                return nil
+            }
+            return String(
+                format: String(localized: "intent_playing_genre_format"),
+                name
+            )
+        }
+
+        bridge.playPlaylist = { [self] name in
+            let items = library.playlists.map {
+                SiriNamedMediaItem(id: $0.id, name: $0.name)
+            } + library.smartPlaylists.map {
+                SiriNamedMediaItem(id: $0.id, name: $0.name)
+            }
+            guard let resolved = SiriNamedMediaResolver.resolve(
+                query: name,
+                namespace: "playlist",
+                items: items
+            ) else {
+                return nil
+            }
+
+            let songs: [Song]
+            if let playlist = library.playlists.first(where: { $0.id == resolved.selected.id }) {
+                songs = library.songs(forPlaylist: playlist.id)
+            } else if let smart = library.smartPlaylists.first(where: { $0.id == resolved.selected.id }) {
+                songs = SmartPlaylistEngine.match(smart, in: library, history: .shared)
+            } else {
+                return nil
+            }
+            guard startIntentQueue(songs) != nil else { return nil }
+            return String(
+                format: String(localized: "intent_playing_playlist_format"),
+                resolved.selected.name
+            )
+        }
+
+        bridge.playRadio = { [self] name in
+            let stations = radioStationsStore.stations
+            guard let resolved = SiriNamedMediaResolver.resolve(
+                query: name,
+                namespace: "radio",
+                items: stations.map { SiriNamedMediaItem(id: $0.id, name: $0.name) }
+            ), let station = radioStationsStore.station(id: resolved.selected.id) else {
+                return nil
+            }
+            startIntentRadio(station)
+            return String(
+                format: String(localized: "intent_playing_radio_format"),
+                station.name
+            )
+        }
+
+        bridge.playSongRadio = { [self] in
+            guard let seed = player.currentSong, !player.isLiveRadio else { return nil }
+            let queue = MusicDiscoveryEngine.songRadio(
+                from: seed,
+                in: library,
+                limit: 48
+            ).map(\.song)
+            guard startIntentQueue(queue) != nil else { return nil }
+            return String(
+                format: String(localized: "intent_playing_similar_format"),
+                seed.title
+            )
+        }
+
+        bridge.shuffleLibrary = { [self] in
+            let pool = library.visibleSongs.filteredPlayable()
+            _ = startIntentQueue(pool, shuffled: true)
+        }
+
+        bridge.setRepeatMode = { player.repeatMode = $0 }
+        bridge.setPlaybackSpeed = { [self] requested in
+            let effective = min(max(requested, 0.5), 2.0)
+            playbackSettingsStore.playbackRate = Float(effective)
+            player.applyPlaybackRate()
+            return effective
+        }
+
+        bridge.scrapeCurrentSong = { [self] in
+            await scrapeCurrentSongFromIntent()
         }
 
         bridge.setLiked = { desired in
@@ -663,6 +763,91 @@ final class AppServices {
             // 心的状态同时挂在两个 surface 上, 都要立刻跟上, 否则乐观 UI
             // 会在下一次刷新时被旧数据打回去。
             player.republishNowPlayingSurfaces()
+        }
+    }
+
+    /// Queue acceptance is synchronous; remote URL resolution and first-buffer
+    /// decoding continue independently so Siri/App Intents can respond before
+    /// their interaction timeout.
+    @discardableResult
+    private func startIntentQueue(_ songs: [Song], shuffled: Bool = false) -> Song? {
+        var queue = songs.filteredPlayable()
+        guard !queue.isEmpty else { return nil }
+        if shuffled { queue.shuffle() }
+        let first = queue[0]
+        playerService.shuffleEnabled = shuffled
+        playerService.setQueue(queue, startAt: 0)
+        Task { @MainActor [playerService] in
+            await playerService.play(song: first, caller: "AppIntent")
+        }
+        return first
+    }
+
+    private func startIntentRadio(_ station: RadioStation) {
+        let stations = radioStationsStore.stations
+        Task { @MainActor [playerService] in
+            await playerService.play(station: station, within: stations)
+        }
+    }
+
+    private func scrapeCurrentSongFromIntent() async -> String? {
+        if playerService.isLiveRadio {
+            return String(localized: "intent_scrape_live_radio_unsupported")
+        }
+        guard let displayedSong = playerService.currentSong else { return nil }
+
+        if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
+            let song = appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+            if song.id != displayedSong.id {
+                _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                    fromSongID: displayedSong.id,
+                    toSongID: song.id
+                )
+                if playerService.currentSong?.id == displayedSong.id {
+                    playerService.adoptCanonicalAppleMusicSong(
+                        song,
+                        replacing: displayedSong.id
+                    )
+                }
+            }
+            Task { @MainActor [scraperService, musicLibrary, playerService] in
+                let updated = await scraperService.scrapeOnlineLyricsOnly(
+                    song: song,
+                    in: musicLibrary
+                ).song
+                if playerService.currentSong?.id == updated.id {
+                    playerService.syncSongMetadata(updated)
+                    playerService.forceRefreshNowPlayingArtwork()
+                }
+                plog("🎙️ AppIntent lyrics scrape completed song=\(updated.id.prefix(12))")
+            }
+            return String(
+                format: String(localized: "intent_scrape_started_lyrics_format"),
+                song.title
+            )
+        }
+
+        switch scraperService.scrapeMissingMetadata(
+            songs: [displayedSong],
+            in: musicLibrary
+        ) {
+        case .started:
+            plog("🎙️ AppIntent scrape started song=\(displayedSong.id.prefix(12))")
+            return String(
+                format: String(localized: "intent_scrape_started_metadata_format"),
+                displayedSong.title
+            )
+        case .busy:
+            return String(localized: "intent_scrape_busy")
+        case .deferred:
+            return String(localized: "intent_scrape_deferred")
+        case .empty:
+            return String(
+                format: String(localized: "intent_scrape_nothing_missing_format"),
+                displayedSong.title
+            )
+        case .noScraperSource:
+            return String(localized: "intent_scrape_no_source")
         }
     }
 }

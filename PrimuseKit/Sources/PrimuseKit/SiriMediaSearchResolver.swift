@@ -1,9 +1,13 @@
 import Foundation
 
-public enum SiriMediaSearchKind: Sendable {
+public enum SiriMediaSearchKind: Sendable, Equatable {
     case song
     case album
     case artist
+    case genre
+    case playlist
+    case radioStation
+    case algorithmicRadioStation
     case music
     case unsupported
 }
@@ -13,21 +17,24 @@ public struct SiriMediaSearchQuery: Sendable {
     public let mediaName: String?
     public let artistName: String?
     public let albumName: String?
+    public let genreNames: [String]
 
     public init(
         kind: SiriMediaSearchKind,
         mediaName: String? = nil,
         artistName: String? = nil,
-        albumName: String? = nil
+        albumName: String? = nil,
+        genreNames: [String] = []
     ) {
         self.kind = kind
         self.mediaName = Self.nonempty(mediaName)
         self.artistName = Self.nonempty(artistName)
         self.albumName = Self.nonempty(albumName)
+        self.genreNames = genreNames.compactMap(Self.nonempty)
     }
 
     public var hasSearchTerm: Bool {
-        mediaName != nil || artistName != nil || albumName != nil
+        mediaName != nil || artistName != nil || albumName != nil || !genreNames.isEmpty
     }
 
     private static func nonempty(_ value: String?) -> String? {
@@ -36,6 +43,225 @@ public struct SiriMediaSearchQuery: Sendable {
             return nil
         }
         return trimmed
+    }
+}
+
+/// Stable identifiers exchanged with Siri, Spotlight, and App Intents.
+///
+/// Older Primuse builds donated bare IDs while Spotlight has always used a
+/// namespaced form (`song:<id>`). Accept both, but reject a value carrying a
+/// different known namespace so an unresolved playlist or station can never
+/// silently degrade into a random song.
+public enum SiriMediaIdentifier {
+    private static let knownNamespaces: Set<String> = [
+        "song", "album", "artist", "genre", "playlist", "radio", "station",
+    ]
+
+    public static func namespaced(_ identifier: String, as namespace: String) -> String {
+        "\(namespace.lowercased()):\(identifier)"
+    }
+
+    public static func namespace(from identifier: String) -> String? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let separator = trimmed.firstIndex(of: ":") else { return nil }
+        let namespace = String(trimmed[..<separator]).lowercased()
+        return knownNamespaces.contains(namespace) ? namespace : nil
+    }
+
+    public static func value(
+        from identifier: String,
+        expectedNamespace: String
+    ) -> String? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        guard let separator = trimmed.firstIndex(of: ":") else { return trimmed }
+        let namespace = trimmed[..<separator].lowercased()
+        guard knownNamespaces.contains(namespace) else {
+            // Provider IDs can contain a colon. Only interpret prefixes owned
+            // by Primuse as namespaces; preserve every other identifier.
+            return trimmed
+        }
+
+        let expected = expectedNamespace.lowercased()
+        let acceptedNamespaces: Set<String> = expected == "radio"
+            ? ["radio", "station"]
+            : [expected]
+        guard acceptedNamespaces.contains(namespace) else { return nil }
+
+        let value = trimmed[trimmed.index(after: separator)...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    public static func values(
+        from identifiers: [String],
+        expectedNamespace: String
+    ) -> [String] {
+        var seen = Set<String>()
+        return identifiers.compactMap {
+            guard let value = value(from: $0, expectedNamespace: expectedNamespace),
+                  seen.insert(value).inserted else {
+                return nil
+            }
+            return value
+        }
+    }
+
+    /// Produces the identifier fallback order used by SiriKit handlers.
+    /// Resolved media items are authoritative and preserve their queue order;
+    /// `mediaSearch.mediaIdentifier` covers newer Siri/Spotlight delivery, and
+    /// a container identifier is last.
+    public static func prioritized(
+        mediaItemIdentifiers: [String],
+        searchIdentifier: String?,
+        containerIdentifier: String?
+    ) -> [String] {
+        prioritizedGroups(
+            mediaItemIdentifiers: mediaItemIdentifiers,
+            searchIdentifier: searchIdentifier,
+            containerIdentifier: containerIdentifier
+        ).flatMap { $0 }
+    }
+
+    /// Keeps Siri's identifier tiers separate. Every resolved media item forms
+    /// the authoritative first group; the search and container identifiers are
+    /// fallbacks only when no item in an earlier group exists in the library.
+    public static func prioritizedGroups(
+        mediaItemIdentifiers: [String],
+        searchIdentifier: String?,
+        containerIdentifier: String?
+    ) -> [[String]] {
+        var seen = Set<String>()
+        let groups: [[String?]] = [
+            mediaItemIdentifiers.map { Optional($0) },
+            [searchIdentifier],
+            [containerIdentifier],
+        ]
+        return groups.compactMap { group in
+            let values: [String] = group.compactMap { value in
+                guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !value.isEmpty,
+                      seen.insert(value).inserted else {
+                    return nil
+                }
+                return value
+            }
+            return values.isEmpty ? nil : values
+        }
+    }
+
+    public static func prioritized(
+        mediaItemIdentifier: String?,
+        searchIdentifier: String?,
+        containerIdentifier: String?
+    ) -> [String] {
+        prioritized(
+            mediaItemIdentifiers: [mediaItemIdentifier].compactMap { $0 },
+            searchIdentifier: searchIdentifier,
+            containerIdentifier: containerIdentifier
+        )
+    }
+}
+
+public struct SiriNamedMediaItem: Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let aliases: [String]
+
+    public init(id: String, name: String, aliases: [String] = []) {
+        self.id = id
+        self.name = name
+        self.aliases = aliases
+    }
+}
+
+public struct SiriNamedMediaResolution: Sendable {
+    public let selected: SiriNamedMediaItem
+    public let candidates: [SiriNamedMediaItem]
+    public let needsDisambiguation: Bool
+}
+
+/// Shared exact/prefix/substring matching for named containers such as
+/// playlists and saved internet-radio stations.
+public enum SiriNamedMediaResolver {
+    public static func resolve(
+        query: String?,
+        selectedItemIDs: [String] = [],
+        namespace: String,
+        items: [SiriNamedMediaItem]
+    ) -> SiriNamedMediaResolution? {
+        guard !items.isEmpty else { return nil }
+
+        if !selectedItemIDs.isEmpty {
+            let values = SiriMediaIdentifier.values(
+                from: selectedItemIDs,
+                expectedNamespace: namespace
+            )
+            let itemsByID = Dictionary(
+                items.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            guard let selected = values.lazy.compactMap({ itemsByID[$0] }).first else {
+                return nil
+            }
+            return SiriNamedMediaResolution(
+                selected: selected,
+                candidates: [selected],
+                needsDisambiguation: false
+            )
+        }
+
+        guard let query = nonempty(query) else { return nil }
+        let ranked = items.compactMap { item -> (item: SiriNamedMediaItem, score: Int)? in
+            let score = ([item.name] + item.aliases)
+                .map { matchScore(requested: query, candidate: $0) }
+                .max() ?? 0
+            return score > 0 ? (item, score) : nil
+        }.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            let nameOrder = lhs.item.name.localizedCaseInsensitiveCompare(rhs.item.name)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return lhs.item.id < rhs.item.id
+        }
+
+        guard let first = ranked.first else { return nil }
+        let tied = ranked.prefix { $0.score == first.score }.map(\.item)
+        let candidates = tied.count > 1
+            ? Array(tied.prefix(8))
+            : Array(ranked.prefix(8).map(\.item))
+        return SiriNamedMediaResolution(
+            selected: first.item,
+            candidates: candidates,
+            needsDisambiguation: tied.count > 1
+        )
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func matchScore(requested: String, candidate: String) -> Int {
+        let needle = normalized(requested)
+        let value = normalized(candidate)
+        guard !needle.isEmpty, !value.isEmpty else { return 0 }
+        if value == needle { return 4 }
+        if value.hasPrefix(needle) { return 3 }
+        if value.contains(needle) { return 2 }
+        return 0
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: Locale(identifier: "en_US_POSIX")
+        ).unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
     }
 }
 
@@ -73,25 +299,23 @@ public enum SiriMediaSearchResolver {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else { return nil }
 
+        let kind = inferredKind(for: query)
+
         if !resolvedItemIDs.isEmpty {
-            let byID = Dictionary(
-                playable.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
-            let selected = resolvedItemIDs.compactMap { byID[$0] }
-            guard !selected.isEmpty else { return nil }
-            return SiriMediaSearchResolution(
-                queue: selected,
-                candidates: selected,
-                needsDisambiguation: false
+            return identifierResolution(
+                kind: kind,
+                identifiers: resolvedItemIDs,
+                songs: playable
             )
         }
 
-        switch inferredKind(for: query) {
+        switch kind {
         case .album:
             return albumResolution(query: query, songs: playable)
         case .artist:
             return artistResolution(query: query, songs: playable)
+        case .genre:
+            return genreResolution(query: query, songs: playable)
         case .song:
             return songResolution(query: query, songs: playable)
         case .music:
@@ -103,20 +327,161 @@ public enum SiriMediaSearchResolver {
                 candidates: [],
                 needsDisambiguation: false
             )
-        case .unsupported:
+        case .playlist, .radioStation, .algorithmicRadioStation, .unsupported:
             return nil
         }
     }
 
+    private static func identifierResolution(
+        kind: SiriMediaSearchKind,
+        identifiers: [String],
+        songs: [Song]
+    ) -> SiriMediaSearchResolution? {
+        switch kind {
+        case .song, .algorithmicRadioStation:
+            return selectedSongResolution(identifiers: identifiers, songs: songs)
+        case .album:
+            return selectedContainerResolution(
+                identifiers: identifiers,
+                namespace: "album",
+                songs: songs,
+                value: \Song.albumID,
+                sort: sortedAlbumSongs
+            )
+        case .artist:
+            return selectedContainerResolution(
+                identifiers: identifiers,
+                namespace: "artist",
+                songs: songs,
+                value: \Song.artistID,
+                sort: { $0.sorted(by: artistQueueBefore) }
+            )
+        case .genre:
+            let values = SiriMediaIdentifier.values(
+                from: identifiers,
+                expectedNamespace: "genre"
+            )
+            for value in values {
+                let selected = songs.filter {
+                    guard let genre = $0.genre else { return false }
+                    return normalized(genre) == normalized(value)
+                }
+                if !selected.isEmpty {
+                    let queue = selected.sorted(by: stableSongBefore)
+                    return SiriMediaSearchResolution(
+                        queue: queue,
+                        candidates: queue,
+                        needsDisambiguation: false
+                    )
+                }
+            }
+            return nil
+        case .music:
+            var attempted = Set<String>()
+            for identifier in identifiers {
+                let namespace = SiriMediaIdentifier.namespace(from: identifier) ?? "song"
+                guard attempted.insert(namespace).inserted else { continue }
+                let selected: SiriMediaSearchResolution? = switch namespace {
+                case "song":
+                    selectedSongResolution(identifiers: identifiers, songs: songs)
+                case "album":
+                    identifierResolution(kind: .album, identifiers: identifiers, songs: songs)
+                case "artist":
+                    identifierResolution(kind: .artist, identifiers: identifiers, songs: songs)
+                case "genre":
+                    identifierResolution(kind: .genre, identifiers: identifiers, songs: songs)
+                default:
+                    nil
+                }
+                if let selected { return selected }
+            }
+            return nil
+        case .playlist, .radioStation, .unsupported:
+            return nil
+        }
+    }
+
+    private static func selectedSongResolution(
+        identifiers: [String],
+        songs: [Song]
+    ) -> SiriMediaSearchResolution? {
+        let values = SiriMediaIdentifier.values(
+            from: identifiers,
+            expectedNamespace: "song"
+        )
+        guard !values.isEmpty else { return nil }
+        let byID = Dictionary(
+            songs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let queue = values.compactMap { byID[$0] }
+        guard !queue.isEmpty else { return nil }
+        return SiriMediaSearchResolution(
+            queue: queue,
+            candidates: queue,
+            needsDisambiguation: false
+        )
+    }
+
+    private static func selectedContainerResolution(
+        identifiers: [String],
+        namespace: String,
+        songs: [Song],
+        value: KeyPath<Song, String?>,
+        sort: ([Song]) -> [Song]
+    ) -> SiriMediaSearchResolution? {
+        let values = SiriMediaIdentifier.values(
+            from: identifiers,
+            expectedNamespace: namespace
+        )
+        for identifier in values {
+            let queue = sort(songs.filter { $0[keyPath: value] == identifier })
+            guard !queue.isEmpty else { continue }
+            return SiriMediaSearchResolution(
+                queue: queue,
+                candidates: queue,
+                needsDisambiguation: false
+            )
+        }
+        return nil
+    }
+
     private static func inferredKind(for query: SiriMediaSearchQuery) -> SiriMediaSearchKind {
         switch query.kind {
-        case .album, .artist, .song, .unsupported:
+        case .album, .artist, .genre, .playlist, .radioStation,
+             .algorithmicRadioStation, .song, .unsupported:
             return query.kind
         case .music:
             if query.albumName != nil, query.mediaName == nil { return .album }
             if query.artistName != nil, query.mediaName == nil, query.albumName == nil { return .artist }
             return query.hasSearchTerm ? .song : .music
         }
+    }
+
+    private static func genreResolution(
+        query: SiriMediaSearchQuery,
+        songs: [Song]
+    ) -> SiriMediaSearchResolution? {
+        let requestedGenres = query.genreNames.isEmpty
+            ? [query.mediaName].compactMap { $0 }
+            : query.genreNames
+        guard !requestedGenres.isEmpty else { return nil }
+
+        let ranked = songs.compactMap { song -> (song: Song, score: Int)? in
+            guard let genre = song.genre else { return nil }
+            let score = requestedGenres
+                .map { matchScore(requested: $0, candidate: genre) }
+                .max() ?? 0
+            return score > 0 ? (song, score) : nil
+        }.sorted(by: rankedBefore)
+
+        guard !ranked.isEmpty else { return nil }
+        let queue = ranked.map(\.song)
+        return SiriMediaSearchResolution(
+            queue: queue,
+            candidates: Array(queue.prefix(8)),
+            needsDisambiguation: false
+        )
     }
 
     private static func songResolution(
