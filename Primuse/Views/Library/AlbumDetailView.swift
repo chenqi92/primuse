@@ -8,18 +8,24 @@ struct AlbumDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     let album: Album
+
+    @State private var showNoScraperSourceAlert = false
 
     private var songs: [Song] {
         library.songs(forAlbum: album.id)
     }
 
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        legacyBody
-        #endif
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            legacyBody
+            #endif
+        }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
     }
 
     private var legacyBody: some View {
@@ -165,6 +171,10 @@ struct AlbumDetailView: View {
             .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                   trailing: songs.count.formatted(),
                   enabled: !songs.isEmpty && !scraperService.isScraping) {
+                guard scraperSettings.hasEnabledSource else {
+                    showNoScraperSourceAlert = true
+                    return
+                }
                 scraperService.scrapeMissingMetadata(songs: songs, in: library)
             },
         ]

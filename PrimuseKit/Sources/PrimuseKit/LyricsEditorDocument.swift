@@ -299,6 +299,20 @@ public struct LyricsEditorDocument: Hashable, Sendable {
     public var unstampedCount: Int { lines.count - stampedCount }
     public var hasWordLevelLines: Bool { lines.contains(where: \.isWordLevel) }
 
+    /// 忽略编辑会话临时 UUID，只比较最终会写回的歌词内容。
+    public func hasSameContent(as other: LyricsEditorDocument) -> Bool {
+        serialized() == other.serialized()
+    }
+
+    /// 没有语义改动时返回用户原始文本，避免仅打开编辑器就把 `.xx` 时间戳
+    /// 规范化成 `.xxx`；真正改过时才输出编辑文档的标准序列化结果。
+    public func committedText(
+        preserving originalText: String,
+        comparedTo originalDocument: LyricsEditorDocument
+    ) -> String {
+        hasSameContent(as: originalDocument) ? originalText : serialized()
+    }
+
     /// 播放到 `time` 时应当高亮的行下标。只看已打轴的行。
     public func activeLineIndex(at time: TimeInterval) -> Int? {
         var result: Int?

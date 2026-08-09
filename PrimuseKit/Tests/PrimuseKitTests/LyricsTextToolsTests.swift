@@ -123,6 +123,25 @@ struct LyricsTextToolsTests {
         #expect(!LyricsTextTools.hasTimestamp("普通一行"))
     }
 
+    @Test("Timestamped clipboard lyrics remain timed when accepted")
+    func timestampedPasteRemainsTimed() {
+        let split = LyricsTextTools.splitIntoLines("""
+        [ti:Song]
+        [00:12.30]First line
+        [00:24.10]<00:24.10>Second<00:25.00> line<00:26.00>
+        """)
+        var document = LyricsEditorDocument(parsing: split.lines.joined(separator: "\n"))
+
+        #expect(document.metadataLines == ["[ti:Song]"])
+        #expect(document.stampedCount == 2)
+        #expect(document.lines[1].isWordLevel)
+
+        document.stamp(at: 0, time: 13)
+        let serialized = document.serialized()
+        #expect(serialized.contains("[00:13.000]First line"))
+        #expect(!serialized.contains("[00:13.000][00:12.30]"))
+    }
+
     // MARK: - 去空行
 
     @Test("Removing blank lines reports nil when there is nothing to remove")

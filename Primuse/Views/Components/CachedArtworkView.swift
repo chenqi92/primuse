@@ -669,20 +669,84 @@ extension View {
     }
 }
 
-/// Deduplicates concurrent fetch requests for the same key.
-/// If two views request the same cover art simultaneously, only one network
-/// request is made; the second waits for the first to complete and shares the result.
+/// Keeps rapid list scrolling from turning every briefly-visible row into a
+/// simultaneous NAS/cloud request. Four source fetches leave room for the
+/// foreground audio Range lane and make cancellation effective before hundreds
+/// of off-screen covers have started network work.
+private actor ArtworkFetchLimiter {
+    private let maximumConcurrentFetches = 4
+    private var activeFetches = 0
+
+    func run(_ operation: @Sendable @escaping () async -> Data?) async -> Data? {
+        guard await acquire() else { return nil }
+        defer { activeFetches -= 1 }
+        guard !Task.isCancelled else { return nil }
+        return await operation()
+    }
+
+    private func acquire() async -> Bool {
+        while activeFetches >= maximumConcurrentFetches {
+            guard !Task.isCancelled else { return false }
+            do {
+                try await Task.sleep(for: .milliseconds(25))
+            } catch {
+                return false
+            }
+        }
+        guard !Task.isCancelled else { return false }
+        activeFetches += 1
+        return true
+    }
+}
+
+/// Deduplicates concurrent requests for the same cover and tracks each visible
+/// view as a waiter. SwiftUI cancels `.task` when a row leaves the hierarchy;
+/// when the last waiter disappears, cancel the shared source request instead
+/// of letting a fast scroll download artwork for hundreds of off-screen rows.
 private actor InFlightFetchTracker {
-    private var inFlight: [String: Task<Data?, Never>] = [:]
+    private struct Entry {
+        let task: Task<Data?, Never>
+        var waiterIDs: Set<UUID>
+    }
+
+    private let limiter = ArtworkFetchLimiter()
+    private var inFlight: [String: Entry] = [:]
 
     func deduplicated(key: String, fetch: @Sendable @escaping () async -> Data?) async -> Data? {
-        if let existing = inFlight[key] {
-            return await existing.value
+        let waiterID = UUID()
+        let task: Task<Data?, Never>
+        if var existing = inFlight[key] {
+            existing.waiterIDs.insert(waiterID)
+            inFlight[key] = existing
+            task = existing.task
+        } else {
+            let limiter = limiter
+            task = Task<Data?, Never> {
+                await limiter.run(fetch)
+            }
+            inFlight[key] = Entry(task: task, waiterIDs: [waiterID])
         }
-        let task = Task<Data?, Never> { await fetch() }
-        inFlight[key] = task
-        let result = await task.value
+
+        return await withTaskCancellationHandler {
+            let result = await task.value
+            finishWaiter(waiterID, for: key, cancelIfUnused: false)
+            return Task.isCancelled ? nil : result
+        } onCancel: {
+            Task { await self.finishWaiter(waiterID, for: key, cancelIfUnused: true) }
+        }
+    }
+
+    private func finishWaiter(_ waiterID: UUID, for key: String, cancelIfUnused: Bool) {
+        guard var entry = inFlight[key], entry.waiterIDs.remove(waiterID) != nil else {
+            return
+        }
+        guard entry.waiterIDs.isEmpty else {
+            inFlight[key] = entry
+            return
+        }
         inFlight[key] = nil
-        return result
+        if cancelIfUnused {
+            entry.task.cancel()
+        }
     }
 }

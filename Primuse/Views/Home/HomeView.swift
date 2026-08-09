@@ -754,18 +754,7 @@ struct HomeView: View {
             showRadioBatchAdd = true
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                VStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 24, weight: .medium))
-                    Text("radio_batch_add_title")
-                        .font(.caption)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                }
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1, contentMode: .fill)
-                .background {
+                ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(homeCardSurface)
                         .overlay {
@@ -775,9 +764,20 @@ struct HomeView: View {
                                     style: StrokeStyle(lineWidth: 1, dash: [5, 4])
                                 )
                         }
-                }
 
-                // 占位撑出跟电台卡等高的文字区，不放内容。
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .medium))
+                        Text("radio_batch_add_title")
+                            .font(.caption)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fit)
+
                 Color.clear
                     .frame(height: Self.radioWallCaptionHeight)
             }
@@ -890,29 +890,16 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
-            VStack(spacing: 10) {
-                Button {
-                    showRadioBatchAdd = true
-                } label: {
-                    Label("radio_batch_add_title", systemImage: "square.and.arrow.down")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.borderedProminent)
-                .clipShape(Capsule())
-
-                NavigationLink {
-                    RadioStationsView()
-                } label: {
-                    Label("radio_add", systemImage: "plus")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.bordered)
-                .clipShape(Capsule())
+            NavigationLink {
+                RadioStationsView()
+            } label: {
+                Label("radio_manage", systemImage: "radio")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
+            .buttonStyle(.borderedProminent)
+            .clipShape(Capsule())
             .padding(.horizontal, 40)
             .padding(.top, 4)
 

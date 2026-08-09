@@ -13,8 +13,10 @@ struct SmartPlaylistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
 
     @State private var showEditor = false
+    @State private var showNoScraperSourceAlert = false
 
     private var smart: SmartPlaylist? {
         library.smartPlaylists.first(where: { $0.id == smartPlaylistID })
@@ -33,9 +35,9 @@ struct SmartPlaylistDetailView: View {
         // 这里取一次快照向下传递, 把每帧的全库扫描收敛成 1 次。
         let matched = self.matched
         #if os(macOS)
-        return AnyView(macBody(matched))
+        return AnyView(macBody(matched).scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
         #else
-        return AnyView(legacyBody(matched))
+        return AnyView(legacyBody(matched).scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
         #endif
     }
 
@@ -248,6 +250,10 @@ struct SmartPlaylistDetailView: View {
                 .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                       trailing: matched.count.formatted(),
                       enabled: !matched.isEmpty && !scraperService.isScraping) {
+                    guard scraperSettings.hasEnabledSource else {
+                        showNoScraperSourceAlert = true
+                        return
+                    }
                     scraperService.scrapeMissingMetadata(songs: matched, in: library)
                 },
             ],

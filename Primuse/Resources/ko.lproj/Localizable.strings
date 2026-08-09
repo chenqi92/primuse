@@ -2533,3 +2533,17 @@
 /* MARK: - Radio bottom bar */
 "radio_buffering" = "버퍼링 중";
 "radio_connected_for" = "연결 시간";
+
+/* MARK: - No scraper source enabled */
+"scraper_no_source_title" = "스크래핑 소스가 없음";
+"scraper_no_source_message" = "스크래핑하려면 활성화된 소스가 하나 이상 필요합니다. 설정에서 내장 스크래핑 소스를 켜거나 사용자 소스를 가져오세요.";
+"scraper_no_source_open_settings" = "설정 열기";
+
+/* MARK: - Focused lyric timing */
+"lyrics_editor_mode_timing" = "타이밍";
+"lyrics_editor_mode_text" = "텍스트";
+"lyrics_editor_more_actions" = "추가 작업";
+"lyrics_editor_timing_progress %lld %lld" = "%2$lld줄 중 %1$lld줄 시간 지정";
+"lyrics_editor_timing_hint" = "이 줄이 시작될 때 탭 · 다음 줄로 자동 이동";
+"lyrics_editor_timing_undo" = "한 줄 실행 취소";
+"lyrics_editor_timing_redo" = "한 줄 다시 실행";

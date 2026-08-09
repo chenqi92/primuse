@@ -17,6 +17,7 @@ enum ScraperError: Error, LocalizedError {
     case parseError(String)
     case notFound
     case rateLimited(retryAfter: Int?)
+    case noEnabledSource
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +25,7 @@ enum ScraperError: Error, LocalizedError {
         case .parseError(let msg): msg
         case .notFound: String(localized: "error_not_found")
         case .rateLimited: String(localized: "error_rate_limited")
+        case .noEnabledSource: String(localized: "scraper_no_source_message")
         }
     }
 }

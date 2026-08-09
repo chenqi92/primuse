@@ -25,7 +25,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showScrapeOptions = false
     @State private var showSongInfo = false
     @State private var showTagEditor = false
-    @State private var showLyricsEditor = false
+    @State private var lyricsEditorTargetSong: Song?
     @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
@@ -105,11 +105,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             }
         }
-        .sheet(isPresented: $showLyricsEditor) {
-            if let song = player.currentSong {
-                LyricsEditorSheet(song: song) { updated in
-                    player.syncSongMetadata(updated)
-                }
+        .sheet(item: $lyricsEditorTargetSong) { song in
+            LyricsEditorSheet(song: song) { updated in
+                guard player.currentSong?.id == updated.id else { return }
+                player.syncSongMetadata(updated)
             }
         }
         .alert(String(localized: "scrape_song"),
@@ -222,7 +221,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             menuRow(title: "lyrics_editor_menu",
                     symbol: "quote.bubble",
                     disabled: player.currentSong == nil) {
-                showLyricsEditor = true
+                lyricsEditorTargetSong = player.currentSong
             }
             menuRow(title: "scrape_song", symbol: "wand.and.stars",
                     disabled: player.currentSong == nil || isScrapingCurrentSong) {

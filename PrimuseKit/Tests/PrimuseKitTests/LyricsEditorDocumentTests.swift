@@ -68,6 +68,25 @@ struct LyricsEditorDocumentTests {
         #expect(LyricsEditorDocument(parsing: source).serialized() == source)
     }
 
+    @Test("Session identities do not count as lyric content changes")
+    func ignoresSessionIdentitiesWhenComparingContent() {
+        let first = LyricsEditorDocument(parsing: "[00:12.300]Same line")
+        let second = LyricsEditorDocument(parsing: "[00:12.300]Same line")
+
+        #expect(first.lines[0].id != second.lines[0].id)
+        #expect(first.hasSameContent(as: second))
+    }
+
+    @Test("An unchanged edit preserves the original timestamp precision")
+    func unchangedCommitPreservesOriginalText() {
+        let source = "[00:12.30]Same line"
+        let original = LyricsEditorDocument(parsing: source)
+        let reopened = LyricsEditorDocument(parsing: source)
+
+        #expect(reopened.serialized() == "[00:12.300]Same line")
+        #expect(reopened.committedText(preserving: source, comparedTo: original) == source)
+    }
+
     @Test("Word-level syllables round-trip")
     func roundTripsWordLevel() {
         let document = LyricsEditorDocument(parsing: "[00:12.300]<00:12.300>晚风<00:13.100>吹过<00:14.000>")

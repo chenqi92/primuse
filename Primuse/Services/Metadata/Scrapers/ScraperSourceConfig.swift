@@ -12,9 +12,9 @@ struct ScraperSourceConfig: Codable, Sendable, Identifiable, Hashable {
 
     var isConfigured: Bool { true }
 
-    /// Default sources: built-in only. iTunes is enabled by default (high-quality
-    /// covers and broad catalog); MusicBrainz/LRCLIB are present but disabled so
-    /// users can opt-in if they want lyric or open-database lookups.
+    /// Default sources: built-in only, all disabled. Scraping is opt-in — users
+    /// enable a built-in source or import a custom one before any network
+    /// metadata lookup happens.
     static func defaultSources() -> [ScraperSourceConfig] {
         MusicScraperType.builtInOrder.enumerated().map { index, type in
             ScraperSourceConfig(
@@ -30,8 +30,7 @@ struct ScraperSourceConfig: Codable, Sendable, Identifiable, Hashable {
     /// fresh install or when migrated into an existing install.
     static func defaultEnabled(for type: MusicScraperType) -> Bool {
         switch type {
-        case .itunes: true
-        case .musicBrainz, .lrclib: false
+        case .itunes, .musicBrainz, .lrclib: false
         case .custom: true
         }
     }

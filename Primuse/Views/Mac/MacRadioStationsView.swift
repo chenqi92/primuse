@@ -113,24 +113,13 @@ struct MacRadioStationsView: View {
                     .buttonStyle(.plain)
                 }
 
-                Button {
-                    showBatchAdd = true
-                } label: {
-                    Label("radio_batch_add_title", systemImage: "square.and.arrow.down")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(PMColor.text)
-                        .padding(.horizontal, 14)
-                        .frame(height: 32)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    showAddStation = true
+                Menu {
+                    Button("radio_add", systemImage: "plus") {
+                        showAddStation = true
+                    }
+                    Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
+                        showBatchAdd = true
+                    }
                 } label: {
                     Label("radio_add", systemImage: "plus")
                         .font(.system(size: 12.5, weight: .semibold))
@@ -139,7 +128,9 @@ struct MacRadioStationsView: View {
                         .frame(height: 32)
                         .background(PMColor.brand, in: .rect(cornerRadius: PMRadius.m))
                 }
-                .buttonStyle(.plain)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
 
             Text(summaryText)
@@ -221,37 +212,6 @@ struct MacRadioStationsView: View {
                 .foregroundStyle(PMColor.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
-
-            HStack(spacing: PMSpace.s10) {
-                Button {
-                    showBatchAdd = true
-                } label: {
-                    Text("radio_batch_add_title")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .background(PMColor.brand, in: .rect(cornerRadius: PMRadius.m))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    showAddStation = true
-                } label: {
-                    Text("radio_add")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(PMColor.text)
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 4)
 
             Spacer()
         }

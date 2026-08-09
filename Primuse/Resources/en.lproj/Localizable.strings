@@ -2361,3 +2361,17 @@
 /* MARK: - Radio bottom bar */
 "radio_buffering" = "BUFFERING";
 "radio_connected_for" = "Connected for";
+
+/* MARK: - No scraper source enabled */
+"scraper_no_source_title" = "No Scraper Source Enabled";
+"scraper_no_source_message" = "Scraping requires at least one enabled source. Open Settings to turn on a built-in scraper source or import a custom one.";
+"scraper_no_source_open_settings" = "Open Settings";
+
+/* MARK: - Focused lyric timing */
+"lyrics_editor_mode_timing" = "Timing";
+"lyrics_editor_mode_text" = "Text";
+"lyrics_editor_more_actions" = "More Actions";
+"lyrics_editor_timing_progress %lld %lld" = "%1$lld of %2$lld lines timed";
+"lyrics_editor_timing_hint" = "Tap when this line starts · Advances automatically";
+"lyrics_editor_timing_undo" = "Undo Line";
+"lyrics_editor_timing_redo" = "Redo Line";

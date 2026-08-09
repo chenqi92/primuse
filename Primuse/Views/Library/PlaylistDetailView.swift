@@ -20,6 +20,7 @@ struct PlaylistDetailView: View {
     @State private var exportError: String?
     @State private var showReorderSheet = false
     @State private var scrapeFeedback: ScrapeFeedback?
+    @State private var showNoScraperSourceAlert = false
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
 
@@ -76,6 +77,7 @@ struct PlaylistDetailView: View {
         .overlay(alignment: .bottom) {
             scrapeFeedbackToast
         }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .onChange(of: scraperService.completionRevision) { _, _ in
             showScrapeCompletion()
         }
@@ -737,6 +739,8 @@ struct PlaylistDetailView: View {
                 systemImage: "exclamationmark.circle.fill",
                 color: .red
             )
+        case .noScraperSource:
+            showNoScraperSourceAlert = true
         }
     }
 

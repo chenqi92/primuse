@@ -2534,3 +2534,17 @@
 /* MARK: - Radio bottom bar */
 "radio_buffering" = "バッファ中";
 "radio_connected_for" = "接続時間";
+
+/* MARK: - No scraper source enabled */
+"scraper_no_source_title" = "スクレイピングソースが未設定です";
+"scraper_no_source_message" = "スクレイピングには有効なソースが少なくとも1つ必要です。設定を開いて内蔵ソースを有効にするか、カスタムソースを読み込んでください。";
+"scraper_no_source_open_settings" = "設定を開く";
+
+/* MARK: - Focused lyric timing */
+"lyrics_editor_mode_timing" = "タイミング";
+"lyrics_editor_mode_text" = "テキスト";
+"lyrics_editor_more_actions" = "その他の操作";
+"lyrics_editor_timing_progress %lld %lld" = "%2$lld 行中 %1$lld 行に時刻あり";
+"lyrics_editor_timing_hint" = "この行が始まったらタップ · 自動で次へ";
+"lyrics_editor_timing_undo" = "1 行戻す";
+"lyrics_editor_timing_redo" = "1 行やり直す";

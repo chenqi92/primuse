@@ -2510,3 +2510,17 @@
 /* MARK: - 電台底欄 */
 "radio_buffering" = "緩衝中";
 "radio_connected_for" = "已連線時長";
+
+/* MARK: - 刮削來源未啟用提示 */
+"scraper_no_source_title" = "未啟用刮削來源";
+"scraper_no_source_message" = "刮削需要至少一個已啟用的刮削來源。請前往設定開啟內建刮削來源，或匯入自訂刮削來源。";
+"scraper_no_source_open_settings" = "前往設定";
+
+/* MARK: - 專注對時 */
+"lyrics_editor_mode_timing" = "對時";
+"lyrics_editor_mode_text" = "文字";
+"lyrics_editor_more_actions" = "更多操作";
+"lyrics_editor_timing_progress %lld %lld" = "已對時 %1$lld / %2$lld 行";
+"lyrics_editor_timing_hint" = "聽到這句就按 · 自動跳下一句";
+"lyrics_editor_timing_undo" = "退回一句";
+"lyrics_editor_timing_redo" = "重做一句";

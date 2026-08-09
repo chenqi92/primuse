@@ -48,50 +48,87 @@ private final class BufferIteratorBox: @unchecked Sendable {
     }
 }
 
-/// Async backpressure gate bounding the duration and count of decoded PCM
-/// buffers that are scheduled-but-not-yet-consumed on an `AVAudioPlayerNode`.
+/// Async backpressure gate bounding the duration, byte size, and count of
+/// decoded PCM buffers that are scheduled-but-not-yet-played by an
+/// `AVAudioPlayerNode`.
 ///
 /// Without this, `NativeAudioDecoder` yields buffers far faster than realtime
 /// playback and the whole track (plus the gapless next track) ends up resident
 /// in the node's unbounded queue — hundreds of MB for hi-res long tracks, which
 /// trips iOS jetsam during background playback.
 ///
-/// `acquire()` suspends the decoder when the duration or hard count limit is reached;
-/// `release()` (called from the node's `.dataConsumed` completion handler, which
-/// also fires on `reset()`/`stop()`) wakes the next waiter so decoding paces to
-/// playback.
+/// `acquire()` suspends the decoder when a high-water mark is reached. The
+/// matching `release()` runs from `.dataPlayedBack`, not `.dataConsumed`:
+/// AVAudioPlayerNode may consume scheduled PCM substantially before it reaches
+/// the output device, so consumed-data accounting cannot describe audible
+/// queue depth. `reset()`/`stop()` may also complete callbacks, so playback
+/// ownership is still guarded by `playID` at the service boundary.
 private actor AsyncBufferGate {
+    struct Snapshot: Sendable {
+        let bufferedDuration: TimeInterval
+        let bufferedBytes: Int
+        let bufferCount: Int
+        let decodingFinished: Bool
+    }
+
     private struct Waiter {
+        let id: UUID
         let duration: TimeInterval
+        let byteCount: Int
         let continuation: CheckedContinuation<Void, Never>
     }
 
     private let maxBufferedDuration: TimeInterval
+    private let maxBufferedBytes: Int
     private let maxBufferCount: Int
     private var inFlightDuration: TimeInterval = 0
+    private var inFlightBytes = 0
     private var inFlightCount = 0
+    private var decodingFinished = false
     private var waiters: [Waiter] = []
 
-    init(maxBufferedDuration: TimeInterval, maxBufferCount: Int) {
+    init(maxBufferedDuration: TimeInterval, maxBufferedBytes: Int, maxBufferCount: Int) {
         self.maxBufferedDuration = max(0.1, maxBufferedDuration)
+        self.maxBufferedBytes = max(1, maxBufferedBytes)
         self.maxBufferCount = max(1, maxBufferCount)
     }
 
-    func acquire(duration: TimeInterval) async {
+    func acquire(duration: TimeInterval, byteCount: Int) async {
+        guard !Task.isCancelled else { return }
         let normalizedDuration = Self.normalized(duration)
-        if canAdmit(duration: normalizedDuration) {
-            reserve(duration: normalizedDuration)
+        let normalizedByteCount = max(0, byteCount)
+        if canAdmit(duration: normalizedDuration, byteCount: normalizedByteCount) {
+            reserve(duration: normalizedDuration, byteCount: normalizedByteCount)
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(Waiter(duration: normalizedDuration, continuation: continuation))
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
+                waiters.append(Waiter(
+                    id: waiterID,
+                    duration: normalizedDuration,
+                    byteCount: normalizedByteCount,
+                    continuation: continuation
+                ))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: waiterID) }
         }
     }
 
     /// Non-suspending counterpart to `acquire()`, callable from `@Sendable`
     /// completion handlers without awaiting.
-    nonisolated func release(duration: TimeInterval) {
-        Task { await self.signal(releasing: Self.normalized(duration)) }
+    nonisolated func release(duration: TimeInterval, byteCount: Int) {
+        Task {
+            await self.signal(
+                releasing: Self.normalized(duration),
+                byteCount: max(0, byteCount)
+            )
+        }
     }
 
     private nonisolated static func normalized(_ duration: TimeInterval) -> TimeInterval {
@@ -99,38 +136,64 @@ private actor AsyncBufferGate {
         return duration
     }
 
-    private func canAdmit(duration: TimeInterval) -> Bool {
+    private func canAdmit(duration: TimeInterval, byteCount: Int) -> Bool {
         guard inFlightCount < maxBufferCount else { return false }
         // A single unusually large buffer must still be admitted or the gate
         // would deadlock before scheduling it.
-        return inFlightCount == 0 || inFlightDuration + duration <= maxBufferedDuration
+        if inFlightCount == 0 { return true }
+        return inFlightDuration + duration <= maxBufferedDuration
+            && inFlightBytes + byteCount <= maxBufferedBytes
     }
 
-    private func reserve(duration: TimeInterval) {
+    private func reserve(duration: TimeInterval, byteCount: Int) {
         inFlightCount += 1
         inFlightDuration += duration
+        inFlightBytes += byteCount
     }
 
-    private func signal(releasing duration: TimeInterval) {
+    private func signal(releasing duration: TimeInterval, byteCount: Int) {
         if inFlightCount > 0 {
             inFlightCount -= 1
             inFlightDuration = max(0, inFlightDuration - duration)
+            inFlightBytes = max(0, inFlightBytes - byteCount)
         }
 
-        while let waiter = waiters.first, canAdmit(duration: waiter.duration) {
+        while let waiter = waiters.first,
+              canAdmit(duration: waiter.duration, byteCount: waiter.byteCount) {
             waiters.removeFirst()
-            reserve(duration: waiter.duration)
+            reserve(duration: waiter.duration, byteCount: waiter.byteCount)
             waiter.continuation.resume()
         }
     }
 
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+
+    func markDecodingFinished() {
+        decodingFinished = true
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(
+            bufferedDuration: inFlightDuration,
+            bufferedBytes: inFlightBytes,
+            bufferCount: inFlightCount,
+            decodingFinished: decodingFinished
+        )
+    }
+
     /// Wakes every waiter so a cancelled decoder loop never deadlocks on the
-    /// gate even if some `.dataConsumed` callbacks were dropped.
+    /// gate even if some node completion callbacks were dropped.
     func drain() {
         let pending = waiters
         waiters.removeAll()
         inFlightCount = 0
         inFlightDuration = 0
+        inFlightBytes = 0
+        decodingFinished = true
         for waiter in pending {
             waiter.continuation.resume()
         }
@@ -148,6 +211,7 @@ private struct PCMBufferBox: @unchecked Sendable {
 private final class GaplessTransitionState: @unchecked Sendable {
     let queueGeneration: Int
     var prepared: GaplessPreparedTrack?
+    var bufferGate: AsyncBufferGate?
     var didBoundaryFire = false
     var shouldCancelPreparation = false
     var isFullyScheduled = false
@@ -824,6 +888,13 @@ final class AudioPlayerService {
     /// 完成 swap 后 isCrossfading 清零, currentTime 跟随新 primary node。
     private var isCrossfading = false
     private var playID: UUID?
+    @ObservationIgnored private var activeDecodedBufferGate: AsyncBufferGate?
+    private var activeDecodedBufferGatePlayID: UUID?
+    private var decodedBufferUnhealthySampleCount = 0
+    private var decodedBufferHealthySampleCount = 0
+    private var decodedBufferRecoveryAttempts = 0
+    private var decodedBufferRecoveryInProgress = false
+    private var lastDecodedBufferRecoveryAt: Date?
 
     private var errorDismissTask: Task<Void, Never>?
     private var shouldResumeAfterInterruption = false
@@ -852,15 +923,24 @@ final class AudioPlayerService {
     /// back to). 3s is enough that the user hears "this song stuttered"
     /// rather than a sudden cut, but short enough to feel responsive.
     private static let midStreamErrorGrace: TimeInterval = 3
-    /// Target decoded PCM duration scheduled-but-not-yet-consumed on the player
+    /// Target decoded PCM duration scheduled-but-not-yet-played on the player
     /// node. Counting buffers alone is unsafe: NativeAudioDecoder usually emits
-    /// ~0.2s chunks, while FFmpeg DTS frames can be only ~10ms. Three seconds of
-    /// duration-based lookahead keeps realtime playback resilient when metadata
-    /// scraping or artwork decoding briefly loads the cooperative executor.
-    private static let decodedAudioLookahead: TimeInterval = 3
+    /// ~0.2s chunks, while FFmpeg DTS frames can be only ~10ms. Eight seconds of
+    /// duration-based lookahead keeps realtime playback resilient when a large
+    /// queue scroll, metadata scrape, or remote artwork load briefly delays the
+    /// main-actor scheduling loop. The duration cap still bounds PCM residency.
+    private static let decodedAudioLookahead: TimeInterval = 8
+    /// Duration alone is not a memory bound for multichannel/hi-res PCM.
+    /// Keep ordinary stereo tracks at the duration watermark while capping
+    /// unusually wide or high-rate formats to a predictable resident size.
+    private static let maxInFlightDecodedBytes = 32 * 1024 * 1024
     /// Hard cap for pathological tiny/invalid buffers. Duration remains the
     /// primary bound, so normal PCM residency stays around the lookahead window.
     private static let maxInFlightDecodedBufferCount = 384
+    private static let decodedBufferEmptyThreshold: TimeInterval = 0.05
+    private static let requiredDecodedBufferUnhealthySamples = 3
+    private static let maxDecodedBufferRecoveryAttempts = 2
+    private static let decodedBufferRecoveryCooldown: TimeInterval = 8
 
     private static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
         let sampleRate = buffer.format.sampleRate
@@ -870,6 +950,55 @@ final class AudioPlayerService {
             return decodedAudioLookahead / 16
         }
         return Double(buffer.frameLength) / sampleRate
+    }
+
+    private static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        let reportedBytes = audioBuffers.reduce(into: 0) {
+            $0 += Int($1.mDataByteSize)
+        }
+        if reportedBytes > 0 { return reportedBytes }
+
+        // Some decoder/converter combinations leave mDataByteSize at zero
+        // even though frameLength is valid. Preserve the byte watermark by
+        // deriving the PCM footprint from the stream description instead of
+        // silently falling back to duration-only admission.
+        let bytesPerFrame = Int(buffer.format.streamDescription.pointee.mBytesPerFrame)
+        return Int(buffer.frameLength) * bytesPerFrame * max(1, audioBuffers.count)
+    }
+
+    private func scheduleTrackedDecodedBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        onCrossfadeNode: Bool = false,
+        gate: AsyncBufferGate
+    ) async {
+        let bufferedDuration = Self.decodedBufferDuration(buffer)
+        let bufferedByteCount = Self.decodedBufferByteCount(buffer)
+        await gate.acquire(
+            duration: bufferedDuration,
+            byteCount: bufferedByteCount
+        )
+        guard !Task.isCancelled else { return }
+
+        let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { _ in
+            gate.release(
+                duration: bufferedDuration,
+                byteCount: bufferedByteCount
+            )
+        }
+        if onCrossfadeNode {
+            audioEngine.scheduleCrossfadeBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        } else {
+            audioEngine.scheduleBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        }
     }
     private static let firstBufferTimeoutSeconds = 35
     private static let remoteFallbackFirstBufferTimeoutSeconds = 60
@@ -1189,18 +1318,34 @@ final class AudioPlayerService {
 
         manager.onConfigurationChange = { [weak self] in
             guard let self, self.currentSong != nil else { return }
+            // MusicKit, radio, casting, and AVPlayer own their route recovery.
+            // Restarting the dormant local engine here would overwrite their
+            // visible playing state after an otherwise successful route change.
+            guard !self.isAppleMusicMode,
+                  !self.isLiveRadio,
+                  !self.isCastingMode,
+                  !self.isMusicVideoPlaybackActive else { return }
             let shouldAutoResume = self.isPlaying || self.shouldResumeAfterInterruption
             self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = self.needsPlaybackRecovery || shouldAutoResume
 
-            if self.isMusicVideoPlaybackActive { return }
-
             guard shouldAutoResume else { return }
-            // Engine was stopped due to config change — restart it if possible, and
-            // rebuild the player pipeline on the next resume/play if buffers were lost.
-            if !self.audioEngine.restartIfNeeded() {
+            // The route interruption already decided that playback should resume.
+            // Restart the local graph, then mirror only an actual engine success
+            // back into UI, Now Playing, and the progress timer.
+            let didRestart = self.audioEngine.restartIfNeeded()
+            if AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
+                playbackWasIntended: shouldAutoResume,
+                engineRestarted: didRestart
+            ) {
+                self.isPlaying = true
+                self.clearPendingPlaybackRecovery()
+                self.startTimeUpdater()
+                self.updateNowPlayingInfo()
+                self.updatePlaybackState()
+            } else {
                 self.isPlaying = false
                 self.stopTimeUpdater()
                 self.updateNowPlayingInfo()
@@ -1675,6 +1820,7 @@ final class AudioPlayerService {
 
         let id = UUID()
         playID = id
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         clearPendingPlaybackRecovery()
         radioReconnectTask?.cancel()
@@ -1916,6 +2062,7 @@ final class AudioPlayerService {
     ) {
         let gate = AsyncBufferGate(
             maxBufferedDuration: Self.decodedAudioLookahead,
+            maxBufferedBytes: Self.maxInFlightDecodedBytes,
             maxBufferCount: Self.maxInFlightDecodedBufferCount
         )
         decodingTask = Task { [weak self, iterator, source, gate] in
@@ -1932,14 +2079,23 @@ final class AudioPlayerService {
                           self.radioLiveStreamSource === source else { return }
                     if let previous = lastBuffer {
                         let bufferedDuration = Self.decodedBufferDuration(previous)
-                        await gate.acquire(duration: bufferedDuration)
+                        let bufferedByteCount = Self.decodedBufferByteCount(previous)
+                        await gate.acquire(
+                            duration: bufferedDuration,
+                            byteCount: bufferedByteCount
+                        )
                         guard !Task.isCancelled,
                               self.playID == id,
                               self.currentRadioStation?.id == station.id else { return }
                         self.audioEngine.scheduleBuffer(
                             previous,
-                            completionCallbackType: .dataConsumed
-                        ) { _ in gate.release(duration: bufferedDuration) }
+                            completionCallbackType: .dataPlayedBack
+                        ) { _ in
+                            gate.release(
+                                duration: bufferedDuration,
+                                byteCount: bufferedByteCount
+                            )
+                        }
                     }
                     lastBuffer = buffer
                 }
@@ -2161,6 +2317,7 @@ final class AudioPlayerService {
         }
         let id = UUID()
         playID = id
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
         clearPendingPlaybackRecovery()
@@ -2602,6 +2759,7 @@ final class AudioPlayerService {
         // 仍会把 currentSong 改回 Apple Music 那首。
         let id = UUID()
         playID = id
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
         clearPendingPlaybackRecovery()
@@ -2907,7 +3065,17 @@ final class AudioPlayerService {
             plog("▶️ Decoder firstBuffer: kind=\(activeDecoderKind) frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
             plog("▶️ Engine state: outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount) mainVol=\(audioEngine.volume)")
             plog("▶️ Engine diagnostics: \(audioEngine.diagnosticInfo())")
-            audioEngine.scheduleBuffer(firstBuffer)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferedBytes: Self.maxInFlightDecodedBytes,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
+            await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
+            guard !Task.isCancelled, playID == id else {
+                await gate.drain()
+                return
+            }
+            installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
             let didStartPlayback = audioEngine.play()
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
@@ -2976,10 +3144,6 @@ final class AudioPlayerService {
             prefetchNextSong()
 
             // Decode remaining buffers in background task (hold-last for completion callback)
-            let gate = AsyncBufferGate(
-                maxBufferedDuration: Self.decodedAudioLookahead,
-                maxBufferCount: Self.maxInFlightDecodedBufferCount
-            )
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
@@ -2995,12 +3159,21 @@ final class AudioPlayerService {
                             // is full so resident PCM tracks playback instead of
                             // the whole track piling into the node's unbounded queue.
                             let bufferedDuration = Self.decodedBufferDuration(prev)
-                            await gate.acquire(duration: bufferedDuration)
+                            let bufferedByteCount = Self.decodedBufferByteCount(prev)
+                            await gate.acquire(
+                                duration: bufferedDuration,
+                                byteCount: bufferedByteCount
+                            )
                             guard !Task.isCancelled, self.playID == id else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
-                                completionCallbackType: .dataConsumed
-                            ) { _ in gate.release(duration: bufferedDuration) }
+                                completionCallbackType: .dataPlayedBack
+                            ) { _ in
+                                gate.release(
+                                    duration: bufferedDuration,
+                                    byteCount: bufferedByteCount
+                                )
+                            }
                             scheduledCount += 1
                         }
                         lastBuffer = buffer
@@ -3096,6 +3269,9 @@ final class AudioPlayerService {
             resumeTime
         ))
 
+        decodingTask?.cancel()
+        decodingTask = nil
+        resetDecodedBufferHealth(resetRecoveryAttempts: false)
         audioEngine.stopPlayback()
         stopTimeUpdater()
         isPlaying = false
@@ -3118,7 +3294,7 @@ final class AudioPlayerService {
                 ? .ffmpeg
                 : .native
             plog("↳ remote playback recovered from complete local cache; resuming at \(String(format: "%.2f", resumeTime))s")
-            self.seek(to: resumeTime, startPlaying: true)
+            self.seek(to: resumeTime, startPlaying: true, isRecovery: true)
         }
     }
 
@@ -3155,7 +3331,17 @@ final class AudioPlayerService {
             plog("🌊 StreamingDownload firstBuffer: frames=\(firstBuffer.frameLength) sr=\(firstBuffer.format.sampleRate)")
             plog("🌊 Engine diagnostics before play: \(audioEngine.diagnosticInfo())")
             activeDecoderKind = .streaming
-            audioEngine.scheduleBuffer(firstBuffer)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferedBytes: Self.maxInFlightDecodedBytes,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
+            await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
+            guard !Task.isCancelled, playID == id else {
+                await gate.drain()
+                return
+            }
+            installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
             let didStartPlayback = audioEngine.play()
             plog("🌊 Engine diagnostics after play: \(audioEngine.diagnosticInfo())")
@@ -3195,10 +3381,6 @@ final class AudioPlayerService {
             prefetchNextSong()
 
             // Decode remaining buffers
-            let gate = AsyncBufferGate(
-                maxBufferedDuration: Self.decodedAudioLookahead,
-                maxBufferCount: Self.maxInFlightDecodedBufferCount
-            )
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
@@ -3208,12 +3390,21 @@ final class AudioPlayerService {
                         guard !Task.isCancelled, self.playID == id else { return }
                         if let prev = lastBuffer {
                             let bufferedDuration = Self.decodedBufferDuration(prev)
-                            await gate.acquire(duration: bufferedDuration)
+                            let bufferedByteCount = Self.decodedBufferByteCount(prev)
+                            await gate.acquire(
+                                duration: bufferedDuration,
+                                byteCount: bufferedByteCount
+                            )
                             guard !Task.isCancelled, self.playID == id else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
-                                completionCallbackType: .dataConsumed
-                            ) { _ in gate.release(duration: bufferedDuration) }
+                                completionCallbackType: .dataPlayedBack
+                            ) { _ in
+                                gate.release(
+                                    duration: bufferedDuration,
+                                    byteCount: bufferedByteCount
+                                )
+                            }
                             scheduledCount += 1
                         }
                         lastBuffer = buffer
@@ -3702,7 +3893,17 @@ final class AudioPlayerService {
                 }
                 plog("↳ AssetReader firstBuffer maxSample=\(maxSample) (0 = silence/broken)")
             }
-            audioEngine.scheduleBuffer(firstBuffer)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferedBytes: Self.maxInFlightDecodedBytes,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
+            await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
+            guard !Task.isCancelled, playID == id else {
+                await gate.drain()
+                return
+            }
+            installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
             let didStartPlayback = audioEngine.play()
 
@@ -3758,10 +3959,6 @@ final class AudioPlayerService {
             }
 
             // Decode remaining buffers with track-end detection
-            let gate = AsyncBufferGate(
-                maxBufferedDuration: Self.decodedAudioLookahead,
-                maxBufferCount: Self.maxInFlightDecodedBufferCount
-            )
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 defer { Task { await gate.drain() } }
@@ -3772,12 +3969,21 @@ final class AudioPlayerService {
 
                         if let prev = lastBuffer {
                             let bufferedDuration = Self.decodedBufferDuration(prev)
-                            await gate.acquire(duration: bufferedDuration)
+                            let bufferedByteCount = Self.decodedBufferByteCount(prev)
+                            await gate.acquire(
+                                duration: bufferedDuration,
+                                byteCount: bufferedByteCount
+                            )
                             guard !Task.isCancelled, self.playID == id else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
-                                completionCallbackType: .dataConsumed
-                            ) { _ in gate.release(duration: bufferedDuration) }
+                                completionCallbackType: .dataPlayedBack
+                            ) { _ in
+                                gate.release(
+                                    duration: bufferedDuration,
+                                    byteCount: bufferedByteCount
+                                )
+                            }
                         }
                         lastBuffer = buffer
                     }
@@ -4260,6 +4466,7 @@ final class AudioPlayerService {
         appleMusicCastingHandoffController = nil
         appleMusicCastingHandoffRenderer = nil
         playID = UUID()
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
@@ -4425,6 +4632,7 @@ final class AudioPlayerService {
     func stop() {
         if isLiveRadio {
             playID = UUID()
+            resetDecodedBufferHealth(resetRecoveryAttempts: true)
             stopRadioTransport(clearSelection: true)
             queueEntries = []
             clearNowPlayingInfo()
@@ -4433,6 +4641,7 @@ final class AudioPlayerService {
         }
         let stopOwnerID = UUID()
         playID = stopOwnerID
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         prefetchTask?.cancel()
         prefetchTask = nil
@@ -4506,6 +4715,7 @@ final class AudioPlayerService {
         ) {
             playID = UUID()
         }
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
 
         // 自然播完一首歌, 触发 finalize —— 这是 .partial → final 最关键的
         // 时机, 用户期望「听完一整首」就该是完整缓存。
@@ -4711,6 +4921,7 @@ final class AudioPlayerService {
         // their guard check and won't trigger handleTrackEnd() → next().
         let id = UUID()
         playID = id
+        resetDecodedBufferHealth(resetRecoveryAttempts: !isRecovery)
 
         // Stop only the playerNode, not the full pipeline — preserve Live Activity,
         // currentSong, and other state that stop() would tear down.
@@ -4964,7 +5175,17 @@ final class AudioPlayerService {
                 }
                 guard playID == id else { return }
 
-                audioEngine.scheduleBuffer(firstBuffer)
+                let gate = AsyncBufferGate(
+                    maxBufferedDuration: Self.decodedAudioLookahead,
+                    maxBufferedBytes: Self.maxInFlightDecodedBytes,
+                    maxBufferCount: Self.maxInFlightDecodedBufferCount
+                )
+                await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
+                guard !Task.isCancelled, playID == id else {
+                    await gate.drain()
+                    return
+                }
+                installDecodedBufferGate(gate, playID: id)
                 hasPreparedLocalPlayback = true
                 let didStartPlayback = shouldStartPlaying ? audioEngine.play() : false
 
@@ -4986,10 +5207,6 @@ final class AudioPlayerService {
                 updatePlaybackState()
 
                 // Decode remaining buffers with track-end detection
-                let gate = AsyncBufferGate(
-                    maxBufferedDuration: Self.decodedAudioLookahead,
-                    maxBufferCount: Self.maxInFlightDecodedBufferCount
-                )
                 decodingTask = Task { [id, iteratorBox, gate] in
                     var lastBuffer: AVAudioPCMBuffer?
                     defer { Task { await gate.drain() } }
@@ -5000,12 +5217,21 @@ final class AudioPlayerService {
 
                             if let prev = lastBuffer {
                                 let bufferedDuration = Self.decodedBufferDuration(prev)
-                                await gate.acquire(duration: bufferedDuration)
+                                let bufferedByteCount = Self.decodedBufferByteCount(prev)
+                                await gate.acquire(
+                                    duration: bufferedDuration,
+                                    byteCount: bufferedByteCount
+                                )
                                 guard !Task.isCancelled, self.playID == id else { return }
                                 self.audioEngine.scheduleBuffer(
                                     prev,
-                                    completionCallbackType: .dataConsumed
-                                ) { _ in gate.release(duration: bufferedDuration) }
+                                    completionCallbackType: .dataPlayedBack
+                                ) { _ in
+                                    gate.release(
+                                        duration: bufferedDuration,
+                                        byteCount: bufferedByteCount
+                                    )
+                                }
                             }
                             lastBuffer = buffer
                         }
@@ -5369,6 +5595,10 @@ final class AudioPlayerService {
         guard playID == id else { return }
 
         let activatedSong = songRefreshingLatestDuration(prepared.song)
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
+        if let gate = completedTransition.bufferGate {
+            installDecodedBufferGate(gate, playID: id)
+        }
 
         if let previous = currentSong {
             sourceManager?.finalizeStreamingSession(for: previous)
@@ -5496,6 +5726,7 @@ final class AudioPlayerService {
         // double the resident PCM alongside the song that's still playing.
         let gate = AsyncBufferGate(
             maxBufferedDuration: Self.decodedAudioLookahead,
+            maxBufferedBytes: Self.maxInFlightDecodedBytes,
             maxBufferCount: Self.maxInFlightDecodedBufferCount
         )
         defer { Task { await gate.drain() } }
@@ -5503,6 +5734,7 @@ final class AudioPlayerService {
         func markPreparedIfNeeded() {
             guard !didMarkPrepared else { return }
             didMarkPrepared = true
+            transition.bufferGate = gate
             transition.prepared = GaplessPreparedTrack(
                 song: nextSong,
                 url: nextURL,
@@ -5521,15 +5753,24 @@ final class AudioPlayerService {
 
                 if let prev = lastBuffer {
                     let bufferedDuration = Self.decodedBufferDuration(prev)
-                    await gate.acquire(duration: bufferedDuration)
+                    let bufferedByteCount = Self.decodedBufferByteCount(prev)
+                    await gate.acquire(
+                        duration: bufferedDuration,
+                        byteCount: bufferedByteCount
+                    )
                     guard !Task.isCancelled,
                           playID == id,
                           queueGeneration == transition.queueGeneration,
                           !transition.shouldCancelPreparation else { return }
                     audioEngine.scheduleBuffer(
                         prev,
-                        completionCallbackType: .dataConsumed
-                    ) { _ in gate.release(duration: bufferedDuration) }
+                        completionCallbackType: .dataPlayedBack
+                    ) { _ in
+                        gate.release(
+                            duration: bufferedDuration,
+                            byteCount: bufferedByteCount
+                        )
+                    }
                     markPreparedIfNeeded()
                 }
                 lastBuffer = buffer
@@ -5824,6 +6065,7 @@ final class AudioPlayerService {
                 decoderKind: nextDecoderKind
             )
             playID = nextPlayID
+            resetDecodedBufferHealth(resetRecoveryAttempts: true)
 
             // 解码就绪, 现在才把 UI/索引/scrobble 切到下一首 —— 用户听到 next
             // 淡入接管, 看到的也跟着切。
@@ -5842,17 +6084,30 @@ final class AudioPlayerService {
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
 
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferedBytes: Self.maxInFlightDecodedBytes,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
             if secondBuffer == nil {
                 scheduleCrossfadeFinalBuffer(firstBuffer, playID: nextPlayID)
             } else {
-                audioEngine.scheduleCrossfadeBuffer(firstBuffer)
+                await scheduleTrackedDecodedBuffer(
+                    firstBuffer,
+                    onCrossfadeNode: true,
+                    gate: gate
+                )
+                guard !Task.isCancelled,
+                      playID == nextPlayID,
+                      crossfadeAttemptID == attemptID,
+                      committedCrossfade?.playID == nextPlayID else {
+                    await gate.drain()
+                    return
+                }
             }
+            installDecodedBufferGate(gate, playID: nextPlayID)
             audioEngine.playCrossfadeNode()
 
-            let gate = AsyncBufferGate(
-                maxBufferedDuration: Self.decodedAudioLookahead,
-                maxBufferCount: Self.maxInFlightDecodedBufferCount
-            )
             crossfadeStartupTask = nil
             crossfadeDecodingTask = Task { [iteratorBox, gate] in
                 var lastBuffer = secondBuffer
@@ -5863,7 +6118,11 @@ final class AudioPlayerService {
                         guard !Task.isCancelled else { return }
                         if let previous = lastBuffer {
                             let bufferedDuration = Self.decodedBufferDuration(previous)
-                            await gate.acquire(duration: bufferedDuration)
+                            let bufferedByteCount = Self.decodedBufferByteCount(previous)
+                            await gate.acquire(
+                                duration: bufferedDuration,
+                                byteCount: bufferedByteCount
+                            )
                             guard !Task.isCancelled, self.playID == nextPlayID else { return }
                             // swap 之后, 这个解码任务投递的物理节点已经变成
                             // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
@@ -5871,13 +6130,23 @@ final class AudioPlayerService {
                             if self.crossfadeSwapDone {
                                 self.audioEngine.scheduleBuffer(
                                     previous,
-                                    completionCallbackType: .dataConsumed
-                                ) { _ in gate.release(duration: bufferedDuration) }
+                                    completionCallbackType: .dataPlayedBack
+                                ) { _ in
+                                    gate.release(
+                                        duration: bufferedDuration,
+                                        byteCount: bufferedByteCount
+                                    )
+                                }
                             } else {
                                 self.audioEngine.scheduleCrossfadeBuffer(
                                     previous,
-                                    completionCallbackType: .dataConsumed
-                                ) { _ in gate.release(duration: bufferedDuration) }
+                                    completionCallbackType: .dataPlayedBack
+                                ) { _ in
+                                    gate.release(
+                                        duration: bufferedDuration,
+                                        byteCount: bufferedByteCount
+                                    )
+                                }
                             }
                         }
                         lastBuffer = buffer
@@ -6113,6 +6382,155 @@ final class AudioPlayerService {
         }
     }
 
+    // MARK: - Decoded Buffer Health
+
+    private func resetDecodedBufferHealth(resetRecoveryAttempts: Bool) {
+        activeDecodedBufferGate = nil
+        activeDecodedBufferGatePlayID = nil
+        decodedBufferUnhealthySampleCount = 0
+        decodedBufferHealthySampleCount = 0
+        decodedBufferRecoveryInProgress = false
+        if resetRecoveryAttempts {
+            decodedBufferRecoveryAttempts = 0
+            lastDecodedBufferRecoveryAt = nil
+        }
+    }
+
+    private func installDecodedBufferGate(_ gate: AsyncBufferGate, playID id: UUID) {
+        guard playID == id else { return }
+        activeDecodedBufferGate = gate
+        activeDecodedBufferGatePlayID = id
+        decodedBufferUnhealthySampleCount = 0
+        decodedBufferHealthySampleCount = 0
+        decodedBufferRecoveryInProgress = false
+    }
+
+    private func sampleDecodedBufferHealth() async {
+        guard let gate = activeDecodedBufferGate,
+              let gatePlayID = activeDecodedBufferGatePlayID,
+              playID == gatePlayID,
+              !isLiveRadio,
+              !isAppleMusicMode,
+              !isCastingMode,
+              !isMusicVideoPlaybackActive else {
+            decodedBufferUnhealthySampleCount = 0
+            return
+        }
+
+        let snapshot = await gate.snapshot()
+        guard playID == gatePlayID, activeDecodedBufferGate === gate else { return }
+
+        let queueIsEmpty = snapshot.bufferCount == 0
+            && snapshot.bufferedDuration <= Self.decodedBufferEmptyThreshold
+        let isUnhealthy = !snapshot.decodingFinished
+            && (!audioEngine.isActuallyPlaying || queueIsEmpty)
+        if isUnhealthy {
+            decodedBufferUnhealthySampleCount += 1
+            decodedBufferHealthySampleCount = 0
+        } else {
+            decodedBufferUnhealthySampleCount = 0
+            if isPlaying, !snapshot.decodingFinished {
+                decodedBufferHealthySampleCount += 1
+                // A full minute of healthy output starts a fresh recovery
+                // budget for long-running queues without letting a tight
+                // failure loop rebuild the same pipeline forever.
+                if decodedBufferHealthySampleCount >= 120 {
+                    decodedBufferHealthySampleCount = 0
+                    decodedBufferRecoveryAttempts = 0
+                    lastDecodedBufferRecoveryAt = nil
+                }
+            }
+        }
+
+        let cooldownElapsed = lastDecodedBufferRecoveryAt.map {
+            Date().timeIntervalSince($0)
+        } ?? .greatestFiniteMagnitude
+        let action = DecodedBufferHealthPolicy.action(
+            isPlaying: isPlaying,
+            hasPreparedAudio: hasPreparedLocalPlayback,
+            isLoading: isLoading,
+            isTransitioning: isCrossfading,
+            engineIsPlaying: audioEngine.isActuallyPlaying,
+            decoderFinished: snapshot.decodingFinished,
+            bufferedDuration: snapshot.bufferedDuration,
+            bufferCount: snapshot.bufferCount,
+            emptyDurationThreshold: Self.decodedBufferEmptyThreshold,
+            consecutiveUnhealthySamples: decodedBufferUnhealthySampleCount,
+            requiredUnhealthySamples: Self.requiredDecodedBufferUnhealthySamples,
+            recoveryInProgress: decodedBufferRecoveryInProgress,
+            recoveryAttempts: decodedBufferRecoveryAttempts,
+            maximumRecoveryAttempts: Self.maxDecodedBufferRecoveryAttempts,
+            cooldownElapsed: cooldownElapsed,
+            minimumCooldown: Self.decodedBufferRecoveryCooldown
+        )
+
+        switch action {
+        case .none:
+            return
+        case .rebuildPipeline:
+            recoverDecodedBufferUnderflow(snapshot: snapshot, playID: gatePlayID)
+        case .stopPlayback:
+            stopAfterRepeatedDecodedBufferUnderflow(snapshot: snapshot, playID: gatePlayID)
+        }
+    }
+
+    private func recoverDecodedBufferUnderflow(
+        snapshot: AsyncBufferGate.Snapshot,
+        playID id: UUID
+    ) {
+        guard playID == id,
+              let song = currentSong,
+              !decodedBufferRecoveryInProgress else { return }
+
+        decodedBufferRecoveryInProgress = true
+        decodedBufferRecoveryAttempts += 1
+        decodedBufferUnhealthySampleCount = 0
+        lastDecodedBufferRecoveryAt = Date()
+        syncPlaybackProgressFromEngine()
+        let resumeTime = max(0, currentTime - 0.25)
+        plog(String(
+            format: "⚠️ decoded-audio underflow: attempt=%d enginePlaying=%d queued=%.3fs/%dB/%d buffers at %.2fs; rebuilding",
+            decodedBufferRecoveryAttempts,
+            audioEngine.isActuallyPlaying ? 1 : 0,
+            snapshot.bufferedDuration,
+            snapshot.bufferedBytes,
+            snapshot.bufferCount,
+            resumeTime
+        ))
+
+        if playbackSettings.audioCacheEnabled,
+           activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream {
+            beginRemoteMidStreamRecovery(song: song, playID: id)
+        } else {
+            seek(to: resumeTime, startPlaying: true, isRecovery: true)
+        }
+    }
+
+    private func stopAfterRepeatedDecodedBufferUnderflow(
+        snapshot: AsyncBufferGate.Snapshot,
+        playID id: UUID
+    ) {
+        guard playID == id else { return }
+        plog(String(
+            format: "🛑 decoded-audio underflow persisted after recovery: queued=%.3fs/%dB/%d buffers",
+            snapshot.bufferedDuration,
+            snapshot.bufferedBytes,
+            snapshot.bufferCount
+        ))
+        decodingTask?.cancel()
+        decodingTask = nil
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        isPlaying = false
+        isLoading = false
+        needsPlaybackRecovery = true
+        pendingRecoveryTime = currentTime
+        stopTimeUpdater()
+        showPlaybackError(String(localized: "playback_error_connection"))
+        updateNowPlayingInfo()
+        updatePlaybackState()
+    }
+
     // MARK: - Time Updates
 
     /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
@@ -6122,7 +6540,7 @@ final class AudioPlayerService {
         stopTimeUpdater()
         lastEngineProgressSample = nil
         nearEndStallSampleCount = 0
-        displayLink = Timer.scheduledTimer(withTimeInterval: Self.timeUpdateInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.timeUpdateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isLiveRadio {
@@ -6176,10 +6594,18 @@ final class AudioPlayerService {
                     // PlayHistoryStore.tick 维护的是 position high-water mark, 仍传 currentTime。
                     ScrobbleService.shared.handleProgressTick(playedDelta: Self.timeUpdateInterval); PlayHistoryStore.shared.tick(elapsed: self.currentTime)
                 }
+                await self.sampleDecodedBufferHealth()
                 // Check if crossfade should start
                 self.checkCrossfade()
             }
         }
+        // A scheduled timer is installed in the default run-loop mode, which
+        // pauses while a SwiftUI List/ScrollView is tracking a drag. Keep the
+        // playback clock in the common modes so scrolling a large queue cannot
+        // freeze progress, lyrics, Now Playing, or the end-of-track watchdog
+        // while the render thread continues producing audio.
+        RunLoop.main.add(timer, forMode: .common)
+        displayLink = timer
     }
 
     private func stopTimeUpdater() {

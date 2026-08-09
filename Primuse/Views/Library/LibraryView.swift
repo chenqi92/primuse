@@ -587,7 +587,7 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 NavigationLink(value: LibrarySection.radio) {
-                    Text("radio_add")
+                    Text("radio_manage")
                 }
                 .buttonStyle(.bordered)
             }

@@ -2533,3 +2533,17 @@
 /* MARK: - Radio-Leiste */
 "radio_buffering" = "PUFFERT";
 "radio_connected_for" = "Verbunden seit";
+
+/* MARK: - No scraper source enabled */
+"scraper_no_source_title" = "Keine Scraper-Quelle aktiviert";
+"scraper_no_source_message" = "Zum Scrapen wird mindestens eine aktivierte Quelle benötigt. Aktiviere in den Einstellungen eine integrierte Scraper-Quelle oder importiere eine eigene.";
+"scraper_no_source_open_settings" = "Einstellungen öffnen";
+
+/* MARK: - Fokussiertes Timing */
+"lyrics_editor_mode_timing" = "Timing";
+"lyrics_editor_mode_text" = "Text";
+"lyrics_editor_more_actions" = "Weitere Aktionen";
+"lyrics_editor_timing_progress %lld %lld" = "%1$lld von %2$lld Zeilen getimt";
+"lyrics_editor_timing_hint" = "Beim Zeilenbeginn tippen · springt automatisch weiter";
+"lyrics_editor_timing_undo" = "Zeile zurück";
+"lyrics_editor_timing_redo" = "Zeile wiederholen";

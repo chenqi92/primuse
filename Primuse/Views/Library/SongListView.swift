@@ -163,6 +163,7 @@ struct SongListView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     /// Keep only a lightweight scope in the view identity. Storing `[Song]`
     /// here made SwiftUI/AttributeGraph compare every Song (including its full
     /// lyricsText) whenever an ancestor refreshed.
@@ -175,6 +176,7 @@ struct SongListView: View {
     @State private var isListInteracting = false
     @State private var pendingSnapshot: SongListSnapshot?
     @State private var pendingSnapshotResetsPresentation = false
+    @State private var showNoScraperSourceAlert = false
     #if os(macOS)
     @State private var macViewMode: MacSongsViewMode = .list
     @State private var macRowDensity: MacSongsRowDensity = .standard
@@ -363,6 +365,7 @@ struct SongListView: View {
                 Text(exportError ?? "")
             }
             #endif
+            .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
     }
 
     private var songs: [Song] {
@@ -1150,6 +1153,10 @@ struct SongListView: View {
                       title: String(localized: "scrape_missing_metadata"),
                       trailing: visibleIDs.count.formatted(),
                       enabled: !visibleIDs.isEmpty && !scraperService.isScraping) {
+                    guard scraperSettings.hasEnabledSource else {
+                        showNoScraperSourceAlert = true
+                        return
+                    }
                     scraperService.scrapeMissingMetadata(songs: materializeVisible(), in: library)
                 },
                 .init(icon: "square.and.arrow.up",

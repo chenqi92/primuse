@@ -6,8 +6,8 @@ import UIKit
 import AppKit
 #endif
 
-/// 结构化歌词编辑器。逐行编辑 + 边听边打轴 + 整体偏移,替代原来在标签编辑器里
-/// 那个塞在 Form 中的固定高度 TextEditor。
+/// 歌词编辑器。把“整理文本”和“逐句打轴”拆成两个任务模式；LRC/ELRC 源码
+/// 仍保留为进阶入口，避免把格式细节摆在主流程里。
 ///
 /// 真相仍然是 `text` 这个字符串 ── 保存 / 校验 / 写回音乐源的整条链路都在
 /// `TagEditorView` 里以文本为单位工作,这里只是它的一个结构化视图层:进入时
@@ -25,10 +25,12 @@ struct LyricsEditorView: View {
 
     @State private var document: LyricsEditorDocument
     @State private var originalDocument: LyricsEditorDocument
-    @State private var mode: Mode = .structured
+    @State private var mode: Mode = .text
     @State private var sourceText: String
+    @State private var sourceBaselineText = ""
+    @State private var showSourceEditor = false
     @State private var playbackTime: TimeInterval = 0
-    @State private var isTapSyncing = false
+    @State private var timingSession: LyricsTimingSession
     @State private var showShiftPanel = false
     @State private var showUnstampedWarning = false
     /// 整体偏移用"基线 + 待定量"模型:每次都从基线重算,而不是在当前值上累加。
@@ -48,7 +50,7 @@ struct LyricsEditorView: View {
     @FocusState private var focusedLine: UUID?
     @FocusState private var liveDraftFocused: Bool
 
-    enum Mode { case structured, source }
+    enum Mode { case timing, text }
 
     init(song: Song, text: Binding<String>, onCommit: ((String) -> Void)? = nil) {
         self.song = song
@@ -58,6 +60,7 @@ struct LyricsEditorView: View {
         _document = State(initialValue: parsed)
         _originalDocument = State(initialValue: parsed)
         _sourceText = State(initialValue: text.wrappedValue)
+        _timingSession = State(initialValue: LyricsTimingSession(document: parsed))
     }
 
     var body: some View {
@@ -88,7 +91,23 @@ struct LyricsEditorView: View {
                     }
                     ToolbarItem(placement: .principal) { modePicker }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(String(localized: "done")) { requestCommit() }
+                        HStack(spacing: 14) {
+                            Menu {
+                                Button {
+                                    openSourceEditor()
+                                } label: {
+                                    Label(
+                                        String(localized: "lyrics_editor_mode_source"),
+                                        systemImage: "chevron.left.forwardslash.chevron.right"
+                                    )
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                            }
+                            .accessibilityLabel(String(localized: "lyrics_editor_more_actions"))
+
+                            Button(String(localized: "done")) { requestCommit() }
+                        }
                     }
                     ToolbarItemGroup(placement: .keyboard) {
                         Spacer()
@@ -103,6 +122,7 @@ struct LyricsEditorView: View {
             titleVisibility: .visible
         ) { unstampedWarningActions } message: { unstampedWarningMessage }
         .sheet(isPresented: $showShiftPanel) { shiftPanel }
+        .sheet(isPresented: $showSourceEditor) { sourceEditorSheet }
     }
     #endif
 
@@ -114,6 +134,14 @@ struct LyricsEditorView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
+                Button {
+                    openSourceEditor()
+                } label: {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "lyrics_editor_mode_source"))
                 modePicker
                     .frame(width: 190)
             }
@@ -164,6 +192,7 @@ struct LyricsEditorView: View {
             titleVisibility: .visible
         ) { unstampedWarningActions } message: { unstampedWarningMessage }
         .sheet(isPresented: $showShiftPanel) { shiftPanel }
+        .sheet(isPresented: $showSourceEditor) { sourceEditorSheet }
     }
     #endif
 
@@ -175,20 +204,19 @@ struct LyricsEditorView: View {
                 pasteReviewStack(draft)
             } else if isLiveWriting {
                 liveWritingStack
-            } else if document.lines.isEmpty, mode == .structured {
+            } else if document.lines.isEmpty {
                 emptyLyricsStack
             } else {
-                transportBar
-                Divider()
-
                 switch mode {
-                case .structured:
+                case .timing:
+                    timingStack
+                case .text:
+                    transportBar
+                    Divider()
                     textToolbar
                     Divider()
                     lineList
                     bottomBar
-                case .source:
-                    sourceEditor
                 }
             }
         }
@@ -264,6 +292,7 @@ struct LyricsEditorView: View {
                     title: String(localized: "lyrics_editor_empty_manual"),
                     subtitle: String(localized: "lyrics_editor_empty_manual_detail")
                 ) {
+                    mode = .text
                     let id = document.insertLine(at: 0)
                     focusedLine = id
                 }
@@ -451,12 +480,20 @@ struct LyricsEditorView: View {
     }
 
     private func acceptPasteDraft(_ draft: LyricsTextTools.SplitResult) {
-        document = LyricsEditorDocument(
-            metadataLines: document.metadataLines,
-            lines: draft.lines.map { EditableLyricLine(timestamp: nil, text: $0) }
-        )
+        let pasted = LyricsEditorDocument(parsing: draft.lines.joined(separator: "\n"))
+        if pasted.stampedCount > 0 || !pasted.metadataLines.isEmpty {
+            // 已经是 LRC / ELRC 时沿用其中的时间轴和元数据；把整行当纯文本再打轴
+            // 会写出 `[新时间][原时间]正文`，播放侧会展开成重复歌词。
+            document = pasted
+        } else {
+            document = LyricsEditorDocument(
+                metadataLines: document.metadataLines,
+                lines: pasted.lines
+            )
+        }
         sourceText = document.serialized()
         pasteDraft = nil
+        mode = .text
     }
 
     // MARK: - 边听边写
@@ -590,6 +627,7 @@ struct LyricsEditorView: View {
         isLiveWriting = false
         liveDraftFocused = false
         sourceText = document.serialized()
+        mode = .text
     }
 
     // MARK: - 整篇文本操作
@@ -697,26 +735,23 @@ struct LyricsEditorView: View {
 
     private var modePicker: some View {
         Picker("", selection: modeBinding) {
-            Text(String(localized: "lyrics_editor_mode_structured")).tag(Mode.structured)
-            Text(String(localized: "lyrics_editor_mode_source")).tag(Mode.source)
+            Text(String(localized: "lyrics_editor_mode_timing")).tag(Mode.timing)
+            Text(String(localized: "lyrics_editor_mode_text")).tag(Mode.text)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
     }
 
-    /// 切模式时把当前模式的内容同步过去,否则在源码里改完切回来会看到旧数据。
     private var modeBinding: Binding<Mode> {
         Binding(
             get: { mode },
             set: { newMode in
                 guard newMode != mode else { return }
-                switch newMode {
-                case .source:
-                    sourceText = document.serialized()
-                case .structured:
-                    document = LyricsEditorDocument(parsing: sourceText)
+                if newMode == .timing {
+                    focusedLine = nil
+                    prepareTimingSession()
                 }
-                mode = newMode
+                withAnimation(.easeInOut(duration: 0.2)) { mode = newMode }
             }
         )
     }
@@ -809,35 +844,23 @@ struct LyricsEditorView: View {
     }
 
     private var lineList: some View {
-        ScrollViewReader { proxy in
-            List {
-                ForEach(Array(document.lines.enumerated()), id: \.element.id) { index, line in
-                    lineRow(line: line, index: index)
-                        .id(line.id)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                }
-                .onMove { document.moveLines(from: $0, to: $1) }
-                .onDelete { document.removeLines(at: $0) }
+        List {
+            ForEach(Array(document.lines.enumerated()), id: \.element.id) { index, line in
+                lineRow(line: line, index: index)
+                    .id(line.id)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
             }
-            .listStyle(.plain)
-            .onChange(of: document.nextUnstampedIndex) { _, next in
-                // 只在打轴模式自动滚动。普通编辑时把用户从正在敲的行拽走最招人烦。
-                guard isTapSyncing, let next, document.lines.indices.contains(next) else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(document.lines[next].id, anchor: .center)
-                }
-            }
+            .onMove { document.moveLines(from: $0, to: $1) }
+            .onDelete { document.removeLines(at: $0) }
         }
+        .listStyle(.plain)
     }
 
     private func lineRow(line: EditableLyricLine, index: Int) -> some View {
         let isActive = activeIndex == index
-        let isNextToStamp = isTapSyncing && document.nextUnstampedIndex == index
 
         return HStack(alignment: .top, spacing: 10) {
-            // 折叠时间戳后就是纯文本，理词和读起来都清爽。打轴模式强制展开 ——
-            // 收起来就看不见自己打到哪了。
-            if showTimestamps || isTapSyncing {
+            if showTimestamps {
                 timestampChip(line: line, index: index)
             }
 
@@ -861,7 +884,7 @@ struct LyricsEditorView: View {
         .padding(.horizontal, 6)
         .background {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(rowBackground(isActive: isActive, isNextToStamp: isNextToStamp))
+                .fill(rowBackground(isActive: isActive))
         }
         .contextMenu {
             Button(String(localized: "lyrics_editor_stamp_now")) { stampWithCurrentTime(index) }
@@ -881,8 +904,7 @@ struct LyricsEditorView: View {
         }
     }
 
-    private func rowBackground(isActive: Bool, isNextToStamp: Bool) -> Color {
-        if isNextToStamp { return Color.accentColor.opacity(0.20) }
+    private func rowBackground(isActive: Bool) -> Color {
         if isActive { return Color.accentColor.opacity(0.10) }
         return .clear
     }
@@ -935,110 +957,245 @@ struct LyricsEditorView: View {
         VStack(spacing: 0) {
             Divider()
 
-            if isTapSyncing {
-                tapSyncBar
-            } else {
-                HStack(spacing: 14) {
+            HStack(spacing: 14) {
+                Button {
+                    insertLine(after: document.lines.count - 1)
+                } label: {
+                    Label(String(localized: "lyrics_editor_add_line"), systemImage: "plus")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    beginShiftAdjustment()
+                } label: {
+                    Label(String(localized: "lyrics_editor_shift_all"), systemImage: "arrow.left.and.right")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .disabled(document.stampedCount == 0)
+
+                if !document.isMonotonic {
                     Button {
-                        insertLine(after: document.lines.count - 1)
+                        document.sortByTimestamp()
                     } label: {
-                        Label(String(localized: "lyrics_editor_add_line"), systemImage: "plus")
+                        Label(String(localized: "lyrics_editor_sort"), systemImage: "arrow.up.arrow.down")
                             .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                     .buttonStyle(.plain)
+                }
+
+                Button(role: .destructive) {
+                    showClearConfirm = true
+                } label: {
+                    Label(String(localized: "lyrics_editor_clear_all"), systemImage: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+
+                Spacer()
+
+                Button {
+                    modeBinding.wrappedValue = .timing
+                } label: {
+                    Label(String(localized: "lyrics_editor_tap_sync"), systemImage: "stopwatch")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .disabled(document.lines.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            HStack {
+                stampProgressLabel
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+    }
+
+    // MARK: - 专注打轴
+
+    private var timingStack: some View {
+        VStack(spacing: 0) {
+            transportBar
+            Divider()
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 20)
+
+                Text(String(
+                    format: String(localized: "lyrics_editor_timing_progress %lld %lld"),
+                    document.stampedCount,
+                    document.lines.count
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+                Spacer(minLength: 18)
+                timingLineContext
+                Spacer(minLength: 24)
+
+                HStack(spacing: 24) {
+                    timingHistoryButton(
+                        systemImage: "arrow.uturn.backward",
+                        label: String(localized: "lyrics_editor_timing_undo"),
+                        enabled: timingSession.canUndo
+                    ) {
+                        _ = timingSession.undo(document: &document)
+                    }
+
+                    Button {
+                        stampTimingLine()
+                    } label: {
+                        VStack(spacing: 5) {
+                            Text(String(localized: "lyrics_editor_mode_timing"))
+                                .font(.system(size: 23, weight: .bold, design: .rounded))
+                            Text(String(localized: "lyrics_editor_timing_hint"))
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(Color.accentColor)
+                        .frame(maxWidth: 270)
+                        .frame(height: 94)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .overlay {
+                            Capsule().stroke(Color.accentColor.opacity(0.82), lineWidth: 1.5)
+                        }
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isLinkedToPlayback || timingSession.cursorIndex == nil)
+                    .opacity(isLinkedToPlayback && timingSession.cursorIndex != nil ? 1 : 0.48)
+
+                    timingHistoryButton(
+                        systemImage: "arrow.uturn.forward",
+                        label: String(localized: "lyrics_editor_timing_redo"),
+                        enabled: timingSession.canRedo
+                    ) {
+                        _ = timingSession.redo(document: &document)
+                    }
+                }
+                .padding(.horizontal, 22)
+
+                HStack(spacing: 8) {
+                    timingFineTuneButton(
+                        title: "− 0.1s",
+                        accessibilityLabel: String(localized: "lyrics_editor_nudge_earlier")
+                    ) {
+                        nudgeTimingLine(by: -0.1)
+                    }
+
+                    timingFineTuneButton(
+                        title: "+ 0.1s",
+                        accessibilityLabel: String(localized: "lyrics_editor_nudge_later")
+                    ) {
+                        nudgeTimingLine(by: 0.1)
+                    }
 
                     Button {
                         beginShiftAdjustment()
                     } label: {
                         Label(String(localized: "lyrics_editor_shift_all"), systemImage: "arrow.left.and.right")
-                            .font(.caption)
+                            .font(.caption.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.secondary.opacity(0.10), in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .disabled(document.stampedCount == 0)
-
-                    if !document.isMonotonic {
-                        Button {
-                            document.sortByTimestamp()
-                        } label: {
-                            Label(String(localized: "lyrics_editor_sort"), systemImage: "arrow.up.arrow.down")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Button(role: .destructive) {
-                        showClearConfirm = true
-                    } label: {
-                        Label(String(localized: "lyrics_editor_clear_all"), systemImage: "trash")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.red)
-
-                    Spacer()
-
-                    Button {
-                        startTapSync()
-                    } label: {
-                        Label(String(localized: "lyrics_editor_tap_sync"), systemImage: "stopwatch")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!isLinkedToPlayback || document.lines.isEmpty)
+                    .opacity(document.stampedCount == 0 ? 0.4 : 1)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                HStack {
-                    stampProgressLabel
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+                .padding(.top, 18)
+                .padding(.bottom, 14)
             }
         }
     }
 
-    private var tapSyncBar: some View {
-        VStack(spacing: 8) {
-            if let next = document.nextUnstampedIndex {
-                Text(document.lines[next].text.isEmpty
-                     ? String(localized: "lyrics_editor_line_placeholder")
-                     : document.lines[next].text)
-                    .font(.system(size: 15, weight: .medium))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-
-                Button {
-                    stampNextLine()
-                } label: {
-                    Text(String(localized: "lyrics_editor_mark_line"))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(Color.accentColor, in: .rect(cornerRadius: 10))
-                }
-                .buttonStyle(.plain)
-            } else {
-                Label(String(localized: "lyrics_editor_all_stamped"), systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 14, weight: .medium))
+    @ViewBuilder
+    private var timingLineContext: some View {
+        if let index = timingSession.cursorIndex, document.lines.indices.contains(index) {
+            VStack(spacing: 20) {
+                timingContextLine(at: index - 1, role: .previous)
+                timingContextLine(at: index, role: .current)
+                timingContextLine(at: index + 1, role: .next)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 36))
                     .foregroundStyle(.green)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
+                Text(String(localized: "lyrics_editor_all_stamped"))
+                    .font(.title3.weight(.semibold))
             }
-
-            Button(String(localized: "lyrics_editor_exit_tap_sync")) {
-                isTapSyncing = false
-            }
-            .font(.caption)
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+    }
+
+    private enum TimingLineRole: Equatable { case previous, current, next }
+
+    @ViewBuilder
+    private func timingContextLine(at index: Int, role: TimingLineRole) -> some View {
+        if document.lines.indices.contains(index) {
+            Text(document.lines[index].text.isEmpty
+                 ? String(localized: "lyrics_editor_line_placeholder")
+                 : document.lines[index].text)
+                .font(role == .current
+                      ? .system(size: 28, weight: .bold)
+                      : .system(size: 17, weight: .medium))
+                .foregroundStyle(role == .current ? Color.primary : Color.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(role == .current ? 3 : 2)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity, minHeight: role == .current ? 70 : 24)
+        } else {
+            Color.clear.frame(height: role == .current ? 70 : 24)
+        }
+    }
+
+    private func timingHistoryButton(
+        systemImage: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 19, weight: .semibold))
+                .frame(width: 56, height: 56)
+                .background(Color.secondary.opacity(0.11), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .accessibilityLabel(label)
+    }
+
+    private func timingFineTuneButton(
+        title: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(Color.secondary.opacity(0.10), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!timingSession.canNudge(in: document))
+        .opacity(timingSession.canNudge(in: document) ? 1 : 0.4)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var stampProgressLabel: some View {
@@ -1064,12 +1221,46 @@ struct LyricsEditorView: View {
         .font(.caption)
     }
 
-    // MARK: - 源码模式
+    // MARK: - LRC / ELRC 源码
 
-    private var sourceEditor: some View {
-        TextEditor(text: $sourceText)
-            .font(.system(size: 12, design: .monospaced))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private func openSourceEditor() {
+        let serialized = document.serialized()
+        sourceText = serialized
+        sourceBaselineText = serialized
+        showSourceEditor = true
+    }
+
+    private var sourceEditorSheet: some View {
+        NavigationStack {
+            TextEditor(text: $sourceText)
+                .font(.system(size: 12, design: .monospaced))
+                .padding(.horizontal, 8)
+                .navigationTitle(String(localized: "lyrics_editor_mode_source"))
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(String(localized: "cancel")) { showSourceEditor = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(String(localized: "done")) { applySourceEditor() }
+                    }
+                }
+        }
+        #if os(macOS)
+        .frame(width: 560, height: 620)
+        #endif
+    }
+
+    private func applySourceEditor() {
+        guard sourceText != sourceBaselineText else {
+            showSourceEditor = false
+            return
+        }
+        document = LyricsEditorDocument(parsing: sourceText)
+        prepareTimingSession()
+        showSourceEditor = false
     }
 
     // MARK: - 整体偏移
@@ -1134,7 +1325,7 @@ struct LyricsEditorView: View {
                 .buttonStyle(.bordered)
 
                 Button(String(localized: "done")) {
-                    showShiftPanel = false
+                    finishShiftAdjustment()
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -1155,6 +1346,13 @@ struct LyricsEditorView: View {
         document = shiftBaseline.shifted(by: value)
     }
 
+    private func finishShiftAdjustment() {
+        let preferredIndex = timingSession.cursorIndex
+        timingSession.reset(document: document, preferredIndex: preferredIndex)
+        shiftBaseline = nil
+        showShiftPanel = false
+    }
+
     // MARK: - 打轴动作
 
     private func stampWithCurrentTime(_ index: Int) {
@@ -1162,15 +1360,27 @@ struct LyricsEditorView: View {
         document.stamp(at: index, time: player.interpolatedTime())
     }
 
-    private func startTapSync() {
-        isTapSyncing = true
-        focusedLine = nil
-        if !player.isPlaying { player.resume() }
+    private func prepareTimingSession() {
+        let preferredIndex = document.nextUnstampedIndex ?? activeIndex
+        timingSession.reset(document: document, preferredIndex: preferredIndex)
     }
 
-    private func stampNextLine() {
-        guard let next = document.nextUnstampedIndex else { return }
-        document.stamp(at: next, time: player.interpolatedTime())
+    private func stampTimingLine() {
+        guard isLinkedToPlayback else { return }
+        guard timingSession.stamp(
+            document: &document,
+            time: player.interpolatedTime()
+        ) != nil else { return }
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+    }
+
+    private func nudgeTimingLine(by delta: TimeInterval) {
+        guard timingSession.nudge(document: &document, by: delta) != nil else { return }
+        #if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
 
     private func nudge(_ index: Int, by delta: TimeInterval) {
@@ -1189,17 +1399,13 @@ struct LyricsEditorView: View {
     // MARK: - 提交
 
     private var hasEdits: Bool {
-        switch mode {
-        case .structured: return document != originalDocument
-        case .source: return sourceText != originalDocument.serialized()
-        }
+        !document.hasSameContent(as: originalDocument)
     }
 
     /// 部分打轴的文档存下去会掉行 ── `LyricsContentParser.parseText` 一旦发现
     /// 存在带时间戳的行,就只返回那些行,未打轴的会被静默丢弃。所以这里拦一道。
     private var willDropUnstampedLines: Bool {
-        let target = mode == .source ? LyricsEditorDocument(parsing: sourceText) : document
-        return target.stampedCount > 0 && target.unstampedCount > 0
+        document.stampedCount > 0 && document.unstampedCount > 0
     }
 
     private func requestCommit() {
@@ -1211,17 +1417,18 @@ struct LyricsEditorView: View {
     }
 
     private func commit() {
-        if mode == .source {
-            document = LyricsEditorDocument(parsing: sourceText)
-        }
+        let committedText = document.committedText(
+            preserving: text,
+            comparedTo: originalDocument
+        )
         // 没改就不回写,免得规范化后的文本让标签编辑器误判有改动。
-        if hasEdits { text = document.serialized() }
+        if hasEdits { text = committedText }
 
         // 独立入口(LyricsEditorSheet)要在关闭前先把歌词落盘，落盘可能失败、
         // 也可能需要二次确认，所以由它决定何时 dismiss。嵌在标签编辑器里时
         // 没有这个回调，保持原来的"改完就关"。
         if let onCommit {
-            onCommit(document.serialized())
+            onCommit(committedText)
         } else {
             dismiss()
         }
@@ -1234,11 +1441,10 @@ struct LyricsEditorView: View {
     }
 
     private var unstampedWarningMessage: some View {
-        let target = mode == .source ? LyricsEditorDocument(parsing: sourceText) : document
         return Text(
             String(
                 format: String(localized: "lyrics_editor_unstamped_warning_message"),
-                target.unstampedCount
+                document.unstampedCount
             )
         )
     }

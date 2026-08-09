@@ -134,8 +134,8 @@ struct NowPlayingView: View {
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
     @State private var showTagEditor = false
-    /// 歌词编辑跟标签编辑平级 —— 调歌词是自成一件事的高频操作。
-    @State private var showLyricsEditor = false
+    /// 歌词编辑跟标签编辑平级；打开时冻结目标，避免自然切歌后写错歌曲。
+    @State private var lyricsEditorTargetSong: Song?
     @State private var showSimilarSongs = false
     @State private var showMusicVideoFullScreen = false
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
@@ -410,14 +410,13 @@ struct NowPlayingView: View {
                 .presentationDetents([.large])
             }
         }
-        .sheet(isPresented: $showLyricsEditor) {
-            if let song = player.currentSong {
-                LyricsEditorSheet(song: song) { _ in
-                    // 歌词落盘后重新拉一次，正在播放的这首立刻用上新词。
-                    Task { await loadLyrics() }
-                }
-                .presentationDetents([.large])
+        .sheet(item: $lyricsEditorTargetSong) { song in
+            LyricsEditorSheet(song: song) { updated in
+                // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
+                guard player.currentSong?.id == updated.id else { return }
+                Task { await loadLyrics() }
             }
+            .presentationDetents([.large])
         }
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: player.currentSong)
         .sheet(isPresented: $showCastPicker) {
@@ -1635,7 +1634,7 @@ struct NowPlayingView: View {
             onScrape: { openScrapeForCurrentSong() },
             onShowSimilarSongs: { showSimilarSongs = true },
             onEditTags: { showTagEditor = true },
-            onEditLyrics: { showLyricsEditor = true },
+            onEditLyrics: { lyricsEditorTargetSong = player.currentSong },
             onShowSongInfo: { showSongInfo = true },
             onOpenAlbum: {
                 guard let album = currentAlbum else { return }

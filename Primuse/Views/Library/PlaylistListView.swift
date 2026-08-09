@@ -5,10 +5,12 @@ struct PlaylistListView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
     @State private var showSmartEditor = false
+    @State private var showNoScraperSourceAlert = false
 
     // liked 系统歌单已作为「资料库 · 我喜欢的」固定入口展示, 歌单总览里不再重复列出。
     private var playlists: [Playlist] {
@@ -17,11 +19,14 @@ struct PlaylistListView: View {
     private var smartPlaylists: [SmartPlaylist] { library.smartPlaylists }
 
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        iosBody
-        #endif
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            iosBody
+            #endif
+        }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
     }
 
     @ViewBuilder
@@ -469,6 +474,10 @@ struct PlaylistListView: View {
         .disabled(playable.isEmpty)
 
         Button {
+            guard scraperSettings.hasEnabledSource else {
+                showNoScraperSourceAlert = true
+                return
+            }
             scraperService.scrapeMissingMetadata(songs: playlistSongs, in: library)
         } label: {
             Label("scrape_missing_metadata", systemImage: "wand.and.stars")

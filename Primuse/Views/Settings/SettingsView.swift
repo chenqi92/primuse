@@ -20,12 +20,6 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        RadioStationsView()
-                    } label: {
-                        Label("radio_title", systemImage: "radio.fill")
-                    }
-
-                    NavigationLink {
                         MetadataScrapingView()
                     } label: {
                         Label("metadata_scraping", systemImage: "wand.and.stars")

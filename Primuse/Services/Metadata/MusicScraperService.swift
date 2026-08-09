@@ -80,6 +80,8 @@ final class MusicScraperService {
         case busy
         case deferred
         case empty
+        /// 一个刮削源都没启用 —— 调用方应引导用户去开启或导入刮削源。
+        case noScraperSource
     }
 
     enum BatchScrapePhase: Equatable {
@@ -253,6 +255,10 @@ final class MusicScraperService {
     func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> (Song, Data?, [LyricLine]?) {
         guard !isScraping, !isSingleScraping else {
             throw ScraperError.networkError(String(localized: "scrape_song_failed"))
+        }
+        guard ScraperAvailability.hasEnabledSource else {
+            plog("MusicScraperService: no enabled scraper source, single scrape aborted")
+            throw ScraperError.noEnabledSource
         }
         isSingleScraping = true
         defer {
@@ -656,6 +662,10 @@ final class MusicScraperService {
         guard !isScraping, !isSingleScraping else {
             plog("MusicScraperService: ignored overlapping batch scrape request")
             return .busy
+        }
+        guard ScraperAvailability.hasEnabledSource else {
+            plog("MusicScraperService: no enabled scraper source, batch scrape not started")
+            return .noScraperSource
         }
         guard allowBackgroundExecution || !isPausedForSceneTransition else {
             plog("MusicScraperService: deferred batch scrape during scene transition")

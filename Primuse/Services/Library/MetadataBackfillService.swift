@@ -110,6 +110,7 @@ final class MetadataBackfillService {
     /// implementation filtered the complete song array once per card on every
     /// SwiftUI body update, multiplying work by source count during scrolling.
     private(set) var cachedRemainingCount: Int = 0
+    private(set) var cachedFailedCount: Int = 0
     private(set) var remainingCountBySourceID: [String: Int] = [:]
     private var lastRemainingCountRefreshAt = Date.distantPast
     private static let remainingCountRefreshInterval: TimeInterval = 5
@@ -684,13 +685,7 @@ final class MetadataBackfillService {
     /// `isRunning == false` but still has pending work that should keep
     /// BGProcessingTask scheduled.
     var hasPendingWork: Bool {
-        let sourceIDs = backfillableSourceIDs()
-        return library.songs.contains { song in
-            !failedSongIDs.contains(song.id)
-                && !sessionGivenUpIDs.contains(song.id)
-                && sourceIDs.contains(song.sourceID)
-                && self.needsBackfill(song)
-        }
+        cachedRemainingCount > 0
     }
 
     /// Number of songs currently waiting for backfill. Used by the UI to
@@ -727,14 +722,29 @@ final class MetadataBackfillService {
                     >= Self.remainingCountRefreshInterval else { return }
         lastRemainingCountRefreshAt = now
         let sourceIDs = backfillableSourceIDs()
+        let songs = library.songs
+        let failedIDs = failedSongIDs
+        let sessionGivenUpSnapshot = sessionGivenUpIDs
+        let artworkGivenUpSnapshot = artworkGivenUpIDs
+        let titleCheckedSnapshot = titleCheckedIDs
         var bySource: [String: Int] = [:]
         bySource.reserveCapacity(sourceIDs.count)
         var total = 0
-        for song in library.songs {
-            guard !failedSongIDs.contains(song.id),
-                  !sessionGivenUpIDs.contains(song.id),
-                  sourceIDs.contains(song.sourceID),
-                  needsBackfill(song) else { continue }
+        var failedTotal = 0
+        for song in songs {
+            guard sourceIDs.contains(song.sourceID) else { continue }
+
+            let hasFailed = failedIDs.contains(song.id)
+                || sessionGivenUpSnapshot.contains(song.id)
+            if hasFailed {
+                if Self.isBareSong(song) { failedTotal += 1 }
+                continue
+            }
+            guard Self.needsBackfill(
+                song,
+                artworkGivenUpIDs: artworkGivenUpSnapshot,
+                titleCheckedIDs: titleCheckedSnapshot
+            ) else { continue }
             bySource[song.sourceID, default: 0] += 1
             total += 1
         }
@@ -744,6 +754,9 @@ final class MetadataBackfillService {
         if cachedRemainingCount != total {
             cachedRemainingCount = total
         }
+        if cachedFailedCount != failedTotal {
+            cachedFailedCount = failedTotal
+        }
     }
 
     /// Number of songs backfill has given up on — persisted permanent
@@ -751,12 +764,7 @@ final class MetadataBackfillService {
     /// library, still duration-less, and from an active source. Drives the
     /// "retry failed" button: 0 ⇒ nothing to retry.
     var failedCount: Int {
-        let sourceIDs = backfillableSourceIDs()
-        return library.songs.lazy.filter { song in
-            (self.failedSongIDs.contains(song.id) || self.sessionGivenUpIDs.contains(song.id))
-                && sourceIDs.contains(song.sourceID)
-                && Self.isBareSong(song)
-        }.count
+        cachedFailedCount
     }
 
     /// Clear failure marks for every duration-less song (persisted + session
@@ -1531,12 +1539,22 @@ final class MetadataBackfillService {
     /// unbounded for huge libraries.
     private func pickNextBatch() -> [Song] {
         let sourceIDs = backfillableSourceIDs()
-        let candidates = library.songs.lazy.filter { song in
-            guard !self.failedSongIDs.contains(song.id) else { return false }
-            guard !self.sessionGivenUpIDs.contains(song.id) else { return false }
-            guard !self.library.disabledSourceIDs.contains(song.sourceID) else { return false }
+        let failedIDs = failedSongIDs
+        let sessionGivenUpSnapshot = sessionGivenUpIDs
+        let disabledSourceIDs = library.disabledSourceIDs
+        let artworkGivenUpSnapshot = artworkGivenUpIDs
+        let titleCheckedSnapshot = titleCheckedIDs
+        let songs = library.songs
+        let candidates = songs.lazy.filter { song in
+            guard !failedIDs.contains(song.id) else { return false }
+            guard !sessionGivenUpSnapshot.contains(song.id) else { return false }
+            guard !disabledSourceIDs.contains(song.sourceID) else { return false }
             guard sourceIDs.contains(song.sourceID) else { return false }
-            return self.needsBackfill(song)
+            return Self.needsBackfill(
+                song,
+                artworkGivenUpIDs: artworkGivenUpSnapshot,
+                titleCheckedIDs: titleCheckedSnapshot
+            )
         }
         return Array(candidates.prefix(500))
     }
@@ -1575,6 +1593,18 @@ final class MetadataBackfillService {
     /// artwork-give-up check keeps a duration-complete song from being re-picked
     /// forever just because its file has no embedded cover.
     private func needsBackfill(_ song: Song) -> Bool {
+        Self.needsBackfill(
+            song,
+            artworkGivenUpIDs: artworkGivenUpIDs,
+            titleCheckedIDs: titleCheckedIDs
+        )
+    }
+
+    private static func needsBackfill(
+        _ song: Song,
+        artworkGivenUpIDs: Set<String>,
+        titleCheckedIDs: Set<String>
+    ) -> Bool {
         MetadataBackfillEligibilityPolicy.needsBackfill(
             duration: song.duration,
             format: song.fileFormat,

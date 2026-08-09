@@ -2637,3 +2637,17 @@
 /* MARK: - 电台底栏 */
 "radio_buffering" = "缓冲中";
 "radio_connected_for" = "已连接时长";
+
+/* MARK: - 刮削源未启用提示 */
+"scraper_no_source_title" = "未启用刮削源";
+"scraper_no_source_message" = "刮削需要至少一个已启用的刮削源。请前往设置开启内置刮削源，或导入自定义刮削源。";
+"scraper_no_source_open_settings" = "前往设置";
+
+/* MARK: - 专注打轴 */
+"lyrics_editor_mode_timing" = "打轴";
+"lyrics_editor_mode_text" = "文本";
+"lyrics_editor_more_actions" = "更多操作";
+"lyrics_editor_timing_progress %lld %lld" = "已打 %1$lld / %2$lld 行";
+"lyrics_editor_timing_hint" = "听到这句就按 · 自动跳下一句";
+"lyrics_editor_timing_undo" = "回退一句";
+"lyrics_editor_timing_redo" = "重做一句";

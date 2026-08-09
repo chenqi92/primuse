@@ -12,7 +12,7 @@ import PrimuseKit
 struct MacSettingsView: View {
     private enum Tab: String, Hashable, CaseIterable, Identifiable {
         case playback, equalizer, effects, scrape, lyrics
-        case appleMusic, widgets, cloud, radio, theme, deleted, ssl, about
+        case appleMusic, widgets, cloud, theme, deleted, ssl, about
 
         var id: String { rawValue }
 
@@ -26,7 +26,6 @@ struct MacSettingsView: View {
             case .appleMusic: return "Apple Music"
             case .widgets: return Lz("Widgets")
             case .cloud: return "iCloud"
-            case .radio: return String(localized: "radio_settings_title")
             case .theme: return Lz("Appearance")
             case .deleted: return Lz("Recently Deleted")
             case .ssl: return Lz("Trusted Domains")
@@ -44,7 +43,6 @@ struct MacSettingsView: View {
             case .appleMusic: return "music.note"
             case .widgets: return "rectangle.grid.2x2"
             case .cloud: return "icloud"
-            case .radio: return "radio.fill"
             case .theme: return "sun.max"
             case .deleted: return "trash"
             case .ssl: return "lock.shield"
@@ -62,7 +60,6 @@ struct MacSettingsView: View {
             case .appleMusic: return "ST-06"
             case .widgets: return "ST-07"
             case .cloud: return "ST-08"
-            case .radio: return "ST-13"
             case .theme: return "ST-12"
             case .deleted: return "ST-09"
             case .ssl: return "ST-10"
@@ -232,8 +229,6 @@ struct MacSettingsView: View {
             MacSTWidgetView()
         case .cloud:
             MacSTCloudView()
-        case .radio:
-            MacSTRadioView()
         case .theme:
             MacSTThemeView()
         case .deleted:
@@ -242,153 +237,6 @@ struct MacSettingsView: View {
             MacSTSSLView()
         case .about:
             MacSTAboutView()
-        }
-    }
-}
-
-private struct MacSTRadioView: View {
-    @Environment(RadioStationsStore.self) private var store
-    @State private var showingNewStation = false
-    @State private var showingBatchAdd = false
-    @State private var editingStation: RadioStation?
-
-    /// 次级按钮。`.bordered` 会渲染成系统蓝，跟这套赤陶色主题对不上 ——
-    /// 设置页其它分区都是自绘 + PM token，这里保持一致。
-    private func macSecondaryButton(
-        _ titleKey: String.LocalizationValue,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(String(localized: titleKey))
-                .font(PMFont.bodyM)
-                .foregroundStyle(PMColor.text)
-                .frame(height: 26)
-                .padding(.horizontal, 14)
-                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                }
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 排序/编辑用的小图标按钮。
-    private func macIconButton(
-        _ symbol: String,
-        help: String,
-        disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(disabled ? PMColor.textFaint : PMColor.text)
-                .frame(width: 22, height: 22)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .help(help)
-    }
-
-    var body: some View {
-        Group {
-            MacSTSection(String(localized: "radio_title")) {
-                MacSTGroup {
-                    // divider 画在行上方，所以首行不要，后面的用默认 true。
-                    MacSTRow(
-                        String(localized: "radio_add"),
-                        hint: store.stations.isEmpty
-                            ? String(localized: "radio_empty_description")
-                            : nil,
-                        divider: false
-                    ) {
-                        Button { showingNewStation = true } label: {
-                            Text("radio_add")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(height: 26)
-                                .padding(.horizontal, 14)
-                                .background(PMColor.brand, in: .rect(cornerRadius: PMRadius.s))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    MacSTRow(
-                        String(localized: "radio_batch_add_title"),
-                        hint: String(localized: "radio_batch_paste_hint")
-                    ) {
-                        macSecondaryButton("radio_batch_add_title") { showingBatchAdd = true }
-                    }
-
-                    if !store.stations.isEmpty {
-                        MacSTRow(String(localized: "radio_priority_sort_by_name")) {
-                            macSecondaryButton("radio_priority_sort_by_name") {
-                                store.sortStationsByName()
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !store.stations.isEmpty {
-                MacSTSection(
-                    String(localized: "radio_priority_title"),
-                    hint: String(localized: "radio_priority_footer")
-                ) {
-                    MacSTGroup {
-                        ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
-                            MacSTRow(
-                                station.name,
-                                hint: station.playbackSubtitle,
-                                divider: index != 0
-                            ) {
-                                HStack(spacing: 8) {
-                                    Text("#\(index + 1)")
-                                        .font(.system(size: 11).monospacedDigit())
-                                        .foregroundStyle(PMColor.textFaint)
-                                        .frame(width: 26, alignment: .trailing)
-
-                                    // `.borderless` 的图标按钮会取系统强调色(蓝),
-                                    // 跟这套赤陶主题冲突 —— 显式给 PM 文本色。
-                                    macIconButton(
-                                        "pencil",
-                                        help: String(localized: "edit")
-                                    ) {
-                                        editingStation = station
-                                    }
-
-                                    macIconButton(
-                                        "arrow.up",
-                                        help: String(localized: "radio_priority_move_up"),
-                                        disabled: index == 0
-                                    ) {
-                                        store.moveStation(id: station.id, by: -1)
-                                    }
-
-                                    macIconButton(
-                                        "arrow.down",
-                                        help: String(localized: "radio_priority_move_down"),
-                                        disabled: index == store.stations.count - 1
-                                    ) {
-                                        store.moveStation(id: station.id, by: 1)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showingNewStation) {
-            MacRadioStationEditorView(station: nil)
-        }
-        .sheet(isPresented: $showingBatchAdd) {
-            MacRadioBatchAddView()
-        }
-        .sheet(item: $editingStation) { station in
-            MacRadioStationEditorView(station: station)
         }
     }
 }

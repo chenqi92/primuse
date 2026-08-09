@@ -52,12 +52,6 @@ struct RadioStationsView: View {
                     Label("radio_empty_title", systemImage: "radio")
                 } description: {
                     Text("radio_empty_description")
-                } actions: {
-                    VStack(spacing: 10) {
-                        Button("radio_batch_add_title") { showingBatchAdd = true }
-                            .buttonStyle(.borderedProminent)
-                        Button("radio_add") { showingNewStation = true }
-                    }
                 }
             } else if isManaging {
                 manageList

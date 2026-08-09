@@ -3,6 +3,142 @@ import Testing
 
 @Suite("Local playback resume policy")
 struct LocalPlaybackResumePolicyTests {
+    @Test("A successful configuration restart restores the visible playing state")
+    func restoresStateAfterConfigurationRestart() {
+        #expect(AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
+            playbackWasIntended: true,
+            engineRestarted: true
+        ))
+        #expect(!AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
+            playbackWasIntended: false,
+            engineRestarted: true
+        ))
+        #expect(!AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
+            playbackWasIntended: true,
+            engineRestarted: false
+        ))
+    }
+
+    @Test("A sustained empty decoded queue rebuilds the active pipeline")
+    func rebuildsAfterSustainedUnderflow() {
+        #expect(DecodedBufferHealthPolicy.action(
+            isPlaying: true,
+            hasPreparedAudio: true,
+            isLoading: false,
+            isTransitioning: false,
+            engineIsPlaying: true,
+            decoderFinished: false,
+            bufferedDuration: 0,
+            bufferCount: 0,
+            emptyDurationThreshold: 0.05,
+            consecutiveUnhealthySamples: 3,
+            requiredUnhealthySamples: 3,
+            recoveryInProgress: false,
+            recoveryAttempts: 0,
+            maximumRecoveryAttempts: 2,
+            cooldownElapsed: 100,
+            minimumCooldown: 8
+        ) == .rebuildPipeline)
+    }
+
+    @Test("Transient gaps and a healthy queued buffer do not rebuild playback")
+    func ignoresTransientAndHealthySamples() {
+        #expect(DecodedBufferHealthPolicy.action(
+            isPlaying: true,
+            hasPreparedAudio: true,
+            isLoading: false,
+            isTransitioning: false,
+            engineIsPlaying: true,
+            decoderFinished: false,
+            bufferedDuration: 0,
+            bufferCount: 0,
+            emptyDurationThreshold: 0.05,
+            consecutiveUnhealthySamples: 2,
+            requiredUnhealthySamples: 3,
+            recoveryInProgress: false,
+            recoveryAttempts: 0,
+            maximumRecoveryAttempts: 2,
+            cooldownElapsed: 100,
+            minimumCooldown: 8
+        ) == .none)
+        #expect(DecodedBufferHealthPolicy.action(
+            isPlaying: true,
+            hasPreparedAudio: true,
+            isLoading: false,
+            isTransitioning: false,
+            engineIsPlaying: true,
+            decoderFinished: false,
+            bufferedDuration: 0.2,
+            bufferCount: 1,
+            emptyDurationThreshold: 0.05,
+            consecutiveUnhealthySamples: 3,
+            requiredUnhealthySamples: 3,
+            recoveryInProgress: false,
+            recoveryAttempts: 0,
+            maximumRecoveryAttempts: 2,
+            cooldownElapsed: 100,
+            minimumCooldown: 8
+        ) == .none)
+    }
+
+    @Test("A stopped engine is recovered even while decoded buffers remain")
+    func rebuildsStoppedEngine() {
+        #expect(DecodedBufferHealthPolicy.action(
+            isPlaying: true,
+            hasPreparedAudio: true,
+            isLoading: false,
+            isTransitioning: false,
+            engineIsPlaying: false,
+            decoderFinished: false,
+            bufferedDuration: 4,
+            bufferCount: 20,
+            emptyDurationThreshold: 0.05,
+            consecutiveUnhealthySamples: 3,
+            requiredUnhealthySamples: 3,
+            recoveryInProgress: false,
+            recoveryAttempts: 0,
+            maximumRecoveryAttempts: 2,
+            cooldownElapsed: 100,
+            minimumCooldown: 8
+        ) == .rebuildPipeline)
+    }
+
+    @Test("Natural EOF, transitions, cooldown, and retry limits suppress recovery")
+    func preservesRecoveryBoundaries() {
+        func action(
+            decoderFinished: Bool = false,
+            isTransitioning: Bool = false,
+            recoveryInProgress: Bool = false,
+            attempts: Int = 0,
+            cooldownElapsed: Double = 100
+        ) -> DecodedBufferHealthAction {
+            DecodedBufferHealthPolicy.action(
+                isPlaying: true,
+                hasPreparedAudio: true,
+                isLoading: false,
+                isTransitioning: isTransitioning,
+                engineIsPlaying: true,
+                decoderFinished: decoderFinished,
+                bufferedDuration: 0,
+                bufferCount: 0,
+                emptyDurationThreshold: 0.05,
+                consecutiveUnhealthySamples: 3,
+                requiredUnhealthySamples: 3,
+                recoveryInProgress: recoveryInProgress,
+                recoveryAttempts: attempts,
+                maximumRecoveryAttempts: 2,
+                cooldownElapsed: cooldownElapsed,
+                minimumCooldown: 8
+            )
+        }
+
+        #expect(action(decoderFinished: true) == .none)
+        #expect(action(isTransitioning: true) == .none)
+        #expect(action(recoveryInProgress: true) == .none)
+        #expect(action(attempts: 2) == .stopPlayback)
+        #expect(action(cooldownElapsed: 7.9) == .none)
+    }
+
     @Test("An unprepared engine restarts the current song")
     func restartsAfterPreparationFailure() {
         #expect(LocalPlaybackResumePolicy.action(
