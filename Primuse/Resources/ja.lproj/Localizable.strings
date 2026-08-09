@@ -2548,3 +2548,13 @@
 "lyrics_editor_timing_hint" = "この行が始まったらタップ · 自動で次へ";
 "lyrics_editor_timing_undo" = "1 行戻す";
 "lyrics_editor_timing_redo" = "1 行やり直す";
+"lyrics_editor_previous_line" = "前の行";
+"lyrics_editor_next_line" = "次の行";
+"lyrics_editor_following_playback" = "再生位置を追従中";
+"lyrics_editor_return_to_playback" = "再生位置に戻る";
+"lyrics_editor_timing_skipped_info %lld" = "タイトル/クレジット %lld 行を除外";
+"lyrics_editor_reorder_hint" = "右のハンドルをドラッグして並べ替え";
+"lyrics_editor_reorder_line" = "歌詞行を並べ替え";
+"lyrics_editor_timing_info_line" = "タイトルとクレジットはタイミング対象外です";
+"lyrics_editor_info_line_badge" = "情報";
+"lyrics_editor_no_timing_lines" = "タイミング対象の歌詞行がありません";

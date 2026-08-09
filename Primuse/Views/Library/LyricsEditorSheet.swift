@@ -72,7 +72,7 @@ struct LyricsEditorSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
-        .frame(width: 620, height: 680)
+        .frame(width: 820, height: 680)
         .background(PMColor.bg)
         #endif
     }

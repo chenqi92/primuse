@@ -31,6 +31,9 @@ struct LyricsEditorView: View {
     @State private var showSourceEditor = false
     @State private var playbackTime: TimeInterval = 0
     @State private var timingSession: LyricsTimingSession
+    /// 打轴页进入时跟随当前播放句；用户手动前后切换或打点后暂停跟随，避免游标
+    /// 在手指操作期间被播放进度抢走。
+    @State private var timingFollowsPlayback = false
     @State private var showShiftPanel = false
     @State private var showUnstampedWarning = false
     /// 整体偏移用"基线 + 待定量"模型:每次都从基线重算,而不是在当前值上累加。
@@ -82,38 +85,18 @@ struct LyricsEditorView: View {
     #if !os(macOS)
     private var iosContainer: some View {
         NavigationStack {
-            editorStack
-                .navigationTitle(String(localized: "lyrics_editor_title"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "cancel")) { dismiss() }
-                    }
-                    ToolbarItem(placement: .principal) { modePicker }
-                    ToolbarItem(placement: .confirmationAction) {
-                        HStack(spacing: 14) {
-                            Menu {
-                                Button {
-                                    openSourceEditor()
-                                } label: {
-                                    Label(
-                                        String(localized: "lyrics_editor_mode_source"),
-                                        systemImage: "chevron.left.forwardslash.chevron.right"
-                                    )
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis")
-                            }
-                            .accessibilityLabel(String(localized: "lyrics_editor_more_actions"))
-
-                            Button(String(localized: "done")) { requestCommit() }
-                        }
-                    }
+            VStack(spacing: 0) {
+                iosHeader
+                Divider()
+                editorStack
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .toolbar {
                     ToolbarItemGroup(placement: .keyboard) {
                         Spacer()
                         Button(String(localized: "done")) { focusedLine = nil }
                     }
-                }
+            }
         }
         .presentationDragIndicator(.visible)
         .confirmationDialog(
@@ -124,66 +107,51 @@ struct LyricsEditorView: View {
         .sheet(isPresented: $showShiftPanel) { shiftPanel }
         .sheet(isPresented: $showSourceEditor) { sourceEditorSheet }
     }
+
+    private var iosHeader: some View {
+        HStack(spacing: 10) {
+            Button(String(localized: "cancel")) { dismiss() }
+                .font(.subheadline)
+                .frame(minWidth: 54, alignment: .leading)
+
+            Spacer(minLength: 0)
+            compactModeSwitch
+                .frame(width: 150)
+            Spacer(minLength: 0)
+
+            HStack(spacing: 13) {
+                editorActionsMenu
+                Button(String(localized: "done")) { requestCommit() }
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(minWidth: 72, alignment: .trailing)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
     #endif
 
     #if os(macOS)
     private var macContainer: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text(String(localized: "lyrics_editor_title"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-                Button {
-                    openSourceEditor()
-                } label: {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(String(localized: "lyrics_editor_mode_source"))
-                modePicker
-                    .frame(width: 190)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-
+            macTitleBar
+                .fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            editorStack
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            HStack(spacing: 10) {
-                stampProgressLabel
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Text(String(localized: "cancel"))
-                        .font(PMFont.bodyM)
-                        .foregroundStyle(PMColor.text)
-                        .frame(height: 26)
-                        .padding(.horizontal, 14)
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    requestCommit()
-                } label: {
-                    Text(String(localized: "done"))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(height: 26)
-                        .padding(.horizontal, 16)
-                        .background(PMColor.brand, in: .rect(cornerRadius: 5))
-                }
-                .buttonStyle(.plain)
+            HStack(spacing: 0) {
+                macModeRail
+                Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                editorStack
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .frame(maxHeight: .infinity)
+            .clipped()
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            macFooter
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 620, height: 680)
+        .frame(width: 820, height: 680)
         .background(PMColor.bg)
         .foregroundStyle(PMColor.text)
         .confirmationDialog(
@@ -193,6 +161,124 @@ struct LyricsEditorView: View {
         ) { unstampedWarningActions } message: { unstampedWarningMessage }
         .sheet(isPresented: $showShiftPanel) { shiftPanel }
         .sheet(isPresented: $showSourceEditor) { sourceEditorSheet }
+    }
+
+    private var macTitleBar: some View {
+        HStack(spacing: PMSpace.m) {
+            PMWindowTrafficLights(closeOnly: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "lyrics_editor_title"))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text("\(song.title) · \(song.artistName ?? String(localized: "unknown_artist"))")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                openSourceEditor()
+            } label: {
+                Label(
+                    String(localized: "lyrics_editor_mode_source"),
+                    systemImage: "chevron.left.forwardslash.chevron.right"
+                )
+                .font(PMFont.bodyM)
+                .foregroundStyle(PMColor.textMuted)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, PMSpace.m16)
+        .padding(.vertical, PMSpace.s10)
+    }
+
+    private var macModeRail: some View {
+        VStack(alignment: .leading, spacing: PMSpace.s) {
+            macModeButton(.text, systemImage: "text.alignleft")
+            macModeButton(.timing, systemImage: "stopwatch")
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                .padding(.vertical, PMSpace.s)
+
+            Text(String(
+                format: String(localized: "lyrics_editor_line_summary %lld %lld"),
+                document.lines.count,
+                document.stampedCount
+            ))
+            .font(PMFont.caption)
+            .foregroundStyle(PMColor.textMuted)
+
+            if skippedTimingLineCount > 0 {
+                Text(String(
+                    format: String(localized: "lyrics_editor_timing_skipped_info %lld"),
+                    skippedTimingLineCount
+                ))
+                .font(PMFont.captionS)
+                .foregroundStyle(PMColor.textFaint)
+            }
+
+            Spacer()
+        }
+        .padding(PMSpace.m14)
+        .frame(width: 156)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(PMColor.bgElev.opacity(0.56))
+    }
+
+    private func macModeButton(_ target: Mode, systemImage: String) -> some View {
+        Button {
+            modeBinding.wrappedValue = target
+        } label: {
+            Label(
+                String(localized: target == .text ? "lyrics_editor_mode_text" : "lyrics_editor_mode_timing"),
+                systemImage: systemImage
+            )
+            .font(PMFont.bodyM)
+            .foregroundStyle(mode == target ? PMColor.text : PMColor.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(
+                mode == target ? PMColor.brand.opacity(0.18) : Color.clear,
+                in: .rect(cornerRadius: PMRadius.m)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                    .strokeBorder(mode == target ? PMColor.brand.opacity(0.45) : Color.clear, lineWidth: 0.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var macFooter: some View {
+        HStack(spacing: PMSpace.s10) {
+            stampProgressLabel
+            Spacer()
+            Button(String(localized: "cancel")) { dismiss() }
+                .font(PMFont.bodyM)
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .padding(.horizontal, 14)
+                .frame(height: 26)
+
+            Button {
+                requestCommit()
+            } label: {
+                Text(String(localized: "done"))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(height: 26)
+                    .padding(.horizontal, 16)
+                    .background(PMColor.brand, in: .rect(cornerRadius: PMRadius.s))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, PMSpace.l24)
+        .padding(.vertical, PMSpace.m)
     }
     #endif
 
@@ -211,12 +297,7 @@ struct LyricsEditorView: View {
                 case .timing:
                     timingStack
                 case .text:
-                    transportBar
-                    Divider()
-                    textToolbar
-                    Divider()
-                    lineList
-                    bottomBar
+                    textModeStack
                 }
             }
         }
@@ -632,6 +713,186 @@ struct LyricsEditorView: View {
 
     // MARK: - 整篇文本操作
 
+    private var textModeStack: some View {
+        #if os(macOS)
+        macTextStack
+        #else
+        iosTextStack
+        #endif
+    }
+
+    #if !os(macOS)
+    private var iosTextStack: some View {
+        VStack(spacing: 0) {
+            textDocumentHeader
+            editableLineScroll
+            textActionStrip
+
+            Button {
+                modeBinding.wrappedValue = .timing
+            } label: {
+                Label(String(localized: "lyrics_editor_tap_sync"), systemImage: "stopwatch")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(Color.accentColor.opacity(0.10), in: .rect(cornerRadius: 10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.accentColor.opacity(0.72), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private var textDocumentHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(song.title)
+                .font(.headline)
+                .lineLimit(1)
+
+            Text("\(song.artistName ?? String(localized: "unknown_artist")) · \(String(format: String(localized: "lyrics_editor_line_summary %lld %lld"), document.lines.count, document.stampedCount))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            HStack(spacing: 10) {
+                Label(String(localized: "lyrics_editor_reorder_hint"), systemImage: "line.3.horizontal")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if !document.isMonotonic {
+                    Button {
+                        document.sortByTimestamp()
+                    } label: {
+                        Label(String(localized: "lyrics_editor_sort"), systemImage: "arrow.up.arrow.down")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                timestampToggle
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+    }
+    #endif
+
+    #if os(macOS)
+    private var macTextStack: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: PMSpace.s10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(String(localized: "lyrics_editor_mode_text"))
+                        .font(PMFont.sectionTitle)
+                        .foregroundStyle(PMColor.text)
+                    Text(String(localized: "lyrics_editor_reorder_hint"))
+                        .font(PMFont.caption)
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                Spacer()
+                if !document.isMonotonic {
+                    Button {
+                        document.sortByTimestamp()
+                    } label: {
+                        Label(String(localized: "lyrics_editor_sort"), systemImage: "arrow.up.arrow.down")
+                            .foregroundStyle(PMColor.warn)
+                    }
+                    .buttonStyle(.plain)
+                }
+                timestampToggle
+            }
+            .padding(.horizontal, PMSpace.l24)
+            .padding(.vertical, PMSpace.m14)
+
+            editableLineScroll
+                .padding(.horizontal, PMSpace.l24)
+
+            HStack(spacing: PMSpace.s8) {
+                textToolButton(
+                    titleKey: "lyrics_editor_paste_replace",
+                    systemImage: "doc.on.clipboard",
+                    enabled: clipboardPreview != nil
+                ) { pasteReplace() }
+                textToolButton(
+                    titleKey: "lyrics_editor_resplit",
+                    systemImage: "text.append",
+                    enabled: document.stampedCount == 0 && !document.lines.isEmpty
+                ) { resplitLines() }
+                textToolButton(
+                    titleKey: "lyrics_editor_drop_blanks",
+                    systemImage: "wand.and.rays",
+                    enabled: document.lines.contains {
+                        $0.text.trimmingCharacters(in: .whitespaces).isEmpty
+                    }
+                ) { dropBlankLines() }
+                Button {
+                    insertLine(after: document.lines.count - 1)
+                } label: {
+                    Label(String(localized: "lyrics_editor_add_line"), systemImage: "plus")
+                        .font(PMFont.bodyM)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, PMSpace.l24)
+            .padding(.vertical, PMSpace.m14)
+        }
+    }
+    #endif
+
+    private var textActionStrip: some View {
+        HStack(spacing: 8) {
+            textToolButton(
+                titleKey: "lyrics_editor_paste_replace",
+                systemImage: "doc.on.clipboard",
+                enabled: clipboardPreview != nil
+            ) { pasteReplace() }
+            textToolButton(
+                titleKey: "lyrics_editor_resplit",
+                systemImage: "text.append",
+                enabled: document.stampedCount == 0 && !document.lines.isEmpty
+            ) { resplitLines() }
+            textToolButton(
+                titleKey: "lyrics_editor_drop_blanks",
+                systemImage: "wand.and.rays",
+                enabled: document.lines.contains {
+                    $0.text.trimmingCharacters(in: .whitespaces).isEmpty
+                }
+            ) { dropBlankLines() }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    private var timestampToggle: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { showTimestamps.toggle() }
+        } label: {
+            Label(
+                String(localized: "lyrics_editor_show_timestamps"),
+                systemImage: showTimestamps ? "checkmark.square.fill" : "square"
+            )
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        #if os(macOS)
+        .foregroundStyle(PMColor.brand)
+        #else
+        .foregroundStyle(Color.accentColor)
+        #endif
+    }
+
     /// 文本模式顶部的三个整篇操作 + 时间戳折叠开关。
     private var textToolbar: some View {
         VStack(spacing: 8) {
@@ -705,7 +966,7 @@ struct LyricsEditorView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
-                .background(Color.secondary.opacity(0.10), in: Capsule())
+                .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -733,13 +994,78 @@ struct LyricsEditorView: View {
         if document.lines.count != before { sourceText = document.serialized() }
     }
 
-    private var modePicker: some View {
-        Picker("", selection: modeBinding) {
-            Text(String(localized: "lyrics_editor_mode_timing")).tag(Mode.timing)
-            Text(String(localized: "lyrics_editor_mode_text")).tag(Mode.text)
+    private var compactModeSwitch: some View {
+        HStack(spacing: 2) {
+            compactModeButton(.timing)
+            compactModeButton(.text)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .padding(3)
+        .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 0.5)
+        }
+    }
+
+    private func compactModeButton(_ target: Mode) -> some View {
+        Button {
+            modeBinding.wrappedValue = target
+        } label: {
+            Text(String(localized: target == .timing
+                        ? "lyrics_editor_mode_timing"
+                        : "lyrics_editor_mode_text"))
+                .font(.subheadline.weight(mode == target ? .semibold : .regular))
+                .foregroundStyle(mode == target ? Color.primary : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+                .background(
+                    mode == target ? Color.secondary.opacity(0.16) : Color.clear,
+                    in: .rect(cornerRadius: 7)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var editorActionsMenu: some View {
+        Menu {
+            Button {
+                openSourceEditor()
+            } label: {
+                Label(
+                    String(localized: "lyrics_editor_mode_source"),
+                    systemImage: "chevron.left.forwardslash.chevron.right"
+                )
+            }
+            Button {
+                insertLine(after: document.lines.count - 1)
+            } label: {
+                Label(String(localized: "lyrics_editor_add_line"), systemImage: "plus")
+            }
+            Button {
+                beginShiftAdjustment()
+            } label: {
+                Label(String(localized: "lyrics_editor_shift_all"), systemImage: "arrow.left.and.right")
+            }
+            .disabled(document.stampedCount == 0)
+            if !document.isMonotonic {
+                Button {
+                    document.sortByTimestamp()
+                } label: {
+                    Label(String(localized: "lyrics_editor_sort"), systemImage: "arrow.up.arrow.down")
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                showClearConfirm = true
+            } label: {
+                Label(String(localized: "lyrics_editor_clear_all"), systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 28, height: 30)
+                .contentShape(.rect)
+        }
+        .accessibilityLabel(String(localized: "lyrics_editor_more_actions"))
     }
 
     private var modeBinding: Binding<Mode> {
@@ -831,7 +1157,15 @@ struct LyricsEditorView: View {
         while !Task.isCancelled {
             if isLinkedToPlayback {
                 let now = player.interpolatedTime()
-                if abs(now - playbackTime) > 0.02 { playbackTime = now }
+                if abs(now - playbackTime) > 0.02 {
+                    playbackTime = now
+                    if mode == .timing,
+                       timingFollowsPlayback,
+                       let index = timingLineIndex(at: now),
+                       timingSession.cursorIndex != index {
+                        _ = timingSession.select(index: index, document: document)
+                    }
+                }
             }
             try? await Task.sleep(for: .milliseconds(100))
         }
@@ -841,6 +1175,78 @@ struct LyricsEditorView: View {
 
     private var activeIndex: Int? {
         isLinkedToPlayback ? document.activeLineIndex(at: playbackTime) : nil
+    }
+
+    /// 制作信息保留在文本模式中，但不是会被演唱的歌词，不进入打轴游标。
+    private var timingEligibleIndices: [Int] {
+        document.lines.indices.filter { isTimingEligibleLine(at: $0) }
+    }
+
+    private var timedEligibleCount: Int {
+        timingEligibleIndices.lazy.filter { document.lines[$0].isStamped }.count
+    }
+
+    private var unstampedEligibleCount: Int {
+        timingEligibleIndices.count - timedEligibleCount
+    }
+
+    private var skippedTimingLineCount: Int {
+        document.lines.count - timingEligibleIndices.count
+    }
+
+    private var playbackTimingIndex: Int? {
+        guard isLinkedToPlayback else { return nil }
+        return timingLineIndex(at: playbackTime)
+    }
+
+    private func timingLineIndex(at time: TimeInterval) -> Int? {
+        return timingEligibleIndices
+            .compactMap { index -> (index: Int, time: TimeInterval)? in
+                guard let timestamp = document.lines[index].timestamp,
+                      timestamp <= time else { return nil }
+                return (index, timestamp)
+            }
+            .max { lhs, rhs in
+                lhs.time == rhs.time ? lhs.index < rhs.index : lhs.time < rhs.time
+            }?
+            .index
+    }
+
+    private var previousTimingIndex: Int? {
+        guard let cursor = timingSession.cursorIndex,
+              let position = timingEligibleIndices.firstIndex(of: cursor),
+              position > timingEligibleIndices.startIndex else { return nil }
+        return timingEligibleIndices[timingEligibleIndices.index(before: position)]
+    }
+
+    private var nextTimingIndex: Int? {
+        guard let cursor = timingSession.cursorIndex,
+              let position = timingEligibleIndices.firstIndex(of: cursor) else { return nil }
+        let nextPosition = timingEligibleIndices.index(after: position)
+        guard nextPosition < timingEligibleIndices.endIndex else { return nil }
+        return timingEligibleIndices[nextPosition]
+    }
+
+    private func isTimingEligibleLine(at index: Int) -> Bool {
+        guard document.lines.indices.contains(index) else { return false }
+        let value = document.lines[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        return !LyricsTextTools.isCreditLine(value) && !isSongHeader(value)
+    }
+
+    private func isTimingInformationLine(at index: Int) -> Bool {
+        guard document.lines.indices.contains(index) else { return false }
+        let value = document.lines[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        return LyricsTextTools.isCreditLine(value) || isSongHeader(value)
+    }
+
+    private func isSongHeader(_ line: String) -> Bool {
+        let title = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = (song.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !artist.isEmpty else { return false }
+        return line.localizedCaseInsensitiveContains(title)
+            && line.localizedCaseInsensitiveContains(artist)
     }
 
     private var lineList: some View {
@@ -854,6 +1260,48 @@ struct LyricsEditorView: View {
             .onDelete { document.removeLines(at: $0) }
         }
         .listStyle(.plain)
+    }
+
+    private var editableLineScroll: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(document.lines.enumerated()), id: \.element.id) { index, line in
+                        lineRow(line: line, index: index)
+                            .id(line.id)
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let item = items.first else { return false }
+                                return moveLine(withID: item, to: index)
+                            }
+
+                        if index < document.lines.count - 1 {
+                            Divider().padding(.leading, showTimestamps ? 82 : 12)
+                        }
+                    }
+                }
+                .padding(.vertical, 5)
+            }
+            .onChange(of: focusedLine) { _, lineID in
+                guard let lineID else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(lineID, anchor: .center)
+                }
+            }
+        }
+        #if os(macOS)
+        .background(PMColor.card, in: .rect(cornerRadius: PMRadius.l))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        #else
+        .background(Color.secondary.opacity(0.055), in: .rect(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.16), lineWidth: 0.5)
+        }
+        .padding(.horizontal, 16)
+        #endif
     }
 
     private func lineRow(line: EditableLyricLine, index: Int) -> some View {
@@ -879,16 +1327,31 @@ struct LyricsEditorView: View {
                     .foregroundStyle(.secondary)
                     .help(String(localized: "lyrics_editor_word_level_hint"))
             }
+
+            if isTimingInformationLine(at: index) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .help(String(localized: "lyrics_editor_timing_info_line"))
+            }
+
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 28)
+                .contentShape(.rect)
+                .draggable(line.id.uuidString)
+                .accessibilityLabel(String(localized: "lyrics_editor_reorder_line"))
         }
-        .padding(.vertical, 3)
-        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
         .background {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(rowBackground(isActive: isActive))
         }
         .contextMenu {
             Button(String(localized: "lyrics_editor_stamp_now")) { stampWithCurrentTime(index) }
-                .disabled(!isLinkedToPlayback)
+                .disabled(!isLinkedToPlayback || isTimingInformationLine(at: index))
             if line.isStamped {
                 Button(String(localized: "lyrics_editor_nudge_earlier")) { nudge(index, by: -0.1) }
                 Button(String(localized: "lyrics_editor_nudge_later")) { nudge(index, by: 0.1) }
@@ -902,6 +1365,24 @@ struct LyricsEditorView: View {
                 document.removeLines(at: IndexSet(integer: index))
             }
         }
+    }
+
+    private func moveLine(withID rawID: String, to targetIndex: Int) -> Bool {
+        guard let id = UUID(uuidString: rawID),
+              let sourceIndex = document.lines.firstIndex(where: { $0.id == id }),
+              document.lines.indices.contains(targetIndex) else { return false }
+        guard sourceIndex != targetIndex else { return true }
+
+        let selectedID = timingSession.cursorIndex.flatMap { index in
+            document.lines.indices.contains(index) ? document.lines[index].id : nil
+        }
+        let destination = sourceIndex < targetIndex ? targetIndex + 1 : targetIndex
+        document.moveLines(from: IndexSet(integer: sourceIndex), to: destination)
+        let preferredIndex = selectedID.flatMap { selected in
+            document.lines.firstIndex(where: { $0.id == selected })
+        }
+        timingSession.reset(document: document, preferredIndex: preferredIndex)
+        return true
     }
 
     private func rowBackground(isActive: Bool) -> Color {
@@ -925,6 +1406,13 @@ struct LyricsEditorView: View {
             }
             .buttonStyle(.plain)
             .disabled(!isLinkedToPlayback)
+        } else if isTimingInformationLine(at: index) {
+            Text(String(localized: "lyrics_editor_info_line_badge"))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 4))
         } else {
             Button {
                 stampWithCurrentTime(index)
@@ -1026,28 +1514,36 @@ struct LyricsEditorView: View {
             Divider()
 
             VStack(spacing: 0) {
-                Spacer(minLength: 20)
+                HStack(spacing: 10) {
+                    Text(String(
+                        format: String(localized: "lyrics_editor_timing_progress %lld %lld"),
+                        timedEligibleCount,
+                        timingEligibleIndices.count
+                    ))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-                Text(String(
-                    format: String(localized: "lyrics_editor_timing_progress %lld %lld"),
-                    document.stampedCount,
-                    document.lines.count
-                ))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-                Spacer(minLength: 18)
-                timingLineContext
-                Spacer(minLength: 24)
-
-                HStack(spacing: 24) {
-                    timingHistoryButton(
-                        systemImage: "arrow.uturn.backward",
-                        label: String(localized: "lyrics_editor_timing_undo"),
-                        enabled: timingSession.canUndo
-                    ) {
-                        _ = timingSession.undo(document: &document)
+                    if skippedTimingLineCount > 0 {
+                        Text(String(
+                            format: String(localized: "lyrics_editor_timing_skipped_info %lld"),
+                            skippedTimingLineCount
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
+                }
+                .padding(.top, 18)
+
+                Spacer(minLength: 12)
+                timingLineContext
+                Spacer(minLength: 18)
+
+                HStack(spacing: 14) {
+                    timingNavigationButton(
+                        systemImage: "chevron.left",
+                        label: String(localized: "lyrics_editor_previous_line"),
+                        enabled: previousTimingIndex != nil
+                    ) { selectPreviousTimingLine() }
 
                     Button {
                         stampTimingLine()
@@ -1061,26 +1557,58 @@ struct LyricsEditorView: View {
                         }
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: 270)
-                        .frame(height: 94)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .frame(height: 90)
+                        .background(Color.accentColor.opacity(0.12), in: .rect(cornerRadius: 18))
                         .overlay {
-                            Capsule().stroke(Color.accentColor.opacity(0.82), lineWidth: 1.5)
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.accentColor.opacity(0.82), lineWidth: 1.5)
                         }
-                        .contentShape(Capsule())
+                        .contentShape(.rect(cornerRadius: 18))
                     }
                     .buttonStyle(.plain)
                     .disabled(!isLinkedToPlayback || timingSession.cursorIndex == nil)
                     .opacity(isLinkedToPlayback && timingSession.cursorIndex != nil ? 1 : 0.48)
 
+                    timingNavigationButton(
+                        systemImage: "chevron.right",
+                        label: String(localized: "lyrics_editor_next_line"),
+                        enabled: nextTimingIndex != nil
+                    ) { selectNextTimingLine() }
+                }
+                .padding(.horizontal, 22)
+
+                HStack(spacing: 12) {
+                    Button {
+                        followPlaybackLine()
+                    } label: {
+                        Label(
+                            String(localized: timingFollowsPlayback
+                                   ? "lyrics_editor_following_playback"
+                                   : "lyrics_editor_return_to_playback"),
+                            systemImage: timingFollowsPlayback ? "location.fill" : "scope"
+                        )
+                        .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(timingFollowsPlayback ? Color.accentColor : Color.secondary)
+                    .disabled(!isLinkedToPlayback || playbackTimingIndex == nil)
+
+                    Spacer()
+
+                    timingHistoryButton(
+                        systemImage: "arrow.uturn.backward",
+                        label: String(localized: "lyrics_editor_timing_undo"),
+                        enabled: timingSession.canUndo
+                    ) { undoTimingChange() }
+
                     timingHistoryButton(
                         systemImage: "arrow.uturn.forward",
                         label: String(localized: "lyrics_editor_timing_redo"),
                         enabled: timingSession.canRedo
-                    ) {
-                        _ = timingSession.redo(document: &document)
-                    }
+                    ) { redoTimingChange() }
                 }
                 .padding(.horizontal, 22)
+                .padding(.top, 14)
 
                 HStack(spacing: 8) {
                     timingFineTuneButton(
@@ -1104,7 +1632,7 @@ struct LyricsEditorView: View {
                             .font(.caption.weight(.medium))
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
-                            .background(Color.secondary.opacity(0.10), in: Capsule())
+                            .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                     .disabled(document.stampedCount == 0)
@@ -1115,24 +1643,30 @@ struct LyricsEditorView: View {
                 .padding(.bottom, 14)
             }
         }
+        #if os(macOS)
+        .padding(.horizontal, PMSpace.l24)
+        .padding(.vertical, PMSpace.m14)
+        #endif
     }
 
     @ViewBuilder
     private var timingLineContext: some View {
         if let index = timingSession.cursorIndex, document.lines.indices.contains(index) {
             VStack(spacing: 20) {
-                timingContextLine(at: index - 1, role: .previous)
+                timingContextLine(at: previousTimingIndex, role: .previous)
                 timingContextLine(at: index, role: .current)
-                timingContextLine(at: index + 1, role: .next)
+                timingContextLine(at: nextTimingIndex, role: .next)
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 28)
         } else {
             VStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: timingEligibleIndices.isEmpty ? "info.circle" : "checkmark.circle.fill")
                     .font(.system(size: 36))
-                    .foregroundStyle(.green)
-                Text(String(localized: "lyrics_editor_all_stamped"))
+                    .foregroundStyle(timingEligibleIndices.isEmpty ? Color.secondary : Color.green)
+                Text(String(localized: timingEligibleIndices.isEmpty
+                            ? "lyrics_editor_no_timing_lines"
+                            : "lyrics_editor_all_stamped"))
                     .font(.title3.weight(.semibold))
             }
             .frame(maxWidth: .infinity)
@@ -1143,8 +1677,8 @@ struct LyricsEditorView: View {
     private enum TimingLineRole: Equatable { case previous, current, next }
 
     @ViewBuilder
-    private func timingContextLine(at index: Int, role: TimingLineRole) -> some View {
-        if document.lines.indices.contains(index) {
+    private func timingContextLine(at index: Int?, role: TimingLineRole) -> some View {
+        if let index, document.lines.indices.contains(index) {
             Text(document.lines[index].text.isEmpty
                  ? String(localized: "lyrics_editor_line_placeholder")
                  : document.lines[index].text)
@@ -1169,13 +1703,31 @@ struct LyricsEditorView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 19, weight: .semibold))
-                .frame(width: 56, height: 56)
-                .background(Color.secondary.opacity(0.11), in: Circle())
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 32, height: 30)
+                .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
+        .accessibilityLabel(label)
+    }
+
+    private func timingNavigationButton(
+        systemImage: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 54, height: 54)
+                .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.32)
         .accessibilityLabel(label)
     }
 
@@ -1190,7 +1742,7 @@ struct LyricsEditorView: View {
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
-                .background(Color.secondary.opacity(0.10), in: Capsule())
+                .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .disabled(!timingSession.canNudge(in: document))
@@ -1200,17 +1752,17 @@ struct LyricsEditorView: View {
 
     private var stampProgressLabel: some View {
         Group {
-            if document.unstampedCount > 0, document.stampedCount > 0 {
+            if unstampedEligibleCount > 0, timedEligibleCount > 0 {
                 Label(
                     String(
                         format: String(localized: "lyrics_editor_partial_progress"),
-                        document.stampedCount,
-                        document.lines.count
+                        timedEligibleCount,
+                        timingEligibleIndices.count
                     ),
                     systemImage: "exclamationmark.triangle"
                 )
                 .foregroundStyle(.orange)
-            } else if document.stampedCount > 0 {
+            } else if timedEligibleCount > 0 {
                 Label(String(localized: "lyrics_editor_all_stamped"), systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
             } else {
@@ -1356,24 +1908,66 @@ struct LyricsEditorView: View {
     // MARK: - 打轴动作
 
     private func stampWithCurrentTime(_ index: Int) {
-        guard isLinkedToPlayback else { return }
+        guard isLinkedToPlayback, isTimingEligibleLine(at: index) else { return }
         document.stamp(at: index, time: player.interpolatedTime())
     }
 
     private func prepareTimingSession() {
-        let preferredIndex = document.nextUnstampedIndex ?? activeIndex
+        let liveTime = isLinkedToPlayback ? player.interpolatedTime() : playbackTime
+        let playbackIndex = isLinkedToPlayback ? timingLineIndex(at: liveTime) : nil
+        let preferredIndex = playbackIndex
+            ?? timingEligibleIndices.first(where: { !document.lines[$0].isStamped })
+            ?? timingEligibleIndices.first
         timingSession.reset(document: document, preferredIndex: preferredIndex)
+        if preferredIndex == nil {
+            _ = timingSession.select(index: nil, document: document)
+        }
+        timingFollowsPlayback = playbackIndex != nil
     }
 
     private func stampTimingLine() {
         guard isLinkedToPlayback else { return }
-        guard timingSession.stamp(
+        guard let stampedIndex = timingSession.stamp(
             document: &document,
             time: player.interpolatedTime()
-        ) != nil else { return }
+        ) else { return }
+        timingFollowsPlayback = false
+        let next = timingEligibleIndices.first(where: { $0 > stampedIndex })
+        _ = timingSession.select(index: next, document: document)
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         #endif
+    }
+
+    private func selectPreviousTimingLine() {
+        guard let previousTimingIndex else { return }
+        timingFollowsPlayback = false
+        _ = timingSession.select(index: previousTimingIndex, document: document)
+    }
+
+    private func selectNextTimingLine() {
+        guard let nextTimingIndex else { return }
+        timingFollowsPlayback = false
+        _ = timingSession.select(index: nextTimingIndex, document: document)
+    }
+
+    private func followPlaybackLine() {
+        let liveTime = isLinkedToPlayback ? player.interpolatedTime() : playbackTime
+        guard let playbackTimingIndex = timingLineIndex(at: liveTime) else { return }
+        timingFollowsPlayback = true
+        _ = timingSession.select(index: playbackTimingIndex, document: document)
+    }
+
+    private func undoTimingChange() {
+        timingFollowsPlayback = false
+        _ = timingSession.undo(document: &document)
+    }
+
+    private func redoTimingChange() {
+        timingFollowsPlayback = false
+        guard let redone = timingSession.redo(document: &document) else { return }
+        let next = timingEligibleIndices.first(where: { $0 > redone })
+        _ = timingSession.select(index: next, document: document)
     }
 
     private func nudgeTimingLine(by delta: TimeInterval) {
@@ -1405,7 +1999,7 @@ struct LyricsEditorView: View {
     /// 部分打轴的文档存下去会掉行 ── `LyricsContentParser.parseText` 一旦发现
     /// 存在带时间戳的行,就只返回那些行,未打轴的会被静默丢弃。所以这里拦一道。
     private var willDropUnstampedLines: Bool {
-        document.stampedCount > 0 && document.unstampedCount > 0
+        timedEligibleCount > 0 && unstampedEligibleCount > 0
     }
 
     private func requestCommit() {
@@ -1444,7 +2038,7 @@ struct LyricsEditorView: View {
         return Text(
             String(
                 format: String(localized: "lyrics_editor_unstamped_warning_message"),
-                document.unstampedCount
+                unstampedEligibleCount
             )
         )
     }

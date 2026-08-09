@@ -29,6 +29,34 @@ public struct LyricsTimingSession: Hashable, Sendable {
     public var canUndo: Bool { !undoStack.isEmpty }
     public var canRedo: Bool { !redoStack.isEmpty }
 
+    /// 手动切换正在打轴的行。只移动游标，不清空撤销历史；如果选中的是已打轴
+    /// 行，后续微调就作用在该行，否则继续保留最近一次实际打点作为微调目标。
+    @discardableResult
+    public mutating func select(
+        index: Int?,
+        document: LyricsEditorDocument
+    ) -> Bool {
+        if let index {
+            guard document.lines.indices.contains(index) else { return false }
+            cursorIndex = index
+            if document.lines[index].isStamped {
+                adjustmentIndex = index
+            } else if adjustmentIndex.flatMap({ adjustment in
+                document.lines.indices.contains(adjustment)
+                    ? document.lines[adjustment].timestamp
+                    : nil
+            }) == nil {
+                adjustmentIndex = Self.resolveAdjustmentIndex(
+                    in: document,
+                    cursorIndex: index
+                )
+            }
+        } else {
+            cursorIndex = nil
+        }
+        return true
+    }
+
     /// 文本增删、拖动排序或整体偏移后，下标历史已经不再可靠，重新建立会话。
     public mutating func reset(
         document: LyricsEditorDocument,

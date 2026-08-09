@@ -116,4 +116,40 @@ struct LyricsTimingSessionTests {
         #expect(!session.canUndo)
         #expect(!session.canRedo)
     }
+
+    @Test("Manual selection keeps timing history")
+    func selectionKeepsHistory() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(timestamp: nil, text: "First"),
+            EditableLyricLine(timestamp: nil, text: "Second"),
+            EditableLyricLine(timestamp: nil, text: "Third")
+        ])
+        var session = LyricsTimingSession(document: document)
+
+        session.stamp(document: &document, time: 1)
+        let didSelectThird = session.select(index: 2, document: document)
+        #expect(didSelectThird)
+        #expect(session.cursorIndex == 2)
+        #expect(session.canUndo)
+
+        session.undo(document: &document)
+        #expect(document.lines[0].timestamp == nil)
+        #expect(session.cursorIndex == 0)
+    }
+
+    @Test("Selecting a timed line makes it the fine-tuning target")
+    func selectionChangesNudgeTarget() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(timestamp: 1, text: "First"),
+            EditableLyricLine(timestamp: 2, text: "Second")
+        ])
+        var session = LyricsTimingSession(document: document, preferredIndex: 0)
+
+        let didSelectSecond = session.select(index: 1, document: document)
+        #expect(didSelectSecond)
+        session.nudge(document: &document, by: 0.1)
+
+        #expect(document.lines[0].timestamp == 1)
+        #expect(document.lines[1].timestamp == 2.1)
+    }
 }

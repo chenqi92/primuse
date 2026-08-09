@@ -2524,3 +2524,13 @@
 "lyrics_editor_timing_hint" = "聽到這句就按 · 自動跳下一句";
 "lyrics_editor_timing_undo" = "退回一句";
 "lyrics_editor_timing_redo" = "重做一句";
+"lyrics_editor_previous_line" = "上一句";
+"lyrics_editor_next_line" = "下一句";
+"lyrics_editor_following_playback" = "正在跟隨播放";
+"lyrics_editor_return_to_playback" = "回到播放位置";
+"lyrics_editor_timing_skipped_info %lld" = "略過 %lld 行標題/製作資訊";
+"lyrics_editor_reorder_hint" = "按住右側拖柄調整順序";
+"lyrics_editor_reorder_line" = "調整歌詞行順序";
+"lyrics_editor_timing_info_line" = "標題和製作資訊不會參與對時";
+"lyrics_editor_info_line_badge" = "資訊";
+"lyrics_editor_no_timing_lines" = "沒有可對時的歌詞行";

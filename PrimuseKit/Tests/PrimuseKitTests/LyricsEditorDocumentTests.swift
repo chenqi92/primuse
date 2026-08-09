@@ -269,6 +269,19 @@ struct LyricsEditorDocumentTests {
         #expect(document.activeLineIndex(at: 30) == 2)
     }
 
+    @Test("Active line follows time rather than document order")
+    func tracksActiveLineInOutOfOrderDocument() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:44.690]Future line placed first
+        [00:25.920]Current line placed later
+        [00:32.260]Next line
+        """)
+
+        #expect(document.activeLineIndex(at: 30) == 1)
+        #expect(document.activeLineIndex(at: 40) == 2)
+        #expect(document.activeLineIndex(at: 50) == 0)
+    }
+
     @Test("Insertion and removal keep stable identities")
     func insertAndRemove() {
         var document = LyricsEditorDocument(parsing: "[00:12.300]晚风吹过温柔的午后")

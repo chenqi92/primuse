@@ -314,13 +314,18 @@ public struct LyricsEditorDocument: Hashable, Sendable {
     }
 
     /// 播放到 `time` 时应当高亮的行下标。只看已打轴的行。
+    ///
+    /// 编辑器允许用户暂时保留乱序时间戳，因此不能遇到一个未来时间就提前结束；
+    /// 应从整份文档里找“不晚于播放位置、且时间最靠后”的那一行。
     public func activeLineIndex(at time: TimeInterval) -> Int? {
-        var result: Int?
+        var result: (index: Int, timestamp: TimeInterval)?
         for (index, line) in lines.enumerated() {
             guard let timestamp = line.timestamp else { continue }
-            if timestamp <= time { result = index } else if result != nil { break }
+            guard timestamp <= time else { continue }
+            if let current = result, current.timestamp > timestamp { continue }
+            result = (index, timestamp)
         }
-        return result
+        return result?.index
     }
 
     /// 打轴模式下"下一句该打"的行下标 ── 第一个还没打轴的行。

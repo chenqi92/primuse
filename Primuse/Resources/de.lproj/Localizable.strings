@@ -2547,3 +2547,13 @@
 "lyrics_editor_timing_hint" = "Beim Zeilenbeginn tippen · springt automatisch weiter";
 "lyrics_editor_timing_undo" = "Zeile zurück";
 "lyrics_editor_timing_redo" = "Zeile wiederholen";
+"lyrics_editor_previous_line" = "Vorherige Zeile";
+"lyrics_editor_next_line" = "Nächste Zeile";
+"lyrics_editor_following_playback" = "Wiedergabe wird verfolgt";
+"lyrics_editor_return_to_playback" = "Zur Wiedergabe";
+"lyrics_editor_timing_skipped_info %lld" = "%lld Titel-/Mitwirkendenzeile(n) übersprungen";
+"lyrics_editor_reorder_hint" = "Am rechten Griff ziehen, um zu sortieren";
+"lyrics_editor_reorder_line" = "Liedtextzeile neu anordnen";
+"lyrics_editor_timing_info_line" = "Titel und Mitwirkende werden nicht getimt";
+"lyrics_editor_info_line_badge" = "Info";
+"lyrics_editor_no_timing_lines" = "Keine Liedtextzeilen zum Timen";

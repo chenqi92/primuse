@@ -2547,3 +2547,13 @@
 "lyrics_editor_timing_hint" = "이 줄이 시작될 때 탭 · 다음 줄로 자동 이동";
 "lyrics_editor_timing_undo" = "한 줄 실행 취소";
 "lyrics_editor_timing_redo" = "한 줄 다시 실행";
+"lyrics_editor_previous_line" = "이전 줄";
+"lyrics_editor_next_line" = "다음 줄";
+"lyrics_editor_following_playback" = "재생 위치 따라가는 중";
+"lyrics_editor_return_to_playback" = "재생 위치로 돌아가기";
+"lyrics_editor_timing_skipped_info %lld" = "제목/제작 정보 %lld줄 건너뜀";
+"lyrics_editor_reorder_hint" = "오른쪽 핸들을 드래그하여 순서 변경";
+"lyrics_editor_reorder_line" = "가사 줄 순서 변경";
+"lyrics_editor_timing_info_line" = "제목과 제작 정보는 타이밍에서 제외됩니다";
+"lyrics_editor_info_line_badge" = "정보";
+"lyrics_editor_no_timing_lines" = "타이밍을 지정할 가사 줄이 없습니다";

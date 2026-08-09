@@ -2375,3 +2375,13 @@
 "lyrics_editor_timing_hint" = "Tap when this line starts · Advances automatically";
 "lyrics_editor_timing_undo" = "Undo Line";
 "lyrics_editor_timing_redo" = "Redo Line";
+"lyrics_editor_previous_line" = "Previous Line";
+"lyrics_editor_next_line" = "Next Line";
+"lyrics_editor_following_playback" = "Following Playback";
+"lyrics_editor_return_to_playback" = "Return to Playback";
+"lyrics_editor_timing_skipped_info %lld" = "Skipping %lld title/credit line(s)";
+"lyrics_editor_reorder_hint" = "Drag the handle on the right to reorder";
+"lyrics_editor_reorder_line" = "Reorder lyric line";
+"lyrics_editor_timing_info_line" = "Titles and credits are kept out of timing";
+"lyrics_editor_info_line_badge" = "Info";
+"lyrics_editor_no_timing_lines" = "No lyric lines to time";

@@ -2547,3 +2547,13 @@
 "lyrics_editor_timing_hint" = "Touchez au début de la ligne · avance automatique";
 "lyrics_editor_timing_undo" = "Annuler la ligne";
 "lyrics_editor_timing_redo" = "Rétablir la ligne";
+"lyrics_editor_previous_line" = "Ligne précédente";
+"lyrics_editor_next_line" = "Ligne suivante";
+"lyrics_editor_following_playback" = "Lecture suivie";
+"lyrics_editor_return_to_playback" = "Revenir à la lecture";
+"lyrics_editor_timing_skipped_info %lld" = "%lld ligne(s) de titre/crédits ignorée(s)";
+"lyrics_editor_reorder_hint" = "Faites glisser la poignée à droite pour réordonner";
+"lyrics_editor_reorder_line" = "Réordonner la ligne de paroles";
+"lyrics_editor_timing_info_line" = "Les titres et crédits ne sont pas minutés";
+"lyrics_editor_info_line_badge" = "Info";
+"lyrics_editor_no_timing_lines" = "Aucune ligne de paroles à minuter";

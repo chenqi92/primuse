@@ -2651,3 +2651,13 @@
 "lyrics_editor_timing_hint" = "听到这句就按 · 自动跳下一句";
 "lyrics_editor_timing_undo" = "回退一句";
 "lyrics_editor_timing_redo" = "重做一句";
+"lyrics_editor_previous_line" = "上一句";
+"lyrics_editor_next_line" = "下一句";
+"lyrics_editor_following_playback" = "正在跟随播放";
+"lyrics_editor_return_to_playback" = "回到播放位置";
+"lyrics_editor_timing_skipped_info %lld" = "跳过 %lld 行标题/制作信息";
+"lyrics_editor_reorder_hint" = "按住右侧拖柄调整顺序";
+"lyrics_editor_reorder_line" = "调整歌词行顺序";
+"lyrics_editor_timing_info_line" = "标题和制作信息不会参与打轴";
+"lyrics_editor_info_line_badge" = "信息";
+"lyrics_editor_no_timing_lines" = "没有可打轴的歌词行";
