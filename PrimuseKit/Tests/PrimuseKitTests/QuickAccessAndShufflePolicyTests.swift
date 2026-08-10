@@ -145,6 +145,30 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 
+    @Test("Server catalog MP3 with duration and cover skips a duplicate header read")
+    func completeServerCatalogMP3DoesNotBackfill() {
+        let titleChecked = ServerCatalogMetadataInspectionPolicy.hasUsableTitle("讲真的")
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .mp3,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: titleChecked
+        ))
+    }
+
+    @Test("A placeholder catalog title retains the file-header fallback")
+    func placeholderServerCatalogTitleStillBackfills() {
+        let titleChecked = ServerCatalogMetadataInspectionPolicy.hasUsableTitle("未知标题")
+        #expect(MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: titleChecked
+        ))
+    }
+
     @Test("Legacy uninspected songs retain title migration")
     func legacyTitleStillBackfills() {
         #expect(MetadataBackfillEligibilityPolicy.needsBackfill(
@@ -154,6 +178,115 @@ struct MetadataBackfillEligibilityPolicyTests {
             artworkGivenUp: false,
             titleChecked: false
         ))
+    }
+}
+
+@Suite("Server catalog metadata inspection")
+struct ServerCatalogMetadataInspectionPolicyTests {
+    @Test("A real server title completes title inspection")
+    func realTitleIsUsable() {
+        #expect(ServerCatalogMetadataInspectionPolicy.hasUsableTitle("讲真的"))
+        #expect(ServerCatalogMetadataInspectionPolicy.hasUsableTitle("  A Real Song  "))
+    }
+
+    @Test("Missing and placeholder server titles keep the file-header fallback")
+    func placeholdersRemainEligibleForInspection() {
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle(nil))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle(""))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("   "))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("Unknown"))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("[Unknown Title]"))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("Unknown Track"))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("UNTITLED"))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("未知标题"))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("未知標題"))
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle("Broken � Title"))
+    }
+}
+
+@Suite("Metadata backfill activity state")
+struct MetadataBackfillActivityStateTests {
+    @Test("Only an active worker resolves to running")
+    func activeWorkerRuns() {
+        #expect(MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: true,
+            isWaitingForWiFi: false
+        ) == .running)
+    }
+
+    @Test("Wi-Fi deferral stays visible after its prompt is dismissed")
+    func cellularDeferralWaits() {
+        #expect(MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: false,
+            isWaitingForWiFi: true
+        ) == .waitingForWiFi)
+    }
+
+    @Test("Switching to Wi-Fi or allowing cellular resumes the running state")
+    func permittedNetworkRuns() {
+        let afterWiFiReconnect = MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: true,
+            isWaitingForWiFi: false
+        )
+        let afterCellularOptIn = MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: true,
+            isWaitingForWiFi: false
+        )
+
+        #expect(afterWiFiReconnect == .running)
+        #expect(afterCellularOptIn == .running)
+    }
+
+    @Test("Cancellation and retryable failure leave a static pending state")
+    func interruptedWorkStaysPending() {
+        let afterCancellation = MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: false,
+            isWaitingForWiFi: false
+        )
+        let afterRetryableFailure = MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: false,
+            isWaitingForWiFi: false
+        )
+
+        #expect(afterCancellation == .pending)
+        #expect(afterRetryableFailure == .pending)
+    }
+
+    @Test("Completed or failed-only queues become idle")
+    func exhaustedQueuesAreIdle() {
+        let noPendingWork = MetadataBackfillActivityState.resolve(
+            hasPendingWork: false,
+            isRunning: false,
+            isWaitingForWiFi: false
+        )
+        let failedWorkExcludedFromQueue = MetadataBackfillActivityState.resolve(
+            hasPendingWork: false,
+            isRunning: false,
+            isWaitingForWiFi: false
+        )
+
+        #expect(noPendingWork == .idle)
+        #expect(failedWorkExcludedFromQueue == .idle)
+    }
+
+    @Test("Pending and idle queues do not present as running")
+    func inactiveQueuesDoNotRun() {
+        #expect(MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: false,
+            isWaitingForWiFi: false
+        ) == .pending)
+        #expect(MetadataBackfillActivityState.resolve(
+            hasPendingWork: false,
+            isRunning: false,
+            isWaitingForWiFi: true
+        ) == .idle)
     }
 }
 

@@ -1198,7 +1198,14 @@ struct StorageManagementView: View {
                 }
                 if backfill.hasPendingWork {
                     HStack {
-                        Text("backfill_in_progress")
+                        switch backfill.activityState {
+                        case .running:
+                            Text("backfill_in_progress")
+                        case .waitingForWiFi:
+                            Label("backfill_waiting_for_wifi", systemImage: "wifi.exclamationmark")
+                        case .pending, .idle:
+                            Text("home_pending_details")
+                        }
                         Spacer()
                         Text(String(format: String(localized: "backfill_remaining"), backfill.remainingCount))
                             .foregroundStyle(.secondary)

@@ -574,6 +574,7 @@
 "cloud_scan_wifi_only" = "클라우드 세부 정보는 Wi-Fi에서만";
 "cloud_scan_wifi_only_footer" = "클라우드 스캔은 먼저 파일 이름만 가져옵니다. 트랙 세부 정보(아티스트, 앨범, 커버, 길이)는 백그라운드에서 곡당 약 256KB씩 불러옵니다. 이 옵션을 켜면 셀룰러에서는 로딩이 일시 정지되고 Wi-Fi에 다시 연결되면 재개됩니다.";
 "backfill_in_progress" = "태그 읽는 중…";
+"backfill_waiting_for_wifi" = "Wi-Fi 연결 대기 중";
 "new_songs_added" = "새 곡 %d개";
 "no_new_songs" = "새 곡 없음";
 "backfill_remaining" = "%d개 남음";

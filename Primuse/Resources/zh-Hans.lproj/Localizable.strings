@@ -381,6 +381,7 @@
 "cloud_scan_wifi_only" = "仅在 Wi-Fi 下加载云盘详情";
 "cloud_scan_wifi_only_footer" = "扫描云盘时只读取文件名，详情（歌手/专辑/封面/时长）会在后台分批加载。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
 "backfill_in_progress" = "读取标签中…";
+"backfill_waiting_for_wifi" = "等待 Wi-Fi";
 "new_songs_added" = "新增 %d 首";
 "no_new_songs" = "暂无新歌";
 "backfill_remaining" = "剩余 %d 首";

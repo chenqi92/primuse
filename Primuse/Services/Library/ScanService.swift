@@ -961,6 +961,7 @@ final class ScanService {
             for try await update in stream {
                 try Task.checkCancellation()
                 try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
+                metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
                 publishScanProgress(
                     sourceID: source.id,
                     scannedCount: update.scannedCount,
@@ -1019,6 +1020,7 @@ final class ScanService {
 
             try Task.checkCancellation()
             try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
+            metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
             let scanIndex = await scanner.syncIndexSnapshot()
             let candidateState = SourceSyncState(
                 sourceID: source.id,

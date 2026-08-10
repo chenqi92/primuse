@@ -441,7 +441,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     continuation.yield(
                                         ConnectorScannedSong(
                                             song: song,
-                                            displayName: item.title
+                                            displayName: item.title,
+                                            titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                                                item.title
+                                            )
                                         )
                                     )
                                 }
@@ -495,7 +498,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     continuation.yield(
                                         ConnectorScannedSong(
                                             song: song,
-                                            displayName: item.name
+                                            displayName: item.name,
+                                            titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                                                item.name
+                                            )
                                         )
                                     )
                                 }

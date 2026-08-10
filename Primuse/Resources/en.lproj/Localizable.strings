@@ -380,6 +380,7 @@
 "cloud_scan_wifi_only" = "Wi-Fi only for cloud details";
 "cloud_scan_wifi_only_footer" = "Cloud scans only fetch filenames upfront. Track details (artist, album, cover, duration) are loaded in the background — about 256KB per song. With this on, loading pauses on cellular and resumes when you reconnect to Wi-Fi.";
 "backfill_in_progress" = "Reading tags…";
+"backfill_waiting_for_wifi" = "Waiting for Wi-Fi";
 "new_songs_added" = "%d new songs";
 "no_new_songs" = "No new songs";
 "backfill_remaining" = "%d remaining";

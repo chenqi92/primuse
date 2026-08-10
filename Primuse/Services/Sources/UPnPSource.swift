@@ -338,7 +338,8 @@ actor UPnPSource: SongScanningConnector {
                     continuation.yield(
                         ConnectorScannedSong(
                             song: song,
-                            displayName: song.title
+                            displayName: song.title,
+                            titleMetadataInspected: false
                         )
                     )
                 }

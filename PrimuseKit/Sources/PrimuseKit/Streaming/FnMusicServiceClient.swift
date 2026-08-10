@@ -41,6 +41,10 @@ public struct FnMusicCatalogPage: Sendable {
 public struct FnMusicCatalogTrack: Sendable {
     public let guid: String
     public let title: String
+    /// Whether the catalog payload itself supplied a usable semantic title.
+    /// A `filename` fallback remains useful for display but does not replace
+    /// the bounded file-header title inspection.
+    public let hasUsableCatalogTitle: Bool
     public let coverID: String?
     public let year: Int?
     public let discNumber: Int?
@@ -69,10 +73,16 @@ public struct FnMusicCatalogTrack: Sendable {
             keys: ["guid", "id", "trackGUID", "trackGuid", "songId"]
         ) else { return nil }
         self.guid = guid
-        self.title = fnMusicFirstNonemptyString(
+        let catalogTitle = fnMusicFirstNonemptyString(
             json,
-            keys: ["title", "trackTitle", "filename", "name"]
-        ) ?? "Unknown"
+            keys: ["title", "trackTitle", "name"]
+        )
+        self.title = catalogTitle
+            ?? fnMusicNonemptyString(json["filename"])
+            ?? "Unknown"
+        self.hasUsableCatalogTitle = ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+            catalogTitle
+        )
         self.year = fnMusicInt(json["year"])
         self.discNumber = fnMusicInt(json["discNo"])
         self.cueTrackIndex = fnMusicInt(json["trackIndex"])

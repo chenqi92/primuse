@@ -73,10 +73,9 @@ final class MetadataBackfillService {
     /// User-facing toggle lives in CloudSyncSettingsView.
     static let wifiOnlyDefaultsKey = "primuse.cloudScanWifiOnly"
 
-    /// True when backfill is currently deferred because we're on cellular
-    /// with "Wi-Fi only" on AND there's actually pending work. Drives the
-    /// UI prompt that asks the user whether to proceed on 5G/4G. Cleared
-    /// once the user chooses (allowCellular / dismissCellularPrompt).
+    /// Whether the cellular opt-in alert is currently visible. This is kept
+    /// separate from `isWaitingForWiFi`: dismissing the alert must not make a
+    /// deferred queue look active again.
     private(set) var pausedForCellular: Bool = false
     /// User opted into cellular backfill for this session only (not persisted).
     private var cellularAllowedThisSession = false
@@ -106,6 +105,10 @@ final class MetadataBackfillService {
     private(set) var pendingCount: Int = 0
     private(set) var processedCount: Int = 0
     private(set) var isRunning: Bool = false
+    /// True while eligible work exists but the Wi-Fi-only gate prevents new
+    /// metadata reads. Unlike the alert state, this remains true after the user
+    /// chooses to keep waiting for Wi-Fi.
+    private(set) var isWaitingForWiFi: Bool = false
     /// Cached in one library pass and consumed by all source cards. The old
     /// implementation filtered the complete song array once per card on every
     /// SwiftUI body update, multiplying work by source count during scrolling.
@@ -461,12 +464,11 @@ final class MetadataBackfillService {
         // deferring, surface a prompt (pausedForCellular) when there's actually
         // work to do, so the user can opt into 5G/4G if they need it.
         if shouldBlockForCellular() {
-            setCellularPromptPresented(
-                hasPendingWork && !cellularPromptDismissedThisSession
-            )
+            updateWaitingForWiFiState(presentPrompt: true)
             plog("📥 Backfill: deferred (cellular + Wi-Fi-only); pendingWork=\(hasPendingWork) prompt=\(pausedForCellular)")
             return
         }
+        isWaitingForWiFi = false
         setCellularPromptPresented(false)
 
         let needsBackfill = pickNextBatch()
@@ -503,6 +505,7 @@ final class MetadataBackfillService {
                 self.isRunning = false
                 self.pendingCount = 0
                 self.refreshRemainingCounts(force: true)
+                self.updateWaitingForWiFiState(presentPrompt: true)
                 self.endBackgroundTaskIfHeld()
                 // 完成通知 ── 处理 >= 5 首才发, 避免每次 worker 短跑都打扰用户。
                 // hasPendingWork == false 表示当前没遗留 ── 队列全清才算"完成"。
@@ -565,6 +568,7 @@ final class MetadataBackfillService {
         worker = nil
         isRunning = false
         pendingCount = 0
+        updateWaitingForWiFiState(presentPrompt: false)
         endBackgroundTaskIfHeld()
     }
 
@@ -688,6 +692,14 @@ final class MetadataBackfillService {
         cachedRemainingCount > 0
     }
 
+    var activityState: MetadataBackfillActivityState {
+        .resolve(
+            hasPendingWork: hasPendingWork,
+            isRunning: isRunning,
+            isWaitingForWiFi: isWaitingForWiFi
+        )
+    }
+
     /// Number of songs currently waiting for backfill. Used by the UI to
     /// show "loading details · N remaining" — the older `pendingCount`
     /// was a snapshot at start time so it could disagree with reality
@@ -756,6 +768,10 @@ final class MetadataBackfillService {
         }
         if cachedFailedCount != failedTotal {
             cachedFailedCount = failedTotal
+        }
+        if total == 0 {
+            isWaitingForWiFi = false
+            setCellularPromptPresented(false)
         }
     }
 
@@ -1017,6 +1033,18 @@ final class MetadataBackfillService {
         return wifiOnly && !cellularAllowedThisSession && !NetworkMonitor.shared.isOnUnmeteredNetwork
     }
 
+    private func updateWaitingForWiFiState(presentPrompt: Bool) {
+        let waiting = hasPendingWork && shouldBlockForCellular()
+        if isWaitingForWiFi != waiting {
+            isWaitingForWiFi = waiting
+        }
+        if presentPrompt {
+            setCellularPromptPresented(waiting && !cellularPromptDismissedThisSession)
+        } else if !waiting {
+            setCellularPromptPresented(false)
+        }
+    }
+
     /// 用户在蜂窝提示里选择「继续」。persist=true 时永久关闭「仅 WiFi」开关,
     /// 否则只放行本次会话。随后立即恢复回填。
     func allowCellular(persist: Bool) {
@@ -1024,6 +1052,7 @@ final class MetadataBackfillService {
         if persist {
             UserDefaults.standard.set(false, forKey: Self.wifiOnlyDefaultsKey)
         }
+        isWaitingForWiFi = false
         setCellularPromptPresented(false)
         start()
     }

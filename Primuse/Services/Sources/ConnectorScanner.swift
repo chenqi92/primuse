@@ -13,6 +13,11 @@ actor ConnectorScanner {
     private let sourceID: String
     private let metadataService = MetadataService()
     private var completedSyncIndex: [String: SourceSyncIndexedItem] = [:]
+    /// IDs returned by server-catalog scanners whose API already supplied the
+    /// title and other useful metadata. ScanService drains this alongside scan
+    /// snapshots so MetadataBackfillService does not repeat the same inspection
+    /// with one Range request per song.
+    private var pendingMetadataInspectedSongIDs: Set<String> = []
 
     init(connector: any MusicSourceConnector, sourceID: String) {
         self.connector = connector
@@ -21,6 +26,12 @@ actor ConnectorScanner {
 
     func syncIndexSnapshot() -> [String: SourceSyncIndexedItem] {
         completedSyncIndex
+    }
+
+    func takeMetadataInspectedSongIDs() -> Set<String> {
+        let ids = pendingMetadataInspectedSongIDs
+        pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
+        return ids
     }
 
     struct ScanUpdate: Sendable {
@@ -228,6 +239,7 @@ actor ConnectorScanner {
         scanEpoch: Int64 = 0
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         completedSyncIndex = [:]
+        pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
         // Each update carries the complete song snapshot. An unbounded stream
         // retains every pending snapshot when a fast remote listing outruns the
         // consumer, and subsequent appends then copy those shared arrays. Keep
@@ -239,7 +251,6 @@ actor ConnectorScanner {
                     plog("🔍 ConnectorScanner.scan source=\(sourceID) dirs=\(directories)")
                     try await connector.connect()
                     plog("🔍 ConnectorScanner.scan connected")
-
                     // Remove redundant child directories when a parent is already selected
                     let dirs = SynologyScanner.deduplicateDirectories(directories)
 
@@ -300,6 +311,9 @@ actor ConnectorScanner {
                                 for try await scannedSong in stream {
                                     try Task.checkCancellation()
                                     encounteredSongIDs.insert(scannedSong.song.id)
+                                    if scannedSong.titleMetadataInspected {
+                                        pendingMetadataInspectedSongIDs.insert(scannedSong.song.id)
+                                    }
                                     if Date().timeIntervalSince(lastProgressYieldAt)
                                         >= Self.progressHeartbeatInterval {
                                         lastProgressYieldAt = Date()

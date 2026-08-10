@@ -159,7 +159,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
                             continuation.yield(
                                 ConnectorScannedSong(
                                     song: song,
-                                    displayName: "\(track.title).\(suffix)"
+                                    displayName: "\(track.title).\(suffix)",
+                                    titleMetadataInspected: track.hasUsableCatalogTitle
                                 )
                             )
                         }

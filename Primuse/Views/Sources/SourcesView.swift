@@ -443,20 +443,32 @@ struct SourcesContentView: View {
                 // with the global "remaining" in StorageManagementView.
                 let bare = backfill.remainingCount(forSource: source.id)
                 if bare > 0 {
+                    let activityState = backfill.activityState
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
-                            ProgressView().scaleEffect(0.7).tint(.secondary)
-                            Text("backfill_in_progress").font(.caption2)
+                            switch activityState {
+                            case .running:
+                                ProgressView().scaleEffect(0.7).tint(.secondary)
+                                Text("backfill_in_progress").font(.caption2)
+                            case .waitingForWiFi:
+                                Image(systemName: "wifi.exclamationmark")
+                                Text("backfill_waiting_for_wifi").font(.caption2)
+                            case .pending, .idle:
+                                Image(systemName: "clock")
+                                Text("home_pending_details").font(.caption2)
+                            }
                             Spacer()
                             Text(String(format: String(localized: "backfill_remaining"), bare))
                                 .font(.caption2).monospacedDigit()
                         }
-                        Text("backfill_runs_in_background_hint")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        Text("backfill_keep_app_alive_hint")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                        if activityState == .running {
+                            Text("backfill_runs_in_background_hint")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text("backfill_keep_app_alive_hint")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                     .foregroundStyle(.secondary)
                 }

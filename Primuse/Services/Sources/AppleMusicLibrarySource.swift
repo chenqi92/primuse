@@ -100,7 +100,11 @@ actor AppleMusicLibrarySource: SongScanningConnector {
                         lastModified: item.modifiedDate,
                         dateAdded: item.addedDate ?? Date()
                     )
-                    continuation.yield(ConnectorScannedSong(song: song, displayName: displayName))
+                    continuation.yield(ConnectorScannedSong(
+                        song: song,
+                        displayName: displayName,
+                        titleMetadataInspected: false
+                    ))
                 }
                 if skippedDRM > 0 {
                     plog("🍏 Apple Music scan: skipped \(skippedDRM) DRM-protected (.m4p) tracks — only Apple Music.app can play those.")

@@ -66,6 +66,20 @@ struct SidecarHints: Sendable {
 struct ConnectorScannedSong: Sendable {
     let song: Song
     let displayName: String
+    /// True only when this exact catalog item carried a non-placeholder title.
+    /// A filename/ID fallback used to build `Song.title` does not qualify: those
+    /// rows still need the bounded file-header title inspection.
+    let titleMetadataInspected: Bool
+
+    init(
+        song: Song,
+        displayName: String,
+        titleMetadataInspected: Bool
+    ) {
+        self.song = song
+        self.displayName = displayName
+        self.titleMetadataInspected = titleMetadataInspected
+    }
 }
 
 /// A CUE file plus the directory listing it came from. Keeping siblings here

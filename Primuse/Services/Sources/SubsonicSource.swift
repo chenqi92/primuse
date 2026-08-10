@@ -14,7 +14,7 @@ import PrimuseKit
 /// - 本地解不了的格式(主要 WMA) → 服务端转码 mp3 渐进流, 不做持久缓存。
 ///
 /// 离线下载始终取 `download` 原文件。
-actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLyricsConnector {
+actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector {
     let sourceID: String
 
     private let baseURL: URL          // 形如 https://host:4533 (+ basePath), 不含 /rest
@@ -230,7 +230,15 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                                     throw SourceError.connectionFailed("Subsonic song catalog exceeded the safety limit")
                                 }
                                 let song = buildSong(from: child, album: result.album)
-                                continuation.yield(ConnectorScannedSong(song: song, displayName: child.title ?? song.title))
+                                continuation.yield(
+                                    ConnectorScannedSong(
+                                        song: song,
+                                        displayName: child.title ?? song.title,
+                                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                                            child.title
+                                        )
+                                    )
+                                )
                             }
                         }
 
@@ -326,7 +334,10 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                 continuation.yield(
                     ConnectorScannedSong(
                         song: song,
-                        displayName: child.title ?? song.title
+                        displayName: child.title ?? song.title,
+                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                            child.title
+                        )
                     )
                 )
             }

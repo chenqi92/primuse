@@ -366,6 +366,7 @@
 "cloud_scan_wifi_only" = "僅在 Wi-Fi 下載入雲端硬碟詳情";
 "cloud_scan_wifi_only_footer" = "掃描雲端硬碟時只讀取檔名，詳情（歌手/專輯/封面/時長）會在背景分批載入。一首歌大約消耗 256KB 流量。開啟此項後，遇到行動網路會自動暫停，連上 Wi-Fi 自動繼續。";
 "backfill_in_progress" = "讀取標籤中…";
+"backfill_waiting_for_wifi" = "等待 Wi-Fi";
 "new_songs_added" = "新增 %d 首";
 "no_new_songs" = "暫無新歌";
 "backfill_remaining" = "剩餘 %d 首";

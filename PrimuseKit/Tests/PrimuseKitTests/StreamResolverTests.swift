@@ -925,6 +925,7 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     let first = try #require(track.makeSong(sourceID: "source-1"))
     let second = try #require(track.makeSong(sourceID: "source-1"))
 
+    #expect(track.hasUsableCatalogTitle)
     #expect(first.id == second.id)
     #expect(first.filePath == "/fnmusic/tracks/track-guid.flac")
     #expect(first.filePath != "/volume/music/track.flac")
@@ -965,6 +966,7 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     ]))
     let song = try #require(track.makeSong(sourceID: "source-1"))
 
+    #expect(track.hasUsableCatalogTitle)
     #expect(track.guid == "track-id")
     #expect(song.title == "Alternate Track")
     #expect(song.albumID == "album-id")
@@ -972,6 +974,31 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(song.artistID == "artist-id")
     #expect(song.artistName == "Alternate Artist")
     #expect(song.coverArtFileName == "fnmusic-cover/track-cover")
+}
+
+@Test func fnMusicFilenameFallbackDoesNotAcknowledgeCatalogTitle() throws {
+    let filenameFallback = try #require(FnMusicCatalogTrack(json: [
+        "guid": "filename-only",
+        "filename": "Visible Filename.flac",
+        "audioSpec": ["extension": "flac"],
+    ]))
+    let missing = try #require(FnMusicCatalogTrack(json: [
+        "guid": "missing-title",
+        "audioSpec": ["extension": "flac"],
+    ]))
+    let placeholder = try #require(FnMusicCatalogTrack(json: [
+        "guid": "placeholder-title",
+        "title": "Unknown",
+        "filename": "Real Looking Filename.flac",
+        "audioSpec": ["extension": "flac"],
+    ]))
+
+    #expect(filenameFallback.title == "Visible Filename.flac")
+    #expect(!filenameFallback.hasUsableCatalogTitle)
+    #expect(missing.title == "Unknown")
+    #expect(!missing.hasUsableCatalogTitle)
+    #expect(placeholder.title == "Unknown")
+    #expect(!placeholder.hasUsableCatalogTitle)
 }
 
 @Test func fnMusicCatalogTrackMapsGenreCueAndCodecAliases() throws {

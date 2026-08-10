@@ -207,7 +207,11 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         guard let song = track.makeSong(sourceID: sourceID) else {
             throw SourceError.connectionFailed(PMString("error.catalog.trackMissingFormat", track.title))
         }
-        return ConnectorScannedSong(song: song, displayName: "\(track.title).\(suffix)")
+        return ConnectorScannedSong(
+            song: song,
+            displayName: "\(track.title).\(suffix)",
+            titleMetadataInspected: track.hasUsableCatalogTitle
+        )
     }
 
     private func trackPage(page: Int, size: Int) async throws -> FnMusicTrackPage {

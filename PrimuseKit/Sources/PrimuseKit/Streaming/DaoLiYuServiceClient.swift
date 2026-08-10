@@ -43,6 +43,7 @@ public struct DaoLiYuCatalogPage: Sendable {
 public struct DaoLiYuCatalogTrack: Sendable {
     public let id: String
     public let title: String
+    public let hasUsableCatalogTitle: Bool
     public let albumID: String?
     public let albumTitle: String?
     public let artistID: String?
@@ -67,7 +68,11 @@ public struct DaoLiYuCatalogTrack: Sendable {
     public init?(json: [String: Any]) {
         guard let id = daoLiYuNonemptyString(json["id"]) else { return nil }
         self.id = id
-        self.title = daoLiYuNonemptyString(json["title"]) ?? "Unknown"
+        let catalogTitle = daoLiYuNonemptyString(json["title"])
+        self.title = catalogTitle ?? "Unknown"
+        self.hasUsableCatalogTitle = ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+            catalogTitle
+        )
 
         let album = json["album"] as? [String: Any]
         let artist = json["artist"] as? [String: Any]

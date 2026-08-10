@@ -619,7 +619,7 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
     }
 }
 
-private struct RoutedSubsonicConnector: RoutedConnectorProxy, SongScanningConnector,
+private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerScrobblingConnector, ServerLyricsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter

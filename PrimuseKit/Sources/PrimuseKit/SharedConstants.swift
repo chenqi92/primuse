@@ -1873,6 +1873,60 @@ public enum MetadataBackfillEligibilityPolicy {
     }
 }
 
+/// Accepts a server-catalog title as the completed title inspection only when
+/// it contains a real value. Placeholder titles must retain the bounded file
+/// header fallback so incomplete server metadata can still be repaired.
+public enum ServerCatalogMetadataInspectionPolicy {
+    public static func hasUsableTitle(_ title: String?) -> Bool {
+        guard let title else { return false }
+        guard !MediaMetadataTextRepair.isSuspicious(title) else { return false }
+        let normalized = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty else { return false }
+        return ![
+            "unknown",
+            "[unknown]",
+            "unknown title",
+            "[unknown title]",
+            "unknown track",
+            "[unknown track]",
+            "untitled",
+            "[untitled]",
+            "未知",
+            "[未知]",
+            "未知标题",
+            "[未知标题]",
+            "未知標題",
+            "[未知標題]",
+            "未知歌曲",
+            "[未知歌曲]",
+            "无标题",
+            "無標題"
+        ].contains(normalized)
+    }
+}
+
+/// User-visible execution state for metadata backfill. Pending work is kept
+/// separate from active work so a deferred queue never presents itself as a
+/// running spinner.
+public enum MetadataBackfillActivityState: Equatable, Sendable {
+    case idle
+    case running
+    case waitingForWiFi
+    case pending
+
+    public static func resolve(
+        hasPendingWork: Bool,
+        isRunning: Bool,
+        isWaitingForWiFi: Bool
+    ) -> Self {
+        if isRunning { return .running }
+        guard hasPendingWork else { return .idle }
+        return isWaitingForWiFi ? .waitingForWiFi : .pending
+    }
+}
+
 /// Stops a background metadata session after a complete round produces no
 /// observable progress. The songs remain eligible on the next launch; parking
 /// only suppresses an endless spinner and repeated network work in this run.

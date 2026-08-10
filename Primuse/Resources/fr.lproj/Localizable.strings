@@ -574,6 +574,7 @@
 "cloud_scan_wifi_only" = "Détails du cloud en Wi-Fi uniquement";
 "cloud_scan_wifi_only_footer" = "Les analyses du cloud ne récupèrent d'abord que les noms de fichiers. Les détails des morceaux (artiste, album, pochette, durée) sont chargés en arrière-plan, soit environ 256 Ko par morceau. Avec cette option activée, le chargement s'interrompt sur le réseau cellulaire et reprend lorsque vous vous reconnectez au Wi-Fi.";
 "backfill_in_progress" = "Lecture des tags…";
+"backfill_waiting_for_wifi" = "En attente du Wi-Fi";
 "new_songs_added" = "%d nouveaux morceaux";
 "no_new_songs" = "Aucun nouveau morceau";
 "backfill_remaining" = "%d restants";

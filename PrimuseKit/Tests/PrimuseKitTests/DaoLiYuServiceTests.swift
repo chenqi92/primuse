@@ -52,6 +52,7 @@ import Testing
     let first = try #require(track.makeSong(sourceID: "source-1", serverBaseURL: base))
     let second = try #require(track.makeSong(sourceID: "source-1", serverBaseURL: base))
 
+    #expect(track.hasUsableCatalogTitle)
     #expect(first.id == second.id)
     #expect(first.title == "Connector Tone")
     #expect(first.artistName == "Primuse QA")
@@ -63,6 +64,15 @@ import Testing
     #expect(first.genre == "Test")
     #expect(first.coverArtFileName == "https://music.example.com/api/cover?path=/data/music/cover.jpg")
     #expect(track.synchronizedLyrics == "[00:00.00]Connector")
+}
+
+@Test func daoLiYuMissingAndPlaceholderTitlesNeedFileHeaderInspection() throws {
+    for (index, title) in [nil, "", "Unknown", "未知标题"].enumerated() {
+        var json: [String: Any] = ["id": "missing-title-\(index)"]
+        if let title { json["title"] = title }
+        let track = try #require(DaoLiYuCatalogTrack(json: json))
+        #expect(!track.hasUsableCatalogTitle)
+    }
 }
 
 /// 仅在 QA 环境变量齐全时运行；不会把局域网凭据写入源码或测试输出。

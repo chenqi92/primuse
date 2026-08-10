@@ -178,7 +178,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                                 refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
                                 refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
                                 refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
-                                continuation.yield(ConnectorScannedSong(song: refreshed, displayName: item.name))
+                                continuation.yield(ConnectorScannedSong(
+                                    song: refreshed,
+                                    displayName: item.name,
+                                    titleMetadataInspected: false
+                                ))
                             } else if let scanned = try await self.buildSTRMSong(from: item) {
                                 continuation.yield(scanned)
                             }
@@ -196,7 +200,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                             if !existingTracks.isEmpty,
                                existingTracks.allSatisfy({ $0.revision == expectedRevision }) {
                                 for track in existingTracks {
-                                    continuation.yield(ConnectorScannedSong(song: track, displayName: track.title))
+                                    continuation.yield(ConnectorScannedSong(
+                                        song: track,
+                                        displayName: track.title,
+                                        titleMetadataInspected: false
+                                    ))
                                 }
                                 continue
                             }
@@ -210,7 +218,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                             var refreshed = existing
                             if refreshed.revision == nil { refreshed.revision = item.revision }
                             if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }
-                            continuation.yield(ConnectorScannedSong(song: refreshed, displayName: item.name))
+                            continuation.yield(ConnectorScannedSong(
+                                song: refreshed,
+                                displayName: item.name,
+                                titleMetadataInspected: false
+                            ))
                             continue
                         }
                         if let scanned = try await self.buildScannedSong(from: item) {
@@ -369,7 +381,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
             replayGainAlbumPeak: metadata.replayGainAlbumPeak,
             revision: item.revision
         )
-        return ConnectorScannedSong(song: song, displayName: item.name)
+        return ConnectorScannedSong(
+            song: song,
+            displayName: item.name,
+            titleMetadataInspected: false
+        )
     }
 
     private func buildSTRMSong(from item: RemoteFileItem) async throws -> ConnectorScannedSong? {
@@ -408,7 +424,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                 contentRevision: descriptor.contentRevision
             )
         )
-        return ConnectorScannedSong(song: song, displayName: item.name)
+        return ConnectorScannedSong(
+            song: song,
+            displayName: item.name,
+            titleMetadataInspected: false
+        )
     }
 
     private struct CueTrackDescriptor: Sendable {
@@ -550,7 +570,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                 cueEndTime: end,
                 revision: combinedRevision
             )
-            return ConnectorScannedSong(song: song, displayName: song.title)
+            return ConnectorScannedSong(
+                song: song,
+                displayName: song.title,
+                titleMetadataInspected: false
+            )
         }
     }
 
