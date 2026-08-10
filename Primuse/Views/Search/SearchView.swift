@@ -50,6 +50,22 @@ struct SearchView: View {
     /// 当前已经渲染的结果对应的 query。如果它与 searchText 不一致, 说明
     /// 屏幕上还是上一轮的旧结果, ContentUnavailableView 不该出来。
     @State private var renderedQuery: String = ""
+    @State private var selection = SongSelectionModel()
+
+    /// 结果分组各自截断过（iOS 每组 40，macOS 歌词 3 / 其余 6），"全选"只圈
+    /// 用户真正看得到的那些。Apple Music 在线结果不是本地曲库条目，不参与多选。
+    private var selectableSongIDs: [String] {
+        let kinds: [LibrarySearchMatchKind] = [.metadata, .lyrics, .fuzzy]
+        return kinds.flatMap { kind -> [String] in
+            let bucket = searchResults.filter { $0.matchKind == kind }
+            #if os(macOS)
+            return bucket.prefix(kind == .lyrics ? 3 : 6).map(\.song.id)
+            #else
+            return bucket.prefix(40).map(\.song.id)
+            #endif
+        }
+    }
+
     var body: some View {
         // macOS: 不再自带 NavigationStack —— SearchView 已经渲染在
         // MacDetailContainer 的栈里, 点专辑/艺术家结果时直接 push 到主栈,
@@ -63,6 +79,15 @@ struct SearchView: View {
                 iosBody
             }
             #endif
+        }
+        .songBatchActions(
+            selection: selection,
+            orderedIDs: { selectableSongIDs },
+            resolve: { library.song(id: $0) }
+        )
+        .onChange(of: renderedQuery) { _, _ in
+            // 换了一轮结果，之前选中的歌多半已经不在屏幕上了。
+            selection.prune(to: Set(selectableSongIDs))
         }
         .onAppear {
             loadRecentSearches()
@@ -479,8 +504,18 @@ struct SearchView: View {
                 ForEach(bucket) { result in
                     if kind == .lyrics, let snippet = result.lyricSnippet {
                         macLyricsResultCard(result: result, snippet: snippet)
+                            .songSelectable(
+                                songID: result.song.id,
+                                selection: selection,
+                                orderedIDs: { selectableSongIDs }
+                            )
                     } else {
                         macSongResultRow(result)
+                            .songSelectable(
+                                songID: result.song.id,
+                                selection: selection,
+                                orderedIDs: { selectableSongIDs }
+                            )
                     }
                 }
             }
@@ -573,6 +608,13 @@ struct SearchView: View {
             .pmRowBackground(cornerRadius: 6)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                selection.activate(seed: result.song.id)
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
+            }
+        }
     }
 
     private func macLyricsResultCard(result: LibrarySearchResult, snippet: String) -> some View {
@@ -846,6 +888,7 @@ struct SearchView: View {
                         SongRowView(
                             song: result.song,
                             isPlaying: player.currentSong?.id == result.song.id,
+                            selection: selection,
                             context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
                         )
                         // Keep playback taps on the view that owns the context menu.
@@ -879,6 +922,11 @@ struct SearchView: View {
                             }
                         }
                     }
+                    .songSelectable(
+                        songID: result.song.id,
+                        selection: selection,
+                        orderedIDs: { selectableSongIDs }
+                    )
                 }
             } header: {
                 Text(titleKey)

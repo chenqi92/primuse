@@ -127,6 +127,7 @@ struct MacContentView: View {
                 }
             }
         }
+        .songBatchRemovalFeedback()
         .environment(\.pmAppearance, preferences.appearance)
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())

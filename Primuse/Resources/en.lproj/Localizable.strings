@@ -2401,3 +2401,20 @@
 "intent_scrape_nothing_missing_format" = "No missing metadata was found for %@.";
 "intent_scrape_no_source" = "Enable a metadata source in Primuse before scraping.";
 "intent_scrape_live_radio_unsupported" = "Live radio cannot be scraped.";
+
+/* MARK: - Batch actions */
+"batch_select" = "Select";
+"batch_select_all" = "Select All";
+"batch_deselect_all" = "Deselect All";
+"batch_selected_count_format" = "%d selected";
+"batch_remove_from_library" = "Remove from Library";
+"batch_remove_from_library_message_format" = "%d songs will be removed from the library. Their source files are kept, but they won't be added back on the next scan.";
+"batch_delete_source_files" = "Delete Source Files";
+"batch_delete_source_files_message_format" = "The source files of %d songs will be permanently deleted and the songs removed from the library. This cannot be undone.";
+"batch_delete_skipped_format" = "%d skipped — their music source doesn't support deletion";
+"batch_delete_no_deletable_source" = "None of the selected songs are on a music source that supports deleting files.";
+"batch_delete_progress_format" = "Deleting %1$d / %2$d";
+"batch_delete_result_format" = "%d deleted";
+"batch_delete_failed_format" = "%d failed";
+"batch_playlists_selected_count_format" = "%d playlists selected";
+"batch_playlists_delete_confirm_format" = "%d playlists will be deleted. The songs inside them are kept.";

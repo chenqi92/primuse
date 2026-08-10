@@ -2614,3 +2614,20 @@
 "Play Radio" = "라디오 재생";
 "Similar Songs" = "비슷한 곡";
 "Scrape Song" = "곡 스크래핑";
+
+/* MARK: - 일괄 작업 */
+"batch_select" = "선택";
+"batch_select_all" = "모두 선택";
+"batch_deselect_all" = "선택 해제";
+"batch_selected_count_format" = "%d곡 선택됨";
+"batch_remove_from_library" = "보관함에서 제거";
+"batch_remove_from_library_message_format" = "%d곡을 보관함에서 제거합니다. 원본 파일은 남지만 다음 스캔에서 다시 추가되지 않습니다.";
+"batch_delete_source_files" = "원본 파일 삭제";
+"batch_delete_source_files_message_format" = "%d곡의 원본 파일을 영구히 삭제하고 보관함에서도 제거합니다. 이 작업은 되돌릴 수 없습니다.";
+"batch_delete_skipped_format" = "%d곡은 음악 소스가 삭제를 지원하지 않아 건너뛰었습니다";
+"batch_delete_no_deletable_source" = "선택한 곡의 음악 소스는 모두 파일 삭제를 지원하지 않습니다.";
+"batch_delete_progress_format" = "삭제 중 %1$d / %2$d";
+"batch_delete_result_format" = "%d곡 삭제됨";
+"batch_delete_failed_format" = "%d곡 실패";
+"batch_playlists_selected_count_format" = "플레이리스트 %d개 선택됨";
+"batch_playlists_delete_confirm_format" = "플레이리스트 %d개를 삭제합니다. 안에 있는 곡은 삭제되지 않습니다.";

@@ -12,6 +12,7 @@ struct AlbumDetailView: View {
     let album: Album
 
     @State private var showNoScraperSourceAlert = false
+    @State private var selection = SongSelectionModel()
 
     private var songs: [Song] {
         library.songs(forAlbum: album.id)
@@ -25,7 +26,21 @@ struct AlbumDetailView: View {
             legacyBody
             #endif
         }
+        .songBatchActions(
+            selection: selection,
+            orderedIDs: { orderedSongIDs },
+            resolve: { library.song(id: $0) }
+        )
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+    }
+
+    /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
+    private var orderedSongIDs: [String] {
+        #if os(macOS)
+        albumTracks.map(\.id)
+        #else
+        songs.map(\.id)
+        #endif
     }
 
     private var legacyBody: some View {
@@ -102,6 +117,7 @@ struct AlbumDetailView: View {
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
                             showAlbum: false,
+                            selection: selection,
                             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
                         .padding(.horizontal)
@@ -110,6 +126,11 @@ struct AlbumDetailView: View {
                         .onTapGesture {
                             playSong(song)
                         }
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { orderedSongIDs }
+                        )
 
                         Divider()
                             .padding(.leading, 50)
@@ -185,6 +206,19 @@ struct AlbumDetailView: View {
         }
 
         return AnyView(MacHeaderMoreMenu(sections: [
+            [
+                .init(icon: "checkmark.circle",
+                      title: selection.isActive
+                          ? String(localized: "done")
+                          : String(localized: "batch_select"),
+                      enabled: !songs.isEmpty) {
+                    if selection.isActive {
+                        selection.deactivate()
+                    } else {
+                        selection.activate()
+                    }
+                },
+            ],
             [
                 .init(icon: "play.fill", title: String(localized: "play_all"), enabled: !playable.isEmpty) { playAll() },
                 .init(icon: "shuffle", title: String(localized: "shuffle"), enabled: !playable.isEmpty, action: shuffleAll),
@@ -285,6 +319,11 @@ struct AlbumDetailView: View {
             LazyVStack(spacing: 1) {
                 ForEach(Array(albumTracks.enumerated()), id: \.element.id) { index, song in
                     macTrackRow(song, index: index)
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { orderedSongIDs }
+                        )
                 }
             }
             .padding(.vertical, 4)

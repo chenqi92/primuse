@@ -2591,3 +2591,20 @@
 "Play Radio" = "播放電台";
 "Similar Songs" = "相似歌曲";
 "Scrape Song" = "刮削歌曲";
+
+/* MARK: - 批次操作 */
+"batch_select" = "選取";
+"batch_select_all" = "全選";
+"batch_deselect_all" = "取消選取";
+"batch_selected_count_format" = "已選 %d 首";
+"batch_remove_from_library" = "從資料庫移除";
+"batch_remove_from_library_message_format" = "將從資料庫移除 %d 首歌曲。原始檔案不會被刪除，但重新掃描時不會再被加回。";
+"batch_delete_source_files" = "刪除原始檔案";
+"batch_delete_source_files_message_format" = "將永久刪除 %d 首歌曲的原始檔案，並從資料庫移除。此操作無法復原。";
+"batch_delete_skipped_format" = "%d 首所在的音樂來源不支援刪除，已略過";
+"batch_delete_no_deletable_source" = "選取歌曲所在的音樂來源都不支援刪除檔案。";
+"batch_delete_progress_format" = "正在刪除 %1$d / %2$d";
+"batch_delete_result_format" = "已刪除 %d 首";
+"batch_delete_failed_format" = "%d 首刪除失敗";
+"batch_playlists_selected_count_format" = "已選 %d 個播放列表";
+"batch_playlists_delete_confirm_format" = "將刪除 %d 個播放列表。列表裡的歌曲不會被刪除。";

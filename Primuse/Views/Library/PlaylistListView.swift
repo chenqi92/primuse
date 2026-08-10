@@ -11,6 +11,17 @@ struct PlaylistListView: View {
     @State private var newPlaylistDescription = ""
     @State private var showSmartEditor = false
     @State private var showNoScraperSourceAlert = false
+    /// 歌单批量管理态。普通态和管理态用两个独立的列表 —— 在同一个 List 上
+    /// 混 NavigationLink 与 selection，点一下到底是进歌单还是勾选会变得不确定。
+    @State private var isManagingPlaylists = false
+    @State private var playlistSelection: Set<String> = []
+    @State private var showBatchDeleteConfirm = false
+
+    /// 系统歌单（Apple Music 镜像 / 「我喜欢」）不参与批量删除，理由同
+    /// `isSystemPlaylist`：删完下次 sync 或 heart toggle 又会重建。
+    private var deletablePlaylistIDs: Set<String> {
+        playlistSelection.filter { !isSystemPlaylist($0) }
+    }
 
     // liked 系统歌单已作为「资料库 · 我喜欢的」固定入口展示, 歌单总览里不再重复列出。
     private var playlists: [Playlist] {
@@ -26,6 +37,20 @@ struct PlaylistListView: View {
             iosBody
             #endif
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isManagingPlaylists {
+                playlistManageBar
+            }
+        }
+        .alert("delete_playlist", isPresented: $showBatchDeleteConfirm) {
+            Button("cancel", role: .cancel) {}
+            Button("delete", role: .destructive) { deleteSelectedPlaylists() }
+        } message: {
+            Text(verbatim: String(
+                format: String(localized: "batch_playlists_delete_confirm_format"),
+                deletablePlaylistIDs.count
+            ))
+        }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
     }
 
@@ -40,6 +65,8 @@ struct PlaylistListView: View {
                     actionLabel: "new_playlist",
                     action: { showNewPlaylist = true }
                 )
+            } else if isManagingPlaylists {
+                playlistManageList
             } else {
                 List {
                     if !smartPlaylists.isEmpty {
@@ -92,19 +119,34 @@ struct PlaylistListView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showNewPlaylist = true
-                    } label: {
-                        Label("new_playlist", systemImage: "music.note.list")
+                if isManagingPlaylists {
+                    Button("done") {
+                        isManagingPlaylists = false
+                        playlistSelection = []
                     }
-                    Button {
-                        showSmartEditor = true
+                } else {
+                    Menu {
+                        Button {
+                            showNewPlaylist = true
+                        } label: {
+                            Label("new_playlist", systemImage: "music.note.list")
+                        }
+                        Button {
+                            showSmartEditor = true
+                        } label: {
+                            Label("new_smart_playlist", systemImage: "sparkles")
+                        }
+                        if !playlists.isEmpty {
+                            Divider()
+                            Button {
+                                isManagingPlaylists = true
+                            } label: {
+                                Label("batch_select", systemImage: "checkmark.circle")
+                            }
+                        }
                     } label: {
-                        Label("new_smart_playlist", systemImage: "sparkles")
+                        Image(systemName: "plus")
                     }
-                } label: {
-                    Image(systemName: "plus")
                 }
             }
         }
@@ -119,6 +161,61 @@ struct PlaylistListView: View {
         .navigationDestination(for: SmartPlaylist.self) { smart in
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
         }
+    }
+
+    /// 管理态的多选列表。`editMode` 常开 —— 用户点「选择」就是来批量处理的，
+    /// 再要求他在里面点一次才出现勾选圈，中间那个状态看着像坏了。
+    private var playlistManageList: some View {
+        List(selection: $playlistSelection) {
+            Section {
+                ForEach(playlists) { playlist in
+                    playlistRow(playlist)
+                        .tag(playlist.id)
+                        .selectionDisabled(isSystemPlaylist(playlist.id))
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        .environment(\.editMode, .constant(.active))
+        #endif
+    }
+
+    private var playlistManageBar: some View {
+        HStack(spacing: 12) {
+            Text(verbatim: String(
+                format: String(localized: "batch_playlists_selected_count_format"),
+                deletablePlaylistIDs.count
+            ))
+            .font(.subheadline.weight(.semibold))
+            .monospacedDigit()
+
+            Spacer(minLength: 8)
+
+            Button("batch_select_all") {
+                playlistSelection = Set(playlists.map(\.id).filter { !isSystemPlaylist($0) })
+            }
+            .font(.subheadline)
+
+            Button(role: .destructive) {
+                showBatchDeleteConfirm = true
+            } label: {
+                Label("delete", systemImage: "trash")
+            }
+            .disabled(deletablePlaylistIDs.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func deleteSelectedPlaylists() {
+        for playlistID in deletablePlaylistIDs {
+            library.deletePlaylist(id: playlistID)
+        }
+        playlistSelection = []
+        isManagingPlaylists = false
     }
 
     private func playlistRow(_ playlist: Playlist) -> some View {
@@ -231,12 +328,34 @@ struct PlaylistListView: View {
 
                                 LazyVStack(spacing: 10) {
                                     ForEach(playlists) { playlist in
-                                        NavigationLink(value: playlist) {
+                                        if isManagingPlaylists {
                                             playlistCard(playlist)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .contextMenu {
-                                            playlistContextMenu(for: playlist)
+                                                .opacity(isSystemPlaylist(playlist.id) ? 0.45 : 1)
+                                                .overlay(alignment: .topTrailing) {
+                                                    if !isSystemPlaylist(playlist.id) {
+                                                        SongSelectionCheckmark(
+                                                            isSelected: playlistSelection.contains(playlist.id)
+                                                        )
+                                                        .padding(10)
+                                                    }
+                                                }
+                                                .contentShape(Rectangle())
+                                                .onTapGesture {
+                                                    guard !isSystemPlaylist(playlist.id) else { return }
+                                                    if playlistSelection.contains(playlist.id) {
+                                                        playlistSelection.remove(playlist.id)
+                                                    } else {
+                                                        playlistSelection.insert(playlist.id)
+                                                    }
+                                                }
+                                        } else {
+                                            NavigationLink(value: playlist) {
+                                                playlistCard(playlist)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .contextMenu {
+                                                playlistContextMenu(for: playlist)
+                                            }
                                         }
                                     }
                                 }
@@ -317,6 +436,27 @@ struct PlaylistListView: View {
             }
             .buttonStyle(.plain)
             .help(Text("new_smart_playlist"))
+
+            if !playlists.isEmpty {
+                Button {
+                    isManagingPlaylists.toggle()
+                    if !isManagingPlaylists { playlistSelection = [] }
+                } label: {
+                    Image(systemName: isManagingPlaylists ? "xmark" : "checkmark.circle")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(isManagingPlaylists ? .white : PMColor.text)
+                        .frame(width: 32, height: 32)
+                        .background(isManagingPlaylists ? PMColor.brand : PMColor.glassBtn,
+                                    in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(isManagingPlaylists ? .clear : PMColor.cardBorder,
+                                              lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(Text(isManagingPlaylists ? "done" : "batch_select"))
+            }
         }
     }
 

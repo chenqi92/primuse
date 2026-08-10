@@ -205,6 +205,7 @@ extension View {
             .environment(services.dlnaRenderer)
             .environment(services.visualizer)
             .environment(services.duplicateCleanup)
+            .environment(services.batchRemoval)
     }
 }
 #endif

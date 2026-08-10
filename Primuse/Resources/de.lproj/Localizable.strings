@@ -2614,3 +2614,20 @@
 "Play Radio" = "Radio wiedergeben";
 "Similar Songs" = "Ähnliche Titel";
 "Scrape Song" = "Titel abfragen";
+
+/* MARK: - Stapelaktionen */
+"batch_select" = "Auswählen";
+"batch_select_all" = "Alle auswählen";
+"batch_deselect_all" = "Auswahl aufheben";
+"batch_selected_count_format" = "%d ausgewählt";
+"batch_remove_from_library" = "Aus Mediathek entfernen";
+"batch_remove_from_library_message_format" = "%d Titel werden aus der Mediathek entfernt. Die Quelldateien bleiben erhalten, werden beim nächsten Scan aber nicht erneut hinzugefügt.";
+"batch_delete_source_files" = "Quelldateien löschen";
+"batch_delete_source_files_message_format" = "Die Quelldateien von %d Titeln werden endgültig gelöscht und die Titel aus der Mediathek entfernt. Das lässt sich nicht rückgängig machen.";
+"batch_delete_skipped_format" = "%d übersprungen – ihre Musikquelle unterstützt kein Löschen";
+"batch_delete_no_deletable_source" = "Keiner der ausgewählten Titel liegt auf einer Musikquelle, die das Löschen von Dateien unterstützt.";
+"batch_delete_progress_format" = "Lösche %1$d / %2$d";
+"batch_delete_result_format" = "%d gelöscht";
+"batch_delete_failed_format" = "%d fehlgeschlagen";
+"batch_playlists_selected_count_format" = "%d Playlists ausgewählt";
+"batch_playlists_delete_confirm_format" = "%d Playlists werden gelöscht. Die enthaltenen Titel bleiben erhalten.";

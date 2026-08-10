@@ -28,6 +28,7 @@ final class AppServices {
     let visualizer: AudioVisualizerService
     let crashDiagnostics: CrashDiagnosticsService
     let duplicateCleanup: DuplicateCleanupService
+    let batchRemoval: SongBatchRemovalService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
     private struct SourceCleanupRequest {
@@ -167,6 +168,12 @@ final class AppServices {
             library: library,
             sourceManager: manager,
             sourcesStore: store
+        )
+        self.batchRemoval = SongBatchRemovalService(
+            library: library,
+            sourceManager: manager,
+            sourcesStore: store,
+            player: player
         )
         let auxiliaryServicesFinishedAt = ProcessInfo.processInfo.systemUptime
 

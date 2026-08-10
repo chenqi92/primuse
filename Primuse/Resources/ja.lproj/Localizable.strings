@@ -2615,3 +2615,20 @@
 "Play Radio" = "ラジオを再生";
 "Similar Songs" = "似た曲";
 "Scrape Song" = "曲の情報を取得";
+
+/* MARK: - 一括操作 */
+"batch_select" = "選択";
+"batch_select_all" = "すべて選択";
+"batch_deselect_all" = "選択を解除";
+"batch_selected_count_format" = "%d 曲を選択中";
+"batch_remove_from_library" = "ライブラリから削除";
+"batch_remove_from_library_message_format" = "%d 曲をライブラリから削除します。元のファイルは残りますが、次回のスキャンでは追加されません。";
+"batch_delete_source_files" = "元のファイルを削除";
+"batch_delete_source_files_message_format" = "%d 曲の元のファイルを完全に削除し、ライブラリからも削除します。この操作は取り消せません。";
+"batch_delete_skipped_format" = "%d 曲は音楽ソースが削除に対応していないためスキップしました";
+"batch_delete_no_deletable_source" = "選択した曲の音楽ソースはいずれもファイル削除に対応していません。";
+"batch_delete_progress_format" = "削除中 %1$d / %2$d";
+"batch_delete_result_format" = "%d 曲を削除しました";
+"batch_delete_failed_format" = "%d 曲が失敗";
+"batch_playlists_selected_count_format" = "%d 個のプレイリストを選択中";
+"batch_playlists_delete_confirm_format" = "%d 個のプレイリストを削除します。中の曲は削除されません。";

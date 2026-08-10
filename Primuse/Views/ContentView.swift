@@ -281,6 +281,7 @@ struct ContentView: View {
                     .zIndex(2)
             }
         }
+        .songBatchRemovalFeedback()
         // 隔离资料库批次更新观察。直接把 searchRevision 的 onChange 挂在
         // ContentView 上会让整个 TabView 在后台扫描/回填时反复重算。
         .background {

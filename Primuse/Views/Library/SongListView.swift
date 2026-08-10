@@ -112,6 +112,7 @@ struct SongListView: View {
     @State private var pendingSnapshot: SongListSnapshot?
     @State private var pendingSnapshotResetsPresentation = false
     @State private var showNoScraperSourceAlert = false
+    @State private var selection = SongSelectionModel()
     #if os(macOS)
     @State private var macViewMode: MacSongsViewMode = .list
     @State private var macRowDensity: MacSongsRowDensity = .standard
@@ -251,6 +252,11 @@ struct SongListView: View {
 
     var body: some View {
         content
+            .songBatchActions(
+                selection: selection,
+                orderedIDs: { filteredSongIDs },
+                resolve: { library.unobservedVisibleSong(id: $0) }
+            )
             .onAppear {
                 // NavigationStack keeps this destination alive while another
                 // tab is selected. Reuse its existing order instead of
@@ -272,6 +278,10 @@ struct SongListView: View {
                     delay: .milliseconds(180),
                     resetPresentation: false
                 )
+                pruneSelection()
+            }
+            .onChange(of: searchText) { _, _ in
+                pruneSelection()
             }
             .onChange(of: library.songReplacementToken) { _, _ in
                 if listCache.isEmpty {
@@ -285,11 +295,7 @@ struct SongListView: View {
             }
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
-                MacAddVisibleSongsToPlaylistSheet(
-                    songs: filteredSongs.filteredPlayable(),
-                    onClose: { showAddVisibleToPlaylist = false }
-                )
-                .frame(width: 420, height: 520)
+                BatchAddToPlaylistSheet(songs: filteredSongs.filteredPlayable())
             }
             .sheet(item: $contextAddToPlaylistSong) { song in
                 AddToPlaylistSheet(song: library.song(id: song.id) ?? song)
@@ -350,7 +356,12 @@ struct SongListView: View {
                     id: row.id,
                     song: library.unobservedVisibleSong(id: row.id)
                 ) {
-                    IOSSongListRow(model: model, onPlay: playSong)
+                    IOSSongListRow(model: model, selection: selection, onPlay: playSong)
+                        .songSelectable(
+                            songID: row.id,
+                            selection: selection,
+                            orderedIDs: { filteredSongIDs }
+                        )
                 }
             }
         }
@@ -359,7 +370,10 @@ struct SongListView: View {
         .onScrollPhaseChange { _, newPhase in
             updateListInteraction(for: newPhase)
         }
-        .toolbar { sortToolbarItem }
+        .toolbar {
+            sortToolbarItem
+            selectionToolbarItem
+        }
     }
 
     #if os(macOS)
@@ -398,6 +412,9 @@ struct SongListView: View {
             updateListInteraction(for: newPhase)
         }
         .onAppear { rebuildPlayCounts() }
+        .onChange(of: selectedSourceID) { _, _ in
+            pruneSelection()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseListeningStatsDidChange)) { _ in
             rebuildPlayCounts()
         }
@@ -585,6 +602,11 @@ struct SongListView: View {
                 ForEach(filteredRows) { row in
                     if let song = library.unobservedVisibleSong(id: row.id) {
                         songTableRow(song, index: row.offset)
+                            .songSelectable(
+                                songID: row.id,
+                                selection: selection,
+                                orderedIDs: { filteredSongIDs }
+                            )
                     }
                 }
             }
@@ -820,6 +842,11 @@ struct SongListView: View {
             ForEach(filteredRows) { row in
                 if let song = library.unobservedVisibleSong(id: row.id) {
                     compactSongRow(song, index: row.offset)
+                        .songSelectable(
+                            songID: row.id,
+                            selection: selection,
+                            orderedIDs: { filteredSongIDs }
+                        )
                 }
             }
         }
@@ -898,6 +925,12 @@ struct SongListView: View {
             ForEach(filteredRows) { row in
                 if let song = library.unobservedVisibleSong(id: row.id) {
                     songGridTile(song, highlighted: player.currentSong?.id == song.id)
+                        .songSelectable(
+                            songID: row.id,
+                            selection: selection,
+                            style: .overlay,
+                            orderedIDs: { filteredSongIDs }
+                        )
                 }
             }
         }
@@ -1077,6 +1110,19 @@ struct SongListView: View {
         }
 
         return AnyView(MacHeaderMoreMenu(sections: [
+            [
+                .init(icon: "checkmark.circle",
+                      title: selection.isActive
+                          ? String(localized: "done")
+                          : String(localized: "batch_select"),
+                      enabled: !visibleIDs.isEmpty) {
+                    if selection.isActive {
+                        selection.deactivate()
+                    } else {
+                        selection.activate()
+                    }
+                },
+            ],
             [
                 .init(icon: "text.line.last.and.arrowtriangle.forward",
                       title: String(localized: "queue_all_songs"),
@@ -1302,6 +1348,25 @@ struct SongListView: View {
         }
     }
 
+    private var selectionToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(selection.isActive ? "done" : "batch_select") {
+                if selection.isActive {
+                    selection.deactivate()
+                } else {
+                    selection.activate()
+                }
+            }
+        }
+    }
+
+    /// 过滤条件变了或歌被删了之后，丢掉已经不在列表里的选中项 —— 否则批量
+    /// 操作会作用到用户此刻根本看不见的歌上。
+    private func pruneSelection() {
+        guard selection.isActive, !selection.isEmpty else { return }
+        selection.prune(to: Set(filteredSongIDs))
+    }
+
     /// Normal browsing returns the worker-built array by reference. Only an
     /// active source/search filter allocates and reindexes a derived array.
     private var filteredRows: [SongListRowIdentity] {
@@ -1497,6 +1562,7 @@ private struct IOSSongListRow: View {
     @Environment(MetadataBackfillService.self) private var backfill
 
     let model: SongListRowModel
+    let selection: SongSelectionModel
     let onPlay: (Song) -> Void
 
     var body: some View {
@@ -1507,6 +1573,7 @@ private struct IOSSongListRow: View {
             SongRowView(
                 song: song,
                 isPlaying: player.currentSong?.id == song.id,
+                selection: selection,
                 context: SongRowView.context(
                     for: song,
                     sourcesStore: sourcesStore,
@@ -1517,161 +1584,3 @@ private struct IOSSongListRow: View {
         .buttonStyle(.plain)
     }
 }
-
-#if os(macOS)
-private struct MacAddVisibleSongsToPlaylistSheet: View {
-    let songs: [Song]
-    let onClose: () -> Void
-
-    @Environment(MusicLibrary.self) private var library
-    @State private var selectedPlaylistID: String?
-    @State private var newPlaylistName = ""
-
-    private var normalPlaylists: [Playlist] {
-        library.playlists.filter {
-            !AppleMusicLibraryService.isAppleMusicMirrorPlaylist($0.id)
-            && $0.id != MusicLibrary.likedSongsPlaylistID
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "text.badge.plus")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 34, height: 34)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("add_to_playlist")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: String(
-                        format: String(localized: "playable_songs_count_format"),
-                        songs.count
-                    ))
-                        .font(PMFont.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                }
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                        .frame(width: 26, height: 26)
-                        .background(PMColor.glassBtn, in: .circle)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(18)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 10) {
-                    if normalPlaylists.isEmpty {
-                        Text("playlist_picker_empty_hint")
-                            .font(.system(size: 12))
-                            .foregroundStyle(PMColor.textMuted)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(PMColor.bgElev, in: .rect(cornerRadius: 10))
-                    } else {
-                        ForEach(normalPlaylists) { playlist in
-                            Button {
-                                selectedPlaylistID = playlist.id
-                            } label: {
-                                HStack(spacing: 10) {
-                                    StoredCoverArtView(fileName: playlist.coverArtPath, size: 34, cornerRadius: 6)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(verbatim: playlist.name)
-                                            .font(.system(size: 12.5, weight: .semibold))
-                                            .foregroundStyle(PMColor.text)
-                                            .lineLimit(1)
-                                        Text(String(
-                                            format: String(localized: "carplay_playlist_song_count_format"),
-                                            library.songCount(forPlaylist: playlist.id)
-                                        ))
-                                            .font(.system(size: 10.5))
-                                            .foregroundStyle(PMColor.textFaint)
-                                    }
-                                    Spacer()
-                                    if selectedPlaylistID == playlist.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(PMColor.brand)
-                                    }
-                                }
-                                .padding(10)
-                                .background(selectedPlaylistID == playlist.id ? PMColor.brand.opacity(0.12) : PMColor.bgElev, in: .rect(cornerRadius: 9))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                        .strokeBorder(selectedPlaylistID == playlist.id ? PMColor.brand.opacity(0.6) : PMColor.cardBorder, lineWidth: 0.5)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("new_playlist")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(PMColor.textFaint)
-                        TextField("playlist_name", text: $newPlaylistName)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12.5))
-                            .padding(.horizontal, 10)
-                            .frame(height: 30)
-                            .background(PMColor.bgElev, in: .rect(cornerRadius: 7))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                            }
-                    }
-                }
-                .padding(18)
-            }
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-            HStack {
-                Spacer()
-                Button("cancel", action: onClose)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.text)
-                    .padding(.horizontal, 14)
-                    .frame(height: 28)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-                Button("add") {
-                    addSongs()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .frame(height: 28)
-                .background(canCommit ? PMColor.brand : PMColor.textFaint, in: .rect(cornerRadius: 6))
-                .disabled(!canCommit)
-            }
-            .padding(18)
-        }
-        .background(PMColor.bg)
-    }
-
-    private var canCommit: Bool {
-        selectedPlaylistID != nil || !newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func addSongs() {
-        let targetID: String
-        if let selectedPlaylistID {
-            targetID = selectedPlaylistID
-        } else {
-            let name = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return }
-            targetID = library.createPlaylist(name: name).id
-        }
-        library.add(songIDs: songs.map(\.id), toPlaylist: targetID)
-        onClose()
-    }
-}
-#endif

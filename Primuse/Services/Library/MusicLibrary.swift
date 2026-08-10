@@ -3150,10 +3150,21 @@ final class MusicLibrary {
     }
 
     func remove(songID: String, fromPlaylist playlistID: String) {
-        guard let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
+        remove(songIDs: [songID], fromPlaylist: playlistID)
+    }
 
+    /// 批量移除。逐首调用会按条数重复 sortPlaylists / persistSnapshot / 发通知,
+    /// 在歌单里一次移除几十首时那是几十轮全量落盘 + 视图重建。
+    func remove(songIDs: [String], fromPlaylist playlistID: String) {
+        guard !songIDs.isEmpty,
+              let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID })
+        else { return }
+
+        let removalSet = Set(songIDs)
         var entries = playlistSongIDs[playlistID] ?? []
-        entries.removeAll { $0 == songID }
+        let originalCount = entries.count
+        entries.removeAll { removalSet.contains($0) }
+        guard entries.count != originalCount else { return }
         playlistSongIDs[playlistID] = entries
 
         allPlaylists[existingIndex].updatedAt = Date()

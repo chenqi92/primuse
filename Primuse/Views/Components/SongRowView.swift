@@ -25,6 +25,9 @@ struct SongRowView: View {
     var sourceIconName: String? = nil
     var canDeleteSourceFile = false
 
+    /// 非 nil 时长按菜单里多一项「选择」，用来从这一行直接进多选态。
+    var selection: SongSelectionModel? = nil
+
     /// Whether `MetadataBackfillService` gave up on this song. Resolved by
     /// the parent so the row doesn't observe `failedSongIDs` directly —
     /// otherwise any backfill failure during a scan would re-evaluate every
@@ -257,6 +260,18 @@ struct SongRowView: View {
             Text(String(localized: backfillFailed ? "song_details_unavailable_message" : "song_details_loading_message"))
         }
         .contextMenu {
+            // 长按直接进多选并选中这一行 —— 页面工具栏那个"选择"入口对
+            // "我就想批量处理眼前这几首"来说绕得太远。
+            if let selection {
+                Section {
+                    Button {
+                        selection.activate(seed: song.id)
+                    } label: {
+                        Label(String(localized: "batch_select"), systemImage: "checkmark.circle")
+                    }
+                }
+            }
+
             // Group 1: Actions
             Section {
                 Button {
@@ -905,12 +920,14 @@ extension SongRowView {
         isPlaying: Bool = false,
         showAlbum: Bool = true,
         showsActions: Bool = true,
+        selection: SongSelectionModel? = nil,
         context: RowContext
     ) {
         self.song = song
         self.isPlaying = isPlaying
         self.showAlbum = showAlbum
         self.showsActions = showsActions
+        self.selection = selection
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName
         self.backfillFailed = context.backfillFailed

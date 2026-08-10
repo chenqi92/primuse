@@ -50,14 +50,33 @@ struct ArtistDetailView: View {
         GridItem(.adaptive(minimum: 100), spacing: 12)
     ]
 
+    @State private var selection = SongSelectionModel()
+
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        ScrollView {
-            detailContent
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            ScrollView {
+                detailContent
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
         }
-        .navigationBarTitleDisplayMode(.inline)
+        .songBatchActions(
+            selection: selection,
+            orderedIDs: { selectableSongIDs },
+            resolve: { library.song(id: $0) }
+        )
+    }
+
+    /// macOS 的艺术家页只铺「热门」那 8 首，"全选"就不该把用户看不到的
+    /// 其余歌一起圈进来。
+    private var selectableSongIDs: [String] {
+        #if os(macOS)
+        Array(songs.prefix(8).map(\.id))
+        #else
+        songs.map(\.id)
         #endif
     }
 
@@ -176,6 +195,11 @@ struct ArtistDetailView: View {
             VStack(spacing: 1) {
                 ForEach(Array(songs.prefix(8).enumerated()), id: \.element.id) { index, song in
                     macTopSongRow(song, index: index, playCount: playCounts[song.id, default: 0])
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { selectableSongIDs }
+                        )
                 }
             }
         }
@@ -256,6 +280,13 @@ struct ArtistDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                selection.activate(seed: song.id)
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
+            }
+        }
     }
 
     private func macAlbumTile(_ album: Album) -> some View {
@@ -363,6 +394,7 @@ struct ArtistDetailView: View {
                                 SongRowView(
                                     song: song,
                                     isPlaying: player.currentSong?.id == song.id,
+                                    selection: selection,
                                     context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                                 )
                                 #if os(macOS)
@@ -375,6 +407,11 @@ struct ArtistDetailView: View {
                                 .onTapGesture {
                                     playSong(song)
                                 }
+                                .songSelectable(
+                                    songID: song.id,
+                                    selection: selection,
+                                    orderedIDs: { selectableSongIDs }
+                                )
 
                                 if index != songs.count - 1 {
                                     Divider()

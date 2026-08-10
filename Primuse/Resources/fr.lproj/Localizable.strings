@@ -2614,3 +2614,20 @@
 "Play Radio" = "Lire la radio";
 "Similar Songs" = "Titres similaires";
 "Scrape Song" = "Récupérer le titre";
+
+/* MARK: - Actions par lot */
+"batch_select" = "Sélectionner";
+"batch_select_all" = "Tout sélectionner";
+"batch_deselect_all" = "Tout désélectionner";
+"batch_selected_count_format" = "%d sélectionnés";
+"batch_remove_from_library" = "Retirer de la bibliothèque";
+"batch_remove_from_library_message_format" = "%d titres seront retirés de la bibliothèque. Leurs fichiers source sont conservés, mais ils ne seront pas réajoutés lors de la prochaine analyse.";
+"batch_delete_source_files" = "Supprimer les fichiers source";
+"batch_delete_source_files_message_format" = "Les fichiers source de %d titres seront définitivement supprimés et les titres retirés de la bibliothèque. Cette action est irréversible.";
+"batch_delete_skipped_format" = "%d ignorés — leur source musicale ne prend pas en charge la suppression";
+"batch_delete_no_deletable_source" = "Aucun des titres sélectionnés ne se trouve sur une source musicale prenant en charge la suppression de fichiers.";
+"batch_delete_progress_format" = "Suppression %1$d / %2$d";
+"batch_delete_result_format" = "%d supprimés";
+"batch_delete_failed_format" = "%d échecs";
+"batch_playlists_selected_count_format" = "%d playlists sélectionnées";
+"batch_playlists_delete_confirm_format" = "%d playlists seront supprimées. Les titres qu'elles contiennent sont conservés.";

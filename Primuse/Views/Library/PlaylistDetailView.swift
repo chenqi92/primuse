@@ -23,6 +23,13 @@ struct PlaylistDetailView: View {
     @State private var showNoScraperSourceAlert = false
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
+    @State private var selection = SongSelectionModel()
+
+    /// Apple Music 资料库镜像里的条目不给移除入口 —— 我们没法把改动推回
+    /// Apple Music，下次 sync 又会把它们带回来，视觉上就是"删了又出现"。
+    private var allowsPlaylistRemoval: Bool {
+        !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+    }
 
     private var currentPlaylist: Playlist? {
         library.playlist(id: playlist.id)
@@ -77,6 +84,12 @@ struct PlaylistDetailView: View {
         .overlay(alignment: .bottom) {
             scrapeFeedbackToast
         }
+        .songBatchActions(
+            selection: selection,
+            context: .playlist(id: playlist.id, allowsRemoval: allowsPlaylistRemoval),
+            orderedIDs: { songs.map(\.id) },
+            resolve: { library.song(id: $0) }
+        )
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .onChange(of: scraperService.completionRevision) { _, _ in
             showScrapeCompletion()
@@ -189,6 +202,12 @@ struct PlaylistDetailView: View {
                             // 我们没法 push 回 Apple Music 删收藏, 移除后下次 sync
                             // 又自动回来, 视觉上会变成"删了又出现"的 bug。其它源
                             // 的歌 (用户额外手动加进来等情况) 仍能正常移除。
+                            Button {
+                                selection.activate(seed: song.id)
+                            } label: {
+                                Label("batch_select", systemImage: "checkmark.circle")
+                            }
+
                             if !isAppleMusicMirrorEntry(song: song) {
                                 Button(role: .destructive) {
                                     library.remove(songID: song.id, fromPlaylist: playlist.id)
@@ -197,6 +216,11 @@ struct PlaylistDetailView: View {
                                 }
                             }
                         }
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { songs.map(\.id) }
+                        )
 
                         Divider().padding(.leading, 50)
                     }
@@ -207,6 +231,18 @@ struct PlaylistDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        if selection.isActive {
+                            selection.deactivate()
+                        } else {
+                            selection.activate()
+                        }
+                    } label: {
+                        Label(selection.isActive ? "done" : "batch_select",
+                              systemImage: "checkmark.circle")
+                    }
+                    .disabled(songs.isEmpty)
+
                     // Apple Music 镜像歌单不让用户重排 ── 下次 sync 会被覆盖,
                     // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
                     if !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
@@ -514,6 +550,19 @@ struct PlaylistDetailView: View {
 
         return AnyView(MacHeaderMoreMenu(sections: [
             [
+                .init(icon: "checkmark.circle",
+                      title: selection.isActive
+                          ? String(localized: "done")
+                          : String(localized: "batch_select"),
+                      enabled: !songs.isEmpty) {
+                    if selection.isActive {
+                        selection.deactivate()
+                    } else {
+                        selection.activate()
+                    }
+                },
+            ],
+            [
                 .init(icon: "play.fill", title: String(localized: "play_all"),
                       enabled: !playable.isEmpty) { playAll() },
                 .init(icon: "shuffle", title: String(localized: "shuffle"),
@@ -567,6 +616,11 @@ struct PlaylistDetailView: View {
             LazyVStack(spacing: 1) {
                 ForEach(rows, id: \.element.id) { index, song in
                     macSongRow(song, index: index, playCount: playCounts[song.id, default: 0])
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { songs.map(\.id) }
+                        )
                 }
             }
             .padding(.vertical, 4)
@@ -683,6 +737,12 @@ struct PlaylistDetailView: View {
         .contentShape(Rectangle())
         .onTapGesture { playSong(song) }
         .contextMenu {
+            Button {
+                selection.activate(seed: song.id)
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
+            }
+
             if !isAppleMusicMirrorEntry(song: song) {
                 Button(role: .destructive) {
                     library.remove(songID: song.id, fromPlaylist: playlist.id)
