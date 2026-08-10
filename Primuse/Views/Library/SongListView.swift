@@ -4,71 +4,6 @@ import PrimuseKit
 import AppKit
 #endif
 
-struct SongListSnapshotVersion: Hashable, Sendable {
-    let collectionRevision: Int
-    let replacementToken: UUID
-}
-
-actor SongListSnapshotStore {
-    static let shared = SongListSnapshotStore()
-    static let libraryScopeKey = "library"
-
-    private struct Key: Hashable, Sendable {
-        let scopeKey: String
-        let version: SongListSnapshotVersion
-        let order: LibrarySongSortOrder
-    }
-
-    private struct CachedEntry: Sendable {
-        let key: Key
-        let snapshot: SongListSnapshot
-    }
-
-    private struct PendingEntry: Sendable {
-        let key: Key
-        let task: Task<SongListSnapshot, Never>
-    }
-
-    private var cachedByScope: [String: CachedEntry] = [:]
-    private var pendingByScope: [String: PendingEntry] = [:]
-
-    static func sourceScopeKey(_ sourceID: String) -> String {
-        "source:\(sourceID)"
-    }
-
-    func snapshot(
-        scopeKey: String,
-        version: SongListSnapshotVersion,
-        order: LibrarySongSortOrder,
-        songs: [Song]
-    ) async -> SongListSnapshot {
-        let key = Key(
-            scopeKey: scopeKey,
-            version: version,
-            order: order
-        )
-        if let cached = cachedByScope[scopeKey], cached.key == key {
-            return cached.snapshot
-        }
-        if let pending = pendingByScope[scopeKey], pending.key == key {
-            return await pending.task.value
-        }
-
-        pendingByScope[scopeKey]?.task.cancel()
-        let task = Task.detached(priority: .userInitiated) {
-            SongListSnapshotBuilder.build(songs: songs, order: order)
-        }
-        pendingByScope[scopeKey] = PendingEntry(key: key, task: task)
-
-        let prepared = await task.value
-        if pendingByScope[scopeKey]?.key == key {
-            cachedByScope[scopeKey] = CachedEntry(key: key, snapshot: prepared)
-            pendingByScope[scopeKey] = nil
-        }
-        return prepared
-    }
-}
-
 /// Reference-backed storage prevents AttributeGraph from applying
 /// `Array<Song>.==` to the list cache whenever metadata changes. Song's
 /// synthesized equality includes lyricsText, so a value-backed SwiftUI state
@@ -325,14 +260,25 @@ struct SongListView: View {
                 }
             }
             .onChange(of: sortOrder) { _, _ in
-                scheduleSortedRecompute(resetPresentation: true)
+                // Let the system Menu finish its dismissal animation before
+                // starting CPU-heavy localized sorting or rebuilding the List.
+                scheduleSortedRecompute(
+                    delay: .milliseconds(350),
+                    resetPresentation: true
+                )
             }
             .onChange(of: library.visibleSongCollectionRevision) { _, _ in
-                scheduleSortedRecompute(debounced: true, resetPresentation: false)
+                scheduleSortedRecompute(
+                    delay: .milliseconds(180),
+                    resetPresentation: false
+                )
             }
             .onChange(of: library.songReplacementToken) { _, _ in
                 if listCache.isEmpty {
-                    scheduleSortedRecompute(debounced: true, resetPresentation: false)
+                    scheduleSortedRecompute(
+                        delay: .milliseconds(180),
+                        resetPresentation: false
+                    )
                 } else {
                     applyLibrarySongReplacements()
                 }
@@ -1439,7 +1385,7 @@ struct SongListView: View {
     /// Build sorting, IDs, membership, and aggregates away from the main actor.
     /// The main actor only swaps the completed immutable snapshot reference.
     private func scheduleSortedRecompute(
-        debounced: Bool = false,
+        delay: Duration? = nil,
         resetPresentation: Bool
     ) {
         sortGeneration &+= 1
@@ -1455,9 +1401,9 @@ struct SongListView: View {
 
         sortTask?.cancel()
         sortTask = Task { @MainActor in
-            if debounced {
+            if let delay {
                 do {
-                    try await Task.sleep(for: .milliseconds(180))
+                    try await Task.sleep(for: delay)
                 } catch {
                     return
                 }
@@ -1488,7 +1434,10 @@ struct SongListView: View {
             pendingSnapshotResetsPresentation = resetPresentation
             return
         }
-        listCache.publish(snapshot, resetPresentation: resetPresentation)
+        publishSnapshotWithoutAnimation(
+            snapshot,
+            resetPresentation: resetPresentation
+        )
     }
 
     private func updateListInteraction(for phase: ScrollPhase) {
@@ -1501,9 +1450,28 @@ struct SongListView: View {
             let resetPresentation = pendingSnapshotResetsPresentation
             self.pendingSnapshot = nil
             pendingSnapshotResetsPresentation = false
-            listCache.publish(pendingSnapshot, resetPresentation: resetPresentation)
+            publishSnapshotWithoutAnimation(
+                pendingSnapshot,
+                resetPresentation: resetPresentation
+            )
         case .animating:
             break
+        }
+    }
+
+    private func publishSnapshotWithoutAnimation(
+        _ snapshot: SongListSnapshot,
+        resetPresentation: Bool
+    ) {
+        guard resetPresentation else {
+            listCache.publish(snapshot, resetPresentation: false)
+            return
+        }
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            listCache.publish(snapshot, resetPresentation: true)
         }
     }
 

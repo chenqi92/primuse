@@ -8,6 +8,90 @@ public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case format
 }
 
+public struct SongListSnapshotVersion: Hashable, Sendable {
+    public let collectionRevision: Int
+    public let replacementToken: UUID
+
+    public init(collectionRevision: Int, replacementToken: UUID) {
+        self.collectionRevision = collectionRevision
+        self.replacementToken = replacementToken
+    }
+}
+
+/// Keeps every visited ordering for the current version of a song-list scope.
+/// Switching back to an earlier ordering can therefore reuse the immutable
+/// result instead of repeating a full localized sort.
+public actor SongListSnapshotStore {
+    public static let shared = SongListSnapshotStore()
+    public static let libraryScopeKey = "library"
+
+    private struct Key: Hashable, Sendable {
+        let scopeKey: String
+        let version: SongListSnapshotVersion
+        let order: LibrarySongSortOrder
+    }
+
+    private struct PendingEntry: Sendable {
+        let token: UUID
+        let task: Task<SongListSnapshot, Never>
+    }
+
+    private var versionByScope: [String: SongListSnapshotVersion] = [:]
+    private var cachedByKey: [Key: SongListSnapshot] = [:]
+    private var pendingByKey: [Key: PendingEntry] = [:]
+
+    public init() {}
+
+    public static func sourceScopeKey(_ sourceID: String) -> String {
+        "source:\(sourceID)"
+    }
+
+    public func snapshot(
+        scopeKey: String,
+        version: SongListSnapshotVersion,
+        order: LibrarySongSortOrder,
+        songs: [Song]
+    ) async -> SongListSnapshot {
+        prepareScope(scopeKey, for: version)
+
+        let key = Key(scopeKey: scopeKey, version: version, order: order)
+        if let cached = cachedByKey[key] {
+            return cached
+        }
+        if let pending = pendingByKey[key] {
+            return await pending.task.value
+        }
+
+        let token = UUID()
+        let task = Task.detached(priority: .userInitiated) {
+            SongListSnapshotBuilder.build(songs: songs, order: order)
+        }
+        pendingByKey[key] = PendingEntry(token: token, task: task)
+
+        let prepared = await task.value
+        if versionByScope[scopeKey] == version,
+           pendingByKey[key]?.token == token {
+            cachedByKey[key] = prepared
+            pendingByKey[key] = nil
+        }
+        return prepared
+    }
+
+    private func prepareScope(
+        _ scopeKey: String,
+        for version: SongListSnapshotVersion
+    ) {
+        guard versionByScope[scopeKey] != version else { return }
+        versionByScope[scopeKey] = version
+
+        cachedByKey = cachedByKey.filter { $0.key.scopeKey != scopeKey }
+        let obsoletePendingKeys = pendingByKey.keys.filter { $0.scopeKey == scopeKey }
+        for key in obsoletePendingKeys {
+            pendingByKey.removeValue(forKey: key)?.task.cancel()
+        }
+    }
+}
+
 /// Lightweight identity consumed by large song lists. Keeping `Song` values
 /// out of SwiftUI's structural data prevents equality checks from walking
 /// large metadata fields such as `lyricsText`.
@@ -56,8 +140,12 @@ public enum SongListSnapshotBuilder {
         songs: [Song],
         order: LibrarySongSortOrder
     ) -> SongListSnapshot {
-        var orderedSongs = songs
-        orderedSongs.sort { lhs, rhs in
+        // Sort lightweight indices rather than repeatedly moving complete Song
+        // values (which may retain large lyrics and metadata payloads).
+        var orderedIndices = Array(songs.indices)
+        orderedIndices.sort { lhsIndex, rhsIndex in
+            let lhs = songs[lhsIndex]
+            let rhs = songs[rhsIndex]
             let comparison: ComparisonResult
             switch order {
             case .title:
@@ -87,11 +175,12 @@ public enum SongListSnapshotBuilder {
         var sourceCounts: [String: Int] = [:]
         var playableCount = 0
         var totalDuration: TimeInterval = 0
-        rows.reserveCapacity(orderedSongs.count)
-        orderedSongIDs.reserveCapacity(orderedSongs.count)
-        songIDs.reserveCapacity(orderedSongs.count)
+        rows.reserveCapacity(orderedIndices.count)
+        orderedSongIDs.reserveCapacity(orderedIndices.count)
+        songIDs.reserveCapacity(orderedIndices.count)
 
-        for (offset, song) in orderedSongs.enumerated() {
+        for (offset, songIndex) in orderedIndices.enumerated() {
+            let song = songs[songIndex]
             rows.append(SongListRowIdentity(id: song.id, offset: offset))
             orderedSongIDs.append(song.id)
             songIDs.insert(song.id)
