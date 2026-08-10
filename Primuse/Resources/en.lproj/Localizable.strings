@@ -1058,6 +1058,7 @@
 "lyrics_editor_nudge_later" = "Nudge 0.1s Later";
 "lyrics_editor_insert_below" = "Insert Line Below";
 "lyrics_editor_add_line" = "Add Line";
+"lyrics_editor_remove_line" = "Remove Line";
 "lyrics_editor_shift_all" = "Shift All";
 "lyrics_editor_shift_hint" = "Moves every timed line together. The spacing between lines stays the same.";
 "lyrics_editor_shift_clamped" = "At the start already — shifting further would push the first line before zero.";

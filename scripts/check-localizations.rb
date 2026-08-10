@@ -13,7 +13,6 @@ RESOURCE_GROUPS = [
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
   ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
   ["Widget InfoPlist.strings", ROOT / "PrimuseWidgetExtension/Resources", "InfoPlist.strings", true],
-  ["Activity InfoPlist.strings", ROOT / "PrimuseActivityExtension/Resources", "InfoPlist.strings", true],
   ["Watch InfoPlist.strings", ROOT / "PrimuseWatch/Resources", "InfoPlist.strings", true],
   ["Watch widget InfoPlist.strings", ROOT / "PrimuseWatchWidgets/Resources", "InfoPlist.strings", true]
 ].freeze
@@ -42,12 +41,18 @@ IDENTICAL_VALUE_KEYS = %w[
   src.subtitle.daoliyu
 ].freeze
 
+IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
+  radio_batch_entry_file
+].freeze
+
 IDENTICAL_VALUE_ALLOWLIST = {
   "de" => %w[
     drime_token_section
     fnmusic_connection_fnconnect
     fnmusic_fnid
     home_dashboard_title
+    home_mode_radio
+    home_radio_wall_badge
     radio_title
   ],
   "fr" => %w[
@@ -55,6 +60,7 @@ IDENTICAL_VALUE_ALLOWLIST = {
     fnmusic_connection_fnconnect
     fnmusic_fnid
     home_dashboard_title
+    home_mode_radio
     radio_title
     radio_stations_count
     home_pipeline_sources
@@ -97,6 +103,15 @@ LOCALIZED_ERROR_ROOTS = %w[
 HAN_LITERAL_ALLOWLIST = {
   "Primuse/Services/Intents/PrimuseAppIntents.swift" => [
     /用 .*applicationName/
+  ],
+  "Primuse/App/PlayMediaIntentHandler.swift" => [
+    /用 .*applicationName/
+  ],
+  "PrimuseKit/Sources/PrimuseKit/LyricsTextTools.swift" => [
+    /作词|作曲|编曲|填词|制作人|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|录音|出品|发行|策划|统筹|演唱|原唱|翻唱/
+  ],
+  "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
+    /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],
   "Primuse/Services/Metadata/Scrapers/ScraperTypes.swift" => [
     /酷狗|网易云|QQ ?音乐|咪咕|千千/
@@ -201,6 +216,7 @@ def check_resource_group(name, root, file_name, exact_english_parity, failures)
       next unless english[key] == value
       next unless IDENTICAL_VALUE_KEYS.include?(key) ||
                   IDENTICAL_VALUE_PREFIXES.any? { |prefix| key.start_with?(prefix) }
+      next if IDENTICAL_VALUE_GLOBAL_ALLOWLIST.include?(key)
       next if IDENTICAL_VALUE_ALLOWLIST.fetch(locale, []).include?(key)
 
       failures << "#{name} #{locale}: untranslated value for #{key.inspect}"

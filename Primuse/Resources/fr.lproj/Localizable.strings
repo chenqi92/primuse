@@ -130,6 +130,7 @@
 "lyrics_editor_nudge_later" = "0,1 s plus tard";
 "lyrics_editor_insert_below" = "Insérer une ligne en dessous";
 "lyrics_editor_add_line" = "Ajouter une ligne";
+"lyrics_editor_remove_line" = "Supprimer la ligne";
 "lyrics_editor_shift_all" = "Tout décaler";
 "lyrics_editor_shift_hint" = "Décale ensemble toutes les lignes horodatées. L'écart entre les lignes reste identique.";
 "lyrics_editor_shift_clamped" = "Déjà au début – décaler davantage placerait la première ligne avant zéro.";
@@ -2449,7 +2450,7 @@
 "home_mode_flip_to_radio" = "Passer à la face B · Radio";
 "home_radio_wall_title" = "Mes stations";
 "home_radio_wall_manage %lld" = "Gérer · %lld";
-"home_radio_wall_badge" = "LIVE";
+"home_radio_wall_badge" = "EN DIRECT";
 "select_all" = "Tout sélectionner";
 
 /* MARK: - Radio : ajout en lot */
@@ -2469,7 +2470,7 @@
 "radio_batch_directory_placeholder" = "Nom de la station";
 "radio_batch_directory_empty" = "Aucune station ne correspond à ce nom.";
 "radio_batch_directory_failed" = "Impossible de joindre l’annuaire des stations.";
-"radio_batch_status_playable" = "OK";
+"radio_batch_status_playable" = "Lisible";
 "radio_batch_status_duplicate" = "Doublon";
 "radio_batch_status_invalid" = "Invalide";
 "radio_batch_duplicate_of %@" = "Déjà enregistrée sous « %@ »";
@@ -2524,7 +2525,7 @@
 
 /* MARK: - Radio (macOS) */
 "Live Radio" = "Radio en direct";
-"radio_mac_count %lld" = "%lld stations";
+"radio_mac_count %lld" = "%lld stations de radio";
 "radio_mac_now_playing %@" = "En lecture · %@";
 
 /* MARK: - Éditeur de paroles / sélection radio */
@@ -2558,3 +2559,58 @@
 "lyrics_editor_timing_info_line" = "Les titres et crédits ne sont pas minutés";
 "lyrics_editor_info_line_badge" = "Info";
 "lyrics_editor_no_timing_lines" = "Aucune ligne de paroles à minuter";
+
+/* MARK: - Siri et App Intents */
+"intent_playing_album_format" = "Lecture de l’album %@.";
+"intent_playing_artist_format" = "Lecture de %@.";
+"intent_playing_genre_format" = "Lecture de musique %@.";
+"intent_playing_radio_format" = "Lecture de la station %@.";
+"intent_playing_similar_format" = "Lecture de titres similaires à %@.";
+"intent_scrape_started_lyrics_format" = "Recherche des paroles de %@ lancée.";
+"intent_scrape_started_metadata_format" = "Complétion des métadonnées manquantes de %@ lancée.";
+"intent_scrape_busy" = "Une récupération de métadonnées est déjà en cours.";
+"intent_scrape_deferred" = "La récupération des métadonnées démarrera lorsque Primuse sera actif.";
+"intent_scrape_nothing_missing_format" = "Aucune métadonnée manquante n’a été trouvée pour %@.";
+"intent_scrape_no_source" = "Activez une source de métadonnées dans Primuse avant la récupération.";
+"intent_scrape_live_radio_unsupported" = "Les radios en direct ne peuvent pas être récupérées.";
+"Resume Playback" = "Reprendre la lecture";
+"Resume the current Primuse song or radio station." = "Reprendre la lecture du titre ou de la station en cours dans Primuse.";
+"Resuming playback." = "Reprise de la lecture.";
+"There is no Primuse playback session to resume." = "Aucune session de lecture Primuse à reprendre.";
+"Play Album" = "Lire un album";
+"Find an album in Primuse and play it in track order." = "Rechercher un album dans Primuse et le lire dans l’ordre des pistes.";
+"Album" = "Album";
+"Optional, narrows albums with the same name." = "Facultatif, pour distinguer les albums portant le même nom.";
+"No matching album in your library." = "Aucun album correspondant dans votre bibliothèque.";
+"Play Artist" = "Lire un artiste";
+"Find an artist in Primuse and play their songs." = "Rechercher un artiste dans Primuse et lire ses titres.";
+"No matching artist in your library." = "Aucun artiste correspondant dans votre bibliothèque.";
+"Play Genre" = "Lire un genre";
+"Play songs matching a genre in Primuse." = "Lire les titres d’un genre donné dans Primuse.";
+"Genre" = "Genre";
+"No matching genre in your library." = "Aucun genre correspondant dans votre bibliothèque.";
+"Play Radio Station" = "Lire une station de radio";
+"Play a saved internet-radio station in Primuse." = "Lire une station de radio internet enregistrée dans Primuse.";
+"Station" = "Station";
+"No matching saved radio station." = "Aucune station enregistrée correspondante.";
+"Play Similar Songs" = "Lire des titres similaires";
+"Build a song radio from the current Primuse song." = "Créer une radio à partir du titre Primuse en cours.";
+"Play a song first, then try again." = "Lisez d’abord un titre, puis réessayez.";
+"Repeat Mode" = "Mode de répétition";
+"Repeat All" = "Tout répéter";
+"Repeat One" = "Répéter un titre";
+"Set Repeat Mode" = "Définir le mode de répétition";
+"Change the Primuse repeat mode." = "Modifier le mode de répétition de Primuse.";
+"Mode" = "Mode";
+"Set Playback Speed" = "Définir la vitesse de lecture";
+"Set Primuse playback speed from 0.5 to 2 times." = "Régler la vitesse de lecture de Primuse entre 0,5 et 2 fois.";
+"Speed" = "Vitesse";
+"Playback speed set to %1$@ times." = "Vitesse de lecture réglée sur %1$@ fois.";
+"Scrape Current Song" = "Récupérer les infos du titre actuel";
+"Fill missing metadata, artwork, and lyrics for the current Primuse song." = "Compléter les métadonnées, la pochette et les paroles manquantes du titre Primuse en cours.";
+"This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "Cette action peut contacter des fournisseurs de métadonnées et écrire la pochette, les paroles ou les tags. Continuer ?";
+"There is no current song to scrape." = "Aucun titre actuel à récupérer.";
+"Resume" = "Reprendre";
+"Play Radio" = "Lire la radio";
+"Similar Songs" = "Titres similaires";
+"Scrape Song" = "Récupérer le titre";

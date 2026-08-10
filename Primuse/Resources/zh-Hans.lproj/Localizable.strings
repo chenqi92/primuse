@@ -1060,6 +1060,7 @@
 "lyrics_editor_nudge_later" = "延后 0.1 秒";
 "lyrics_editor_insert_below" = "在下方插入一行";
 "lyrics_editor_add_line" = "添加行";
+"lyrics_editor_remove_line" = "移除行";
 "lyrics_editor_shift_all" = "整体偏移";
 "lyrics_editor_shift_hint" = "所有已打轴的行一起前后平移，行与行的间距不变。";
 "lyrics_editor_shift_clamped" = "已到最前，再往前会让第一句早于开头。";

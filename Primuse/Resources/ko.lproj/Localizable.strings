@@ -130,6 +130,7 @@
 "lyrics_editor_nudge_later" = "0.1초 뒤로";
 "lyrics_editor_insert_below" = "아래에 줄 삽입";
 "lyrics_editor_add_line" = "줄 추가";
+"lyrics_editor_remove_line" = "줄 삭제";
 "lyrics_editor_shift_all" = "전체 이동";
 "lyrics_editor_shift_hint" = "시간이 지정된 모든 줄을 함께 이동합니다. 줄 간격은 그대로 유지됩니다.";
 "lyrics_editor_shift_clamped" = "이미 맨 앞입니다. 더 옮기면 첫 줄이 0초보다 앞서게 됩니다.";
@@ -2449,7 +2450,7 @@
 "home_mode_flip_to_radio" = "B면 · 라디오로 전환";
 "home_radio_wall_title" = "내 방송국";
 "home_radio_wall_manage %lld" = "관리 · %lld";
-"home_radio_wall_badge" = "LIVE";
+"home_radio_wall_badge" = "라이브";
 "select_all" = "전체 선택";
 
 /* MARK: - Radio batch add */
@@ -2558,3 +2559,58 @@
 "lyrics_editor_timing_info_line" = "제목과 제작 정보는 타이밍에서 제외됩니다";
 "lyrics_editor_info_line_badge" = "정보";
 "lyrics_editor_no_timing_lines" = "타이밍을 지정할 가사 줄이 없습니다";
+
+/* MARK: - Siri 및 App Intent */
+"intent_playing_album_format" = "앨범 %@ 재생 중입니다.";
+"intent_playing_artist_format" = "%@ 재생 중입니다.";
+"intent_playing_genre_format" = "%@ 장르 음악을 재생 중입니다.";
+"intent_playing_radio_format" = "라디오 방송국 %@ 재생 중입니다.";
+"intent_playing_similar_format" = "%@와 비슷한 곡을 재생 중입니다.";
+"intent_scrape_started_lyrics_format" = "%@의 가사 찾기를 시작했습니다.";
+"intent_scrape_started_metadata_format" = "%@의 누락된 메타데이터 채우기를 시작했습니다.";
+"intent_scrape_busy" = "메타데이터 스크래핑이 이미 실행 중입니다.";
+"intent_scrape_deferred" = "Primuse가 활성화되면 메타데이터 스크래핑을 시작합니다.";
+"intent_scrape_nothing_missing_format" = "%@에 누락된 메타데이터가 없습니다.";
+"intent_scrape_no_source" = "스크래핑하기 전에 Primuse에서 메타데이터 소스를 활성화하세요.";
+"intent_scrape_live_radio_unsupported" = "라이브 라디오는 스크래핑할 수 없습니다.";
+"Resume Playback" = "재생 재개";
+"Resume the current Primuse song or radio station." = "현재 Primuse 곡 또는 라디오 방송국의 재생을 재개합니다.";
+"Resuming playback." = "재생을 재개합니다.";
+"There is no Primuse playback session to resume." = "재개할 Primuse 재생 세션이 없습니다.";
+"Play Album" = "앨범 재생";
+"Find an album in Primuse and play it in track order." = "Primuse에서 앨범을 찾아 트랙 순서대로 재생합니다.";
+"Album" = "앨범";
+"Optional, narrows albums with the same name." = "선택 사항. 같은 이름의 앨범을 구분합니다.";
+"No matching album in your library." = "보관함에 일치하는 앨범이 없습니다.";
+"Play Artist" = "아티스트 재생";
+"Find an artist in Primuse and play their songs." = "Primuse에서 아티스트를 찾아 해당 곡을 재생합니다.";
+"No matching artist in your library." = "보관함에 일치하는 아티스트가 없습니다.";
+"Play Genre" = "장르 재생";
+"Play songs matching a genre in Primuse." = "Primuse에서 지정한 장르의 곡을 재생합니다.";
+"Genre" = "장르";
+"No matching genre in your library." = "보관함에 일치하는 장르가 없습니다.";
+"Play Radio Station" = "라디오 방송국 재생";
+"Play a saved internet-radio station in Primuse." = "Primuse에 저장된 인터넷 라디오 방송국을 재생합니다.";
+"Station" = "방송국";
+"No matching saved radio station." = "일치하는 저장된 라디오 방송국이 없습니다.";
+"Play Similar Songs" = "비슷한 곡 재생";
+"Build a song radio from the current Primuse song." = "현재 Primuse 곡을 바탕으로 곡 라디오를 만듭니다.";
+"Play a song first, then try again." = "먼저 곡을 재생한 다음 다시 시도하세요.";
+"Repeat Mode" = "반복 모드";
+"Repeat All" = "전체 반복";
+"Repeat One" = "한 곡 반복";
+"Set Repeat Mode" = "반복 모드 설정";
+"Change the Primuse repeat mode." = "Primuse 반복 모드를 변경합니다.";
+"Mode" = "모드";
+"Set Playback Speed" = "재생 속도 설정";
+"Set Primuse playback speed from 0.5 to 2 times." = "Primuse 재생 속도를 0.5배에서 2배 사이로 설정합니다.";
+"Speed" = "속도";
+"Playback speed set to %1$@ times." = "재생 속도를 %1$@배로 설정했습니다.";
+"Scrape Current Song" = "현재 곡 스크래핑";
+"Fill missing metadata, artwork, and lyrics for the current Primuse song." = "현재 Primuse 곡에서 누락된 메타데이터, 앨범 아트 및 가사를 채웁니다.";
+"This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "메타데이터 공급자에 연결하고 앨범 아트, 가사 또는 태그를 쓸 수 있습니다. 계속할까요?";
+"There is no current song to scrape." = "스크래핑할 현재 곡이 없습니다.";
+"Resume" = "재개";
+"Play Radio" = "라디오 재생";
+"Similar Songs" = "비슷한 곡";
+"Scrape Song" = "곡 스크래핑";

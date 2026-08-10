@@ -113,7 +113,7 @@ struct ContentView: View {
                 LibraryView(deepLink: $libraryDeepLink)
             }
 
-            Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: .search) {
+            Tab(value: 2, role: .search) {
                 SearchView(searchText: $searchText)
                     .id("primuse.tab.search")
             }

@@ -38,7 +38,7 @@ struct SongRowView: View {
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
     @State private var showTagEditor = false
-    /// 歌词编辑跟标签编辑平级，各自独立的 sheet。
+    /// 歌词编辑跟标签编辑平级；iOS 全屏打开，避免长文本编辑时误滑关闭。
     @State private var showLyricsEditor = false
     /// 标签编辑器翻页到的那一首。nil 表示还停在本行这首歌上。
     @State private var tagEditorSongID: String?
@@ -337,12 +337,20 @@ struct SongRowView: View {
             )
             .presentationDetents([.large])
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showLyricsEditor) {
+            LyricsEditorSheet(song: library.song(id: song.id) ?? song) { updated in
+                player.syncSongMetadata(updated)
+            }
+        }
+        #else
         .sheet(isPresented: $showLyricsEditor) {
             LyricsEditorSheet(song: library.song(id: song.id) ?? song) { updated in
                 player.syncSongMetadata(updated)
             }
             .presentationDetents([.large])
         }
+        #endif
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(song: song)
                 .presentationDetents([.medium, .large])

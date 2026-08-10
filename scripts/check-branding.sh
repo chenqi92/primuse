@@ -56,9 +56,8 @@ expect_plist_value Primuse/Info-macOS.plist CFBundleDisplayName Primuse
 expect_plist_value PrimuseTV/Info.plist CFBundleDisplayName Primuse
 expect_plist_value PrimuseWatch/Info.plist CFBundleDisplayName 猿音
 expect_plist_value PrimuseWidgetExtension/Info.plist CFBundleDisplayName 猿音小组件
-expect_plist_value PrimuseActivityExtension/Info.plist CFBundleDisplayName 猿音实时活动
 expect_plist_value PrimuseWatchWidgets/Info.plist CFBundleDisplayName 猿音表盘
 
-grep -Fqx '# Primuse (猿音)' README.md || fail "README.md must use the official Chinese name 猿音"
+grep -Fqx '# Primuse（猿音）' README.md || fail "README.md must use the official Chinese name 猿音"
 
 echo "Brand check passed: 猿音 / Primuse"

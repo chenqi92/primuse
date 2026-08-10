@@ -113,9 +113,15 @@ struct TagEditorView: View {
         } message: {
             Text(String(localized: "tag_editor_lyrics_delete_confirm_message"))
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showLyricsEditor) {
+            LyricsEditorView(song: song, text: $lyricsText)
+        }
+        #else
         .sheet(isPresented: $showLyricsEditor) {
             LyricsEditorView(song: song, text: $lyricsText)
         }
+        #endif
         .sheet(isPresented: $showEncodingFixes) {
             EncodingFixPicker(
                 fixes: encodingFixes,

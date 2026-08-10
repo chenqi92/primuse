@@ -92,20 +92,22 @@ struct LyricsEditorView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button(String(localized: "done")) { focusedLine = nil }
-                    }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button(String(localized: "done")) { focusedLine = nil }
+                }
+            }
+            .navigationDestination(isPresented: $showSourceEditor) {
+                sourceEditorPage
             }
         }
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled()
         .confirmationDialog(
             String(localized: "lyrics_editor_unstamped_warning_title"),
             isPresented: $showUnstampedWarning,
             titleVisibility: .visible
         ) { unstampedWarningActions } message: { unstampedWarningMessage }
         .sheet(isPresented: $showShiftPanel) { shiftPanel }
-        .sheet(isPresented: $showSourceEditor) { sourceEditorSheet }
     }
 
     private var iosHeader: some View {
@@ -1041,6 +1043,14 @@ struct LyricsEditorView: View {
             } label: {
                 Label(String(localized: "lyrics_editor_add_line"), systemImage: "plus")
             }
+            Button(role: .destructive) {
+                if let selectedEditorLineIndex {
+                    removeLine(at: selectedEditorLineIndex)
+                }
+            } label: {
+                Label(String(localized: "lyrics_editor_remove_line"), systemImage: "minus")
+            }
+            .disabled(selectedEditorLineIndex == nil)
             Button {
                 beginShiftAdjustment()
             } label: {
@@ -1335,6 +1345,18 @@ struct LyricsEditorView: View {
                     .help(String(localized: "lyrics_editor_timing_info_line"))
             }
 
+            Button(role: .destructive) {
+                removeLine(at: index)
+            } label: {
+                Image(systemName: "minus.circle")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 24, height: 28)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            .accessibilityLabel(String(localized: "lyrics_editor_remove_line"))
+
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -1362,7 +1384,7 @@ struct LyricsEditorView: View {
             Divider()
             Button(String(localized: "lyrics_editor_insert_below")) { insertLine(after: index) }
             Button(String(localized: "delete"), role: .destructive) {
-                document.removeLines(at: IndexSet(integer: index))
+                removeLine(at: index)
             }
         }
     }
@@ -1782,15 +1804,27 @@ struct LyricsEditorView: View {
         showSourceEditor = true
     }
 
+    #if !os(macOS)
+    private var sourceEditorPage: some View {
+        TextEditor(text: $sourceText)
+            .font(.system(size: 12, design: .monospaced))
+            .padding(.horizontal, 8)
+            .navigationTitle(String(localized: "lyrics_editor_mode_source"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "done")) { applySourceEditor() }
+                }
+            }
+    }
+    #else
     private var sourceEditorSheet: some View {
         NavigationStack {
             TextEditor(text: $sourceText)
                 .font(.system(size: 12, design: .monospaced))
                 .padding(.horizontal, 8)
                 .navigationTitle(String(localized: "lyrics_editor_mode_source"))
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button(String(localized: "cancel")) { showSourceEditor = false }
@@ -1800,10 +1834,9 @@ struct LyricsEditorView: View {
                     }
                 }
         }
-        #if os(macOS)
         .frame(width: 560, height: 620)
-        #endif
     }
+    #endif
 
     private func applySourceEditor() {
         guard sourceText != sourceBaselineText else {
@@ -1988,6 +2021,42 @@ struct LyricsEditorView: View {
         let target = min(max(0, index + 1), document.lines.count)
         let id = document.insertLine(at: target)
         focusedLine = id
+    }
+
+    private var selectedEditorLineIndex: Int? {
+        switch mode {
+        case .timing:
+            return timingSession.cursorIndex.flatMap {
+                document.lines.indices.contains($0) ? $0 : nil
+            }
+        case .text:
+            guard let focusedLine else { return nil }
+            return document.lines.firstIndex { $0.id == focusedLine }
+        }
+    }
+
+    private func removeLine(at index: Int) {
+        guard document.lines.indices.contains(index) else { return }
+
+        let removedID = document.lines[index].id
+        let selectedID = timingSession.cursorIndex.flatMap { selectedIndex in
+            document.lines.indices.contains(selectedIndex) ? document.lines[selectedIndex].id : nil
+        }
+        let fallbackID = timingEligibleIndices.first(where: { $0 > index }).map { document.lines[$0].id }
+            ?? timingEligibleIndices.last(where: { $0 < index }).map { document.lines[$0].id }
+
+        document.removeLines(at: IndexSet(integer: index))
+        if focusedLine == removedID { focusedLine = nil }
+
+        let preferredID = selectedID == removedID ? fallbackID : selectedID
+        let preferredIndex = preferredID.flatMap { id in
+            document.lines.firstIndex { $0.id == id }
+        }
+        timingSession.reset(document: document, preferredIndex: preferredIndex)
+        if timingEligibleIndices.isEmpty {
+            _ = timingSession.select(index: nil, document: document)
+        }
+        timingFollowsPlayback = false
     }
 
     // MARK: - 提交

@@ -412,6 +412,15 @@ struct NowPlayingView: View {
                 .presentationDetents([.large])
             }
         }
+        #if os(iOS)
+        .fullScreenCover(item: $lyricsEditorTargetSong) { song in
+            LyricsEditorSheet(song: song) { updated in
+                // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
+                guard player.currentSong?.id == updated.id else { return }
+                Task { await loadLyrics() }
+            }
+        }
+        #else
         .sheet(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(song: song) { updated in
                 // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
@@ -420,6 +429,7 @@ struct NowPlayingView: View {
             }
             .presentationDetents([.large])
         }
+        #endif
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: player.currentSong)
         .sheet(isPresented: $showCastPicker) {
             CastDevicePickerSheet()
