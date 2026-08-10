@@ -140,6 +140,13 @@ struct RemoteMetadataReadPolicyTests {
     @Test("A truncated MP3 duration is corrected without replacing a Xing duration")
     func truncatedMP3DurationCorrection() {
         #expect(RemoteMetadataReadPolicy.correctedMP3Duration(
+            parsed: 0,
+            fileSize: 5_000_000,
+            bitRateKbps: 192,
+            providedByteCount: 256 * 1024
+        ) == Double(5_000_000) / (192 * 125))
+
+        #expect(RemoteMetadataReadPolicy.correctedMP3Duration(
             parsed: 8,
             fileSize: 5_000_000,
             bitRateKbps: 192,

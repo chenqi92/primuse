@@ -394,6 +394,36 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: rangeIgnoringProxyFixKey)
         }
 
+        // Ninth one-time migration. A bounded MP3 header can expose a valid
+        // MPEG bitrate without carrying a Xing/VBRI duration. Older backfill
+        // code marked that row failed before its file-size/bitrate estimate
+        // ran, so it stayed on "details unavailable" even though the stream
+        // itself was valid. Retry only the rows that already have enough
+        // technical evidence for the corrected path; corrupt/unknown payloads
+        // remain failed instead of receiving a fabricated duration.
+        let mp3BitrateDurationFixKey = "primuse.backfillFailedReset.v2026_08_mp3BitrateDuration"
+        if !UserDefaults.standard.bool(forKey: mp3BitrateDurationFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let retryIDs = Set(library.songs.lazy.filter {
+                sourceIDs.contains($0.sourceID)
+                    && $0.fileFormat == .mp3
+                    && $0.duration <= 0
+                    && $0.fileSize > Self.headBytes * 2
+                    && ($0.bitRate ?? 0) > 0
+            }.map(\.id))
+            let resetIDs = failedSongIDs.intersection(retryIDs)
+            if !resetIDs.isEmpty {
+                failedSongIDs.subtract(resetIDs)
+                sessionGivenUpIDs.subtract(resetIDs)
+                titleCheckedIDs.subtract(resetIDs)
+                for id in resetIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveTitleChecked()
+                plog("📥 Backfill: clearing \(resetIDs.count) failed MP3 rows for bitrate duration recovery")
+            }
+            UserDefaults.standard.set(true, forKey: mp3BitrateDurationFixKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by
@@ -1337,6 +1367,30 @@ final class MetadataBackfillService {
             ) {
                 let combined = metadataInputData + tailData
                 metadata = await extractMetadata(from: combined, song: song, cacheKey: song.id)
+            }
+        }
+
+        // Raw CBR MP3s and some OpenList-backed streams have valid MPEG frames
+        // but no Xing/VBRI duration. FileMetadataReader still recovers their
+        // bitrate from the bounded prefix, which is sufficient to estimate the
+        // complete duration from the authoritative remote file size. This must
+        // happen before the duration-missing failure gate below; the previous
+        // correction ran afterwards and was therefore unreachable for exactly
+        // these rows.
+        if song.fileFormat == .mp3,
+           metadata.duration <= 0,
+           let bitRate = metadata.bitRate,
+           bitRate > 0 {
+            let estimated = RemoteMetadataReadPolicy.correctedMP3Duration(
+                parsed: metadata.duration,
+                fileSize: song.fileSize,
+                bitRateKbps: bitRate,
+                providedByteCount: metadataInputData.count,
+                leadingMetadataByteCount: FileMetadataReader.id3TagByteCount(in: metadataInputData) ?? 0
+            )
+            if estimated > 0 {
+                metadata.duration = estimated
+                plog(String(format: "📥 Backfill: '%@' recovered MP3 duration %.1fs from file size and bitrate", song.title, estimated))
             }
         }
 
