@@ -152,6 +152,57 @@ final class InsecureHTTPHostPolicyTests: XCTestCase {
         XCTAssertNil(redirected.value(forHTTPHeaderField: "Content-Type"))
     }
 
+    func testMediaRedirectStripsCredentialsButPreservesRange() throws {
+        var request = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://192.168.0.2:5244/dav/song.mp3"))
+        )
+        request.httpMethod = "GET"
+        request.setValue("Basic secret", forHTTPHeaderField: "Authorization")
+        request.setValue("session=secret", forHTTPHeaderField: "Cookie")
+        request.setValue("bytes=0-262143", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: request.url!,
+            statusCode: 302,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "http://cdn.example.net/signed/song.mp3?token=opaque"]
+        ))
+        let redirected = try XCTUnwrap(HTTPMediaRedirectRequestPolicy.redirectedRequest(
+            from: request,
+            response: response
+        ))
+
+        XCTAssertEqual(redirected.url?.scheme, "https")
+        XCTAssertEqual(redirected.url?.host, "cdn.example.net")
+        XCTAssertEqual(redirected.value(forHTTPHeaderField: "Range"), "bytes=0-262143")
+        XCTAssertEqual(redirected.value(forHTTPHeaderField: "Accept-Encoding"), "identity")
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "Cookie"))
+    }
+
+    func testMediaRedirectRejectsWritesAndHTTPSDowngrades() throws {
+        var post = URLRequest(url: try XCTUnwrap(URL(string: "https://dav.example.com/song.mp3")))
+        post.httpMethod = "POST"
+        let crossHost = try XCTUnwrap(HTTPURLResponse(
+            url: post.url!,
+            statusCode: 307,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "https://cdn.example.net/song.mp3"]
+        ))
+        XCTAssertNil(HTTPMediaRedirectRequestPolicy.redirectedRequest(from: post, response: crossHost))
+
+        var get = post
+        get.httpMethod = "GET"
+        let downgrade = try XCTUnwrap(HTTPURLResponse(
+            url: get.url!,
+            statusCode: 302,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "http://cdn.example.net/song.mp3"]
+        ))
+        XCTAssertNil(HTTPMediaRedirectRequestPolicy.redirectedRequest(from: get, response: downgrade))
+    }
+
     func testRequiresTrustOnlyForPublicCleartextHTTP() throws {
         XCTAssertTrue(InsecureHTTPHostPolicy.requiresExplicitTrust(for: try XCTUnwrap(URL(string: "http://nas.example.com:5000"))))
         XCTAssertTrue(InsecureHTTPHostPolicy.requiresExplicitTrust(for: try XCTUnwrap(URL(string: "http://8.8.8.8:5000"))))

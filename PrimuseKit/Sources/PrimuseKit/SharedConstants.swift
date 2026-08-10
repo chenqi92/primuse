@@ -3118,7 +3118,9 @@ public enum SourceDirectorySelectionPolicy {
     }
 
     /// Selectable scan path for the current browser root, when supported.
-    /// Only S3 exposes its bucket root as an explicit scan scope.
+    /// WebDAV servers can expose playable files directly at their configured
+    /// root (for example an OpenList virtual mount), so that root must remain
+    /// selectable even when the server has no child directories.
     public static func selectableRootPath(
         for sourceType: MusicSourceType,
         browserPath: String
@@ -3126,7 +3128,7 @@ public enum SourceDirectorySelectionPolicy {
         guard browserPath.isEmpty || browserPath == "/" else { return nil }
         switch sourceType {
         case .s3: return ""
-        case .drime: return "/"
+        case .drime, .webdav: return "/"
         default: return nil
         }
     }
@@ -3140,7 +3142,8 @@ public enum SourceDirectorySelectionPolicy {
         switch sourceType {
         case .s3 where directories.contains(""):
             return [""]
-        case .drime where directories.contains("/"):
+        case .drime where directories.contains("/"),
+             .webdav where directories.contains("/"):
             return ["/"]
         default:
             return directories

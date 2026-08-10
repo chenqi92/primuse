@@ -107,3 +107,61 @@ public enum HTTPRedirectRequestPolicy {
         return redirected
     }
 }
+
+/// Follows redirects for read-only media requests without forwarding source
+/// credentials to an object-storage or CDN endpoint.
+public enum HTTPMediaRedirectRequestPolicy {
+    public static let maximumRedirects = HTTPRedirectRequestPolicy.maximumRedirects
+
+    public static func redirectedRequest(
+        from original: URLRequest,
+        response: HTTPURLResponse
+    ) -> URLRequest? {
+        guard [301, 302, 303, 307, 308].contains(response.statusCode),
+              let sourceURL = response.url ?? original.url,
+              let location = response.value(forHTTPHeaderField: "Location"),
+              let rawDestinationURL = URL(string: location, relativeTo: sourceURL)?.absoluteURL,
+              let sourceEndpoint = NetworkEndpointIdentity(url: sourceURL),
+              let rawDestinationEndpoint = NetworkEndpointIdentity(url: rawDestinationURL),
+              rawDestinationURL.user == nil,
+              rawDestinationURL.password == nil else {
+            return nil
+        }
+
+        let method = (original.httpMethod ?? "GET").uppercased()
+        guard method == "GET" || method == "HEAD" else { return nil }
+        guard sourceEndpoint.scheme != "https" || rawDestinationEndpoint.scheme == "https" else {
+            return nil
+        }
+
+        if HTTPRedirectSecurityPolicy.allows(from: sourceURL, to: rawDestinationURL) {
+            return HTTPRedirectRequestPolicy.redirectedRequest(
+                from: original,
+                response: response
+            )
+        }
+
+        let destinationURL = upgradedPublicMediaURL(rawDestinationURL)
+        var redirected = original
+        redirected.url = destinationURL
+        redirected.setValue(nil, forHTTPHeaderField: "Host")
+        redirected.setValue(nil, forHTTPHeaderField: "Authorization")
+        redirected.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
+        redirected.setValue(nil, forHTTPHeaderField: "Cookie")
+        redirected.setValue(nil, forHTTPHeaderField: "Referer")
+        return redirected
+    }
+
+    private static func upgradedPublicMediaURL(_ url: URL) -> URL {
+        guard url.scheme?.lowercased() == "http",
+              let host = url.host,
+              !InsecureHTTPHostPolicy.isLocalNetworkHost(host),
+              url.port == nil || url.port == 80,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.scheme = "https"
+        if components.port == 80 { components.port = nil }
+        return components.url ?? url
+    }
+}

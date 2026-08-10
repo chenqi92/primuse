@@ -424,6 +424,34 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: mp3BitrateDurationFixKey)
         }
 
+        // Tenth one-time migration. Authenticated WebDAV sources can
+        // redirect a media GET to an object-store/CDN endpoint. Older sessions
+        // intentionally stopped at that cross-endpoint 302 and persisted a
+        // metadata-backfill failure mark for an otherwise playable MP3. The transport now follows
+        // read-only media redirects after removing source credentials, so give
+        // still-bare remote MP3 rows one fresh pass.
+        let webDAVMediaRedirectFixKey = "primuse.backfillFailedReset.v2026_08_webDAVMediaRedirect"
+        if !UserDefaults.standard.bool(forKey: webDAVMediaRedirectFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let retryIDs = Set(library.songs.lazy.filter {
+                sourceIDs.contains($0.sourceID)
+                    && $0.fileFormat == .mp3
+                    && $0.duration <= 0
+                    && $0.fileSize > 0
+            }.map(\.id))
+            let resetIDs = failedSongIDs.intersection(retryIDs)
+            if !resetIDs.isEmpty {
+                failedSongIDs.subtract(resetIDs)
+                sessionGivenUpIDs.subtract(resetIDs)
+                titleCheckedIDs.subtract(resetIDs)
+                for id in resetIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveTitleChecked()
+                plog("📥 Backfill: clearing \(resetIDs.count) failed remote MP3 rows for media-redirect retry")
+            }
+            UserDefaults.standard.set(true, forKey: webDAVMediaRedirectFixKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by

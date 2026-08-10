@@ -30,7 +30,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             delegate: SmartSSLDelegate(
                 httpUsername: username,
                 httpPassword: password,
-                redirectPolicy: .sameEndpoint
+                httpCredentialEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                ),
+                redirectPolicy: .media
             ),
             delegateQueue: nil
         )

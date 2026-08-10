@@ -57,6 +57,22 @@ struct SourceDirectorySelectionPolicyTests {
         ) == ["/"])
     }
 
+    @Test("WebDAV root is selectable when files are mounted without subdirectories")
+    func selectsWebDAVRoot() {
+        #expect(SourceDirectorySelectionPolicy.connectorPath(
+            for: .webdav,
+            browserPath: "/"
+        ) == "/")
+        #expect(SourceDirectorySelectionPolicy.selectableRootPath(
+            for: .webdav,
+            browserPath: "/"
+        ) == "/")
+        #expect(SourceDirectorySelectionPolicy.normalizedSelections(
+            ["/Albums", "/"],
+            for: .webdav
+        ) == ["/"])
+    }
+
     @Test("Other protocols keep root and selected paths unchanged")
     func preservesOtherProtocols() {
         let selected = ["/Music", "/Archive"]

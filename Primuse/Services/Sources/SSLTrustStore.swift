@@ -554,22 +554,28 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         /// Keep authenticated API traffic on the configured endpoint. A
         /// conventional same-host HTTP-to-HTTPS upgrade is still accepted.
         case sameEndpoint
+        /// Permit read-only media redirects to a CDN/object-store endpoint,
+        /// while stripping the source's credentials before following it.
+        case media
     }
 
     private let fnMusicRedirects: Bool
     private let httpUsername: String?
     private let httpPassword: String?
+    private let httpCredentialEndpoint: NetworkEndpointIdentity?
     private let redirectPolicy: RedirectPolicy
 
     init(
         fnMusicRedirects: Bool = false,
         httpUsername: String? = nil,
         httpPassword: String? = nil,
+        httpCredentialEndpoint: NetworkEndpointIdentity? = nil,
         redirectPolicy: RedirectPolicy = .system
     ) {
         self.fnMusicRedirects = fnMusicRedirects
         self.httpUsername = httpUsername
         self.httpPassword = httpPassword
+        self.httpCredentialEndpoint = httpCredentialEndpoint
         self.redirectPolicy = redirectPolicy
     }
 
@@ -643,7 +649,12 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         if supportedHTTPMethods.contains(challenge.protectionSpace.authenticationMethod),
            challenge.previousFailureCount == 0,
            let httpUsername,
-           let httpPassword {
+           let httpPassword,
+           httpCredentialEndpoint == nil || httpCredentialEndpoint == NetworkEndpointIdentity(
+               scheme: challenge.protectionSpace.protocol ?? "http",
+               host: challenge.protectionSpace.host,
+               port: challenge.protectionSpace.port > 0 ? challenge.protectionSpace.port : nil
+           ) {
             return (
                 .useCredential,
                 URLCredential(
@@ -664,8 +675,23 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
         guard fnMusicRedirects else {
-            guard redirectPolicy == .sameEndpoint else {
+            guard redirectPolicy != .system else {
                 completionHandler(request)
+                return
+            }
+            if redirectPolicy == .media {
+                let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+                guard redirectCount < HTTPMediaRedirectRequestPolicy.maximumRedirects,
+                      let currentRequest = task.currentRequest ?? task.originalRequest,
+                      let redirected = HTTPMediaRedirectRequestPolicy.redirectedRequest(
+                          from: currentRequest,
+                          response: response
+                      ) else {
+                    completionHandler(nil)
+                    return
+                }
+                task.taskDescription = String(redirectCount + 1)
+                completionHandler(redirected)
                 return
             }
             guard let sourceURL = response.url,
