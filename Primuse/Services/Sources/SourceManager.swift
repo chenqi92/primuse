@@ -789,6 +789,15 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
             return await provider.fetchServerLyrics(for: path)
         }
     }
+
+    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.fetchServerPlaylists()
+        }
+    }
 }
 
 @MainActor
