@@ -879,11 +879,15 @@ struct NowPlayingView: View {
             // 和队列入口
             HStack {
                 Spacer()
-                AirPlayButton().frame(width: 36, height: 36)
+                AirPlayButton()
+                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                 Spacer()
                 Button { showQueue = true } label: {
                     Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
                 }
+                .frame(width: 44, height: 44)
+                .accessibilityLabel("a11y_queue")
             }
             .font(.body).padding(.horizontal, 80).padding(.top, 14)
 
@@ -1292,7 +1296,8 @@ struct NowPlayingView: View {
                         }
                         .padding(.horizontal, 26).padding(.top, 10)
 
-                        // Bottom bar
+                        // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
+                        // 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等
                         HStack {
                         Button { toggleStandardLyrics() } label: {
                             Image(systemName: showLyrics ? "photo" : "quote.bubble")
@@ -1301,11 +1306,15 @@ struct NowPlayingView: View {
                         .frame(width: 44, height: 44)
                         .accessibilityLabel(Text(showLyrics ? "a11y_close_lyrics" : "a11y_open_lyrics"))
                         Spacer()
-                        AirPlayButton().frame(width: 36, height: 36)
+                        AirPlayButton()
+                            .frame(width: 36, height: 36)
+                            .frame(width: 44, height: 44)
                         Spacer()
                         Button { showQueue = true } label: {
                             Image(systemName: "list.bullet").foregroundStyle(appearance.tertiary)
                         }
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel("a11y_queue")
                         }
                         .font(.body).padding(.horizontal, 46).padding(.top, 12)
 
