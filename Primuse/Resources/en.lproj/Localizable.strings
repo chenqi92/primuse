@@ -33,6 +33,7 @@
 "library_cleanup_trash" = "Recently deleted";
 "library_cleanup_trash_count_format" = "%d items";
 "playlist_reorder" = "Reorder";
+"playlist_kind_server_mirror" = "Server playlist";
 "see_all" = "See All";
 "welcome_title" = "Welcome to Primuse";
 "welcome_desc" = "Add a music source — your NAS, WebDAV, or local files — to start listening";

@@ -251,6 +251,7 @@
 "library_cleanup_trash" = "Zuletzt gelöscht";
 "library_cleanup_trash_count_format" = "%d Objekte";
 "playlist_reorder" = "Neu anordnen";
+"playlist_kind_server_mirror" = "Server-Playlist";
 "welcome_title" = "Willkommen bei Primuse";
 "welcome_desc" = "Füge eine Musikquelle hinzu – dein NAS, WebDAV oder lokale Dateien – um loszuhören";
 "no_albums" = "Keine Alben";

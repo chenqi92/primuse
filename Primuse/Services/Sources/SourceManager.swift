@@ -620,11 +620,18 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerScrobblingConnector, ServerLyricsConnector {
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else { return [] }
+            return try await provider.fetchServerPlaylists()
+        }
+    }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         let stream = try await routing.withRead { connector in
@@ -4601,6 +4608,14 @@ final class SourceManager {
               let source = sources.first(where: { $0.id == song.sourceID }) else { return }
         guard let conn = connector(for: source) as? ServerScrobblingConnector else { return }
         await conn.scrobble(songPath: song.filePath, submission: submission)
+    }
+
+    /// 拉取服务端曲库源上的用户歌单。源不支持(NAS / 云盘 / 本地)返回 nil,
+    /// 与"支持但一个歌单都没有"(返回 `[]`)区分开 —— 后者要清理本地陈旧镜像,
+    /// 前者什么都不该动。
+    func fetchServerPlaylists(for source: MusicSource) async throws -> [ServerPlaylist]? {
+        guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
+        return try await conn.fetchServerPlaylists()
     }
 
     /// 该歌是否来自"服务端曲库源"(Subsonic/Navidrome、Jellyfin/Emby/Plex)。

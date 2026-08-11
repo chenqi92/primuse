@@ -251,6 +251,7 @@
 "library_cleanup_trash" = "최근 삭제된 항목";
 "library_cleanup_trash_count_format" = "항목 %d개";
 "playlist_reorder" = "순서 변경";
+"playlist_kind_server_mirror" = "서버 플레이리스트";
 "welcome_title" = "Primuse에 오신 것을 환영합니다";
 "welcome_desc" = "음악 소스(NAS, WebDAV 또는 로컬 파일)를 추가해 감상을 시작하세요";
 "no_albums" = "앨범 없음";

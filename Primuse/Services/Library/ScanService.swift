@@ -1042,7 +1042,8 @@ final class ScanService {
                 sourceStore: sourceStore,
                 scraperService: scraperService,
                 sourceManager: sourceManager,
-                syncState: candidateState
+                syncState: candidateState,
+                source: source
             )
         } catch is CancellationError {
             // Scan was cancelled (e.g. source deleted) — clean up silently.
@@ -1186,7 +1187,8 @@ final class ScanService {
             sourceStore: sourceStore,
             scraperService: scraperService,
             sourceManager: sourceManager,
-            syncState: candidateState
+            syncState: candidateState,
+            source: source
         )
         return true
     }
@@ -1199,7 +1201,8 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
         sourceManager: SourceManager? = nil,
-        syncState: SourceSyncState? = nil
+        syncState: SourceSyncState? = nil,
+        source: MusicSource? = nil
     ) async throws {
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
@@ -1230,7 +1233,6 @@ final class ScanService {
         // 818 首 ~ 1GB 后台流量, 大部分歌用户根本不会听。删掉, 让 prewarm
         // 走「按需」路径: AudioPlayerService.play 时调 cacheInBackground
         // 给当前曲做 prewarm, 启动 task 给 currentSong + 队列做 prewarm。
-        _ = sourceManager  // 参数保留兼容签名, 暂未使用
         // Wipe both checkpoint and live state. The source card now reads
         // `lastScannedAt` for the "scanned X songs" line; without clearing
         // scanStates, `canResume` would read true forever (totalCount is
@@ -1241,6 +1243,17 @@ final class ScanService {
             throw CancellationError()
         }
         scanStates[sourceID] = nil
+
+        // 歌单镜像放在扫描收尾之后: 曲库已经落库(上面 addSongs +
+        // persistIncrementalNowAndWait), serverItemID → Song.id 的索引才是完整的;
+        // 而且这一步的网络往返不会推迟"扫描完成"在 UI 上的呈现。
+        if let source, let sourceManager, source.type.isServerLibrary {
+            await ServerPlaylistSyncService.sync(
+                source: source,
+                sourceManager: sourceManager,
+                library: library
+            )
+        }
     }
 
     // MARK: - Helpers

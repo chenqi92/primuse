@@ -14,7 +14,8 @@ import PrimuseKit
 /// - 本地解不了的格式(主要 WMA) → 服务端转码 mp3 渐进流, 不做持久缓存。
 ///
 /// 离线下载始终取 `download` 原文件。
-actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector {
+actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
+    ServerPlaylistConnector {
     let sourceID: String
 
     private let baseURL: URL          // 形如 https://host:4533 (+ basePath), 不含 /rest
@@ -582,6 +583,49 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return text
     }
 
+    // MARK: - Server playlists
+
+    /// `getPlaylists` 列出当前用户可播放的歌单(含别人分享的 public 歌单),
+    /// 再逐个 `getPlaylist` 取曲目。两个方法自 Subsonic API 1.0.0 就存在,
+    /// Navidrome / Airsonic / gonic / Ampache 全家族都实现, 因此不做能力探测。
+    ///
+    /// 单个歌单取曲目失败只跳过它, 不让整次同步失败 —— 一个坏歌单不该挡住
+    /// 其余歌单。`getPlaylist` 规范上没有分页参数, 一次返回全部 `entry`。
+    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+        try await connect()
+        let container: PlaylistsContainer = try await requestJSON("getPlaylists")
+        let summaries = container.playlists?.playlist ?? []
+        guard summaries.isEmpty == false else { return [] }
+
+        var result: [ServerPlaylist] = []
+        result.reserveCapacity(summaries.count)
+        for summary in summaries {
+            try Task.checkCancellation()
+            let detail: PlaylistContainer
+            do {
+                detail = try await requestJSON(
+                    "getPlaylist",
+                    query: [URLQueryItem(name: "id", value: summary.id.value)]
+                )
+            } catch {
+                plog("⚠️ Subsonic getPlaylist '\(summary.name ?? summary.id.value)' failed: \(error.localizedDescription)")
+                continue
+            }
+            guard let playlist = detail.playlist else { continue }
+            let trackIDs = (playlist.entry ?? []).map(\.id)
+            // 名字缺失时退回服务端 ID, 保证镜像歌单不会出现空标题。
+            let name = Self.cleaned(playlist.name ?? summary.name, unknown: "")
+                ?? summary.id.value
+            result.append(ServerPlaylist(
+                id: summary.id.value,
+                name: name,
+                trackIDs: trackIDs,
+                reportedTrackCount: playlist.songCount ?? summary.songCount
+            ))
+        }
+        return result
+    }
+
     // MARK: - Song construction
 
     private func buildSong(from child: SubsonicChild, album: AlbumSummary? = nil) -> Song {
@@ -946,6 +990,59 @@ private struct SubsonicChild: Decodable, Sendable {
     // OpenSubsonic 扩展
     let samplingRate: Int?
     let bitDepth: Int?
+}
+
+private struct PlaylistsContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let playlists: PlaylistList?
+}
+
+private struct PlaylistList: Decodable {
+    let playlist: [PlaylistSummary]?
+}
+
+private struct PlaylistSummary: Decodable {
+    let id: FlexibleID
+    let name: String?
+    let songCount: Int?
+}
+
+private struct PlaylistContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let playlist: PlaylistWithEntries?
+}
+
+/// `playlistWithSongs`: 曲目字段是单数 `entry`, 装的是 Child 数组。
+private struct PlaylistWithEntries: Decodable {
+    let name: String?
+    let songCount: Int?
+    let entry: [SubsonicChild]?
+}
+
+/// 歌单 ID 在规范里是字符串(Navidrome 给 UUID), 但部分实现按整数序列化 JSON
+/// (musicFolder.id 就是这种情况, 见 `MusicFolder`)。歌单 ID 只用于回传
+/// `getPlaylist?id=` 和派生本地镜像 ID, 两种形状都按原文收下即可。
+private struct FlexibleID: Decodable {
+    let value: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let string = try? container.decode(String.self) {
+            value = string
+        } else if let int = try? container.decode(Int.self) {
+            value = String(int)
+        } else {
+            throw DecodingError.typeMismatch(
+                String.self,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Playlist id is neither a string nor an integer"
+                )
+            )
+        }
+    }
 }
 
 private struct LyricsContainer: SubsonicResponseContainer {

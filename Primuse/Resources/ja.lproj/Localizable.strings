@@ -252,6 +252,7 @@
 "library_cleanup_trash" = "最近削除した項目";
 "library_cleanup_trash_count_format" = "%d 項目";
 "playlist_reorder" = "並べ替え";
+"playlist_kind_server_mirror" = "サーバーのプレイリスト";
 "welcome_title" = "Primuse へようこそ";
 "welcome_desc" = "音楽ソース（NAS、WebDAV、ローカルファイル）を追加して再生を始めましょう";
 "no_albums" = "アルバムなし";

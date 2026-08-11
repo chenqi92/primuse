@@ -481,7 +481,7 @@ struct MacSidebar: View {
     }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
-        !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlistID)
+        !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
             && playlistID != MusicLibrary.likedSongsPlaylistID
     }
 

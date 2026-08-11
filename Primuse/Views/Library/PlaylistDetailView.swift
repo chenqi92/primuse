@@ -25,10 +25,10 @@ struct PlaylistDetailView: View {
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
 
-    /// Apple Music 资料库镜像里的条目不给移除入口 —— 我们没法把改动推回
-    /// Apple Music，下次 sync 又会把它们带回来，视觉上就是"删了又出现"。
+    /// 镜像歌单 (Apple Music 资料库 / 服务端曲库) 里的条目不给移除入口 —— 我们
+    /// 没法把改动推回服务端，下次 sync 又会把它们带回来，视觉上就是"删了又出现"。
     private var allowsPlaylistRemoval: Bool {
-        !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+        !MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id)
     }
 
     private var currentPlaylist: Playlist? {
@@ -243,9 +243,9 @@ struct PlaylistDetailView: View {
                     }
                     .disabled(songs.isEmpty)
 
-                    // Apple Music 镜像歌单不让用户重排 ── 下次 sync 会被覆盖,
+                    // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
                     // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-                    if !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
+                    if !MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
                         Button {
                             showReorderSheet = true
                         } label: {
@@ -479,10 +479,20 @@ struct PlaylistDetailView: View {
 
     private var playlistSubtitle: String {
         let duration = songs.reduce(0) { $0 + $1.duration }
-        let kind = AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
-            ? "Apple Music"
-            : String(localized: "tab_playlists")
-        return "\(songs.count) \(String(localized: "songs_count")) · \(duration.formattedShort) · \(kind)"
+        return "\(songs.count) \(String(localized: "songs_count")) · \(duration.formattedShort) · \(playlistKindLabel)"
+    }
+
+    /// 镜像歌单标出来源, 让用户知道这份内容为什么不可编辑。服务端镜像用音乐源
+    /// 名字 (用户给它起的名, 比 "Subsonic" 更能对上号); 源已被删掉时退回通用词。
+    private var playlistKindLabel: String {
+        if AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) { return "Apple Music" }
+        if ServerPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+            let owner = sourcesStore.sources.first {
+                playlist.id.hasPrefix(ServerPlaylistIdentity.playlistIDPrefix(sourceID: $0.id))
+            }
+            return owner?.name ?? String(localized: "playlist_kind_server_mirror")
+        }
+        return String(localized: "tab_playlists")
     }
 
     @ViewBuilder
@@ -773,7 +783,7 @@ struct PlaylistDetailView: View {
      }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
-        !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlistID)
+        !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
             && playlistID != MusicLibrary.likedSongsPlaylistID
     }
 

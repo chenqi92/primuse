@@ -33,6 +33,7 @@
 "library_cleanup_trash" = "回收站";
 "library_cleanup_trash_count_format" = "%d 项可清理";
 "playlist_reorder" = "重新排序";
+"playlist_kind_server_mirror" = "服务端歌单";
 "see_all" = "查看全部";
 "welcome_title" = "欢迎使用猿音";
 "welcome_desc" = "添加音乐源 — NAS、WebDAV 或本地文件夹 — 开始聆听";

@@ -1219,6 +1219,46 @@ public enum PrimuseConstants {
     public static let supportedCueSheetExtensions: Set<String> = ["cue"]
 }
 
+/// Stable identifiers for playlists mirrored from a server-side music library
+/// (Subsonic/Navidrome/Airsonic/gonic, Jellyfin/Emby/Plex).
+///
+/// The source ID is part of the prefix so two servers of the same kind — or the
+/// same server re-added under a new source UUID — never collide, and so pruning
+/// one source's stale mirrors cannot touch another's.
+public enum ServerPlaylistIdentity {
+    public static let playlistIDPrefix = "primuse.system.serverPlaylist."
+
+    /// `primuse.system.serverPlaylist.<sourceID>.<serverPlaylistID>`
+    public static func playlistID(sourceID: String, serverPlaylistID: String) -> String {
+        "\(playlistIDPrefix)\(sourceID).\(serverPlaylistID)"
+    }
+
+    /// Prefix covering every mirror belonging to one source. Passed to
+    /// `MusicLibrary.prunePlaylists(withIDPrefix:keepingIDs:)`.
+    public static func playlistIDPrefix(sourceID: String) -> String {
+        "\(playlistIDPrefix)\(sourceID)."
+    }
+
+    public static func isMirrorPlaylist(_ playlistID: String) -> Bool {
+        playlistID.hasPrefix(playlistIDPrefix)
+    }
+
+    /// Recovers the server-native item ID from a `Song.filePath` produced by a
+    /// server-library connector: `/songs/<id>.<suffix>` (Subsonic) or
+    /// `/items/<id>.<ext>` (Jellyfin/Emby/Plex).
+    ///
+    /// Playlist entries are matched through this rather than by recomputing the
+    /// `Song.id` hash, because that hash includes the file extension and a
+    /// playlist response can report a different (or missing) suffix than the
+    /// catalogue scan did.
+    public static func serverItemID(fromFilePath filePath: String) -> String? {
+        let last = (filePath as NSString).lastPathComponent
+        guard last.isEmpty == false else { return nil }
+        let stripped = (last as NSString).deletingPathExtension
+        return stripped.isEmpty ? nil : stripped
+    }
+}
+
 /// Stable identifiers shared by the app targets and the Apple Music adapter.
 ///
 /// `MusicLibrary` is also compiled into the tvOS target, while the concrete
@@ -1232,6 +1272,21 @@ public enum AppleMusicLibraryIdentity {
     public static func isMirrorPlaylist(_ playlistID: String) -> Bool {
         playlistID == systemPlaylistID
             || playlistID.hasPrefix(userPlaylistIDPrefix)
+    }
+}
+
+/// Any playlist Primuse regenerates locally from an external library rather than
+/// storing as user data — Apple Music mirrors and server-library mirrors.
+///
+/// These share three behaviours: the next sync overwrites their contents, the UI
+/// must not offer destructive edits (a deleted mirror reappears), and they are
+/// excluded from CloudKit — a device that cannot resolve the same external
+/// library would receive an unresolvable, and therefore empty, playlist and push
+/// that emptiness back to the device that could resolve it.
+public enum MirrorPlaylistIdentity {
+    public static func isMirrorPlaylist(_ playlistID: String) -> Bool {
+        AppleMusicLibraryIdentity.isMirrorPlaylist(playlistID)
+            || ServerPlaylistIdentity.isMirrorPlaylist(playlistID)
     }
 }
 

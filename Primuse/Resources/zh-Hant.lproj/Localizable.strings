@@ -30,6 +30,7 @@
 "library_cleanup_trash" = "垃圾桶";
 "library_cleanup_trash_count_format" = "%d 項可清理";
 "playlist_reorder" = "重新排序";
+"playlist_kind_server_mirror" = "伺服器歌單";
 "see_all" = "查看全部";
 "welcome_title" = "歡迎使用猿音";
 "welcome_desc" = "加入音樂來源 — NAS、WebDAV 或本機資料夾 — 開始聆聽";

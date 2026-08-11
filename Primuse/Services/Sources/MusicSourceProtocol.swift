@@ -547,6 +547,37 @@ protocol ServerScrobblingConnector: MusicSourceConnector {
     func scrobble(songPath: String, submission: Bool) async
 }
 
+/// 服务端上的一份用户歌单。`trackIDs` 是**服务端原生 item ID**(Subsonic 的
+/// child id / Jellyfin 的 item id), 不是 Primuse 的 `Song.id` —— connector 不
+/// 认识本地曲库, 由 `ServerPlaylistSyncService` 通过
+/// `ServerPlaylistIdentity.serverItemID(fromFilePath:)` 建索引换算。
+struct ServerPlaylist: Sendable {
+    /// 服务端歌单 ID, 用来派生稳定的本地镜像歌单 ID。
+    let id: String
+    let name: String
+    /// 服务端返回的曲目顺序, 保持原样。
+    let trackIDs: [String]
+    /// 服务端自报的曲目数(Subsonic `songCount`)。与 `trackIDs.count` 不一致
+    /// 说明响应被截断; 用来区分"服务端歌单真的空了"和"这次没取到曲目",
+    /// 后者不能清空已有镜像。
+    let reportedTrackCount: Int?
+
+    init(id: String, name: String, trackIDs: [String], reportedTrackCount: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.trackIDs = trackIDs
+        self.reportedTrackCount = reportedTrackCount
+    }
+}
+
+/// 服务端曲库源暴露用户歌单的能力 (Subsonic getPlaylists/getPlaylist,
+/// Jellyfin/Emby/Plex 的 playlist item API)。
+///
+/// 只读: Primuse 侧的编辑不回写服务端, 镜像歌单在下次扫描时被服务端内容覆盖。
+protocol ServerPlaylistConnector: MusicSourceConnector {
+    func fetchServerPlaylists() async throws -> [ServerPlaylist]
+}
+
 /// 服务端直接提供歌词的能力 (Subsonic getLyricsBySongId / getLyrics)。
 /// 返回 LRC 文本(带 `[mm:ss.xx]` 时间轴)或纯文本(无时间轴), 交由
 /// `LyricsParser` 统一解析; 没有歌词时返回 nil。服务端歌词不是"同目录

@@ -658,12 +658,13 @@ struct PlaylistListView: View {
         newPlaylistName = ""
     }
 
-    /// system 歌单 (Apple Music 镜像 / 「我喜欢」) 不允许从这里删:
-    /// - AM 镜像下次 sync 自动重建, "删了又出现"
+    /// system 歌单 (Apple Music / 服务端曲库镜像, 「我喜欢」) 不允许从这里删:
+    /// - 镜像歌单下次 sync / 扫描自动重建, "删了又出现"
     /// - 「我喜欢」heart toggle 又会触发 ensure 重建
-    /// 真想清空都得从内容侧操作 (取消 Apple Music 资料库同步 / 进歌单逐条移除)。
+    /// 真想清空都得从内容侧操作 (取消 Apple Music 资料库同步 / 删掉对应音乐源 /
+    /// 进歌单逐条移除)。
     private func isSystemPlaylist(_ playlistID: String) -> Bool {
-        AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlistID)
+        MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
             || playlistID == MusicLibrary.likedSongsPlaylistID
     }
 
