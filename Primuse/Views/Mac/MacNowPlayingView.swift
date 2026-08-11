@@ -997,16 +997,28 @@ struct MacNowPlayingView: View {
     // 删除歌曲流程已移到 PlayerMoreMenu,这里不再保留 deleteCurrentSong。
 }
 
+@MainActor
 private struct MacNowPlayingTimeObserver: View {
     @Environment(AudioPlayerService.self) private var player
-    let onTimeChange: (TimeInterval) -> Void
+    let onTimeChange: @MainActor (TimeInterval) -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { date in
-                onTimeChange(player.interpolatedTime(at: date))
+            .task {
+                await observePlaybackTime()
             }
+    }
+
+    private func observePlaybackTime() async {
+        while !Task.isCancelled {
+            onTimeChange(player.interpolatedTime())
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                return
+            }
+        }
     }
 }
 
