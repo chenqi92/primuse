@@ -1,4 +1,12 @@
 import Foundation
+import os
+
+private enum SongListSnapshotPerformance {
+    static let signposter = OSSignposter(
+        subsystem: "com.primuse.performance",
+        category: "SongList"
+    )
+}
 
 public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case title
@@ -33,7 +41,7 @@ public actor SongListSnapshotStore {
 
     private struct PendingEntry: Sendable {
         let token: UUID
-        let task: Task<SongListSnapshot, Never>
+        let task: Task<SongListSnapshot?, Never>
     }
 
     private var versionByScope: [String: SongListSnapshotVersion] = [:]
@@ -50,31 +58,63 @@ public actor SongListSnapshotStore {
         scopeKey: String,
         version: SongListSnapshotVersion,
         order: LibrarySongSortOrder,
-        songs: [Song]
-    ) async -> SongListSnapshot {
+        songs: [Song],
+        cancelSuperseded: Bool = false
+    ) async -> SongListSnapshot? {
         prepareScope(scopeKey, for: version)
 
         let key = Key(scopeKey: scopeKey, version: version, order: order)
+        if cancelSuperseded {
+            cancelPending(in: scopeKey, except: key)
+        }
         if let cached = cachedByKey[key] {
+            SongListSnapshotPerformance.signposter.emitEvent(
+                "SnapshotCacheHit",
+                "scope: \(scopeKey, privacy: .public), order: \(order.rawValue, privacy: .public)"
+            )
             return cached
         }
         if let pending = pendingByKey[key] {
+            SongListSnapshotPerformance.signposter.emitEvent(
+                "SnapshotPendingJoined",
+                "scope: \(scopeKey, privacy: .public), order: \(order.rawValue, privacy: .public)"
+            )
             return await pending.task.value
         }
 
+        SongListSnapshotPerformance.signposter.emitEvent(
+            "SnapshotCacheMiss",
+            "scope: \(scopeKey, privacy: .public), order: \(order.rawValue, privacy: .public), count: \(songs.count, privacy: .public)"
+        )
         let token = UUID()
-        let task = Task.detached(priority: .userInitiated) {
-            SongListSnapshotBuilder.build(songs: songs, order: order)
+        let task = Task.detached(priority: .userInitiated) { () -> SongListSnapshot? in
+            do {
+                return try SongListSnapshotBuilder.buildCancellable(songs: songs, order: order)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                return nil
+            }
         }
         pendingByKey[key] = PendingEntry(token: token, task: task)
 
         let prepared = await task.value
-        if versionByScope[scopeKey] == version,
-           pendingByKey[key]?.token == token {
-            cachedByKey[key] = prepared
+        let isCurrentTask = pendingByKey[key]?.token == token
+        if isCurrentTask {
             pendingByKey[key] = nil
         }
+        if let prepared,
+           versionByScope[scopeKey] == version,
+           isCurrentTask {
+            cachedByKey[key] = prepared
+        }
         return prepared
+    }
+
+    /// Explicit UI cancellation (selection entry, navigation, or a newer sort)
+    /// reaches the detached worker instead of only cancelling its waiter.
+    public func cancelPending(scopeKey: String) {
+        cancelPending(in: scopeKey, except: nil)
     }
 
     private func prepareScope(
@@ -88,6 +128,19 @@ public actor SongListSnapshotStore {
         let obsoletePendingKeys = pendingByKey.keys.filter { $0.scopeKey == scopeKey }
         for key in obsoletePendingKeys {
             pendingByKey.removeValue(forKey: key)?.task.cancel()
+        }
+    }
+
+    private func cancelPending(in scopeKey: String, except retainedKey: Key?) {
+        let supersededKeys = pendingByKey.keys.filter {
+            $0.scopeKey == scopeKey && $0 != retainedKey
+        }
+        for key in supersededKeys {
+            pendingByKey.removeValue(forKey: key)?.task.cancel()
+            SongListSnapshotPerformance.signposter.emitEvent(
+                "SnapshotWorkerCancelled",
+                "scope: \(scopeKey, privacy: .public), order: \(key.order.rawValue, privacy: .public)"
+            )
         }
     }
 }
@@ -140,66 +193,170 @@ public enum SongListSnapshotBuilder {
         songs: [Song],
         order: LibrarySongSortOrder
     ) -> SongListSnapshot {
-        // Sort lightweight indices rather than repeatedly moving complete Song
-        // values (which may retain large lyrics and metadata payloads).
-        var orderedIndices = Array(songs.indices)
-        orderedIndices.sort { lhsIndex, rhsIndex in
-            let lhs = songs[lhsIndex]
-            let rhs = songs[rhsIndex]
-            let comparison: ComparisonResult
-            switch order {
-            case .title:
-                comparison = lhs.title.localizedCompare(rhs.title)
-            case .artist:
-                comparison = (lhs.artistName ?? "").localizedCompare(rhs.artistName ?? "")
-            case .album:
-                comparison = (lhs.albumTitle ?? "").localizedCompare(rhs.albumTitle ?? "")
-            case .dateAdded:
-                if lhs.dateAdded != rhs.dateAdded {
-                    return lhs.dateAdded > rhs.dateAdded
-                }
-                comparison = .orderedSame
-            case .format:
-                comparison = lhs.fileFormat.displayName.compare(rhs.fileFormat.displayName)
-            }
+        // The non-throwing entry point remains useful for deterministic unit
+        // construction. Store workers use the cancellable variant below.
+        try! build(songs: songs, order: order, checkCancellation: {})
+    }
 
-            if comparison == .orderedSame {
-                return lhs.id < rhs.id
-            }
-            return comparison == .orderedAscending
-        }
-
-        var rows: [SongListRowIdentity] = []
-        var orderedSongIDs: [String] = []
-        var songIDs: Set<String> = []
-        var sourceCounts: [String: Int] = [:]
-        var playableCount = 0
-        var totalDuration: TimeInterval = 0
-        rows.reserveCapacity(orderedIndices.count)
-        orderedSongIDs.reserveCapacity(orderedIndices.count)
-        songIDs.reserveCapacity(orderedIndices.count)
-
-        for (offset, songIndex) in orderedIndices.enumerated() {
-            let song = songs[songIndex]
-            rows.append(SongListRowIdentity(id: song.id, offset: offset))
-            orderedSongIDs.append(song.id)
-            songIDs.insert(song.id)
-            sourceCounts[song.sourceID, default: 0] += 1
-            if song.isPlayable {
-                playableCount += 1
-            }
-            if song.duration.isFinite {
-                totalDuration += max(0, song.duration)
-            }
-        }
-
-        return SongListSnapshot(
-            rows: rows,
-            orderedSongIDs: orderedSongIDs,
-            songIDs: songIDs,
-            sourceCounts: sourceCounts,
-            playableCount: playableCount,
-            totalDuration: totalDuration
+    /// A cooperative merge sort lets a rapid order switch stop obsolete CPU
+    /// work. Swift's standard `sort` has no cancellation points once started.
+    public static func buildCancellable(
+        songs: [Song],
+        order: LibrarySongSortOrder
+    ) throws -> SongListSnapshot {
+        try build(
+            songs: songs,
+            order: order,
+            checkCancellation: { try Task.checkCancellation() }
         )
+    }
+
+    private static func build(
+        songs: [Song],
+        order: LibrarySongSortOrder,
+        checkCancellation: () throws -> Void
+    ) throws -> SongListSnapshot {
+        let interval = SongListSnapshotPerformance.signposter.beginInterval(
+            "SnapshotBuild",
+            "count: \(songs.count, privacy: .public), order: \(order.rawValue, privacy: .public)"
+        )
+        do {
+            try checkCancellation()
+            let orderedIndices = try sortedIndices(
+                songs: songs,
+                order: order,
+                checkCancellation: checkCancellation
+            )
+
+            var rows: [SongListRowIdentity] = []
+            var orderedSongIDs: [String] = []
+            var songIDs: Set<String> = []
+            var sourceCounts: [String: Int] = [:]
+            var playableCount = 0
+            var totalDuration: TimeInterval = 0
+            rows.reserveCapacity(orderedIndices.count)
+            orderedSongIDs.reserveCapacity(orderedIndices.count)
+            songIDs.reserveCapacity(orderedIndices.count)
+
+            for (offset, songIndex) in orderedIndices.enumerated() {
+                if offset.isMultiple(of: 1_024) {
+                    try checkCancellation()
+                }
+                let song = songs[songIndex]
+                rows.append(SongListRowIdentity(id: song.id, offset: offset))
+                orderedSongIDs.append(song.id)
+                songIDs.insert(song.id)
+                sourceCounts[song.sourceID, default: 0] += 1
+                if song.isPlayable {
+                    playableCount += 1
+                }
+                if song.duration.isFinite {
+                    totalDuration += max(0, song.duration)
+                }
+            }
+
+            let snapshot = SongListSnapshot(
+                rows: rows,
+                orderedSongIDs: orderedSongIDs,
+                songIDs: songIDs,
+                sourceCounts: sourceCounts,
+                playableCount: playableCount,
+                totalDuration: totalDuration
+            )
+            SongListSnapshotPerformance.signposter.endInterval(
+                "SnapshotBuild",
+                interval,
+                "cancelled: false"
+            )
+            return snapshot
+        } catch {
+            SongListSnapshotPerformance.signposter.endInterval(
+                "SnapshotBuild",
+                interval,
+                "cancelled: true"
+            )
+            throw error
+        }
+    }
+
+    private static func sortedIndices(
+        songs: [Song],
+        order: LibrarySongSortOrder,
+        checkCancellation: () throws -> Void
+    ) throws -> [Int] {
+        guard songs.count > 1 else { return Array(songs.indices) }
+
+        var source = Array(songs.indices)
+        var destination = source
+        var width = 1
+        while width < source.count {
+            try checkCancellation()
+            var lowerBound = 0
+            while lowerBound < source.count {
+                if lowerBound.isMultiple(of: 4_096) {
+                    try checkCancellation()
+                }
+                let midpoint = min(lowerBound + width, source.count)
+                let upperBound = min(lowerBound + (width * 2), source.count)
+                var left = lowerBound
+                var right = midpoint
+
+                for destinationIndex in lowerBound..<upperBound {
+                    if left >= midpoint {
+                        destination[destinationIndex] = source[right]
+                        right += 1
+                    } else if right >= upperBound {
+                        destination[destinationIndex] = source[left]
+                        left += 1
+                    } else if isOrderedBefore(
+                        source[right],
+                        source[left],
+                        songs: songs,
+                        order: order
+                    ) {
+                        destination[destinationIndex] = source[right]
+                        right += 1
+                    } else {
+                        destination[destinationIndex] = source[left]
+                        left += 1
+                    }
+                }
+                lowerBound = upperBound
+            }
+            swap(&source, &destination)
+            width *= 2
+        }
+        return source
+    }
+
+    private static func isOrderedBefore(
+        _ lhsIndex: Int,
+        _ rhsIndex: Int,
+        songs: [Song],
+        order: LibrarySongSortOrder
+    ) -> Bool {
+        let lhs = songs[lhsIndex]
+        let rhs = songs[rhsIndex]
+        let comparison: ComparisonResult
+        switch order {
+        case .title:
+            comparison = lhs.title.localizedCompare(rhs.title)
+        case .artist:
+            comparison = (lhs.artistName ?? "").localizedCompare(rhs.artistName ?? "")
+        case .album:
+            comparison = (lhs.albumTitle ?? "").localizedCompare(rhs.albumTitle ?? "")
+        case .dateAdded:
+            if lhs.dateAdded != rhs.dateAdded {
+                return lhs.dateAdded > rhs.dateAdded
+            }
+            comparison = .orderedSame
+        case .format:
+            comparison = lhs.fileFormat.displayName.compare(rhs.fileFormat.displayName)
+        }
+
+        if comparison == .orderedSame {
+            return lhs.id < rhs.id
+        }
+        return comparison == .orderedAscending
     }
 }

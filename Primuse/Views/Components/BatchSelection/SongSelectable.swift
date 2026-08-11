@@ -4,7 +4,7 @@ import AppKit
 #endif
 
 /// 勾选圈的摆放方式。
-enum SongSelectionStyle {
+enum SongSelectionStyle: Equatable {
     /// 插在行首（列表 / 表格行）。
     case leading
     /// 浮在右上角（网格 tile —— 插行首会把整块封面挤歪）。
@@ -27,44 +27,91 @@ struct SongSelectionCheckmark: View {
 private struct SongSelectableModifier: ViewModifier {
     let songID: String
     let selection: SongSelectionModel
+    let membership: SongSelectionMembership
     let style: SongSelectionStyle
     let orderedIDs: () -> [String]
+    let defaultAction: (() -> Void)?
 
     func body(content: Content) -> some View {
-        if selection.isActive {
-            let isSelected = selection.contains(songID)
-            decorated(content, isSelected: isSelected)
-                .contentShape(Rectangle())
-                .onTapGesture { handleTap() }
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        let isActive = selection.isActive
+        let isSelected = membership.isSelected
+        let decorated = content
+            .overlay(alignment: overlayAlignment) {
+                selectionOverlay(isActive: isActive, isSelected: isSelected)
+            }
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(
+                isActive
+                    ? (isSelected ? [.isButton, .isSelected] : .isButton)
+                    : []
+            )
+            .accessibilityAction(named: Text("batch_select")) {
+                if isActive {
+                    handleTap()
+                } else {
+                    selection.activate(seed: songID)
+                }
+            }
+
+        #if os(iOS)
+        if let defaultAction {
+            decorated
+                .accessibilityAction {
+                    if isActive {
+                        handleTap()
+                    } else {
+                        defaultAction()
+                    }
+                }
+                .highPriorityGesture(longPressGesture)
         } else {
-            content
+            decorated.highPriorityGesture(longPressGesture)
+        }
+        #else
+        decorated
+        #endif
+    }
+
+    #if os(iOS)
+    private var longPressGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.45)
+            .onEnded { _ in
+                guard !selection.isActive else { return }
+                selection.activate(seed: songID)
+            }
+    }
+    #endif
+
+    private var overlayAlignment: Alignment {
+        switch style {
+        case .leading: .leading
+        case .overlay: .topTrailing
         }
     }
 
-    @ViewBuilder
-    private func decorated(_ content: Content, isSelected: Bool) -> some View {
-        switch style {
-        case .leading:
-            HStack(spacing: 10) {
-                SongSelectionCheckmark(isSelected: isSelected)
-                // 行内部普遍自带 Button + contextMenu（播放 / 加入歌单 / 删除）。
-                // 选择模式下必须整体让位，否则点一下既 toggle 又开始播放。
-                content
-                    .allowsHitTesting(false)
-            }
-        case .overlay:
-            content
-                .allowsHitTesting(false)
-                .overlay(alignment: .topTrailing) {
-                    SongSelectionCheckmark(isSelected: isSelected)
-                        // 勾选圈直接压在封面上，浅色封面会吃掉未选中的空心圈，
-                        // 垫一层不透明底保证任何封面上都看得见。
-                        .background(Circle().fill(.background).padding(2))
-                        .padding(8)
-                }
+    private func selectionOverlay(isActive: Bool, isSelected: Bool) -> some View {
+        ZStack(alignment: overlayAlignment) {
+            Color.clear
+                .contentShape(Rectangle())
+
+            SongSelectionCheckmark(isSelected: isSelected)
+                .background(Circle().fill(.background).padding(2))
+                .padding(style == .leading ? 8 : 10)
+                .opacity(isActive ? 1 : 0)
+                .accessibilityHidden(true)
         }
+        // iOS list rows already route their Button action through the selection
+        // model. Leaving a full-row transparent gesture above them lets a
+        // toolbar Menu dismissal click through and toggle the row underneath
+        // ("select all" became N - 1 and "clear" left one item selected).
+        // Grid/table callers without a default action still use this overlay.
+        .allowsHitTesting(isActive && defaultAction == nil)
+        .onTapGesture {
+            guard defaultAction == nil else { return }
+            handleTap()
+        }
+        .accessibilityHidden(true)
     }
 
     private func handleTap() {
@@ -90,13 +137,16 @@ extension View {
         songID: String,
         selection: SongSelectionModel,
         style: SongSelectionStyle = .leading,
-        orderedIDs: @escaping () -> [String]
+        orderedIDs: @escaping () -> [String],
+        defaultAction: (() -> Void)? = nil
     ) -> some View {
         modifier(SongSelectableModifier(
             songID: songID,
             selection: selection,
+            membership: selection.membership(for: songID),
             style: style,
-            orderedIDs: orderedIDs
+            orderedIDs: orderedIDs,
+            defaultAction: defaultAction
         ))
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import PrimuseKit
+import os
 #if os(macOS)
 import AppKit
 #endif
@@ -38,35 +39,64 @@ private final class SongListRowModel {
 @MainActor
 @Observable
 private final class SongListCache {
+    private struct ProjectionKey: Equatable {
+        let snapshotIdentity: ObjectIdentifier
+        let sourceID: String?
+        let query: String
+        let replacementToken: UUID
+    }
+
+    private struct ProjectionEntry {
+        let key: ProjectionKey
+        let value: SongListProjection
+    }
+
     /// The worker builds this immutable reference off the main actor. Publishing
     /// it is O(1), instead of rebuilding dictionaries and aggregates while the
     /// navigation animation or a scroll gesture is running.
-    private(set) var snapshot: SongListSnapshot?
-    /// Replacing a 10K-item order through List's normal diff path makes it
-    /// calculate thousands of moves on the main thread. A new identity tells
-    /// List to rebuild only for an explicit sort. Automatic collection refreshes
-    /// retain identity and are published after active scrolling becomes idle.
-    private(set) var presentationRevision: Int = 0
+    @ObservationIgnored private var snapshot: SongListSnapshot?
 
     @ObservationIgnored private var rowModelsByID: [String: SongListRowModel] = [:]
+    @ObservationIgnored private var projectionEntry: ProjectionEntry?
+
+    private(set) var hasSnapshot = false
+    private(set) var positionCount = 0
+    private(set) var rowOrderRevision = 0
+    private(set) var songCount = 0
+    private(set) var playableCount = 0
+    private(set) var totalDuration: TimeInterval = 0
 
     var rows: [SongListRowIdentity] { snapshot?.rows ?? [] }
     var orderedSongIDs: [String] { snapshot?.orderedSongIDs ?? [] }
-    var isEmpty: Bool { snapshot == nil }
-    var songCount: Int { snapshot?.rows.count ?? 0 }
-    var playableCount: Int { snapshot?.playableCount ?? 0 }
-    var totalDuration: TimeInterval { snapshot?.totalDuration ?? 0 }
+    var isEmpty: Bool { !hasSnapshot }
 
     func songCount(forSourceID sourceID: String) -> Int {
         snapshot?.sourceCounts[sourceID, default: 0] ?? 0
     }
 
-    func publish(_ snapshot: SongListSnapshot, resetPresentation: Bool) {
-        rowModelsByID = rowModelsByID.filter { snapshot.songIDs.contains($0.key) }
-        self.snapshot = snapshot
-        if resetPresentation {
-            presentationRevision &+= 1
+    func publish(_ snapshot: SongListSnapshot, pruneRowModels: Bool) {
+        if pruneRowModels {
+            // This dictionary contains only rows SwiftUI has instantiated, not
+            // the complete library. Explicit sorts keep it intact so visible
+            // row identity and scroll state survive the order change.
+            rowModelsByID = rowModelsByID.filter { snapshot.songIDs.contains($0.key) }
         }
+        self.snapshot = snapshot
+        projectionEntry = nil
+        if !hasSnapshot {
+            hasSnapshot = true
+        }
+        if positionCount != snapshot.rows.count {
+            positionCount = snapshot.rows.count
+            songCount = snapshot.rows.count
+        }
+        if playableCount != snapshot.playableCount {
+            playableCount = snapshot.playableCount
+        }
+        if totalDuration != snapshot.totalDuration {
+            totalDuration = snapshot.totalDuration
+        }
+        rowOrderRevision &+= 1
     }
 
     func patch(_ replacements: [String: Song]) {
@@ -80,6 +110,11 @@ private final class SongListCache {
         snapshot?.songIDs.contains(songID) == true
     }
 
+    func row(at position: Int) -> SongListRowIdentity? {
+        guard let snapshot, snapshot.rows.indices.contains(position) else { return nil }
+        return snapshot.rows[position]
+    }
+
     func rowModel(id: String, song: @autoclosure () -> Song?) -> SongListRowModel? {
         if let model = rowModelsByID[id] {
             return model
@@ -90,6 +125,66 @@ private final class SongListCache {
         return model
     }
 
+    func projection(
+        sourceID: String?,
+        query: String,
+        replacementToken: UUID,
+        resolve: (String) -> Song?
+    ) -> SongListProjection {
+        _ = rowOrderRevision
+        guard let snapshot else { return .empty }
+        guard sourceID != nil || !query.isEmpty else {
+            return SongListProjection(rows: snapshot.rows, orderedSongIDs: snapshot.orderedSongIDs)
+        }
+
+        let key = ProjectionKey(
+            snapshotIdentity: ObjectIdentifier(snapshot),
+            sourceID: sourceID,
+            query: query,
+            replacementToken: replacementToken
+        )
+        if projectionEntry?.key == key, let cached = projectionEntry?.value {
+            return cached
+        }
+
+        let interval = SongListPerformanceSignpost.signposter.beginInterval(
+            "FilteredProjection",
+            "count: \(snapshot.rows.count, privacy: .public), hasSource: \(sourceID != nil, privacy: .public), queryLength: \(query.count, privacy: .public)"
+        )
+        var rows: [SongListRowIdentity] = []
+        var ids: [String] = []
+        rows.reserveCapacity(snapshot.rows.count)
+        ids.reserveCapacity(snapshot.rows.count)
+        for row in snapshot.rows {
+            guard let song = resolve(row.id) else { continue }
+            if let sourceID, song.sourceID != sourceID { continue }
+            if !query.isEmpty,
+               !song.title.localizedCaseInsensitiveContains(query),
+               !(song.artistName?.localizedCaseInsensitiveContains(query) ?? false),
+               !(song.albumTitle?.localizedCaseInsensitiveContains(query) ?? false) {
+                continue
+            }
+            let id = row.id
+            rows.append(SongListRowIdentity(id: id, offset: rows.count))
+            ids.append(id)
+        }
+        let value = SongListProjection(rows: rows, orderedSongIDs: ids)
+        projectionEntry = ProjectionEntry(key: key, value: value)
+        SongListPerformanceSignpost.signposter.endInterval(
+            "FilteredProjection",
+            interval,
+            "resultCount: \(rows.count, privacy: .public)"
+        )
+        return value
+    }
+
+}
+
+private struct SongListProjection {
+    let rows: [SongListRowIdentity]
+    let orderedSongIDs: [String]
+
+    static let empty = SongListProjection(rows: [], orderedSongIDs: [])
 }
 
 struct SongListView: View {
@@ -108,9 +203,14 @@ struct SongListView: View {
     @State private var searchText: String = ""
     @State private var sortGeneration: Int = 0
     @State private var sortTask: Task<Void, Never>?
+    @State private var sortRequestActive = false
+    @State private var activeSortIsExplicit = false
     @State private var isListInteracting = false
     @State private var pendingSnapshot: SongListSnapshot?
-    @State private var pendingSnapshotResetsPresentation = false
+    @State private var pendingSnapshotPrunesRows = false
+    @State private var pendingSnapshotIsExplicitSort = false
+    @State private var pendingSnapshotGeneration = 0
+    @State private var pendingSnapshotOrder = ""
     @State private var showNoScraperSourceAlert = false
     @State private var selection = SongSelectionModel()
     #if os(macOS)
@@ -262,35 +362,38 @@ struct SongListView: View {
                 // tab is selected. Reuse its existing order instead of
                 // sorting 10K songs again on every return.
                 if listCache.isEmpty {
-                    scheduleSortedRecompute(resetPresentation: false)
+                    scheduleSortedRecompute(pruneRowModels: false)
                 }
             }
             .onChange(of: sortOrder) { _, _ in
-                // Let the system Menu finish its dismissal animation before
-                // starting CPU-heavy localized sorting or rebuilding the List.
                 scheduleSortedRecompute(
-                    delay: .milliseconds(350),
-                    resetPresentation: true
+                    pruneRowModels: false,
+                    isExplicitSort: true
                 )
             }
             .onChange(of: library.visibleSongCollectionRevision) { _, _ in
                 scheduleSortedRecompute(
                     delay: .milliseconds(180),
-                    resetPresentation: false
+                    pruneRowModels: true
                 )
-                pruneSelection()
             }
             .onChange(of: searchText) { _, _ in
                 pruneSelection()
             }
             .onChange(of: library.songReplacementToken) { _, _ in
-                if listCache.isEmpty {
+                let shouldRetryPendingSort = sortRequestActive
+                applyLibrarySongReplacements()
+                if listCache.isEmpty || shouldRetryPendingSort {
                     scheduleSortedRecompute(
-                        delay: .milliseconds(180),
-                        resetPresentation: false
+                        delay: .milliseconds(80),
+                        pruneRowModels: false,
+                        isExplicitSort: activeSortIsExplicit
                     )
-                } else {
-                    applyLibrarySongReplacements()
+                }
+            }
+            .onChange(of: selection.isActive) { _, isActive in
+                if isActive {
+                    cancelExplicitSortForSelection()
                 }
             }
             #if os(macOS)
@@ -350,29 +453,17 @@ struct SongListView: View {
     }
 
     private var iosSongList: some View {
-        List {
-            ForEach(filteredRows) { row in
-                if let model = listCache.rowModel(
-                    id: row.id,
-                    song: library.unobservedVisibleSong(id: row.id)
-                ) {
-                    IOSSongListRow(model: model, selection: selection, onPlay: playSong)
-                        .songSelectable(
-                            songID: row.id,
-                            selection: selection,
-                            orderedIDs: { filteredSongIDs }
-                        )
-                }
-            }
-        }
-        .listStyle(.plain)
-        .id(listCache.presentationRevision)
+        IOSSongListContainer(
+            cache: listCache,
+            selection: selection,
+            onPlay: playSong
+        )
+        .equatable()
         .onScrollPhaseChange { _, newPhase in
             updateListInteraction(for: newPhase)
         }
         .toolbar {
-            sortToolbarItem
-            selectionToolbarItem
+            iosToolbar
         }
     }
 
@@ -537,6 +628,7 @@ struct SongListView: View {
             .menuStyle(.borderlessButton)
             // 自己画了 chevron.down, 隐藏系统 Menu 默认的小箭头, 否则两个箭头叠一起。
             .menuIndicator(.hidden)
+            .disabled(selection.isActive)
             .fixedSize()
 
             viewModeSegment
@@ -1333,29 +1425,44 @@ struct SongListView: View {
     }
     #endif
 
-    private var sortToolbarItem: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                Picker("sort_by", selection: $sortOrder) {
-                    ForEach(SongSortOrder.allCases, id: \.self) { order in
-                        Text(order.label).tag(order)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
+    @ToolbarContentBuilder
+    private var iosToolbar: some ToolbarContent {
+        if selection.isActive {
+            ToolbarItem(placement: .principal) {
+                SongSelectionToolbarTitle(selection: selection)
             }
-        }
-    }
-
-    private var selectionToolbarItem: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button(selection.isActive ? "done" : "batch_select") {
-                if selection.isActive {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SongSelectionOptionsMenu(
+                    selection: selection,
+                    orderedIDs: { filteredSongIDs }
+                )
+                Button("done") {
                     selection.deactivate()
-                } else {
-                    selection.activate()
                 }
+            }
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Section {
+                        Picker("sort_by", selection: $sortOrder) {
+                            ForEach(SongSortOrder.allCases, id: \.self) { order in
+                                Text(order.label).tag(order)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+
+                    Section {
+                        Button {
+                            selection.activate()
+                        } label: {
+                            Label("batch_select", systemImage: "checkmark.circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel(Text("a11y_more_actions"))
             }
         }
     }
@@ -1367,46 +1474,29 @@ struct SongListView: View {
         selection.prune(to: Set(filteredSongIDs))
     }
 
-    /// Normal browsing returns the worker-built array by reference. Only an
-    /// active source/search filter allocates and reindexes a derived array.
-    private var filteredRows: [SongListRowIdentity] {
-        var base = listCache.rows
-        var didFilter = false
+    /// Normal browsing returns worker-built arrays by reference. A source/search
+    /// projection is materialized once per snapshot/filter key and shared by
+    /// every body consumer instead of repeating filter/reindex/map work.
+    private var filteredProjection: SongListProjection {
         #if os(macOS)
-        if let selectedSourceID {
-            base = base.filter {
-                library.unobservedVisibleSong(id: $0.id)?.sourceID == selectedSourceID
-            }
-            didFilter = true
-        }
+        let sourceID = selectedSourceID
+        #else
+        let sourceID: String? = nil
         #endif
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !q.isEmpty {
-            base = base.filter { row in
-                guard let song = library.unobservedVisibleSong(id: row.id) else { return false }
-                return song.title.localizedCaseInsensitiveContains(q)
-                    || (song.artistName?.localizedCaseInsensitiveContains(q) ?? false)
-                    || (song.albumTitle?.localizedCaseInsensitiveContains(q) ?? false)
-            }
-            didFilter = true
-        }
-        guard didFilter else { return base }
-        return base.enumerated().map { offset, row in
-            SongListRowIdentity(id: row.id, offset: offset)
-        }
+        return listCache.projection(
+            sourceID: sourceID,
+            query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+            replacementToken: library.songReplacementToken,
+            resolve: { library.unobservedVisibleSong(id: $0) }
+        )
     }
 
-    /// Action menus use the prebuilt ID array on the common unfiltered path,
-    /// avoiding a 10K-row map during each macOS view update.
+    private var filteredRows: [SongListRowIdentity] {
+        filteredProjection.rows
+    }
+
     private var filteredSongIDs: [String] {
-        #if os(macOS)
-        let hasSourceFilter = selectedSourceID != nil
-        #else
-        let hasSourceFilter = false
-        #endif
-        let hasSearchFilter = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard hasSourceFilter || hasSearchFilter else { return listCache.orderedSongIDs }
-        return filteredRows.map(\.id)
+        filteredProjection.orderedSongIDs
     }
 
     /// Materialize Song values only for explicit actions (queue, export,
@@ -1451,7 +1541,8 @@ struct SongListView: View {
     /// The main actor only swaps the completed immutable snapshot reference.
     private func scheduleSortedRecompute(
         delay: Duration? = nil,
-        resetPresentation: Bool
+        pruneRowModels: Bool,
+        isExplicitSort: Bool = false
     ) {
         sortGeneration &+= 1
         let generation = sortGeneration
@@ -1463,9 +1554,27 @@ struct SongListView: View {
         )
         let scopeKey = scope.snapshotCacheKey
         pendingSnapshot = nil
+        pendingSnapshotPrunesRows = false
+        pendingSnapshotIsExplicitSort = false
+        activeSortIsExplicit = isExplicitSort
+        sortRequestActive = true
+        SongListPerformanceSignpost.sortIntent(
+            generation: generation,
+            count: songsSnapshot.count,
+            order: order.rawValue
+        )
 
         sortTask?.cancel()
         sortTask = Task { @MainActor in
+            defer {
+                if sortGeneration == generation {
+                    sortRequestActive = false
+                    activeSortIsExplicit = false
+                }
+            }
+            // Give a system Menu one main-run-loop turn to dismiss. Cache hits
+            // are still immediate; there is no fixed 350 ms latency floor.
+            await Task.yield()
             if let delay {
                 do {
                     try await Task.sleep(for: delay)
@@ -1474,34 +1583,49 @@ struct SongListView: View {
                 }
             }
             guard !Task.isCancelled else { return }
-            let prepared = await SongListSnapshotStore.shared.snapshot(
+            guard let prepared = await SongListSnapshotStore.shared.snapshot(
                 scopeKey: scopeKey,
                 version: snapshotVersion,
                 order: order.libraryOrder,
-                songs: songsSnapshot
-            )
+                songs: songsSnapshot,
+                cancelSuperseded: true
+            ) else { return }
             guard !Task.isCancelled,
                   sortGeneration == generation,
                   sortOrder == order,
                   library.visibleSongCollectionRevision == snapshotVersion.collectionRevision,
                   library.songReplacementToken == snapshotVersion.replacementToken
             else { return }
-            publishPreparedSnapshot(prepared, resetPresentation: resetPresentation)
+            publishPreparedSnapshot(
+                prepared,
+                pruneRowModels: pruneRowModels,
+                isExplicitSort: isExplicitSort,
+                generation: generation,
+                order: order.rawValue
+            )
         }
     }
 
     private func publishPreparedSnapshot(
         _ snapshot: SongListSnapshot,
-        resetPresentation: Bool
+        pruneRowModels: Bool,
+        isExplicitSort: Bool,
+        generation: Int,
+        order: String
     ) {
         if isListInteracting, !listCache.isEmpty {
             pendingSnapshot = snapshot
-            pendingSnapshotResetsPresentation = resetPresentation
+            pendingSnapshotPrunesRows = pruneRowModels
+            pendingSnapshotIsExplicitSort = isExplicitSort
+            pendingSnapshotGeneration = generation
+            pendingSnapshotOrder = order
             return
         }
         publishSnapshotWithoutAnimation(
             snapshot,
-            resetPresentation: resetPresentation
+            pruneRowModels: pruneRowModels,
+            generation: generation,
+            order: order
         )
     }
 
@@ -1512,12 +1636,19 @@ struct SongListView: View {
         case .idle:
             isListInteracting = false
             guard let pendingSnapshot else { return }
-            let resetPresentation = pendingSnapshotResetsPresentation
+            let pruneRowModels = pendingSnapshotPrunesRows
+            let generation = pendingSnapshotGeneration
+            let order = pendingSnapshotOrder
             self.pendingSnapshot = nil
-            pendingSnapshotResetsPresentation = false
+            pendingSnapshotPrunesRows = false
+            pendingSnapshotIsExplicitSort = false
+            pendingSnapshotGeneration = 0
+            pendingSnapshotOrder = ""
             publishSnapshotWithoutAnimation(
                 pendingSnapshot,
-                resetPresentation: resetPresentation
+                pruneRowModels: pruneRowModels,
+                generation: generation,
+                order: order
             )
         case .animating:
             break
@@ -1526,17 +1657,42 @@ struct SongListView: View {
 
     private func publishSnapshotWithoutAnimation(
         _ snapshot: SongListSnapshot,
-        resetPresentation: Bool
+        pruneRowModels: Bool,
+        generation: Int,
+        order: String
     ) {
-        guard resetPresentation else {
-            listCache.publish(snapshot, resetPresentation: false)
-            return
-        }
-
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            listCache.publish(snapshot, resetPresentation: true)
+            listCache.publish(snapshot, pruneRowModels: pruneRowModels)
+        }
+        if selection.isActive, !selection.isEmpty {
+            selection.prune(to: snapshot.songIDs)
+        }
+        SongListPerformanceSignpost.sortPublished(
+            generation: generation,
+            count: snapshot.rows.count,
+            order: order
+        )
+    }
+
+    private func cancelExplicitSortForSelection() {
+        guard activeSortIsExplicit || pendingSnapshotIsExplicitSort else { return }
+        sortGeneration &+= 1
+        sortTask?.cancel()
+        sortTask = nil
+        sortRequestActive = false
+        activeSortIsExplicit = false
+        if pendingSnapshotIsExplicitSort {
+            pendingSnapshot = nil
+            pendingSnapshotPrunesRows = false
+            pendingSnapshotIsExplicitSort = false
+            pendingSnapshotGeneration = 0
+            pendingSnapshotOrder = ""
+        }
+        let scopeKey = scope.snapshotCacheKey
+        Task {
+            await SongListSnapshotStore.shared.cancelPending(scopeKey: scopeKey)
         }
     }
 
@@ -1550,6 +1706,106 @@ struct SongListView: View {
         player.setQueue(queue, startAt: 0)
         SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(song: first) }
+    }
+}
+
+/// Sorting changes the song attached to a stable position, not the List's
+/// structural children. Equatable isolates unrelated parent state (including
+/// the Picker binding) from the 20,000-position ForEach.
+private struct IOSSongListContainer: View, @MainActor Equatable {
+    let cache: SongListCache
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.cache === rhs.cache && lhs.selection === rhs.selection
+    }
+
+    var body: some View {
+        List {
+            ForEach(0..<cache.positionCount, id: \.self) { position in
+                IOSSongListPositionRow(
+                    position: position,
+                    cache: cache,
+                    selection: selection,
+                    onPlay: onPlay
+                )
+            }
+        }
+        .listStyle(.plain)
+    }
+}
+
+/// Only instantiated List rows observe the order revision. Publishing a new
+/// immutable snapshot is constant-time on the main actor; visible/prefetched
+/// slots then resolve their new song without diffing every song ID.
+private struct IOSSongListPositionRow: View {
+    @Environment(MusicLibrary.self) private var library
+
+    let position: Int
+    let cache: SongListCache
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+
+    @ViewBuilder
+    var body: some View {
+        let _ = cache.rowOrderRevision
+        if let row = cache.row(at: position),
+           let model = cache.rowModel(
+               id: row.id,
+               song: library.unobservedVisibleSong(id: row.id)
+           ) {
+            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                .songSelectable(
+                    songID: row.id,
+                    selection: selection,
+                    orderedIDs: { cache.orderedSongIDs },
+                    defaultAction: { onPlay(model.song) }
+                )
+                .id(row.id)
+        }
+    }
+}
+
+/// Separate observation boundaries keep a count change from re-evaluating the
+/// parent `SongListView` and its complete `ForEach` description.
+private struct SongSelectionToolbarTitle: View {
+    let selection: SongSelectionModel
+
+    var body: some View {
+        Text(verbatim: String(
+            format: String(localized: "batch_selected_count_format"),
+            selection.count
+        ))
+        .font(.headline)
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+}
+
+private struct SongSelectionOptionsMenu: View {
+    let selection: SongSelectionModel
+    let orderedIDs: () -> [String]
+
+    var body: some View {
+        Menu {
+            Button {
+                selection.selectAll(orderedIDs())
+            } label: {
+                Label("batch_select_all", systemImage: "checkmark.circle.fill")
+            }
+
+            Button {
+                selection.clear()
+            } label: {
+                Label("batch_deselect_all", systemImage: "circle.dashed")
+            }
+            .disabled(selection.isEmpty)
+        } label: {
+            Image(systemName: "checklist")
+        }
+        .accessibilityLabel(Text("a11y_more_actions"))
     }
 }
 
@@ -1568,7 +1824,11 @@ private struct IOSSongListRow: View {
     var body: some View {
         let song = model.song
         Button {
-            onPlay(song)
+            if selection.isActive {
+                selection.toggle(song.id)
+            } else {
+                onPlay(song)
+            }
         } label: {
             SongRowView(
                 song: song,

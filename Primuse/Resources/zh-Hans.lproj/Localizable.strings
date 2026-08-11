@@ -2734,7 +2734,7 @@
 "batch_select" = "选择";
 "batch_select_all" = "全选";
 "batch_deselect_all" = "取消选择";
-"batch_selected_count_format" = "已选 %d 首";
+"batch_selected_count_format" = "已选择 %d 首";
 "batch_remove_from_library" = "从资料库移除";
 "batch_remove_from_library_message_format" = "将从资料库移除 %d 首歌曲。源文件不会被删除，但重新扫描时它们不会再被加回。";
 "batch_delete_source_files" = "删除源文件";

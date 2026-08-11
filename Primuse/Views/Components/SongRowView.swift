@@ -26,7 +26,7 @@ struct SongRowView: View {
     var sourceIconName: String? = nil
     var canDeleteSourceFile = false
 
-    /// 非 nil 时长按菜单里多一项「选择」，用来从这一行直接进多选态。
+    /// 非 nil 时由外层列表接管长按，直接进入多选并选中这一行。
     var selection: SongSelectionModel? = nil
 
     /// Resolved by the parent so rows do not individually observe every
@@ -254,8 +254,9 @@ struct SongRowView: View {
             guard supportsOfflineAudioCache else { return }
             await sourceManager.ensureOfflineAudioSnapshot(for: song)
         }
-        // VoiceOver 把整行合并成一个可选元素,读出来 "歌名,艺术家",
-        // 操作菜单走 contextMenu (VoiceOver 长按手势仍可触发)。
+        // VoiceOver 把整行合并成一个可选元素,读出来 "歌名,艺术家"。
+        // 支持多选的 iOS 列表由 SongSelectable 提供命名选择动作；其余页面
+        // 仍可通过 contextMenu 使用单曲操作。
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(
             [song.title, song.artistName]
@@ -280,9 +281,7 @@ struct SongRowView: View {
         } message: {
             Text(detailsAlertMessage)
         }
-        .contextMenu {
-            // 长按直接进多选并选中这一行 —— 页面工具栏那个"选择"入口对
-            // "我就想批量处理眼前这几首"来说绕得太远。
+        .songRowContextMenu(isEnabled: usesContextMenu) {
             if let selection {
                 Section {
                     Button {
@@ -431,6 +430,18 @@ struct SongRowView: View {
             Text(sourceCheckMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+    }
+
+    private var usesContextMenu: Bool {
+        #if os(iOS)
+        // SwiftUI's context-menu recognizer wins the same long press that the
+        // selection modifier uses. Selection-enabled rows already expose every
+        // single-song action in their trailing ellipsis menu, so reserve the
+        // row long press for direct multi-selection.
+        selection == nil
+        #else
+        true
+        #endif
     }
 
     private func requestScrape(from entryPoint: SingleSongScrapeEntryPoint) {
@@ -974,6 +985,20 @@ extension View {
             }
         }
         #endif
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func songRowContextMenu<MenuItems: View>(
+        isEnabled: Bool,
+        @ViewBuilder menuItems: () -> MenuItems
+    ) -> some View {
+        if isEnabled {
+            contextMenu(menuItems: menuItems)
+        } else {
+            self
+        }
     }
 }
 

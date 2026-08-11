@@ -74,24 +74,28 @@ struct SongListSnapshotTests {
             song(id: "b", title: "Alpha", artistName: "Zulu"),
         ]
 
-        let title = await store.snapshot(
-            scopeKey: "library",
-            version: version,
-            order: .title,
-            songs: songs
-        )
-        let artist = await store.snapshot(
-            scopeKey: "library",
-            version: version,
-            order: .artist,
-            songs: songs
-        )
-        let titleAgain = await store.snapshot(
-            scopeKey: "library",
-            version: version,
-            order: .title,
-            songs: songs
-        )
+        guard let title = await store.snapshot(
+                  scopeKey: "library",
+                  version: version,
+                  order: .title,
+                  songs: songs
+              ),
+              let artist = await store.snapshot(
+                  scopeKey: "library",
+                  version: version,
+                  order: .artist,
+                  songs: songs
+              ),
+              let titleAgain = await store.snapshot(
+                  scopeKey: "library",
+                  version: version,
+                  order: .title,
+                  songs: songs
+              )
+        else {
+            Issue.record("Snapshot build was unexpectedly cancelled")
+            return
+        }
 
         #expect(title !== artist)
         #expect(title === titleAgain)
@@ -112,24 +116,30 @@ struct SongListSnapshotTests {
         )
         let songs = [song(id: "a", title: "Alpha")]
 
-        let first = await store.snapshot(
+        guard let first = await store.snapshot(
             scopeKey: "library",
             version: firstVersion,
             order: .title,
             songs: songs
-        )
+        ) else {
+            Issue.record("First snapshot build was unexpectedly cancelled")
+            return
+        }
         _ = await store.snapshot(
             scopeKey: "library",
             version: secondVersion,
             order: .title,
             songs: songs
         )
-        let rebuilt = await store.snapshot(
+        guard let rebuilt = await store.snapshot(
             scopeKey: "library",
             version: firstVersion,
             order: .title,
             songs: songs
-        )
+        ) else {
+            Issue.record("Rebuilt snapshot was unexpectedly cancelled")
+            return
+        }
 
         #expect(first !== rebuilt)
     }
@@ -145,13 +155,66 @@ struct SongListSnapshotTests {
             )
         }
 
+        let clock = ContinuousClock()
+        let started = clock.now
         let snapshot = SongListSnapshotBuilder.build(songs: songs, order: .title)
+        let elapsed = started.duration(to: clock.now)
 
         #expect(snapshot.rows.count == 20_000)
         #expect(snapshot.songIDs.count == 20_000)
         #expect(snapshot.rows.first?.id == "song-19999")
         #expect(snapshot.rows.last?.id == "song-0")
         #expect(snapshot.totalDuration == 3_600_000)
+        // A generous strategy guard catches accidental main-style quadratic
+        // work without pretending to be device frame-rate evidence.
+        #expect(elapsed < .seconds(5))
+    }
+
+    @Test("Builds a 7,300-song snapshot within the strategy budget")
+    func handlesFeedbackSizedLibrary() {
+        let songs = (0..<7_300).map { index in
+            song(
+                id: "feedback-song-\(index)",
+                title: String(format: "%05d", 7_300 - index),
+                sourceID: "source-\(index % 3)"
+            )
+        }
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        let snapshot = SongListSnapshotBuilder.build(songs: songs, order: .title)
+        let elapsed = started.duration(to: clock.now)
+
+        #expect(snapshot.rows.count == 7_300)
+        #expect(snapshot.rows.first?.id == "feedback-song-7299")
+        #expect(snapshot.rows.last?.id == "feedback-song-0")
+        #expect(elapsed < .seconds(3))
+    }
+
+    @Test("Build cancellation stops obsolete sort work cooperatively")
+    func cancelsObsoleteBuild() async {
+        let songs = (0..<20_000).map { index in
+            song(
+                id: "cancel-song-\(index)",
+                title: String(format: "%05d", 20_000 - index)
+            )
+        }
+        let task = Task.detached { () -> SongListSnapshot? in
+            // Enter the builder with an already-cancelled task so its first
+            // cooperative checkpoint is deterministic rather than timing based.
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return try? SongListSnapshotBuilder.buildCancellable(
+                songs: songs,
+                order: .artist
+            )
+        }
+
+        task.cancel()
+        let result = await task.value
+
+        #expect(result == nil)
     }
 
     private func song(

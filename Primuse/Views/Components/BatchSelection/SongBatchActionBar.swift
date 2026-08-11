@@ -72,12 +72,13 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if selection.isActive {
-                    actionBar
-                        .padding(.bottom, actionBarBottomClearance)
-                        .transition(.move(edge: .bottom))
-                }
+            .overlay(alignment: .bottom) {
+                actionBar
+                    .padding(.bottom, actionBarBottomClearance)
+                    .opacity(selection.isActive ? 1 : 0)
+                    .offset(y: selection.isActive ? 0 : 12)
+                    .allowsHitTesting(selection.isActive)
+                    .accessibilityHidden(!selection.isActive)
             }
             .animation(.snappy(duration: 0.22), value: selection.isActive)
             .sheet(isPresented: $showAddToPlaylist) {
@@ -130,7 +131,8 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
+            #if os(macOS)
             Button {
                 selection.deactivate()
             } label: {
@@ -157,6 +159,7 @@ private struct SongBatchActionsModifier: ViewModifier {
                 selection.selectAll(orderedIDs())
             }
             .font(.subheadline)
+            #endif
 
             Button {
                 showAddToPlaylist = true
@@ -164,8 +167,29 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Image(systemName: "text.badge.plus")
                     .font(.title3)
             }
+            .frame(maxWidth: .infinity, minHeight: 44)
             .disabled(selection.isEmpty)
             .accessibilityLabel(Text("add_to_playlist"))
+
+            Button {
+                player.appendToQueue(playableSelection())
+            } label: {
+                Image(systemName: "text.line.last.and.arrowtriangle.forward")
+                    .font(.title3)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .disabled(selection.isEmpty)
+            .accessibilityLabel(Text("add_to_queue"))
+
+            Button {
+                player.insertNextInQueue(playableSelection())
+            } label: {
+                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                    .font(.title3)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .disabled(selection.isEmpty)
+            .accessibilityLabel(Text("insert_next"))
 
             Menu {
                 moreActions
@@ -173,6 +197,7 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
             }
+            .frame(maxWidth: .infinity, minHeight: 44)
             #if os(macOS)
             // Mac 上系统 Menu 默认自带箭头和一大片按钮底，跟这条自绘的条子
             // 不搭；iOS 的默认样式本来就是干净的图标按钮。
@@ -221,11 +246,13 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
             .disabled(scraperService.isScraping)
 
+            #if os(macOS)
             Button {
                 selection.clear()
             } label: {
                 Label("batch_deselect_all", systemImage: "circle.dashed")
             }
+            #endif
         }
 
         if let playlistID = context.playlistID, context.allowsRemoveFromPlaylist {
