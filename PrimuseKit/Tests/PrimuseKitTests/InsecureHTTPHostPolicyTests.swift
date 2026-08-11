@@ -161,6 +161,7 @@ final class InsecureHTTPHostPolicyTests: XCTestCase {
         request.setValue("session=secret", forHTTPHeaderField: "Cookie")
         request.setValue("bytes=0-262143", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        request.timeoutInterval = 30
 
         let response = try XCTUnwrap(HTTPURLResponse(
             url: request.url!,
@@ -179,6 +180,33 @@ final class InsecureHTTPHostPolicyTests: XCTestCase {
         XCTAssertEqual(redirected.value(forHTTPHeaderField: "Accept-Encoding"), "identity")
         XCTAssertNil(redirected.value(forHTTPHeaderField: "Authorization"))
         XCTAssertNil(redirected.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertEqual(
+            redirected.timeoutInterval,
+            HTTPMediaRedirectRetryPolicy.requestTimeout
+        )
+    }
+
+    func testMediaRedirectUpgradesPublicHTTPCDNFromHTTPSOrigin() throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "https://dav.example.com/song.mp3")))
+        request.httpMethod = "GET"
+        request.setValue("Basic secret", forHTTPHeaderField: "Authorization")
+        request.setValue("bytes=0-4095", forHTTPHeaderField: "Range")
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: request.url!,
+            statusCode: 302,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "http://cdn.example.net/signed/song.mp3?token=opaque"]
+        ))
+
+        let redirected = try XCTUnwrap(HTTPMediaRedirectRequestPolicy.redirectedRequest(
+            from: request,
+            response: response
+        ))
+
+        XCTAssertEqual(redirected.url?.scheme, "https")
+        XCTAssertEqual(redirected.url?.host, "cdn.example.net")
+        XCTAssertEqual(redirected.value(forHTTPHeaderField: "Range"), "bytes=0-4095")
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "Authorization"))
     }
 
     func testMediaRedirectRejectsWritesAndHTTPSDowngrades() throws {
@@ -198,9 +226,20 @@ final class InsecureHTTPHostPolicyTests: XCTestCase {
             url: get.url!,
             statusCode: 302,
             httpVersion: "HTTP/1.1",
-            headerFields: ["Location": "http://cdn.example.net/song.mp3"]
+            headerFields: ["Location": "http://192.168.0.2/song.mp3"]
         ))
         XCTAssertNil(HTTPMediaRedirectRequestPolicy.redirectedRequest(from: get, response: downgrade))
+    }
+
+    func testMediaRedirectRetryPolicyOnlyRetriesTransientFailures() {
+        XCTAssertTrue(HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: 403))
+        XCTAssertTrue(HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: 429))
+        XCTAssertTrue(HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: 503))
+        XCTAssertFalse(HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: 206))
+        XCTAssertTrue(HTTPMediaRedirectRetryPolicy.isRetryable(error: URLError(.timedOut)))
+        XCTAssertTrue(HTTPMediaRedirectRetryPolicy.isRetryable(error: URLError(.networkConnectionLost)))
+        XCTAssertFalse(HTTPMediaRedirectRetryPolicy.isRetryable(error: URLError(.cancelled)))
+        XCTAssertFalse(HTTPMediaRedirectRetryPolicy.isRetryable(error: URLError(.secureConnectionFailed)))
     }
 
     func testRequiresTrustOnlyForPublicCleartextHTTP() throws {

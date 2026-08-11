@@ -20,26 +20,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
     /// 避免每次 chunk fetch 都重新 SSL handshake。
     /// 8 路并发: 配合 CloudPlaybackSource 小文件全 prefetch 时多 chunk 并发。
-    private lazy var rangeSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 600
-        config.httpMaximumConnectionsPerHost = 8
-        return URLSession(
-            configuration: config,
-            delegate: SmartSSLDelegate(
-                httpUsername: username,
-                httpPassword: password,
-                httpCredentialEndpoint: NetworkEndpointIdentity(
-                    scheme: useSsl ? "https" : "http",
-                    host: host,
-                    port: port
-                ),
-                redirectPolicy: .media
-            ),
-            delegateQueue: nil
-        )
-    }()
+    private var rangeSession: URLSession!
+    private var redirectedMediaSession: URLSession!
 
     init(
         sourceID: String,
@@ -65,6 +47,54 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             .appendingPathComponent(sourceID)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
+        self.rangeSession = Self.makeRangeSession(
+            host: host,
+            port: port,
+            useSsl: useSsl,
+            username: username,
+            password: password
+        )
+        self.redirectedMediaSession = Self.makeRedirectedMediaSession()
+    }
+
+    private static func makeRangeSession(
+        host: String,
+        port: Int?,
+        useSsl: Bool,
+        username: String,
+        password: String
+    ) -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 8
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(
+                httpUsername: username,
+                httpPassword: password,
+                httpCredentialEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                ),
+                redirectPolicy: .sameEndpoint,
+                defersUntrustedServerTrustToCaller: true
+            ),
+            delegateQueue: nil
+        )
+    }
+
+    private static func makeRedirectedMediaSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 8
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .media),
+            delegateQueue: nil
+        )
     }
 
     func connect() async throws {
@@ -87,16 +117,11 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
     private func establishConnection() async throws {
 
         let baseURL = try serverURL()
-        if TrustedHTTPTransport.requiresPlainSocket(for: baseURL) {
-            usesTrustedURLSession = true
-            do {
-                _ = try await listFilesUsingTrustedTransport(at: "/")
-                try Task.checkCancellation()
-                return
-            } catch {
-                usesTrustedURLSession = false
-                throw error
-            }
+        let requiresPlainSocket = TrustedHTTPTransport.requiresPlainSocket(for: baseURL)
+        let usesAppManagedTransport = useSsl || requiresPlainSocket
+        if usesAppManagedTransport {
+            try await establishTrustedConnection()
+            return
         }
 
         // 匿名 WebDAV 必须完全不带凭据；传一个 user/password 都为空的
@@ -128,16 +153,30 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             // Primuse's endpoint-scoped TOFU policy. Retry this connector with
             // our shared trusted transport so the normal certificate prompt,
             // pinning, and rotation checks remain in force.
-            usesTrustedURLSession = true
-            do {
-                _ = try await listFilesUsingTrustedTransport(at: "/")
-                try Task.checkCancellation()
-            } catch {
-                usesTrustedURLSession = false
-                throw error
-            }
+            try await establishTrustedConnection()
         }
     }
+    private func establishTrustedConnection() async throws {
+        usesTrustedURLSession = true
+        do {
+            _ = try await listFilesUsingTrustedTransport(at: "/")
+            try Task.checkCancellation()
+        } catch {
+            usesTrustedURLSession = false
+            if useSsl, SSLTrustStore.sslErrorDomain(from: error) != nil {
+                rangeSession.invalidateAndCancel()
+                rangeSession = Self.makeRangeSession(
+                    host: host,
+                    port: port,
+                    useSsl: useSsl,
+                    username: username,
+                    password: password
+                )
+            }
+            throw error
+        }
+    }
+
 
     func disconnect() async {
         connectTask?.cancel()
@@ -152,6 +191,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         }
         guard let provider else { throw SourceError.connectionFailed("Not connected") }
 
+        let pathPolicy = WebDAVPathPolicy(basePath: try serverURL().path)
+        guard let currentSourcePath = RemotePathScopePolicy(rootPath: "/")
+            .resolvedPath(forStoredPath: path) else {
+            throw SourceError.connectionFailed("Invalid WebDAV directory path")
+        }
+
         let providerPath = providerRelativePath(path)
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -165,11 +210,15 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 }
 
                 let items = contents
-                    .filter { !$0.name.hasPrefix(".") }
-                    .map { file -> RemoteFileItem in
-                        RemoteFileItem(
+                    .compactMap { file -> RemoteFileItem? in
+                        guard !file.name.hasPrefix("."),
+                              let sourcePath = pathPolicy.sourcePath(forServerPath: file.path),
+                              sourcePath != currentSourcePath else {
+                            return nil
+                        }
+                        return RemoteFileItem(
                             name: file.name,
-                            path: file.path,
+                            path: sourcePath,
                             isDirectory: file.isDirectory,
                             size: file.size,
                             modifiedDate: file.modifiedDate
@@ -214,9 +263,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                     url: fileURL(for: path),
                     method: "GET"
                 )
-                let (downloadedURL, response) = try await TrustedHTTPTransport.download(
-                    for: request,
-                    session: rangeSession
+                let (downloadedURL, response) = try await downloadFollowingMediaRedirects(
+                    for: request
                 )
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode) else {
@@ -321,9 +369,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
         let maxBytes = Int(clamping: max(length, 0))
         let responseLimit = maxBytes > Int.max - 64 * 1024 ? Int.max : maxBytes + 64 * 1024
-        let (data, response) = try await TrustedHTTPTransport.data(
+        let (data, response) = try await dataFollowingMediaRedirects(
             for: request,
-            session: rangeSession,
             maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
         )
         return try validateStrictRangeResponse(
@@ -375,7 +422,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
             }
         }
-        let (bytes, response) = try await rangeSession.bytes(for: request)
+        let (bytes, response) = try await bytesFollowingMediaRedirects(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid WebDAV metadata response")
         }
@@ -413,6 +460,121 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         default:
             throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
         }
+    }
+
+    private func dataFollowingMediaRedirects(
+        for request: URLRequest,
+        maxBytes: Int
+    ) async throws -> (Data, URLResponse) {
+        for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
+            let initial = try await TrustedHTTPTransport.data(
+                for: request,
+                session: rangeSession,
+                maxBytes: maxBytes
+            )
+            guard let redirected = redirectedMediaRequest(
+                from: request,
+                response: initial.1
+            ) else {
+                return initial
+            }
+            do {
+                let result = try await TrustedHTTPTransport.data(
+                    for: redirected,
+                    session: redirectedMediaSession,
+                    maxBytes: maxBytes
+                )
+                if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                   let http = result.1 as? HTTPURLResponse,
+                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
+                    continue
+                }
+                return result
+            } catch {
+                guard attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                      HTTPMediaRedirectRetryPolicy.isRetryable(error: error) else {
+                    throw error
+                }
+            }
+        }
+        throw URLError(.unknown)
+    }
+
+    private func downloadFollowingMediaRedirects(
+        for request: URLRequest
+    ) async throws -> (URL, URLResponse) {
+        for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
+            let initial = try await TrustedHTTPTransport.download(
+                for: request,
+                session: rangeSession
+            )
+            guard let redirected = redirectedMediaRequest(
+                from: request,
+                response: initial.1
+            ) else {
+                return initial
+            }
+            try? FileManager.default.removeItem(at: initial.0)
+            do {
+                let result = try await TrustedHTTPTransport.download(
+                    for: redirected,
+                    session: redirectedMediaSession
+                )
+                if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                   let http = result.1 as? HTTPURLResponse,
+                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
+                    try? FileManager.default.removeItem(at: result.0)
+                    continue
+                }
+                return result
+            } catch {
+                guard attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                      HTTPMediaRedirectRetryPolicy.isRetryable(error: error) else {
+                    throw error
+                }
+            }
+        }
+        throw URLError(.unknown)
+    }
+
+    private func bytesFollowingMediaRedirects(
+        for request: URLRequest
+    ) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
+            let initial = try await rangeSession.bytes(for: request)
+            guard let redirected = redirectedMediaRequest(
+                from: request,
+                response: initial.1
+            ) else {
+                return initial
+            }
+            do {
+                let result = try await redirectedMediaSession.bytes(for: redirected)
+                if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                   let http = result.1 as? HTTPURLResponse,
+                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
+                    continue
+                }
+                return result
+            } catch {
+                guard attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                      HTTPMediaRedirectRetryPolicy.isRetryable(error: error) else {
+                    throw error
+                }
+            }
+        }
+        throw URLError(.unknown)
+    }
+
+    private func redirectedMediaRequest(
+        from request: URLRequest,
+        response: URLResponse
+    ) -> URLRequest? {
+        guard let http = response as? HTTPURLResponse else { return nil }
+        return HTTPMediaRedirectRequestPolicy.redirectedRequest(
+            from: request,
+            response: http
+        )
     }
 
     private func makeRangeRequest(path: String, rangeHeader: String) throws -> URLRequest {
@@ -588,9 +750,14 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         }
 
         let entries = try WebDAVMultistatusParser.parse(data)
+        guard let currentSourcePath = RemotePathScopePolicy(rootPath: "/")
+            .resolvedPath(forStoredPath: path) else {
+            throw SourceError.connectionFailed("Invalid WebDAV directory path")
+        }
+
         let items = entries.compactMap { entry -> RemoteFileItem? in
             guard let sourcePath = sourcePath(forWebDAVHref: entry.href, baseURL: baseURL),
-                  sourcePath != "/" else {
+                  sourcePath != currentSourcePath else {
                 return nil
             }
             let fallbackName = (sourcePath as NSString).lastPathComponent
@@ -636,22 +803,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             return nil
         }
 
-        let rootPath = (baseURL.path.removingPercentEncoding ?? baseURL.path)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let targetPath = (absoluteURL.standardized.path.removingPercentEncoding
-            ?? absoluteURL.standardized.path)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let relative: String
-        if rootPath.isEmpty {
-            relative = targetPath
-        } else if targetPath == rootPath {
-            relative = ""
-        } else if targetPath.hasPrefix(rootPath + "/") {
-            relative = String(targetPath.dropFirst(rootPath.count + 1))
-        } else {
-            return nil
-        }
-        return relative.isEmpty ? "/" : "/" + relative
+        return WebDAVPathPolicy(basePath: baseURL.path)
+            .sourcePath(forServerPath: absoluteURL.standardized.path)
     }
 
     private static func webDAVDate(_ value: String?) -> Date? {

@@ -122,7 +122,6 @@ public enum HTTPMediaRedirectRequestPolicy {
               let location = response.value(forHTTPHeaderField: "Location"),
               let rawDestinationURL = URL(string: location, relativeTo: sourceURL)?.absoluteURL,
               let sourceEndpoint = NetworkEndpointIdentity(url: sourceURL),
-              let rawDestinationEndpoint = NetworkEndpointIdentity(url: rawDestinationURL),
               rawDestinationURL.user == nil,
               rawDestinationURL.password == nil else {
             return nil
@@ -130,9 +129,6 @@ public enum HTTPMediaRedirectRequestPolicy {
 
         let method = (original.httpMethod ?? "GET").uppercased()
         guard method == "GET" || method == "HEAD" else { return nil }
-        guard sourceEndpoint.scheme != "https" || rawDestinationEndpoint.scheme == "https" else {
-            return nil
-        }
 
         if HTTPRedirectSecurityPolicy.allows(from: sourceURL, to: rawDestinationURL) {
             return HTTPRedirectRequestPolicy.redirectedRequest(
@@ -142,6 +138,10 @@ public enum HTTPMediaRedirectRequestPolicy {
         }
 
         let destinationURL = upgradedPublicMediaURL(rawDestinationURL)
+        guard let destinationEndpoint = NetworkEndpointIdentity(url: destinationURL),
+              sourceEndpoint.scheme != "https" || destinationEndpoint.scheme == "https" else {
+            return nil
+        }
         var redirected = original
         redirected.url = destinationURL
         redirected.setValue(nil, forHTTPHeaderField: "Host")
@@ -149,6 +149,10 @@ public enum HTTPMediaRedirectRequestPolicy {
         redirected.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
         redirected.setValue(nil, forHTTPHeaderField: "Cookie")
         redirected.setValue(nil, forHTTPHeaderField: "Referer")
+        redirected.timeoutInterval = min(
+            original.timeoutInterval,
+            HTTPMediaRedirectRetryPolicy.requestTimeout
+        )
         return redirected
     }
 
@@ -163,5 +167,35 @@ public enum HTTPMediaRedirectRequestPolicy {
         components.scheme = "https"
         if components.port == 80 { components.port = nil }
         return components.url ?? url
+    }
+}
+
+/// Bounds a stalled object-storage/CDN hop and permits one fresh redirect.
+/// Reacquiring the redirect is important for short-lived signed URLs and for
+/// providers that may return a different CDN node on the next request.
+public enum HTTPMediaRedirectRetryPolicy {
+    public static let requestTimeout: TimeInterval = 6
+    public static let maximumAttempts = 2
+
+    public static func isRetryable(statusCode: Int) -> Bool {
+        [401, 403, 404, 408, 425, 429, 500, 502, 503, 504].contains(statusCode)
+    }
+
+    public static func isRetryable(error: Error) -> Bool {
+        if error is CancellationError { return false }
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch URLError.Code(rawValue: nsError.code) {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .resourceUnavailable:
+            return true
+        default:
+            return false
+        }
     }
 }

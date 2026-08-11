@@ -790,6 +790,67 @@ public enum NFSSelectionScopePolicy {
     }
 }
 
+/// Keeps WebDAV response paths in the source-relative namespace even when a
+/// reverse proxy exposes the upstream `/dav` root under a longer public path.
+/// Some servers return upstream hrefs in PROPFIND responses, while clients
+/// resolve operations against the configured public base URL.
+public struct WebDAVPathPolicy: Equatable, Sendable {
+    public let basePath: String
+
+    public init(basePath: String?) {
+        self.basePath = Self.normalizeAbsolutePath(basePath ?? "/")
+    }
+
+    /// Converts an absolute server href/path to a source-relative path. The
+    /// full configured root is preferred; its final component is also accepted
+    /// for reverse proxies that expose an upstream WebDAV root such as `/dav`
+    /// without rewriting XML response bodies.
+    public func sourcePath(forServerPath serverPath: String) -> String? {
+        let decodedPath = serverPath.removingPercentEncoding ?? serverPath
+        guard decodedPath.hasPrefix("/"),
+              !Self.containsParentReference(decodedPath) else {
+            return nil
+        }
+
+        let targetPath = Self.normalizeAbsolutePath(decodedPath)
+        guard basePath != "/" else { return targetPath }
+
+        var candidateRoots = [basePath]
+        if let leaf = basePath.split(separator: "/").last {
+            let upstreamRoot = "/\(leaf)"
+            if upstreamRoot != basePath {
+                candidateRoots.append(upstreamRoot)
+            }
+        }
+        for candidateRoot in candidateRoots {
+            if targetPath == candidateRoot {
+                return "/"
+            }
+            if targetPath.hasPrefix(candidateRoot + "/") {
+                return String(targetPath.dropFirst(candidateRoot.count))
+            }
+        }
+        return nil
+    }
+
+    private static func containsParentReference(_ path: String) -> Bool {
+        path.split(separator: "/", omittingEmptySubsequences: false)
+            .contains { $0 == ".." }
+    }
+
+    private static func normalizeAbsolutePath(_ path: String) -> String {
+        guard !path.isEmpty else { return "/" }
+        let absolutePath = path.hasPrefix("/") ? path : "/\(path)"
+        var normalized = (absolutePath as NSString).standardizingPath
+        if normalized.isEmpty || normalized == "." { return "/" }
+        if !normalized.hasPrefix("/") { normalized = "/\(normalized)" }
+        while normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
+    }
+}
+
 /// Keeps the app-facing FTP namespace relative to the configured source root.
 /// FilesProvider must receive a root base URL because it applies its own
 /// `ftpPath` helper more than once in several operations; putting `basePath` in

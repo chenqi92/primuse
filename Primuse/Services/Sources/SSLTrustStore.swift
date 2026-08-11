@@ -564,19 +564,22 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     private let httpPassword: String?
     private let httpCredentialEndpoint: NetworkEndpointIdentity?
     private let redirectPolicy: RedirectPolicy
+    private let defersUntrustedServerTrustToCaller: Bool
 
     init(
         fnMusicRedirects: Bool = false,
         httpUsername: String? = nil,
         httpPassword: String? = nil,
         httpCredentialEndpoint: NetworkEndpointIdentity? = nil,
-        redirectPolicy: RedirectPolicy = .system
+        redirectPolicy: RedirectPolicy = .system,
+        defersUntrustedServerTrustToCaller: Bool = false
     ) {
         self.fnMusicRedirects = fnMusicRedirects
         self.httpUsername = httpUsername
         self.httpPassword = httpPassword
         self.httpCredentialEndpoint = httpCredentialEndpoint
         self.redirectPolicy = redirectPolicy
+        self.defersUntrustedServerTrustToCaller = defersUntrustedServerTrustToCaller
     }
 
     func urlSession(
@@ -612,21 +615,33 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
                 let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: trustTarget)
                 if pinnedFingerprint == nil {
                     // 首次接触:记录指纹并放行 (TOFU)。
-                    await SSLTrustStore.shared.pinCertificateIfNeeded(domain: trustTarget, certificateInfo: info)
-                    return (.useCredential, URLCredential(trust: trust))
+                    guard let credential = explicitlyTrustedCredential(for: trust) else {
+                        return (.cancelAuthenticationChallenge, nil)
+                    }
+                    scheduleCertificatePin(domain: trustTarget, certificateInfo: info)
+                    return (.useCredential, credential)
                 }
                 if let current = currentFingerprint, current == pinnedFingerprint {
                     // 指纹一致,放行；旧 host-only 记录会在这里按实际端点迁移。
-                    await SSLTrustStore.shared.pinCertificateIfNeeded(domain: trustTarget, certificateInfo: info)
-                    return (.useCredential, URLCredential(trust: trust))
+                    guard let credential = explicitlyTrustedCredential(for: trust) else {
+                        return (.cancelAuthenticationChallenge, nil)
+                    }
+                    scheduleCertificatePin(domain: trustTarget, certificateInfo: info)
+                    return (.useCredential, credential)
                 }
                 // 指纹不一致 (证书轮换/被替换):重新征询用户确认,通过则更新指纹。
+                if defersUntrustedServerTrustToCaller {
+                    return (.performDefaultHandling, nil)
+                }
                 let approved = await SSLTrustStore.shared.requestTrustForChangedCertificate(
                     domain: trustTarget,
                     certificateInfo: info
                 )
                 if approved {
-                    return (.useCredential, URLCredential(trust: trust))
+                    guard let credential = explicitlyTrustedCredential(for: trust) else {
+                        return (.cancelAuthenticationChallenge, nil)
+                    }
+                    return (.useCredential, credential)
                 }
                 return (.cancelAuthenticationChallenge, nil)
             }
@@ -634,10 +649,16 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
             if SecTrustEvaluateWithError(trust, &trustError) {
                 return (.performDefaultHandling, nil)
             }
+            if defersUntrustedServerTrustToCaller {
+                return (.performDefaultHandling, nil)
+            }
             let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
             let approved = await SSLTrustStore.shared.requestTrust(domain: trustTarget, certificateInfo: info)
             if approved {
-                return (.useCredential, URLCredential(trust: trust))
+                guard let credential = explicitlyTrustedCredential(for: trust) else {
+                    return (.cancelAuthenticationChallenge, nil)
+                }
+                return (.useCredential, credential)
             }
             return (.cancelAuthenticationChallenge, nil)
         }
@@ -665,6 +686,39 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
             )
         }
         return (.performDefaultHandling, nil)
+    }
+
+    /// Convert an endpoint-scoped, fingerprint-checked user decision into a
+    /// trust object that Foundation can accept. Newer OS releases no longer
+    /// accept a credential whose SecTrust result is still invalid, even when
+    /// the URLSession delegate returns `.useCredential`.
+    private func explicitlyTrustedCredential(for trust: SecTrust) -> URLCredential? {
+        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              let leaf = chain.first,
+              SecTrustSetAnchorCertificates(trust, [leaf] as CFArray) == errSecSuccess,
+              SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess else {
+            return nil
+        }
+
+        // Pinning authorizes this leaf only as a private trust anchor. Hostname,
+        // validity period, key usage, and the remaining system policy checks
+        // must still pass; a user decision never installs broad exceptions.
+        guard SecTrustEvaluateWithError(trust, nil) else {
+            return nil
+        }
+        return URLCredential(trust: trust)
+    }
+
+    private func scheduleCertificatePin(
+        domain: String,
+        certificateInfo: SSLTrustStore.TrustedCertificateInfo?
+    ) {
+        Task { @MainActor in
+            SSLTrustStore.shared.pinCertificateIfNeeded(
+                domain: domain,
+                certificateInfo: certificateInfo
+            )
+        }
     }
 
     func urlSession(

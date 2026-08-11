@@ -167,7 +167,6 @@ struct ConnectorDirectoryBrowserView: View {
 
     private func promptSSLTrust(for error: Error) async -> Bool {
         guard let domain = SSLTrustStore.sslErrorDomain(from: error) else { return false }
-        if SSLTrustStore.shared.isTrusted(domain: domain) { return true }
         return await withCheckedContinuation { continuation in
             sslTrustDomain = domain; sslTrustContinuation = continuation
         }
