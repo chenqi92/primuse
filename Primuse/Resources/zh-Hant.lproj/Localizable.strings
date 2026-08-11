@@ -2619,3 +2619,10 @@
 "batch_delete_failed_format" = "%d 首刪除失敗";
 "batch_playlists_selected_count_format" = "已選 %d 個播放列表";
 "batch_playlists_delete_confirm_format" = "將刪除 %d 個播放列表。列表裡的歌曲不會被刪除。";
+"library_browse_folder" = "資料夾";
+"library_browse_flat" = "平鋪";
+"library_folder_uncategorized" = "未分類";
+"library_folder_other" = "其他";
+"library_folder_scan_root" = "掃描根目錄";
+"library_folder_expand" = "展開資料夾";
+"library_folder_collapse" = "折疊資料夾";

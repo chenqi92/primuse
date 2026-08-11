@@ -2746,3 +2746,10 @@
 "batch_delete_failed_format" = "%d 首删除失败";
 "batch_playlists_selected_count_format" = "已选 %d 个歌单";
 "batch_playlists_delete_confirm_format" = "将删除 %d 个歌单。歌单里的歌曲不会被删除。";
+"library_browse_folder" = "文件夹";
+"library_browse_flat" = "平铺";
+"library_folder_uncategorized" = "未分类";
+"library_folder_other" = "其他";
+"library_folder_scan_root" = "扫描根";
+"library_folder_expand" = "展开文件夹";
+"library_folder_collapse" = "折叠文件夹";

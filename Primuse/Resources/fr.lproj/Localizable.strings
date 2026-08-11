@@ -2642,3 +2642,10 @@
 "batch_delete_failed_format" = "%d échecs";
 "batch_playlists_selected_count_format" = "%d playlists sélectionnées";
 "batch_playlists_delete_confirm_format" = "%d playlists seront supprimées. Les titres qu'elles contiennent sont conservés.";
+"library_browse_folder" = "Dossiers";
+"library_browse_flat" = "Liste à plat";
+"library_folder_uncategorized" = "Non classé";
+"library_folder_other" = "Autres";
+"library_folder_scan_root" = "Racine analysée";
+"library_folder_expand" = "Développer le dossier";
+"library_folder_collapse" = "Réduire le dossier";

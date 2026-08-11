@@ -130,6 +130,12 @@ final class SongSelectionMembership {
 @MainActor
 @Observable
 final class SongSelectionModel {
+    enum GroupState: Equatable {
+        case none
+        case partial
+        case all
+    }
+
     private(set) var isActive = false
     private(set) var count = 0
 
@@ -212,6 +218,31 @@ final class SongSelectionModel {
     func selectAll(_ songIDs: [String]) {
         replaceSelection(with: Set(songIDs))
         anchorID = songIDs.last
+    }
+
+    /// Folder rows reuse the song selection model so every downstream batch
+    /// action keeps the existing queue and deletion boundaries. Selecting an
+    /// additional folder unions its descendants; selecting it again removes
+    /// only that folder's songs.
+    func toggleGroup(_ songIDs: [String]) {
+        let group = Set(songIDs)
+        guard !group.isEmpty else { return }
+        if group.isSubset(of: selectedIDsStorage) {
+            replaceSelection(with: selectedIDsStorage.subtracting(group))
+        } else {
+            replaceSelection(with: selectedIDsStorage.union(group))
+        }
+        anchorID = songIDs.last
+    }
+
+    func groupState(for songIDs: [String]) -> GroupState {
+        guard !songIDs.isEmpty else { return .none }
+        var selectedCount = 0
+        for songID in songIDs where selectedIDsStorage.contains(songID) {
+            selectedCount += 1
+        }
+        if selectedCount == 0 { return .none }
+        return selectedCount == songIDs.count ? .all : .partial
     }
 
     func clear() {

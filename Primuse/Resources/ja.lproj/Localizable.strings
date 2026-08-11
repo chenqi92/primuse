@@ -2643,3 +2643,10 @@
 "batch_delete_failed_format" = "%d 曲が失敗";
 "batch_playlists_selected_count_format" = "%d 個のプレイリストを選択中";
 "batch_playlists_delete_confirm_format" = "%d 個のプレイリストを削除します。中の曲は削除されません。";
+"library_browse_folder" = "フォルダ";
+"library_browse_flat" = "フラット";
+"library_folder_uncategorized" = "未分類";
+"library_folder_other" = "その他";
+"library_folder_scan_root" = "スキャンルート";
+"library_folder_expand" = "フォルダを展開";
+"library_folder_collapse" = "フォルダを折りたたむ";
