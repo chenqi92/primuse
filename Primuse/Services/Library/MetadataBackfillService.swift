@@ -29,10 +29,10 @@ final class MetadataBackfillService {
     /// headers. If a particular file's metadata isn't in this slice we may
     /// need to retry with a tail-Range fetch (M4A with trailing moov).
     private static let headBytes: Int64 = 256 * 1024
-    /// If an MP3's ID3 tag says the APIC frame extends beyond `headBytes`,
-    /// fetch a larger head once for artwork. Keeps the normal duration
-    /// backfill cheap while still recovering common 300-800KB covers.
-    private static let maxID3ArtworkHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
+    /// A declared ID3 boundary may place both artwork and the first MPEG frame
+    /// beyond `headBytes`. Expansion stays capped so one outlier cannot turn a
+    /// library backfill into full-file downloads.
+    private static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
     private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
 
     private static let fallbackTailBytes: Int64 = 256 * 1024
@@ -512,6 +512,38 @@ final class MetadataBackfillService {
                     + "(completed=\(completedCount) incomplete=\(incompleteCount) "
                     + "retry=\(retryCount) suspiciousTitles=\(suspiciousTitleIDs.count))"
             )
+        }
+
+        // Remote rows produced by the lossy-title path could be locked in both
+        // titleCheckedIDs and incompleteSongIDs. Retry suspicious titles once
+        // with the raw-ID3/filename policy, and retry incomplete remote MP3s
+        // with the expanded MPEG-frame probe and bounded duration fallback.
+        let cloudTitleAndDurationFixKey = "primuse.backfillState.v2026_08_cloudTitleAndDuration"
+        if !UserDefaults.standard.bool(forKey: cloudTitleAndDurationFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let retryIDs = Set(library.songs.lazy.filter { song in
+                guard sourceIDs.contains(song.sourceID),
+                      song.userMetadataEditedAt == nil else {
+                    return false
+                }
+                let suspiciousTitle = MediaMetadataTextRepair.isSuspicious(song.title)
+                    || TextEncodingRepair.requiresRawByteVerification(song.title)
+                let incompleteMP3 = song.fileFormat == .mp3
+                    && song.duration <= 0
+                    && self.incompleteSongIDs.contains(song.id)
+                return suspiciousTitle || incompleteMP3
+            }.map(\.id))
+            if !retryIDs.isEmpty {
+                failedSongIDs.subtract(retryIDs)
+                incompleteSongIDs.subtract(retryIDs)
+                sessionGivenUpIDs.subtract(retryIDs)
+                titleCheckedIDs.subtract(retryIDs)
+                for id in retryIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveTitleChecked()
+                plog("📥 Backfill: retrying \(retryIDs.count) remote rows for cloud title/duration repair")
+            }
+            UserDefaults.standard.set(true, forKey: cloudTitleAndDurationFixKey)
         }
 
         // A re-scan that found a path with new bytes wipes the failed
@@ -1508,17 +1540,20 @@ final class MetadataBackfillService {
             song: song,
             cacheKey: song.id
         )
-        if Self.needsEmbeddedArtworkBackfill(song),
-           metadata.coverArtFileName == nil,
-           let id3ByteCount = FileMetadataReader.id3TagByteCount(in: headData),
-           id3ByteCount > headData.count {
+        if song.fileFormat == .mp3 {
+            let id3ByteCount = FileMetadataReader.id3TagByteCount(in: headData)
+            let hasTruncatedID3 = (id3ByteCount ?? 0) > headData.count
+            let needsDurationExpansion = metadataLooksMissing(metadata)
+            let needsArtworkExpansion = Self.needsEmbeddedArtworkBackfill(song)
+                && metadata.coverArtFileName == nil
             let expandedByteCount = RemoteMetadataReadPolicy.expandedReadSize(
                 fileSize: song.fileSize,
                 currentByteCount: headData.count,
                 declaredID3ByteCount: id3ByteCount,
-                metadataInsufficient: false
-            ).map { min($0, Self.maxID3ArtworkHeadBytes) } ?? headData.count
-            if expandedByteCount > headData.count,
+                metadataInsufficient: needsDurationExpansion && !hasTruncatedID3
+            ).map { min($0, Self.maxMetadataHeadBytes) } ?? headData.count
+            if (needsDurationExpansion || needsArtworkExpansion),
+               expandedByteCount > headData.count,
                let expandedHead = try? await sourceManager.fetchMetadataRange(
                 for: song,
                 offset: 0,
@@ -1569,19 +1604,17 @@ final class MetadataBackfillService {
         // correction ran afterwards and was therefore unreachable for exactly
         // these rows.
         if song.fileFormat == .mp3,
-           metadata.duration <= 0,
-           let bitRate = metadata.bitRate,
-           bitRate > 0 {
+           metadata.duration <= 0 {
             let estimated = RemoteMetadataReadPolicy.correctedMP3Duration(
                 parsed: metadata.duration,
                 fileSize: song.fileSize,
-                bitRateKbps: bitRate,
+                bitRateKbps: metadata.bitRate,
                 providedByteCount: metadataInputData.count,
                 leadingMetadataByteCount: FileMetadataReader.id3TagByteCount(in: metadataInputData) ?? 0
             )
             if estimated > 0 {
                 metadata.duration = estimated
-                plog(String(format: "📥 Backfill: '%@' recovered MP3 duration %.1fs from file size and bitrate", song.title, estimated))
+                plog(String(format: "📥 Backfill: '%@' recovered MP3 duration %.1fs from bounded metadata and file size", song.title, estimated))
             }
         }
 
@@ -1689,12 +1722,17 @@ final class MetadataBackfillService {
         cacheKey: String
     ) async -> MetadataService.SongMetadata {
         let ext = song.fileFormat.rawValue
+        let pathTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
+        let fallbackTitle = MediaMetadataTextRepair.preferred(
+            embedded: song.title,
+            fromFileName: pathTitle
+        ) ?? song.title
         return await metadataService.loadEmbeddedMetadata(
             from: data,
             containerTailData: containerTailData,
             fileExtension: ext,
             cacheKey: cacheKey,
-            fallbackTitle: song.title
+            fallbackTitle: fallbackTitle
         )
     }
 
@@ -1745,7 +1783,11 @@ final class MetadataBackfillService {
         // 文件名是一条独立于内嵌标签的来源, 且通常更可信 —— 详见
         // MediaMetadataTextRepair.preferred。之前这里只要标签非空就无条件
         // 覆盖 bare.title(文件名), 于是标签解码猜错时, 乱码盖掉了好数据。
-        let nameTitle = MediaMetadataTextRepair.fileNameTitle(from: bare.filePath) ?? bare.title
+        let pathTitle = MediaMetadataTextRepair.fileNameTitle(from: bare.filePath)
+        let nameTitle = MediaMetadataTextRepair.preferred(
+            embedded: bare.title,
+            fromFileName: pathTitle
+        ) ?? bare.title
         let nameArtist = MediaMetadataTextRepair.fileNameArtist(from: bare.filePath)
 
         // A CUE track's text belongs to the virtual track. Embedded tags in

@@ -1,9 +1,9 @@
 import Foundation
 
-/// Small dependency-free ID3v2 text-frame parser used when AVFoundation
-/// cannot open a truncated Range response. It intentionally handles only
-/// fields that are safe to recover from the tag header; audio properties such
-/// as duration and bitrate still come from the platform decoder.
+/// Small dependency-free ID3 text parser used when AVFoundation cannot open a
+/// truncated Range response or has already decoded a legacy tag lossily. It
+/// handles ID3v2 text frames at the head and ID3v1 fields in the final 128
+/// bytes; audio properties still come from the platform decoder.
 public struct ID3TextMetadata: Equatable, Sendable {
     public var title: String?
     public var artist: String?
@@ -48,12 +48,13 @@ public struct ID3TextMetadata: Equatable, Sendable {
 
 public enum ID3TextMetadataParser {
     public static func parse(_ data: Data) -> ID3TextMetadata? {
+        let trailingMetadata = parseID3v1(data)
         guard data.count >= 10,
               data[0] == 0x49, data[1] == 0x44, data[2] == 0x33 else {
-            return nil
+            return trailingMetadata
         }
         let version = Int(data[3])
-        guard (2...4).contains(version) else { return nil }
+        guard (2...4).contains(version) else { return trailingMetadata }
 
         let declaredEnd = 10 + syncSafeInt(data, at: 6) + ((data[5] & 0x10) != 0 ? 10 : 0)
         let tagEnd = min(data.count, declaredEnd)
@@ -126,7 +127,51 @@ public enum ID3TextMetadataParser {
             apply(frameID: frameID, payload: payload, to: &result)
         }
 
+        if let trailingMetadata {
+            fillMissing(in: &result, from: trailingMetadata)
+        }
         return result.isEmpty ? nil : result
+    }
+
+    private static func parseID3v1(_ data: Data) -> ID3TextMetadata? {
+        guard data.count >= 128 else { return nil }
+        let start = data.count - 128
+        guard data[start] == 0x54, data[start + 1] == 0x41, data[start + 2] == 0x47 else {
+            return nil
+        }
+
+        let commentStart = start + 97
+        let trackNumber = data[commentStart + 28] == 0 && data[commentStart + 29] > 0
+            ? Int(data[commentStart + 29])
+            : nil
+        let yearText = decodedID3v1Field(data[(start + 93)..<(start + 97)])
+        let result = ID3TextMetadata(
+            title: decodedID3v1Field(data[(start + 3)..<(start + 33)]),
+            artist: decodedID3v1Field(data[(start + 33)..<(start + 63)]),
+            albumTitle: decodedID3v1Field(data[(start + 63)..<(start + 93)]),
+            trackNumber: trackNumber,
+            year: yearText.flatMap(Int.init)
+        )
+        return result.isEmpty ? nil : result
+    }
+
+    private static func decodedID3v1Field(_ field: Data.SubSequence) -> String? {
+        var bytes = Array(field)
+        while bytes.last == 0 || bytes.last == 0x20 { bytes.removeLast() }
+        while bytes.first == 0 || bytes.first == 0x20 { bytes.removeFirst() }
+        guard !bytes.isEmpty else { return nil }
+        return TextEncodingRepair.decodeID3Text(Data(bytes), encodingByte: 0)
+    }
+
+    private static func fillMissing(
+        in metadata: inout ID3TextMetadata,
+        from fallback: ID3TextMetadata
+    ) {
+        metadata.title = metadata.title ?? fallback.title
+        metadata.artist = metadata.artist ?? fallback.artist
+        metadata.albumTitle = metadata.albumTitle ?? fallback.albumTitle
+        metadata.trackNumber = metadata.trackNumber ?? fallback.trackNumber
+        metadata.year = metadata.year ?? fallback.year
     }
 
     private struct RecoveredTextPayload {

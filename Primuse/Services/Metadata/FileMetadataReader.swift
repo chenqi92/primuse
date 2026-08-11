@@ -52,7 +52,7 @@ enum FileMetadataReader {
         let asset = AVURLAsset(url: url)
         var metadata = await read(from: asset)
 
-        applyID3Fallback(to: &metadata, data: readID3TagData(from: url))
+        applyID3Fallback(to: &metadata, data: readID3FallbackData(from: url))
         applyFLACFallback(
             to: &metadata,
             data: readPrefix(from: url, byteCount: flacMetadataReadLimit),
@@ -316,18 +316,25 @@ enum FileMetadataReader {
         return 10 + tagSize + (hasFooter ? 10 : 0)
     }
 
-    private static func readID3TagData(from url: URL) -> Data {
+    private static func readID3FallbackData(from url: URL) -> Data {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }
         defer { try? handle.close() }
 
-        guard let header = try? handle.read(upToCount: 10),
-              let tagByteCount = id3TagByteCount(in: header) else {
-            return Data()
+        var result = Data()
+        if let header = try? handle.read(upToCount: 10),
+           let tagByteCount = id3TagByteCount(in: header) {
+            let cappedByteCount = min(tagByteCount, id3MetadataReadLimit)
+            try? handle.seek(toOffset: 0)
+            result = (try? handle.read(upToCount: cappedByteCount)) ?? Data()
         }
 
-        let cappedByteCount = min(tagByteCount, id3MetadataReadLimit)
-        try? handle.seek(toOffset: 0)
-        return (try? handle.read(upToCount: cappedByteCount)) ?? Data()
+        if let fileSize = try? handle.seekToEnd(), fileSize >= 128 {
+            try? handle.seek(toOffset: fileSize - 128)
+            if let tail = try? handle.read(upToCount: 128), tail.count == 128 {
+                result.append(tail)
+            }
+        }
+        return result
     }
 
     private struct ID3NativeMetadata {

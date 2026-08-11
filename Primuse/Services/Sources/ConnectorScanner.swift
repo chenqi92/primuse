@@ -129,6 +129,7 @@ actor ConnectorScanner {
                         refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? old.coverArtFileName
                         refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? old.lyricsFileName
                         refreshed.mvPath = item.sidecarHints?.mvPath ?? old.mvPath
+                        refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                         songsByID[old.id] = refreshed
                         recordSyncItem(item, songIDs: [old.id], seenEpoch: scanEpoch, in: &index)
                         continue
@@ -201,6 +202,7 @@ actor ConnectorScanner {
                         old.coverArtFileName = item.sidecarHints?.coverPath ?? old.coverArtFileName
                         old.lyricsFileName = item.sidecarHints?.lyricsPath ?? old.lyricsFileName
                         old.mvPath = item.sidecarHints?.mvPath ?? old.mvPath
+                        refreshSuspiciousSourceTitle(in: &old, from: item)
                         songsByID[old.id] = old
                     } else {
                         var replacement = incoming
@@ -541,6 +543,7 @@ actor ConnectorScanner {
                                             refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
                                             refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
                                             refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
+                                            refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                                             allSongs[idx] = refreshed
                                             existingByID[songID] = refreshed
                                         }
@@ -696,6 +699,7 @@ actor ConnectorScanner {
                                             refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
                                             refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
                                             refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
+                                            refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                                             allSongs[idx] = refreshed
                                             existingByID[songID] = refreshed
                                         }
@@ -1074,7 +1078,7 @@ actor ConnectorScanner {
            FFmpegAudioDecoder.dataContainsDTSSync(prefix) {
             format = .dts
         }
-        let fileBaseName = (item.name as NSString).deletingPathExtension
+        let fileBaseName = sourceTitle(from: item)
         return Song(
             id: songID,
             title: fileBaseName,
@@ -1101,6 +1105,43 @@ actor ConnectorScanner {
             mvPath: item.sidecarHints?.mvPath,
             revision: item.revision
         )
+    }
+
+    /// `server_filename` and the final component of `path` are independent
+    /// fields in cloud-list JSON. Prefer a clean value, repair only reversible
+    /// mojibake, and keep the provider path itself byte-for-byte untouched.
+    private func sourceTitle(from item: RemoteFileItem) -> String {
+        let listedName = (item.name as NSString).deletingPathExtension
+        let listedExtension = (item.name as NSString).pathExtension
+        let pathComponent = (item.path as NSString).lastPathComponent
+        let pathExtension = (pathComponent as NSString).pathExtension
+        let pathName: String?
+        if !listedExtension.isEmpty,
+           listedExtension.caseInsensitiveCompare(pathExtension) == .orderedSame {
+            pathName = (pathComponent as NSString).deletingPathExtension
+        } else {
+            // Some providers put an opaque file ID in `path`; it must never
+            // replace a damaged display name just because the ID is ASCII.
+            pathName = nil
+        }
+        return MediaMetadataTextRepair.preferred(
+            embedded: listedName,
+            fromFileName: pathName
+        ) ?? listedName
+    }
+
+    private func refreshSuspiciousSourceTitle(
+        in song: inout Song,
+        from item: RemoteFileItem
+    ) {
+        guard song.userMetadataEditedAt == nil,
+              MediaMetadataTextRepair.isSuspicious(song.title) else {
+            return
+        }
+        let candidate = sourceTitle(from: item)
+        guard !MediaMetadataTextRepair.isSuspicious(candidate) else { return }
+        song.title = candidate
+        song.titlePinyin = nil
     }
 
     private func buildSTRMSong(from item: RemoteFileItem, songID: String) async -> Song? {

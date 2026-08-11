@@ -185,16 +185,19 @@ actor MetadataService {
             embedded.fillMissing(from: tailMetadata)
         }
         let repairedFallback = FileMetadataReader.repairLegacyChineseMojibake(fallbackTitle)
-        let embeddedTitle = embedded.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredTitle = MediaMetadataTextRepair.preferred(
+            embedded: embedded.title,
+            fromFileName: repairedFallback
+        ) ?? repairedFallback
 
         var result = SongMetadata(
-            title: embeddedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? repairedFallback,
-            artist: embedded.artist,
-            albumTitle: embedded.albumTitle,
+            title: preferredTitle,
+            artist: MediaMetadataTextRepair.repaired(embedded.artist),
+            albumTitle: MediaMetadataTextRepair.repaired(embedded.albumTitle),
             trackNumber: embedded.trackNumber,
             discNumber: embedded.discNumber,
             year: embedded.year,
-            genre: embedded.genre,
+            genre: MediaMetadataTextRepair.repaired(embedded.genre),
             duration: TimeInterval.sanitized(embedded.duration),
             sampleRate: embedded.sampleRate,
             bitRate: embedded.bitRate,

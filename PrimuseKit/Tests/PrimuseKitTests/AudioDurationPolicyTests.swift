@@ -166,6 +166,13 @@ struct RemoteMetadataReadPolicyTests {
             bitRateKbps: 192,
             providedByteCount: 256 * 1024
         ) == 8)
+
+        #expect(RemoteMetadataReadPolicy.correctedMP3Duration(
+            parsed: 0,
+            fileSize: 5_000_000,
+            bitRateKbps: nil,
+            providedByteCount: 256 * 1024
+        ) == Double(5_000_000) / Double(RemoteMetadataReadPolicy.defaultMP3BitRateKbps * 125))
     }
 
     @Test("Large ID3 artwork is excluded from the MP3 duration estimate")

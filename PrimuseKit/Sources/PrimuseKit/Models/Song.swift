@@ -248,8 +248,15 @@ public enum MediaMetadataTextRepair {
         let tag = embedded?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = fromFileName?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let tag, !tag.isEmpty, !isSuspicious(tag) { return embedded }
-        if let name, !name.isEmpty, !isSuspicious(name) { return fromFileName }
+        // Repair only reversible mojibake. `repaired` returns nil for U+FFFD /
+        // lossy question-mark input, so those values can never be invented
+        // back into text and instead fall through to the independent filename.
+        if let repairedTag = repaired(tag), !isSuspicious(repairedTag) {
+            return repairedTag
+        }
+        if let repairedName = repaired(name), !isSuspicious(repairedName) {
+            return repairedName
+        }
         if let tag, !tag.isEmpty { return embedded }
         return fromFileName
     }

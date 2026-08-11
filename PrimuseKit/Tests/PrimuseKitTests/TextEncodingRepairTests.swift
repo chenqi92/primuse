@@ -228,7 +228,22 @@ private func mojibake(
         encodingByte: 1,
         payload: utf16LEData(mojibake)
     )
-    let inputs = [utf8Frame, utf16Frame]
+    let gb18030Frame = id3v24TextTag(
+        id: "TIT2",
+        encodingByte: 0,
+        payload: Data([0xD6, 0xD0, 0xCE, 0xC4])
+    )
+    let big5Frame = id3v24TextTag(
+        id: "TPE1",
+        encodingByte: 0,
+        payload: Data([0xB4, 0xFA, 0xB8, 0xD5])
+    )
+    let latin1Frame = id3v24TextTag(
+        id: "TALB",
+        encodingByte: 0,
+        payload: Data([0x42, 0x6A, 0xF6, 0x72, 0x6B])
+    )
+    let inputs = [utf8Frame, utf16Frame, gb18030Frame, big5Frame, latin1Frame]
     #expect(ID3TextMetadataParser.parse(utf8Frame)?.albumTitle == repaired)
 
     for _ in 0..<50 {
@@ -356,6 +371,46 @@ private func utf16LEData(_ text: String) -> Data {
     #expect(
         MediaMetadataTextRepair.preferred(embedded: "对面??", fromFileName: "对面的女孩看过来")
             == "对面的女孩看过来"
+    )
+}
+
+@Test func prefersCleanCloudFileNameWhenHeaderAlreadyLostBytes() {
+    // Screenshot pattern: a replacement glyph is followed by Han-to-Han
+    // mojibake. Once U+FFFD exists those bytes are gone; the independent API
+    // filename is the only source that may replace it.
+    let damagedHeader = "\u{FFFD}倀勬彿淇"
+    #expect(TextEncodingRepair.hasUnrecoverableReplacement(in: damagedHeader))
+    #expect(
+        MediaMetadataTextRepair.preferred(
+            embedded: damagedHeader,
+            fromFileName: "陈洁仪 - 心动"
+        ) == "陈洁仪 - 心动"
+    )
+}
+
+@Test func repairsReversibleHeaderBeforeUsingFileNameFallback() throws {
+    let original = "我的歌声"
+    let reversible = try #require(
+        mojibake(original, wrote: .utf8, read: TextEncodingRepair.gb18030)
+    )
+
+    #expect(
+        MediaMetadataTextRepair.preferred(
+            embedded: reversible,
+            fromFileName: "曲婉婷 - 我的歌声"
+        ) == original
+    )
+}
+
+@Test func doesNotInventTextWhenBothCloudSourcesLostBytes() {
+    let damagedHeader = "\u{FFFD}倀勬"
+    let damagedFileName = "歌曲\u{FFFD}"
+
+    #expect(
+        MediaMetadataTextRepair.preferred(
+            embedded: damagedHeader,
+            fromFileName: damagedFileName
+        ) == damagedHeader
     )
 }
 

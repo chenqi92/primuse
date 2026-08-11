@@ -187,6 +187,15 @@ public enum TextEncodingRepair {
             return utf8.text
         }
 
+        // GB18030's four-byte form has a strict lead-digit-lead-digit shape.
+        // It is structurally stronger evidence than a coincidental CP1252 /
+        // Latin-1 rendering of the same bytes and covers non-BMP characters.
+        if containsGB18030FourByteSequence(data),
+           let gb18030 = candidates.first(where: { $0.encoding == self.gb18030 }),
+           !gb18030.text.unicodeScalars.contains(where: { isDisallowedControl($0.value) }) {
+            return gb18030.text
+        }
+
         if let latin1 = candidates.first(where: { $0.encoding == .isoLatin1 }) {
             if looksCorrupted(latin1.text) {
                 var best: (encoding: String.Encoding, text: String, score: Int)?
@@ -222,6 +231,19 @@ public enum TextEncodingRepair {
             }
         }
         return best?.text
+    }
+
+    private static func containsGB18030FourByteSequence(_ data: Data) -> Bool {
+        guard data.count >= 4 else { return false }
+        for index in 0...(data.count - 4) {
+            if (0x81...0xFE).contains(data[index]),
+               (0x30...0x39).contains(data[index + 1]),
+               (0x81...0xFE).contains(data[index + 2]),
+               (0x30...0x39).contains(data[index + 3]) {
+                return true
+            }
+        }
+        return false
     }
 
     /// 解 ID3 文本帧。`encodingByte` 是帧首那个声明字节, 但大量老工具会在写
