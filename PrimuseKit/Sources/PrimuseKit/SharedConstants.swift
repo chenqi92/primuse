@@ -1320,6 +1320,26 @@ public enum ServerPlaylistIdentity {
     }
 }
 
+/// Pure reconciliation rule shared by server-playlist sync and its tests.
+/// A mirror survives pruning when its detail was synchronized successfully or
+/// when the server listed it but its detail fetch failed in this snapshot.
+public enum ServerPlaylistReconciliationPolicy {
+    public static func mirrorIDsToKeep(
+        sourceID: String,
+        synchronizedServerPlaylistIDs: [String],
+        failedServerPlaylistIDs: Set<String>
+    ) -> Set<String> {
+        Set(synchronizedServerPlaylistIDs)
+            .union(failedServerPlaylistIDs)
+            .reduce(into: Set<String>()) { result, serverPlaylistID in
+                result.insert(ServerPlaylistIdentity.playlistID(
+                    sourceID: sourceID,
+                    serverPlaylistID: serverPlaylistID
+                ))
+            }
+    }
+}
+
 /// Stable identifiers shared by the app targets and the Apple Music adapter.
 ///
 /// `MusicLibrary` is also compiled into the tvOS target, while the concrete

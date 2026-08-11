@@ -2954,6 +2954,10 @@ struct AddToPlaylistSheet: View {
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
 
+    private var editablePlaylists: [Playlist] {
+        library.playlists.filter { isEditablePlaylist($0.id) }
+    }
+
     var body: some View {
         #if os(macOS)
         macBody
@@ -2974,12 +2978,12 @@ struct AddToPlaylistSheet: View {
                 }
 
                 Section(String(localized: "playlists_title")) {
-                    if library.playlists.isEmpty {
+                    if editablePlaylists.isEmpty {
                         ContentUnavailableView {
                             Label(String(localized: "no_playlists"), systemImage: "music.note.list")
                         }
                     } else {
-                        ForEach(library.playlists) { playlist in
+                        ForEach(editablePlaylists) { playlist in
                             playlistRow(playlist: playlist)
                         }
                     }
@@ -3044,13 +3048,13 @@ struct AddToPlaylistSheet: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 2) {
-                    if library.playlists.isEmpty {
+                    if editablePlaylists.isEmpty {
                         ContentUnavailableView {
                             Label(String(localized: "no_playlists"), systemImage: "music.note.list")
                         }
                         .padding(.vertical, 48)
                     } else {
-                        ForEach(library.playlists) { playlist in
+                        ForEach(editablePlaylists) { playlist in
                             macPlaylistRow(playlist)
                         }
                     }
@@ -3108,6 +3112,7 @@ struct AddToPlaylistSheet: View {
         let count = library.songs(forPlaylist: playlist.id).count
 
         return Button {
+            guard isEditablePlaylist(playlist.id) else { return }
             if isAdded {
                 library.remove(songID: song.id, fromPlaylist: playlist.id)
             } else {
@@ -3148,6 +3153,7 @@ struct AddToPlaylistSheet: View {
     private func playlistRow(playlist: Playlist) -> some View {
         let isAdded = library.contains(songID: song.id, inPlaylist: playlist.id)
         Button {
+            guard isEditablePlaylist(playlist.id) else { return }
             if isAdded {
                 library.remove(songID: song.id, fromPlaylist: playlist.id)
             } else {
@@ -3169,6 +3175,11 @@ struct AddToPlaylistSheet: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func isEditablePlaylist(_ playlistID: String) -> Bool {
+        !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
+            && playlistID != MusicLibrary.likedSongsPlaylistID
     }
 }
 

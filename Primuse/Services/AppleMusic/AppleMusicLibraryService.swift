@@ -685,7 +685,7 @@ final class AppleMusicLibraryService {
                 name: String(localized: "apple_music_library_playlist_name")
             )
             if fetchResult.syncMode.shouldReplaceMirrorPlaylist {
-                library.replacePlaylistSongs(
+                library.replaceMirrorPlaylistSongs(
                     playlistID: Self.systemPlaylistID,
                     songIDs: songs.map(\.id)
                 )
@@ -693,7 +693,7 @@ final class AppleMusicLibraryService {
                 var mergedIDs = library.rawSongIDs(forPlaylist: Self.systemPlaylistID)
                 var seenIDs = Set(mergedIDs)
                 mergedIDs.append(contentsOf: songs.map(\.id).filter { seenIDs.insert($0).inserted })
-                library.replacePlaylistSongs(
+                library.replaceMirrorPlaylistSongs(
                     playlistID: Self.systemPlaylistID,
                     songIDs: mergedIDs
                 )
@@ -916,6 +916,7 @@ final class AppleMusicLibraryService {
             for amPlaylist in allPlaylists {
                 if Task.isCancelled { return 0 }
                 let result = await fetchUserPlaylistMirror(amPlaylist)
+                if Task.isCancelled { return 0 }
                 markSyncProgress()   // 每处理完一个歌单 (含 .with([.tracks]) 往返) 续期
                 switch result {
                 case .mirror(let mirror):
@@ -940,7 +941,7 @@ final class AppleMusicLibraryService {
             let mirrorsToKeep = Self.resolveUserPlaylistMirrors(fetchedMirrors)
             for mirror in mirrorsToKeep {
                 library.ensurePlaylist(id: mirror.id, name: mirror.name)
-                library.replacePlaylistSongs(playlistID: mirror.id, songIDs: mirror.songIDs)
+                library.replaceMirrorPlaylistSongs(playlistID: mirror.id, songIDs: mirror.songIDs)
                 plog("🎵 AM playlist '\(mirror.name)' → \(mirror.songIDs.count) songs")
             }
 
@@ -993,7 +994,7 @@ final class AppleMusicLibraryService {
                 currentBatch = next
                 markSyncProgress()
             }
-            let songIDs: [String] = tracks.compactMap { track in
+            let projectedSongIDs: [String] = tracks.compactMap { track in
                 guard case let .song(s) = track else { return nil }
                 // 顺手填 cache (有些用户歌单里的 song 可能不在 user library 全集)
                 songCache[s.id.rawValue] = s
@@ -1002,6 +1003,12 @@ final class AppleMusicLibraryService {
                 // the relationship with the canonical ID so the mirrored
                 // playlist continues to reference the persisted library row.
                 return Self.toPrimuseSong(canonicalForNowPlaying(s)).id
+            }
+            // `replaceMirrorPlaylistSongs` 会丢弃曲库中不存在的 ID；先按同一条规则
+            // 判断实际可写入的歌曲，避免“全是下架/未入库曲目”被误当成成功镜像，
+            // 随后把已有歌单覆盖成空。
+            let songIDs = Self.uniqued(projectedSongIDs).filter {
+                library.song(id: $0)?.sourceID == Self.systemSourceID
             }
             // Apple Music 报告有曲目但本地一首都没匹配上 —— 可能全是视频、下架曲目、
             // 或 canonicalization 失败。这是"取不到", 不是"歌单空了", 保留已有镜像。
@@ -1014,7 +1021,7 @@ final class AppleMusicLibraryService {
             return .mirror(UserPlaylistMirror(
                 id: pid,
                 name: amPlaylist.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                songIDs: Self.uniqued(songIDs)
+                songIDs: songIDs
             ))
         } catch {
             return .failed(id: pid, name: amPlaylist.name, error: error.localizedDescription)

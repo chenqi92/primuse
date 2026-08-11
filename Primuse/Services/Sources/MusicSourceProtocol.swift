@@ -570,12 +570,27 @@ struct ServerPlaylist: Sendable {
     }
 }
 
+/// 一次服务端歌单同步所见到的完整快照。
+///
+/// `failedPlaylistIDs` 是已经出现在服务端歌单列表中、但本次无法完整取得曲目
+/// 明细的歌单。调用方必须保留这些 ID 对应的现有本地镜像；只有既不在
+/// `playlists`、也不在 `failedPlaylistIDs` 中的镜像，才可以视为已从服务端删除。
+struct ServerPlaylistSnapshot: Sendable {
+    let playlists: [ServerPlaylist]
+    let failedPlaylistIDs: Set<String>
+
+    init(playlists: [ServerPlaylist], failedPlaylistIDs: Set<String> = []) {
+        self.playlists = playlists
+        self.failedPlaylistIDs = failedPlaylistIDs
+    }
+}
+
 /// 服务端曲库源暴露用户歌单的能力 (Subsonic getPlaylists/getPlaylist,
 /// Jellyfin/Emby/Plex 的 playlist item API)。
 ///
 /// 只读: Primuse 侧的编辑不回写服务端, 镜像歌单在下次扫描时被服务端内容覆盖。
 protocol ServerPlaylistConnector: MusicSourceConnector {
-    func fetchServerPlaylists() async throws -> [ServerPlaylist]
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
 }
 
 /// 服务端直接提供歌词的能力 (Subsonic getLyricsBySongId / getLyrics)。

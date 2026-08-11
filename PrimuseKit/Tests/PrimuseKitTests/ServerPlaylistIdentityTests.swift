@@ -75,6 +75,30 @@ struct ServerPlaylistIdentityTests {
     func keepsDotsInsideItemID() {
         #expect(ServerPlaylistIdentity.serverItemID(fromFilePath: "/items/a.b.c.mp3") == "a.b.c")
     }
+
+    @Test("A failed detail fetch keeps the existing mirror while omitted IDs are pruned")
+    func failedDetailsRemainInTheAuthoritativeKeepSet() {
+        let keepIDs = ServerPlaylistReconciliationPolicy.mirrorIDsToKeep(
+            sourceID: "src-a",
+            synchronizedServerPlaylistIDs: ["fresh"],
+            failedServerPlaylistIDs: ["temporarily-unavailable"]
+        )
+
+        #expect(keepIDs == Set([
+            ServerPlaylistIdentity.playlistID(
+                sourceID: "src-a",
+                serverPlaylistID: "fresh"
+            ),
+            ServerPlaylistIdentity.playlistID(
+                sourceID: "src-a",
+                serverPlaylistID: "temporarily-unavailable"
+            )
+        ]))
+        #expect(!keepIDs.contains(ServerPlaylistIdentity.playlistID(
+            sourceID: "src-a",
+            serverPlaylistID: "deleted-on-server"
+        )))
+    }
 }
 
 @Suite("Mirror playlist identity")

@@ -2944,11 +2944,21 @@ final class MusicLibrary {
         return playlist
     }
 
-    /// 把 playlist 的歌列表整体替换 ── 给同步类场景 (Apple Music 重新拉一遍
-    /// 资料库) 用, 比 add/remove 逐条调用快且语义清晰: 当前 source 的
-    /// snapshot 即权威, 任何本地手动 add 进来的会被覆盖掉。
-    /// 不存在的 songID 会被静默忽略 (避免 sync 比 song 写库稍晚的 race)。
+    /// 整体替换普通用户歌单（例如手动重排或把当前队列另存为歌单）。镜像歌单
+    /// 必须走 `replaceMirrorPlaylistSongs`，防止任一遗漏的 UI 入口改写只读镜像。
     func replacePlaylistSongs(playlistID: String, songIDs: [String]) {
+        guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return }
+        replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
+    }
+
+    /// 用外部源的权威快照覆盖镜像歌单。不存在的 songID 会被静默忽略，避免
+    /// 同步结果比歌曲写库稍晚时留下悬空引用。
+    func replaceMirrorPlaylistSongs(playlistID: String, songIDs: [String]) {
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return }
+        replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
+    }
+
+    private func replacePlaylistSongsUnchecked(playlistID: String, songIDs: [String]) {
         guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
         let kept = songIDs.filter { songIndexByID[$0] != nil }
         playlistSongIDs[playlistID] = kept
@@ -2970,11 +2980,12 @@ final class MusicLibrary {
     /// change notification. Calling `deletePlaylist` in a selection loop makes
     /// a nominal batch operation perform a full persistence pass per row.
     func deletePlaylists(ids: Set<String>) {
-        guard !ids.isEmpty else { return }
+        let editableIDs = Set(ids.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0) })
+        guard !editableIDs.isEmpty else { return }
         let now = Date()
         var changedIDs: [String] = []
-        changedIDs.reserveCapacity(ids.count)
-        for index in allPlaylists.indices where ids.contains(allPlaylists[index].id) {
+        changedIDs.reserveCapacity(editableIDs.count)
+        for index in allPlaylists.indices where editableIDs.contains(allPlaylists[index].id) {
             allPlaylists[index].isDeleted = true
             allPlaylists[index].deletedAt = now
             allPlaylists[index].updatedAt = now
@@ -3017,8 +3028,25 @@ final class MusicLibrary {
     /// Permanently remove generated playlists that mirror an external source and
     /// are no longer part of that source's latest authoritative snapshot.
     func prunePlaylists(withIDPrefix prefix: String, keepingIDs: Set<String>) {
+        prunePlaylists(withIDPrefixes: [prefix], keepingIDs: keepingIDs)
+    }
+
+    /// 删除源时一次清掉该批源产生的服务端歌单镜像。即使源里已经没有歌曲，
+    /// 镜像本身也仍需删除，不能留下永远不会再同步的空歌单。
+    func pruneServerPlaylistMirrors(forSourceIDs sourceIDs: Set<String>) {
+        let prefixes = Set(sourceIDs.map {
+            ServerPlaylistIdentity.playlistIDPrefix(sourceID: $0)
+        })
+        prunePlaylists(withIDPrefixes: prefixes, keepingIDs: [])
+    }
+
+    private func prunePlaylists(withIDPrefixes prefixes: Set<String>, keepingIDs: Set<String>) {
+        guard !prefixes.isEmpty else { return }
         let staleIDs = allPlaylists
-            .filter { $0.id.hasPrefix(prefix) && !keepingIDs.contains($0.id) }
+            .filter { playlist in
+                !keepingIDs.contains(playlist.id)
+                    && prefixes.contains(where: { playlist.id.hasPrefix($0) })
+            }
             .map(\.id)
         guard !staleIDs.isEmpty else { return }
 
@@ -3098,7 +3126,8 @@ final class MusicLibrary {
     /// duplicate IDs are ignored exactly as repeated calls to `add` did, but
     /// the playlist is published and persisted only once.
     func add(songIDs: [String], toPlaylist playlistID: String) {
-        guard !songIDs.isEmpty,
+        guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID })
         else { return }
 
@@ -3170,7 +3199,8 @@ final class MusicLibrary {
     /// 批量移除。逐首调用会按条数重复 sortPlaylists / persistSnapshot / 发通知,
     /// 在歌单里一次移除几十首时那是几十轮全量落盘 + 视图重建。
     func remove(songIDs: [String], fromPlaylist playlistID: String) {
-        guard !songIDs.isEmpty,
+        guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID })
         else { return }
 

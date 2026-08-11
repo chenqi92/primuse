@@ -4,6 +4,8 @@ import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector {
     private static let maximumCatalogTracks = 10_000_000
+    private static let maximumPlaylistCount = 100_000
+    private static let playlistPageSize = 200
 
     enum Kind: Sendable {
         case jellyfin
@@ -638,7 +640,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
-    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await connect()
 
         if kind == .plex {
@@ -648,75 +650,298 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
-    private func fetchJellyfinOrEmbyPlaylists() async throws -> [ServerPlaylist] {
+    private func fetchJellyfinOrEmbyPlaylists() async throws -> ServerPlaylistSnapshot {
         guard let userID else { throw SourceError.authenticationFailed }
 
-        let summaryData = try await performRequest(
+        let summaryResponse = try await fetchAllJellyfinOrEmbyItems(
             path: "/Users/\(userID)/Items",
-            queryItems: [
+            baseQueryItems: [
                 URLQueryItem(name: "IncludeItemTypes", value: "Playlist"),
                 URLQueryItem(name: "Recursive", value: "true"),
                 URLQueryItem(name: "Fields", value: "ChildCount")
-            ]
+            ],
+            maximumCount: Self.maximumPlaylistCount,
+            deduplicatesItems: true
         )
-        let summaryResponse = try decoder.decode(ItemResponse.self, from: summaryData)
-        guard summaryResponse.items.isEmpty == false else { return [] }
+        guard summaryResponse.items.isEmpty == false else {
+            return ServerPlaylistSnapshot(playlists: [])
+        }
 
         var result: [ServerPlaylist] = []
+        var failedPlaylistIDs = Set<String>()
         result.reserveCapacity(summaryResponse.items.count)
 
         for summary in summaryResponse.items {
             try Task.checkCancellation()
-            let itemsData: Data
             do {
-                itemsData = try await performRequest(
+                let itemsResponse = try await fetchAllJellyfinOrEmbyItems(
                     path: "/Playlists/\(summary.id)/Items",
-                    queryItems: [URLQueryItem(name: "UserId", value: userID)]
+                    baseQueryItems: [URLQueryItem(name: "UserId", value: userID)],
+                    maximumCount: Self.maximumCatalogTracks,
+                    deduplicatesItems: false
                 )
+                result.append(ServerPlaylist(
+                    id: summary.id,
+                    name: summary.name.isEmpty ? summary.id : summary.name,
+                    trackIDs: itemsResponse.items.map(\.id),
+                    reportedTrackCount: itemsResponse.totalCount
+                ))
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                try Task.checkCancellation()
                 plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") playlist '\(summary.name)' items fetch failed: \(error.localizedDescription)")
-                continue
+                failedPlaylistIDs.insert(summary.id)
             }
-            let itemsResponse = try decoder.decode(ItemResponse.self, from: itemsData)
-            let trackIDs = itemsResponse.items.map(\.id)
-            result.append(ServerPlaylist(
-                id: summary.id,
-                name: summary.name.isEmpty ? summary.id : summary.name,
-                trackIDs: trackIDs,
-                reportedTrackCount: itemsResponse.totalRecordCount
-            ))
         }
-        return result
+        return ServerPlaylistSnapshot(
+            playlists: result,
+            failedPlaylistIDs: failedPlaylistIDs
+        )
     }
 
-    private func fetchPlexPlaylists() async throws -> [ServerPlaylist] {
-        let data = try await performRequest(path: "/playlists")
-        let response = try decoder.decode(PlexPlaylistResponse.self, from: data)
-        let audioPlaylists = response.mediaContainer.playlists.filter { $0.playlistType == "audio" }
-        guard audioPlaylists.isEmpty == false else { return [] }
+    private func fetchPlexPlaylists() async throws -> ServerPlaylistSnapshot {
+        let summaries = try await fetchAllPlexPlaylistSummaries()
+        let audioPlaylists = summaries.filter { $0.playlistType == "audio" }
+        guard audioPlaylists.isEmpty == false else {
+            return ServerPlaylistSnapshot(playlists: [])
+        }
 
         var result: [ServerPlaylist] = []
+        var failedPlaylistIDs = Set<String>()
         result.reserveCapacity(audioPlaylists.count)
 
         for summary in audioPlaylists {
             try Task.checkCancellation()
-            let itemsData: Data
             do {
-                itemsData = try await performRequest(path: "/playlists/\(summary.ratingKey)/items")
+                let itemsResponse = try await fetchAllPlexPlaylistItems(
+                    playlistID: summary.ratingKey
+                )
+                result.append(ServerPlaylist(
+                    id: summary.ratingKey,
+                    name: summary.title.isEmpty ? summary.ratingKey : summary.title,
+                    trackIDs: itemsResponse.items.map(\.ratingKey),
+                    reportedTrackCount: itemsResponse.totalCount ?? summary.leafCount
+                ))
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                try Task.checkCancellation()
                 plog("⚠️ Plex playlist '\(summary.title)' items fetch failed: \(error.localizedDescription)")
-                continue
+                failedPlaylistIDs.insert(summary.ratingKey)
             }
-            let itemsResponse = try decoder.decode(PlexPlaylistItemsResponse.self, from: itemsData)
-            let trackIDs = itemsResponse.mediaContainer.tracks.map(\.ratingKey)
-            result.append(ServerPlaylist(
-                id: summary.ratingKey,
-                name: summary.title.isEmpty ? summary.ratingKey : summary.title,
-                trackIDs: trackIDs,
-                reportedTrackCount: summary.leafCount
-            ))
+        }
+        return ServerPlaylistSnapshot(
+            playlists: result,
+            failedPlaylistIDs: failedPlaylistIDs
+        )
+    }
+
+    /// Jellyfin / Emby 的 Items API 会按服务器默认上限截断；歌单列表和每份歌单
+    /// 明细都必须显式翻页。列表级失败向上抛出，明细级失败由调用方记录失败 ID。
+    private func fetchAllJellyfinOrEmbyItems(
+        path: String,
+        baseQueryItems: [URLQueryItem],
+        maximumCount: Int,
+        deduplicatesItems: Bool
+    ) async throws -> (items: [AudioItem], totalCount: Int?) {
+        var startIndex = 0
+        var expectedTotal: Int?
+        var seenPages = Set<String>()
+        var seenItemIDs = Set<String>()
+        var result: [AudioItem] = []
+
+        while true {
+            try Task.checkCancellation()
+            let data = try await performRequest(
+                path: path,
+                queryItems: baseQueryItems + [
+                    URLQueryItem(name: "StartIndex", value: String(startIndex)),
+                    URLQueryItem(name: "Limit", value: String(Self.playlistPageSize))
+                ]
+            )
+            let page = try decoder.decode(ItemResponse.self, from: data)
+            if let total = page.totalRecordCount {
+                guard total >= 0, total <= maximumCount else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+                }
+                if let expectedTotal, expectedTotal != total {
+                    throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
+                }
+                expectedTotal = total
+            }
+            if page.items.isEmpty {
+                if let expectedTotal, startIndex < expectedTotal {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+                }
+                break
+            }
+            guard page.items.count <= Self.playlistPageSize else {
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+            }
+            let pageIDs = page.items.map(\.id)
+            guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
+                throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+            }
+            if deduplicatesItems {
+                for item in page.items where seenItemIDs.insert(item.id).inserted {
+                    guard seenItemIDs.count <= maximumCount else {
+                        throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                    }
+                    result.append(item)
+                }
+            } else {
+                guard result.count + page.items.count <= maximumCount else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                }
+                result.append(contentsOf: page.items)
+            }
+
+            startIndex += page.items.count
+            guard startIndex <= maximumCount else {
+                throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+            }
+            if let expectedTotal {
+                guard startIndex <= expectedTotal else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
+                }
+                if startIndex == expectedTotal { break }
+            }
+        }
+
+        return (result, expectedTotal)
+    }
+
+    private func fetchAllPlexPlaylistSummaries() async throws -> [PlexPlaylistSummary] {
+        var startIndex = 0
+        var expectedTotal: Int?
+        var seenPages = Set<String>()
+        var seenItemIDs = Set<String>()
+        var result: [PlexPlaylistSummary] = []
+
+        while true {
+            try Task.checkCancellation()
+            let data = try await performRequest(
+                path: "/playlists",
+                queryItems: [
+                    URLQueryItem(name: "X-Plex-Container-Start", value: String(startIndex)),
+                    URLQueryItem(name: "X-Plex-Container-Size", value: String(Self.playlistPageSize))
+                ]
+            )
+            let page = try decoder.decode(PlexPlaylistResponse.self, from: data).mediaContainer
+            try Self.validatePlaylistPageTotal(
+                page.totalSize,
+                expectedTotal: &expectedTotal,
+                maximumCount: Self.maximumPlaylistCount
+            )
+            if let size = page.size, size != page.playlists.count {
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+            }
+            if page.playlists.isEmpty {
+                if let expectedTotal, startIndex < expectedTotal {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+                }
+                break
+            }
+            guard page.playlists.count <= Self.playlistPageSize else {
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+            }
+            let pageIDs = page.playlists.map(\.ratingKey)
+            guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
+                throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+            }
+            for item in page.playlists where seenItemIDs.insert(item.ratingKey).inserted {
+                guard seenItemIDs.count <= Self.maximumPlaylistCount else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                }
+                result.append(item)
+            }
+
+            startIndex += page.playlists.count
+            guard startIndex <= Self.maximumPlaylistCount else {
+                throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+            }
+            if let expectedTotal {
+                guard startIndex <= expectedTotal else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
+                }
+                if startIndex == expectedTotal { break }
+            }
         }
         return result
+    }
+
+    private func fetchAllPlexPlaylistItems(
+        playlistID: String
+    ) async throws -> (items: [PlexPlaylistTrack], totalCount: Int?) {
+        var startIndex = 0
+        var expectedTotal: Int?
+        var seenPages = Set<String>()
+        var result: [PlexPlaylistTrack] = []
+
+        while true {
+            try Task.checkCancellation()
+            let data = try await performRequest(
+                path: "/playlists/\(playlistID)/items",
+                queryItems: [
+                    URLQueryItem(name: "X-Plex-Container-Start", value: String(startIndex)),
+                    URLQueryItem(name: "X-Plex-Container-Size", value: String(Self.playlistPageSize))
+                ]
+            )
+            let page = try decoder.decode(PlexPlaylistItemsResponse.self, from: data).mediaContainer
+            try Self.validatePlaylistPageTotal(
+                page.totalSize,
+                expectedTotal: &expectedTotal,
+                maximumCount: Self.maximumCatalogTracks
+            )
+            if let size = page.size, size != page.tracks.count {
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+            }
+            if page.tracks.isEmpty {
+                if let expectedTotal, startIndex < expectedTotal {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+                }
+                break
+            }
+            guard page.tracks.count <= Self.playlistPageSize else {
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+            }
+            let pageIDs = page.tracks.map(\.ratingKey)
+            guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
+                throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+            }
+            guard result.count + page.tracks.count <= Self.maximumCatalogTracks else {
+                throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+            }
+            result.append(contentsOf: page.tracks)
+
+            startIndex += page.tracks.count
+            guard startIndex <= Self.maximumCatalogTracks else {
+                throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+            }
+            if let expectedTotal {
+                guard startIndex <= expectedTotal else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
+                }
+                if startIndex == expectedTotal { break }
+            }
+        }
+        return (result, expectedTotal)
+    }
+
+    private static func validatePlaylistPageTotal(
+        _ total: Int?,
+        expectedTotal: inout Int?,
+        maximumCount: Int
+    ) throws {
+        guard let total else { return }
+        guard total >= 0, total <= maximumCount else {
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+        }
+        if let expectedTotal, expectedTotal != total {
+            throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
+        }
+        expectedTotal = total
     }
 
     private func fetchLibraries() async throws -> [Library] {
@@ -1544,6 +1769,7 @@ private struct ItemResponse: Decodable {
         case items = "Items"
         case totalRecordCount = "TotalRecordCount"
     }
+
 }
 
 private struct AudioItem: Decodable {
@@ -1939,9 +2165,29 @@ private struct PlexPlaylistResponse: Decodable {
 
 private struct PlexPlaylistContainer: Decodable {
     let playlists: [PlexPlaylistSummary]
+    let totalSize: Int?
+    let size: Int?
 
     enum CodingKeys: String, CodingKey {
-        case playlists = "Playlist"
+        case playlists = "Metadata"
+        case totalSize
+        case size
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalSize = try container.decodeIfPresent(Int.self, forKey: .totalSize)
+        size = try container.decodeIfPresent(Int.self, forKey: .size)
+        if let decoded = try container.decodeIfPresent([PlexPlaylistSummary].self, forKey: .playlists) {
+            playlists = decoded
+        } else if size == 0 || totalSize == 0 {
+            playlists = []
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.playlists,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing Plex playlist Metadata")
+            )
+        }
     }
 }
 
@@ -1969,9 +2215,29 @@ private struct PlexPlaylistItemsResponse: Decodable {
 
 private struct PlexPlaylistItemsContainer: Decodable {
     let tracks: [PlexPlaylistTrack]
+    let totalSize: Int?
+    let size: Int?
 
     enum CodingKeys: String, CodingKey {
-        case tracks = "Track"
+        case tracks = "Metadata"
+        case totalSize
+        case size
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalSize = try container.decodeIfPresent(Int.self, forKey: .totalSize)
+        size = try container.decodeIfPresent(Int.self, forKey: .size)
+        if let decoded = try container.decodeIfPresent([PlexPlaylistTrack].self, forKey: .tracks) {
+            tracks = decoded
+        } else if size == 0 || totalSize == 0 {
+            tracks = []
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.tracks,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing Plex playlist item Metadata")
+            )
+        }
     }
 }
 

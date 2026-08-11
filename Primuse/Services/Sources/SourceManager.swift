@@ -626,9 +626,11 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
 
-    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
-            guard let provider = connector as? any ServerPlaylistConnector else { return [] }
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
             return try await provider.fetchServerPlaylists()
         }
     }
@@ -714,14 +716,6 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
         }
     }
 
-    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
-        try await routing.withRead { connector in
-            guard let provider = connector as? any ServerPlaylistConnector else {
-                throw SourceError.connectionFailed("Server playlist connector unavailable")
-            }
-            return try await provider.fetchServerPlaylists()
-        }
-    }
 }
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
@@ -730,6 +724,15 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.fetchServerPlaylists()
+        }
+    }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         let stream = try await routing.withRead { connector in
@@ -790,14 +793,6 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
         }
     }
 
-    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
-        try await routing.withRead { connector in
-            guard let provider = connector as? any ServerPlaylistConnector else {
-                throw SourceError.connectionFailed("Server playlist connector unavailable")
-            }
-            return try await provider.fetchServerPlaylists()
-        }
-    }
 }
 
 @MainActor
@@ -4629,9 +4624,9 @@ final class SourceManager {
     }
 
     /// 拉取服务端曲库源上的用户歌单。源不支持(NAS / 云盘 / 本地)返回 nil,
-    /// 与"支持但一个歌单都没有"(返回 `[]`)区分开 —— 后者要清理本地陈旧镜像,
+    /// 与"支持但一个歌单都没有"(返回空快照)区分开 —— 后者要清理本地陈旧镜像,
     /// 前者什么都不该动。
-    func fetchServerPlaylists(for source: MusicSource) async throws -> [ServerPlaylist]? {
+    func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
         return try await conn.fetchServerPlaylists()
     }

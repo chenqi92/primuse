@@ -591,13 +591,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ///
     /// 单个歌单取曲目失败只跳过它, 不让整次同步失败 —— 一个坏歌单不该挡住
     /// 其余歌单。`getPlaylist` 规范上没有分页参数, 一次返回全部 `entry`。
-    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await connect()
         let container: PlaylistsContainer = try await requestJSON("getPlaylists")
         let summaries = container.playlists?.playlist ?? []
-        guard summaries.isEmpty == false else { return [] }
+        guard summaries.isEmpty == false else { return ServerPlaylistSnapshot(playlists: []) }
 
         var result: [ServerPlaylist] = []
+        var failedPlaylistIDs = Set<String>()
         result.reserveCapacity(summaries.count)
         for summary in summaries {
             try Task.checkCancellation()
@@ -607,11 +608,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     "getPlaylist",
                     query: [URLQueryItem(name: "id", value: summary.id.value)]
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                try Task.checkCancellation()
                 plog("⚠️ Subsonic getPlaylist '\(summary.name ?? summary.id.value)' failed: \(error.localizedDescription)")
+                failedPlaylistIDs.insert(summary.id.value)
                 continue
             }
-            guard let playlist = detail.playlist else { continue }
+            guard let playlist = detail.playlist else {
+                failedPlaylistIDs.insert(summary.id.value)
+                plog("⚠️ Subsonic getPlaylist '\(summary.name ?? summary.id.value)' returned no playlist detail")
+                continue
+            }
             let trackIDs = (playlist.entry ?? []).map(\.id)
             // 名字缺失时退回服务端 ID, 保证镜像歌单不会出现空标题。
             let name = Self.cleaned(playlist.name ?? summary.name, unknown: "")
@@ -623,7 +632,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 reportedTrackCount: playlist.songCount ?? summary.songCount
             ))
         }
-        return result
+        return ServerPlaylistSnapshot(
+            playlists: result,
+            failedPlaylistIDs: failedPlaylistIDs
+        )
     }
 
     // MARK: - Song construction

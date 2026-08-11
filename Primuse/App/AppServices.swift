@@ -475,6 +475,7 @@ final class AppServices {
         let sourceIDs = Set(requests.keys)
         metadataBackfill.discardWorkNow(forSourceIDs: sourceIDs)
         musicLibrary.removeSongsForSources(sourceIDs)
+        musicLibrary.pruneServerPlaylistMirrors(forSourceIDs: sourceIDs)
         sourcesStore.resetLocalScanState(for: sourceIDs)
 
         let cachePurgeIDs = Set(requests.compactMap { id, request in

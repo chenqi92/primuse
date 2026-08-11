@@ -198,17 +198,15 @@ struct PlaylistDetailView: View {
                         .padding(.vertical, 8)
                         .onTapGesture { playSong(song) }
                         .contextMenu {
-                            // Apple Music 资料库镜像里的 Apple Music 歌不能移除 ──
-                            // 我们没法 push 回 Apple Music 删收藏, 移除后下次 sync
-                            // 又自动回来, 视觉上会变成"删了又出现"的 bug。其它源
-                            // 的歌 (用户额外手动加进来等情况) 仍能正常移除。
+                            // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
+                            // 下次同步也会覆盖任何临时改动。
                             Button {
                                 selection.activate(seed: song.id)
                             } label: {
                                 Label("batch_select", systemImage: "checkmark.circle")
                             }
 
-                            if !isAppleMusicMirrorEntry(song: song) {
+                            if allowsPlaylistRemoval {
                                 Button(role: .destructive) {
                                     library.remove(songID: song.id, fromPlaylist: playlist.id)
                                 } label: {
@@ -753,7 +751,7 @@ struct PlaylistDetailView: View {
                 Label("batch_select", systemImage: "checkmark.circle")
             }
 
-            if !isAppleMusicMirrorEntry(song: song) {
+            if allowsPlaylistRemoval {
                 Button(role: .destructive) {
                     library.remove(songID: song.id, fromPlaylist: playlist.id)
                 } label: {
@@ -773,14 +771,6 @@ struct PlaylistDetailView: View {
         return palette[h]
     }
     #endif
-
-    /// 这个 song 是不是 Apple Music 镜像歌单里的 Apple Music 歌 ── 同时
-     /// 满足 (playlist 是任意 AM 镜像) 且 (song 是 Apple Music 来源) 才算,
-     /// 用户自己手动 add 进去的其它源歌仍可正常移除。
-     private func isAppleMusicMirrorEntry(song: Song) -> Bool {
-         AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
-             && song.sourceID == AppleMusicLibraryService.systemSourceID
-     }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
         !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)

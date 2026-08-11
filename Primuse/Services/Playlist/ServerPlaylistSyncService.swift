@@ -29,9 +29,9 @@ enum ServerPlaylistSyncService {
         var result = SyncResult()
         guard source.type.isServerLibrary else { return result }
 
-        let serverPlaylists: [ServerPlaylist]?
+        let snapshot: ServerPlaylistSnapshot?
         do {
-            serverPlaylists = try await sourceManager.fetchServerPlaylists(for: source)
+            snapshot = try await sourceManager.fetchServerPlaylists(for: source)
         } catch is CancellationError {
             return result
         } catch {
@@ -39,17 +39,30 @@ enum ServerPlaylistSyncService {
             return result
         }
         // nil = 该源类型没有歌单能力, 不要动本地任何东西。
-        guard let serverPlaylists else { return result }
+        guard let snapshot else { return result }
 
         let index = serverItemIndex(sourceID: source.id, library: library)
-        var keepIDs = Set<String>()
+        var keepIDs = ServerPlaylistReconciliationPolicy.mirrorIDsToKeep(
+            sourceID: source.id,
+            synchronizedServerPlaylistIDs: snapshot.playlists.map(\.id),
+            failedServerPlaylistIDs: snapshot.failedPlaylistIDs
+        )
 
-        for serverPlaylist in serverPlaylists {
+        for serverPlaylist in snapshot.playlists {
             let localID = ServerPlaylistIdentity.playlistID(
                 sourceID: source.id,
                 serverPlaylistID: serverPlaylist.id
             )
             let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
+
+            // 自报数量大于实际明细数量，说明响应仍被服务器截断或分页中途缺页。
+            // 这份明细不是权威快照，不能用它覆盖现有镜像的后半段。
+            if let reportedTrackCount = serverPlaylist.reportedTrackCount,
+               reportedTrackCount > serverPlaylist.trackIDs.count {
+                result.unresolvedPlaylistCount += 1
+                plog("⚠️ Server playlist '\(serverPlaylist.name)' returned only \(serverPlaylist.trackIDs.count)/\(reportedTrackCount) track IDs — keeping the existing mirror")
+                continue
+            }
 
             // 服务端说有曲目, 但本地一首都没匹配上 —— 这是"取不到 / 对不上",
             // 不是"歌单空了"。保留已有镜像原样(存在的话), 也不新建空歌单。
@@ -70,7 +83,7 @@ enum ServerPlaylistSyncService {
             }
 
             library.ensurePlaylist(id: localID, name: serverPlaylist.name)
-            library.replacePlaylistSongs(playlistID: localID, songIDs: songIDs)
+            library.replaceMirrorPlaylistSongs(playlistID: localID, songIDs: songIDs)
             keepIDs.insert(localID)
             result.syncedPlaylistCount += 1
             result.matchedTrackCount += songIDs.count
