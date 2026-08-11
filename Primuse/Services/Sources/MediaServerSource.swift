@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector, ServerLyricsConnector {
+actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector {
     private static let maximumCatalogTracks = 10_000_000
 
     enum Kind: Sendable {
@@ -636,6 +636,87 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         } catch {
             return nil
         }
+    }
+
+    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+        try await connect()
+
+        if kind == .plex {
+            return try await fetchPlexPlaylists()
+        } else {
+            return try await fetchJellyfinOrEmbyPlaylists()
+        }
+    }
+
+    private func fetchJellyfinOrEmbyPlaylists() async throws -> [ServerPlaylist] {
+        guard let userID else { throw SourceError.authenticationFailed }
+
+        let summaryData = try await performRequest(
+            path: "/Users/\(userID)/Items",
+            queryItems: [
+                URLQueryItem(name: "IncludeItemTypes", value: "Playlist"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "Fields", value: "ChildCount")
+            ]
+        )
+        let summaryResponse = try decoder.decode(ItemResponse.self, from: summaryData)
+        guard summaryResponse.items.isEmpty == false else { return [] }
+
+        var result: [ServerPlaylist] = []
+        result.reserveCapacity(summaryResponse.items.count)
+
+        for summary in summaryResponse.items {
+            try Task.checkCancellation()
+            let itemsData: Data
+            do {
+                itemsData = try await performRequest(
+                    path: "/Playlists/\(summary.id)/Items",
+                    queryItems: [URLQueryItem(name: "UserId", value: userID)]
+                )
+            } catch {
+                plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") playlist '\(summary.name)' items fetch failed: \(error.localizedDescription)")
+                continue
+            }
+            let itemsResponse = try decoder.decode(ItemResponse.self, from: itemsData)
+            let trackIDs = itemsResponse.items.map(\.id)
+            result.append(ServerPlaylist(
+                id: summary.id,
+                name: summary.name.isEmpty ? summary.id : summary.name,
+                trackIDs: trackIDs,
+                reportedTrackCount: itemsResponse.totalRecordCount
+            ))
+        }
+        return result
+    }
+
+    private func fetchPlexPlaylists() async throws -> [ServerPlaylist] {
+        let data = try await performRequest(path: "/playlists")
+        let response = try decoder.decode(PlexPlaylistResponse.self, from: data)
+        let audioPlaylists = response.mediaContainer.playlists.filter { $0.playlistType == "audio" }
+        guard audioPlaylists.isEmpty == false else { return [] }
+
+        var result: [ServerPlaylist] = []
+        result.reserveCapacity(audioPlaylists.count)
+
+        for summary in audioPlaylists {
+            try Task.checkCancellation()
+            let itemsData: Data
+            do {
+                itemsData = try await performRequest(path: "/playlists/\(summary.ratingKey)/items")
+            } catch {
+                plog("⚠️ Plex playlist '\(summary.title)' items fetch failed: \(error.localizedDescription)")
+                continue
+            }
+            let itemsResponse = try decoder.decode(PlexPlaylistItemsResponse.self, from: itemsData)
+            let trackIDs = itemsResponse.mediaContainer.tracks.map(\.ratingKey)
+            result.append(ServerPlaylist(
+                id: summary.ratingKey,
+                name: summary.title.isEmpty ? summary.ratingKey : summary.title,
+                trackIDs: trackIDs,
+                reportedTrackCount: summary.leafCount
+            ))
+        }
+        return result
     }
 
     private func fetchLibraries() async throws -> [Library] {
@@ -1847,3 +1928,58 @@ private struct PlexStream: Decodable {
         case samplingRate
     }
 }
+
+private struct PlexPlaylistResponse: Decodable {
+    let mediaContainer: PlexPlaylistContainer
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+}
+
+private struct PlexPlaylistContainer: Decodable {
+    let playlists: [PlexPlaylistSummary]
+
+    enum CodingKeys: String, CodingKey {
+        case playlists = "Playlist"
+    }
+}
+
+private struct PlexPlaylistSummary: Decodable {
+    let ratingKey: String
+    let title: String
+    let playlistType: String
+    let leafCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey
+        case title
+        case playlistType
+        case leafCount
+    }
+}
+
+private struct PlexPlaylistItemsResponse: Decodable {
+    let mediaContainer: PlexPlaylistItemsContainer
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+}
+
+private struct PlexPlaylistItemsContainer: Decodable {
+    let tracks: [PlexPlaylistTrack]
+
+    enum CodingKeys: String, CodingKey {
+        case tracks = "Track"
+    }
+}
+
+private struct PlexPlaylistTrack: Decodable {
+    let ratingKey: String
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey
+    }
+}
+

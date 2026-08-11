@@ -498,7 +498,7 @@ struct PlaylistDetailView: View {
     @ViewBuilder
     private var macPlaylistRuleCard: some View {
         if playlist.id != MusicLibrary.likedSongsPlaylistID,
-           !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
+           !MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
             HStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 15, weight: .semibold))
@@ -540,7 +540,7 @@ struct PlaylistDetailView: View {
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 重排 / 离线 / 导出 / 删除。
     private var playlistMoreMenu: AnyView {
         let playable = songs.filteredPlayable()
-        let isMirror = AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+        let isMirror = MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id)
         let canDelete = canDeletePlaylist(playlist.id)
 
         var middle: [MacHeaderMoreMenu.Item] = []

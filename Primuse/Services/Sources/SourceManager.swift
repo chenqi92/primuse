@@ -713,10 +713,19 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
             return await provider.fetchServerLyrics(for: path)
         }
     }
+
+    func fetchServerPlaylists() async throws -> [ServerPlaylist] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.fetchServerPlaylists()
+        }
+    }
 }
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    MediaServerWritebackConnector, ServerLyricsConnector {
+    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool

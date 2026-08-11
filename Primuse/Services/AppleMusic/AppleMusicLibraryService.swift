@@ -56,6 +56,11 @@ final class AppleMusicLibraryService {
     private enum UserPlaylistFetchResult: Sendable {
         case mirror(UserPlaylistMirror)
         case empty(id: String, name: String)
+        /// Apple Music 报告有曲目但本地一首都没匹配上 (全是视频 / 下架曲目 /
+        /// canonicalization 失败)。保留已有镜像原样, 也不新建空歌单 —— 这是
+        /// "取不到", 不是"歌单空了"。直接当 empty 会让一次不完整的 fetch 把整个
+        /// 歌单清光。
+        case unresolved(id: String, name: String, reportedTrackCount: Int)
         case failed(id: String, name: String, error: String)
     }
 
@@ -917,6 +922,15 @@ final class AppleMusicLibraryService {
                     fetchedMirrors.append(mirror)
                 case .empty(let id, let name):
                     plog("🎵 AM playlist '\(name)' is empty, pruning local mirror \(id)")
+                case .unresolved(let id, let name, let count):
+                    // 保住已有镜像 (如果存在), 别让 prune 当作"服务端已删"清掉。
+                    if library.playlist(id: id) != nil {
+                        failedIDs.insert(id)
+                    }
+                    plog("""
+                        ⚠️ AM playlist '\(name)' has \(count) track(s) on Apple Music but none \
+                        resolved locally — keeping the existing mirror
+                        """)
                 case .failed(let id, let name, let error):
                     failedIDs.insert(id)
                     plog("⚠️AM playlist '\(name)' fetch tracks failed: \(error)")
@@ -988,6 +1002,11 @@ final class AppleMusicLibraryService {
                 // the relationship with the canonical ID so the mirrored
                 // playlist continues to reference the persisted library row.
                 return Self.toPrimuseSong(canonicalForNowPlaying(s)).id
+            }
+            // Apple Music 报告有曲目但本地一首都没匹配上 —— 可能全是视频、下架曲目、
+            // 或 canonicalization 失败。这是"取不到", 不是"歌单空了", 保留已有镜像。
+            if songIDs.isEmpty, tracks.isEmpty == false {
+                return .unresolved(id: pid, name: amPlaylist.name, reportedTrackCount: tracks.count)
             }
             if songIDs.isEmpty {
                 return .empty(id: pid, name: amPlaylist.name)
