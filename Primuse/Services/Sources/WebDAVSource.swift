@@ -212,7 +212,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 let items = contents
                     .compactMap { file -> RemoteFileItem? in
                         guard !file.name.hasPrefix("."),
-                              let sourcePath = pathPolicy.sourcePath(forServerPath: file.path),
+                              let sourcePath = pathPolicy.sourcePath(forProviderPath: file.path),
                               sourcePath != currentSourcePath else {
                             return nil
                         }

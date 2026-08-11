@@ -14,8 +14,9 @@ enum LyricsWriteback {
         case sidecar(fileName: String, replacesExistingFile: Bool)
         /// 走媒体服务器的写回接口(Jellyfin 等)。
         case mediaServer
-        /// 源不可写，只更新 Primuse 自己的库记录。
-        case localOnly
+        /// 源不可写，只更新 Primuse 自己的库记录。`reason` 非空时明确说明
+        /// 服务端为什么没有被修改。
+        case localOnly(reason: String?)
         /// 探测失败或源明确不支持，附带原因。
         case unavailable(String)
     }
@@ -51,28 +52,56 @@ enum LyricsWriteback {
             }
         }
 
-        if sourcesStore.source(id: song.sourceID)?.type == .jellyfin {
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
+        if sourceType == .jellyfin || sourceType == .emby || sourceType == .plex {
             do {
                 let connector = try await sourceManager.connectorForSong(song)
-                return connector is any MediaServerWritebackConnector
-                    ? .mediaServer
-                    : .unavailable(String(localized: "tag_editor_lyrics_server_unsupported"))
+                guard let server = connector as? any ServerLyricsConnector else {
+                    return .unavailable(String(localized: "tag_editor_lyrics_server_unsupported"))
+                }
+                if server.serverLyricsCapabilities.canWrite,
+                   connector is any MediaServerWritebackConnector {
+                    return .mediaServer
+                }
+                if sourceType == .emby {
+                    return .localOnly(
+                        reason: String(localized: "tag_editor_lyrics_server_unsupported")
+                    )
+                }
+                return .localOnly(reason: nil)
             } catch {
                 return .unavailable(error.localizedDescription)
             }
         }
 
-        return .localOnly
+        return .localOnly(reason: nil)
     }
 
     // MARK: - 保存
 
     /// 保存结果。`errorMessage` 非 nil 表示写回失败，调用方原样展示给用户。
     struct SaveOutcome {
+        enum Persistence: Equatable {
+            case sidecar
+            case mediaServer
+            case localOnly
+        }
+
         var updatedSong: Song
         var errorMessage: String?
+        var persistence: Persistence
 
         var succeeded: Bool { errorMessage == nil }
+
+        init(
+            updatedSong: Song,
+            errorMessage: String?,
+            persistence: Persistence = .localOnly
+        ) {
+            self.updatedSong = updatedSong
+            self.errorMessage = errorMessage
+            self.persistence = persistence
+        }
     }
 
     /// 把编辑后的歌词文本落盘并更新库记录。
@@ -89,12 +118,14 @@ enum LyricsWriteback {
     ) async -> SaveOutcome {
         var updated = song
         let content = normalized(text)
+        let persistence = persistence(for: mode)
 
         if content.isEmpty {
             guard allowRemoval else {
                 return SaveOutcome(
                     updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_empty_error")
+                    errorMessage: String(localized: "tag_editor_lyrics_empty_error"),
+                    persistence: persistence
                 )
             }
             if let error = await remove(for: updated, mode: mode, sourceManager: sourceManager) {
@@ -103,7 +134,8 @@ enum LyricsWriteback {
                     errorMessage: String(
                         format: String(localized: "tag_editor_lyrics_write_failed"),
                         error
-                    )
+                    ),
+                    persistence: persistence
                 )
             }
             await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
@@ -114,7 +146,8 @@ enum LyricsWriteback {
             guard validation.isValid else {
                 return SaveOutcome(
                     updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_invalid_error")
+                    errorMessage: String(localized: "tag_editor_lyrics_invalid_error"),
+                    persistence: persistence
                 )
             }
             if let error = await write(
@@ -129,7 +162,8 @@ enum LyricsWriteback {
                     errorMessage: String(
                         format: String(localized: "tag_editor_lyrics_write_failed"),
                         error
-                    )
+                    ),
+                    persistence: persistence
                 )
             }
             _ = await MetadataAssetStore.shared.cacheLyrics(
@@ -143,7 +177,11 @@ enum LyricsWriteback {
 
         library.replaceSong(updated)
         NotificationCenter.default.post(name: .primuseLyricsDidChange, object: updated.id)
-        return SaveOutcome(updatedSong: updated, errorMessage: nil)
+        return SaveOutcome(
+            updatedSong: updated,
+            errorMessage: nil,
+            persistence: persistence
+        )
     }
 
     // MARK: - 写 / 删
@@ -309,5 +347,16 @@ enum LyricsWriteback {
     static func normalized(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func persistence(for mode: Mode) -> SaveOutcome.Persistence {
+        switch mode {
+        case .sidecar:
+            return .sidecar
+        case .mediaServer:
+            return .mediaServer
+        case .checking, .localOnly, .unavailable:
+            return .localOnly
+        }
     }
 }

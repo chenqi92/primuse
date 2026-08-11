@@ -6,6 +6,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private static let maximumCatalogTracks = 10_000_000
     private static let maximumPlaylistCount = 100_000
     private static let playlistPageSize = 200
+    private static let maximumLyricsResponseBytes = 2 * 1024 * 1024
 
     enum Kind: Sendable {
         case jellyfin
@@ -14,6 +15,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     let sourceID: String
+    nonisolated let serverLyricsCapabilities: ServerLyricsCapabilities
 
     private let kind: Kind
     private let baseURL: URL
@@ -30,6 +32,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private var plexItems: [String: PlexAudioItem] = [:]
     private var plexAPIVersion: String?
     private var plexSigninState: String?
+    private var embyLyricsStreams: [String: EmbyLyricsStreamDescriptor] = [:]
+    private var embyLyricsProbedItemIDs: Set<String> = []
 
     init(
         sourceID: String,
@@ -44,6 +48,19 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     ) {
         self.sourceID = sourceID
         self.kind = kind
+        switch kind {
+        case .jellyfin:
+            self.serverLyricsCapabilities = ServerLyricsCapabilities(
+                canRead: true,
+                canWrite: true,
+                canDelete: true,
+                supportsSiblingSidecarLookup: false
+            )
+        case .emby:
+            self.serverLyricsCapabilities = .readOnlyDocument
+        case .plex:
+            self.serverLyricsCapabilities = .unavailable
+        }
         self.baseURL = Self.makeBaseURL(
             host: host,
             port: port,
@@ -144,6 +161,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         plexItems.removeAll()
         plexAPIVersion = nil
         plexSigninState = nil
+        embyLyricsStreams.removeAll()
+        embyLyricsProbedItemIDs.removeAll()
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -496,6 +515,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     guard seenTrackIDs.count <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
                                     }
+                                    if kind == .emby {
+                                        embyLyricsProbedItemIDs.insert(item.id)
+                                        embyLyricsStreams[item.id] = item.embyLyricsStream
+                                    }
                                     let song = buildSong(from: item)
                                     continuation.yield(
                                         ConnectorScannedSong(
@@ -629,15 +652,50 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     func fetchServerLyrics(for path: String) async -> String? {
-        guard kind == .jellyfin, let itemID = itemID(from: path) else { return nil }
+        guard let itemID = itemID(from: path) else { return nil }
         do {
             try await connect()
-            let data = try await performRequest(path: "/Audio/\(itemID)/Lyrics")
-            let response = try decoder.decode(JellyfinLyricResponse.self, from: data)
-            return response.editableContent
+            switch kind {
+            case .jellyfin:
+                let data = try await performRequest(
+                    path: "/Audio/\(itemID)/Lyrics",
+                    maximumResponseBytes: Self.maximumLyricsResponseBytes
+                )
+                let response = try decoder.decode(JellyfinLyricResponse.self, from: data)
+                return response.editableContent
+            case .emby:
+                guard let stream = try await embyLyricsStream(for: itemID) else { return nil }
+                let data = try await performRequest(
+                    path: "/Items/\(itemID)/\(stream.mediaSourceID)/Subtitles/\(stream.streamIndex)/Stream.js",
+                    maximumResponseBytes: Self.maximumLyricsResponseBytes
+                )
+                return try EmbyLyricsTrackEventParser.editableText(from: data)
+            case .plex:
+                return nil
+            }
         } catch {
             return nil
         }
+    }
+
+    private func embyLyricsStream(for itemID: String) async throws -> EmbyLyricsStreamDescriptor? {
+        if let cached = embyLyricsStreams[itemID] {
+            return cached
+        }
+        if embyLyricsProbedItemIDs.contains(itemID) {
+            return nil
+        }
+        guard let userID else { throw SourceError.authenticationFailed }
+        let data = try await performRequest(
+            path: "/Users/\(userID)/Items/\(itemID)",
+            queryItems: [URLQueryItem(name: "Fields", value: "MediaSources,MediaStreams")],
+            maximumResponseBytes: Self.maximumLyricsResponseBytes
+        )
+        let item = try decoder.decode(AudioItem.self, from: data)
+        let descriptor = item.embyLyricsStream
+        embyLyricsProbedItemIDs.insert(itemID)
+        embyLyricsStreams[itemID] = descriptor
+        return descriptor
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
@@ -1034,7 +1092,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         contentType: String = "application/json",
         accept: String = "application/json",
         requiresAuth: Bool = true,
-        allowPasswordReauthentication: Bool = true
+        allowPasswordReauthentication: Bool = true,
+        maximumResponseBytes: Int = PlainHTTPClient.defaultMaxBytes
     ) async throws -> Data {
         var request = URLRequest(url: buildURL(path: path, queryItems: queryItems))
         request.httpMethod = method
@@ -1048,7 +1107,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
         let (data, response) = try await TrustedHTTPTransport.data(
             for: request,
-            session: session
+            session: session,
+            maxBytes: maximumResponseBytes
         )
         if requiresAuth,
            method == "GET",
@@ -1068,10 +1128,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 contentType: contentType,
                 accept: accept,
                 requiresAuth: requiresAuth,
-                allowPasswordReauthentication: false
+                allowPasswordReauthentication: false,
+                maximumResponseBytes: maximumResponseBytes
             )
         }
         try validate(response)
+        guard data.count <= maximumResponseBytes else {
+            throw SourceError.connectionFailed("Response exceeds \(maximumResponseBytes) bytes")
+        }
         return data
     }
 
@@ -1812,6 +1876,48 @@ private struct AudioItem: Decodable {
         case imageTags = "ImageTags"
         case path = "Path"
     }
+
+    var embyLyricsStream: EmbyLyricsStreamDescriptor? {
+        for source in mediaSources ?? [] {
+            guard let mediaSourceID = source.id, !mediaSourceID.isEmpty else { continue }
+            let streams = source.mediaStreams ?? mediaStreams ?? []
+            if let stream = Self.lyricsStream(
+                in: streams,
+                preferredIndex: source.defaultSubtitleStreamIndex
+            ), let streamIndex = stream.index {
+                return EmbyLyricsStreamDescriptor(
+                    mediaSourceID: mediaSourceID,
+                    streamIndex: streamIndex
+                )
+            }
+        }
+        return nil
+    }
+
+    private static func lyricsStream(
+        in streams: [AudioStream],
+        preferredIndex: Int?
+    ) -> AudioStream? {
+        let candidates = streams.filter { stream in
+            guard stream.type?.caseInsensitiveCompare("Subtitle") == .orderedSame,
+                  stream.index != nil,
+                  stream.isTextSubtitleStream != false else {
+                return false
+            }
+            guard let codec = stream.codec?.lowercased(), !codec.isEmpty else { return true }
+            return codec == "text" || codec == "lrc" || codec == "srt" || codec == "subrip"
+        }
+        if let preferredIndex,
+           let preferred = candidates.first(where: { $0.index == preferredIndex }) {
+            return preferred
+        }
+        return candidates.first
+    }
+}
+
+private struct EmbyLyricsStreamDescriptor: Sendable {
+    let mediaSourceID: String
+    let streamIndex: Int
 }
 
 /// Jellyfin serializes AlbumArtists as NameGuidPair objects, not strings.
@@ -1840,12 +1946,18 @@ private struct NameIDPair: Decodable {
 
 private struct AudioStream: Decodable {
     let type: String?
+    let index: Int?
+    let codec: String?
+    let isTextSubtitleStream: Bool?
     let bitRate: Int?
     let sampleRate: Int?
     let bitDepth: Int?
 
     enum CodingKeys: String, CodingKey {
         case type = "Type"
+        case index = "Index"
+        case codec = "Codec"
+        case isTextSubtitleStream = "IsTextSubtitleStream"
         case bitRate = "BitRate"
         case sampleRate = "SampleRate"
         case bitDepth = "BitDepth"
@@ -1853,14 +1965,20 @@ private struct AudioStream: Decodable {
 }
 
 private struct AudioMediaSource: Decodable {
+    let id: String?
     let size: Int64?
     let container: String?
     let path: String?
+    let defaultSubtitleStreamIndex: Int?
+    let mediaStreams: [AudioStream]?
 
     enum CodingKeys: String, CodingKey {
+        case id = "Id"
         case size = "Size"
         case container = "Container"
         case path = "Path"
+        case defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
+        case mediaStreams = "MediaStreams"
     }
 }
 
@@ -2248,4 +2366,3 @@ private struct PlexPlaylistTrack: Decodable {
         case ratingKey
     }
 }
-

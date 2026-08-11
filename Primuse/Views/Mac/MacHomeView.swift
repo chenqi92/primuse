@@ -86,8 +86,10 @@ struct MacHomeView: View {
                 }
 
                 heroSection
-                if showRadio {
-                    radioSpotlightSection
+                if showRadio,
+                   player.isLiveRadio,
+                   let currentStation = player.currentRadioStation {
+                    radioNowPlayingStrip(currentStation)
                 }
 
                 if hasContent {
@@ -95,11 +97,17 @@ struct MacHomeView: View {
                     pipelineSection
                     recentlyAddedSection
                     recentlyPlayedSection
+                    if showRadio, !radioStationsStore.stations.isEmpty {
+                        radioSpotlightSection
+                    }
                     if !derived.artists.isEmpty {
                         artistsSection
                     }
                 } else {
                     emptyState
+                    if showRadio, !radioStationsStore.stations.isEmpty {
+                        radioSpotlightSection
+                    }
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
@@ -445,6 +453,83 @@ struct MacHomeView: View {
         .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
     }
 
+    /// Playing radio is contextual, so promote only the active station beneath
+    /// the hero instead of letting the complete station library dominate the
+    /// top of Home. The full shelf remains lower with the other recent content.
+    private func radioNowPlayingStrip(_ station: RadioStation) -> some View {
+        let isActive = player.isPlaying || player.isLoading
+
+        return HStack(spacing: PMSpace.m14) {
+            Button {
+                NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
+            } label: {
+                HStack(spacing: PMSpace.m14) {
+                    radioTileArtwork(station)
+                        .frame(width: 54, height: 54)
+                        .clipShape(RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(isActive ? Color.red : PMColor.textFaint)
+                                .frame(width: 6, height: 6)
+                            Text("radio_live")
+                                .font(.system(size: 10.5, weight: .bold))
+                                .tracking(0.5)
+                                .foregroundStyle(isActive ? PMColor.brand : PMColor.textMuted)
+                        }
+
+                        Text(station.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(1)
+
+                        Text(player.radioMetadataTitle ?? station.playbackSubtitle)
+                            .font(PMFont.caption)
+                            .foregroundStyle(PMColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: PMSpace.m)
+
+            Button {
+                NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 30, height: 30)
+                    .background(PMColor.glassBtn, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(Text("home_section_view_all"))
+            .accessibilityLabel(Text("home_section_view_all"))
+
+            Button {
+                toggleRadio(station)
+            } label: {
+                Image(systemName: isActive ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(PMColor.brand, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(Text(isActive ? "pause" : "play"))
+            .accessibilityLabel(Text(isActive ? "pause" : "play"))
+        }
+        .padding(PMSpace.m14)
+        .pmCard(cornerRadius: PMRadius.l14)
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
+                .strokeBorder(PMColor.brand.opacity(0.35), lineWidth: 1)
+        }
+    }
+
     private var radioSpotlightSection: some View {
         VStack(alignment: .leading, spacing: PMSpace.s10) {
             HStack {
@@ -463,33 +548,7 @@ struct MacHomeView: View {
                 .foregroundStyle(PMColor.brand)
             }
 
-            if radioStationsStore.stations.isEmpty {
-                Button {
-                    NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
-                } label: {
-                    HStack(spacing: PMSpace.l24) {
-                        Image(systemName: "radio.fill")
-                            .font(.system(size: 38, weight: .semibold))
-                            .frame(width: 108, height: 108)
-                            .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: PMRadius.l))
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("radio_empty_title").font(.title3.weight(.bold))
-                            Text("radio_empty_description")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.76))
-                        }
-                        Spacer()
-                        Image(systemName: "plus.circle.fill").font(.title)
-                    }
-                    .padding(PMSpace.l24)
-                    .frame(maxWidth: .infinity, minHeight: 160)
-                    .foregroundStyle(.white)
-                    .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: PMRadius.xl))
-                }
-                .buttonStyle(.plain)
-            } else {
-                radioStationGrid
-            }
+            radioStationGrid
         }
         .onChange(of: player.currentRadioStation?.id) { _, stationID in
             guard let stationID,
@@ -509,7 +568,7 @@ struct MacHomeView: View {
             alignment: .leading,
             spacing: PMSpace.m14
         ) {
-            ForEach(radioStationsStore.stations) { station in
+            ForEach(radioStationsStore.stations.prefix(4)) { station in
                 radioStationTile(station)
             }
         }

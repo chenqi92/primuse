@@ -41,4 +41,22 @@ struct WebDAVPathPolicyTests {
         #expect(policy.sourcePath(forServerPath: "/") == "/")
         #expect(policy.sourcePath(forServerPath: "/Music/song.mp3") == "/Music/song.mp3")
     }
+
+    @Test("FilesProvider callbacks remain source-relative for root and prefixed servers")
+    func providerRelativePaths() {
+        let rootPolicy = WebDAVPathPolicy(basePath: nil)
+        let prefixedPolicy = WebDAVPathPolicy(basePath: "/dav")
+
+        #expect(rootPolicy.sourcePath(forProviderPath: "/Albums/song.flac")
+            == "/Albums/song.flac")
+        #expect(prefixedPolicy.sourcePath(forProviderPath: "/Albums/song.flac")
+            == "/Albums/song.flac")
+        #expect(prefixedPolicy.sourcePath(forProviderPath: "/dav/Albums/song.flac")
+            == "/Albums/song.flac")
+        #expect(prefixedPolicy.sourcePath(forProviderPath: "/%E5%B9%B4%E8%BD%BB%E7%9C%9F%E5%A5%BD.mp3")
+            == "/年轻真好.mp3")
+        #expect(prefixedPolicy.sourcePath(forProviderPath: "/Albums/../secret.mp3") == nil)
+        #expect(prefixedPolicy.sourcePath(forProviderPath: "Albums/song.flac")
+            == "/Albums/song.flac")
+    }
 }

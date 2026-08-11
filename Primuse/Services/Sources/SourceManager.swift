@@ -724,6 +724,7 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+    let serverLyricsCapabilities: ServerLyricsCapabilities
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
@@ -920,6 +921,20 @@ final class SourceManager {
         let routing = SourceConnectionRouter(sourceID: source.id, candidates: routedCandidates)
         let supportsSidecarWriting = routedCandidates[0].connector.supportsSidecarWriting
         let preferredDeleteBatchSize = routedCandidates[0].connector.preferredDeleteBatchSize
+        let mediaServerLyricsCapabilities: ServerLyricsCapabilities
+        switch source.type {
+        case .jellyfin:
+            mediaServerLyricsCapabilities = ServerLyricsCapabilities(
+                canRead: true,
+                canWrite: true,
+                canDelete: true,
+                supportsSiblingSidecarLookup: false
+            )
+        case .emby:
+            mediaServerLyricsCapabilities = .readOnlyDocument
+        default:
+            mediaServerLyricsCapabilities = .unavailable
+        }
 
         switch source.type {
         case .jellyfin, .emby, .plex:
@@ -927,7 +942,8 @@ final class SourceManager {
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
-                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize,
+                serverLyricsCapabilities: mediaServerLyricsCapabilities
             )
         case .subsonic, .navidrome, .airsonic, .gonic:
             return RoutedSubsonicConnector(

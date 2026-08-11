@@ -1118,8 +1118,11 @@ struct TagEditorView: View {
         case .mediaServer:
             Label(String(localized: "tag_editor_lyrics_writeback_server"), systemImage: "server.rack")
                 .foregroundStyle(.secondary)
-        case .localOnly:
-            Label(String(localized: "tag_editor_lyrics_writeback_read_only"), systemImage: "lock")
+        case .localOnly(let reason):
+            Label(
+                reason ?? String(localized: "tag_editor_lyrics_writeback_read_only"),
+                systemImage: "lock"
+            )
                 .foregroundStyle(.orange)
         case .unavailable(let reason):
             Label(

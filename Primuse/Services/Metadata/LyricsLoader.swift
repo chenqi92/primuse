@@ -28,10 +28,16 @@ enum LyricsLoader {
             let connector = try await sourceManager.auxiliaryConnector(for: song)
             guard !Task.isCancelled else { return nil }
 
-            if let server = connector as? ServerLyricsConnector,
-               let raw = await server.fetchServerLyrics(for: song.filePath),
-               !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return raw
+            if let server = connector as? ServerLyricsConnector {
+                let capabilities = server.serverLyricsCapabilities
+                if capabilities.canRead,
+                   let raw = await server.fetchServerLyrics(for: song.filePath),
+                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return raw
+                }
+                if !capabilities.supportsSiblingSidecarLookup {
+                    return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
+                }
             }
 
             let songDir = (song.filePath as NSString).deletingLastPathComponent
@@ -61,13 +67,7 @@ enum LyricsLoader {
             // offline best effort for remote sources.
         }
 
-        if let cachedAudioURL = sourceManager.cachedURL(for: song),
-           let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
-           let text = try? String(contentsOf: lrcURL, encoding: .utf8),
-           !text.isEmpty {
-            return text
-        }
-        return nil
+        return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
     }
 
     static func load(for song: Song, sourceManager: SourceManager) async -> [LyricLine] {
@@ -100,38 +100,44 @@ enum LyricsLoader {
 
             // Tier 2.5: 服务端歌词 (Subsonic getLyricsBySongId 等)。服务端不是
             // "同目录 .lrc" 模型, 走 connector 的 ServerLyricsConnector 能力。
-            if let server = connector as? ServerLyricsConnector,
-               let raw = await server.fetchServerLyrics(for: song.filePath) {
-                guard !Task.isCancelled else { return [] }
-                let parsed = LyricsParser.parseText(raw)
-                if !parsed.isEmpty {
-                    await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            if let server = connector as? ServerLyricsConnector {
+                let capabilities = server.serverLyricsCapabilities
+                if capabilities.canRead,
+                   let raw = await server.fetchServerLyrics(for: song.filePath) {
                     guard !Task.isCancelled else { return [] }
-                    logLoaded(parsed, song: song, tier: "Tier2c-server")
-                    return parsed
+                    let parsed = LyricsParser.parseText(raw)
+                    if !parsed.isEmpty {
+                        await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+                        guard !Task.isCancelled else { return [] }
+                        logLoaded(parsed, song: song, tier: "Tier2c-server")
+                        return parsed
+                    }
                 }
-            }
 
-            // A server-side lyrics miss (notably Airsonic's external provider
-            // returning 404) should not stop the desktop/watch lyrics path.
-            // Reuse the title-safe online scraper and keep the result in the
-            // read-only local metadata overlay keyed by this song ID.
-            if connector is ServerLyricsConnector,
-               let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
-                   title: song.title,
-                   artist: song.artistName,
-                   album: song.albumTitle,
-                   duration: song.duration > 0 ? song.duration : nil
-               ), !online.isEmpty {
-                guard !Task.isCancelled else { return [] }
-                _ = await MetadataAssetStore.shared.cacheLyrics(
-                    online,
-                    forSongID: song.id,
-                    force: true
-                )
-                guard !Task.isCancelled else { return [] }
-                logLoaded(online, song: song, tier: "Tier2d-online")
-                return online
+                // A server-side lyrics miss (notably Airsonic's external provider
+                // returning 404) should not stop the desktop/watch lyrics path.
+                if let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
+                    title: song.title,
+                    artist: song.artistName,
+                    album: song.albumTitle,
+                    duration: song.duration > 0 ? song.duration : nil
+                ), !online.isEmpty {
+                    guard !Task.isCancelled else { return [] }
+                    _ = await MetadataAssetStore.shared.cacheLyrics(
+                        online,
+                        forSongID: song.id,
+                        force: true
+                    )
+                    guard !Task.isCancelled else { return [] }
+                    logLoaded(online, song: song, tier: "Tier2d-online")
+                    return online
+                }
+
+                // Media-server item IDs are opaque identifiers, not directory
+                // paths. Never turn `/items/{id}` into a sibling `.lrc` fetch.
+                if !capabilities.supportsSiblingSidecarLookup {
+                    return []
+                }
             }
 
             let songDir = (song.filePath as NSString).deletingLastPathComponent
@@ -170,6 +176,19 @@ enum LyricsLoader {
     private static func logLoaded(_ lines: [LyricLine], song: Song, tier: String) {
         let wordLevelCount = lines.filter { $0.isWordLevel }.count
         plog("📜 LyricsLoader '\(song.title)' \(tier) lines=\(lines.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
+    }
+
+    private static func locallyMaterializedSourceText(
+        for song: Song,
+        sourceManager: SourceManager
+    ) -> String? {
+        guard let cachedAudioURL = sourceManager.cachedURL(for: song),
+              let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
+              let text = try? String(contentsOf: lrcURL, encoding: .utf8),
+              !text.isEmpty else {
+            return nil
+        }
+        return text
     }
 
     private static func normalizedEditableText(_ text: String) -> String {

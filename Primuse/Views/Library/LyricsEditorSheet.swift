@@ -21,6 +21,7 @@ struct LyricsEditorSheet: View {
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var completionMessage: String?
     /// 待确认删除的内容。非 nil 表示用户清空了歌词、正在等二次确认。
     @State private var pendingRemoval = false
 
@@ -48,6 +49,17 @@ struct LyricsEditorSheet: View {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .alert(
+            String(localized: "done"),
+            isPresented: Binding(
+                get: { completionMessage != nil },
+                set: { if !$0 { completionMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done")) { dismiss() }
+        } message: {
+            Text(completionMessage ?? "")
         }
         .confirmationDialog(
             String(localized: "tag_editor_lyrics_delete_confirm_title"),
@@ -145,6 +157,15 @@ struct LyricsEditorSheet: View {
 
         originalText = text
         onSave?(outcome.updatedSong)
+        if outcome.persistence == .localOnly,
+           case .localOnly(let reason) = mode,
+           let reason {
+            completionMessage = [
+                String(localized: "tag_editor_lyrics_writeback_read_only"),
+                reason
+            ].joined(separator: "\n")
+            return
+        }
         dismiss()
     }
 }

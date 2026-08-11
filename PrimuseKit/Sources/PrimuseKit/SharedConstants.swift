@@ -833,6 +833,21 @@ public struct WebDAVPathPolicy: Equatable, Sendable {
         return nil
     }
 
+    /// Converts FilesProvider's callback path to the source-relative namespace.
+    /// FilesProvider normally strips the configured base path before creating a
+    /// FileObject, while reverse-proxy responses can still retain the upstream
+    /// WebDAV root. Prefer the server-path mapping for that retained-root case,
+    /// then accept the already-relative callback path without prefixing the
+    /// configured base path a second time.
+    public func sourcePath(forProviderPath providerPath: String) -> String? {
+        if let sourcePath = sourcePath(forServerPath: providerPath) {
+            return sourcePath
+        }
+        let decodedPath = providerPath.removingPercentEncoding ?? providerPath
+        return RemotePathScopePolicy(rootPath: "/")
+            .resolvedPath(forStoredPath: decodedPath)
+    }
+
     private static func containsParentReference(_ path: String) -> Bool {
         path.split(separator: "/", omittingEmptySubsequences: false)
             .contains { $0 == ".." }

@@ -593,12 +593,38 @@ protocol ServerPlaylistConnector: MusicSourceConnector {
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
 }
 
-/// 服务端直接提供歌词的能力 (Subsonic getLyricsBySongId / getLyrics)。
-/// 返回 LRC 文本(带 `[mm:ss.xx]` 时间轴)或纯文本(无时间轴), 交由
-/// `LyricsParser` 统一解析; 没有歌词时返回 nil。服务端歌词不是"同目录
-/// .lrc"模型, 所以走这条能力而非 LyricsLoader 的 sidecar 路径。
+struct ServerLyricsCapabilities: Equatable, Sendable {
+    let canRead: Bool
+    let canWrite: Bool
+    let canDelete: Bool
+    /// `Song.filePath` 能否被当作真实文件路径并据此查找同目录 sidecar。
+    let supportsSiblingSidecarLookup: Bool
+
+    static let readOnlyDocument = ServerLyricsCapabilities(
+        canRead: true,
+        canWrite: false,
+        canDelete: false,
+        supportsSiblingSidecarLookup: false
+    )
+
+    static let unavailable = ServerLyricsCapabilities(
+        canRead: false,
+        canWrite: false,
+        canDelete: false,
+        supportsSiblingSidecarLookup: false
+    )
+}
+
+/// 服务端直接提供歌词的能力 (Subsonic getLyricsBySongId / getLyrics，或
+/// Emby 的文本字幕流)。返回 LRC 文本(带 `[mm:ss.xx]` 时间轴)或纯文本
+/// (无时间轴), 交由 `LyricsParser` 统一解析; 没有歌词时返回 nil。
 protocol ServerLyricsConnector: MusicSourceConnector {
+    var serverLyricsCapabilities: ServerLyricsCapabilities { get }
     func fetchServerLyrics(for path: String) async -> String?
+}
+
+extension ServerLyricsConnector {
+    var serverLyricsCapabilities: ServerLyricsCapabilities { .readOnlyDocument }
 }
 
 /// Implemented by connectors whose `Song.filePath` is an opaque provider
