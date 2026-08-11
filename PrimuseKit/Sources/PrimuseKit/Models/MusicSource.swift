@@ -512,6 +512,18 @@ public enum SourceFileDeletionPolicy {
     }
 }
 
+/// A missing-file error from a multi-file provider request describes at least
+/// one path, not necessarily every path in the chunk. Retrying individually is
+/// required before any library row can be classified as already missing.
+public enum SourceBatchDeletionFailurePolicy {
+    public static func shouldRetryIndividually(
+        batchCount: Int,
+        aggregateErrorIndicatesMissing: Bool
+    ) -> Bool {
+        batchCount > 1 && aggregateErrorIndicatesMissing
+    }
+}
+
 // MARK: - Auth Types
 
 public enum SourceAuthType: String, Codable, Sendable {

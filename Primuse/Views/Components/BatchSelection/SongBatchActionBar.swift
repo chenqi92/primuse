@@ -48,6 +48,10 @@ private struct SongBatchActionsModifier: ViewModifier {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SongBatchRemovalService.self) private var removal
+    #if os(iOS)
+    @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
 
     let selection: SongSelectionModel
     let context: SongBatchActionContext
@@ -71,6 +75,7 @@ private struct SongBatchActionsModifier: ViewModifier {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if selection.isActive {
                     actionBar
+                        .padding(.bottom, actionBarBottomClearance)
                         .transition(.move(edge: .bottom))
                 }
             }
@@ -106,6 +111,23 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     // MARK: - Bar
+
+    private var actionBarBottomClearance: CGFloat {
+        #if os(iOS)
+        guard player.currentSong != nil || appleMusic.nowPlayingSong != nil else {
+            return 0
+        }
+        // The legacy mini player is an outer ContentView overlay, so a page-
+        // local safe-area inset otherwise lands underneath it and cannot be
+        // tapped. iOS 26.1's native tab accessory already contributes its own
+        // safe area; regular-width layouts continue to use the legacy overlay.
+        if horizontalSizeClass == .regular { return 68 }
+        if #available(iOS 26.1, *) { return 0 }
+        return 52
+        #else
+        return 0
+        #endif
+    }
 
     private var actionBar: some View {
         HStack(spacing: 12) {
@@ -223,12 +245,14 @@ private struct SongBatchActionsModifier: ViewModifier {
             } label: {
                 Label("batch_remove_from_library", systemImage: "trash")
             }
+            .disabled(removal.isBusy)
 
             Button(role: .destructive) {
                 prepareDeletion(mode: .sourceFiles)
             } label: {
                 Label("batch_delete_source_files", systemImage: "trash.slash")
             }
+            .disabled(removal.isBusy)
         }
     }
 
@@ -254,6 +278,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     private func prepareDeletion(mode: SongBatchRemovalService.Mode) {
+        guard !removal.isBusy else { return }
         let songs = selectedSongs()
         guard !songs.isEmpty else { return }
 
@@ -282,7 +307,9 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     private func performDeletion(_ pending: PendingDeletion) {
-        removal.remove(pending.songs, mode: pending.mode, skipped: pending.skipped)
+        guard removal.remove(pending.songs, mode: pending.mode, skipped: pending.skipped) != nil else {
+            return
+        }
         selection.deactivate()
     }
 

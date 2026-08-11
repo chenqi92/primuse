@@ -65,7 +65,7 @@ final class SongBatchRemovalService {
     /// 和 `completionRevision`。
     @discardableResult
     func remove(_ songs: [Song], mode: Mode, skipped: Int = 0) -> Task<Void, Never>? {
-        guard activeTask == nil, !songs.isEmpty else { return activeTask }
+        guard activeTask == nil, !songs.isEmpty else { return nil }
         progress = Progress(done: 0, total: songs.count)
 
         let task = Task { @MainActor in
@@ -80,7 +80,9 @@ final class SongBatchRemovalService {
                 self.activeTask = nil
             }
 
-            await self.advancePlaybackIfNeeded(songs)
+            await self.player.prepareQueueForRemovingSongs(
+                withIDs: Set(songs.map(\.id))
+            )
 
             switch mode {
             case .libraryOnly:
@@ -173,11 +175,4 @@ final class SongBatchRemovalService {
         completionRevision &+= 1
     }
 
-    /// 正在放的那首被删了就先跳走，避免播放器抱着一个已经不存在的文件。
-    private func advancePlaybackIfNeeded(_ songs: [Song]) async {
-        guard let currentID = player.currentSong?.id,
-              songs.contains(where: { $0.id == currentID })
-        else { return }
-        await player.next()
-    }
 }

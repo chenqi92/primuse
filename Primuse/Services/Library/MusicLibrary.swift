@@ -2963,12 +2963,26 @@ final class MusicLibrary {
     /// Soft-delete: mark `isDeleted = true`, propagated to other devices as
     /// an update so the recycle bin converges.
     func deletePlaylist(id: String) {
-        guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return }
-        allPlaylists[index].isDeleted = true
-        allPlaylists[index].deletedAt = Date()
-        allPlaylists[index].updatedAt = Date()
+        deletePlaylists(ids: [id])
+    }
+
+    /// Soft-delete several playlists with one snapshot write and one CloudKit
+    /// change notification. Calling `deletePlaylist` in a selection loop makes
+    /// a nominal batch operation perform a full persistence pass per row.
+    func deletePlaylists(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        let now = Date()
+        var changedIDs: [String] = []
+        changedIDs.reserveCapacity(ids.count)
+        for index in allPlaylists.indices where ids.contains(allPlaylists[index].id) {
+            allPlaylists[index].isDeleted = true
+            allPlaylists[index].deletedAt = now
+            allPlaylists[index].updatedAt = now
+            changedIDs.append(allPlaylists[index].id)
+        }
+        guard !changedIDs.isEmpty else { return }
         persistSnapshot()
-        notifyPlaylistsChanged([id])
+        notifyPlaylistsChanged(changedIDs)
     }
 
     /// Restore a soft-deleted playlist (e.g. from the Recently Deleted view).

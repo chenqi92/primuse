@@ -6,6 +6,10 @@ struct PlaylistListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
+    #if os(iOS)
+    @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
@@ -40,6 +44,7 @@ struct PlaylistListView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isManagingPlaylists {
                 playlistManageBar
+                    .padding(.bottom, playlistManageBottomClearance)
             }
         }
         .alert("delete_playlist", isPresented: $showBatchDeleteConfirm) {
@@ -210,10 +215,21 @@ struct PlaylistListView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
-    private func deleteSelectedPlaylists() {
-        for playlistID in deletablePlaylistIDs {
-            library.deletePlaylist(id: playlistID)
+    private var playlistManageBottomClearance: CGFloat {
+        #if os(iOS)
+        guard player.currentSong != nil || appleMusic.nowPlayingSong != nil else {
+            return 0
         }
+        if horizontalSizeClass == .regular { return 68 }
+        if #available(iOS 26.1, *) { return 0 }
+        return 52
+        #else
+        return 0
+        #endif
+    }
+
+    private func deleteSelectedPlaylists() {
+        library.deletePlaylists(ids: deletablePlaylistIDs)
         playlistSelection = []
         isManagingPlaylists = false
     }

@@ -5348,6 +5348,44 @@ final class AudioPlayerService {
         if shuffleEnabled { rebuildShuffleOrder() }
         persistPlaybackSession()
     }
+    /// Remove every occurrence of the target songs from the canonical queue
+    /// before their library records or source files disappear. If the active
+    /// song is part of the batch, playback moves directly to a retained row;
+    /// advancing only once can land on another song in the same deletion batch.
+    func prepareQueueForRemovingSongs(withIDs songIDs: Set<String>) async {
+        let plan = QueueBatchRemovalPolicy.plan(
+            queueSongIDs: queueEntries.map(\.song.id),
+            currentIndex: currentIndex,
+            currentSongID: currentSong?.id,
+            removingSongIDs: songIDs
+        )
+        guard plan.action != .unchanged else { return }
+
+        let retainedSongs = plan.retainedIndices.compactMap { index in
+            queueEntries.indices.contains(index) ? queueEntries[index].song : nil
+        }
+        switch plan.action {
+        case .unchanged:
+            return
+        case let .replaceQueue(startAt):
+            if retainedSongs.isEmpty {
+                clearQueue()
+            } else {
+                setQueue(retainedSongs, startAt: startAt)
+            }
+        case let .playReplacement(startAt):
+            guard retainedSongs.indices.contains(startAt) else {
+                stop()
+                clearQueue()
+                return
+            }
+            setQueue(retainedSongs, startAt: startAt)
+            await play(song: retainedSongs[startAt])
+        case .stopAndClearQueue:
+            stop()
+            clearQueue()
+        }
+    }
 
     /// 删掉队列前 `count` 首歌, 同时把 `currentIndex` 往前平移 (不让它跑负)。
     /// MacQueuePanel 的 "清掉已播放" 按钮直接调这个 ── 之前是把 player.queue

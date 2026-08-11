@@ -3034,10 +3034,34 @@ final class SourceManager {
                             }
                         }
                     } catch {
+                        let aggregateMissing = Self.isMissingFileError(error)
+                        if SourceBatchDeletionFailurePolicy.shouldRetryIndividually(
+                            batchCount: chunk.count,
+                            aggregateErrorIndicatesMissing: aggregateMissing
+                        ) {
+                            plog("⚠️ Batch source deletion reported a missing path; retrying \(chunk.count) items individually for source \(sourceID)")
+                            for song in chunk {
+                                if Task.isCancelled { break sourceLoop }
+                                let result = await Self.performSourceFileDeletion(
+                                    for: song,
+                                    connector: conn,
+                                    deleteSidecars: deleteSidecarsForSongIDs.contains(song.id),
+                                    connectFirst: false
+                                )
+                                outcomeBySongID[song.id] = SongFileDeletionOutcome(
+                                    song: song,
+                                    result: result
+                                )
+                                completedCount += 1
+                                onProgress(completedCount)
+                            }
+                            continue
+                        }
+
                         let message = error.localizedDescription
                         for song in chunk {
                             var result = SongFileDeletionResult()
-                            if Self.isMissingFileError(error) {
+                            if aggregateMissing {
                                 result.missingPaths.append(song.filePath)
                                 result.audioStatus = .alreadyMissing
                             } else {

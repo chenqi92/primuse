@@ -16,11 +16,12 @@ struct BatchAddToPlaylistSheet: View {
     @State private var selectedPlaylistID: String?
     @State private var newPlaylistName = ""
 
-    /// Apple Music 镜像歌单不作为目标 —— 我们没法把改动推回 Apple Music，
-    /// 下次 sync 会把加进去的歌洗掉，用户看到的就是"加了又没了"。
+    /// 系统维护的歌单不作为批量目标：Apple Music 镜像会在下次同步时覆盖，
+    /// 「我喜欢的」则由心形状态维护，不应混进普通歌单批量写入。
     private var targetPlaylists: [Playlist] {
         library.playlists.filter {
             !AppleMusicLibraryService.isAppleMusicMirrorPlaylist($0.id)
+                && $0.id != MusicLibrary.likedSongsPlaylistID
         }
     }
 

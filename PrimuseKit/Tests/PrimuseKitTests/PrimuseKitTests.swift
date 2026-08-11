@@ -190,6 +190,21 @@ import Testing
     ))
 }
 
+@Test func aggregateMissingBatchDeletionRetriesPerSong() {
+    #expect(SourceBatchDeletionFailurePolicy.shouldRetryIndividually(
+        batchCount: 100,
+        aggregateErrorIndicatesMissing: true
+    ))
+    #expect(!SourceBatchDeletionFailurePolicy.shouldRetryIndividually(
+        batchCount: 1,
+        aggregateErrorIndicatesMissing: true
+    ))
+    #expect(!SourceBatchDeletionFailurePolicy.shouldRetryIndividually(
+        batchCount: 100,
+        aggregateErrorIndicatesMissing: false
+    ))
+}
+
 @Test func entireLibraryScanPolicyIncludesLocalFolderSources() {
     let entireLibraryTypes: Set<MusicSourceType> = [
         .local, .appleMusicLibrary,
