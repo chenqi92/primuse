@@ -29,6 +29,16 @@ import Testing
     #expect(metadata?.title == "ID3 标题")
 }
 
+@Test func recoversUTF8TextWhenV24FrameSizeUsesCharacterCount() {
+    let title = malformedV24TextFrame("TIT2", "对面的女孩看过来")
+    let artist = textFrameV24("TPE1", "任贤齐")
+    let metadata = ID3TextMetadataParser.parse(makeID3v24Tag([title, artist]))
+
+    #expect(metadata?.title == "对面的女孩看过来")
+    #expect(metadata?.artist == "任贤齐")
+    #expect(!MediaMetadataTextRepair.isSuspicious(metadata?.title))
+}
+
 private func textFrame(_ id: String, _ value: String) -> Data {
     var payload = Data([0x03]) // UTF-8
     payload.append(Data(value.utf8))
@@ -43,6 +53,34 @@ private func textFrame(_ id: String, _ value: String) -> Data {
 private func makeID3v23Tag(_ frames: [Data]) -> Data {
     let body = frames.reduce(into: Data()) { $0.append($1) }
     var tag = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
+    tag.append(syncSafe(body.count))
+    tag.append(body)
+    return tag
+}
+
+private func textFrameV24(_ id: String, _ value: String) -> Data {
+    var payload = Data([0x03])
+    payload.append(Data(value.utf8))
+    var frame = Data(id.utf8)
+    frame.append(syncSafe(payload.count))
+    frame.append(contentsOf: [0x00, 0x00])
+    frame.append(payload)
+    return frame
+}
+
+private func malformedV24TextFrame(_ id: String, _ value: String) -> Data {
+    var payload = Data([0x03])
+    payload.append(Data(value.utf8))
+    var frame = Data(id.utf8)
+    frame.append(syncSafe(value.count + 1))
+    frame.append(contentsOf: [0x00, 0x00])
+    frame.append(payload)
+    return frame
+}
+
+private func makeID3v24Tag(_ frames: [Data]) -> Data {
+    let body = frames.reduce(into: Data()) { $0.append($1) }
+    var tag = Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00])
     tag.append(syncSafe(body.count))
     tag.append(body)
     return tag

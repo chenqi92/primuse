@@ -1343,6 +1343,9 @@ struct TagEditorView: View {
         updated.year = Int(yearText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.trackNumber = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.discNumber = Int(discText.trimmingCharacters(in: .whitespacesAndNewlines))
+        if SongUserMetadataPolicy.editableFieldsChanged(from: song, to: updated) {
+            updated.userMetadataEditedAt = Date()
+        }
 
         let lyricsChanged = hasLyricsChanges
         var needsLibraryReplace = true
@@ -1372,6 +1375,7 @@ struct TagEditorView: View {
             let oldRef = song.coverArtFileName
             if let newFileName = await MetadataAssetStore.shared.storeCover(coverData, for: song.id) {
                 updated.coverArtFileName = newFileName
+                updated.userMetadataEditedAt = Date()
                 // 失效原 coverArtFileName 的渲染缓存,让 CachedArtworkView 在
                 // 下一次 read 时拿到新数据 (新文件名不会跟旧名同 hash,但保险)
                 if let oldRef { CachedArtworkView.invalidateCache(for: oldRef) }

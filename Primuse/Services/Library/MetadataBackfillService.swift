@@ -38,10 +38,20 @@ final class MetadataBackfillService {
     private static let fallbackTailBytes: Int64 = 256 * 1024
     private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "mp4", "m4v", "mov", "alac"]
 
-    /// Persisted set of song IDs that previously failed metadata extraction.
-    /// Skipped on subsequent runs so we don't burn API quota retrying them
-    /// every app launch.
+    /// Persisted IDs whose bytes were read successfully but the expected
+    /// metadata parser still produced no usable details.
     private var failedSongIDs: Set<String> = []
+
+    /// Persisted IDs that remain playable through a stream descriptor or the
+    /// complete-file decoder even though bounded header reads cannot determine
+    /// duration. This suppresses only the duration leg; title/artwork inspection
+    /// remains independently eligible.
+    private var incompleteSongIDs: Set<String> = []
+
+    /// Persisted IDs whose source object/path could not be read. They are not
+    /// parser failures and surface as "check source" until an explicit retry,
+    /// source availability change, or content-change notification clears them.
+    private var sourceIssueSongIDs: Set<String> = []
 
     /// Songs that parsed fine (have a usable duration) but yielded no
     /// extractable embedded artwork. Kept SEPARATE from `failedSongIDs`:
@@ -98,6 +108,8 @@ final class MetadataBackfillService {
     private let backfillableSourceIDs: () -> Set<String>
     private let metadataService = MetadataService()
     private let failedURL: URL
+    private let incompleteURL: URL
+    private let sourceIssueURL: URL
     private let artworkGivenUpURL: URL
     private let titleCheckedURL: URL
 
@@ -159,9 +171,13 @@ final class MetadataBackfillService {
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.failedURL = directory.appendingPathComponent("backfill-failed.json")
+        self.incompleteURL = directory.appendingPathComponent("backfill-incomplete.json")
+        self.sourceIssueURL = directory.appendingPathComponent("backfill-source-issues.json")
         self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
         self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
         loadFailed()
+        loadIncomplete()
+        loadSourceIssues()
         loadArtworkGivenUp()
         loadTitleChecked()
 
@@ -452,6 +468,52 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: webDAVMediaRedirectFixKey)
         }
 
+        // The legacy failure set mixed stale successes, temporary source
+        // outages, unknown durations and real parser failures. Split only the
+        // cases supported by current row data: completed rows are cleared,
+        // stream/complete-file-decoder rows become playable-incomplete, and
+        // ambiguous rows receive one fresh bounded read for classification.
+        // No Song field or remote object is changed by this migration.
+        let detailsStateMigrationKey = "primuse.backfillState.v2026_08_detailsState"
+        if !UserDefaults.standard.bool(forKey: detailsStateMigrationKey) {
+            let songsByID = Dictionary(uniqueKeysWithValues: library.songs.map { ($0.id, $0) })
+            var completedCount = 0
+            var incompleteCount = 0
+            var retryCount = 0
+            for id in Array(failedSongIDs) {
+                guard let song = songsByID[id] else {
+                    failedSongIDs.remove(id)
+                    continue
+                }
+                if song.duration > 0 {
+                    failedSongIDs.remove(id)
+                    completedCount += 1
+                } else if song.isStreamDescriptor || song.fileFormat.requiresFFmpeg {
+                    failedSongIDs.remove(id)
+                    incompleteSongIDs.insert(id)
+                    incompleteCount += 1
+                } else {
+                    failedSongIDs.remove(id)
+                    titleCheckedIDs.remove(id)
+                    retryCount += 1
+                }
+            }
+
+            let suspiciousTitleIDs = Set(library.songs.lazy.filter {
+                $0.userMetadataEditedAt == nil
+                    && !ServerCatalogMetadataInspectionPolicy.hasUsableTitle($0.title)
+            }.map(\.id))
+            titleCheckedIDs.subtract(suspiciousTitleIDs)
+            saveFailed()
+            saveTitleChecked()
+            UserDefaults.standard.set(true, forKey: detailsStateMigrationKey)
+            plog(
+                "📥 Backfill: migrated legacy details state "
+                    + "(completed=\(completedCount) incomplete=\(incompleteCount) "
+                    + "retry=\(retryCount) suspiciousTitles=\(suspiciousTitleIDs.count))"
+            )
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by
@@ -467,6 +529,8 @@ final class MetadataBackfillService {
             MainActor.assumeIsolated {
                 let ids = Set(songs.map(\.id))
                 self.failedSongIDs.subtract(ids)
+                self.incompleteSongIDs.subtract(ids)
+                self.sourceIssueSongIDs.subtract(ids)
                 self.sessionGivenUpIDs.subtract(ids)
                 self.titleCheckedIDs.subtract(ids)
                 for id in ids { self.transientFailureCounts[id] = nil }
@@ -636,6 +700,10 @@ final class MetadataBackfillService {
     /// launch does not retry files already classified as unparseable.
     func sourceAvailabilityChanged() {
         stop()
+        sourceIssueSongIDs.removeAll()
+        sessionGivenUpIDs.removeAll()
+        transientFailureCounts.removeAll()
+        saveFailed()
         refreshQueue()
     }
 
@@ -688,6 +756,8 @@ final class MetadataBackfillService {
         }.map(\.id))
         guard !songIDs.isEmpty else { return }
         failedSongIDs.subtract(songIDs)
+        incompleteSongIDs.subtract(songIDs)
+        sourceIssueSongIDs.subtract(songIDs)
         sessionGivenUpIDs.subtract(songIDs)
         titleCheckedIDs.subtract(songIDs)
         for id in songIDs { transientFailureCounts[id] = nil }
@@ -766,15 +836,27 @@ final class MetadataBackfillService {
         cachedRemainingCount
     }
 
-    /// True if backfill has given up on this song (extraction failed, or
-    /// the file is parseable but exposes no duration). Used by SongRowView
-    /// to swap the "loading details" spinner for a static "details
-    /// unavailable" hint so the user isn't stuck staring at a forever-
-    /// loading row.
-    func didFail(songID: String) -> Bool {
-        // Includes session-parked songs (repeated transient failures) so the
-        // row swaps its forever-spinner for the "details unavailable" hint.
-        failedSongIDs.contains(songID) || sessionGivenUpIDs.contains(songID)
+    func detailsState(for song: Song, isLocalSource: Bool) -> SongDetailsState {
+        let waitingForSource = sourceIssueSongIDs.contains(song.id)
+            || sessionGivenUpIDs.contains(song.id)
+            || library.disabledSourceIDs.contains(song.sourceID)
+            || (isWaitingForWiFi && needsBackfill(song))
+        let confirmedFailure = failedSongIDs.contains(song.id)
+        let incomplete = incompleteSongIDs.contains(song.id)
+            || (isLocalSource && song.duration <= 0 && song.isPlayable)
+        let reading = !waitingForSource
+            && !confirmedFailure
+            && needsBackfill(song)
+
+        return .resolve(
+            duration: song.duration,
+            isStandaloneMusicVideo: song.isStandaloneMusicVideo,
+            isPlayable: song.isPlayable,
+            isReading: reading,
+            isWaitingForSource: waitingForSource,
+            isIncomplete: incomplete,
+            hasConfirmedFailure: confirmedFailure
+        )
     }
 
     /// Per-source variant — used by the source card so its "remaining"
@@ -794,6 +876,8 @@ final class MetadataBackfillService {
         let sourceIDs = backfillableSourceIDs()
         let songs = library.songs
         let failedIDs = failedSongIDs
+        let incompleteIDs = incompleteSongIDs
+        let sourceIssueIDs = sourceIssueSongIDs
         let sessionGivenUpSnapshot = sessionGivenUpIDs
         let artworkGivenUpSnapshot = artworkGivenUpIDs
         let titleCheckedSnapshot = titleCheckedIDs
@@ -805,15 +889,22 @@ final class MetadataBackfillService {
             guard sourceIDs.contains(song.sourceID) else { continue }
 
             let hasFailed = failedIDs.contains(song.id)
+                || incompleteIDs.contains(song.id)
+                || sourceIssueIDs.contains(song.id)
                 || sessionGivenUpSnapshot.contains(song.id)
             if hasFailed {
                 if Self.isBareSong(song) { failedTotal += 1 }
-                continue
+                if failedIDs.contains(song.id)
+                    || sourceIssueIDs.contains(song.id)
+                    || sessionGivenUpSnapshot.contains(song.id) {
+                    continue
+                }
             }
             guard Self.needsBackfill(
                 song,
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
-                titleCheckedIDs: titleCheckedSnapshot
+                titleCheckedIDs: titleCheckedSnapshot,
+                incompleteSongIDs: incompleteIDs
             ) else { continue }
             bySource[song.sourceID, default: 0] += 1
             total += 1
@@ -850,10 +941,29 @@ final class MetadataBackfillService {
         let bareIDs = Set(library.songs.lazy.filter { Self.isBareSong($0) }.map(\.id))
         guard !bareIDs.isEmpty else { return }
         failedSongIDs.subtract(bareIDs)
+        incompleteSongIDs.subtract(bareIDs)
+        sourceIssueSongIDs.subtract(bareIDs)
         sessionGivenUpIDs.subtract(bareIDs)
+        titleCheckedIDs.subtract(bareIDs)
         for id in bareIDs { transientFailureCounts[id] = nil }
         saveFailed()
+        saveTitleChecked()
         plog("📥 Backfill: retryFailed cleared \(bareIDs.count) bare-song marks, restarting")
+        start()
+    }
+
+    func retry(songID: String) {
+        guard library.song(id: songID) != nil else { return }
+        failedSongIDs.remove(songID)
+        incompleteSongIDs.remove(songID)
+        sourceIssueSongIDs.remove(songID)
+        sessionGivenUpIDs.remove(songID)
+        artworkGivenUpIDs.remove(songID)
+        titleCheckedIDs.remove(songID)
+        transientFailureCounts[songID] = nil
+        saveFailed()
+        saveTitleChecked()
+        refreshRemainingCounts(force: true)
         start()
     }
 
@@ -986,7 +1096,8 @@ final class MetadataBackfillService {
                     processedCount = processedTotal
                 }
                 let songID = result.song.id
-                if result.outcome.sourceUnavailable {
+                let canRecordOutcome = isStillEligible(result.song)
+                if result.outcome.sourceUnavailable, canRecordOutcome {
                     // One bad credential applies to the connector, not merely
                     // to this file. Park every pending song from that source
                     // for this session so a 10k-song library does not create a
@@ -1006,11 +1117,30 @@ final class MetadataBackfillService {
                         plog("⚠️ Backfill: source \(result.song.sourceID) unavailable; parked \(sourceSongIDs.count) songs for this session")
                     }
                 }
-                if result.outcome.markFailed, isStillEligible(result.song) {
+                if result.outcome.markFailed, canRecordOutcome {
                     failedSongIDs.insert(songID)
+                    incompleteSongIDs.remove(songID)
+                    sourceIssueSongIDs.remove(songID)
                     saveFailed()
                 }
-                if result.outcome.transientFailure, isStillEligible(result.song) {
+                if result.outcome.detailsIncomplete, canRecordOutcome {
+                    incompleteSongIDs.insert(songID)
+                    failedSongIDs.remove(songID)
+                    sourceIssueSongIDs.remove(songID)
+                    saveFailed()
+                }
+                if result.outcome.sourceIssue, canRecordOutcome {
+                    sourceIssueSongIDs.insert(songID)
+                    failedSongIDs.remove(songID)
+                    incompleteSongIDs.remove(songID)
+                    saveFailed()
+                }
+                if result.outcome.transientFailure,
+                   MetadataBackfillRetryPolicy.shouldCountTransientFailure(
+                    isCancellation: result.outcome.cancelled,
+                    isTransient: result.outcome.transientFailure
+                   ),
+                   canRecordOutcome {
                     // Cap consecutive transient failures so a chronically
                     // throttled file (timeout every pass) can't loop forever —
                     // park it for the session instead, which stops the row
@@ -1030,8 +1160,21 @@ final class MetadataBackfillService {
                     artworkGivenUpIDs.insert(songID)
                     saveArtworkGivenUp()
                 }
+                if result.outcome.titleInspected, canRecordOutcome {
+                    let inserted = titleCheckedIDs.insert(songID).inserted
+                    if inserted { saveTitleChecked() }
+                }
                 if let updated = result.outcome.song {
                     transientFailureCounts[songID] = nil  // success → reset streak
+                    if !result.outcome.markFailed
+                        && !result.outcome.detailsIncomplete
+                        && !result.outcome.sourceIssue {
+                        failedSongIDs.remove(songID)
+                        incompleteSongIDs.remove(songID)
+                        sourceIssueSongIDs.remove(songID)
+                        sessionGivenUpIDs.remove(songID)
+                        saveFailed()
+                    }
                     pendingFlush.append(updated)
                 }
 
@@ -1044,7 +1187,7 @@ final class MetadataBackfillService {
                     // (for example TIT2 parsed but duration did not). Failure
                     // membership must stop future network retries, not discard
                     // the useful result we already have.
-                    let batch = pendingFlush.filter(canApplyBackfillResult)
+                    let batch = pendingFlush.compactMap(backfillResultForApply)
                     pendingFlush.removeAll(keepingCapacity: true)
                     lastFlushAt = Date()
                     if !batch.isEmpty {
@@ -1071,7 +1214,7 @@ final class MetadataBackfillService {
 
         // Final flush
         if !pendingFlush.isEmpty {
-            let batch = pendingFlush.filter(canApplyBackfillResult)
+            let batch = pendingFlush.compactMap(backfillResultForApply)
             pendingFlush.removeAll()
             if !batch.isEmpty {
                 library.replaceSongs(batch)
@@ -1169,6 +1312,16 @@ final class MetadataBackfillService {
     struct BackfillOutcome: Sendable {
         var song: Song?
         var markFailed: Bool
+        /// Header bytes were read, but a dynamic/complete-file playback path
+        /// can remain playable without a duration from this bounded parser.
+        var detailsIncomplete: Bool = false
+        /// The path/object could not be read and should be checked at the source.
+        var sourceIssue: Bool = false
+        /// The worker generation was cancelled. This is a neutral outcome.
+        var cancelled: Bool = false
+        /// A bounded header read completed, even if it yielded no replacement
+        /// fields. This closes the independent title-inspection leg.
+        var titleInspected: Bool = false
         /// Set when the attempt failed with a *transient* error (timeout /
         /// network / throttle). The caller bumps a per-song retry counter and
         /// parks the song after `maxTransientRetries` so it stops re-queuing.
@@ -1296,6 +1449,15 @@ final class MetadataBackfillService {
             if !isStillEligible(song) {
                 return BackfillOutcome(song: nil, markFailed: false)
             }
+            let cancelled = error is CancellationError || Task.isCancelled
+            if cancelled {
+                plog("📥 Backfill: cancelled '\(song.title)' without consuming a retry")
+                return BackfillOutcome(
+                    song: nil,
+                    markFailed: false,
+                    cancelled: true
+                )
+            }
             // 只有「确定性永久」的错误(文件已不存在 / 4xx)才标记 failed —— 那种
             // 重试也没用,标记后不再浪费配额。连接/鉴权/超时/限流/网络这类是瞬时的
             // (常见于刚启动、源还没连上 / token 还没就绪),绝不能钉成永久失败,否则
@@ -1307,7 +1469,8 @@ final class MetadataBackfillService {
                         transient ? "transient — will retry" : "permanent — marking failed"))
             return BackfillOutcome(
                 song: nil,
-                markFailed: !transient,
+                markFailed: false,
+                sourceIssue: !transient,
                 transientFailure: transient,
                 sourceUnavailable: sourceUnavailable
             )
@@ -1430,11 +1593,29 @@ final class MetadataBackfillService {
         if metadataLooksMissing(metadata) {
             if hasUsablePartialMetadata(metadata, comparedTo: song) {
                 let partial = mergeSong(bare: song, metadata: metadata)
-                plog("⚠️ Backfill: '\(song.title)' has no duration after head+tail; saving partial tags as '\(partial.title)' and marking duration failed")
-                return BackfillOutcome(song: partial, markFailed: true)
+                plog("⚠️ Backfill: '\(song.title)' has no duration after head+tail; saving verified partial tags as '\(partial.title)'")
+                return BackfillOutcome(
+                    song: partial,
+                    markFailed: false,
+                    detailsIncomplete: true,
+                    titleInspected: true
+                )
             }
-            plog("⚠️ Backfill: '\(song.title)' has no parseable metadata after head+tail; marking failed")
-            return BackfillOutcome(song: nil, markFailed: true)
+            if song.isStreamDescriptor || song.fileFormat.requiresFFmpeg {
+                plog("📥 Backfill: '\(song.title)' remains playable with incomplete bounded metadata")
+                return BackfillOutcome(
+                    song: nil,
+                    markFailed: false,
+                    detailsIncomplete: true,
+                    titleInspected: true
+                )
+            }
+            plog("⚠️ Backfill: '\(song.title)' bytes were read but details parsing failed")
+            return BackfillOutcome(
+                song: nil,
+                markFailed: true,
+                titleInspected: true
+            )
         }
 
         // After tightening `metadataLooksMissing` to require
@@ -1489,7 +1670,12 @@ final class MetadataBackfillService {
         // Missing artwork must NOT mark the song permanently failed — that
         // dropped its (just-parsed) duration at flush and stuck it bare. Keep
         // the duration, record the artwork give-up separately.
-        return BackfillOutcome(song: merged, markFailed: false, artworkGivenUp: artworkStillMissing)
+        return BackfillOutcome(
+            song: merged,
+            markFailed: false,
+            titleInspected: true,
+            artworkGivenUp: artworkStillMissing
+        )
     }
 
     /// Parse the bounded Range bytes directly from memory. Backfill keeps its
@@ -1603,7 +1789,7 @@ final class MetadataBackfillService {
             metadata.duration > 0 ? metadata.duration : bare.duration
         }
 
-        return Song(
+        let merged = Song(
             id: bare.id,
             title: mergedTitle,
             albumID: albumID,
@@ -1638,8 +1824,10 @@ final class MetadataBackfillService {
             titlePinyin: mergedTitle == bare.title ? bare.titlePinyin : nil,
             artistPinyin: mergedArtist == bare.artistName ? bare.artistPinyin : nil,
             albumPinyin: mergedAlbum == bare.albumTitle ? bare.albumPinyin : nil,
-            lyricsText: bare.lyricsText
+            lyricsText: bare.lyricsText,
+            userMetadataEditedAt: bare.userMetadataEditedAt
         )
+        return SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
     }
 
     // MARK: - Queue selection
@@ -1651,20 +1839,24 @@ final class MetadataBackfillService {
     private func pickNextBatch() -> [Song] {
         let sourceIDs = backfillableSourceIDs()
         let failedIDs = failedSongIDs
+        let sourceIssueIDs = sourceIssueSongIDs
         let sessionGivenUpSnapshot = sessionGivenUpIDs
         let disabledSourceIDs = library.disabledSourceIDs
         let artworkGivenUpSnapshot = artworkGivenUpIDs
         let titleCheckedSnapshot = titleCheckedIDs
+        let incompleteSnapshot = incompleteSongIDs
         let songs = library.songs
         let candidates = songs.lazy.filter { song in
             guard !failedIDs.contains(song.id) else { return false }
+            guard !sourceIssueIDs.contains(song.id) else { return false }
             guard !sessionGivenUpSnapshot.contains(song.id) else { return false }
             guard !disabledSourceIDs.contains(song.sourceID) else { return false }
             guard sourceIDs.contains(song.sourceID) else { return false }
             return Self.needsBackfill(
                 song,
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
-                titleCheckedIDs: titleCheckedSnapshot
+                titleCheckedIDs: titleCheckedSnapshot,
+                incompleteSongIDs: incompleteSnapshot
             )
         }
         return Array(candidates.prefix(500))
@@ -1672,6 +1864,7 @@ final class MetadataBackfillService {
 
     private func isStillEligible(_ song: Song) -> Bool {
         guard !failedSongIDs.contains(song.id) else { return false }
+        guard !sourceIssueSongIDs.contains(song.id) else { return false }
         guard !sessionGivenUpIDs.contains(song.id) else { return false }
         guard !library.disabledSourceIDs.contains(song.sourceID) else { return false }
         guard backfillableSourceIDs().contains(song.sourceID) else { return false }
@@ -1682,21 +1875,21 @@ final class MetadataBackfillService {
     /// Validate that an in-flight result still belongs to the live file. This
     /// deliberately ignores failedSongIDs: a partial result is marked failed
     /// before the coalesced flush, but its already-parsed tags must still land.
-    private func canApplyBackfillResult(_ song: Song) -> Bool {
-        guard !library.disabledSourceIDs.contains(song.sourceID) else { return false }
-        guard backfillableSourceIDs().contains(song.sourceID) else { return false }
+    private func backfillResultForApply(_ song: Song) -> Song? {
+        guard !library.disabledSourceIDs.contains(song.sourceID) else { return nil }
+        guard backfillableSourceIDs().contains(song.sourceID) else { return nil }
         guard let live = library.song(id: song.id),
               live.sourceID == song.sourceID,
               live.filePath == song.filePath else {
-            return false
+            return nil
         }
         if let liveRevision = live.revision, let resultRevision = song.revision {
-            return liveRevision == resultRevision
+            guard liveRevision == resultRevision else { return nil }
         }
         if live.fileSize > 0, song.fileSize > 0 {
-            return live.fileSize == song.fileSize
+            guard live.fileSize == song.fileSize else { return nil }
         }
-        return true
+        return SongUserMetadataPolicy.preservingUserEdits(from: live, in: song)
     }
 
     /// A song still needs backfill if it's bare (no duration), or it's an MP3
@@ -1707,21 +1900,24 @@ final class MetadataBackfillService {
         Self.needsBackfill(
             song,
             artworkGivenUpIDs: artworkGivenUpIDs,
-            titleCheckedIDs: titleCheckedIDs
+            titleCheckedIDs: titleCheckedIDs,
+            incompleteSongIDs: incompleteSongIDs
         )
     }
 
     private static func needsBackfill(
         _ song: Song,
         artworkGivenUpIDs: Set<String>,
-        titleCheckedIDs: Set<String>
+        titleCheckedIDs: Set<String>,
+        incompleteSongIDs: Set<String>
     ) -> Bool {
         MetadataBackfillEligibilityPolicy.needsBackfill(
             duration: song.duration,
             format: song.fileFormat,
             hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
             artworkGivenUp: artworkGivenUpIDs.contains(song.id),
-            titleChecked: titleCheckedIDs.contains(song.id)
+            titleChecked: titleCheckedIDs.contains(song.id),
+            durationInspectionComplete: incompleteSongIDs.contains(song.id)
         )
     }
 
@@ -1735,6 +1931,18 @@ final class MetadataBackfillService {
         guard let data = try? Data(contentsOf: failedURL),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
         failedSongIDs = Set(decoded)
+    }
+
+    private func loadIncomplete() {
+        guard let data = try? Data(contentsOf: incompleteURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
+        incompleteSongIDs = Set(decoded)
+    }
+
+    private func loadSourceIssues() {
+        guard let data = try? Data(contentsOf: sourceIssueURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
+        sourceIssueSongIDs = Set(decoded)
     }
 
     private func loadArtworkGivenUp() {
@@ -1774,9 +1982,13 @@ final class MetadataBackfillService {
         // Conversion to arrays, JSON encoding, and disk writes happen later on
         // a utility executor. Repeated per-song updates collapse into one write.
         let failed = failedSongIDs
+        let incomplete = incompleteSongIDs
+        let sourceIssues = sourceIssueSongIDs
         let artworkGivenUp = artworkGivenUpIDs
         let titleChecked = titleCheckedIDs
         let failedURL = failedURL
+        let incompleteURL = incompleteURL
+        let sourceIssueURL = sourceIssueURL
         let artworkURL = artworkGivenUpURL
         let titleURL = titleCheckedURL
 
@@ -1785,6 +1997,8 @@ final class MetadataBackfillService {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             Self.writeIDSet(failed, to: failedURL)
+            Self.writeIDSet(incomplete, to: incompleteURL)
+            Self.writeIDSet(sourceIssues, to: sourceIssueURL)
             Self.writeIDSet(artworkGivenUp, to: artworkURL)
             Self.writeIDSet(titleChecked, to: titleURL)
         }

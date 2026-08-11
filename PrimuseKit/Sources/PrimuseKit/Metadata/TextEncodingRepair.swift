@@ -148,6 +148,25 @@ public enum TextEncodingRepair {
             && text.unicodeScalars.contains { isCJKScript($0.value) }
     }
 
+    /// A conservative catalog gate for values that should be verified against
+    /// filename/API identity or raw tag bytes before they are marked inspected.
+    /// This does not return a replacement and therefore cannot invent text after
+    /// bytes were lost.
+    public static func requiresRawByteVerification(_ text: String) -> Bool {
+        if hasUnrecoverableReplacement(in: text) || looksCorrupted(text) {
+            return true
+        }
+        let scalars = text.unicodeScalars
+        let hasCJK = scalars.contains { isCJKScript($0.value) }
+        let hasSingleByteArtifact = scalars.contains {
+            cp1252MarkerScalars.contains($0.value)
+        }
+        if hasCJK && hasSingleByteArtifact {
+            return true
+        }
+        return hasTruncatedUTF8RewritePrefix(text)
+    }
+
     /// 从若干候选编码中解出最可信的文本。合法 UTF-8 具有结构自校验, 应直接
     /// 采用；ISO-8859-1 则是 ID3 编码字节 0 的标准含义, 只有出现连续乱码字节簇
     /// 且其他候选显著更合理时才覆盖。这样既兼容误声明的 GBK/Shift_JIS 等标签,
@@ -241,6 +260,46 @@ public enum TextEncodingRepair {
     public static let legacyTextEncodings: [String.Encoding] = [
         .utf8, gb18030, big5, .shiftJIS, eucKR, .isoLatin1, .windowsCP1252,
     ]
+
+    private static func hasTruncatedUTF8RewritePrefix(_ text: String) -> Bool {
+        for encoding in [gb18030, big5] {
+            guard let bytes = losslessEncodedData(text, using: encoding),
+                  bytes.count >= 4,
+                  String(data: bytes, encoding: .utf8) == nil else {
+                continue
+            }
+            let maximumSuffix = min(3, bytes.count - 1)
+            for suffixCount in 1...maximumSuffix {
+                let split = bytes.count - suffixCount
+                let prefixData = Data(bytes.prefix(split))
+                let suffixData = Data(bytes.suffix(suffixCount))
+                guard let prefix = String(data: prefixData, encoding: .utf8),
+                      prefix.unicodeScalars.contains(where: { isCJKScript($0.value) }),
+                      isIncompleteUTF8Scalar(suffixData) else {
+                    continue
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isIncompleteUTF8Scalar(_ data: Data) -> Bool {
+        guard let first = data.first else { return false }
+        let expectedCount: Int
+        switch first {
+        case 0xC2...0xDF:
+            expectedCount = 2
+        case 0xE0...0xEF:
+            expectedCount = 3
+        case 0xF0...0xF4:
+            expectedCount = 4
+        default:
+            return false
+        }
+        guard data.count < expectedCount else { return false }
+        return data.dropFirst().allSatisfy { (0x80...0xBF).contains($0) }
+    }
 
     // MARK: - 手动修正
 

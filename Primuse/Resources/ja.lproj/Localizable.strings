@@ -586,6 +586,16 @@
 "song_details_loading_message" = "再生時間、カバー、アーティストを抽出するため、この曲のタグヘッダ（約 256 KB）をクラウドからダウンロードしています。完了すると再生キューに追加できます。";
 "song_details_unavailable" = "曲の詳細を取得できません";
 "song_details_unavailable_message" = "タグは読み込めましたが、再生時間を抽出できませんでした。ファイルが破損しているか、サポートされていない形式の可能性があります。";
+"song_details_waiting_source" = "Waiting for network or source";
+"song_details_waiting_source_message" = "The source cannot be read right now. Check the network, sign-in state, and file path, then retry.";
+"song_details_incomplete" = "Playable with incomplete details";
+"song_details_incomplete_message" = "This song remains playable, but complete details cannot yet be confirmed from the available raw fields.";
+"song_details_parse_failed" = "Song details parsing failed";
+"song_details_parse_failed_message" = "File bytes were read, but the current parser could not confirm complete details. Playback remains available.";
+"song_details_retry" = "Retry reading";
+"song_details_check_source" = "Check source";
+"song_details_source_available" = "The source is reachable. Reading has been scheduled again.";
+"song_details_source_unavailable" = "The source is still unavailable. Check the network, sign-in state, and file path.";
 "music_video_badge" = "ミュージックビデオ";
 "audio_effects" = "オーディオエフェクト";
 "reverb" = "リバーブ";

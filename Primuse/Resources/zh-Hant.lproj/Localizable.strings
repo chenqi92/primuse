@@ -376,6 +376,16 @@
 "song_details_loading_message" = "正在從雲端硬碟下載這首歌的標籤頭（約 256 KB），用來解析時長、封面和演出者。讀完後即可加入播放佇列。";
 "song_details_unavailable" = "無法讀取歌曲詳情";
 "song_details_unavailable_message" = "已嘗試讀取該檔案的標籤，但無法解析出時長。檔案可能已損毀或格式不支援。";
+"song_details_waiting_source" = "等待網路或來源";
+"song_details_waiting_source_message" = "目前無法讀取來源。請檢查網路、登入狀態或檔案是否仍存在，然後重試。";
+"song_details_incomplete" = "可播放，詳情不完整";
+"song_details_incomplete_message" = "此歌曲仍可播放，但目前無法從可用的原始欄位確認完整詳情；播放時可能補全時長。";
+"song_details_parse_failed" = "歌曲詳情解析失敗";
+"song_details_parse_failed_message" = "已讀取檔案位元組，但目前的解析器無法確認完整詳情；這不會停用可用的播放路徑。";
+"song_details_retry" = "重試讀取";
+"song_details_check_source" = "檢查來源";
+"song_details_source_available" = "來源連線正常，已重新安排讀取。";
+"song_details_source_unavailable" = "來源仍無法使用。請檢查網路、登入狀態和檔案路徑。";
 "music_video_badge" = "MV";
 "audio_effects" = "音效";
 "reverb" = "混響";

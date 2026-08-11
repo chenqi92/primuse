@@ -56,6 +56,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// 这首歌没有歌词或还没 backfill 完。LibraryDatabase migration 留空,
     /// MetadataBackfillService 异步读 .lrc 文件填回。
     public var lyricsText: String?
+    /// Set only after the user explicitly saves editable metadata. Background
+    /// scans and metadata backfill may still refresh technical fields, but must
+    /// preserve the user-controlled identity fields while this marker exists.
+    public var userMetadataEditedAt: Date?
 
     public init(
         id: String,
@@ -92,7 +96,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         titlePinyin: String? = nil,
         artistPinyin: String? = nil,
         albumPinyin: String? = nil,
-        lyricsText: String? = nil
+        lyricsText: String? = nil,
+        userMetadataEditedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -129,6 +134,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.artistPinyin = artistPinyin
         self.albumPinyin = albumPinyin
         self.lyricsText = lyricsText
+        self.userMetadataEditedAt = userMetadataEditedAt
     }
 }
 
@@ -254,6 +260,42 @@ public enum MediaMetadataTextRepair {
 
     private static func containsUnrecoverableReplacement(in value: String) -> Bool {
         TextEncodingRepair.hasUnrecoverableReplacement(in: value)
+    }
+}
+
+/// Keeps explicit user edits authoritative when a fresh source record or a
+/// background metadata result is merged into the library.
+public enum SongUserMetadataPolicy {
+    public static func preservingUserEdits(from existing: Song, in incoming: Song) -> Song {
+        guard existing.userMetadataEditedAt != nil else { return incoming }
+
+        var result = incoming
+        result.title = existing.title
+        result.albumID = existing.albumID
+        result.artistID = existing.artistID
+        result.albumTitle = existing.albumTitle
+        result.artistName = existing.artistName
+        result.trackNumber = existing.trackNumber
+        result.discNumber = existing.discNumber
+        result.genre = existing.genre
+        result.year = existing.year
+        result.coverArtFileName = existing.coverArtFileName
+        result.titlePinyin = existing.titlePinyin
+        result.artistPinyin = existing.artistPinyin
+        result.albumPinyin = existing.albumPinyin
+        result.userMetadataEditedAt = existing.userMetadataEditedAt
+        return result
+    }
+
+    public static func editableFieldsChanged(from original: Song, to updated: Song) -> Bool {
+        original.title != updated.title
+            || original.artistName != updated.artistName
+            || original.albumTitle != updated.albumTitle
+            || original.trackNumber != updated.trackNumber
+            || original.discNumber != updated.discNumber
+            || original.genre != updated.genre
+            || original.year != updated.year
+            || original.coverArtFileName != updated.coverArtFileName
     }
 }
 

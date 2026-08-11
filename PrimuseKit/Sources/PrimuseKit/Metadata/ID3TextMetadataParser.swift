@@ -75,31 +75,51 @@ public enum ID3TextMetadataParser {
                     break
                 }
                 let size = uint24BE(tag, at: cursor + 3)
-                cursor += 6
-                guard size > 0, cursor + size <= tag.count else { break }
-                let payload = tag.subdata(in: cursor..<(cursor + size))
-                cursor += size
+                let payloadStart = cursor + 6
+                guard size > 0, payloadStart + size <= tag.count else { break }
+                let declaredEnd = payloadStart + size
+                let recovered = recoveredTextPayload(
+                    frameID: frameID,
+                    payloadStart: payloadStart,
+                    declaredEnd: declaredEnd,
+                    tag: tag,
+                    version: version
+                )
+                let payload = recovered?.payload
+                    ?? tag.subdata(in: payloadStart..<declaredEnd)
+                cursor = recovered?.nextFrameOffset ?? declaredEnd
                 apply(frameID: frameID, payload: payload, to: &result)
                 continue
             }
 
-            guard cursor + 10 <= tag.count,
-                  let frameID = ascii(tag, at: cursor, count: 4),
+            let frameStart = cursor
+            guard frameStart + 10 <= tag.count,
+                  let frameID = ascii(tag, at: frameStart, count: 4),
                   !frameID.trimmingCharacters(in: CharacterSet(charactersIn: "\0")).isEmpty else {
                 break
             }
             let size = version == 4
-                ? syncSafeInt(tag, at: cursor + 4)
-                : uint32BE(tag, at: cursor + 4)
-            let formatFlags = tag[cursor + 9]
-            cursor += 10
-            guard size > 0, cursor + size <= tag.count else { break }
+                ? syncSafeInt(tag, at: frameStart + 4)
+                : uint32BE(tag, at: frameStart + 4)
+            let formatFlags = tag[frameStart + 9]
+            let payloadStart = frameStart + 10
+            guard size > 0, payloadStart + size <= tag.count else { break }
 
-            var payload = tag.subdata(in: cursor..<(cursor + size))
-            cursor += size
+            let declaredEnd = payloadStart + size
             guard supportsPlainTextFrame(version: version, formatFlags: formatFlags) else {
+                cursor = declaredEnd
                 continue
             }
+            let recovered = recoveredTextPayload(
+                frameID: frameID,
+                payloadStart: payloadStart,
+                declaredEnd: declaredEnd,
+                tag: tag,
+                version: version
+            )
+            var payload = recovered?.payload
+                ?? tag.subdata(in: payloadStart..<declaredEnd)
+            cursor = recovered?.nextFrameOffset ?? declaredEnd
             if version == 4, (formatFlags & 0x02) != 0 {
                 payload = removingUnsynchronization(from: payload)
             }
@@ -107,6 +127,117 @@ public enum ID3TextMetadataParser {
         }
 
         return result.isEmpty ? nil : result
+    }
+
+    private struct RecoveredTextPayload {
+        let payload: Data
+        let nextFrameOffset: Int
+    }
+
+    /// Some taggers write a text frame's character count into its byte-size
+    /// field. When multibyte UTF-8 follows, the declared payload ends inside a
+    /// scalar and the platform emits U+FFFD. Recover only when a structurally
+    /// valid following frame gives us a bounded end offset and the extended
+    /// bytes decode to a clean, strictly more complete value.
+    private static func recoveredTextPayload(
+        frameID: String,
+        payloadStart: Int,
+        declaredEnd: Int,
+        tag: Data,
+        version: Int
+    ) -> RecoveredTextPayload? {
+        guard isParsedTextFrame(frameID) else { return nil }
+        guard !isPlausibleFrameHeader(in: tag, at: declaredEnd, version: version) else {
+            return nil
+        }
+        guard let boundary = nextPlausibleFrameOffset(
+            in: tag,
+            after: declaredEnd,
+            version: version
+        ), boundary > declaredEnd else {
+            return nil
+        }
+
+        let declaredPayload = tag.subdata(in: payloadStart..<declaredEnd)
+        let recoveredPayload = tag.subdata(in: payloadStart..<boundary)
+        guard let recoveredText = decodedText(recoveredPayload),
+              !MediaMetadataTextRepair.isSuspicious(recoveredText) else {
+            return nil
+        }
+
+        let declaredText = decodedText(declaredPayload)
+        let declaredWasDamaged = declaredTextPayloadIsStructurallyInvalid(declaredPayload)
+            || declaredText.map {
+            MediaMetadataTextRepair.isSuspicious($0)
+                || TextEncodingRepair.looksCorrupted($0)
+            } ?? true
+        let cleanPrefixWasExtended = declaredText.map {
+            !$0.isEmpty && recoveredText.hasPrefix($0) && recoveredText.count > $0.count
+        } ?? false
+        guard declaredWasDamaged || cleanPrefixWasExtended else { return nil }
+        return RecoveredTextPayload(payload: recoveredPayload, nextFrameOffset: boundary)
+    }
+
+    private static func declaredTextPayloadIsStructurallyInvalid(_ payload: Data) -> Bool {
+        guard let encodingByte = payload.first else { return true }
+        let bytes = Data(payload.dropFirst())
+        switch encodingByte {
+        case 1, 2:
+            return bytes.count.isMultiple(of: 2) == false
+        case 3:
+            return String(data: bytes, encoding: .utf8) == nil
+        default:
+            return false
+        }
+    }
+
+    private static func isParsedTextFrame(_ frameID: String) -> Bool {
+        switch frameID {
+        case "TIT2", "TT2", "TPE1", "TP1", "TALB", "TAL", "TPE2", "TP2",
+             "TRCK", "TRK", "TPOS", "TPA", "TYER", "TDRC", "TYE", "TCON", "TCO":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func nextPlausibleFrameOffset(
+        in tag: Data,
+        after offset: Int,
+        version: Int
+    ) -> Int? {
+        let headerSize = version == 2 ? 6 : 10
+        let upperBound = min(tag.count - headerSize, offset + 4_096)
+        guard offset < upperBound else { return nil }
+        for candidate in (offset + 1)...upperBound where
+            isPlausibleFrameHeader(in: tag, at: candidate, version: version) {
+            return candidate
+        }
+        return nil
+    }
+
+    private static func isPlausibleFrameHeader(
+        in tag: Data,
+        at offset: Int,
+        version: Int
+    ) -> Bool {
+        let idLength = version == 2 ? 3 : 4
+        let headerSize = version == 2 ? 6 : 10
+        guard offset >= 0, offset <= tag.count - headerSize else { return false }
+        let idBytes = tag[offset..<(offset + idLength)]
+        guard idBytes.allSatisfy({
+            (0x41...0x5A).contains($0) || (0x30...0x39).contains($0)
+        }) else {
+            return false
+        }
+        let size = if version == 2 {
+            uint24BE(tag, at: offset + 3)
+        } else if version == 4 {
+            syncSafeInt(tag, at: offset + 4)
+        } else {
+            uint32BE(tag, at: offset + 4)
+        }
+        return size > 0 && offset + headerSize + size <= tag.count
     }
 
     private static func supportsPlainTextFrame(version: Int, formatFlags: UInt8) -> Bool {

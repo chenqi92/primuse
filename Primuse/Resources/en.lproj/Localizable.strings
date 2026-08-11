@@ -390,6 +390,16 @@
 "song_details_loading_message" = "Downloading this song's tag header (~256 KB) from the cloud to extract duration, cover and artist. Once done it can be added to the play queue.";
 "song_details_unavailable" = "Song details unavailable";
 "song_details_unavailable_message" = "Tags were read but no duration could be extracted. The file may be corrupt or in an unsupported format.";
+"song_details_waiting_source" = "Waiting for network or source";
+"song_details_waiting_source_message" = "The source cannot be read right now. Check the network, sign-in state, and whether the file still exists, then retry.";
+"song_details_incomplete" = "Playable with incomplete details";
+"song_details_incomplete_message" = "This song remains playable, but complete details cannot yet be confirmed from the available raw fields. Playback may resolve its duration.";
+"song_details_parse_failed" = "Song details parsing failed";
+"song_details_parse_failed_message" = "File bytes were read, but the current parser could not confirm complete details. Any available playback path remains enabled.";
+"song_details_retry" = "Retry reading";
+"song_details_check_source" = "Check source";
+"song_details_source_available" = "The source is reachable. Reading has been scheduled again.";
+"song_details_source_unavailable" = "The source is still unavailable. Check the network, sign-in state, and file path.";
 "music_video_badge" = "Music video";
 
 // MARK: - Audio Effects

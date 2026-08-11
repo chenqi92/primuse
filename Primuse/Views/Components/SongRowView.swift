@@ -5,6 +5,7 @@ struct SongRowView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(MetadataBackfillService.self) private var backfill
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     /// Used only inside `deleteSong` (not read in `body`) so it doesn't
     /// register as a body-time observation dependency. Keeping this as
@@ -28,11 +29,9 @@ struct SongRowView: View {
     /// 非 nil 时长按菜单里多一项「选择」，用来从这一行直接进多选态。
     var selection: SongSelectionModel? = nil
 
-    /// Whether `MetadataBackfillService` gave up on this song. Resolved by
-    /// the parent so the row doesn't observe `failedSongIDs` directly —
-    /// otherwise any backfill failure during a scan would re-evaluate every
-    /// visible row's body.
-    var backfillFailed: Bool = false
+    /// Resolved by the parent so rows do not individually observe every
+    /// backfill state mutation.
+    var detailsState: SongDetailsState = .ready
 
     @State private var showScrapeOptions = false
     @State private var showNoScraperSourceAlert = false
@@ -47,6 +46,7 @@ struct SongRowView: View {
     @State private var tagEditorSongID: String?
     @State private var showSimilarSongs = false
     @State private var deleteErrorMessage: String?
+    @State private var sourceCheckMessage: String?
 
     /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
     /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
@@ -54,7 +54,8 @@ struct SongRowView: View {
     /// (the player resolves duration on play), so this no longer blocks taps.
     /// 独立 MV 不算 bare —— 时长常由播放时 AVPlayer 回填, 元数据本来就薄,
     /// 不该顶着"读取中/详情不可用"的置灰样式。
-    private var isBare: Bool { song.duration <= 0 && !song.isStandaloneMusicVideo }
+    private var showsDetailsStatus: Bool { detailsState != .ready }
+    private var isReadingDetails: Bool { detailsState == .reading }
     private var offlineSnapshot: OfflineAudioCacheSnapshot {
         guard supportsOfflineAudioCache else { return .notCached }
         return sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
@@ -96,7 +97,7 @@ struct SongRowView: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .opacity(isBare ? 0.55 : 1)
+            .opacity(isReadingDetails ? 0.65 : 1)
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
@@ -104,19 +105,37 @@ struct SongRowView: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
-                    .opacity(isBare ? 0.65 : 1)
+                    .opacity(isReadingDetails ? 0.75 : 1)
 
                 HStack(spacing: 4) {
-                    if isBare {
-                        if backfillFailed {
-                            Image(systemName: "exclamationmark.circle")
-                                .font(.caption2)
-                            Text("song_details_unavailable")
-                        } else {
+                    if showsDetailsStatus {
+                        switch detailsState {
+                        case .reading:
                             ProgressView()
                                 .scaleEffect(0.55)
                                 .frame(width: 12, height: 12)
                             Text("backfill_in_progress")
+                        case .waitingForSource:
+                            Image(systemName: "wifi.exclamationmark")
+                                .font(.caption2)
+                            Text("song_details_waiting_source")
+                        case .playableIncomplete:
+                            Image(systemName: "info.circle")
+                                .font(.caption2)
+                            Text("song_details_incomplete")
+                        case .confirmedFailure:
+                            Image(systemName: "exclamationmark.circle")
+                                .font(.caption2)
+                            Text("song_details_parse_failed")
+                        case .ready:
+                            EmptyView()
+                        }
+                        if let sourceName {
+                            Text("·")
+                            if let sourceIconName {
+                                Image(systemName: sourceIconName)
+                            }
+                            Text(sourceName)
                         }
                     } else {
                         if song.isStandaloneMusicVideo {
@@ -194,6 +213,8 @@ struct SongRowView: View {
                             offlineActionButtons(snapshot: offline)
                         }
 
+                        metadataRecoveryButtons()
+
                         Button {
                             showSongInfo = true
                         } label: {
@@ -252,12 +273,12 @@ struct SongRowView: View {
             }
         }
         .alert(
-            String(localized: backfillFailed ? "song_details_unavailable" : "song_details_loading"),
+            detailsAlertTitle,
             isPresented: $showBareAlert
         ) {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
-            Text(String(localized: backfillFailed ? "song_details_unavailable_message" : "song_details_loading_message"))
+            Text(detailsAlertMessage)
         }
         .contextMenu {
             // 长按直接进多选并选中这一行 —— 页面工具栏那个"选择"入口对
@@ -307,6 +328,8 @@ struct SongRowView: View {
                 if supportsOfflineAudioCache {
                     offlineActionButtons(snapshot: offline)
                 }
+
+                metadataRecoveryButtons()
 
                 Button {
                     showSongInfo = true
@@ -396,6 +419,17 @@ struct SongRowView: View {
         } message: {
             Text(deleteErrorMessage ?? "")
         }
+        .alert(
+            String(localized: "song_details_check_source"),
+            isPresented: Binding(
+                get: { sourceCheckMessage != nil },
+                set: { if !$0 { sourceCheckMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(sourceCheckMessage ?? "")
+        }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
     }
 
@@ -405,6 +439,65 @@ struct SongRowView: View {
             onProceed: { showScrapeOptions = true },
             onRequireSource: { showNoScraperSourceAlert = true }
         )
+    }
+
+    @ViewBuilder
+    private func metadataRecoveryButtons() -> some View {
+        if showsDetailsStatus, detailsState != .reading {
+            Button {
+                backfill.retry(songID: song.id)
+            } label: {
+                Label(String(localized: "song_details_retry"), systemImage: "arrow.clockwise")
+            }
+
+            Button {
+                checkSource()
+            } label: {
+                Label(String(localized: "song_details_check_source"), systemImage: "network")
+            }
+        }
+    }
+
+    private func checkSource() {
+        Task {
+            do {
+                _ = try await sourceManager.connectorForSong(song)
+                backfill.retry(songID: song.id)
+                sourceCheckMessage = String(localized: "song_details_source_available")
+            } catch {
+                sourceCheckMessage = String(localized: "song_details_source_unavailable")
+            }
+        }
+    }
+
+    private var detailsAlertTitle: String {
+        switch detailsState {
+        case .reading:
+            String(localized: "song_details_loading")
+        case .waitingForSource:
+            String(localized: "song_details_waiting_source")
+        case .playableIncomplete:
+            String(localized: "song_details_incomplete")
+        case .confirmedFailure:
+            String(localized: "song_details_parse_failed")
+        case .ready:
+            String(localized: "song_details_unavailable")
+        }
+    }
+
+    private var detailsAlertMessage: String {
+        switch detailsState {
+        case .reading:
+            String(localized: "song_details_loading_message")
+        case .waitingForSource:
+            String(localized: "song_details_waiting_source_message")
+        case .playableIncomplete:
+            String(localized: "song_details_incomplete_message")
+        case .confirmedFailure:
+            String(localized: "song_details_parse_failed_message")
+        case .ready:
+            String(localized: "song_details_unavailable_message")
+        }
     }
 
     private var supportsOfflineAudioCache: Bool {
@@ -893,7 +986,7 @@ extension SongRowView {
     struct RowContext {
         var sourceName: String?
         var sourceIconName: String?
-        var backfillFailed: Bool
+        var detailsState: SongDetailsState
         var canDeleteSourceFile: Bool
     }
 
@@ -904,11 +997,13 @@ extension SongRowView {
     ) -> RowContext {
         let showBadge = sourcesStore.sources.count > 1
         let source = sourcesStore.source(id: song.sourceID)
-        let localBareSong = song.duration <= 0 && source?.type == .local
         return RowContext(
             sourceName: showBadge ? source?.name : nil,
             sourceIconName: showBadge ? source?.type.iconName : nil,
-            backfillFailed: song.duration <= 0 && (backfill.didFail(songID: song.id) || localBareSong),
+            detailsState: backfill.detailsState(
+                for: song,
+                isLocalSource: source?.type == .local
+            ),
             canDeleteSourceFile: SourceFileDeletionPolicy.shouldShowDeleteAction(
                 for: source?.type
             )
@@ -930,7 +1025,7 @@ extension SongRowView {
         self.selection = selection
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName
-        self.backfillFailed = context.backfillFailed
+        self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
     }
 }

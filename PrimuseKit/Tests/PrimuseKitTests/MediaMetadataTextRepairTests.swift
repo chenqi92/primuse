@@ -16,6 +16,14 @@ import Testing
     #expect(MediaMetadataTextRepair.isSuspicious("What??") == false)
 }
 
+@Test func rejectsHanToHanCatalogMojibakeWithoutGuessingAReplacement() {
+    for title in ["涓€璺", "憭抵"] {
+        #expect(TextEncodingRepair.requiresRawByteVerification(title))
+        #expect(TextEncodingRepair.repaired(title) == nil)
+        #expect(!ServerCatalogMetadataInspectionPolicy.hasUsableTitle(title))
+    }
+}
+
 @Test func extractsPlexFilenameArtistFallback() {
     let path = "/mnt/docker/TestMedia/PrimuseMusic/等什么君 - 慕夏.mp3"
     #expect(MediaMetadataTextRepair.fileNameArtist(from: path) == "等什么君")

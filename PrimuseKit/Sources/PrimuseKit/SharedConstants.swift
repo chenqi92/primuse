@@ -2001,11 +2001,52 @@ public enum MetadataBackfillEligibilityPolicy {
         format: AudioFormat,
         hasCoverArt: Bool,
         artworkGivenUp: Bool,
-        titleChecked: Bool
+        titleChecked: Bool,
+        durationInspectionComplete: Bool = false
     ) -> Bool {
-        duration <= 0
+        (duration <= 0 && !durationInspectionComplete)
             || (format == .mp3 && !hasCoverArt && !artworkGivenUp)
             || !titleChecked
+    }
+}
+
+/// A row's metadata state is independent from whether the media can be handed
+/// to the player. In particular, STRM and complete-file decoder formats can be
+/// playable while their duration remains unknown.
+public enum SongDetailsState: Equatable, Sendable {
+    case ready
+    case reading
+    case waitingForSource
+    case playableIncomplete
+    case confirmedFailure
+
+    public static func resolve(
+        duration: TimeInterval,
+        isStandaloneMusicVideo: Bool,
+        isPlayable: Bool,
+        isReading: Bool,
+        isWaitingForSource: Bool,
+        isIncomplete: Bool,
+        hasConfirmedFailure: Bool
+    ) -> Self {
+        if duration > 0 || isStandaloneMusicVideo { return .ready }
+        if isWaitingForSource { return .waitingForSource }
+        if isReading { return .reading }
+        if isIncomplete || (isPlayable && !hasConfirmedFailure) {
+            return .playableIncomplete
+        }
+        return .confirmedFailure
+    }
+}
+
+/// Cancellation stops the current worker generation. It must not consume a
+/// transient retry or park a song as though the source had failed.
+public enum MetadataBackfillRetryPolicy {
+    public static func shouldCountTransientFailure(
+        isCancellation: Bool,
+        isTransient: Bool
+    ) -> Bool {
+        isTransient && !isCancellation
     }
 }
 
@@ -2016,6 +2057,7 @@ public enum ServerCatalogMetadataInspectionPolicy {
     public static func hasUsableTitle(_ title: String?) -> Bool {
         guard let title else { return false }
         guard !MediaMetadataTextRepair.isSuspicious(title) else { return false }
+        guard !TextEncodingRepair.requiresRawByteVerification(title) else { return false }
         let normalized = title
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()

@@ -585,6 +585,16 @@
 "song_details_loading_message" = "Téléchargement de l'en-tête de tags de ce morceau (~256 Ko) depuis le cloud pour en extraire la durée, la pochette et l'artiste. Une fois terminé, il peut être ajouté à la file de lecture.";
 "song_details_unavailable" = "Informations du morceau indisponibles";
 "song_details_unavailable_message" = "Les tags ont été lus, mais aucune durée n'a pu être extraite. Le fichier est peut-être corrompu ou dans un format non pris en charge.";
+"song_details_waiting_source" = "En attente du réseau ou de la source";
+"song_details_waiting_source_message" = "La source est actuellement illisible. Vérifiez le réseau, la connexion et le chemin du fichier, puis réessayez.";
+"song_details_incomplete" = "Lisible avec des détails incomplets";
+"song_details_incomplete_message" = "Le morceau reste lisible, mais les détails complets ne peuvent pas encore être confirmés à partir des données brutes disponibles.";
+"song_details_parse_failed" = "Échec de l’analyse des détails";
+"song_details_parse_failed_message" = "Les données du fichier ont été lues, mais l’analyseur actuel n’a pas pu confirmer tous les détails. La lecture reste disponible.";
+"song_details_retry" = "Réessayer la lecture";
+"song_details_check_source" = "Vérifier la source";
+"song_details_source_available" = "La source est accessible. Une nouvelle lecture a été programmée.";
+"song_details_source_unavailable" = "La source est toujours indisponible. Vérifiez le réseau, la connexion et le chemin du fichier.";
 "music_video_badge" = "Clip vidéo";
 "audio_effects" = "Effets audio";
 "reverb" = "Réverbération";

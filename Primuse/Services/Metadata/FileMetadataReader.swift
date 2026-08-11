@@ -272,15 +272,23 @@ enum FileMetadataReader {
         // values when available, but fill every missing field from the small
         // native parser below. Previously this fallback only recovered APIC,
         // so a readable TIT2 still fell back to the filename.
-        metadata.title = metadata.title ?? text?.title
-        metadata.artist = metadata.artist ?? text?.artist
-        metadata.albumTitle = metadata.albumTitle ?? text?.albumTitle
-        metadata.albumArtist = metadata.albumArtist ?? text?.albumArtist
+        metadata.title = preferredMetadataText(current: metadata.title, rawID3: text?.title)
+        metadata.artist = preferredMetadataText(current: metadata.artist, rawID3: text?.artist)
+        metadata.albumTitle = preferredMetadataText(current: metadata.albumTitle, rawID3: text?.albumTitle)
+        metadata.albumArtist = preferredMetadataText(current: metadata.albumArtist, rawID3: text?.albumArtist)
         metadata.trackNumber = metadata.trackNumber ?? text?.trackNumber
         metadata.discNumber = metadata.discNumber ?? text?.discNumber
         metadata.year = metadata.year ?? text?.year
         metadata.genre = metadata.genre ?? text?.genre
         metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
+    }
+
+    private static func preferredMetadataText(current: String?, rawID3: String?) -> String? {
+        guard let rawID3, !MediaMetadataTextRepair.isSuspicious(rawID3) else {
+            return current
+        }
+        guard let current else { return rawID3 }
+        return MediaMetadataTextRepair.isSuspicious(current) ? rawID3 : current
     }
 
     private static func applyMPEGFrameFallback(

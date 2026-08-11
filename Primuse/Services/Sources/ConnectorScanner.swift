@@ -167,7 +167,16 @@ actor ConnectorScanner {
                             }
                         }
                     }
-                    for song in cueSongs { songsByID[song.id] = song }
+                    for song in cueSongs {
+                        if let existing = existingSongs.first(where: { $0.id == song.id }) {
+                            songsByID[song.id] = SongUserMetadataPolicy.preservingUserEdits(
+                                from: existing,
+                                in: song
+                            )
+                        } else {
+                            songsByID[song.id] = song
+                        }
+                    }
                     recordSyncItem(
                         item,
                         songIDs: cueSongs.map(\.id),
@@ -196,6 +205,10 @@ actor ConnectorScanner {
                     } else {
                         var replacement = incoming
                         replacement.dateAdded = old.dateAdded
+                        replacement = SongUserMetadataPolicy.preservingUserEdits(
+                            from: old,
+                            in: replacement
+                        )
                         songsByID[replacement.id] = replacement
                         changedCount += 1
                     }
@@ -349,10 +362,14 @@ actor ConnectorScanner {
                                         // allSongs so the next library flush sees the
                                         // fresh size/mtime/sidecars instead of merging
                                         // back to stale metadata.
+                                        let replacement = SongUserMetadataPolicy.preservingUserEdits(
+                                            from: existing,
+                                            in: scannedSong.song
+                                        )
                                         if let idx = allSongIndexByID[scannedSong.song.id] {
-                                            allSongs[idx] = scannedSong.song
+                                            allSongs[idx] = replacement
                                         }
-                                        existingByID[scannedSong.song.id] = scannedSong.song
+                                        existingByID[scannedSong.song.id] = replacement
                                         continue
                                     }
 
@@ -555,6 +572,10 @@ actor ConnectorScanner {
                                            let idx = allSongIndexByID[songID] {
                                             var replacement = descriptorSong
                                             replacement.dateAdded = existing.dateAdded
+                                            replacement = SongUserMetadataPolicy.preservingUserEdits(
+                                                from: existing,
+                                                in: replacement
+                                            )
                                             allSongs[idx] = replacement
                                             existingByID[songID] = replacement
                                         } else if let idx = allSongIndexByID[songID] {
@@ -603,6 +624,10 @@ actor ConnectorScanner {
                                                let index = allSongIndexByID[cueSong.id] {
                                                 var replacement = cueSong
                                                 replacement.dateAdded = existing.dateAdded
+                                                replacement = SongUserMetadataPolicy.preservingUserEdits(
+                                                    from: existing,
+                                                    in: replacement
+                                                )
                                                 allSongs[index] = replacement
                                                 existingByID[cueSong.id] = replacement
                                             } else if let index = allSongIndexByID[cueSong.id] {
@@ -680,6 +705,10 @@ actor ConnectorScanner {
                                     if let idx = allSongIndexByID[songID] {
                                         var replacement = refreshed
                                         replacement.dateAdded = existing.dateAdded
+                                        replacement = SongUserMetadataPolicy.preservingUserEdits(
+                                            from: existing,
+                                            in: replacement
+                                        )
                                         allSongs[idx] = replacement
                                         existingByID[songID] = replacement
                                     }
@@ -948,6 +977,19 @@ actor ConnectorScanner {
     }
 
     private func refreshServerMetadata(existing: Song, incoming: Song) -> Song {
+        if existing.userMetadataEditedAt != nil {
+            var refreshed = SongUserMetadataPolicy.preservingUserEdits(
+                from: existing,
+                in: incoming
+            )
+            if refreshed.duration <= 0 { refreshed.duration = incoming.duration }
+            if refreshed.fileSize <= 0 { refreshed.fileSize = incoming.fileSize }
+            if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
+            if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
+            if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
+            return refreshed
+        }
+
         var refreshed = existing
 
         if existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

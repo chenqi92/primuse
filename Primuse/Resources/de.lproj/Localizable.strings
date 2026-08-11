@@ -585,6 +585,16 @@
 "song_details_loading_message" = "Der Tag-Header dieses Titels (~256 KB) wird aus der Cloud geladen, um Dauer, Cover und Künstler zu ermitteln. Danach kann der Titel zur Wiedergabeliste hinzugefügt werden.";
 "song_details_unavailable" = "Titeldetails nicht verfügbar";
 "song_details_unavailable_message" = "Die Tags wurden gelesen, aber es konnte keine Dauer ermittelt werden. Die Datei ist möglicherweise beschädigt oder hat ein nicht unterstütztes Format.";
+"song_details_waiting_source" = "Warten auf Netzwerk oder Quelle";
+"song_details_waiting_source_message" = "Die Quelle kann derzeit nicht gelesen werden. Netzwerk, Anmeldung und Dateipfad prüfen und erneut versuchen.";
+"song_details_incomplete" = "Abspielbar, Details unvollständig";
+"song_details_incomplete_message" = "Der Titel bleibt abspielbar, aber vollständige Details lassen sich noch nicht aus den verfügbaren Rohdaten bestätigen.";
+"song_details_parse_failed" = "Titeldetails konnten nicht analysiert werden";
+"song_details_parse_failed_message" = "Dateidaten wurden gelesen, aber der aktuelle Parser konnte keine vollständigen Details bestätigen. Die Wiedergabe bleibt verfügbar.";
+"song_details_retry" = "Erneut lesen";
+"song_details_check_source" = "Quelle prüfen";
+"song_details_source_available" = "Die Quelle ist erreichbar. Das Einlesen wurde erneut eingeplant.";
+"song_details_source_unavailable" = "Die Quelle ist weiterhin nicht verfügbar. Netzwerk, Anmeldung und Dateipfad prüfen.";
 "music_video_badge" = "Musikvideo";
 "audio_effects" = "Audioeffekte";
 "reverb" = "Hall";

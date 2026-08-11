@@ -62,6 +62,18 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("User metadata protection marker round-trips")
+    func userMetadataProtectionRoundTrip() throws {
+        try withStore { store in
+            var song = makeSong(id: "manual", path: "/manual.mp3", title: "Manual")
+            song.userMetadataEditedAt = Date(timeIntervalSince1970: 1_750_000_000)
+            try store.replaceAll(with: [song])
+
+            let loaded = try #require(try store.loadSongs().first)
+            #expect(loaded.userMetadataEditedAt == song.userMetadataEditedAt)
+        }
+    }
+
     private func withStore(_ body: (IncrementalSongStore) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-song-store-\(UUID().uuidString).sqlite")
