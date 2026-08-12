@@ -205,6 +205,10 @@
 "open" = "Open";
 "delete" = "Delete";
 "delete_playlist" = "Delete Playlist";
+"hide_playlist_from_primuse" = "Hide from Primuse";
+"hidden_source_playlists" = "Hidden Source Playlists";
+"hidden_source_playlists_desc" = "These playlists remain in Apple Music or on the music server. Restore them to show them again.";
+"restore_hidden_playlist" = "Show Again";
 "disable" = "Disable";
 "enable" = "Enable";
 "disabled" = "Disabled";

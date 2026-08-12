@@ -9,6 +9,7 @@ struct RecentlyDeletedView: View {
     var body: some View {
         Form {
             playlistsSection
+            hiddenMirrorPlaylistsSection
             sourcesSection
             scraperConfigsSection
         }
@@ -20,6 +21,7 @@ struct RecentlyDeletedView: View {
         #endif
         .overlay {
             if library.recentlyDeletedPlaylists.isEmpty
+                && library.hiddenMirrorPlaylists.isEmpty
                 && sourcesStore.recentlyDeletedSources.isEmpty
                 && ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty {
                 EmptyStateView(
@@ -27,6 +29,22 @@ struct RecentlyDeletedView: View {
                     descriptionKey: "recently_deleted_empty_desc",
                     systemImage: "trash"
                 )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var hiddenMirrorPlaylistsSection: some View {
+        let items = library.hiddenMirrorPlaylists
+        if !items.isEmpty {
+            Section {
+                ForEach(items) { suppression in
+                    hiddenMirrorRow(suppression)
+                }
+            } header: {
+                Text("hidden_source_playlists")
+            } footer: {
+                Text("hidden_source_playlists_desc")
             }
         }
     }
@@ -160,6 +178,41 @@ struct RecentlyDeletedView: View {
             }
             Button { restore() } label: {
                 Label("restore", systemImage: "arrow.uturn.backward")
+            }
+            .tint(.blue)
+        }
+        #endif
+    }
+
+    private func hiddenMirrorRow(_ suppression: MirrorPlaylistSuppression) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "eye.slash")
+                .frame(width: 28)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(suppression.displayName)
+                Text(suppression.hiddenAt, style: .date)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            #if os(macOS)
+            Button {
+                library.restoreHiddenMirrorPlaylist(suppression)
+            } label: {
+                Label("restore_hidden_playlist", systemImage: "eye")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help(Text("restore_hidden_playlist"))
+            #endif
+        }
+        #if os(iOS)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button {
+                library.restoreHiddenMirrorPlaylist(suppression)
+            } label: {
+                Label("restore_hidden_playlist", systemImage: "eye")
             }
             .tint(.blue)
         }

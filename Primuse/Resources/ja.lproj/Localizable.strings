@@ -407,6 +407,10 @@
 "edit" = "編集";
 "open" = "開く";
 "delete_playlist" = "プレイリストを削除";
+"hide_playlist_from_primuse" = "Primuse で非表示";
+"hidden_source_playlists" = "非表示のソースプレイリスト";
+"hidden_source_playlists_desc" = "これらのプレイリストは Apple Music または音楽サーバーに残り、再表示できます。";
+"restore_hidden_playlist" = "再表示";
 "disable" = "無効にする";
 "enable" = "有効にする";
 "disabled" = "無効";

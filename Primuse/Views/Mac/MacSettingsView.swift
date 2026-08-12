@@ -3426,6 +3426,7 @@ private struct MacSTDeletedView: View {
     private var hasAny: Bool {
         let _ = configsTick
         return !library.recentlyDeletedPlaylists.isEmpty
+            || !library.hiddenMirrorPlaylists.isEmpty
             || !sourcesStore.recentlyDeletedSources.isEmpty
             || !ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty
     }
@@ -3460,6 +3461,25 @@ private struct MacSTDeletedView: View {
                             divider: index != 0,
                             restore: { library.restorePlaylist(id: p.id) },
                             purge:   { library.permanentlyDeletePlaylist(id: p.id) }
+                        )
+                    }
+                }
+            }
+        }
+
+        let hiddenMirrors = library.hiddenMirrorPlaylists
+        if !hiddenMirrors.isEmpty {
+            MacSTSection("hidden_source_playlists",
+                         hint: String(localized: "hidden_source_playlists_desc")) {
+                MacSTGroup {
+                    ForEach(Array(hiddenMirrors.enumerated()), id: \.element.id) { index, suppression in
+                        MacDeletedRealRow(
+                            title: suppression.displayName,
+                            sub: String(localized: "restore_hidden_playlist"),
+                            icon: "eye.slash",
+                            divider: index != 0,
+                            restore: { library.restoreHiddenMirrorPlaylist(suppression) },
+                            purge: nil
                         )
                     }
                 }
@@ -3528,7 +3548,7 @@ private struct MacDeletedRealRow: View {
     let icon: String
     let divider: Bool
     let restore: () -> Void
-    let purge: () -> Void
+    let purge: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -3557,7 +3577,9 @@ private struct MacDeletedRealRow: View {
 
                 Spacer()
                 MacSTButton(title: "restore", action: restore)
-                MacSTButton(title: "delete_forever", destructive: true, action: purge)
+                if let purge {
+                    MacSTButton(title: "delete_forever", destructive: true, action: purge)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

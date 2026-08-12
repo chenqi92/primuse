@@ -406,6 +406,10 @@
 "edit" = "Bearbeiten";
 "open" = "Öffnen";
 "delete_playlist" = "Wiedergabeliste löschen";
+"hide_playlist_from_primuse" = "In Primuse ausblenden";
+"hidden_source_playlists" = "Ausgeblendete Quell-Wiedergabelisten";
+"hidden_source_playlists_desc" = "Diese Wiedergabelisten bleiben in Apple Music oder auf dem Musikserver erhalten und können wieder eingeblendet werden.";
+"restore_hidden_playlist" = "Wieder einblenden";
 "disable" = "Deaktivieren";
 "enable" = "Aktivieren";
 "disabled" = "Deaktiviert";

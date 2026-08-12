@@ -286,6 +286,13 @@ struct PlaylistDetailView: View {
                         } label: {
                             Label("delete_playlist", systemImage: "trash")
                         }
+                    } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+                        Divider()
+                        Button {
+                            hideCurrentPlaylist()
+                        } label: {
+                            Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -592,6 +599,10 @@ struct PlaylistDetailView: View {
             canDelete ? [
                 .init(icon: "trash", title: String(localized: "delete_playlist"),
                       isDestructive: true) { deleteCurrentPlaylist() },
+            ] : isMirror ? [
+                .init(icon: "eye.slash", title: String(localized: "hide_playlist_from_primuse")) {
+                    hideCurrentPlaylist()
+                },
             ] : [],
         ]))
     }
@@ -900,6 +911,16 @@ struct PlaylistDetailView: View {
     private func deleteCurrentPlaylist() {
         guard canDeletePlaylist(playlist.id) else { return }
         library.deletePlaylist(id: playlist.id)
+        #if os(macOS)
+        NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
+        #else
+        dismiss()
+        #endif
+    }
+
+    private func hideCurrentPlaylist() {
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) else { return }
+        library.hideMirrorPlaylist(id: playlist.id)
         #if os(macOS)
         NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
         #else

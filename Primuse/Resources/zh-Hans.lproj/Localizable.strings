@@ -206,6 +206,10 @@
 "open" = "打开";
 "delete" = "删除";
 "delete_playlist" = "删除歌单";
+"hide_playlist_from_primuse" = "从猿音隐藏";
+"hidden_source_playlists" = "已隐藏的来源歌单";
+"hidden_source_playlists_desc" = "这些歌单仍保留在 Apple Music 或音乐服务器中；恢复后会重新显示。";
+"restore_hidden_playlist" = "恢复显示";
 "disable" = "禁用";
 "enable" = "启用";
 "disabled" = "已禁用";

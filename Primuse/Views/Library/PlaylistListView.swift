@@ -106,6 +106,12 @@ struct PlaylistListView: View {
                                         } label: {
                                             Label("delete", systemImage: "trash")
                                         }
+                                    } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+                                        Button {
+                                            library.hideMirrorPlaylist(id: playlist.id)
+                                        } label: {
+                                            Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                                        }
                                     }
                                 }
                             }
@@ -646,6 +652,13 @@ struct PlaylistListView: View {
                 library.deletePlaylist(id: playlist.id)
             } label: {
                 Label("delete_playlist", systemImage: "trash")
+            }
+        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+            Divider()
+            Button {
+                library.hideMirrorPlaylist(id: playlist.id)
+            } label: {
+                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
             }
         }
     }

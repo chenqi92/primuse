@@ -1918,6 +1918,7 @@ final class MusicLibrary {
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
     private(set) var allPlaylists: [Playlist] = []
+    private var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
     /// Live (non-deleted) playlists for normal UI use. Apple Music's library
     /// and user-playlist mirrors are read-only snapshots, so keep them stored
     /// for fast re-enable but hide them whenever Apple Music library sync or
@@ -1927,6 +1928,7 @@ final class MusicLibrary {
             || disabledSourceIDs.contains(AppleMusicLibraryIdentity.sourceID)
         return allPlaylists.filter { playlist in
             guard !playlist.isDeleted else { return false }
+            guard !isMirrorPlaylistSuppressed(playlist.id) else { return false }
             return !hidesAppleMusicMirrors
                 || !AppleMusicLibraryIdentity.isMirrorPlaylist(playlist.id)
         }
@@ -1935,8 +1937,11 @@ final class MusicLibrary {
     /// Deleted" recovery panel.
     var recentlyDeletedPlaylists: [Playlist] {
         allPlaylists
-            .filter { $0.isDeleted }
+            .filter { $0.isDeleted && !$0.isPurged }
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+    var hiddenMirrorPlaylists: [MirrorPlaylistSuppression] {
+        mirrorPlaylistSuppressions.values.sorted { $0.hiddenAt > $1.hiddenAt }
     }
     /// 智能歌单 ── 跟普通 playlist 共用 soft-delete + snapshot 持久化模型。
     /// 只存定义 (规则 / 排序 / 上限), 不缓存匹配结果 ── 每次 query 实时算,
@@ -2060,6 +2065,8 @@ final class MusicLibrary {
     private let snapshotURL: URL
     private let backupSnapshotURL: URL
     private let derivedIndexCacheURL: URL
+    private let playlistDurabilityURL: URL
+    private let playlistSyncWriterID: String
     /// Canonical device-local song rows. JSON is retained as an interoperable
     /// iCloud/Apple TV snapshot, but routine scan/backfill writes go here.
     @ObservationIgnored private let songStore: IncrementalSongStore?
@@ -2171,6 +2178,16 @@ final class MusicLibrary {
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
         derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
+        playlistDurabilityURL = directory.appendingPathComponent("playlist-durability.json")
+        let writerDefaultsKey = "primuse.playlist.syncWriterID"
+        if let existingWriterID = UserDefaults.standard.string(forKey: writerDefaultsKey),
+           !existingWriterID.isEmpty {
+            playlistSyncWriterID = existingWriterID
+        } else {
+            let newWriterID = UUID().uuidString
+            UserDefaults.standard.set(newWriterID, forKey: writerDefaultsKey)
+            playlistSyncWriterID = newWriterID
+        }
         do {
             songStore = try IncrementalSongStore(
                 path: directory.appendingPathComponent("library-songs.sqlite").path
@@ -2899,6 +2916,74 @@ final class MusicLibrary {
         NotificationCenter.default.post(name: .primusePlaybackHistoryDidChange, object: nil)
     }
 
+    private func stampedPlaylist(
+        _ playlist: Playlist,
+        deleting: Bool = false,
+        restoringDeleteOperationID: String? = nil,
+        purging: Bool = false,
+        now: Date = Date()
+    ) -> Playlist {
+        var result = playlist
+        result.updatedAt = now
+        result.syncRevision = max(0, playlist.syncRevision) + 1
+        result.syncWriterID = playlistSyncWriterID
+        result.syncOperationID = UUID().uuidString
+        if deleting {
+            result.isDeleted = true
+            result.deletedAt = playlist.deletedAt ?? now
+            result.deleteOperationID = UUID().uuidString
+            result.restoredDeleteOperationID = nil
+        } else if let restoringDeleteOperationID {
+            result.isDeleted = false
+            result.deletedAt = nil
+            result.deleteOperationID = nil
+            result.restoredDeleteOperationID = restoringDeleteOperationID
+        }
+        result.isPurged = purging
+        return result
+    }
+
+    private func isMirrorPlaylistSuppressed(_ playlistID: String) -> Bool {
+        guard let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlistID) else {
+            return false
+        }
+        return mirrorPlaylistSuppressions[keyID(key)] != nil
+    }
+
+    private func keyID(_ key: MirrorPlaylistSuppressionKey) -> String {
+        "\(key.sourceID)\u{1F}\(key.remotePlaylistID)"
+    }
+
+    func hideMirrorPlaylist(id: String) {
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(id),
+              let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: id),
+              let playlist = allPlaylists.first(where: { $0.id == id }) else { return }
+        let suppressionID = keyID(key)
+        let previous = mirrorPlaylistSuppressions[suppressionID]
+        mirrorPlaylistSuppressions[suppressionID] = MirrorPlaylistSuppression(
+            key: key,
+            playlistID: id,
+            displayName: playlist.name
+        )
+        guard persistPlaylistDurabilityLedger() else {
+            mirrorPlaylistSuppressions[suppressionID] = previous
+            return
+        }
+        persistSnapshot()
+        playlistCollectionRevision &+= 1
+    }
+
+    func restoreHiddenMirrorPlaylist(_ suppression: MirrorPlaylistSuppression) {
+        let suppressionID = keyID(suppression.key)
+        guard let removed = mirrorPlaylistSuppressions.removeValue(forKey: suppressionID) else { return }
+        guard persistPlaylistDurabilityLedger() else {
+            mirrorPlaylistSuppressions[suppressionID] = removed
+            return
+        }
+        persistSnapshot()
+        playlistCollectionRevision &+= 1
+    }
+
     func createPlaylist(name: String) -> Playlist {
         createPlaylist(name: name, songIDs: [])
     }
@@ -2908,7 +2993,7 @@ final class MusicLibrary {
     /// through `createPlaylist` + 1000 calls to `add` previously serialized the
     /// whole library snapshot and invalidated playlist views 1001 times.
     func createPlaylist(name: String, songIDs: [String]) -> Playlist {
-        let playlist = Playlist(name: name)
+        let playlist = stampedPlaylist(Playlist(name: name))
         let entries = validUniqueSongIDs(songIDs)
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = entries
@@ -2917,6 +3002,7 @@ final class MusicLibrary {
             allPlaylists[allPlaylists.count - 1].coverArtPath = songs[songIndex].coverArtFileName
         }
         sortPlaylists()
+        persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlist.id])
         return allPlaylists.first(where: { $0.id == playlist.id }) ?? playlist
@@ -2924,27 +3010,37 @@ final class MusicLibrary {
 
     /// 用固定 ID 创建/取回 playlist ── 给"系统级"歌单 (Apple Music 资料库
     /// 镜像等) 用, 保证多端同步 + 重启后映射稳定, 不会重复创建。
-    /// 如果对应 id 已被软删, 一并恢复 (避免用户误删后下次同步又新建一份)。
+    /// 镜像歌单的可见性由 suppression 独立控制；本地歌单若已删除，只能走显式恢复。
     @discardableResult
     func ensurePlaylist(id: String, name: String) -> Playlist {
         if let idx = allPlaylists.firstIndex(where: { $0.id == id }) {
             var p = allPlaylists[idx]
+            let isMirror = MirrorPlaylistIdentity.isMirrorPlaylist(id)
+            if p.isDeleted && !isMirror { return p }
             var changed = false
             if p.isDeleted { p.isDeleted = false; p.deletedAt = nil; changed = true }
             if p.name != name { p.name = name; changed = true }
             if changed {
-                p.updatedAt = Date()
+                if isMirror {
+                    p.updatedAt = Date()
+                } else {
+                    p = stampedPlaylist(p)
+                }
                 allPlaylists[idx] = p
                 sortPlaylists()
+                persistPlaylistDurabilityLedger()
                 persistSnapshot()
                 notifyPlaylistsChanged([id])
             }
             return p
         }
-        let playlist = Playlist(id: id, name: name)
+        let playlist = MirrorPlaylistIdentity.isMirrorPlaylist(id)
+            ? Playlist(id: id, name: name)
+            : stampedPlaylist(Playlist(id: id, name: name))
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = []
         sortPlaylists()
+        persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlist.id])
         return playlist
@@ -2953,7 +3049,9 @@ final class MusicLibrary {
     /// 整体替换普通用户歌单（例如手动重排或把当前队列另存为歌单）。镜像歌单
     /// 必须走 `replaceMirrorPlaylistSongs`，防止任一遗漏的 UI 入口改写只读镜像。
     func replacePlaylistSongs(playlistID: String, songIDs: [String]) {
-        guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return }
+        guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              allPlaylists.first(where: { $0.id == playlistID })?.isDeleted == false
+        else { return }
         replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
     }
 
@@ -2971,6 +3069,10 @@ final class MusicLibrary {
         allPlaylists[idx].updatedAt = Date()
         allPlaylists[idx].coverArtPath = kept.first
             .flatMap { id in songIndexByID[id].flatMap { songs[$0].coverArtFileName } }
+        if !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) {
+            allPlaylists[idx] = stampedPlaylist(allPlaylists[idx])
+            persistPlaylistDurabilityLedger()
+        }
         sortPlaylists()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
@@ -2988,37 +3090,66 @@ final class MusicLibrary {
     func deletePlaylists(ids: Set<String>) {
         let editableIDs = Set(ids.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0) })
         guard !editableIDs.isEmpty else { return }
-        let now = Date()
         var changedIDs: [String] = []
+        var originals: [String: Playlist] = [:]
         changedIDs.reserveCapacity(editableIDs.count)
         for index in allPlaylists.indices where editableIDs.contains(allPlaylists[index].id) {
-            allPlaylists[index].isDeleted = true
-            allPlaylists[index].deletedAt = now
-            allPlaylists[index].updatedAt = now
+            guard !allPlaylists[index].isDeleted else { continue }
+            originals[allPlaylists[index].id] = allPlaylists[index]
+            allPlaylists[index] = stampedPlaylist(allPlaylists[index], deleting: true)
             changedIDs.append(allPlaylists[index].id)
         }
         guard !changedIDs.isEmpty else { return }
+        guard persistPlaylistDurabilityLedger() else {
+            for index in allPlaylists.indices {
+                if let original = originals[allPlaylists[index].id] {
+                    allPlaylists[index] = original
+                }
+            }
+            return
+        }
         persistSnapshot()
         notifyPlaylistsChanged(changedIDs)
     }
 
     /// Restore a soft-deleted playlist (e.g. from the Recently Deleted view).
     func restorePlaylist(id: String) {
-        guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return }
-        allPlaylists[index].isDeleted = false
-        allPlaylists[index].deletedAt = nil
-        allPlaylists[index].updatedAt = Date()
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
+              allPlaylists[index].isDeleted,
+              !allPlaylists[index].isPurged,
+              let deleteOperationID = allPlaylists[index].deleteOperationID else { return }
+        let original = allPlaylists[index]
+        allPlaylists[index] = stampedPlaylist(
+            allPlaylists[index],
+            restoringDeleteOperationID: deleteOperationID
+        )
+        guard persistPlaylistDurabilityLedger() else {
+            allPlaylists[index] = original
+            return
+        }
         persistSnapshot()
         notifyPlaylistsChanged([id])
     }
 
-    /// Permanently remove a playlist (manual purge or 30-day prune). Drops the
-    /// record from CloudKit too.
+    /// Compact a deleted playlist without dropping its tombstone. Membership
+    /// is removed, while the record remains syncable for long-offline devices.
     func permanentlyDeletePlaylist(id: String) {
-        allPlaylists.removeAll { $0.id == id }
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
+              allPlaylists[index].isDeleted else { return }
+        let original = allPlaylists[index]
+        let originalSongIDs = playlistSongIDs[id]
+        let originalPending = pendingPlaylistIdentities[id]
+        allPlaylists[index] = stampedPlaylist(allPlaylists[index], purging: true)
         playlistSongIDs[id] = nil
+        pendingPlaylistIdentities[id] = nil
+        guard persistPlaylistDurabilityLedger() else {
+            allPlaylists[index] = original
+            playlistSongIDs[id] = originalSongIDs
+            pendingPlaylistIdentities[id] = originalPending
+            return
+        }
         persistSnapshot()
-        notifyPlaylistDeleted(id)
+        notifyPlaylistsChanged([id])
     }
 
     /// Sweep playlists whose `deletedAt` is older than `threshold` and remove
@@ -3134,7 +3265,8 @@ final class MusicLibrary {
     func add(songIDs: [String], toPlaylist playlistID: String) {
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
-              let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID })
+              let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
+              !allPlaylists[existingIndex].isDeleted
         else { return }
 
         var entries = playlistSongIDs[playlistID] ?? []
@@ -3150,10 +3282,11 @@ final class MusicLibrary {
         guard changed else { return }
         playlistSongIDs[playlistID] = entries
 
-        allPlaylists[existingIndex].updatedAt = Date()
         allPlaylists[existingIndex].coverArtPath = entries.first
             .flatMap { songIndexByID[$0].flatMap { songs[$0].coverArtFileName } }
+        allPlaylists[existingIndex] = stampedPlaylist(allPlaylists[existingIndex])
         sortPlaylists()
+        persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
     }
@@ -3207,7 +3340,8 @@ final class MusicLibrary {
     func remove(songIDs: [String], fromPlaylist playlistID: String) {
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
-              let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID })
+              let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
+              !allPlaylists[existingIndex].isDeleted
         else { return }
 
         let removalSet = Set(songIDs)
@@ -3217,10 +3351,11 @@ final class MusicLibrary {
         guard entries.count != originalCount else { return }
         playlistSongIDs[playlistID] = entries
 
-        allPlaylists[existingIndex].updatedAt = Date()
         allPlaylists[existingIndex].coverArtPath = entries.first
             .flatMap { songIndexByID[$0].flatMap { songs[$0].coverArtFileName } }
+        allPlaylists[existingIndex] = stampedPlaylist(allPlaylists[existingIndex])
         sortPlaylists()
+        persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
     }
@@ -3262,17 +3397,22 @@ final class MusicLibrary {
             seenLibrarySongIDs.insert($0).inserted
         })
 
-        var collections = [LibraryFolderVirtualCollectionDescriptor(
-            sourceID: sourceID,
-            identity: AppleMusicLibraryIdentity.systemPlaylistID,
-            displayName: String(localized: "library_folder_apple_music_library_songs"),
-            kind: .librarySongs,
-            songIDs: librarySongIDs
-        )]
+        var collections: [LibraryFolderVirtualCollectionDescriptor] = []
+        if !isMirrorPlaylistSuppressed(AppleMusicLibraryIdentity.systemPlaylistID) {
+            collections.append(LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: AppleMusicLibraryIdentity.systemPlaylistID,
+                displayName: String(localized: "library_folder_apple_music_library_songs"),
+                kind: .librarySongs,
+                songIDs: librarySongIDs
+            ))
+        }
 
         let userMirrors = allPlaylists
             .filter {
-                !$0.isDeleted && $0.id.hasPrefix(AppleMusicLibraryIdentity.userPlaylistIDPrefix)
+                !$0.isDeleted
+                    && !isMirrorPlaylistSuppressed($0.id)
+                    && $0.id.hasPrefix(AppleMusicLibraryIdentity.userPlaylistIDPrefix)
             }
             .sorted { lhs, rhs in
                 let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
@@ -3350,12 +3490,19 @@ final class MusicLibrary {
     /// When `identities` is nil (legacy records from older clients), the
     /// raw `songIDs` are stored as-is — `songs(forPlaylist:)` already
     /// filters at display time.
+    @discardableResult
     func applyRemotePlaylist(
         _ playlist: Playlist,
         songIDs: [String],
         identities: [SongIdentity]? = nil
-    ) {
+    ) -> Bool {
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            if PlaylistReconciliationPolicy.winner(
+                local: allPlaylists[index],
+                remote: playlist
+            ) == .local {
+                return true
+            }
             allPlaylists[index] = playlist
         } else {
             allPlaylists.append(playlist)
@@ -3368,9 +3515,16 @@ final class MusicLibrary {
         } else {
             playlistSongIDs[playlist.id] = songIDs
         }
+        if playlist.isPurged {
+            playlistSongIDs[playlist.id] = nil
+            pendingPlaylistIdentities[playlist.id] = nil
+        }
 
         sortPlaylists()
+        persistPlaylistDurabilityLedger()
         persistSnapshot()
+        playlistCollectionRevision &+= 1
+        return false
     }
 
     /// Merge a server-side playlist update into the existing local playlist.
@@ -3378,13 +3532,24 @@ final class MusicLibrary {
     /// Server identities flow through the same resolver as `applyRemotePlaylist`;
     /// IDs that resolve are unioned with the local list, IDs that don't go
     /// to pending so the next scan can backfill them.
+    @discardableResult
     func mergeRemotePlaylist(
         _ playlist: Playlist,
         baseSongIDs: [String],
         additionalIdentities: [SongIdentity]
-    ) {
+    ) -> Bool {
+        var localWon = false
+        var reconciled = playlist
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
-            allPlaylists[index] = playlist
+            if PlaylistReconciliationPolicy.winner(
+                local: allPlaylists[index],
+                remote: playlist
+            ) == .local {
+                localWon = true
+                reconciled = allPlaylists[index]
+            } else {
+                allPlaylists[index] = playlist
+            }
         } else {
             allPlaylists.append(playlist)
         }
@@ -3392,11 +3557,18 @@ final class MusicLibrary {
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
         var seen = Set<String>()
         let merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
-        playlistSongIDs[playlist.id] = merged
-        updatePendingPlaylistIdentities(playlistID: playlist.id, with: unresolved)
+        playlistSongIDs[reconciled.id] = merged
+        updatePendingPlaylistIdentities(playlistID: reconciled.id, with: unresolved)
+        if reconciled.isPurged {
+            playlistSongIDs[reconciled.id] = nil
+            pendingPlaylistIdentities[reconciled.id] = nil
+        }
 
         sortPlaylists()
+        persistPlaylistDurabilityLedger()
         persistSnapshot()
+        playlistCollectionRevision &+= 1
+        return localWon
     }
 
     /// Replace the local playback history with one pulled from CloudKit.
@@ -3572,13 +3744,22 @@ final class MusicLibrary {
         pendingHistoryIdentities = stillPendingHistory
     }
 
-    /// Remove a playlist in response to a remote deletion event. Does not fire
-    /// the local-change notification (which would echo back to CloudKit).
-    func deletePlaylistFromRemote(id: String) {
-        allPlaylists.removeAll { $0.id == id }
-        playlistSongIDs[id] = nil
+    /// Convert a legacy CloudKit hard deletion into a durable tombstone. The
+    /// caller re-uploads it so old offline clients cannot later recreate it.
+    @discardableResult
+    func deletePlaylistFromRemote(id: String) -> Bool {
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return false }
+        let original = allPlaylists[index]
+        if !allPlaylists[index].isDeleted {
+            allPlaylists[index] = stampedPlaylist(allPlaylists[index], deleting: true)
+        }
+        guard persistPlaylistDurabilityLedger() else {
+            allPlaylists[index] = original
+            return false
+        }
         playlistCollectionRevision &+= 1
         persistSnapshot()
+        return true
     }
 
     private func notifyPlaylistsChanged(_ ids: [String]) {
@@ -3832,6 +4013,7 @@ final class MusicLibrary {
                 rebuildIndexSync()
                 plog("🚀 library load recovered \(canonicalSongs.count) song(s) from SQLite without a compatibility snapshot")
             }
+            loadPlaylistDurabilityLedger()
             return
         }
         guard let data = try? Data(contentsOf: snapshotURL) else {
@@ -3884,6 +4066,10 @@ final class MusicLibrary {
         songs = loadedSongs
         songIndexByID = Self.makeSongIndex(loadedSongs)
         allPlaylists = snapshot.playlists
+        mirrorPlaylistSuppressions = Dictionary(
+            uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
+        )
+        loadPlaylistDurabilityLedger()
         allSmartPlaylists = snapshot.smartPlaylists ?? []
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
         playlistCollectionRevision &+= 1
@@ -4133,6 +4319,7 @@ final class MusicLibrary {
         let snapshot = Snapshot(
             songs: songs,
             playlists: allPlaylists,
+            mirrorPlaylistSuppressions: hiddenMirrorPlaylists.isEmpty ? nil : hiddenMirrorPlaylists,
             smartPlaylists: allSmartPlaylists.isEmpty ? nil : allSmartPlaylists,
             playlistSongIDs: playlistSongIDs,
             recentPlaybackSongIDs: recentPlaybackSongIDs,
@@ -4285,6 +4472,75 @@ final class MusicLibrary {
         recentPlaybackSongIDs = recentPlaybackSongIDs.filter { songIndexByID[$0] != nil }
     }
 
+    @discardableResult
+    private func persistPlaylistDurabilityLedger() -> Bool {
+        let ledger = PlaylistDurabilityLedger(
+            playlists: allPlaylists.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0.id) },
+            mirrorPlaylistSuppressions: hiddenMirrorPlaylists
+        )
+        do {
+            let data = try encoder.encode(ledger)
+            try data.write(to: playlistDurabilityURL, options: .atomic)
+            return true
+        } catch {
+            plog("⛔ Playlist durability write failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func loadPlaylistDurabilityLedger() {
+        if let data = try? Data(contentsOf: playlistDurabilityURL),
+           let ledger = try? decoder.decode(PlaylistDurabilityLedger.self, from: data) {
+            for durable in ledger.playlists {
+                if let index = allPlaylists.firstIndex(where: { $0.id == durable.id }) {
+                    if PlaylistReconciliationPolicy.winner(
+                        local: allPlaylists[index],
+                        remote: durable
+                    ) == .remote {
+                        allPlaylists[index] = durable
+                    }
+                } else {
+                    allPlaylists.append(durable)
+                }
+            }
+            for suppression in ledger.mirrorPlaylistSuppressions {
+                mirrorPlaylistSuppressions[suppression.id] = suppression
+            }
+        }
+
+        var migratedDurabilityState = false
+        for index in allPlaylists.indices
+        where allPlaylists[index].isDeleted
+            && MirrorPlaylistIdentity.isMirrorPlaylist(allPlaylists[index].id) {
+            let playlist = allPlaylists[index]
+            if let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id) {
+                let suppression = MirrorPlaylistSuppression(
+                    key: key,
+                    playlistID: playlist.id,
+                    displayName: playlist.name,
+                    hiddenAt: playlist.deletedAt ?? playlist.updatedAt
+                )
+                mirrorPlaylistSuppressions[suppression.id] = suppression
+            }
+            allPlaylists[index].isDeleted = false
+            allPlaylists[index].deletedAt = nil
+            migratedDurabilityState = true
+        }
+        for index in allPlaylists.indices
+        where allPlaylists[index].isDeleted
+            && !MirrorPlaylistIdentity.isMirrorPlaylist(allPlaylists[index].id)
+            && allPlaylists[index].deleteOperationID == nil {
+            allPlaylists[index].syncRevision = max(1, allPlaylists[index].syncRevision)
+            allPlaylists[index].syncWriterID = playlistSyncWriterID
+            allPlaylists[index].syncOperationID = UUID().uuidString
+            allPlaylists[index].deleteOperationID = UUID().uuidString
+            migratedDurabilityState = true
+        }
+        if migratedDurabilityState {
+            persistPlaylistDurabilityLedger()
+        }
+    }
+
     /// 纯函数, 可跨 actor 调用 ── rebuildIndex 后台化时 nonisolated
     /// computeAlbumsAndArtists 也要用。
     nonisolated static func hashID(_ input: String) -> String {
@@ -4423,6 +4679,7 @@ final class MusicLibrary {
     private struct Snapshot: Codable, Sendable {
         var songs: [Song]
         var playlists: [Playlist]
+        var mirrorPlaylistSuppressions: [MirrorPlaylistSuppression]?
         /// 智能歌单。Optional 让旧 snapshot decode 不报错。
         var smartPlaylists: [SmartPlaylist]?
         var playlistSongIDs: [String: [String]]?
@@ -4435,6 +4692,11 @@ final class MusicLibrary {
         /// match. Optional so old snapshots decode cleanly with no entries.
         var pendingPlaylistIdentities: [String: [PendingSongIdentity]]?
         var pendingHistoryIdentities: [PendingSongIdentity]?
+    }
+
+    private struct PlaylistDurabilityLedger: Codable, Sendable {
+        var playlists: [Playlist]
+        var mirrorPlaylistSuppressions: [MirrorPlaylistSuppression]
     }
 }
 

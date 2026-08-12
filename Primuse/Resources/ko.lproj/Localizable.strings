@@ -406,6 +406,10 @@
 "edit" = "편집";
 "open" = "열기";
 "delete_playlist" = "재생 목록 삭제";
+"hide_playlist_from_primuse" = "Primuse에서 숨기기";
+"hidden_source_playlists" = "숨긴 소스 재생 목록";
+"hidden_source_playlists_desc" = "이 재생 목록은 Apple Music 또는 음악 서버에 유지되며 다시 표시할 수 있습니다.";
+"restore_hidden_playlist" = "다시 표시";
 "disable" = "사용 안 함";
 "enable" = "사용";
 "disabled" = "사용 안 함";

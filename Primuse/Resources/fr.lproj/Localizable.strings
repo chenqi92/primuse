@@ -406,6 +406,10 @@
 "edit" = "Modifier";
 "open" = "Ouvrir";
 "delete_playlist" = "Supprimer la liste de lecture";
+"hide_playlist_from_primuse" = "Masquer dans Primuse";
+"hidden_source_playlists" = "Listes de lecture source masquées";
+"hidden_source_playlists_desc" = "Ces listes restent dans Apple Music ou sur le serveur musical et peuvent être réaffichées.";
+"restore_hidden_playlist" = "Réafficher";
 "disable" = "Désactiver";
 "enable" = "Activer";
 "disabled" = "Désactivé";

@@ -369,6 +369,13 @@ struct MacSidebar: View {
             } label: {
                 Label("delete_playlist", systemImage: "trash")
             }
+        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+            Divider()
+            Button {
+                hidePlaylist(playlist)
+            } label: {
+                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+            }
         }
     }
 
@@ -488,6 +495,14 @@ struct MacSidebar: View {
     private func deletePlaylist(_ playlist: Playlist) {
         guard canDeletePlaylist(playlist.id) else { return }
         library.deletePlaylist(id: playlist.id)
+        if case .playlist(let selectedPlaylist) = selection, selectedPlaylist.id == playlist.id {
+            select(.home)
+        }
+    }
+
+    private func hidePlaylist(_ playlist: Playlist) {
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) else { return }
+        library.hideMirrorPlaylist(id: playlist.id)
         if case .playlist(let selectedPlaylist) = selection, selectedPlaylist.id == playlist.id {
             select(.home)
         }
