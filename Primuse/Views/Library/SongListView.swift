@@ -2146,7 +2146,8 @@ struct SongListView: View {
             else { return }
             await revealOverdueSortFeedbackBeforePublication(
                 generation: generation,
-                order: order.libraryOrder
+                order: order.libraryOrder,
+                songCount: prepared.rows.count
             )
             publishPreparedSnapshot(
                 prepared,
@@ -2290,7 +2291,8 @@ struct SongListView: View {
 
     private func revealOverdueSortFeedbackBeforePublication(
         generation: Int,
-        order: LibrarySongSortOrder
+        order: LibrarySongSortOrder,
+        songCount: Int
     ) async {
         guard sortProgress.generation == generation,
               !sortProgress.isVisible,
@@ -2298,11 +2300,13 @@ struct SongListView: View {
         let now = ContinuousClock.now
         if now < sortFeedbackDeadline {
             let remaining = now.duration(to: sortFeedbackDeadline)
-            // A worker result arriving immediately before the threshold can
-            // otherwise start a costly List transaction just as the delayed
-            // reveal becomes eligible, leaving no visible feedback. Fast
-            // sorts outside one display window still publish immediately.
-            guard remaining <= .milliseconds(34) else { return }
+            // A large snapshot can finish sorting quickly but still spend well
+            // over the threshold in SwiftUI publication. Give that known-cost
+            // path real feedback; genuinely small/fast lists still publish
+            // immediately unless they are within one display opportunity.
+            guard SongListSortProgressState.shouldAwaitFeedbackDeadline(
+                songCount: songCount
+            ) || remaining <= .milliseconds(34) else { return }
             try? await Task.sleep(for: remaining)
         }
         guard sortProgress.generation == generation,

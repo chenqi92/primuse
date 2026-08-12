@@ -235,6 +235,10 @@ struct SongListSnapshotTests {
     func ignoresSameSortOrder() {
         #expect(!SongListSortProgressState.acceptsChange(from: .title, to: .title))
         #expect(SongListSortProgressState.acceptsChange(from: .title, to: .artist))
+        #expect(!SongListSortProgressState.shouldAwaitFeedbackDeadline(songCount: 1))
+        #expect(!SongListSortProgressState.shouldAwaitFeedbackDeadline(songCount: 4_999))
+        #expect(SongListSortProgressState.shouldAwaitFeedbackDeadline(songCount: 7_300))
+        #expect(SongListSortProgressState.shouldAwaitFeedbackDeadline(songCount: 20_000))
     }
 
     @Test("Delayed feedback follows the latest generation without flicker")

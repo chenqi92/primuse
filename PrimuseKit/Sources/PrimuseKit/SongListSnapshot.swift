@@ -41,6 +41,12 @@ public struct SongListSortProgressState: Equatable, Sendable {
         current != requested
     }
 
+    /// Large lists have a measurable SwiftUI publication cost even when the
+    /// background sort itself finishes before the feedback deadline.
+    public static func shouldAwaitFeedbackDeadline(songCount: Int) -> Bool {
+        songCount >= 5_000
+    }
+
     /// Returns true when an already-visible indicator should update in place
     /// for a latest-wins request instead of restarting its reveal delay.
     @discardableResult
