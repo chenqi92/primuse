@@ -2760,6 +2760,7 @@
 "batch_playlists_delete_confirm_format" = "将删除 %d 个歌单。歌单里的歌曲不会被删除。";
 "library_browse_folder" = "文件夹";
 "library_browse_flat" = "平铺";
+"library_browse_switch_loading" = "正在切换视图…";
 "library_folder_uncategorized" = "未分类";
 "library_folder_other" = "其他";
 "library_folder_scan_root" = "扫描根";

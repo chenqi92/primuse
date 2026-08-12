@@ -2443,6 +2443,7 @@
 "batch_playlists_delete_confirm_format" = "%d playlists will be deleted. The songs inside them are kept.";
 "library_browse_folder" = "Folders";
 "library_browse_flat" = "Flat";
+"library_browse_switch_loading" = "Switching views…";
 "library_folder_uncategorized" = "Uncategorized";
 "library_folder_other" = "Other";
 "library_folder_scan_root" = "Scan Root";

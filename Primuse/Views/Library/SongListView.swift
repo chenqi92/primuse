@@ -2581,7 +2581,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                         onPlay: onPlay
                     )
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
 
                     if position < cache.positionCount - 1 {
                         Divider()
@@ -2602,8 +2602,10 @@ private struct SongBrowseModeTransitionOverlay: View {
         VStack(spacing: 10) {
             ProgressView()
                 .controlSize(.regular)
-            Text(modeLabel)
+            Text("library_browse_switch_loading")
                 .font(.subheadline.weight(.semibold))
+            Text(modeLabel)
+                .font(.caption)
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2611,6 +2613,7 @@ private struct SongBrowseModeTransitionOverlay: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.updatesFrequently)
         .accessibilityIdentifier("songBrowseModeTransition")
+        .zIndex(1)
     }
 
     private var modeLabel: LocalizedStringKey {

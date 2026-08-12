@@ -2656,6 +2656,7 @@
 "batch_playlists_delete_confirm_format" = "%d playlists seront supprimées. Les titres qu'elles contiennent sont conservés.";
 "library_browse_folder" = "Dossiers";
 "library_browse_flat" = "Liste à plat";
+"library_browse_switch_loading" = "Changement de vue…";
 "library_folder_uncategorized" = "Non classé";
 "library_folder_other" = "Autres";
 "library_folder_scan_root" = "Racine analysée";

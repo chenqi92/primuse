@@ -2657,6 +2657,7 @@
 "batch_playlists_delete_confirm_format" = "%d 個のプレイリストを削除します。中の曲は削除されません。";
 "library_browse_folder" = "フォルダ";
 "library_browse_flat" = "フラット";
+"library_browse_switch_loading" = "表示を切り替えています…";
 "library_folder_uncategorized" = "未分類";
 "library_folder_other" = "その他";
 "library_folder_scan_root" = "スキャンルート";

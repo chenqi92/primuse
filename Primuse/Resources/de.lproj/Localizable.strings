@@ -2656,6 +2656,7 @@
 "batch_playlists_delete_confirm_format" = "%d Playlists werden gelöscht. Die enthaltenen Titel bleiben erhalten.";
 "library_browse_folder" = "Ordner";
 "library_browse_flat" = "Flache Liste";
+"library_browse_switch_loading" = "Ansicht wird gewechselt …";
 "library_folder_uncategorized" = "Nicht kategorisiert";
 "library_folder_other" = "Sonstige";
 "library_folder_scan_root" = "Scan-Stamm";

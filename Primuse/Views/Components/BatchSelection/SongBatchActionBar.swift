@@ -233,6 +233,11 @@ private struct SongBatchActionsModifier: ViewModifier {
     private func actionPresentation(_ content: Content) -> some View {
         #if os(iOS)
         content
+            // A selection toolbar and the app tab bar cannot share the same
+            // bottom edge on iPhone. On iOS 26 their glass backgrounds overlap
+            // and taps can fall through to a tab item. Selection temporarily
+            // replaces the tab bar, then restores the parent visibility.
+            .toolbar(selection.isActive ? .hidden : .automatic, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .bottomBar) {
                     IOSBatchActionToolbarContent(
