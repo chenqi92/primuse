@@ -2655,3 +2655,6 @@
 "library_folder_apple_music_unnamed_playlist" = "Playlist sans titre";
 "library_folder_expand" = "Développer le dossier";
 "library_folder_collapse" = "Réduire le dossier";
+"library_folder_selection_none" = "Non sélectionné";
+"library_folder_selection_partial" = "Partiellement sélectionné";
+"library_folder_selection_all" = "Sélectionné";

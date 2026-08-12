@@ -137,9 +137,93 @@ private struct SongBatchActionsModifier: ViewModifier {
         #endif
     }
 
+    @ViewBuilder
     private var actionBar: some View {
+        #if os(iOS)
+        iosActionBar
+        #else
+        macActionBar
+        #endif
+    }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var iosActionBar: some View {
+        let actions = HStack(spacing: 8) {
+            Button {
+                showAddToPlaylist = true
+            } label: {
+                adaptiveActionLabel(
+                    "add_to_playlist",
+                    systemImage: "text.badge.plus"
+                )
+            }
+            .disabled(selection.isEmpty)
+            .accessibilityIdentifier("batchAction.addToPlaylist")
+
+            Button {
+                player.appendToQueue(playableSelection())
+            } label: {
+                adaptiveActionLabel(
+                    "add_to_queue",
+                    systemImage: "text.line.last.and.arrowtriangle.forward"
+                )
+            }
+            .disabled(selection.isEmpty)
+            .accessibilityIdentifier("batchAction.addToQueue")
+
+            Menu {
+                moreActions(includesAddToQueue: false)
+            } label: {
+                adaptiveActionLabel("more", systemImage: "ellipsis.circle")
+            }
+            .disabled(selection.isEmpty)
+            .accessibilityLabel(Text("a11y_more_actions"))
+            .accessibilityIdentifier("batchAction.more")
+        }
+
+        if #available(iOS 26.0, *) {
+            actions
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        } else {
+            actions
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .overlay(alignment: .top) {
+                    Divider()
+                }
+        }
+    }
+
+    private func adaptiveActionLabel(
+        _ title: LocalizedStringKey,
+        systemImage: String
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+
+            VStack(spacing: 2) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .contentShape(Rectangle())
+    }
+    #else
+    private var macActionBar: some View {
         HStack(spacing: 8) {
-            #if os(macOS)
             Button {
                 selection.deactivate()
             } label: {
@@ -166,7 +250,6 @@ private struct SongBatchActionsModifier: ViewModifier {
                 selection.selectAll(orderedIDs())
             }
             .font(.subheadline)
-            #endif
 
             Button {
                 showAddToPlaylist = true
@@ -199,19 +282,17 @@ private struct SongBatchActionsModifier: ViewModifier {
             .accessibilityLabel(Text("insert_next"))
 
             Menu {
-                moreActions
+                moreActions(includesAddToQueue: true)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
-            #if os(macOS)
             // Mac 上系统 Menu 默认自带箭头和一大片按钮底，跟这条自绘的条子
             // 不搭；iOS 的默认样式本来就是干净的图标按钮。
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            #endif
             .disabled(selection.isEmpty)
             .accessibilityLabel(Text("a11y_more_actions"))
         }
@@ -222,14 +303,17 @@ private struct SongBatchActionsModifier: ViewModifier {
             Divider()
         }
     }
+    #endif
 
     @ViewBuilder
-    private var moreActions: some View {
+    private func moreActions(includesAddToQueue: Bool) -> some View {
         Section {
-            Button {
-                player.appendToQueue(playableSelection())
-            } label: {
-                Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+            if includesAddToQueue {
+                Button {
+                    player.appendToQueue(playableSelection())
+                } label: {
+                    Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+                }
             }
 
             Button {

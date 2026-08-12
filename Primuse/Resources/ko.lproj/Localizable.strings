@@ -2655,3 +2655,6 @@
 "library_folder_apple_music_unnamed_playlist" = "이름 없는 플레이리스트";
 "library_folder_expand" = "폴더 펼치기";
 "library_folder_collapse" = "폴더 접기";
+"library_folder_selection_none" = "선택 안 함";
+"library_folder_selection_partial" = "일부 선택됨";
+"library_folder_selection_all" = "선택됨";

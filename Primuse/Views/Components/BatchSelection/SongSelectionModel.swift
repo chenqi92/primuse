@@ -198,22 +198,42 @@ final class SongSelectionMembership {
     }
 }
 
+/// Folder rows observe one aggregate snapshot instead of the ignored global
+/// selection set. The backing index updates this object once per affected
+/// folder, even when a single action changes thousands of songs.
+@MainActor
+@Observable
+final class SongSelectionGroupMembership {
+    let nodeID: LibraryFolderNodeID
+    private(set) var snapshot: LibraryFolderSelectionSnapshot
+
+    init(snapshot: LibraryFolderSelectionSnapshot) {
+        nodeID = snapshot.nodeID
+        self.snapshot = snapshot
+    }
+
+    fileprivate func apply(_ snapshot: LibraryFolderSelectionSnapshot) {
+        guard self.snapshot != snapshot else { return }
+        self.snapshot = snapshot
+    }
+}
+
 /// 列表多选态。选中 ID 的集合不参与 Observation；行只观察自己的
 /// `SongSelectionMembership`，计数和批量操作各自走独立的观察边界。
 @MainActor
 @Observable
 final class SongSelectionModel {
-    enum GroupState: Equatable {
-        case none
-        case partial
-        case all
-    }
+    typealias GroupState = LibraryFolderSelectionState
 
     private(set) var isActive = false
     private(set) var count = 0
 
     @ObservationIgnored private var selectedIDsStorage: Set<String> = []
     @ObservationIgnored private var membershipsByID: [String: SongSelectionMembership] = [:]
+    @ObservationIgnored private var groupSelectionIndex = LibraryFolderSelectionIndex()
+    @ObservationIgnored private var groupMembershipsByNodeID: [
+        LibraryFolderNodeID: SongSelectionGroupMembership
+    ] = [:]
 
     /// Shift 范围选的锚点。故意不参与 Observation：它只在点击回调里读写，
     /// 让它触发行重建纯属浪费。
@@ -238,6 +258,26 @@ final class SongSelectionModel {
         return membership
     }
 
+    func groupMembership(
+        for nodeID: LibraryFolderNodeID,
+        version: LibraryFolderSelectionVersion,
+        songIDs: [String]
+    ) -> SongSelectionGroupMembership {
+        let snapshot = groupSelectionIndex.register(
+            nodeID: nodeID,
+            version: version,
+            songIDs: songIDs,
+            selectedSongIDs: selectedIDsStorage
+        )
+        if let membership = groupMembershipsByNodeID[nodeID] {
+            membership.apply(snapshot)
+            return membership
+        }
+        let membership = SongSelectionGroupMembership(snapshot: snapshot)
+        groupMembershipsByNodeID[nodeID] = membership
+        return membership
+    }
+
     /// `seed` 是长按/右键进入选择模式时那一行 —— 用户的意图显然是"先选中它"。
     func activate(seed songID: String? = nil) {
         isActive = true
@@ -256,16 +296,13 @@ final class SongSelectionModel {
     }
 
     func toggle(_ songID: String) {
-        let isSelected: Bool
-        if selectedIDsStorage.contains(songID) {
-            selectedIDsStorage.remove(songID)
-            isSelected = false
+        var selectedIDs = selectedIDsStorage
+        if selectedIDs.contains(songID) {
+            selectedIDs.remove(songID)
         } else {
-            selectedIDsStorage.insert(songID)
-            isSelected = true
+            selectedIDs.insert(songID)
         }
-        count = selectedIDsStorage.count
-        membership(for: songID).setSelected(isSelected)
+        replaceSelection(with: selectedIDs)
         anchorID = songID
     }
 
@@ -280,11 +317,9 @@ final class SongSelectionModel {
         }
         let range = start <= end ? start...end : end...start
         let addedIDs = orderedIDs[range]
-        selectedIDsStorage.formUnion(addedIDs)
-        count = selectedIDsStorage.count
-        for id in addedIDs {
-            membershipsByID[id]?.setSelected(true)
-        }
+        var selectedIDs = selectedIDsStorage
+        selectedIDs.formUnion(addedIDs)
+        replaceSelection(with: selectedIDs)
         self.anchorID = songID
     }
 
@@ -306,16 +341,6 @@ final class SongSelectionModel {
             replaceSelection(with: selectedIDsStorage.union(group))
         }
         anchorID = songIDs.last
-    }
-
-    func groupState(for songIDs: [String]) -> GroupState {
-        guard !songIDs.isEmpty else { return .none }
-        var selectedCount = 0
-        for songID in songIDs where selectedIDsStorage.contains(songID) {
-            selectedCount += 1
-        }
-        if selectedCount == 0 { return .none }
-        return selectedCount == songIDs.count ? .all : .partial
     }
 
     func clear() {
@@ -340,10 +365,17 @@ final class SongSelectionModel {
 
     private func replaceSelection(with selectedIDs: Set<String>) {
         guard selectedIDs != selectedIDsStorage else { return }
+        let changedSongIDs = selectedIDsStorage.symmetricDifference(selectedIDs)
         selectedIDsStorage = selectedIDs
         count = selectedIDs.count
-        for (songID, membership) in membershipsByID {
-            membership.setSelected(selectedIDs.contains(songID))
+        for songID in changedSongIDs {
+            membershipsByID[songID]?.setSelected(selectedIDs.contains(songID))
+        }
+        for snapshot in groupSelectionIndex.selectionDidChange(
+            changedSongIDs: changedSongIDs,
+            selectedSongIDs: selectedIDs
+        ) {
+            groupMembershipsByNodeID[snapshot.nodeID]?.apply(snapshot)
         }
     }
 }

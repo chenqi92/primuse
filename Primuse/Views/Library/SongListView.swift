@@ -2659,16 +2659,12 @@ private struct LibraryFolderNodeBranch: View {
     @ViewBuilder
     private func rowAction(for node: LibraryFolderNode) -> some View {
         if selection.isActive {
-            let ids = actionSongIDs()
-            let state = selection.groupState(for: ids)
-            Button {
-                selection.toggleGroup(ids)
-            } label: {
-                LibraryFolderNodeLabel(node: node, selectionState: state)
-            }
-            .buttonStyle(.plain)
-            .disabled(ids.isEmpty)
-            .accessibilityAddTraits(state == .all ? .isSelected : [])
+            LibraryFolderSelectionButton(
+                node: node,
+                folderCache: folderCache,
+                listCache: listCache,
+                selection: selection
+            )
         } else {
             NavigationLink {
                 LibraryFolderNodeView(
@@ -2707,9 +2703,60 @@ private struct LibraryFolderNodeBranch: View {
     }
 }
 
+/// A dedicated observation boundary keeps an aggregate folder-state change
+/// from rebuilding its expanded descendants. The selection index materializes
+/// the descendant set only when the immutable folder/list version changes.
+private struct LibraryFolderSelectionButton: View {
+    let node: LibraryFolderNode
+    let folderCache: LibraryFolderBrowserCache
+    let listCache: SongListCache
+    let selection: SongSelectionModel
+
+    var body: some View {
+        let songIDs = folderCache.orderedSongIDs(
+            in: node.id,
+            scope: .action,
+            listCache: listCache
+        )
+        let membership = selection.groupMembership(
+            for: node.id,
+            version: LibraryFolderSelectionVersion(
+                folderRevision: folderCache.revision,
+                rowOrderRevision: listCache.rowOrderRevision
+            ),
+            songIDs: songIDs
+        )
+        let snapshot = membership.snapshot
+
+        Button {
+            selection.toggleGroup(songIDs)
+        } label: {
+            LibraryFolderNodeLabel(
+                node: node,
+                selectionState: snapshot.state,
+                selectionSongCount: snapshot.songCount
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(snapshot.songCount == 0)
+        .accessibilityAddTraits(snapshot.state == .all ? .isSelected : [])
+    }
+}
+
 private struct LibraryFolderNodeLabel: View {
     let node: LibraryFolderNode
     let selectionState: SongSelectionModel.GroupState?
+    let selectionSongCount: Int?
+
+    init(
+        node: LibraryFolderNode,
+        selectionState: SongSelectionModel.GroupState?,
+        selectionSongCount: Int? = nil
+    ) {
+        self.node = node
+        self.selectionState = selectionState
+        self.selectionSongCount = selectionSongCount
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -2753,10 +2800,8 @@ private struct LibraryFolderNodeLabel: View {
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: [
-            LibraryFolderNodePresentation.title(for: node),
-            LibraryFolderNodePresentation.songCount(node.descendantSongCount),
-        ].joined(separator: ", ")))
+        .accessibilityLabel(Text(verbatim: LibraryFolderNodePresentation.title(for: node)))
+        .accessibilityValue(Text(verbatim: accessibilityValue))
         .accessibilityIdentifier(
             "libraryFolderNode.\(node.kind.rawValue).\(LibraryFolderNodePresentation.accessibilityToken(for: node.id))"
         )
@@ -2768,6 +2813,23 @@ private struct LibraryFolderNodeLabel: View {
         case .partial: return "minus.circle.fill"
         case .all: return "checkmark.circle.fill"
         }
+    }
+
+    private var accessibilityValue: String {
+        let songCount = LibraryFolderNodePresentation.songCount(
+            selectionSongCount ?? node.descendantSongCount
+        )
+        guard let selectionState else { return songCount }
+        let state: String
+        switch selectionState {
+        case .none:
+            state = String(localized: "library_folder_selection_none")
+        case .partial:
+            state = String(localized: "library_folder_selection_partial")
+        case .all:
+            state = String(localized: "library_folder_selection_all")
+        }
+        return "\(state), \(songCount)"
     }
 }
 

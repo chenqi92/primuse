@@ -314,6 +314,38 @@ struct LibraryFolderIndexTests {
         )) != currentNodeID)
     }
 
+    @Test("Other node actions include every out-of-root song in library order")
+    func selectsAllSongsInOtherNode() throws {
+        let source = LibraryFolderSourceDescriptor(
+            sourceID: "hierarchical",
+            displayName: "Hierarchical",
+            scanRoots: ["/Music"],
+            pathSemantics: .hierarchical
+        )
+        let songs = (0..<82).map { index in
+            testSong(
+                id: "other-\(index)",
+                path: "/Outside/track-\(index).flac",
+                sourceID: "hierarchical"
+            )
+        }
+        let folderIndex = LibraryFolderIndexBuilder.build(
+            sources: [source],
+            songs: songs
+        )
+        let other = try #require(folderIndex.sourceNode(for: "hierarchical").flatMap {
+            folderIndex.children(of: $0.id).first { $0.kind == .other }
+        })
+        let order = songs.map(\.id).reversed()
+
+        #expect(other.descendantSongCount == 82)
+        #expect(LibraryFolderBrowsePolicy.actionSongIDs(
+            in: other.id,
+            index: folderIndex,
+            orderedBy: Array(order)
+        ) == Array(order))
+    }
+
     @Test("Provider item IDs and stream URLs do not fabricate media-server folders")
     func keepsVirtualSourcesUncategorized() throws {
         let sourceTypes: [MusicSourceType] = [

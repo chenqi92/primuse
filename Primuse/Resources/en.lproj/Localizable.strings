@@ -2442,3 +2442,6 @@
 "library_folder_apple_music_unnamed_playlist" = "Untitled Playlist";
 "library_folder_expand" = "Expand Folder";
 "library_folder_collapse" = "Collapse Folder";
+"library_folder_selection_none" = "Not selected";
+"library_folder_selection_partial" = "Partially selected";
+"library_folder_selection_all" = "Selected";

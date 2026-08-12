@@ -2655,3 +2655,6 @@
 "library_folder_apple_music_unnamed_playlist" = "Unbenannte Playlist";
 "library_folder_expand" = "Ordner erweitern";
 "library_folder_collapse" = "Ordner reduzieren";
+"library_folder_selection_none" = "Nicht ausgewählt";
+"library_folder_selection_partial" = "Teilweise ausgewählt";
+"library_folder_selection_all" = "Ausgewählt";

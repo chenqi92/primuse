@@ -2759,3 +2759,6 @@
 "library_folder_apple_music_unnamed_playlist" = "未命名播放列表";
 "library_folder_expand" = "展开文件夹";
 "library_folder_collapse" = "折叠文件夹";
+"library_folder_selection_none" = "未选择";
+"library_folder_selection_partial" = "部分选择";
+"library_folder_selection_all" = "已选择";
