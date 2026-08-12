@@ -2,6 +2,8 @@
 "library_title" = "资料库";
 "library_quick_access" = "快捷收藏";
 "library_browse" = "浏览资料库";
+"library_default_flat_view" = "默认平铺显示歌曲";
+"library_default_flat_view_description" = "关闭时默认按来源和文件夹层级浏览；打开后进入歌曲资料库即显示平铺列表。";
 "library_edit_quick_access" = "编辑快捷收藏";
 "library_add_quick_access" = "添加快捷收藏";
 "library_quick_access_limit" = "最多可添加 5 个快捷收藏";
@@ -2272,7 +2274,7 @@
 "radio_previous_station" = "上一个电台";
 "radio_next_station" = "下一个电台";
 "radio_home_visibility" = "在首页显示电台";
-"radio_home_visibility_description" = "显示一张可快速切换并直接播放的电台大卡片。";
+"radio_home_visibility_description" = "显示首页的电台翻面入口和电台相关内容。";
 
 // MARK: - 本地化运行时错误
 "error_audio_buffer_allocation" = "无法分配音频缓冲区。";

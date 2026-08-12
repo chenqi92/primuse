@@ -718,6 +718,24 @@ struct LibrarySongBrowseModePreferenceTests {
         #expect(LibrarySongBrowseModePreference.load(from: defaults) == .folder)
         #expect(defaults.string(forKey: LibrarySongBrowseModePreference.storageKey) == "folder")
     }
+
+    @Test("The flat-view switch maps to browse mode and persists both states")
+    func mapsFlatViewSwitchToBrowseMode() throws {
+        let suiteName = "LibrarySongBrowseModePreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(LibrarySongBrowseModePreference.isFlatViewEnabled(in: defaults) == false)
+
+        LibrarySongBrowseModePreference.setFlatViewEnabled(true, to: defaults)
+        #expect(LibrarySongBrowseModePreference.load(from: defaults) == .flat)
+        #expect(LibrarySongBrowseModePreference.isFlatViewEnabled(in: defaults))
+
+        LibrarySongBrowseModePreference.setFlatViewEnabled(false, to: defaults)
+        #expect(LibrarySongBrowseModePreference.load(from: defaults) == .folder)
+        #expect(LibrarySongBrowseModePreference.isFlatViewEnabled(in: defaults) == false)
+    }
 }
 
 private func testSong(

@@ -2,6 +2,8 @@
 "library_title" = "Library";
 "library_quick_access" = "Quick Access";
 "library_browse" = "Browse Library";
+"library_default_flat_view" = "Show Songs as a Flat List by Default";
+"library_default_flat_view_description" = "When off, songs open in the source and folder hierarchy. When on, the song library opens as a flat list.";
 "library_edit_quick_access" = "Edit Quick Access";
 "library_add_quick_access" = "Add Shortcut";
 "library_quick_access_limit" = "Add up to 5 shortcuts";
@@ -1996,7 +1998,7 @@
 "radio_previous_station" = "Previous Station";
 "radio_next_station" = "Next Station";
 "radio_home_visibility" = "Show Radio on Home";
-"radio_home_visibility_description" = "Shows one large station card with quick browsing and playback controls.";
+"radio_home_visibility_description" = "Shows the Radio side, its switcher, and related content on Home.";
 
 // MARK: - Localized runtime errors
 "error_audio_buffer_allocation" = "Failed to allocate an audio buffer.";

@@ -3,6 +3,8 @@
 "library_title" = "資料庫";
 "library_quick_access" = "快捷收藏";
 "library_browse" = "瀏覽資料庫";
+"library_default_flat_view" = "預設平鋪顯示歌曲";
+"library_default_flat_view_description" = "關閉時預設依來源與資料夾層級瀏覽；開啟後進入歌曲資料庫即顯示平鋪列表。";
 "library_edit_quick_access" = "編輯快捷收藏";
 "library_add_quick_access" = "新增快捷收藏";
 "library_quick_access_limit" = "最多可新增 5 個快捷收藏";
@@ -2145,7 +2147,7 @@
 "radio_previous_station" = "上一個電台";
 "radio_next_station" = "下一個電台";
 "radio_home_visibility" = "在首頁顯示電台";
-"radio_home_visibility_description" = "顯示一張可快速切換並直接播放的電台大卡片。";
+"radio_home_visibility_description" = "顯示首頁的電台翻面入口與電台相關內容。";
 
 // MARK: - 本地化執行階段錯誤
 "error_audio_buffer_allocation" = "無法配置音訊緩衝區。";

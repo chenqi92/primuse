@@ -3120,6 +3120,8 @@ private struct MacSTThemeView: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var autoDetectMaterial = true
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
+    @AppStorage(LibrarySongBrowseModePreference.storageKey)
+    private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
@@ -3132,6 +3134,19 @@ private struct MacSTThemeView: View {
     /// 把色板 hex ("#c96442") 归一成存储用格式 (大写无 #)。
     private func normHex(_ hex: String) -> String {
         hex.replacingOccurrences(of: "#", with: "").uppercased()
+    }
+
+    private var defaultFlatBrowseBinding: Binding<Bool> {
+        Binding(
+            get: {
+                LibrarySongBrowseMode(rawValue: libraryBrowseModeRawValue) == .flat
+            },
+            set: { isEnabled in
+                libraryBrowseModeRawValue = LibrarySongBrowseModePreference
+                    .mode(flatViewEnabled: isEnabled)
+                    .rawValue
+            }
+        )
     }
 
     var body: some View {
@@ -3161,6 +3176,18 @@ private struct MacSTThemeView: View {
                     divider: false
                 ) {
                     MacSTToggle(isOn: $showRadioOnHome)
+                }
+            }
+        }
+
+        MacSTSection(String(localized: "library")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "library_default_flat_view"),
+                    hint: String(localized: "library_default_flat_view_description"),
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: defaultFlatBrowseBinding)
                 }
             }
         }

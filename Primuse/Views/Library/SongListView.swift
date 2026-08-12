@@ -426,6 +426,8 @@ struct SongListView: View {
     @State private var showNoScraperSourceAlert = false
     @State private var selection = SongSelectionModel()
     @State private var browseMode: LibrarySongBrowseMode
+    @AppStorage(LibrarySongBrowseModePreference.storageKey)
+    private var storedBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
     @State private var folderCache = LibraryFolderBrowserCache()
     @State private var folderIndexStore = LibraryFolderIndexStore()
     @State private var folderIndexTask: Task<Void, Never>?
@@ -603,7 +605,7 @@ struct SongListView: View {
             }
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
-                LibrarySongBrowseModePreference.save(mode)
+                storedBrowseModeRawValue = mode.rawValue
                 selection.deactivate()
                 if mode == .folder {
                     scheduleFolderIndexRecompute()
@@ -611,6 +613,11 @@ struct SongListView: View {
                     folderIndexGeneration &+= 1
                     folderIndexTask?.cancel()
                 }
+            }
+            .onChange(of: storedBrowseModeRawValue) { _, rawValue in
+                let storedMode = LibrarySongBrowseMode(rawValue: rawValue) ?? .folder
+                guard storedMode != browseMode else { return }
+                browseMode = storedMode
             }
             .onChange(of: searchText) { _, _ in
                 pruneSelection()

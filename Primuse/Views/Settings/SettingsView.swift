@@ -10,15 +10,43 @@ import AppKit
 
 struct SettingsView: View {
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
+    @AppStorage(LibrarySongBrowseModePreference.storageKey)
+    private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
 
     init(scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init())) {
         _scraperSettingsRoute = scraperSettingsRoute
+    }
+
+    private var defaultFlatBrowseBinding: Binding<Bool> {
+        Binding(
+            get: {
+                LibrarySongBrowseMode(rawValue: libraryBrowseModeRawValue) == .flat
+            },
+            set: { isEnabled in
+                libraryBrowseModeRawValue = LibrarySongBrowseModePreference
+                    .mode(flatViewEnabled: isEnabled)
+                    .rawValue
+            }
+        )
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Section("library") {
+                    Toggle(isOn: defaultFlatBrowseBinding) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("library_default_flat_view")
+                                Text("library_default_flat_view_description")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "list.bullet")
+                        }
+                    }
+
                     NavigationLink {
                         SourcesContentView()
                     } label: {

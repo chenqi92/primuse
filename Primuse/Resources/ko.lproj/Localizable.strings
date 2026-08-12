@@ -6,6 +6,8 @@
 "library_title" = "라이브러리";
 "library_quick_access" = "빠른 접근";
 "library_browse" = "라이브러리 둘러보기";
+"library_default_flat_view" = "기본적으로 노래를 평면 목록으로 표시";
+"library_default_flat_view_description" = "끄면 소스와 폴더 계층으로 열리고, 켜면 노래 보관함이 평면 목록으로 열립니다.";
 "library_edit_quick_access" = "빠른 접근 편집";
 "library_add_quick_access" = "바로가기 추가";
 "library_quick_access_limit" = "바로가기를 최대 5개 추가할 수 있습니다";
@@ -2168,7 +2170,7 @@
 "radio_previous_station" = "이전 방송국";
 "radio_next_station" = "다음 방송국";
 "radio_home_visibility" = "홈에 라디오 표시";
-"radio_home_visibility_description" = "빠른 전환과 재생 기능이 있는 큰 방송국 카드를 표시합니다.";
+"radio_home_visibility_description" = "홈에 라디오 화면, 전환 버튼 및 관련 콘텐츠를 표시합니다.";
 
 // MARK: - 현지화된 런타임 오류
 "error_audio_buffer_allocation" = "오디오 버퍼를 할당하지 못했습니다.";

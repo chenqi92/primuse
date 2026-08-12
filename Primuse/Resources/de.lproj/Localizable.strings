@@ -6,6 +6,8 @@
 "library_title" = "Mediathek";
 "library_quick_access" = "Schnellzugriff";
 "library_browse" = "Mediathek durchsuchen";
+"library_default_flat_view" = "Titel standardmäßig als flache Liste anzeigen";
+"library_default_flat_view_description" = "Wenn deaktiviert, werden Titel nach Quelle und Ordnern geöffnet. Wenn aktiviert, öffnet sich die Mediathek als flache Liste.";
 "library_edit_quick_access" = "Schnellzugriff bearbeiten";
 "library_add_quick_access" = "Kurzbefehl hinzufügen";
 "library_quick_access_limit" = "Bis zu 5 Kurzbefehle hinzufügen";
@@ -2168,7 +2170,7 @@
 "radio_previous_station" = "Vorheriger Sender";
 "radio_next_station" = "Nächster Sender";
 "radio_home_visibility" = "Radio auf Startseite anzeigen";
-"radio_home_visibility_description" = "Zeigt eine große Senderkarte mit schnellem Wechsel und Wiedergabesteuerung.";
+"radio_home_visibility_description" = "Zeigt die Radio-Seite, den Umschalter und zugehörige Inhalte auf der Startseite.";
 
 // MARK: - Lokalisierte Laufzeitfehler
 "error_audio_buffer_allocation" = "Der Audiopuffer konnte nicht zugewiesen werden.";

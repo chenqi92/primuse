@@ -95,14 +95,21 @@ struct HomeSectionsSettingsView: View {
         HomeSectionConfiguration.decode(sectionOrderRawValue)
     }
 
-    /// 设置页只列可配置的分区。电台被排除 —— 它归模式切换管，不该在这里
-    /// 出现一个开不开都不影响首页的死开关。
+    /// 电台使用上方的独立开关控制整张首页背面，因此不参与音乐面板块排序。
     private var editableSections: [HomeSectionKind] {
         sectionOrder.filter(\.isUserConfigurable)
     }
 
     var body: some View {
         List {
+            Section {
+                Toggle(isOn: $showRadio) {
+                    Label("radio_home_visibility", systemImage: "radio")
+                }
+            } footer: {
+                Text("radio_home_visibility_description")
+            }
+
             Section {
                 ForEach(editableSections) { section in
                     Toggle(isOn: visibilityBinding(for: section)) {

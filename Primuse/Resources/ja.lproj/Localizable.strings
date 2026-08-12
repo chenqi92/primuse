@@ -7,6 +7,8 @@
 "library_title" = "ライブラリ";
 "library_quick_access" = "クイックアクセス";
 "library_browse" = "ライブラリをブラウズ";
+"library_default_flat_view" = "曲をデフォルトでフラット表示";
+"library_default_flat_view_description" = "オフの場合はソースとフォルダ階層で開き、オンの場合は曲ライブラリをフラットリストで開きます。";
 "library_edit_quick_access" = "クイックアクセスを編集";
 "library_add_quick_access" = "ショートカットを追加";
 "library_quick_access_limit" = "最大5件のショートカットを追加できます";
@@ -2169,7 +2171,7 @@
 "radio_previous_station" = "前のラジオ局";
 "radio_next_station" = "次のラジオ局";
 "radio_home_visibility" = "ホームにラジオを表示";
-"radio_home_visibility_description" = "すばやく選局・再生できる大きなラジオ局カードを 1 枚表示します。";
+"radio_home_visibility_description" = "ホームにラジオ面、切り替えボタン、関連コンテンツを表示します。";
 
 // MARK: - ローカライズ済みの実行時エラー
 "error_audio_buffer_allocation" = "音声バッファを確保できませんでした。";

@@ -6,6 +6,8 @@
 "library_title" = "Bibliothèque";
 "library_quick_access" = "Accès rapide";
 "library_browse" = "Parcourir la bibliothèque";
+"library_default_flat_view" = "Afficher les morceaux à plat par défaut";
+"library_default_flat_view_description" = "Si cette option est désactivée, les morceaux s’ouvrent par source et dossier. Si elle est activée, la bibliothèque s’ouvre sous forme de liste à plat.";
 "library_edit_quick_access" = "Modifier les accès rapides";
 "library_add_quick_access" = "Ajouter un raccourci";
 "library_quick_access_limit" = "Ajoutez jusqu’à 5 raccourcis";
@@ -2168,7 +2170,7 @@
 "radio_previous_station" = "Station précédente";
 "radio_next_station" = "Station suivante";
 "radio_home_visibility" = "Afficher la radio sur l’accueil";
-"radio_home_visibility_description" = "Affiche une grande carte de station avec navigation et lecture rapides.";
+"radio_home_visibility_description" = "Affiche la face Radio, son bouton de bascule et le contenu associé sur l’accueil.";
 
 // MARK: - Erreurs d’exécution localisées
 "error_audio_buffer_allocation" = "Impossible d’allouer le tampon audio.";

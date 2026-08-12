@@ -189,10 +189,12 @@ struct HomeView: View {
     /// 首页当前处在音乐态还是电台态。持久化 —— 常听电台的人不该每次回首页
     /// 都手动切一次。
     @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
+    @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @State private var showRadioBatchAdd = false
 
     private var homeMode: HomeMode {
-        HomeMode(rawValue: homeModeRawValue) ?? .music
+        guard showRadioOnHome else { return .music }
+        return HomeMode(rawValue: homeModeRawValue) ?? .music
     }
 
     var body: some View {
@@ -246,19 +248,23 @@ struct HomeView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
                 #if os(iOS)
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        modeToggleButton
-                    }
-                    .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        modeToggleButton
+                if showRadioOnHome {
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            modeToggleButton
+                        }
+                        .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            modeToggleButton
+                        }
                     }
                 }
                 #else
-                ToolbarItem(placement: .primaryAction) {
-                    modeToggleButton
+                if showRadioOnHome {
+                    ToolbarItem(placement: .primaryAction) {
+                        modeToggleButton
+                    }
                 }
                 #endif
             }
@@ -275,7 +281,14 @@ struct HomeView: View {
                 showUpdateSheet = newValue != nil
             }
             .onAppear {
+                if !showRadioOnHome {
+                    homeModeRawValue = HomeMode.music.rawValue
+                }
                 if updateChecker.availableUpdate != nil { showUpdateSheet = true }
+            }
+            .onChange(of: showRadioOnHome) { _, isVisible in
+                guard !isVisible else { return }
+                homeModeRawValue = HomeMode.music.rawValue
             }
             .alert("insecure_http_warning_title", isPresented: Binding(
                 get: { pendingInsecureHomeStation != nil },
@@ -656,30 +669,33 @@ struct HomeView: View {
         #endif
     }
 
+    @ViewBuilder
     private func homeFaceHeader(_ mode: HomeMode, onDarkSurface: Bool = false) -> some View {
-        HStack(spacing: 12) {
-            Text(String(localized: mode.faceTitleKey))
-                .font(.caption.weight(.semibold))
-                .tracking(0.6)
-                .foregroundStyle(onDarkSurface ? Color.white.opacity(0.72) : Color.secondary)
+        if showRadioOnHome {
+            HStack(spacing: 12) {
+                Text(String(localized: mode.faceTitleKey))
+                    .font(.caption.weight(.semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(onDarkSurface ? Color.white.opacity(0.72) : Color.secondary)
 
-            Spacer()
+                Spacer()
 
-            Button {
-                switchHomeMode(to: mode.opposite)
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 13, weight: .semibold))
-                    .rotationEffect(.degrees(Double(homeModeSwitchTurn) * 180))
-                    .frame(width: 32, height: 32)
-                    .contentShape(.circle)
-                    .background(
-                        onDarkSurface ? Color.white.opacity(0.12) : Color.primary.opacity(0.06),
-                        in: Circle()
-                    )
+                Button {
+                    switchHomeMode(to: mode.opposite)
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .semibold))
+                        .rotationEffect(.degrees(Double(homeModeSwitchTurn) * 180))
+                        .frame(width: 32, height: 32)
+                        .contentShape(.circle)
+                        .background(
+                            onDarkSurface ? Color.white.opacity(0.12) : Color.primary.opacity(0.06),
+                            in: Circle()
+                        )
+                }
+                .buttonStyle(HomeModeFlipButtonStyle())
+                .accessibilityLabel(String(localized: mode.flipTitleKey))
             }
-            .buttonStyle(HomeModeFlipButtonStyle())
-            .accessibilityLabel(String(localized: mode.flipTitleKey))
         }
     }
 
