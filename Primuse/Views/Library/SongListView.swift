@@ -472,6 +472,9 @@ struct SongListView: View {
                 folderSourceRevision &+= 1
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
             }
+            .onChange(of: library.playlistCollectionRevision) { _, _ in
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
             .onChange(of: browseMode) { _, mode in
                 LibrarySongBrowseModePreference.save(mode)
                 selection.deactivate()
@@ -560,13 +563,14 @@ struct SongListView: View {
 
     @ViewBuilder
     private var content: some View {
-        if songs.isEmpty {
+        if songs.isEmpty && !showsFolderBrowser {
             EmptyStateView(
                 titleKey: "no_songs",
                 descriptionKey: "no_songs_desc",
                 systemImage: "music.note"
             )
-        } else if listCache.isEmpty || (showsFolderBrowser && !folderCache.hasIndex) {
+        } else if (!songs.isEmpty && listCache.isEmpty)
+                    || (showsFolderBrowser && !folderCache.hasIndex) {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -1744,6 +1748,10 @@ struct SongListView: View {
         }
         for songID in library.lastReplacedSongIDs {
             let indexedNodeID = index.nodeID(containingSongID: songID)
+            if let song = library.unobservedVisibleSong(id: songID),
+               song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                continue
+            }
             let expectedNodeID: LibraryFolderNodeID?
             if let song = library.unobservedVisibleSong(id: songID),
                belongsToCurrentScope(song) {
@@ -1819,12 +1827,17 @@ struct SongListView: View {
         let configuredDescriptors = configuredFolderSourceDescriptors
         let sourceRevision = folderSourceRevision
         let collectionRevision = library.visibleSongCollectionRevision
+        let playlistRevision = library.playlistCollectionRevision
+        let virtualCollections = library.appleMusicFolderCollections(
+            availableSongs: songsSnapshot
+        )
         let version = LibraryFolderIndexVersion(
             collectionRevision: collectionRevision,
             // This token identifies this view/store scope; metadata-only song
             // replacements must not invalidate a 100k-folder index on return.
             replacementToken: folderIndexScopeToken,
-            sourceRevision: sourceRevision
+            sourceRevision: sourceRevision,
+            virtualCollectionRevision: playlistRevision
         )
         let descriptors = folderSourceDescriptors(
             for: songsSnapshot,
@@ -1844,13 +1857,15 @@ struct SongListView: View {
             let prepared = await folderIndexStore.index(
                 version: version,
                 sources: descriptors,
-                songs: songsSnapshot
+                songs: songsSnapshot,
+                virtualCollections: virtualCollections
             )
             guard !Task.isCancelled,
                   browseMode == .folder,
                   folderIndexGeneration == generation,
                   folderSourceRevision == sourceRevision,
-                  library.visibleSongCollectionRevision == collectionRevision
+                  library.visibleSongCollectionRevision == collectionRevision,
+                  library.playlistCollectionRevision == playlistRevision
             else { return }
             folderCache.publish(prepared)
             if selection.isActive, !selection.isEmpty {
@@ -2075,6 +2090,12 @@ private enum LibraryFolderNodePresentation {
             return node.displayName ?? String(localized: "library_folder_scan_root")
         case .folder:
             return node.displayName ?? String(localized: "library_folder_scan_root")
+        case .librarySongs:
+            return node.displayName ?? String(localized: "library_folder_apple_music_library_songs")
+        case .playlist:
+            return node.displayName ?? String(localized: "library_folder_apple_music_unnamed_playlist")
+        case .notInPlaylist:
+            return node.displayName ?? String(localized: "library_folder_apple_music_not_in_playlist")
         case .uncategorized:
             return String(localized: "library_folder_uncategorized")
         case .other:
@@ -2087,6 +2108,9 @@ private enum LibraryFolderNodePresentation {
         case .source: return "externaldrive.connected.to.line.below"
         case .scanRoot: return "externaldrive.fill.badge.checkmark"
         case .folder: return "folder.fill"
+        case .librarySongs: return "music.note.house.fill"
+        case .playlist: return "music.note.list"
+        case .notInPlaylist: return "tray.fill"
         case .uncategorized: return "tray.fill"
         case .other: return "questionmark.folder.fill"
         }
@@ -2378,6 +2402,9 @@ private struct LibraryFolderNodeView: View {
             #endif
             .songBatchActions(
                 selection: selection,
+                context: nodeID.sourceID == AppleMusicLibraryIdentity.sourceID
+                    ? .readOnly
+                    : .library,
                 orderedIDs: { actionSongIDs },
                 resolve: { library.unobservedVisibleSong(id: $0) }
             )

@@ -2647,5 +2647,8 @@
 "library_folder_uncategorized" = "분류되지 않음";
 "library_folder_other" = "기타";
 "library_folder_scan_root" = "스캔 루트";
+"library_folder_apple_music_library_songs" = "보관함 노래";
+"library_folder_apple_music_not_in_playlist" = "플레이리스트에 없음";
+"library_folder_apple_music_unnamed_playlist" = "이름 없는 플레이리스트";
 "library_folder_expand" = "폴더 펼치기";
 "library_folder_collapse" = "폴더 접기";

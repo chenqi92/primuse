@@ -47,10 +47,6 @@ final class AppleMusicLibraryService {
         let id: String
         let name: String
         let songIDs: [String]
-
-        var songSetSignature: String {
-            Set(songIDs).sorted().joined(separator: "\u{1F}")
-        }
     }
 
     private enum UserPlaylistFetchResult: Sendable {
@@ -922,7 +918,12 @@ final class AppleMusicLibraryService {
                 case .mirror(let mirror):
                     fetchedMirrors.append(mirror)
                 case .empty(let id, let name):
-                    plog("🎵 AM playlist '\(name)' is empty, pruning local mirror \(id)")
+                    fetchedMirrors.append(UserPlaylistMirror(
+                        id: id,
+                        name: Self.safePlaylistName(name),
+                        songIDs: []
+                    ))
+                    plog("🎵 AM playlist '\(name)' is empty, preserving local mirror \(id)")
                 case .unresolved(let id, let name, let count):
                     // 保住已有镜像 (如果存在), 别让 prune 当作"服务端已删"清掉。
                     if library.playlist(id: id) != nil {
@@ -983,6 +984,7 @@ final class AppleMusicLibraryService {
 
     private func fetchUserPlaylistMirror(_ amPlaylist: MusicKit.Playlist) async -> UserPlaylistFetchResult {
         let pid = "\(Self.userPlaylistIDPrefix)\(amPlaylist.id.rawValue)"
+        let displayName = Self.safePlaylistName(amPlaylist.name)
         do {
             let detailed = try await amPlaylist.with([.tracks])
             var currentBatch = detailed.tracks ?? []
@@ -1013,66 +1015,34 @@ final class AppleMusicLibraryService {
             // Apple Music 报告有曲目但本地一首都没匹配上 —— 可能全是视频、下架曲目、
             // 或 canonicalization 失败。这是"取不到", 不是"歌单空了", 保留已有镜像。
             if songIDs.isEmpty, tracks.isEmpty == false {
-                return .unresolved(id: pid, name: amPlaylist.name, reportedTrackCount: tracks.count)
+                return .unresolved(id: pid, name: displayName, reportedTrackCount: tracks.count)
             }
             if songIDs.isEmpty {
-                return .empty(id: pid, name: amPlaylist.name)
+                return .empty(id: pid, name: displayName)
             }
             return .mirror(UserPlaylistMirror(
                 id: pid,
-                name: amPlaylist.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                name: displayName,
                 songIDs: songIDs
             ))
         } catch {
-            return .failed(id: pid, name: amPlaylist.name, error: error.localizedDescription)
+            return .failed(id: pid, name: displayName, error: error.localizedDescription)
         }
     }
 
     private static func resolveUserPlaylistMirrors(_ mirrors: [UserPlaylistMirror]) -> [UserPlaylistMirror] {
-        let groupedByName = Dictionary(grouping: mirrors) { normalizedPlaylistName($0.name) }
-        var resolved: [UserPlaylistMirror] = []
-
-        for group in groupedByName.values {
-            let stableGroup = group.sorted { lhs, rhs in
-                if lhs.name.localizedCaseInsensitiveCompare(rhs.name) != .orderedSame {
-                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-                }
-                return lhs.id < rhs.id
-            }
-
-            var seenSongSets = Set<String>()
-            var uniqueMirrors: [UserPlaylistMirror] = []
-            for mirror in stableGroup {
-                guard seenSongSets.insert(mirror.songSetSignature).inserted else {
-                    plog("🎵 Skipping duplicate Apple Music playlist mirror '\(mirror.name)' (\(mirror.id))")
-                    continue
-                }
-                uniqueMirrors.append(mirror)
-            }
-
-            if uniqueMirrors.count == 1, let only = uniqueMirrors.first {
-                resolved.append(only)
-            } else {
-                for (index, mirror) in uniqueMirrors.enumerated() {
-                    let displayName = index == 0 ? mirror.name : "\(mirror.name) (\(index + 1))"
-                    resolved.append(UserPlaylistMirror(
-                        id: mirror.id,
-                        name: displayName,
-                        songIDs: mirror.songIDs
-                    ))
-                }
-            }
-        }
-
-        return resolved.sorted { lhs, rhs in
-            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        mirrors.sorted { lhs, rhs in
+            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return lhs.id < rhs.id
         }
     }
 
-    private static func normalizedPlaylistName(_ name: String) -> String {
-        name
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+    private static func safePlaylistName(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? String(localized: "library_folder_apple_music_unnamed_playlist")
+            : trimmed
     }
 
     private static func uniqued(_ ids: [String]) -> [String] {

@@ -2647,5 +2647,8 @@
 "library_folder_uncategorized" = "Nicht kategorisiert";
 "library_folder_other" = "Sonstige";
 "library_folder_scan_root" = "Scan-Stamm";
+"library_folder_apple_music_library_songs" = "Mediathek-Titel";
+"library_folder_apple_music_not_in_playlist" = "In keiner Playlist";
+"library_folder_apple_music_unnamed_playlist" = "Unbenannte Playlist";
 "library_folder_expand" = "Ordner erweitern";
 "library_folder_collapse" = "Ordner reduzieren";

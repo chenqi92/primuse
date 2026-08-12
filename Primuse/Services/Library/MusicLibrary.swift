@@ -1949,6 +1949,10 @@ final class MusicLibrary {
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
     private var playlistSongIDs: [String: [String]] = [:]
+    /// Changes when playlist metadata, membership, or Apple Music mirror
+    /// visibility changes. Folder projections observe this separately from the
+    /// song collection because a playlist rename does not mutate any Song.
+    private(set) var playlistCollectionRevision: Int = 0
     private var recentPlaybackSongIDs: [String] = []
     /// Identities pulled from CloudKit that didn't resolve to a local
     /// `Song.id` at apply time — usually because the receiving device
@@ -2071,7 +2075,9 @@ final class MusicLibrary {
     }
 
     func updateAppleMusicLibrarySyncEnabled(_ enabled: Bool) {
+        guard appleMusicLibrarySyncEnabled != enabled else { return }
         appleMusicLibrarySyncEnabled = enabled
+        playlistCollectionRevision &+= 1
     }
 
     var songCount: Int { visibleSongs.count }
@@ -3226,6 +3232,87 @@ final class MusicLibrary {
         playlistSongIDs[playlistID] ?? []
     }
 
+    /// Projects the already-persisted Apple Music mirrors into the folder
+    /// browser. This is deliberately local-only: opening the library never
+    /// starts another MusicKit request or authorization prompt.
+    func appleMusicFolderCollections(
+        availableSongs: [Song]
+    ) -> [LibraryFolderVirtualCollectionDescriptor] {
+        let sourceID = AppleMusicLibraryIdentity.sourceID
+        guard appleMusicLibrarySyncEnabled,
+              !disabledSourceIDs.contains(sourceID) else {
+            return []
+        }
+
+        var availableIDs: [String] = []
+        var availableIDSet = Set<String>()
+        for song in availableSongs where song.sourceID == sourceID {
+            if availableIDSet.insert(song.id).inserted {
+                availableIDs.append(song.id)
+            }
+        }
+
+        var librarySongIDs: [String] = []
+        var seenLibrarySongIDs = Set<String>()
+        for songID in playlistSongIDs[AppleMusicLibraryIdentity.systemPlaylistID] ?? []
+        where availableIDSet.contains(songID) && seenLibrarySongIDs.insert(songID).inserted {
+            librarySongIDs.append(songID)
+        }
+        librarySongIDs.append(contentsOf: availableIDs.filter {
+            seenLibrarySongIDs.insert($0).inserted
+        })
+
+        var collections = [LibraryFolderVirtualCollectionDescriptor(
+            sourceID: sourceID,
+            identity: AppleMusicLibraryIdentity.systemPlaylistID,
+            displayName: String(localized: "library_folder_apple_music_library_songs"),
+            kind: .librarySongs,
+            songIDs: librarySongIDs
+        )]
+
+        let userMirrors = allPlaylists
+            .filter {
+                !$0.isDeleted && $0.id.hasPrefix(AppleMusicLibraryIdentity.userPlaylistIDPrefix)
+            }
+            .sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.id < rhs.id
+            }
+        var playlistMembership = Set<String>()
+        for playlist in userMirrors {
+            var seenSongIDs = Set<String>()
+            let memberIDs = (playlistSongIDs[playlist.id] ?? []).filter {
+                availableIDSet.contains($0) && seenSongIDs.insert($0).inserted
+            }
+            playlistMembership.formUnion(memberIDs)
+            let trimmedName = playlist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            collections.append(LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: playlist.id,
+                displayName: trimmedName.isEmpty
+                    ? String(localized: "library_folder_apple_music_unnamed_playlist")
+                    : trimmedName,
+                kind: .playlist,
+                songIDs: memberIDs
+            ))
+        }
+
+        if !userMirrors.isEmpty {
+            let notInPlaylist = librarySongIDs.filter { !playlistMembership.contains($0) }
+            if !notInPlaylist.isEmpty {
+                collections.append(LibraryFolderVirtualCollectionDescriptor(
+                    sourceID: sourceID,
+                    identity: AppleMusicLibraryIdentity.notInPlaylistCollectionID,
+                    displayName: String(localized: "library_folder_apple_music_not_in_playlist"),
+                    kind: .notInPlaylist,
+                    songIDs: notInPlaylist
+                ))
+            }
+        }
+        return collections
+    }
+
     /// Cross-device identities that have not resolved on this device yet.
     ///
     /// These must be included again when a locally-dirty playlist is saved
@@ -3490,10 +3577,12 @@ final class MusicLibrary {
     func deletePlaylistFromRemote(id: String) {
         allPlaylists.removeAll { $0.id == id }
         playlistSongIDs[id] = nil
+        playlistCollectionRevision &+= 1
         persistSnapshot()
     }
 
     private func notifyPlaylistsChanged(_ ids: [String]) {
+        playlistCollectionRevision &+= 1
         NotificationCenter.default.post(
             name: .primusePlaylistsDidChange,
             object: nil,
@@ -3502,6 +3591,7 @@ final class MusicLibrary {
     }
 
     private func notifyPlaylistDeleted(_ id: String) {
+        playlistCollectionRevision &+= 1
         NotificationCenter.default.post(
             name: .primusePlaylistDidDelete,
             object: nil,
@@ -3796,6 +3886,7 @@ final class MusicLibrary {
         allPlaylists = snapshot.playlists
         allSmartPlaylists = snapshot.smartPlaylists ?? []
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
+        playlistCollectionRevision &+= 1
         recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
         // Old `deletedSongIDs` field stored mount-UUID-derived song.id
         // tombstones — useless after re-OAuth changes the source UUID.

@@ -2648,5 +2648,8 @@
 "library_folder_uncategorized" = "未分類";
 "library_folder_other" = "その他";
 "library_folder_scan_root" = "スキャンルート";
+"library_folder_apple_music_library_songs" = "ライブラリの曲";
+"library_folder_apple_music_not_in_playlist" = "プレイリスト未追加";
+"library_folder_apple_music_unnamed_playlist" = "名称未設定のプレイリスト";
 "library_folder_expand" = "フォルダを展開";
 "library_folder_collapse" = "フォルダを折りたたむ";

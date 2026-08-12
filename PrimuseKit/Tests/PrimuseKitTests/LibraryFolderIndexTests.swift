@@ -374,6 +374,117 @@ struct LibraryFolderIndexTests {
         #expect(smb.scanRoots == ["/Music"])
     }
 
+    @Test("Apple Music mirrors form stable multi-membership collection nodes")
+    func buildsAppleMusicPlaylistHierarchy() throws {
+        let sourceID = AppleMusicLibraryIdentity.sourceID
+        let source = LibraryFolderSourceDescriptor(
+            sourceID: sourceID,
+            displayName: "Apple Music",
+            scanRoots: [],
+            pathSemantics: .opaque
+        )
+        let songs = [
+            testSong(id: "a", path: "i.a", sourceID: sourceID),
+            testSong(id: "b", path: "i.b", sourceID: sourceID),
+            testSong(id: "c", path: "i.c", sourceID: sourceID),
+        ]
+        let firstPlaylistID = AppleMusicLibraryIdentity.userPlaylistIDPrefix + "p.first"
+        let secondPlaylistID = AppleMusicLibraryIdentity.userPlaylistIDPrefix + "p.second"
+        let emptyPlaylistID = AppleMusicLibraryIdentity.userPlaylistIDPrefix + "p.empty"
+        let collections = [
+            LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: AppleMusicLibraryIdentity.systemPlaylistID,
+                displayName: "Library Songs",
+                kind: .librarySongs,
+                songIDs: ["a", "b", "c", "a"]
+            ),
+            LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: firstPlaylistID,
+                displayName: "Shared Name",
+                kind: .playlist,
+                songIDs: ["a", "b", "a"]
+            ),
+            LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: secondPlaylistID,
+                displayName: "Shared Name",
+                kind: .playlist,
+                songIDs: ["a", "c"]
+            ),
+            LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: emptyPlaylistID,
+                displayName: "Empty",
+                kind: .playlist,
+                songIDs: []
+            ),
+            LibraryFolderVirtualCollectionDescriptor(
+                sourceID: sourceID,
+                identity: AppleMusicLibraryIdentity.notInPlaylistCollectionID,
+                displayName: "Not in a Playlist",
+                kind: .notInPlaylist,
+                songIDs: ["b"]
+            ),
+        ]
+        let index = LibraryFolderIndexBuilder.build(
+            sources: [source],
+            songs: songs,
+            virtualCollections: collections
+        )
+        let sourceNode = try #require(index.sourceNode(for: sourceID))
+        let children = index.children(of: sourceNode.id)
+        let libraryNode = try #require(children.first { $0.kind == .librarySongs })
+        let firstPlaylist = try #require(children.first {
+            $0.id.normalizedRelativePath == firstPlaylistID
+        })
+        let secondPlaylist = try #require(children.first {
+            $0.id.normalizedRelativePath == secondPlaylistID
+        })
+        let emptyPlaylist = try #require(children.first {
+            $0.id.normalizedRelativePath == emptyPlaylistID
+        })
+        let unassigned = try #require(children.first { $0.kind == .notInPlaylist })
+
+        #expect(children.contains { $0.kind == .uncategorized } == false)
+        #expect(sourceNode.descendantSongCount == 3)
+        #expect(libraryNode.directSongCount == 3)
+        #expect(index.directSongIDs(in: firstPlaylist.id) == ["a", "b"])
+        #expect(index.directSongIDs(in: secondPlaylist.id) == ["a", "c"])
+        #expect(emptyPlaylist.directSongCount == 0)
+        #expect(index.directSongIDs(in: unassigned.id) == ["b"])
+        #expect(firstPlaylist.id != secondPlaylist.id)
+        #expect(firstPlaylist.displayName == secondPlaylist.displayName)
+        #expect(index.nodeID(containingSongID: "a") == libraryNode.id)
+        #expect(LibraryFolderBrowsePolicy.visibleSongIDs(
+            in: firstPlaylist.id,
+            index: index,
+            orderedBy: ["c", "b", "a"]
+        ) == ["b", "a"])
+        #expect(LibraryFolderBrowsePolicy.actionSongIDs(
+            in: sourceNode.id,
+            index: index,
+            orderedBy: ["c", "b", "a"]
+        ) == ["c", "b", "a"])
+
+        let renamed = LibraryFolderIndexBuilder.build(
+            sources: [source],
+            songs: songs,
+            virtualCollections: collections.map { collection in
+                guard collection.identity == firstPlaylistID else { return collection }
+                return LibraryFolderVirtualCollectionDescriptor(
+                    sourceID: collection.sourceID,
+                    identity: collection.identity,
+                    displayName: "Renamed",
+                    kind: collection.kind,
+                    songIDs: collection.songIDs
+                )
+            }
+        )
+        #expect(renamed.node(withID: firstPlaylist.id)?.displayName == "Renamed")
+    }
+
     @Test("Source-local replacement handles scan additions, deletion, rename, and disable")
     func appliesSourceIncrementally() throws {
         let sourceA = LibraryFolderSourceDescriptor(
@@ -462,6 +573,12 @@ struct LibraryFolderIndexTests {
             replacementToken: secondVersion.replacementToken,
             sourceRevision: 1
         )
+        let virtualCollectionVersion = LibraryFolderIndexVersion(
+            collectionRevision: 2,
+            replacementToken: secondVersion.replacementToken,
+            sourceRevision: 1,
+            virtualCollectionRevision: 1
+        )
 
         let first = await store.index(version: firstVersion, sources: [source], songs: songs)
         let firstAgain = await store.index(version: firstVersion, sources: [source], songs: songs)
@@ -476,11 +593,27 @@ struct LibraryFolderIndexTests {
             )],
             songs: songs
         )
+        let virtual = await store.index(
+            version: virtualCollectionVersion,
+            sources: [source],
+            songs: songs,
+            virtualCollections: [LibraryFolderVirtualCollectionDescriptor(
+                sourceID: "source",
+                identity: "library",
+                displayName: "Library Songs",
+                kind: .librarySongs,
+                songIDs: ["one"]
+            )]
+        )
 
         #expect(first === firstAgain)
         #expect(first !== second)
         #expect(second !== renamed)
+        #expect(renamed !== virtual)
         #expect(renamed.sourceNode(for: "source")?.displayName == "Renamed Source")
+        #expect(virtual.sourceNode(for: "source").flatMap {
+            virtual.children(of: $0.id).first
+        }?.kind == .librarySongs)
     }
 
     @Test("Builds a compact 100k-song prefix index within the regression budget")

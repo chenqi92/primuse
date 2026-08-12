@@ -8,8 +8,15 @@ struct SongBatchActionContext {
     /// Apple Music 镜像歌单里的条目移除后下次 sync 又会回来，视觉上就是
     /// "删了又出现"，所以整页不给移除入口。
     var allowsRemoveFromPlaylist = true
+    var allowsLibraryRemoval = true
+    var allowsSourceFileDeletion = true
 
     static let library = SongBatchActionContext()
+    static let readOnly = SongBatchActionContext(
+        allowsRemoveFromPlaylist: false,
+        allowsLibraryRemoval: false,
+        allowsSourceFileDeletion: false
+    )
 
     static func playlist(id: String, allowsRemoval: Bool) -> Self {
         SongBatchActionContext(playlistID: id, allowsRemoveFromPlaylist: allowsRemoval)
@@ -266,20 +273,26 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
         }
 
-        Section {
-            Button(role: .destructive) {
-                prepareDeletion(mode: .libraryOnly)
-            } label: {
-                Label("batch_remove_from_library", systemImage: "trash")
+        if context.allowsLibraryRemoval && !selectionContainsAppleMusic {
+            Section {
+                Button(role: .destructive) {
+                    prepareDeletion(mode: .libraryOnly)
+                } label: {
+                    Label("batch_remove_from_library", systemImage: "trash")
+                }
+                .disabled(removal.isBusy)
             }
-            .disabled(removal.isBusy)
+        }
 
-            Button(role: .destructive) {
-                prepareDeletion(mode: .sourceFiles)
-            } label: {
-                Label("batch_delete_source_files", systemImage: "trash.slash")
+        if context.allowsSourceFileDeletion && hasDeletableSourceSelection {
+            Section {
+                Button(role: .destructive) {
+                    prepareDeletion(mode: .sourceFiles)
+                } label: {
+                    Label("batch_delete_source_files", systemImage: "trash.slash")
+                }
+                .disabled(removal.isBusy)
             }
-            .disabled(removal.isBusy)
         }
     }
 
@@ -291,6 +304,22 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     private func playableSelection() -> [Song] {
         selectedSongs().filteredPlayable()
+    }
+
+    private var selectionContainsAppleMusic: Bool {
+        selectedSongs().contains {
+            $0.sourceID == AppleMusicLibraryIdentity.sourceID
+        }
+    }
+
+    private var hasDeletableSourceSelection: Bool {
+        let typesByID = Dictionary(
+            sourcesStore.allSources.map { ($0.id, $0.type) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        return selectedSongs().contains {
+            SourceFileDeletionPolicy.shouldShowDeleteAction(for: typesByID[$0.sourceID])
+        }
     }
 
     private func startScrape() {

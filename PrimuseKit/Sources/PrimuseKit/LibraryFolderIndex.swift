@@ -431,8 +431,50 @@ public enum LibraryFolderNodeKind: String, Hashable, Sendable {
     case source
     case scanRoot
     case folder
+    case librarySongs
+    case playlist
+    case notInPlaylist
     case uncategorized
     case other
+}
+
+public enum LibraryFolderVirtualCollectionKind: String, Hashable, Sendable {
+    case librarySongs
+    case playlist
+    case notInPlaylist
+
+    fileprivate var nodeKind: LibraryFolderNodeKind {
+        switch self {
+        case .librarySongs: return .librarySongs
+        case .playlist: return .playlist
+        case .notInPlaylist: return .notInPlaylist
+        }
+    }
+}
+
+/// A persisted provider collection projected as a folder-like node. Identity
+/// comes from the provider or a fixed system constant; the display name is
+/// never an identity input, so renames and duplicate names remain safe.
+public struct LibraryFolderVirtualCollectionDescriptor: Hashable, Sendable {
+    public let sourceID: String
+    public let identity: String
+    public let displayName: String
+    public let kind: LibraryFolderVirtualCollectionKind
+    public let songIDs: [String]
+
+    public init(
+        sourceID: String,
+        identity: String,
+        displayName: String,
+        kind: LibraryFolderVirtualCollectionKind,
+        songIDs: [String]
+    ) {
+        self.sourceID = sourceID
+        self.identity = identity
+        self.displayName = displayName
+        self.kind = kind
+        self.songIDs = songIDs
+    }
 }
 
 /// A structured identity avoids delimiter collisions in source IDs and keeps
@@ -574,7 +616,8 @@ public final class LibraryFolderIndex: Sendable {
     /// shared with the returned index.
     public func replacingSource(
         _ source: LibraryFolderSourceDescriptor,
-        songs: [Song]
+        songs: [Song],
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
     ) -> LibraryFolderIndex {
         var updatedPartitions = partitions
         var updatedOrder = sourceOrder
@@ -583,7 +626,8 @@ public final class LibraryFolderIndex: Sendable {
             updatedPartitions[source.sourceID] = LibraryFolderIndexBuilder.buildPartition(
                 source: source,
                 songs: songs,
-                songOffsets: songs.indices
+                songOffsets: songs.indices,
+                virtualCollections: virtualCollections.filter { $0.sourceID == source.sourceID }
             )
             if !updatedOrder.contains(source.sourceID) {
                 updatedOrder.append(source.sourceID)
@@ -651,7 +695,8 @@ public enum LibraryFolderBrowsePolicy {
 public enum LibraryFolderIndexBuilder {
     public static func build(
         sources: [LibraryFolderSourceDescriptor],
-        songs: [Song]
+        songs: [Song],
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
     ) -> LibraryFolderIndex {
         var sourceOrder: [String] = []
         var descriptorByID: [String: LibraryFolderSourceDescriptor] = [:]
@@ -671,6 +716,7 @@ public enum LibraryFolderIndexBuilder {
 
         var partitions: [String: LibraryFolderSourcePartition] = [:]
         partitions.reserveCapacity(sourceOrder.count)
+        let virtualCollectionsBySource = Dictionary(grouping: virtualCollections, by: \.sourceID)
         for sourceID in sourceOrder {
             if isBuildCancelled {
                 return LibraryFolderIndex(sourceOrder: [], partitions: [:])
@@ -679,7 +725,8 @@ public enum LibraryFolderIndexBuilder {
             partitions[sourceID] = buildPartition(
                 source: source,
                 songs: songs,
-                songOffsets: songOffsetsBySource[sourceID] ?? []
+                songOffsets: songOffsetsBySource[sourceID] ?? [],
+                virtualCollections: virtualCollectionsBySource[sourceID] ?? []
             )
         }
 
@@ -689,7 +736,8 @@ public enum LibraryFolderIndexBuilder {
     fileprivate static func buildPartition<Offsets: Sequence>(
         source: LibraryFolderSourceDescriptor,
         songs: [Song],
-        songOffsets: Offsets
+        songOffsets: Offsets,
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
     ) -> LibraryFolderSourcePartition where Offsets.Element == Int {
         let sourceNodeID = LibraryFolderNodeID(
             sourceID: source.sourceID,
@@ -710,7 +758,9 @@ public enum LibraryFolderIndexBuilder {
             semantics: source.pathSemantics
         )
 
-        if source.pathSemantics == .hierarchical {
+        let usesVirtualCollections = virtualCollections.contains { $0.kind == .librarySongs }
+
+        if !usesVirtualCollections, source.pathSemantics == .hierarchical {
             for root in policy.scanRoots {
                 let rootID = LibraryFolderNodeID(
                     sourceID: source.sourceID,
@@ -726,86 +776,133 @@ public enum LibraryFolderIndexBuilder {
             }
         }
 
-        for (position, offset) in songOffsets.enumerated() {
-            if position.isMultiple(of: 256), isBuildCancelled {
-                return emptyPartition(source: source, sourceNodeID: sourceNodeID)
-            }
-            let song = songs[offset]
-            guard song.sourceID == source.sourceID,
-                  nodeIDBySongID[song.id] == nil else {
-                continue
-            }
+        if !usesVirtualCollections {
+            for (position, offset) in songOffsets.enumerated() {
+                if position.isMultiple(of: 256), isBuildCancelled {
+                    return emptyPartition(source: source, sourceNodeID: sourceNodeID)
+                }
+                let song = songs[offset]
+                guard song.sourceID == source.sourceID,
+                      nodeIDBySongID[song.id] == nil else {
+                    continue
+                }
 
-            let placement = policy.placement(for: song.filePath)
-            let leafAndAncestors: (
-                leaf: LibraryFolderNodeAccumulator,
-                ancestors: [LibraryFolderNodeAccumulator]
-            )
-
-            switch placement.category {
-            case .folder:
-                guard let root = placement.scanRoot else { continue }
-                let rootID = LibraryFolderNodeID(
-                    sourceID: source.sourceID,
-                    kind: .scanRoot,
-                    normalizedRelativePath: root.identityPath
+                let placement = policy.placement(for: song.filePath)
+                let leafAndAncestors: (
+                    leaf: LibraryFolderNodeAccumulator,
+                    ancestors: [LibraryFolderNodeAccumulator]
                 )
-                let rootAccumulator = ensureAccumulator(
-                    id: rootID,
-                    parent: sourceAccumulator,
-                    displayName: root.displayName,
-                    accumulators: &accumulators
-                )
-                var parent = rootAccumulator
-                var identityComponents = root.identityComponents
-                var ancestors = [sourceAccumulator, rootAccumulator]
 
-                for (component, identityComponent) in zip(
-                    placement.folderComponents,
-                    placement.identityFolderComponents
-                ) {
-                    identityComponents.append(identityComponent)
-                    let folderID = LibraryFolderNodeID(
+                switch placement.category {
+                case .folder:
+                    guard let root = placement.scanRoot else { continue }
+                    let rootID = LibraryFolderNodeID(
                         sourceID: source.sourceID,
-                        kind: .folder,
-                        normalizedRelativePath: NormalizedLibraryFolderPath.path(
-                            from: identityComponents
-                        )
+                        kind: .scanRoot,
+                        normalizedRelativePath: root.identityPath
                     )
-                    parent = ensureAccumulator(
-                        id: folderID,
-                        parent: parent,
-                        displayName: component,
+                    let rootAccumulator = ensureAccumulator(
+                        id: rootID,
+                        parent: sourceAccumulator,
+                        displayName: root.displayName,
                         accumulators: &accumulators
                     )
-                    ancestors.append(parent)
+                    var parent = rootAccumulator
+                    var identityComponents = root.identityComponents
+                    var ancestors = [sourceAccumulator, rootAccumulator]
+
+                    for (component, identityComponent) in zip(
+                        placement.folderComponents,
+                        placement.identityFolderComponents
+                    ) {
+                        identityComponents.append(identityComponent)
+                        let folderID = LibraryFolderNodeID(
+                            sourceID: source.sourceID,
+                            kind: .folder,
+                            normalizedRelativePath: NormalizedLibraryFolderPath.path(
+                                from: identityComponents
+                            )
+                        )
+                        parent = ensureAccumulator(
+                            id: folderID,
+                            parent: parent,
+                            displayName: component,
+                            accumulators: &accumulators
+                        )
+                        ancestors.append(parent)
+                    }
+                    leafAndAncestors = (parent, ancestors)
+
+                case .uncategorized:
+                    let node = ensureSpecialAccumulator(
+                        kind: .uncategorized,
+                        source: source,
+                        sourceAccumulator: sourceAccumulator,
+                        accumulators: &accumulators
+                    )
+                    leafAndAncestors = (node, [sourceAccumulator, node])
+
+                case .other:
+                    let node = ensureSpecialAccumulator(
+                        kind: .other,
+                        source: source,
+                        sourceAccumulator: sourceAccumulator,
+                        accumulators: &accumulators
+                    )
+                    leafAndAncestors = (node, [sourceAccumulator, node])
                 }
-                leafAndAncestors = (parent, ancestors)
 
-            case .uncategorized:
-                let node = ensureSpecialAccumulator(
-                    kind: .uncategorized,
-                    source: source,
-                    sourceAccumulator: sourceAccumulator,
-                    accumulators: &accumulators
-                )
-                leafAndAncestors = (node, [sourceAccumulator, node])
-
-            case .other:
-                let node = ensureSpecialAccumulator(
-                    kind: .other,
-                    source: source,
-                    sourceAccumulator: sourceAccumulator,
-                    accumulators: &accumulators
-                )
-                leafAndAncestors = (node, [sourceAccumulator, node])
+                leafAndAncestors.leaf.directSongIDs.append(song.id)
+                for ancestor in leafAndAncestors.ancestors {
+                    ancestor.descendantSongCount += 1
+                }
+                nodeIDBySongID[song.id] = leafAndAncestors.leaf.id
+            }
+        } else {
+            var sourceSongIDs: [String] = []
+            var availableSongIDs = Set<String>()
+            for (position, offset) in songOffsets.enumerated() {
+                if position.isMultiple(of: 256), isBuildCancelled {
+                    return emptyPartition(source: source, sourceNodeID: sourceNodeID)
+                }
+                let song = songs[offset]
+                guard song.sourceID == source.sourceID,
+                      availableSongIDs.insert(song.id).inserted else {
+                    continue
+                }
+                sourceSongIDs.append(song.id)
             }
 
-            leafAndAncestors.leaf.directSongIDs.append(song.id)
-            for ancestor in leafAndAncestors.ancestors {
-                ancestor.descendantSongCount += 1
+            var seenNodeIDs = Set<LibraryFolderNodeID>()
+            for collection in virtualCollections where collection.sourceID == source.sourceID {
+                let nodeID = LibraryFolderNodeID(
+                    sourceID: source.sourceID,
+                    kind: collection.kind.nodeKind,
+                    normalizedRelativePath: collection.identity
+                )
+                guard seenNodeIDs.insert(nodeID).inserted else { continue }
+
+                let accumulator = ensureAccumulator(
+                    id: nodeID,
+                    parent: sourceAccumulator,
+                    displayName: collection.displayName,
+                    accumulators: &accumulators
+                )
+                var seenSongIDs = Set<String>()
+                var memberIDs = collection.songIDs.filter {
+                    availableSongIDs.contains($0) && seenSongIDs.insert($0).inserted
+                }
+                if collection.kind == .librarySongs {
+                    memberIDs.append(contentsOf: sourceSongIDs.filter { seenSongIDs.insert($0).inserted })
+                }
+                accumulator.directSongIDs = memberIDs
+                accumulator.descendantSongCount = memberIDs.count
+                for songID in memberIDs where nodeIDBySongID[songID] == nil
+                    || collection.kind == .librarySongs {
+                    nodeIDBySongID[songID] = nodeID
+                }
             }
-            nodeIDBySongID[song.id] = leafAndAncestors.leaf.id
+            sourceAccumulator.descendantSongCount = sourceSongIDs.count
         }
 
         var nodes: [LibraryFolderNodeID: LibraryFolderNode] = [:]
@@ -886,10 +983,12 @@ public enum LibraryFolderIndexBuilder {
 
     private static func nodeSortRank(_ kind: LibraryFolderNodeKind) -> Int {
         switch kind {
-        case .scanRoot, .folder: return 0
-        case .uncategorized: return 1
-        case .other: return 2
-        case .source: return 3
+        case .scanRoot, .folder, .librarySongs: return 0
+        case .playlist: return 1
+        case .notInPlaylist: return 2
+        case .uncategorized: return 3
+        case .other: return 4
+        case .source: return 5
         }
     }
 
@@ -942,15 +1041,18 @@ public struct LibraryFolderIndexVersion: Hashable, Sendable {
     public let collectionRevision: Int
     public let replacementToken: UUID
     public let sourceRevision: Int
+    public let virtualCollectionRevision: Int
 
     public init(
         collectionRevision: Int,
         replacementToken: UUID,
-        sourceRevision: Int = 0
+        sourceRevision: Int = 0,
+        virtualCollectionRevision: Int = 0
     ) {
         self.collectionRevision = collectionRevision
         self.replacementToken = replacementToken
         self.sourceRevision = sourceRevision
+        self.virtualCollectionRevision = virtualCollectionRevision
     }
 }
 
@@ -973,7 +1075,8 @@ public actor LibraryFolderIndexStore {
     public func index(
         version: LibraryFolderIndexVersion,
         sources: [LibraryFolderSourceDescriptor],
-        songs: [Song]
+        songs: [Song],
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
     ) async -> LibraryFolderIndex {
         if cachedVersion == version, let cachedIndex {
             return cachedIndex
@@ -985,7 +1088,11 @@ public actor LibraryFolderIndexStore {
         pending?.task.cancel()
         let token = UUID()
         let task = Task.detached(priority: .userInitiated) {
-            LibraryFolderIndexBuilder.build(sources: sources, songs: songs)
+            LibraryFolderIndexBuilder.build(
+                sources: sources,
+                songs: songs,
+                virtualCollections: virtualCollections
+            )
         }
         pending = Pending(version: version, token: token, task: task)
 

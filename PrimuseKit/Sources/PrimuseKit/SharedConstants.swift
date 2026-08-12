@@ -1364,6 +1364,7 @@ public enum AppleMusicLibraryIdentity {
     public static let sourceID = "primuse.appleMusic.system"
     public static let systemPlaylistID = "primuse.system.appleMusicLibrary"
     public static let userPlaylistIDPrefix = "primuse.system.appleMusic.playlist."
+    public static let notInPlaylistCollectionID = "primuse.system.appleMusic.notInPlaylist"
 
     public static func isMirrorPlaylist(_ playlistID: String) -> Bool {
         playlistID == systemPlaylistID

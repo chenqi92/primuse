@@ -2751,5 +2751,8 @@
 "library_folder_uncategorized" = "未分类";
 "library_folder_other" = "其他";
 "library_folder_scan_root" = "扫描根";
+"library_folder_apple_music_library_songs" = "资料库歌曲";
+"library_folder_apple_music_not_in_playlist" = "未加入播放列表";
+"library_folder_apple_music_unnamed_playlist" = "未命名播放列表";
 "library_folder_expand" = "展开文件夹";
 "library_folder_collapse" = "折叠文件夹";

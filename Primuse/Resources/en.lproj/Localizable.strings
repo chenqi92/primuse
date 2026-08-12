@@ -2434,5 +2434,8 @@
 "library_folder_uncategorized" = "Uncategorized";
 "library_folder_other" = "Other";
 "library_folder_scan_root" = "Scan Root";
+"library_folder_apple_music_library_songs" = "Library Songs";
+"library_folder_apple_music_not_in_playlist" = "Not in a Playlist";
+"library_folder_apple_music_unnamed_playlist" = "Untitled Playlist";
 "library_folder_expand" = "Expand Folder";
 "library_folder_collapse" = "Collapse Folder";
