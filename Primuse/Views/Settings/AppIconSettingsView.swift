@@ -18,6 +18,13 @@ struct AppIconSettingsView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
+
+            Label("icon_appearance_hint", systemImage: "circle.lefthalf.filled")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
         }
         .navigationTitle("app_icon")
         .navigationBarTitleDisplayMode(.inline)

@@ -296,14 +296,48 @@ final class SongSelectionModel {
     }
 
     func toggle(_ songID: String) {
-        var selectedIDs = selectedIDsStorage
-        if selectedIDs.contains(songID) {
-            selectedIDs.remove(songID)
-        } else {
-            selectedIDs.insert(songID)
+        if selectedIDsStorage.remove(songID) == nil {
+            selectedIDsStorage.insert(songID)
         }
-        replaceSelection(with: selectedIDs)
+        publishSelectionChange(changedSongIDs: [songID])
         anchorID = songID
+    }
+
+    private func add<S: Sequence>(_ songIDs: S) where S.Element == String {
+        var changedSongIDs = Set<String>()
+        for songID in songIDs where selectedIDsStorage.insert(songID).inserted {
+            changedSongIDs.insert(songID)
+        }
+        publishSelectionChange(changedSongIDs: changedSongIDs)
+    }
+
+    private func remove<S: Sequence>(_ songIDs: S) where S.Element == String {
+        var changedSongIDs = Set<String>()
+        for songID in songIDs where selectedIDsStorage.remove(songID) != nil {
+            changedSongIDs.insert(songID)
+        }
+        publishSelectionChange(changedSongIDs: changedSongIDs)
+    }
+
+    private func publishSelectionChange(changedSongIDs: Set<String>) {
+        guard !changedSongIDs.isEmpty else { return }
+        count = selectedIDsStorage.count
+        for songID in changedSongIDs {
+            membershipsByID[songID]?.setSelected(selectedIDsStorage.contains(songID))
+        }
+        for snapshot in groupSelectionIndex.selectionDidChange(
+            changedSongIDs: changedSongIDs,
+            selectedSongIDs: selectedIDsStorage
+        ) {
+            groupMembershipsByNodeID[snapshot.nodeID]?.apply(snapshot)
+        }
+    }
+
+    private func replaceSelection(with selectedIDs: Set<String>) {
+        guard selectedIDs != selectedIDsStorage else { return }
+        let changedSongIDs = selectedIDsStorage.symmetricDifference(selectedIDs)
+        selectedIDsStorage = selectedIDs
+        publishSelectionChange(changedSongIDs: changedSongIDs)
     }
 
     /// 锚点到目标之间整段纳入选中（不取消已选的其它行）。没有锚点时退化成单选。
@@ -316,10 +350,7 @@ final class SongSelectionModel {
             return
         }
         let range = start <= end ? start...end : end...start
-        let addedIDs = orderedIDs[range]
-        var selectedIDs = selectedIDsStorage
-        selectedIDs.formUnion(addedIDs)
-        replaceSelection(with: selectedIDs)
+        add(orderedIDs[range])
         self.anchorID = songID
     }
 
@@ -336,9 +367,9 @@ final class SongSelectionModel {
         let group = Set(songIDs)
         guard !group.isEmpty else { return }
         if group.isSubset(of: selectedIDsStorage) {
-            replaceSelection(with: selectedIDsStorage.subtracting(group))
+            remove(group)
         } else {
-            replaceSelection(with: selectedIDsStorage.union(group))
+            add(group)
         }
         anchorID = songIDs.last
     }
@@ -363,19 +394,4 @@ final class SongSelectionModel {
         return orderedIDs.compactMap { selectedIDsStorage.contains($0) ? resolve($0) : nil }
     }
 
-    private func replaceSelection(with selectedIDs: Set<String>) {
-        guard selectedIDs != selectedIDsStorage else { return }
-        let changedSongIDs = selectedIDsStorage.symmetricDifference(selectedIDs)
-        selectedIDsStorage = selectedIDs
-        count = selectedIDs.count
-        for songID in changedSongIDs {
-            membershipsByID[songID]?.setSelected(selectedIDs.contains(songID))
-        }
-        for snapshot in groupSelectionIndex.selectionDidChange(
-            changedSongIDs: changedSongIDs,
-            selectedSongIDs: selectedIDs
-        ) {
-            groupMembershipsByNodeID[snapshot.nodeID]?.apply(snapshot)
-        }
-    }
 }

@@ -101,6 +101,17 @@ actor ConnectorScanner {
             }
 
             let cueTracks = try await loadCueTracks(from: siblings)
+            for directoryItem in siblings where directoryItem.isDirectory {
+                let stableKey = directoryItem.providerID
+                    ?? "path:\(directoryItem.path.lowercased())"
+                rebuiltStableKeys.insert(stableKey)
+                recordSyncItem(
+                    directoryItem,
+                    songIDs: [],
+                    seenEpoch: scanEpoch,
+                    in: &index
+                )
+            }
             for rawItem in siblings where !rawItem.isDirectory {
                 try Task.checkCancellation()
                 guard let item = SidecarHintResolver.scannableItem(rawItem, siblings: siblings) else { continue }
@@ -488,6 +499,14 @@ actor ConnectorScanner {
 
                         do {
                             let siblings = try await connector.listFiles(at: directory)
+                            for directoryItem in siblings where directoryItem.isDirectory {
+                                recordSyncItem(
+                                    directoryItem,
+                                    songIDs: [],
+                                    seenEpoch: scanEpoch,
+                                    in: &syncIndex
+                                )
+                            }
                             let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
                             for rawItem in siblings where !rawItem.isDirectory {
                                 guard let item = SidecarHintResolver.scannableItem(
@@ -1252,6 +1271,7 @@ actor ConnectorScanner {
         index[stableKey] = SourceSyncIndexedItem(
             stableKey: stableKey,
             path: item.path,
+            displayName: item.name,
             parentPath: parent,
             isDirectory: item.isDirectory,
             songIDs: songIDs,

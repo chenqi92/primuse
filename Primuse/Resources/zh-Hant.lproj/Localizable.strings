@@ -5,6 +5,7 @@
 "library_browse" = "瀏覽資料庫";
 "library_default_flat_view" = "預設平鋪顯示歌曲";
 "library_default_flat_view_description" = "關閉時預設依來源與資料夾層級瀏覽；開啟後進入歌曲資料庫即顯示平鋪列表。";
+"library_display_settings_title" = "資料庫顯示";
 "library_edit_quick_access" = "編輯快捷收藏";
 "library_add_quick_access" = "新增快捷收藏";
 "library_quick_access_limit" = "最多可新增 5 個快捷收藏";
@@ -105,9 +106,10 @@
 "app_icon" = "App 圖示";
 "icon_default" = "折頁音符";
 "icon_appearance_gray" = "灰色";
-"icon_appearance_hint" = "圖示會隨主畫面的淺色、深色或灰色外觀自動切換。";
+"icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_10" = "黑膠猿面";
 "icon_theme_11" = "流彩筆觸";
+"icon_theme_12" = "皮卡丘";
 "icon_theme_4" = "音符律動";
 "icon_theme_6" = "清新音符";
 "icon_theme_7" = "Primuse 標誌";
@@ -559,6 +561,7 @@
 "scraping_album_covers" = "正在取得專輯封面...";
 "scraping_artist_images" = "正在取得演出者圖片...";
 "sync" = "同步";
+"services_integrations" = "服務與整合";
 "icloud_sync_title" = "iCloud 同步";
 "icloud_sync_enabled" = "啟用 iCloud 同步";
 "icloud_sync_footer" = "在使用同一 iCloud 帳號的裝置之間同步歌單、音樂來源、播放紀錄和設定。來源密碼與雲端硬碟登入狀態透過 iCloud 鑰匙圈安全同步。";

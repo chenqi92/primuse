@@ -57,6 +57,9 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
 public struct SourceSyncIndexedItem: Codable, Sendable, Equatable {
     public var stableKey: String
     public var path: String
+    /// Provider-supplied user-facing name. `path` can be an opaque Drive item
+    /// identifier and must never be used as a folder label.
+    public var displayName: String?
     public var parentPath: String?
     public var isDirectory: Bool
     public var songIDs: [String]
@@ -68,6 +71,7 @@ public struct SourceSyncIndexedItem: Codable, Sendable, Equatable {
     public init(
         stableKey: String,
         path: String,
+        displayName: String? = nil,
         parentPath: String?,
         isDirectory: Bool,
         songIDs: [String] = [],
@@ -78,6 +82,7 @@ public struct SourceSyncIndexedItem: Codable, Sendable, Equatable {
     ) {
         self.stableKey = stableKey
         self.path = path
+        self.displayName = displayName
         self.parentPath = parentPath
         self.isDirectory = isDirectory
         self.songIDs = songIDs
@@ -85,6 +90,32 @@ public struct SourceSyncIndexedItem: Codable, Sendable, Equatable {
         self.modifiedDate = modifiedDate
         self.revision = revision
         self.seenEpoch = seenEpoch
+    }
+}
+
+/// Detects legacy snapshots that stored provider item IDs without the
+/// corresponding user-facing names. Reusing those snapshots for an
+/// incremental sync would keep the folder browser permanently unable to
+/// reconstruct the provider hierarchy, so the next user-initiated scan must
+/// perform a complete walk once.
+public enum SourceSyncFolderTopologyPolicy {
+    public static func requiresRebuild(
+        sourceType: MusicSourceType,
+        state: SourceSyncState
+    ) -> Bool {
+        guard usesOpaqueProviderItemIDs(sourceType), !state.index.isEmpty else {
+            return false
+        }
+        return state.index.values.contains { $0.displayName == nil }
+    }
+
+    private static func usesOpaqueProviderItemIDs(_ sourceType: MusicSourceType) -> Bool {
+        switch sourceType {
+        case .aliyunDrive, .googleDrive, .oneDrive, .drime, .pan115, .pan123:
+            return true
+        default:
+            return false
+        }
     }
 }
 

@@ -16,12 +16,11 @@ struct BatchAddToPlaylistSheet: View {
     @State private var selectedPlaylistID: String?
     @State private var newPlaylistName = ""
 
-    /// 系统维护的歌单不作为批量目标：镜像歌单 (Apple Music / 服务端曲库) 会在
-    /// 下次同步时覆盖，「我喜欢的」则由心形状态维护，不应混进普通歌单批量写入。
+    /// 镜像歌单 (Apple Music / 服务端曲库) 会在下次同步时覆盖，不能作为写入
+    /// 目标。「我喜欢」仍是本地可编辑歌单，批量加入与逐曲点心形使用同一份成员关系。
     private var targetPlaylists: [Playlist] {
         library.playlists.filter {
             !MirrorPlaylistIdentity.isMirrorPlaylist($0.id)
-                && $0.id != MusicLibrary.likedSongsPlaylistID
         }
     }
 
@@ -89,6 +88,9 @@ struct BatchAddToPlaylistSheet: View {
                                 iosPlaylistRow(playlist)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier(playlist.id == MusicLibrary.likedSongsPlaylistID
+                                ? "batchPlaylistTarget.liked"
+                                : "batchPlaylistTarget.\(playlist.id)")
                         }
                     }
                 } header: {
@@ -121,7 +123,9 @@ struct BatchAddToPlaylistSheet: View {
 
     private func iosPlaylistRow(_ playlist: Playlist) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "music.note.list")
+            Image(systemName: playlist.id == MusicLibrary.likedSongsPlaylistID
+                ? "heart.fill"
+                : "music.note.list")
                 .font(.title3)
                 .foregroundStyle(.tint)
                 .frame(width: 34, height: 34)

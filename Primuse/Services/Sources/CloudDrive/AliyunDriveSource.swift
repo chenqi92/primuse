@@ -162,7 +162,16 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 // use it as the revision so re-scan catches same-size,
                 // same-mtime overwrites.
                 let hash = item["content_hash"] as? String
-                return RemoteFileItem(name: name, path: fileId, isDirectory: type == "folder", size: item["size"] as? Int64 ?? 0, modifiedDate: nil, revision: hash)
+                return RemoteFileItem(
+                    name: name,
+                    path: fileId,
+                    isDirectory: type == "folder",
+                    size: item["size"] as? Int64 ?? 0,
+                    modifiedDate: nil,
+                    revision: hash,
+                    providerID: fileId,
+                    parentPath: parentFileId
+                )
             })
             let next = json["next_marker"] as? String
             marker = (next?.isEmpty == false) ? next : nil

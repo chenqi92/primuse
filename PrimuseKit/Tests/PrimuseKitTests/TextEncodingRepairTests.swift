@@ -124,6 +124,31 @@ private func mojibake(
     }
 }
 
+// MARK: - UTF-16 字节序颠倒
+
+@Test func repairsByteSwappedUTF16WithReversedBOM() {
+    let broken = byteSwappedUTF16("Disco Inferno")
+
+    #expect(broken.hasPrefix("\u{FFFE}"))
+    #expect(TextEncodingRepair.looksCorrupted(broken))
+    #expect(TextEncodingRepair.repaired(broken) == "Disco Inferno")
+}
+
+@Test func repairsByteSwappedUTF16AcrossScriptsAndSurrogatePairs() {
+    for original in ["青花瓷", "강남스타일", "君の名は", "Music 🎵"] {
+        let broken = byteSwappedUTF16(original)
+        #expect(TextEncodingRepair.repaired(broken) == original)
+    }
+}
+
+@Test func rejectsMalformedByteSwappedUTF16Payload() {
+    // After swapping, 0xD800 is an unmatched high surrogate. The strict
+    // UTF-16 round trip must reject it instead of returning U+FFFD.
+    let malformed = String(decoding: [UInt16(0xFFFE), UInt16(0x00D8)], as: UTF16.self)
+    #expect(TextEncodingRepair.looksCorrupted(malformed))
+    #expect(TextEncodingRepair.repaired(malformed) == nil)
+}
+
 // MARK: - 不可恢复字符
 
 @Test func detectsUnrecoverableReplacementAcrossScripts() {
@@ -296,6 +321,11 @@ private func utf16LEData(_ text: String) -> Data {
         data.append(UInt8(truncatingIfNeeded: codeUnit >> 8))
     }
     return data
+}
+
+private func byteSwappedUTF16(_ text: String) -> String {
+    let units = [UInt16(0xFEFF)] + Array(text.utf16)
+    return String(decoding: units.map(\.byteSwapped), as: UTF16.self)
 }
 
 // MARK: - 打分

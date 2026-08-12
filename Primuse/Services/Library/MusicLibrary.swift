@@ -2051,6 +2051,19 @@ final class MusicLibrary {
     /// counts here avoids one full-library filter per source on every sidebar
     /// body evaluation.
     @ObservationIgnored private var visibleSongCountBySourceID: [String: Int] = [:]
+
+    private struct PreparedVisibleCache: Sendable {
+        let songs: [Song]
+        let albums: [Album]
+        let artists: [Artist]
+        let allSongIndexByID: [String: Int]
+        let songIndexByID: [String: Int]
+        let songByID: [String: Song]
+        let songsBySourceID: [String: [Song]]
+        let playableBySourceID: [String: [Song]]
+        let countBySourceID: [String: Int]
+        let orderedIDsChanged: Bool
+    }
     /// Changes only when the ordered set of visible song IDs changes. Views
     /// that cache a sorted song list observe this lightweight counter instead
     /// of comparing `[Song]`; a derived `Song` equality also walks lyricsText,
@@ -2092,30 +2105,67 @@ final class MusicLibrary {
     var artistCount: Int { visibleArtists.count }
 
     private func rebuildVisibleCache() {
-        let previousVisibleSongs = visibleSongs
-        if disabledSourceIDs.isEmpty {
-            visibleSongs = songs
-            visibleAlbums = albums
-            visibleArtists = artists
-        } else {
-            visibleSongs = songs.filter { !disabledSourceIDs.contains($0.sourceID) }
-            let visibleAlbumIDs = Set(visibleSongs.compactMap(\.albumID))
-            visibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
-            let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
-            visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
-        }
-        let lookups = Self.makeVisibleLookups(songs: visibleSongs)
-        songIndexByID = disabledSourceIDs.isEmpty
-            ? lookups.indexByID
-            : Self.makeSongIndex(songs)
-        visibleSongIndexByID = lookups.indexByID
-        visibleSongByID = lookups.songByID
-        visibleSongsBySourceID = lookups.songsBySourceID
-        visiblePlayableSongsBySourceID = lookups.playableBySourceID
-        visibleSongCountBySourceID = lookups.countBySourceID
-        if !Self.haveSameOrderedIDs(previousVisibleSongs, visibleSongs) {
+        let prepared = Self.prepareVisibleCache(
+            songs: songs,
+            albums: albums,
+            artists: artists,
+            disabledSourceIDs: disabledSourceIDs,
+            previousVisibleSongs: visibleSongs
+        )
+        applyPreparedVisibleCache(prepared)
+    }
+
+    private func applyPreparedVisibleCache(_ prepared: PreparedVisibleCache) {
+        visibleSongs = prepared.songs
+        visibleAlbums = prepared.albums
+        visibleArtists = prepared.artists
+        songIndexByID = prepared.allSongIndexByID
+        visibleSongIndexByID = prepared.songIndexByID
+        visibleSongByID = prepared.songByID
+        visibleSongsBySourceID = prepared.songsBySourceID
+        visiblePlayableSongsBySourceID = prepared.playableBySourceID
+        visibleSongCountBySourceID = prepared.countBySourceID
+        if prepared.orderedIDsChanged {
             visibleSongCollectionRevision &+= 1
         }
+    }
+
+    private nonisolated static func prepareVisibleCache(
+        songs: [Song],
+        albums: [Album],
+        artists: [Artist],
+        disabledSourceIDs: Set<String>,
+        previousVisibleSongs: [Song]
+    ) -> PreparedVisibleCache {
+        let nextVisibleSongs: [Song]
+        let nextVisibleAlbums: [Album]
+        let nextVisibleArtists: [Artist]
+        if disabledSourceIDs.isEmpty {
+            nextVisibleSongs = songs
+            nextVisibleAlbums = albums
+            nextVisibleArtists = artists
+        } else {
+            nextVisibleSongs = songs.filter { !disabledSourceIDs.contains($0.sourceID) }
+            let visibleAlbumIDs = Set(nextVisibleSongs.compactMap(\.albumID))
+            nextVisibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
+            let visibleArtistIDs = Set(nextVisibleSongs.compactMap(\.artistID))
+            nextVisibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
+        }
+        let lookups = makeVisibleLookups(songs: nextVisibleSongs)
+        return PreparedVisibleCache(
+            songs: nextVisibleSongs,
+            albums: nextVisibleAlbums,
+            artists: nextVisibleArtists,
+            allSongIndexByID: disabledSourceIDs.isEmpty
+                ? lookups.indexByID
+                : makeSongIndex(songs),
+            songIndexByID: lookups.indexByID,
+            songByID: lookups.songByID,
+            songsBySourceID: lookups.songsBySourceID,
+            playableBySourceID: lookups.playableBySourceID,
+            countBySourceID: lookups.countBySourceID,
+            orderedIDsChanged: !haveSameOrderedIDs(previousVisibleSongs, nextVisibleSongs)
+        )
     }
 
     private nonisolated static func haveSameOrderedIDs(_ lhs: [Song], _ rhs: [Song]) -> Bool {
@@ -3857,7 +3907,8 @@ final class MusicLibrary {
     /// the artists/albums grouping is recomputed dozens of times a second).
     func replaceSongs(_ updatedSongs: [Song]) {
         guard !updatedSongs.isEmpty else { return }
-        var nextSongs = songs
+        let originalSongs = songs
+        var nextSongs = originalSongs
         let idToIndex = songIndexByID
 
         var lastApplied: Song?
@@ -3881,9 +3932,20 @@ final class MusicLibrary {
         }
         plog("📚 replaceSongs: requested=\(updatedSongs.count) applied=\(appliedIDs.count) missed=\(missedIDs.count) librarySongs=\(nextSongs.count) missedSampleID=\(missedIDs.first ?? "-") sampleLibID=\(nextSongs.first?.id ?? "-")")
         guard let lastApplied else { return }
-        // One observable assignment per batch instead of one per song.
-        songs = nextSongs
-        rebuildVisibleCache()
+        // Metadata backfill and scraper batches retain the same IDs, order,
+        // source and visibility. Patch that common path in O(changed rows)
+        // instead of rebuilding five full-library lookup collections on the
+        // main actor every flush. The debounced background index rebuild below
+        // refreshes source-group caches and album/artist aggregates.
+        if !publishStableMembershipReplacements(
+            originalSongs: originalSongs,
+            nextSongs: nextSongs,
+            appliedIDs: appliedIDs,
+            idToIndex: idToIndex
+        ) {
+            songs = nextSongs
+            rebuildVisibleCache()
+        }
         lastReplacedSong = lastApplied
         lastReplacedSongIDs = appliedIDs
         songReplacementToken = UUID()
@@ -3901,6 +3963,57 @@ final class MusicLibrary {
         persistSongChanges(
             upserts: appliedIDs.compactMap { idToIndex[$0].map { nextSongs[$0] } }
         )
+    }
+
+    private func publishStableMembershipReplacements(
+        originalSongs: [Song],
+        nextSongs: [Song],
+        appliedIDs: Set<String>,
+        idToIndex: [String: Int]
+    ) -> Bool {
+        guard originalSongs.count == nextSongs.count else { return false }
+
+        var visibleUpdates: [(visibleIndex: Int, song: Song)] = []
+        visibleUpdates.reserveCapacity(appliedIDs.count)
+        for id in appliedIDs {
+            guard let songIndex = idToIndex[id],
+                  originalSongs.indices.contains(songIndex),
+                  nextSongs.indices.contains(songIndex) else {
+                return false
+            }
+            let oldSong = originalSongs[songIndex]
+            let newSong = nextSongs[songIndex]
+            guard oldSong.id == newSong.id,
+                  oldSong.sourceID == newSong.sourceID else {
+                return false
+            }
+
+            let isVisible = !disabledSourceIDs.contains(newSong.sourceID)
+            if isVisible {
+                guard let visibleIndex = visibleSongIndexByID[id],
+                      visibleSongs.indices.contains(visibleIndex) else {
+                    return false
+                }
+                visibleUpdates.append((visibleIndex, newSong))
+            } else if visibleSongIndexByID[id] != nil {
+                return false
+            }
+        }
+
+        var nextVisibleSongs = visibleSongs
+        for update in visibleUpdates {
+            nextVisibleSongs[update.visibleIndex] = update.song
+        }
+
+        // One observable array publication per batch. The dictionary is
+        // observation-ignored and can be patched in place without copying all
+        // 10K+ entries.
+        songs = nextSongs
+        visibleSongs = nextVisibleSongs
+        for update in visibleUpdates {
+            visibleSongByID[update.song.id] = update.song
+        }
+        return true
     }
 
     private func postArtworkInvalidation(songID: String, oldRef: String?, newRef: String?) {
@@ -3952,6 +4065,8 @@ final class MusicLibrary {
         rebuildIndexGeneration &+= 1
         let myGen = rebuildIndexGeneration
         let snapshot = songs
+        let disabledSourceSnapshot = disabledSourceIDs
+        let previousVisibleSongs = visibleSongs
 
         rebuildIndexTask?.cancel()
         rebuildIndexTask = Task.detached(priority: .utility) { [weak self] in
@@ -3965,15 +4080,24 @@ final class MusicLibrary {
             guard !Task.isCancelled,
                   let result = MusicLibrary.computeAlbumsAndArtistsCancellable(songs: snapshot)
             else { return }
+            guard !Task.isCancelled else { return }
+            let visibleCache = MusicLibrary.prepareVisibleCache(
+                songs: snapshot,
+                albums: result.albums,
+                artists: result.artists,
+                disabledSourceIDs: disabledSourceSnapshot,
+                previousVisibleSongs: previousVisibleSongs
+            )
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 // generation 校验: 期间又有新的 rebuildIndex 调度过, 当前结果
                 // 已经 stale, 丢弃。
-                guard self.rebuildIndexGeneration == myGen else { return }
+                guard self.rebuildIndexGeneration == myGen,
+                      self.disabledSourceIDs == disabledSourceSnapshot else { return }
                 self.albums = result.albums
                 self.artists = result.artists
                 self.derivedIndexSignature = signature
-                self.rebuildVisibleCache()
+                self.applyPreparedVisibleCache(visibleCache)
                 self.persistDerivedIndexCache()
             }
         }
@@ -4053,12 +4177,13 @@ final class MusicLibrary {
         var loadedSongs = canonicalSongs ?? snapshot.songs
         let migration = Self.migrateLoadedSongs(&loadedSongs)
         let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
-        if canonicalSongs == nil
-            || migration.repairedTextCount > 0
-            || migration.filledDerivedIDCount > 0
-            || migration.correctedLegacyDTSDurationCount > 0 {
+        if canonicalSongs == nil || !migration.changedSongs.isEmpty {
             do {
-                try songStore?.replaceAll(with: loadedSongs)
+                if canonicalSongs == nil {
+                    try songStore?.replaceAll(with: loadedSongs)
+                } else {
+                    try songStore?.apply(upserts: migration.changedSongs)
+                }
             } catch {
                 plog("⚠️ Incremental song store migration failed; JSON remains authoritative: \(error.localizedDescription)")
             }
@@ -4134,11 +4259,13 @@ final class MusicLibrary {
     ) -> (
         repairedTextCount: Int,
         filledDerivedIDCount: Int,
-        correctedLegacyDTSDurationCount: Int
+        correctedLegacyDTSDurationCount: Int,
+        changedSongs: [Song]
     ) {
         var repairedTextCount = 0
         var filledDerivedIDCount = 0
         var correctedLegacyDTSDurationCount = 0
+        var changedSongs: [Song] = []
 
         for index in songs.indices {
             var song = songs[index]
@@ -4163,6 +4290,7 @@ final class MusicLibrary {
             }
             if repairedText || needsDerivedIDs || correctedLegacyDTSDuration != nil {
                 songs[index] = song
+                changedSongs.append(song)
             }
             if repairedText { repairedTextCount += 1 }
             if needsDerivedIDs { filledDerivedIDCount += 1 }
@@ -4172,7 +4300,8 @@ final class MusicLibrary {
         return (
             repairedTextCount,
             filledDerivedIDCount,
-            correctedLegacyDTSDurationCount
+            correctedLegacyDTSDurationCount,
+            changedSongs
         )
     }
 

@@ -10,11 +10,59 @@ public enum LibraryFolderPathSemantics: String, Hashable, Sendable {
     case opaque
 }
 
+/// A selected root in a provider namespace whose identity is intentionally
+/// separate from its user-facing name.
+public struct LibraryFolderProviderRootDescriptor: Hashable, Sendable {
+    public let path: String
+    public let displayName: String?
+
+    public init(path: String, displayName: String?) {
+        self.path = path
+        self.displayName = displayName
+    }
+}
+
+/// One provider item captured by a committed source scan. Cloud drives address
+/// items by stable IDs, while `displayName` and `parentPath` reconstruct the
+/// hierarchy without changing the ID used for playback.
+public struct LibraryFolderProviderItemDescriptor: Hashable, Sendable {
+    public let path: String
+    public let displayName: String?
+    public let parentPath: String?
+    public let isDirectory: Bool
+
+    public init(
+        path: String,
+        displayName: String?,
+        parentPath: String?,
+        isDirectory: Bool
+    ) {
+        self.path = path
+        self.displayName = displayName
+        self.parentPath = parentPath
+        self.isDirectory = isDirectory
+    }
+}
+
+public struct LibraryFolderProviderHierarchy: Hashable, Sendable {
+    public let roots: [LibraryFolderProviderRootDescriptor]
+    public let items: [LibraryFolderProviderItemDescriptor]
+
+    public init(
+        roots: [LibraryFolderProviderRootDescriptor],
+        items: [LibraryFolderProviderItemDescriptor]
+    ) {
+        self.roots = roots
+        self.items = items
+    }
+}
+
 public struct LibraryFolderSourceDescriptor: Hashable, Sendable {
     public let sourceID: String
     public let displayName: String
     public let scanRoots: [String]
     public let pathSemantics: LibraryFolderPathSemantics
+    public let providerHierarchy: LibraryFolderProviderHierarchy?
     public let isEnabled: Bool
 
     public init(
@@ -22,12 +70,14 @@ public struct LibraryFolderSourceDescriptor: Hashable, Sendable {
         displayName: String,
         scanRoots: [String],
         pathSemantics: LibraryFolderPathSemantics,
+        providerHierarchy: LibraryFolderProviderHierarchy? = nil,
         isEnabled: Bool = true
     ) {
         self.sourceID = sourceID
         self.displayName = displayName
         self.scanRoots = scanRoots
         self.pathSemantics = pathSemantics
+        self.providerHierarchy = providerHierarchy
         self.isEnabled = isEnabled
     }
 
@@ -41,7 +91,21 @@ public struct LibraryFolderSourceDescriptor: Hashable, Sendable {
             displayName: displayName,
             scanRoots: source.scannedDirectories,
             pathSemantics: source.type.libraryFolderPathSemantics,
+            providerHierarchy: nil,
             isEnabled: source.isEnabled && !source.isDeleted
+        )
+    }
+
+    public func withProviderHierarchy(
+        _ hierarchy: LibraryFolderProviderHierarchy
+    ) -> LibraryFolderSourceDescriptor {
+        LibraryFolderSourceDescriptor(
+            sourceID: sourceID,
+            displayName: displayName,
+            scanRoots: scanRoots,
+            pathSemantics: pathSemantics,
+            providerHierarchy: hierarchy,
+            isEnabled: isEnabled
         )
     }
 
@@ -88,6 +152,8 @@ private extension MusicSourceType {
              .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic,
              .fnMusic, .daoliyu,
+             .aliyunDrive, .googleDrive, .oneDrive,
+             .drime, .pan115, .pan123,
              .appleMusic, .appleMusicLibrary:
             return .opaque
         default:
@@ -495,9 +561,108 @@ public struct LibraryFolderNodeID: Hashable, Sendable {
     }
 }
 
+private struct LibraryFolderProviderPlacement {
+    let root: LibraryFolderProviderRootDescriptor
+    let folders: [LibraryFolderProviderItemDescriptor]
+}
+
+private struct LibraryFolderProviderHierarchyResolver {
+    let roots: [LibraryFolderProviderRootDescriptor]
+
+    private let rootByPath: [String: LibraryFolderProviderRootDescriptor]
+    private let itemByPath: [String: LibraryFolderProviderItemDescriptor]
+    private let fallbackRoot: LibraryFolderProviderRootDescriptor?
+
+    init(_ hierarchy: LibraryFolderProviderHierarchy) {
+        var seenRoots = Set<String>()
+        let roots = hierarchy.roots.filter { seenRoots.insert($0.path).inserted }
+        self.roots = roots
+        self.rootByPath = Dictionary(
+            roots.map { ($0.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        self.itemByPath = Dictionary(
+            hierarchy.items.map { ($0.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        self.fallbackRoot = roots.count == 1 && Self.isRootAlias(roots[0].path)
+            ? roots[0]
+            : nil
+    }
+
+    func placement(for itemPath: String) -> LibraryFolderProviderPlacement? {
+        guard let item = itemByPath[itemPath], !item.isDirectory else { return nil }
+
+        var current = item.parentPath
+        var reversedFolders: [LibraryFolderProviderItemDescriptor] = []
+        var visited = Set<String>()
+
+        for _ in 0..<256 {
+            guard let currentPath = current, !currentPath.isEmpty else {
+                guard let fallbackRoot else { return nil }
+                return LibraryFolderProviderPlacement(
+                    root: fallbackRoot,
+                    folders: Array(reversedFolders.reversed())
+                )
+            }
+            guard visited.insert(currentPath).inserted else { return nil }
+            if let root = rootByPath[currentPath] {
+                return LibraryFolderProviderPlacement(
+                    root: root,
+                    folders: Array(reversedFolders.reversed())
+                )
+            }
+            guard let folder = itemByPath[currentPath], folder.isDirectory else {
+                guard let fallbackRoot else { return nil }
+                return LibraryFolderProviderPlacement(
+                    root: fallbackRoot,
+                    folders: Array(reversedFolders.reversed())
+                )
+            }
+            reversedFolders.append(folder)
+            current = folder.parentPath
+        }
+        return nil
+    }
+
+    func nodeID(
+        sourceID: String,
+        for itemPath: String
+    ) -> LibraryFolderNodeID? {
+        guard let placement = placement(for: itemPath) else { return nil }
+        if let folder = placement.folders.last {
+            return LibraryFolderNodeID(
+                sourceID: sourceID,
+                kind: .folder,
+                normalizedRelativePath: folder.path
+            )
+        }
+        return LibraryFolderNodeID(
+            sourceID: sourceID,
+            kind: .scanRoot,
+            normalizedRelativePath: placement.root.path
+        )
+    }
+
+    private static func isRootAlias(_ path: String) -> Bool {
+        let value = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty || value == "/" || value.caseInsensitiveCompare("root") == .orderedSame
+    }
+}
+
 public extension LibraryFolderSourceDescriptor {
     func placementNodeID(for song: Song) -> LibraryFolderNodeID? {
         guard isEnabled, song.sourceID == sourceID else { return nil }
+        if let providerHierarchy {
+            return LibraryFolderProviderHierarchyResolver(providerHierarchy).nodeID(
+                sourceID: sourceID,
+                for: song.filePath
+            ) ?? LibraryFolderNodeID(
+                sourceID: sourceID,
+                kind: .uncategorized,
+                normalizedRelativePath: ""
+            )
+        }
         return LibraryFolderPathPolicy(
             scanRoots: scanRoots,
             semantics: pathSemantics
@@ -757,10 +922,27 @@ public enum LibraryFolderIndexBuilder {
             scanRoots: source.scanRoots,
             semantics: source.pathSemantics
         )
+        let providerResolver = source.providerHierarchy.map(
+            LibraryFolderProviderHierarchyResolver.init
+        )
 
         let usesVirtualCollections = virtualCollections.contains { $0.kind == .librarySongs }
 
-        if !usesVirtualCollections, source.pathSemantics == .hierarchical {
+        if !usesVirtualCollections, let providerResolver {
+            for root in providerResolver.roots {
+                let rootID = LibraryFolderNodeID(
+                    sourceID: source.sourceID,
+                    kind: .scanRoot,
+                    normalizedRelativePath: root.path
+                )
+                _ = ensureAccumulator(
+                    id: rootID,
+                    parent: sourceAccumulator,
+                    displayName: root.displayName,
+                    accumulators: &accumulators
+                )
+            }
+        } else if !usesVirtualCollections, source.pathSemantics == .hierarchical {
             for root in policy.scanRoots {
                 let rootID = LibraryFolderNodeID(
                     sourceID: source.sourceID,
@@ -787,53 +969,43 @@ public enum LibraryFolderIndexBuilder {
                     continue
                 }
 
-                let placement = policy.placement(for: song.filePath)
                 let leafAndAncestors: (
                     leaf: LibraryFolderNodeAccumulator,
                     ancestors: [LibraryFolderNodeAccumulator]
                 )
 
-                switch placement.category {
-                case .folder:
-                    guard let root = placement.scanRoot else { continue }
+                if let providerResolver,
+                   let placement = providerResolver.placement(for: song.filePath) {
                     let rootID = LibraryFolderNodeID(
                         sourceID: source.sourceID,
                         kind: .scanRoot,
-                        normalizedRelativePath: root.identityPath
+                        normalizedRelativePath: placement.root.path
                     )
                     let rootAccumulator = ensureAccumulator(
                         id: rootID,
                         parent: sourceAccumulator,
-                        displayName: root.displayName,
+                        displayName: placement.root.displayName,
                         accumulators: &accumulators
                     )
                     var parent = rootAccumulator
-                    var identityComponents = root.identityComponents
                     var ancestors = [sourceAccumulator, rootAccumulator]
 
-                    for (component, identityComponent) in zip(
-                        placement.folderComponents,
-                        placement.identityFolderComponents
-                    ) {
-                        identityComponents.append(identityComponent)
+                    for folder in placement.folders {
                         let folderID = LibraryFolderNodeID(
                             sourceID: source.sourceID,
                             kind: .folder,
-                            normalizedRelativePath: NormalizedLibraryFolderPath.path(
-                                from: identityComponents
-                            )
+                            normalizedRelativePath: folder.path
                         )
                         parent = ensureAccumulator(
                             id: folderID,
                             parent: parent,
-                            displayName: component,
+                            displayName: folder.displayName,
                             accumulators: &accumulators
                         )
                         ancestors.append(parent)
                     }
                     leafAndAncestors = (parent, ancestors)
-
-                case .uncategorized:
+                } else if providerResolver != nil {
                     let node = ensureSpecialAccumulator(
                         kind: .uncategorized,
                         source: source,
@@ -841,15 +1013,66 @@ public enum LibraryFolderIndexBuilder {
                         accumulators: &accumulators
                     )
                     leafAndAncestors = (node, [sourceAccumulator, node])
+                } else {
+                    let placement = policy.placement(for: song.filePath)
+                    switch placement.category {
+                    case .folder:
+                        guard let root = placement.scanRoot else { continue }
+                        let rootID = LibraryFolderNodeID(
+                            sourceID: source.sourceID,
+                            kind: .scanRoot,
+                            normalizedRelativePath: root.identityPath
+                        )
+                        let rootAccumulator = ensureAccumulator(
+                            id: rootID,
+                            parent: sourceAccumulator,
+                            displayName: root.displayName,
+                            accumulators: &accumulators
+                        )
+                        var parent = rootAccumulator
+                        var identityComponents = root.identityComponents
+                        var ancestors = [sourceAccumulator, rootAccumulator]
 
-                case .other:
-                    let node = ensureSpecialAccumulator(
-                        kind: .other,
-                        source: source,
-                        sourceAccumulator: sourceAccumulator,
-                        accumulators: &accumulators
-                    )
-                    leafAndAncestors = (node, [sourceAccumulator, node])
+                        for (component, identityComponent) in zip(
+                            placement.folderComponents,
+                            placement.identityFolderComponents
+                        ) {
+                            identityComponents.append(identityComponent)
+                            let folderID = LibraryFolderNodeID(
+                                sourceID: source.sourceID,
+                                kind: .folder,
+                                normalizedRelativePath: NormalizedLibraryFolderPath.path(
+                                    from: identityComponents
+                                )
+                            )
+                            parent = ensureAccumulator(
+                                id: folderID,
+                                parent: parent,
+                                displayName: component,
+                                accumulators: &accumulators
+                            )
+                            ancestors.append(parent)
+                        }
+                        leafAndAncestors = (parent, ancestors)
+
+                    case .uncategorized:
+                        let node = ensureSpecialAccumulator(
+                            kind: .uncategorized,
+                            source: source,
+                            sourceAccumulator: sourceAccumulator,
+                            accumulators: &accumulators
+                        )
+                        leafAndAncestors = (node, [sourceAccumulator, node])
+
+                    case .other:
+                        let node = ensureSpecialAccumulator(
+                            kind: .other,
+                            source: source,
+                            sourceAccumulator: sourceAccumulator,
+                            accumulators: &accumulators
+                        )
+                        leafAndAncestors = (node, [sourceAccumulator, node])
+                    }
                 }
 
                 leafAndAncestors.leaf.directSongIDs.append(song.id)

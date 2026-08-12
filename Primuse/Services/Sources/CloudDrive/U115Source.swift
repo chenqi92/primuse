@@ -97,16 +97,33 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
                     // 目录:用目录 id 作为后续 listFiles 的 path。
                     let dirID = (item["fid"] as? String) ?? (item["cid"] as? String) ?? ""
                     guard !dirID.isEmpty, dirID != "0" else { continue }
-                    all.append(RemoteFileItem(name: name, path: dirID, isDirectory: true,
-                                              size: 0, modifiedDate: nil, revision: nil))
+                    all.append(RemoteFileItem(
+                        name: name,
+                        path: dirID,
+                        isDirectory: true,
+                        size: 0,
+                        modifiedDate: nil,
+                        revision: nil,
+                        providerID: dirID,
+                        parentPath: cid
+                    ))
                 } else {
                     // 文件:用 pick_code(pc)作为 path,取直链时需要。
                     guard let pc = item["pc"] as? String, !pc.isEmpty else { continue }
-                    if let fileID = Self.stringValue(item["fid"] ?? item["file_id"]), !fileID.isEmpty {
+                    let fileID = Self.stringValue(item["fid"] ?? item["file_id"])
+                    if let fileID, !fileID.isEmpty {
                         fileIDByPickCode[pc] = fileID
                     }
-                    all.append(RemoteFileItem(name: name, path: pc, isDirectory: false,
-                                              size: size, modifiedDate: nil, revision: sha1))
+                    all.append(RemoteFileItem(
+                        name: name,
+                        path: pc,
+                        isDirectory: false,
+                        size: size,
+                        modifiedDate: nil,
+                        revision: sha1,
+                        providerID: fileID,
+                        parentPath: cid
+                    ))
                 }
             }
             if items.count < limit { break }

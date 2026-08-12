@@ -9,6 +9,7 @@
 "library_browse" = "ライブラリをブラウズ";
 "library_default_flat_view" = "曲をデフォルトでフラット表示";
 "library_default_flat_view_description" = "オフの場合はソースとフォルダ階層で開き、オンの場合は曲ライブラリをフラットリストで開きます。";
+"library_display_settings_title" = "ライブラリ表示";
 "library_edit_quick_access" = "クイックアクセスを編集";
 "library_add_quick_access" = "ショートカットを追加";
 "library_quick_access_limit" = "最大5件のショートカットを追加できます";
@@ -322,9 +323,10 @@
 "app_icon" = "App アイコン";
 "icon_default" = "折り返し音符";
 "icon_appearance_gray" = "グレー";
-"icon_appearance_hint" = "ホーム画面のライト、ダーク、グレーの外観に合わせてアイコンが自動的に切り替わります。";
+"icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";
 "icon_theme_10" = "レコード・エイプ";
 "icon_theme_11" = "カラーブラシ";
+"icon_theme_12" = "pikaqiu";
 "icon_theme_4" = "ミュージックパルス";
 "icon_theme_6" = "ソフトノート";
 "icon_theme_7" = "Primuse マーク";
@@ -766,6 +768,7 @@
 "scraping_album_covers" = "アルバムのアートワークを取得中…";
 "scraping_artist_images" = "アーティストの画像を取得中…";
 "sync" = "同期";
+"services_integrations" = "サービスと連携";
 "icloud_sync_title" = "iCloud 同期";
 "icloud_sync_enabled" = "iCloud 同期を有効にする";
 "icloud_sync_footer" = "同じ iCloud アカウントでサインインしているデバイス間で、プレイリスト、音楽ソース、再生履歴、設定を同期します。ソースのパスワードとクラウドドライブのログイン状態は iCloud キーチェーン経由で同期されます。";

@@ -39,6 +39,10 @@ enum CloudDirectoryNameStore {
         loadMapping(for: sourceID)[path]
     }
 
+    static func displayNames(for sourceID: String) -> [String: String] {
+        loadMapping(for: sourceID)
+    }
+
     static func deleteAll(for sourceID: String) {
         defaults.removeObject(forKey: storageKey(for: sourceID))
         notifyChange(for: sourceID)

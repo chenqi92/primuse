@@ -64,6 +64,15 @@ public enum TextEncodingRepair {
 
     /// 返回修复后的文本; 没有可信候选时返回 nil (调用方应保留原文)。
     public static func repaired(_ text: String) -> String? {
+        // Some ID3 writers emit UTF-16LE bytes with a BOM, while an upstream
+        // parser has already interpreted every two-byte unit as big-endian.
+        // The observable result starts with U+FFFE and keeps every original
+        // code unit byte-swapped (for example `￾䐀椀猀挀漀`). This marker is
+        // structural, not heuristic: swapping every UTF-16 unit back is
+        // lossless and the round-trip check below prevents invented text.
+        if let repaired = byteSwappedUTF16Candidate(for: text) {
+            return repaired
+        }
         guard looksCorrupted(text) else { return nil }
 
         let originalScore = plausibility(text)
@@ -104,6 +113,9 @@ public enum TextEncodingRepair {
 
         for scalar in text.unicodeScalars {
             let value = scalar.value
+            if value == 0xFFFE || value == 0xFFFF {
+                return true
+            }
             let isLatin1Artifact = (0x80...0xFF).contains(value)
             let isCP1252Marker = cp1252MarkerScalars.contains(value)
             if isLatin1Artifact || isCP1252Marker {
@@ -133,6 +145,30 @@ public enum TextEncodingRepair {
         // 字段, 这条快速路径因此值得。代价是全为常用字的乱码会被漏掉, 但漏修
         // 远好过误改。
         return han >= 2 && rareHan >= 1
+    }
+
+    private static func byteSwappedUTF16Candidate(for text: String) -> String? {
+        let original = Array(text.utf16)
+        guard original.first == 0xFFFE, original.count > 1 else { return nil }
+
+        let restored = original.map(\.byteSwapped)
+        guard restored.first == 0xFEFF else { return nil }
+        let payload = Array(restored.dropFirst())
+        let candidate = String(decoding: payload, as: UTF16.self)
+
+        // `String(decoding:)` replaces malformed surrogate pairs. Requiring
+        // exactly the same UTF-16 units proves that no data was discarded.
+        guard Array(candidate.utf16) == payload,
+              !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !candidate.unicodeScalars.contains(where: {
+                  $0.value == 0xFFFD
+                      || $0.value == 0xFFFE
+                      || $0.value == 0xFFFF
+                      || isDisallowedControl($0.value)
+              }) else {
+            return nil
+        }
+        return candidate
     }
 
     /// 文本是否含已经不可逆丢失的字符。这类字段没法从原字节恢复, 只能改用

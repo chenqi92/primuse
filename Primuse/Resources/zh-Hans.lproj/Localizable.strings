@@ -4,6 +4,7 @@
 "library_browse" = "浏览资料库";
 "library_default_flat_view" = "默认平铺显示歌曲";
 "library_default_flat_view_description" = "关闭时默认按来源和文件夹层级浏览；打开后进入歌曲资料库即显示平铺列表。";
+"library_display_settings_title" = "资料库显示";
 "library_edit_quick_access" = "编辑快捷收藏";
 "library_add_quick_access" = "添加快捷收藏";
 "library_quick_access_limit" = "最多可添加 5 个快捷收藏";
@@ -114,9 +115,10 @@
 "app_icon" = "应用图标";
 "icon_default" = "折页音符";
 "icon_appearance_gray" = "灰色";
-"icon_appearance_hint" = "图标会随主屏幕的浅色、深色或灰色外观自动切换。";
+"icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
 "icon_theme_10" = "黑胶猿面";
 "icon_theme_11" = "流彩笔触";
+"icon_theme_12" = "皮卡丘";
 "icon_theme_4" = "音符律动";
 "icon_theme_6" = "清新音符";
 "icon_theme_7" = "Primuse 标志";
@@ -606,6 +608,7 @@
 
 // MARK: - iCloud 同步
 "sync" = "同步";
+"services_integrations" = "服务与集成";
 "icloud_sync_title" = "iCloud 同步";
 "icloud_sync_enabled" = "启用 iCloud 同步";
 "icloud_sync_footer" = "在使用同一 iCloud 账号的设备之间同步歌单、音乐源、播放历史和设置。源密码与云盘登录态通过 iCloud 钥匙串安全同步。";

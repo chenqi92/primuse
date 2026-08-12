@@ -8,6 +8,7 @@
 "library_browse" = "Mediathek durchsuchen";
 "library_default_flat_view" = "Titel standardmäßig als flache Liste anzeigen";
 "library_default_flat_view_description" = "Wenn deaktiviert, werden Titel nach Quelle und Ordnern geöffnet. Wenn aktiviert, öffnet sich die Mediathek als flache Liste.";
+"library_display_settings_title" = "Mediatheksanzeige";
 "library_edit_quick_access" = "Schnellzugriff bearbeiten";
 "library_add_quick_access" = "Kurzbefehl hinzufügen";
 "library_quick_access_limit" = "Bis zu 5 Kurzbefehle hinzufügen";
@@ -321,9 +322,10 @@
 "app_icon" = "App-Symbol";
 "icon_default" = "Gefaltete Note";
 "icon_appearance_gray" = "Grau";
-"icon_appearance_hint" = "Das Symbol folgt automatisch der hellen, dunklen oder grauen Darstellung des Home-Bildschirms.";
+"icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
 "icon_theme_10" = "Vinyl-Affe";
 "icon_theme_11" = "Farbpinsel";
+"icon_theme_12" = "pikaqiu";
 "icon_theme_4" = "Musikpuls";
 "icon_theme_6" = "Sanfte Note";
 "icon_theme_7" = "Primuse-Zeichen";
@@ -765,6 +767,7 @@
 "scraping_album_covers" = "Album-Cover werden geladen …";
 "scraping_artist_images" = "Künstlerbilder werden geladen …";
 "sync" = "Synchronisieren";
+"services_integrations" = "Dienste und Integrationen";
 "icloud_sync_title" = "iCloud-Synchronisierung";
 "icloud_sync_enabled" = "iCloud-Synchronisierung aktivieren";
 "icloud_sync_footer" = "Synchronisiert Wiedergabelisten, Musikquellen, Wiedergabeverlauf und Einstellungen über alle Geräte hinweg, die mit demselben iCloud-Account angemeldet sind. Quellpasswörter und der Anmeldestatus von Cloud-Speichern werden über den iCloud-Schlüsselbund synchronisiert.";

@@ -10,8 +10,8 @@ import PrimuseKit
 /// The window chrome, sidebar, and every ST-* page use the same custom row
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
-    case playback, equalizer, effects, scrape, lyrics
-    case appleMusic, widgets, cloud, theme, deleted, ssl, about
+    case playback, equalizer, effects, theme
+    case scrape, lyrics, appleMusic, widgets, cloud, deleted, ssl, about
 
     var id: String { rawValue }
 
@@ -627,6 +627,10 @@ private struct MacSTPlaybackView: View {
                         width: 180
                     )
                 }
+                MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Works on physical iOS devices; ignored by some hardware")) {
+                    MacSTToggle(isOn: $s.matchOutputSampleRate)
+                }
+                .disabled(s.outputMode == .highFidelity)
             }
         }
 
@@ -687,10 +691,6 @@ private struct MacSTPlaybackView: View {
                 MacSTRow(Lz("Skip trailing silence")) {
                     MacSTToggle(isOn: $s.skipTrailingSilenceEnabled)
                 }
-                MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Works on physical iOS devices; ignored by some hardware")) {
-                    MacSTToggle(isOn: $s.matchOutputSampleRate)
-                }
-                .disabled(s.outputMode == .highFidelity)
             }
         }
 
@@ -3168,26 +3168,31 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(String(localized: "home_settings_title")) {
-            MacSTGroup {
-                MacSTRow(
-                    String(localized: "radio_home_visibility"),
-                    hint: String(localized: "radio_home_visibility_description"),
-                    divider: false
+        MacSTSection(Lz("Material")) {
+            HStack(spacing: 8) {
+                MacMaterialCard(
+                    title: String(localized: "material_liquid_glass"),
+                    sub: String(localized: "material_liquid_glass_desc"),
+                    macos: String(localized: "material_macos_26_or_later"),
+                    selected: preferences.appearance == .glass
                 ) {
-                    MacSTToggle(isOn: $showRadioOnHome)
+                    preferences.appearance = .glass
+                }
+                MacMaterialCard(
+                    title: String(localized: "material_classic"),
+                    sub: String(localized: "material_classic_desc"),
+                    macos: String(localized: "material_macos_14_or_later"),
+                    selected: preferences.appearance == .classic
+                ) {
+                    preferences.appearance = .classic
                 }
             }
-        }
 
-        MacSTSection(String(localized: "library")) {
             MacSTGroup {
-                MacSTRow(
-                    String(localized: "library_default_flat_view"),
-                    hint: String(localized: "library_default_flat_view_description"),
-                    divider: false
-                ) {
-                    MacSTToggle(isOn: defaultFlatBrowseBinding)
+                MacSTRow(Lz("Detect macOS version automatically at launch"),
+                         hint: String(localized: "material_auto_desc"),
+                         divider: false) {
+                    MacSTToggle(isOn: $autoDetectMaterial)
                 }
             }
         }
@@ -3256,31 +3261,26 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(Lz("Material")) {
-            HStack(spacing: 8) {
-                MacMaterialCard(
-                    title: String(localized: "material_liquid_glass"),
-                    sub: String(localized: "material_liquid_glass_desc"),
-                    macos: String(localized: "material_macos_26_or_later"),
-                    selected: preferences.appearance == .glass
+        MacSTSection(String(localized: "home_settings_title")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "radio_home_visibility"),
+                    hint: String(localized: "radio_home_visibility_description"),
+                    divider: false
                 ) {
-                    preferences.appearance = .glass
-                }
-                MacMaterialCard(
-                    title: String(localized: "material_classic"),
-                    sub: String(localized: "material_classic_desc"),
-                    macos: String(localized: "material_macos_14_or_later"),
-                    selected: preferences.appearance == .classic
-                ) {
-                    preferences.appearance = .classic
+                    MacSTToggle(isOn: $showRadioOnHome)
                 }
             }
+        }
 
+        MacSTSection(String(localized: "library")) {
             MacSTGroup {
-                MacSTRow(Lz("Detect macOS version automatically at launch"),
-                         hint: String(localized: "material_auto_desc"),
-                         divider: false) {
-                    MacSTToggle(isOn: $autoDetectMaterial)
+                MacSTRow(
+                    String(localized: "library_default_flat_view"),
+                    hint: String(localized: "library_default_flat_view_description"),
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: defaultFlatBrowseBinding)
                 }
             }
         }

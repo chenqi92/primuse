@@ -10,47 +10,25 @@ import AppKit
 
 struct SettingsView: View {
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
-    @AppStorage(LibrarySongBrowseModePreference.storageKey)
-    private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
 
     init(scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init())) {
         _scraperSettingsRoute = scraperSettingsRoute
-    }
-
-    private var defaultFlatBrowseBinding: Binding<Bool> {
-        Binding(
-            get: {
-                LibrarySongBrowseMode(rawValue: libraryBrowseModeRawValue) == .flat
-            },
-            set: { isEnabled in
-                libraryBrowseModeRawValue = LibrarySongBrowseModePreference
-                    .mode(flatViewEnabled: isEnabled)
-                    .rawValue
-            }
-        )
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Section("library") {
-                    Toggle(isOn: defaultFlatBrowseBinding) {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("library_default_flat_view")
-                                Text("library_default_flat_view_description")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "list.bullet")
-                        }
-                    }
-
                     NavigationLink {
                         SourcesContentView()
                     } label: {
                         Label("manage_sources", systemImage: "externaldrive.connected.to.line.below")
+                    }
+
+                    NavigationLink {
+                        PlaylistImportView()
+                    } label: {
+                        Label("playlist_import_title", systemImage: "tray.and.arrow.down")
                     }
 
                     NavigationLink {
@@ -72,29 +50,9 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        PlaylistImportView()
-                    } label: {
-                        Label("playlist_import_title", systemImage: "tray.and.arrow.down")
-                    }
-
-                    NavigationLink {
                         StorageManagementView()
                     } label: {
                         Label("storage_management", systemImage: "internaldrive")
-                    }
-                }
-
-                Section("sync") {
-                    NavigationLink {
-                        CloudSyncSettingsView()
-                    } label: {
-                        Label("icloud_sync_title", systemImage: "icloud")
-                    }
-
-                    NavigationLink {
-                        FamilySharingSettingsView()
-                    } label: {
-                        Label("family_sharing_title", systemImage: "person.2.fill")
                     }
 
                     NavigationLink {
@@ -102,45 +60,15 @@ struct SettingsView: View {
                     } label: {
                         Label("recently_deleted", systemImage: "trash")
                     }
-
-                    NavigationLink {
-                        ListeningStatsView()
-                    } label: {
-                        Label("stats_title", systemImage: "chart.bar.xaxis")
-                    }
-
-                    NavigationLink {
-                        ScrobbleSettingsView()
-                    } label: {
-                        Label("scrobble_title", systemImage: "music.note.list")
-                    }
-
-                    NavigationLink {
-                        AppleMusicSettingsView()
-                    } label: {
-                        Label("settings_apple_music_section", systemImage: "applelogo")
-                    }
-
-                    NavigationLink {
-                        DLNARendererSettingsView()
-                    } label: {
-                        Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
-                    }
-                }
-
-                Section {
-                    AppleTVPushRow()
-
-                    NavigationLink {
-                        RelaySettingsView()
-                    } label: {
-                        Label("settings_relay_section", systemImage: "appletv")
-                    }
-                } header: {
-                    Text("settings_appletv_section")
                 }
 
                 Section("playback") {
+                    NavigationLink {
+                        PlaybackSettingsView()
+                    } label: {
+                        Label("playback_settings", systemImage: "play.circle")
+                    }
+
                     NavigationLink {
                         EqualizerView()
                     } label: {
@@ -153,12 +81,6 @@ struct SettingsView: View {
                         Label("audio_effects", systemImage: "waveform.badge.plus")
                     }
 
-                    NavigationLink {
-                        PlaybackSettingsView()
-                    } label: {
-                        Label("playback_settings", systemImage: "play.circle")
-                    }
-
                     #if os(iOS) && !targetEnvironment(simulator)
                     NavigationLink {
                         SiriSettingsView()
@@ -166,19 +88,6 @@ struct SettingsView: View {
                         Label("Siri", systemImage: "waveform")
                     }
                     #endif
-                }
-
-                Section("security") {
-                    NavigationLink {
-                        TrustedDomainsView()
-                    } label: {
-                        HStack {
-                            Label("trusted_domains", systemImage: "lock.shield")
-                            Spacer()
-                            Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
                 }
 
                 Section("appearance") {
@@ -200,6 +109,77 @@ struct SettingsView: View {
                         HomeSectionsSettingsView()
                     } label: {
                         Label("home_settings_title", systemImage: "house")
+                    }
+
+                    NavigationLink {
+                        LibraryDisplaySettingsView()
+                    } label: {
+                        Label("library_display_settings_title", systemImage: "rectangle.grid.1x2")
+                    }
+                }
+
+                Section("sync") {
+                    NavigationLink {
+                        CloudSyncSettingsView()
+                    } label: {
+                        Label("icloud_sync_title", systemImage: "icloud")
+                    }
+
+                    NavigationLink {
+                        FamilySharingSettingsView()
+                    } label: {
+                        Label("family_sharing_title", systemImage: "person.2.fill")
+                    }
+                }
+
+                Section("services_integrations") {
+                    NavigationLink {
+                        AppleMusicSettingsView()
+                    } label: {
+                        Label("settings_apple_music_section", systemImage: "applelogo")
+                    }
+
+                    NavigationLink {
+                        ScrobbleSettingsView()
+                    } label: {
+                        Label("scrobble_title", systemImage: "music.note.list")
+                    }
+
+                    NavigationLink {
+                        ListeningStatsView()
+                    } label: {
+                        Label("stats_title", systemImage: "chart.bar.xaxis")
+                    }
+
+                    NavigationLink {
+                        DLNARendererSettingsView()
+                    } label: {
+                        Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
+                    }
+                }
+
+                Section {
+                    AppleTVPushRow()
+
+                    NavigationLink {
+                        RelaySettingsView()
+                    } label: {
+                        Label("settings_relay_section", systemImage: "appletv")
+                    }
+                } header: {
+                    Text("settings_appletv_section")
+                }
+
+                Section("security") {
+                    NavigationLink {
+                        TrustedDomainsView()
+                    } label: {
+                        HStack {
+                            Label("trusted_domains", systemImage: "lock.shield")
+                            Spacer()
+                            Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -258,6 +238,38 @@ struct SettingsView: View {
                 MetadataScrapingView()
             }
         }
+    }
+}
+
+private struct LibraryDisplaySettingsView: View {
+    @AppStorage(LibrarySongBrowseModePreference.storageKey)
+    private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
+
+    private var defaultFlatBrowseBinding: Binding<Bool> {
+        Binding(
+            get: {
+                LibrarySongBrowseMode(rawValue: libraryBrowseModeRawValue) == .flat
+            },
+            set: { isEnabled in
+                libraryBrowseModeRawValue = LibrarySongBrowseModePreference
+                    .mode(flatViewEnabled: isEnabled)
+                    .rawValue
+            }
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("library_default_flat_view", isOn: defaultFlatBrowseBinding)
+            } footer: {
+                Text("library_default_flat_view_description")
+            }
+        }
+        .navigationTitle("library_display_settings_title")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
@@ -886,6 +898,15 @@ struct PlaybackSettingsView: View {
             }
 
             Section {
+                Toggle("output_sr_matching", isOn: $settings.matchOutputSampleRate)
+            } footer: {
+                Text(settings.outputMode == .highFidelity
+                     ? "output_sr_matching_fidelity_desc"
+                     : "output_sr_matching_desc")
+            }
+            .disabled(settings.outputMode == .highFidelity)
+
+            Section {
                 Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
                     .onChange(of: settings.gaplessEnabled) { _, enabled in
                         if enabled { settings.crossfadeEnabled = false }
@@ -977,15 +998,6 @@ struct PlaybackSettingsView: View {
                 Text("playback_rate_section")
             } footer: {
                 Text("playback_rate_desc")
-            }
-            .disabled(settings.outputMode == .highFidelity)
-
-            Section {
-                Toggle("output_sr_matching", isOn: $settings.matchOutputSampleRate)
-            } footer: {
-                Text(settings.outputMode == .highFidelity
-                     ? "output_sr_matching_fidelity_desc"
-                     : "output_sr_matching_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 

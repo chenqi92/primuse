@@ -8,6 +8,7 @@
 "library_browse" = "Parcourir la bibliothèque";
 "library_default_flat_view" = "Afficher les morceaux à plat par défaut";
 "library_default_flat_view_description" = "Si cette option est désactivée, les morceaux s’ouvrent par source et dossier. Si elle est activée, la bibliothèque s’ouvre sous forme de liste à plat.";
+"library_display_settings_title" = "Affichage de la bibliothèque";
 "library_edit_quick_access" = "Modifier les accès rapides";
 "library_add_quick_access" = "Ajouter un raccourci";
 "library_quick_access_limit" = "Ajoutez jusqu’à 5 raccourcis";
@@ -321,9 +322,10 @@
 "app_icon" = "Icône de l'app";
 "icon_default" = "Note pliée";
 "icon_appearance_gray" = "Gris";
-"icon_appearance_hint" = "L’icône suit automatiquement l’apparence claire, sombre ou grise de l’écran d’accueil.";
+"icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";
 "icon_theme_10" = "Singe vinyle";
 "icon_theme_11" = "Trait coloré";
+"icon_theme_12" = "pikaqiu";
 "icon_theme_4" = "Pulsation musicale";
 "icon_theme_6" = "Note douce";
 "icon_theme_7" = "Monogramme Primuse";
@@ -765,6 +767,7 @@
 "scraping_album_covers" = "Récupération des pochettes d'album…";
 "scraping_artist_images" = "Récupération des images d'artiste…";
 "sync" = "Synchronisation";
+"services_integrations" = "Services et intégrations";
 "icloud_sync_title" = "Synchronisation iCloud";
 "icloud_sync_enabled" = "Activer la synchronisation iCloud";
 "icloud_sync_footer" = "Synchronisez les listes de lecture, les sources de musique, l'historique de lecture et les réglages entre les appareils connectés au même compte iCloud. Les mots de passe des sources et les sessions de connexion aux services cloud sont synchronisés via le trousseau iCloud.";

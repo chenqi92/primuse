@@ -47,6 +47,7 @@ struct SourceSyncStateTests {
         let item = SourceSyncIndexedItem(
             stableKey: "id:1",
             path: "/music/a.flac",
+            displayName: "a.flac",
             parentPath: "/music",
             isDirectory: false,
             songIDs: ["song"],
@@ -68,6 +69,91 @@ struct SourceSyncStateTests {
             from: JSONEncoder().encode(state)
         )
         #expect(decoded == state)
+        #expect(decoded.index["id:1"]?.displayName == "a.flac")
+    }
+
+    @Test func legacyIndexWithoutDisplayNameStillDecodes() throws {
+        let data = Data(#"""
+        {
+          "stableKey":"id:1",
+          "path":"opaque-item-id",
+          "parentPath":"opaque-parent-id",
+          "isDirectory":false,
+          "songIDs":["song"],
+          "size":12,
+          "revision":"etag",
+          "seenEpoch":4
+        }
+        """#.utf8)
+        let item = try JSONDecoder().decode(SourceSyncIndexedItem.self, from: data)
+        #expect(item.displayName == nil)
+        #expect(item.path == "opaque-item-id")
+    }
+
+    @Test func opaqueCloudSourcesRebuildLegacyFolderTopology() {
+        let legacyItem = SourceSyncIndexedItem(
+            stableKey: "opaque-item-id",
+            path: "opaque-item-id",
+            parentPath: "opaque-parent-id",
+            isDirectory: false,
+            size: 12,
+            modifiedDate: nil,
+            revision: "etag"
+        )
+        let legacyState = SourceSyncState(
+            sourceID: "source",
+            scopeFingerprint: "scope",
+            index: [legacyItem.stableKey: legacyItem]
+        )
+
+        for sourceType in [
+            MusicSourceType.aliyunDrive,
+            .googleDrive,
+            .oneDrive,
+            .drime,
+            .pan115,
+            .pan123,
+        ] {
+            #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: legacyState
+            ))
+        }
+    }
+
+    @Test func currentCloudTopologyAndPathBasedSourcesDoNotRebuild() {
+        let currentItem = SourceSyncIndexedItem(
+            stableKey: "opaque-item-id",
+            path: "opaque-item-id",
+            displayName: "周杰伦",
+            parentPath: "opaque-parent-id",
+            isDirectory: true,
+            size: 0,
+            modifiedDate: nil,
+            revision: "etag"
+        )
+        let currentState = SourceSyncState(
+            sourceID: "source",
+            scopeFingerprint: "scope",
+            index: [currentItem.stableKey: currentItem]
+        )
+        var legacyState = currentState
+        legacyState.index[currentItem.stableKey]?.displayName = nil
+
+        #expect(!SourceSyncFolderTopologyPolicy.requiresRebuild(
+            sourceType: .oneDrive,
+            state: currentState
+        ))
+        #expect(!SourceSyncFolderTopologyPolicy.requiresRebuild(
+            sourceType: .oneDrive,
+            state: SourceSyncState(sourceID: "source", scopeFingerprint: "scope")
+        ))
+        for sourceType in [MusicSourceType.baiduPan, .dropbox] {
+            #expect(!SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: legacyState
+            ))
+        }
     }
 
     @Test func uncommittedDirectoryProgressRoundTripsIndependently() throws {

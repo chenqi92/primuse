@@ -95,6 +95,14 @@ EXACT_ICONS = [
         "00-folded-note-tinted.png",
     ),
     (
+        "12-pikaqiu",
+        "AppIcon12",
+        "AppIcon12Preview",
+        "12-pikaqiu.png",
+        "12-pikaqiu-dark.png",
+        "12-pikaqiu-tinted.png",
+    ),
+    (
         "06-soft-note",
         "AppIcon6",
         "AppIcon6Preview",
@@ -120,7 +128,7 @@ BRUSH_ICONS = [
     ("11-color-brush-source.png", "11-color-brush", "AppIcon11", "AppIcon11Preview"),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon9", "AppIcon10", "AppIcon11", "AppIcon4", "AppIcon6", "AppIcon7"]
+CATALOG_ORDER = ["AppIcon", "AppIcon12", "AppIcon9", "AppIcon10", "AppIcon11", "AppIcon4", "AppIcon6", "AppIcon7"]
 
 
 def palette_bytes(colors: list[tuple[int, int, int]]) -> list[int]:
@@ -412,7 +420,7 @@ def main() -> None:
     assert set(rendered_icons) == set(CATALOG_ORDER)
     light_icons = [rendered_icons[name][0] for name in CATALOG_ORDER]
     dark_icons = [rendered_icons[name][1] for name in CATALOG_ORDER]
-    save_mac_and_watch(rendered_icons["AppIcon"][0], rendered_icons["AppIcon"][1])
+    save_mac_and_watch(rendered_icons["AppIcon"][0], rendered_icons["AppIcon"][0])
     # tvOS keeps its explicit folded-note parallax and Top Shelf compositions;
     # this square-icon generator must not flatten or replace those layers.
     save_contact_sheet(light_icons)

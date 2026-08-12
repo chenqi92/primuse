@@ -1150,6 +1150,7 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     static let all: [MacAppIcon] = [
         MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 0.914, green: 0.314, blue: 0.263)),
         MacAppIcon(id: "AppIcon9", previewAsset: "AppIcon9Preview", nameKey: "icon_theme_9", tint: Color(red: 0.078, green: 0.490, blue: 0.541)),
+        MacAppIcon(id: "AppIcon12", previewAsset: "AppIcon12Preview", nameKey: "icon_theme_12", tint: Color(red: 0.965, green: 0.251, blue: 0.424)),
         MacAppIcon(id: "AppIcon10", previewAsset: "AppIcon10Preview", nameKey: "icon_theme_10", tint: Color(red: 0.827, green: 0.227, blue: 0.173)),
         MacAppIcon(id: "AppIcon11", previewAsset: "AppIcon11Preview", nameKey: "icon_theme_11", tint: Color(red: 0.176, green: 0.651, blue: 0.890)),
         MacAppIcon(id: "AppIcon4", previewAsset: "AppIcon4Preview", nameKey: "icon_theme_4", tint: Color(red: 0.388, green: 0.902, blue: 0.839)),

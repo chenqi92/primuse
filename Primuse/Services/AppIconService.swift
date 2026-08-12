@@ -39,7 +39,7 @@ final class AppIconService {
 
     /// Keep the classic icon immediately after the current primary icon,
     /// then show the retained design alternatives in their existing order.
-    private static let themeOrder = [9, 10, 11, 4, 6, 7]
+    private static let themeOrder = [9, 12, 10, 11, 4, 6, 7]
 
     /// Themes that ship only a single visual variant (no dark counterpart in
     /// the asset catalog). Add a theme index here when no dark image exists.
@@ -48,6 +48,7 @@ final class AppIconService {
     /// Brand tints sampled from the shared flat icon palette.
     private static let iconTints: [String: Color] = [
         "":         Color(red: 0.914, green: 0.314, blue: 0.263), // folded note — coral underside
+        "AppIcon12": Color(red: 0.965, green: 0.251, blue: 0.424), // Pikaqiu — gradient pink
         "AppIcon10": Color(red: 0.827, green: 0.227, blue: 0.173), // vinyl ape — vermilion label
         "AppIcon11": Color(red: 0.176, green: 0.651, blue: 0.890), // color brush — cyan-blue stroke
         "AppIcon4": Color(red: 0.388, green: 0.902, blue: 0.839), // music note — mint cyan

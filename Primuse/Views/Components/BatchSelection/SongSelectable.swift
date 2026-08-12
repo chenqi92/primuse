@@ -19,7 +19,6 @@ struct SongSelectionCheckmark: View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             .font(.system(size: 20))
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.45))
-            .contentTransition(.symbolEffect(.replace))
             .accessibilityHidden(true)
     }
 }
@@ -32,45 +31,63 @@ private struct SongSelectableModifier: ViewModifier {
     let orderedIDs: () -> [String]
     let defaultAction: (() -> Void)?
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         let isActive = selection.isActive
         let isSelected = membership.isSelected
-        let decorated = content
-            .overlay(alignment: overlayAlignment) {
-                selectionOverlay(isActive: isActive, isSelected: isSelected)
-            }
-            .contentShape(Rectangle())
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(
-                isActive
-                    ? (isSelected ? [.isButton, .isSelected] : .isButton)
-                    : []
-            )
-            .accessibilityAction(named: Text("batch_select")) {
-                if isActive {
-                    handleTap()
-                } else {
-                    selection.activate(seed: songID)
-                }
-            }
 
-        #if os(iOS)
-        if let defaultAction {
-            if isActive {
-                decorated.highPriorityGesture(longPressGesture)
-            } else {
-                decorated
+        if isActive {
+            activeContent(content, isSelected: isSelected)
+        } else {
+            #if os(iOS)
+            if let defaultAction {
+                inactiveContent(content)
                     .accessibilityAction(named: Text("play")) {
                         defaultAction()
                     }
                     .highPriorityGesture(longPressGesture)
+            } else {
+                inactiveContent(content)
+                    .highPriorityGesture(longPressGesture)
             }
-        } else {
-            decorated.highPriorityGesture(longPressGesture)
+            #else
+            inactiveContent(content)
+            #endif
         }
-        #else
-        decorated
-        #endif
+    }
+
+    private func inactiveContent(_ content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAction(named: Text("batch_select")) {
+                selection.activate(seed: songID)
+            }
+    }
+
+    private func activeContent(_ content: Content, isSelected: Bool) -> some View {
+        content
+            .overlay(alignment: overlayAlignment) {
+                SongSelectionCheckmark(isSelected: isSelected)
+                    .background(Circle().fill(.background).padding(2))
+                    .padding(style == .leading ? 8 : 10)
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                if defaultAction == nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { handleTap() }
+                }
+            }
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(
+                isSelected ? [.isButton, .isSelected] : .isButton
+            )
+            .accessibilityAction(named: Text("batch_select")) {
+                handleTap()
+            }
     }
 
     #if os(iOS)
@@ -88,30 +105,6 @@ private struct SongSelectableModifier: ViewModifier {
         case .leading: .leading
         case .overlay: .topTrailing
         }
-    }
-
-    private func selectionOverlay(isActive: Bool, isSelected: Bool) -> some View {
-        ZStack(alignment: overlayAlignment) {
-            Color.clear
-                .contentShape(Rectangle())
-
-            SongSelectionCheckmark(isSelected: isSelected)
-                .background(Circle().fill(.background).padding(2))
-                .padding(style == .leading ? 8 : 10)
-                .opacity(isActive ? 1 : 0)
-                .accessibilityHidden(true)
-        }
-        // iOS list rows already route their Button action through the selection
-        // model. Leaving a full-row transparent gesture above them lets a
-        // toolbar Menu dismissal click through and toggle the row underneath
-        // ("select all" became N - 1 and "clear" left one item selected).
-        // Grid/table callers without a default action still use this overlay.
-        .allowsHitTesting(isActive && defaultAction == nil)
-        .onTapGesture {
-            guard defaultAction == nil else { return }
-            handleTap()
-        }
-        .accessibilityHidden(true)
     }
 
     private func handleTap() {

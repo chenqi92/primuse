@@ -1,8 +1,9 @@
 # Primuse app icon system
 
-The production catalog contains one primary icon and six alternates:
+The production catalog contains one primary icon and seven alternates:
 
 - `00-folded-note.png` — primary folded-note icon.
+- `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
 - `09-classic-record.png` — historical record-and-note artwork restored as the classic icon.
 - `10-vinyl-ape.png` — a vinyl record, tonearm, and ape face fused into one mark.
 - `11-color-brush.png` — a multicolor lacquer brush that fuses the Primuse P, Jingu Bang, and music note.
@@ -14,9 +15,9 @@ Private Library, Lossless Audio, Record Collection, Speaker Play, and Muse Spark
 
 ## Appearance system
 
-The folded note, classic record, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization. Vinyl Ape and Music Pulse use deterministic flat palette mapping, the Primuse mark is generated locally from deterministic geometry, and Color Brush derives pure-white Light plus grayscale Tinted artwork from its selected pure-black source.
+The folded note, Pikaqiu, classic record, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization. Vinyl Ape and Music Pulse use deterministic flat palette mapping, the Primuse mark is generated locally from deterministic geometry, and Color Brush derives pure-white Light plus grayscale Tinted artwork from its selected pure-black source.
 
-All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner mask. macOS sizes are derived from the primary Light icon with the platform-specific inset and rounded mask. watchOS uses the primary Dark artwork.
+All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner mask. macOS sizes are derived from the primary Light icon with the platform-specific inset and rounded mask. watchOS uses the primary Light artwork so the white-background default remains consistent across all three platforms.
 
 ## tvOS
 

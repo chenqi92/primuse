@@ -411,6 +411,35 @@ private final class LifecycleSnapshotUploadCoordinator {
     }
 }
 
+/// Keep network-path Observation out of the scene's root modifier chain.
+/// A path update used to invalidate `ContentView` itself, which made SwiftUI
+/// revisit every instantiated song row in a large library before running the
+/// two side effects below.
+@MainActor
+private struct NetworkPathChangeObserver: View {
+    let metadataBackfill: MetadataBackfillService
+    let sourceManager: SourceManager
+    let sourcesStore: SourcesStore
+    let scanService: ScanService
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: NetworkMonitor.shared.isOnUnmeteredNetwork) { _, onWifi in
+                if onWifi { metadataBackfill.start() }
+            }
+            .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
+                Task {
+                    await sourceManager.resetAdaptiveConnectionRoutes()
+                    for source in sourcesStore.sources where source.type == .synology {
+                        scanService.removeSynologyAPI(for: source.id)
+                    }
+                }
+            }
+    }
+}
+
 @main
 struct PrimuseApp: App {
     #if os(iOS)
@@ -845,18 +874,16 @@ struct PrimuseApp: App {
                 .onChange(of: musicLibrary.songs.count) { _, _ in
                     metadataBackfill.refreshQueue()
                 }
-                // Auto-resume backfill when the user reconnects to Wi-Fi
-                // after the cellular gate paused it.
-                .onChange(of: NetworkMonitor.shared.isOnUnmeteredNetwork) { _, onWifi in
-                    if onWifi { metadataBackfill.start() }
-                }
-                .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
-                    Task {
-                        await sourceManager.resetAdaptiveConnectionRoutes()
-                        for source in sourcesStore.sources where source.type == .synology {
-                            scanService.removeSynologyAPI(for: source.id)
-                        }
-                    }
+                // Network changes are observed in a separate, zero-size view.
+                // Keeping them on this scene root made every path callback
+                // invalidate the complete tab/navigation/song-list hierarchy.
+                .background {
+                    NetworkPathChangeObserver(
+                        metadataBackfill: metadataBackfill,
+                        sourceManager: sourceManager,
+                        sourcesStore: sourcesStore,
+                        scanService: scanService
+                    )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .primuseSourceAuthFailed)) { note in
                     guard let id = note.userInfo?["sourceID"] as? String,

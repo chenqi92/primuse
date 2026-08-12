@@ -4,6 +4,7 @@
 "library_browse" = "Browse Library";
 "library_default_flat_view" = "Show Songs as a Flat List by Default";
 "library_default_flat_view_description" = "When off, songs open in the source and folder hierarchy. When on, the song library opens as a flat list.";
+"library_display_settings_title" = "Library Display";
 "library_edit_quick_access" = "Edit Quick Access";
 "library_add_quick_access" = "Add Shortcut";
 "library_quick_access_limit" = "Add up to 5 shortcuts";
@@ -113,9 +114,10 @@
 "app_icon" = "App Icon";
 "icon_default" = "Folded Note";
 "icon_appearance_gray" = "Gray";
-"icon_appearance_hint" = "The icon automatically follows the Home Screen's light, dark, or gray appearance.";
+"icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";
 "icon_theme_10" = "Vinyl Ape";
 "icon_theme_11" = "Color Brush";
+"icon_theme_12" = "pikaqiu";
 "icon_theme_4" = "Music Pulse";
 "icon_theme_6" = "Soft Note";
 "icon_theme_7" = "Primuse Mark";
@@ -605,6 +607,7 @@
 
 // MARK: - iCloud Sync
 "sync" = "Sync";
+"services_integrations" = "Services & Integrations";
 "icloud_sync_title" = "iCloud Sync";
 "icloud_sync_enabled" = "Enable iCloud Sync";
 "icloud_sync_footer" = "Sync playlists, music sources, playback history, and settings across devices signed in to the same iCloud account. Source passwords and cloud-drive login state sync via iCloud Keychain.";

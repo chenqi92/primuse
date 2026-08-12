@@ -55,7 +55,10 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let token = try await accessToken()
         let folderID = DrimeAPIProtocol.normalizedEntryID(path)
-        return try await fileEntries(in: folderID, token: token).map(Self.remoteItem(from:))
+        let parentPath = folderID ?? "/"
+        return try await fileEntries(in: folderID, token: token).map {
+            Self.remoteItem(from: $0, parentPath: parentPath)
+        }
     }
 
     private func fileEntries(in folderID: String?, token: String) async throws -> [DrimeFileEntry] {
@@ -732,14 +735,19 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         return nil
     }
 
-    private nonisolated static func remoteItem(from entry: DrimeFileEntry) -> RemoteFileItem {
+    private nonisolated static func remoteItem(
+        from entry: DrimeFileEntry,
+        parentPath: String
+    ) -> RemoteFileItem {
         RemoteFileItem(
             name: entry.name,
             path: entry.id,
             isDirectory: entry.isDirectory,
             size: entry.fileSize,
             modifiedDate: entry.modifiedDate,
-            revision: entry.revision
+            revision: entry.revision,
+            providerID: entry.id,
+            parentPath: parentPath
         )
     }
 

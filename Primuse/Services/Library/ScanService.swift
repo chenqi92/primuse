@@ -76,6 +76,9 @@ final class ScanService {
     private let syncStateURL: URL
     private let decoder = JSONDecoder()
     private var syncStates: [String: SourceSyncState] = [:]
+    /// Invalidates folder indexes when a committed provider scan changes the
+    /// ID/name/parent topology without adding or removing any songs.
+    private(set) var folderHierarchyRevision = 0
 
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
@@ -91,6 +94,12 @@ final class ScanService {
         decoder.dateDecodingStrategy = .iso8601
         loadCheckpoints(loadedCheckpoints)
         loadSyncStates()
+    }
+
+    func libraryFolderSyncIndex(
+        for sourceID: String
+    ) -> [String: SourceSyncIndexedItem] {
+        syncStates[sourceID]?.index ?? [:]
     }
 
     func scanSource(
@@ -415,6 +424,10 @@ final class ScanService {
                       sourceID: source.id,
                       scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
                   ),
+                  !SourceSyncFolderTopologyPolicy.requiresRebuild(
+                      sourceType: source.type,
+                      state: state
+                  ),
                   SourcePeriodicSyncPolicy.isDue(state, now: now) else {
                 continue
             }
@@ -441,6 +454,10 @@ final class ScanService {
                   state.isUsable(
                       sourceID: source.id,
                       scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
+                  ),
+                  !SourceSyncFolderTopologyPolicy.requiresRebuild(
+                      sourceType: source.type,
+                      state: state
                   ) else {
                 return nil
             }
@@ -845,6 +862,10 @@ final class ScanService {
            let incremental = connector as? any IncrementalMusicSourceConnector,
            let state = syncStates[source.id],
            state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
+           !SourceSyncFolderTopologyPolicy.requiresRebuild(
+               sourceType: source.type,
+               state: state
+           ),
            !state.cursors.isEmpty {
             do {
                 if try await performQuickSync(
@@ -1347,6 +1368,7 @@ final class ScanService {
             throw SourceError.connectionFailed("Unable to persist source sync state")
         }
         syncStates = snapshot
+        folderHierarchyRevision &+= 1
     }
 
     private func persistCheckpoint(

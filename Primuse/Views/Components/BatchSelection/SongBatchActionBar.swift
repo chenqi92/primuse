@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// 批量操作栏的上下文。决定哪些动作对当前页面有意义。
 struct SongBatchActionContext {
@@ -47,6 +50,122 @@ extension View {
     }
 }
 
+#if os(macOS)
+private struct SongBatchActionBarPresentation<Bar: View>: View {
+    let selection: SongSelectionModel
+    private let bar: () -> Bar
+
+    init(
+        selection: SongSelectionModel,
+        @ViewBuilder bar: @escaping () -> Bar
+    ) {
+        self.selection = selection
+        self.bar = bar
+    }
+
+    var body: some View {
+        Group {
+            if selection.isActive {
+                bar()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(true)
+            }
+        }
+        .animation(.snappy(duration: 0.22), value: selection.isActive)
+    }
+}
+#endif
+
+#if os(iOS)
+/// The system bottom bar owns safe-area, rotation, Dynamic Type, and Liquid
+/// Glass behavior. Keeping the three actions inside one lightweight child also
+/// prevents a selection-mode change from rebuilding the page that hosts it.
+private struct IOSBatchActionToolbarContent<MoreActions: View>: View {
+    let selection: SongSelectionModel
+    let queueFeedback: String?
+    let onAddToPlaylist: () -> Void
+    let onAddToQueue: () -> Void
+    private let moreActions: () -> MoreActions
+
+    init(
+        selection: SongSelectionModel,
+        queueFeedback: String?,
+        onAddToPlaylist: @escaping () -> Void,
+        onAddToQueue: @escaping () -> Void,
+        @ViewBuilder moreActions: @escaping () -> MoreActions
+    ) {
+        self.selection = selection
+        self.queueFeedback = queueFeedback
+        self.onAddToPlaylist = onAddToPlaylist
+        self.onAddToQueue = onAddToQueue
+        self.moreActions = moreActions
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            HStack(spacing: 0) {
+                Button(action: onAddToPlaylist) {
+                    actionLabel(
+                        Text("add_to_playlist"),
+                        systemImage: "text.badge.plus"
+                    )
+                }
+                .disabled(selection.isEmpty)
+                .accessibilityIdentifier("batchAction.addToPlaylist")
+
+                Divider()
+                    .frame(height: 24)
+
+                Button(action: onAddToQueue) {
+                    actionLabel(
+                        queueFeedback.map { Text(verbatim: $0) }
+                            ?? Text("add_to_queue"),
+                        systemImage: queueFeedback == nil
+                            ? "text.line.last.and.arrowtriangle.forward"
+                            : "checkmark"
+                    )
+                }
+                .disabled(selection.isEmpty)
+                .accessibilityIdentifier("batchAction.addToQueue")
+
+                Divider()
+                    .frame(height: 24)
+
+                Menu {
+                    moreActions()
+                } label: {
+                    actionLabel(Text("more"), systemImage: "ellipsis")
+                }
+                .disabled(selection.isEmpty)
+                .accessibilityLabel(Text("a11y_more_actions"))
+                .accessibilityIdentifier("batchAction.more")
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+    }
+
+    private func actionLabel(_ title: Text, systemImage: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Label {
+                title
+            } icon: {
+                Image(systemName: systemImage)
+            }
+            .labelStyle(.titleAndIcon)
+
+            title
+        }
+        .font(.callout.weight(.semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.72)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .contentShape(Rectangle())
+    }
+}
+#endif
+
 private struct SongBatchActionsModifier: ViewModifier {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -55,11 +174,6 @@ private struct SongBatchActionsModifier: ViewModifier {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SongBatchRemovalService.self) private var removal
-    #if os(iOS)
-    @Environment(AppleMusicService.self) private var appleMusic
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
-
     let selection: SongSelectionModel
     let context: SongBatchActionContext
     let orderedIDs: () -> [String]
@@ -69,6 +183,8 @@ private struct SongBatchActionsModifier: ViewModifier {
     @State private var pendingDeletion: PendingDeletion?
     @State private var showNoDeletableSourceAlert = false
     @State private var showNoScraperSourceAlert = false
+    @State private var queueFeedback: String?
+    @State private var queueFeedbackTask: Task<Void, Never>?
 
     private struct PendingDeletion: Identifiable {
         let id = UUID()
@@ -78,16 +194,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .bottom) {
-                actionBar
-                    .padding(.bottom, actionBarBottomClearance)
-                    .opacity(selection.isActive ? 1 : 0)
-                    .offset(y: selection.isActive ? 0 : 12)
-                    .allowsHitTesting(selection.isActive)
-                    .accessibilityHidden(!selection.isActive)
-            }
-            .animation(.snappy(duration: 0.22), value: selection.isActive)
+        actionPresentation(content)
             .sheet(isPresented: $showAddToPlaylist) {
                 BatchAddToPlaylistSheet(songs: selectedSongs()) {
                     selection.deactivate()
@@ -116,112 +223,39 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Text("batch_delete_no_deletable_source")
             }
             .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
-    }
-
-    // MARK: - Bar
-
-    private var actionBarBottomClearance: CGFloat {
-        #if os(iOS)
-        guard player.currentSong != nil || appleMusic.nowPlayingSong != nil else {
-            return 0
-        }
-        // The legacy mini player is an outer ContentView overlay, so a page-
-        // local safe-area inset otherwise lands underneath it and cannot be
-        // tapped. iOS 26.1's native tab accessory already contributes its own
-        // safe area; regular-width layouts continue to use the legacy overlay.
-        if horizontalSizeClass == .regular { return 68 }
-        if #available(iOS 26.1, *) { return 0 }
-        return 52
-        #else
-        return 0
-        #endif
+            .onDisappear {
+                queueFeedbackTask?.cancel()
+                queueFeedbackTask = nil
+            }
     }
 
     @ViewBuilder
-    private var actionBar: some View {
+    private func actionPresentation(_ content: Content) -> some View {
         #if os(iOS)
-        iosActionBar
-        #else
-        macActionBar
-        #endif
-    }
-
-    #if os(iOS)
-    @ViewBuilder
-    private var iosActionBar: some View {
-        let actions = HStack(spacing: 8) {
-            Button {
-                showAddToPlaylist = true
-            } label: {
-                adaptiveActionLabel(
-                    "add_to_playlist",
-                    systemImage: "text.badge.plus"
-                )
-            }
-            .disabled(selection.isEmpty)
-            .accessibilityIdentifier("batchAction.addToPlaylist")
-
-            Button {
-                player.appendToQueue(playableSelection())
-            } label: {
-                adaptiveActionLabel(
-                    "add_to_queue",
-                    systemImage: "text.line.last.and.arrowtriangle.forward"
-                )
-            }
-            .disabled(selection.isEmpty)
-            .accessibilityIdentifier("batchAction.addToQueue")
-
-            Menu {
-                moreActions(includesAddToQueue: false)
-            } label: {
-                adaptiveActionLabel("more", systemImage: "ellipsis.circle")
-            }
-            .disabled(selection.isEmpty)
-            .accessibilityLabel(Text("a11y_more_actions"))
-            .accessibilityIdentifier("batchAction.more")
-        }
-
-        if #available(iOS 26.0, *) {
-            actions
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-        } else {
-            actions
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.bar)
-                .overlay(alignment: .top) {
-                    Divider()
+        content
+            .toolbar {
+                ToolbarItem(placement: .bottomBar) {
+                    IOSBatchActionToolbarContent(
+                        selection: selection,
+                        queueFeedback: queueFeedback,
+                        onAddToPlaylist: { showAddToPlaylist = true },
+                        onAddToQueue: appendSelectionToQueue
+                    ) {
+                        moreActions(includesAddToQueue: false)
+                    }
                 }
-        }
-    }
-
-    private func adaptiveActionLabel(
-        _ title: LocalizedStringKey,
-        systemImage: String
-    ) -> some View {
-        ViewThatFits(in: .horizontal) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-
-            VStack(spacing: 2) {
-                Image(systemName: systemImage)
-                    .font(.body.weight(.semibold))
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .contentShape(Rectangle())
+        #else
+        content
+            .overlay(alignment: .bottom) {
+                SongBatchActionBarPresentation(selection: selection) {
+                    macActionBar
+                }
+            }
+        #endif
     }
-    #else
+
+    #if os(macOS)
     private var macActionBar: some View {
         HStack(spacing: 8) {
             Button {
@@ -262,7 +296,7 @@ private struct SongBatchActionsModifier: ViewModifier {
             .accessibilityLabel(Text("add_to_playlist"))
 
             Button {
-                player.appendToQueue(playableSelection())
+                appendSelectionToQueue()
             } label: {
                 Image(systemName: "text.line.last.and.arrowtriangle.forward")
                     .font(.title3)
@@ -272,7 +306,7 @@ private struct SongBatchActionsModifier: ViewModifier {
             .accessibilityLabel(Text("add_to_queue"))
 
             Button {
-                player.insertNextInQueue(playableSelection())
+                insertSelectionNext()
             } label: {
                 Image(systemName: "text.line.first.and.arrowtriangle.forward")
                     .font(.title3)
@@ -310,14 +344,14 @@ private struct SongBatchActionsModifier: ViewModifier {
         Section {
             if includesAddToQueue {
                 Button {
-                    player.appendToQueue(playableSelection())
+                    appendSelectionToQueue()
                 } label: {
                     Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
                 }
             }
 
             Button {
-                player.insertNextInQueue(playableSelection())
+                insertSelectionNext()
             } label: {
                 Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
@@ -388,6 +422,48 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     private func playableSelection() -> [Song] {
         selectedSongs().filteredPlayable()
+    }
+
+    private func appendSelectionToQueue() {
+        let songs = playableSelection()
+        guard !songs.isEmpty else { return }
+        player.appendToQueue(songs)
+        presentQueueFeedback(
+            songCount: songs.count,
+            action: String(localized: "add_to_queue")
+        )
+    }
+
+    private func insertSelectionNext() {
+        let songs = playableSelection()
+        guard !songs.isEmpty else { return }
+        player.insertNextInQueue(songs)
+        presentQueueFeedback(
+            songCount: songs.count,
+            action: String(localized: "insert_next")
+        )
+    }
+
+    private func presentQueueFeedback(songCount: Int, action: String) {
+        let countMessage = String(
+            format: String(localized: "new_songs_added"),
+            songCount
+        )
+        queueFeedback = countMessage
+
+        #if os(iOS)
+        let announcement = "\(action), \(countMessage)"
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UIAccessibility.post(notification: .announcement, argument: announcement)
+        #endif
+
+        queueFeedbackTask?.cancel()
+        queueFeedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.2))
+            guard !Task.isCancelled else { return }
+            queueFeedback = nil
+            queueFeedbackTask = nil
+        }
     }
 
     private var selectionContainsAppleMusic: Bool {

@@ -399,6 +399,7 @@ private struct SongListSortProgressIndicator: View {
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(ScanService.self) private var scanService
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -426,6 +427,11 @@ struct SongListView: View {
     @State private var showNoScraperSourceAlert = false
     @State private var selection = SongSelectionModel()
     @State private var browseMode: LibrarySongBrowseMode
+    #if os(iOS)
+    @State private var presentedBrowseMode: LibrarySongBrowseMode
+    @State private var browseModeTransitionTask: Task<Void, Never>?
+    @State private var isBrowseModeTransitioning = false
+    #endif
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var storedBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
     @State private var folderCache = LibraryFolderBrowserCache()
@@ -470,9 +476,18 @@ struct SongListView: View {
         }
     }
 
+    private struct CloudFolderHierarchyInput: Sendable {
+        let syncIndex: [String: SourceSyncIndexedItem]
+        let rootDisplayNames: [String: String]
+    }
+
     init(sourceID: String? = nil) {
         scope = sourceID.map(Scope.source) ?? .library
-        _browseMode = State(initialValue: LibrarySongBrowseModePreference.load())
+        let initialBrowseMode = LibrarySongBrowseModePreference.load()
+        _browseMode = State(initialValue: initialBrowseMode)
+        #if os(iOS)
+        _presentedBrowseMode = State(initialValue: initialBrowseMode)
+        #endif
     }
 
     enum SongSortOrder: String, CaseIterable, Sendable {
@@ -600,6 +615,22 @@ struct SongListView: View {
                 folderSourceRevision &+= 1
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
             }
+            .onChange(of: scanService.folderHierarchyRevision) { _, _ in
+                folderSourceRevision &+= 1
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: CloudDirectoryNameStore.didChangeNotification
+                )
+            ) { notification in
+                guard let sourceID = notification.object as? String,
+                      configuredFolderSourceDescriptors.contains(where: {
+                          $0.sourceID == sourceID
+                      }) else { return }
+                folderSourceRevision &+= 1
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
             .onChange(of: library.playlistCollectionRevision) { _, _ in
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
             }
@@ -607,6 +638,9 @@ struct SongListView: View {
                 cancelExplicitSortForNavigation()
                 storedBrowseModeRawValue = mode.rawValue
                 selection.deactivate()
+                #if os(iOS)
+                scheduleBrowseModeTransition(to: mode)
+                #endif
                 if mode == .folder {
                     scheduleFolderIndexRecompute()
                 } else {
@@ -638,13 +672,18 @@ struct SongListView: View {
                     )
                 }
             }
-            .onChange(of: selection.isActive) { _, isActive in
-                if isActive {
+            .background {
+                SongSelectionActivationObserver(selection: selection) {
                     cancelExplicitSortForSelection()
                 }
             }
             .onDisappear {
                 cancelExplicitSortForNavigation()
+                #if os(iOS)
+                browseModeTransitionTask?.cancel()
+                browseModeTransitionTask = nil
+                isBrowseModeTransitioning = false
+                #endif
             }
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
@@ -767,25 +806,35 @@ struct SongListView: View {
         }
     }
 
+    #if os(iOS)
     private var iosSongList: some View {
-        Group {
-            if showsFolderBrowser {
-                LibraryFolderRootView(
-                    folderCache: folderCache,
-                    listCache: listCache,
-                    rootSourceID: folderRootSourceID,
-                    selection: selection,
-                    sortOrder: sortOrderBinding
-                )
-            } else {
-                IOSSongListContainer(
-                    cache: listCache,
-                    selection: selection,
-                    onPlay: playSong
-                )
-                .equatable()
+        ZStack {
+            Group {
+                if presentedShowsFolderBrowser {
+                    LibraryFolderRootView(
+                        folderCache: folderCache,
+                        listCache: listCache,
+                        rootSourceID: folderRootSourceID,
+                        selection: selection,
+                        sortOrder: sortOrderBinding
+                    )
+                } else {
+                    IOSSongListContainer(
+                        cache: listCache,
+                        selection: selection,
+                        onPlay: playSong
+                    )
+                    .equatable()
+                }
+            }
+            .allowsHitTesting(!isBrowseModeTransitioning)
+
+            if isBrowseModeTransitioning {
+                SongBrowseModeTransitionOverlay(mode: browseMode)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.16), value: isBrowseModeTransitioning)
         .onScrollPhaseChange { _, newPhase in
             updateListInteraction(for: newPhase)
         }
@@ -793,6 +842,34 @@ struct SongListView: View {
             iosToolbar
         }
     }
+
+    private var presentedShowsFolderBrowser: Bool {
+        presentedBrowseMode == .folder
+            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func scheduleBrowseModeTransition(to mode: LibrarySongBrowseMode) {
+        browseModeTransitionTask?.cancel()
+        isBrowseModeTransitioning = true
+
+        browseModeTransitionTask = Task { @MainActor in
+            // Publish the progress layer before SwiftUI has to attach the
+            // large flat List. This guarantees visible feedback even when the
+            // first layout pass for a very large library occupies the main
+            // thread for longer than a frame.
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(90))
+            guard !Task.isCancelled, browseMode == mode else { return }
+
+            presentedBrowseMode = mode
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(90))
+            guard !Task.isCancelled, browseMode == mode else { return }
+            isBrowseModeTransitioning = false
+            browseModeTransitionTask = nil
+        }
+    }
+    #endif
 
     #if os(macOS)
     private var macSongList: some View {
@@ -1801,56 +1878,27 @@ struct SongListView: View {
 
     @ToolbarContentBuilder
     private var iosToolbar: some ToolbarContent {
-        if selection.isActive {
-            ToolbarItem(placement: .principal) {
-                SongSelectionToolbarTitle(selection: selection)
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                SongSelectionOptionsMenu(
-                    selection: selection,
-                    orderedIDs: { batchOrderedSongIDs }
-                )
-                Button("done") {
-                    selection.deactivate()
-                }
-            }
-        } else {
-            ToolbarItem(placement: .principal) {
-                SongListSortProgressIndicator(progress: sortProgress)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Section {
-                        Picker("library_browse", selection: $browseMode) {
-                            Label("library_browse_folder", systemImage: "folder")
-                                .tag(LibrarySongBrowseMode.folder)
-                            Label("library_browse_flat", systemImage: "list.bullet")
-                                .tag(LibrarySongBrowseMode.flat)
-                        }
-                        .pickerStyle(.inline)
-                    }
-
-                    Section {
-                        Picker("sort_by", selection: sortOrderBinding) {
-                            ForEach(SongSortOrder.allCases, id: \.self) { order in
-                                Text(order.label).tag(order)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                    }
-
-                    Section {
-                        Button {
-                            selection.activate()
-                        } label: {
-                            Label("batch_select", systemImage: "checkmark.circle")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel(Text("a11y_more_actions"))
-            }
+        ToolbarItem(placement: .principal) {
+            SongListToolbarPrincipal(
+                selection: selection,
+                progress: sortProgress
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            SongListNormalToolbarMenu(
+                selection: selection,
+                browseMode: $browseMode,
+                sortOrder: sortOrderBinding
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            SongSelectionOptionsToolbarItem(
+                selection: selection,
+                orderedIDs: { batchOrderedSongIDs }
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            SongSelectionCancelToolbarItem(selection: selection)
         }
     }
 
@@ -1938,9 +1986,19 @@ struct SongListView: View {
         }
         for songID in library.lastReplacedSongIDs {
             let indexedNodeID = index.nodeID(containingSongID: songID)
-            if let song = library.unobservedVisibleSong(id: songID),
-               song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                continue
+            if let song = library.unobservedVisibleSong(id: songID) {
+                if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                    continue
+                }
+                // Cloud item IDs stay stable across metadata replacement and
+                // provider moves. Their folder placement is invalidated by the
+                // committed sync-state revision instead of reinterpreting the
+                // opaque playback ID here.
+                if sourcesStore.allSources.first(where: {
+                    $0.id == song.sourceID
+                })?.type.isCloudDrive == true {
+                    continue
+                }
             }
             let expectedNodeID: LibraryFolderNodeID?
             if let song = library.unobservedVisibleSong(id: songID),
@@ -2015,6 +2073,18 @@ struct SongListView: View {
         let generation = folderIndexGeneration
         let songsSnapshot = songs
         let configuredDescriptors = configuredFolderSourceDescriptors
+        var cloudHierarchyInputs: [String: CloudFolderHierarchyInput] = [:]
+        for descriptor in configuredDescriptors {
+            guard sourcesStore.allSources.first(where: {
+                $0.id == descriptor.sourceID
+            })?.type.isCloudDrive == true else { continue }
+            cloudHierarchyInputs[descriptor.sourceID] = CloudFolderHierarchyInput(
+                syncIndex: scanService.libraryFolderSyncIndex(for: descriptor.sourceID),
+                rootDisplayNames: CloudDirectoryNameStore.displayNames(
+                    for: descriptor.sourceID
+                )
+            )
+        }
         let sourceRevision = folderSourceRevision
         let collectionRevision = library.visibleSongCollectionRevision
         let playlistRevision = library.playlistCollectionRevision
@@ -2029,7 +2099,7 @@ struct SongListView: View {
             sourceRevision: sourceRevision,
             virtualCollectionRevision: playlistRevision
         )
-        let descriptors = folderSourceDescriptors(
+        let baseDescriptors = folderSourceDescriptors(
             for: songsSnapshot,
             configured: configuredDescriptors
         )
@@ -2043,6 +2113,52 @@ struct SongListView: View {
                     return
                 }
             }
+            guard !Task.isCancelled else { return }
+            let descriptors = await Task.detached(priority: .userInitiated) {
+                [baseDescriptors, cloudHierarchyInputs] in
+                baseDescriptors.map { descriptor in
+                    guard let input = cloudHierarchyInputs[descriptor.sourceID],
+                          !input.syncIndex.isEmpty else {
+                        return descriptor
+                    }
+                    let roots = descriptor.scanRoots.map { path in
+                        let storedName = input.rootDisplayNames[path]?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let pathName: String?
+                        if descriptor.pathSemantics == .hierarchical, path != "/" {
+                            let value = (path as NSString).lastPathComponent
+                            pathName = value.isEmpty ? nil : value
+                        } else {
+                            pathName = nil
+                        }
+                        return LibraryFolderProviderRootDescriptor(
+                            path: path,
+                            displayName: storedName?.isEmpty == false ? storedName : pathName
+                        )
+                    }
+                    let items = input.syncIndex.values
+                        .sorted {
+                            if $0.path == $1.path {
+                                return $0.isDirectory && !$1.isDirectory
+                            }
+                            return $0.path < $1.path
+                        }
+                        .map {
+                            LibraryFolderProviderItemDescriptor(
+                                path: $0.path,
+                                displayName: $0.displayName,
+                                parentPath: $0.parentPath,
+                                isDirectory: $0.isDirectory
+                            )
+                        }
+                    return descriptor.withProviderHierarchy(
+                        LibraryFolderProviderHierarchy(
+                            roots: roots,
+                            items: items
+                        )
+                    )
+                }
+            }.value
             guard !Task.isCancelled else { return }
             let prepared = await folderIndexStore.index(
                 version: version,
@@ -2441,9 +2557,10 @@ struct SongListView: View {
     }
 }
 
-/// Sorting changes only the visible models attached to stable positions, not
-/// the List's 20,000 structural children. Equatable also isolates unrelated
-/// parent state such as the Picker binding.
+/// A lazy stack avoids asking SwiftUI's `List` bridge to register every stable
+/// position up front. With a five-digit library that registration alone can
+/// block the main thread for several seconds when entering flat mode, even
+/// though only a screenful of rows is visible.
 private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let selection: SongSelectionModel
@@ -2454,19 +2571,53 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     }
 
     var body: some View {
-        List {
-            ForEach(0..<cache.positionCount, id: \.self) { position in
-                IOSSongListPositionRow(
-                    position: position,
-                    cache: cache,
-                    selection: selection,
-                    onPlay: onPlay
-                )
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(0..<cache.positionCount, id: \.self) { position in
+                    IOSSongListPositionRow(
+                        position: position,
+                        cache: cache,
+                        selection: selection,
+                        onPlay: onPlay
+                    )
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
+                    if position < cache.positionCount - 1 {
+                        Divider()
+                            .padding(.leading, 66)
+                    }
+                }
             }
         }
-        .listStyle(.plain)
+        .background(Color(.systemBackground))
     }
 }
+
+#if os(iOS)
+private struct SongBrowseModeTransitionOverlay: View {
+    let mode: LibrarySongBrowseMode
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+            Text(modeLabel)
+                .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground).opacity(0.94))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityIdentifier("songBrowseModeTransition")
+    }
+
+    private var modeLabel: LocalizedStringKey {
+        mode == .flat ? "library_browse_flat" : "library_browse_folder"
+    }
+}
+#endif
 
 private enum LibraryFolderNodePresentation {
     static var background: Color {
@@ -2880,6 +3031,12 @@ private struct LibraryFolderNodeView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     #if os(macOS)
                     macFolderHeader(node)
+                    #else
+                    LibraryFolderPlayAllHeader(
+                        selection: selection,
+                        isEnabled: !actionSongIDs.isEmpty,
+                        action: playAllSongsInFolder
+                    )
                     #endif
 
                     let children = folderCache.children(of: nodeID)
@@ -2979,6 +3136,13 @@ private struct LibraryFolderNodeView: View {
 
             Spacer()
 
+            Button {
+                playAllSongsInFolder()
+            } label: {
+                Label("play_all", systemImage: "play.fill")
+            }
+            .disabled(node.descendantSongCount == 0)
+
             Menu {
                 Picker("sort_by", selection: $sortOrder) {
                     ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
@@ -2999,45 +3163,39 @@ private struct LibraryFolderNodeView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var iosToolbar: some ToolbarContent {
-        if selection.isActive {
-            ToolbarItem(placement: .principal) {
-                SongSelectionToolbarTitle(selection: selection)
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                SongSelectionOptionsMenu(
-                    selection: selection,
-                    orderedIDs: { actionSongIDs }
-                )
-                Button("done") {
-                    selection.deactivate()
-                }
-            }
-        } else {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Section {
-                        Picker("sort_by", selection: $sortOrder) {
-                            ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                                Text(order.label).tag(order)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                    }
-                    Section {
-                        Button {
-                            selection.activate()
-                        } label: {
-                            Label("batch_select", systemImage: "checkmark.circle")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel(Text("a11y_more_actions"))
-            }
+        ToolbarItem(placement: .principal) {
+            LibraryFolderToolbarPrincipal(
+                selection: selection,
+                title: navigationTitle
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            LibraryFolderNormalToolbarMenu(
+                selection: selection,
+                sortOrder: $sortOrder
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            SongSelectionOptionsToolbarItem(
+                selection: selection,
+                orderedIDs: { actionSongIDs }
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            SongSelectionCancelToolbarItem(selection: selection)
         }
     }
     #endif
+
+    private func playAllSongsInFolder() {
+        let queue = actionSongIDs
+            .compactMap { library.unobservedVisibleSong(id: $0) }
+            .filteredPlayable()
+        guard let first = queue.first else { return }
+        player.setQueue(queue, startAt: 0)
+        SiriMediaInteractionDonor.donate(song: first)
+        Task { await player.play(song: first) }
+    }
 
     private func playSong(_ song: Song) {
         let queue = visibleSongIDs
@@ -3070,6 +3228,11 @@ private struct LibraryFolderSongRow: View {
             id: songID,
             song: library.unobservedVisibleSong(id: songID)
         ) {
+            #if os(iOS)
+            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+            #else
             IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
                 .songSelectable(
                     songID: songID,
@@ -3079,6 +3242,7 @@ private struct LibraryFolderSongRow: View {
                 )
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
+            #endif
 
             Divider()
                 .padding(.leading, 72)
@@ -3106,6 +3270,12 @@ private struct IOSSongListPositionRow: View {
                    id: row.id,
                    song: library.unobservedVisibleSong(id: row.id)
                ) {
+                #if os(iOS)
+                IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                    // The structural List identity stays bound to `position`,
+                    // while VoiceOver tracks the song currently occupying it.
+                    .accessibilityIdentifier("songRow.\(row.id)")
+                #else
                 IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
                     .songSelectable(
                         songID: row.id,
@@ -3116,6 +3286,7 @@ private struct IOSSongListPositionRow: View {
                     // The structural List identity stays bound to `position`,
                     // while VoiceOver tracks the song currently occupying it.
                     .accessibilityIdentifier("songRow.\(row.id)")
+                #endif
             }
         }
         .onAppear { cache.setPosition(position, isVisible: true) }
@@ -3140,6 +3311,183 @@ private struct SongSelectionToolbarTitle: View {
     }
 }
 
+/// Observing selection mode in the parent `SongListView` invalidates the
+/// complete large-list description. This zero-size child owns the one
+/// selection lifecycle side effect instead.
+private struct SongSelectionActivationObserver: View {
+    let selection: SongSelectionModel
+    let onActivate: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: selection.isActive) { _, isActive in
+                if isActive { onActivate() }
+            }
+    }
+}
+
+private struct SongListToolbarPrincipal: View {
+    let selection: SongSelectionModel
+    let progress: SongListSortProgressModel
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            SongSelectionToolbarTitle(selection: selection)
+        } else {
+            SongListSortProgressIndicator(progress: progress)
+        }
+    }
+}
+
+private struct SongListNormalToolbarMenu: View {
+    let selection: SongSelectionModel
+    @Binding var browseMode: LibrarySongBrowseMode
+    let sortOrder: Binding<SongListView.SongSortOrder>
+
+    @ViewBuilder
+    var body: some View {
+        if !selection.isActive {
+            Menu {
+                Section {
+                    Picker("library_browse", selection: $browseMode) {
+                        Label("library_browse_folder", systemImage: "folder")
+                            .tag(LibrarySongBrowseMode.folder)
+                        Label("library_browse_flat", systemImage: "list.bullet")
+                            .tag(LibrarySongBrowseMode.flat)
+                    }
+                    .pickerStyle(.inline)
+                }
+
+                Section {
+                    Picker("sort_by", selection: sortOrder) {
+                        ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
+                            Text(order.label).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+
+                Section {
+                    Button {
+                        selection.activate()
+                    } label: {
+                        Label("batch_select", systemImage: "checkmark.circle")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel(Text("a11y_more_actions"))
+        }
+    }
+}
+
+private struct SongSelectionOptionsToolbarItem: View {
+    let selection: SongSelectionModel
+    let orderedIDs: () -> [String]
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            SongSelectionOptionsMenu(
+                selection: selection,
+                orderedIDs: orderedIDs
+            )
+        }
+    }
+}
+
+private struct SongSelectionCancelToolbarItem: View {
+    let selection: SongSelectionModel
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            Button {
+                selection.deactivate()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .accessibilityLabel(Text("cancel"))
+            .accessibilityIdentifier("batchSelection.cancel")
+        }
+    }
+}
+
+private struct LibraryFolderToolbarPrincipal: View {
+    let selection: SongSelectionModel
+    let title: String
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            SongSelectionToolbarTitle(selection: selection)
+        } else {
+            Text(verbatim: title)
+                .font(.headline)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct LibraryFolderPlayAllHeader: View {
+    let selection: SongSelectionModel
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if !selection.isActive {
+            Button(action: action) {
+                Label("play_all", systemImage: "play.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!isEnabled)
+            .accessibilityIdentifier("libraryFolder.playAll")
+            .padding(.horizontal, 12)
+            .padding(.top, 14)
+            .padding(.bottom, 2)
+        }
+    }
+}
+
+private struct LibraryFolderNormalToolbarMenu: View {
+    let selection: SongSelectionModel
+    @Binding var sortOrder: SongListView.SongSortOrder
+
+    @ViewBuilder
+    var body: some View {
+        if !selection.isActive {
+            Menu {
+                Section {
+                    Picker("sort_by", selection: $sortOrder) {
+                        ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
+                            Text(order.label).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+                Section {
+                    Button {
+                        selection.activate()
+                    } label: {
+                        Label("batch_select", systemImage: "checkmark.circle")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel(Text("a11y_more_actions"))
+        }
+    }
+}
+
 private struct SongSelectionOptionsMenu: View {
     let selection: SongSelectionModel
     let orderedIDs: () -> [String]
@@ -3159,7 +3507,7 @@ private struct SongSelectionOptionsMenu: View {
             }
             .disabled(selection.isEmpty)
         } label: {
-            Image(systemName: "checklist")
+            Image(systemName: "ellipsis")
         }
         .accessibilityLabel(Text("a11y_more_actions"))
     }
@@ -3179,16 +3527,30 @@ private struct IOSSongListRow: View {
 
     var body: some View {
         let song = model.song
-        SongRowView(
-            song: song,
-            isPlaying: player.currentSong?.id == song.id,
-            selection: selection,
-            context: SongRowView.context(
-                for: song,
-                sourcesStore: sourcesStore,
-                backfill: backfill
-            )
-        )
+        let membership = selection.isActive
+            ? selection.membership(for: song.id)
+            : nil
+        let isSelected = membership?.isSelected == true
+        Group {
+            if let membership {
+                IOSSelectionSongRow(
+                    song: song,
+                    isPlaying: player.currentSong?.id == song.id,
+                    membership: membership
+                )
+            } else {
+                SongRowView(
+                    song: song,
+                    isPlaying: player.currentSong?.id == song.id,
+                    selection: selection,
+                    context: SongRowView.context(
+                        for: song,
+                        sourcesStore: sourcesStore,
+                        backfill: backfill
+                    )
+                )
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             if selection.isActive {
@@ -3197,5 +3559,89 @@ private struct IOSSongListRow: View {
                 onPlay(song)
             }
         }
+        #if os(iOS)
+        .highPriorityGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .onEnded { _ in
+                    guard !selection.isActive else { return }
+                    selection.activate(seed: song.id)
+                }
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(
+            selection.isActive
+                ? (isSelected ? [.isButton, .isSelected] : .isButton)
+                : .isButton
+        )
+        .accessibilityValue(selection.isActive
+            ? Text(isSelected
+                ? "library_folder_selection_all"
+                : "library_folder_selection_none")
+            : Text(verbatim: ""))
+        .accessibilityAction(named: Text("batch_select")) {
+            if selection.isActive {
+                selection.toggle(song.id)
+            } else {
+                selection.activate(seed: song.id)
+            }
+        }
+        .accessibilityAction(named: Text("play")) {
+            onPlay(song)
+        }
+        #endif
+    }
+}
+
+/// Selection scrolling deliberately uses a compact row instead of the full
+/// single-song interaction tree. The regular row owns menus, sheets, alerts,
+/// offline-cache work, and metadata recovery actions; none of those are
+/// reachable while batch selection is active, but constructing them for every
+/// newly visible row made large flat lists hitch during a drag.
+private struct IOSSelectionSongRow: View {
+    let song: Song
+    let isPlaying: Bool
+    let membership: SongSelectionMembership
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SongSelectionCheckmark(isSelected: membership.isSelected)
+                .frame(width: 28, height: 44)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.subheadline)
+                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+
+                Text(verbatim: selectionSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if isPlaying {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: 52)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(verbatim: [song.title, song.artistName]
+            .compactMap { $0 }
+            .joined(separator: " — ")))
+    }
+
+    private var selectionSubtitle: String {
+        [song.artistName, song.albumTitle]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
     }
 }

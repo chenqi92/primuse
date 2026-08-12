@@ -351,6 +351,8 @@ struct LibraryFolderIndexTests {
         let sourceTypes: [MusicSourceType] = [
             .appleMusic, .appleMusicLibrary, .upnp,
             .jellyfin, .navidrome, .fnMusic, .daoliyu,
+            .aliyunDrive, .googleDrive, .oneDrive,
+            .drime, .pan115, .pan123,
         ]
         let sources = sourceTypes.enumerated().map { index, type in
             LibraryFolderSourceDescriptor(source: MusicSource(
@@ -372,6 +374,12 @@ struct LibraryFolderIndexTests {
             "/subsonic/tracks/item-id.flac",
             "/fnmusic/tracks/item-id.flac",
             "/daoliyu/tracks/item-id.flac",
+            "aliyun-file-id",
+            "google-drive-file-id",
+            "onedrive-item-id",
+            "drime-file-id",
+            "115-pick-code",
+            "123-file-id",
         ]
         let songs = sources.enumerated().map { index, source in
             testSong(
@@ -404,6 +412,141 @@ struct LibraryFolderIndexTests {
         ))
         #expect(smb.pathSemantics == .hierarchical)
         #expect(smb.scanRoots == ["/Music"])
+
+        for type in [MusicSourceType.baiduPan, .dropbox] {
+            let source = LibraryFolderSourceDescriptor(source: MusicSource(
+                id: type.rawValue,
+                name: type.rawValue,
+                type: type,
+                extraConfig: MusicSource.encodeScannedDirectories(
+                    ["/Music"],
+                    into: nil,
+                    type: type
+                )
+            ))
+            #expect(source.pathSemantics == .hierarchical)
+        }
+    }
+
+    @Test("Cloud item IDs keep stable identity while folders show provider names")
+    func buildsProviderHierarchyWithoutDisplayingIDs() throws {
+        let rootID = "01J8Q4YK2V5J45R7H3QZ9T6A1B"
+        let artistID = "01J8Q4YK7X9N8M6C5B4V3Z2A1S"
+        let albumID = "01J8Q4YKALBUM0000000000001"
+        let hierarchy = LibraryFolderProviderHierarchy(
+            roots: [
+                LibraryFolderProviderRootDescriptor(
+                    path: rootID,
+                    displayName: "云端音乐"
+                ),
+            ],
+            items: [
+                LibraryFolderProviderItemDescriptor(
+                    path: artistID,
+                    displayName: "周杰伦",
+                    parentPath: rootID,
+                    isDirectory: true
+                ),
+                LibraryFolderProviderItemDescriptor(
+                    path: albumID,
+                    displayName: "范特西",
+                    parentPath: artistID,
+                    isDirectory: true
+                ),
+                LibraryFolderProviderItemDescriptor(
+                    path: "file-in-album",
+                    displayName: "爱在西元前.flac",
+                    parentPath: albumID,
+                    isDirectory: false
+                ),
+                LibraryFolderProviderItemDescriptor(
+                    path: "file-at-root",
+                    displayName: "root.flac",
+                    parentPath: rootID,
+                    isDirectory: false
+                ),
+            ]
+        )
+        let source = LibraryFolderSourceDescriptor(
+            sourceID: "onedrive",
+            displayName: "OneDrive",
+            scanRoots: [rootID],
+            pathSemantics: .opaque,
+            providerHierarchy: hierarchy
+        )
+        let songs = [
+            testSong(id: "album-song", path: "file-in-album", sourceID: "onedrive"),
+            testSong(id: "root-song", path: "file-at-root", sourceID: "onedrive"),
+            testSong(id: "legacy-song", path: "legacy-file-id", sourceID: "onedrive"),
+        ]
+
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: songs)
+        let sourceNode = try #require(index.sourceNode(for: "onedrive"))
+        let sourceChildren = index.children(of: sourceNode.id)
+        let root = try #require(sourceChildren.first { $0.kind == .scanRoot })
+        let uncategorized = try #require(sourceChildren.first {
+            $0.kind == .uncategorized
+        })
+        let artist = try #require(index.children(of: root.id).first {
+            $0.displayName == "周杰伦"
+        })
+        let album = try #require(index.children(of: artist.id).first {
+            $0.displayName == "范特西"
+        })
+
+        #expect(root.displayName == "云端音乐")
+        #expect(root.displayName != rootID)
+        #expect(index.directSongIDs(in: root.id) == ["root-song"])
+        #expect(index.directSongIDs(in: album.id) == ["album-song"])
+        #expect(index.directSongIDs(in: uncategorized.id) == ["legacy-song"])
+        #expect(source.placementNodeID(for: songs[0]) == album.id)
+    }
+
+    @Test("Provider root aliases attach scanned children without exposing root IDs")
+    func resolvesProviderRootAlias() throws {
+        let source = LibraryFolderSourceDescriptor(
+            sourceID: "google",
+            displayName: "Google Drive",
+            scanRoots: ["/"],
+            pathSemantics: .opaque,
+            providerHierarchy: LibraryFolderProviderHierarchy(
+                roots: [
+                    LibraryFolderProviderRootDescriptor(
+                        path: "/",
+                        displayName: nil
+                    ),
+                ],
+                items: [
+                    LibraryFolderProviderItemDescriptor(
+                        path: "provider-folder-id",
+                        displayName: "音乐",
+                        parentPath: "actual-root-id",
+                        isDirectory: true
+                    ),
+                    LibraryFolderProviderItemDescriptor(
+                        path: "provider-file-id",
+                        displayName: "song.flac",
+                        parentPath: "provider-folder-id",
+                        isDirectory: false
+                    ),
+                ]
+            )
+        )
+        let song = testSong(
+            id: "song",
+            path: "provider-file-id",
+            sourceID: "google"
+        )
+
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: [song])
+        let root = try #require(index.sourceNode(for: "google").flatMap {
+            index.children(of: $0.id).first { $0.kind == .scanRoot }
+        })
+        let folder = try #require(index.children(of: root.id).first)
+
+        #expect(root.displayName == nil)
+        #expect(folder.displayName == "音乐")
+        #expect(index.directSongIDs(in: folder.id) == ["song"])
     }
 
     @Test("Apple Music mirrors form stable multi-membership collection nodes")

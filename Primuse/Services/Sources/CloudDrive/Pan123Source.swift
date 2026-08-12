@@ -69,9 +69,17 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
                 let isDir = Self.intValue(item["type"]) == 1
                 let size = (item["size"] as? Int64) ?? Int64(Self.intValue(item["size"]) ?? 0)
                 let etag = item["etag"] as? String
-                all.append(RemoteFileItem(name: name, path: Self.idString(fid),
-                                          isDirectory: isDir, size: isDir ? 0 : size,
-                                          modifiedDate: nil, revision: etag))
+                let fileID = Self.idString(fid)
+                all.append(RemoteFileItem(
+                    name: name,
+                    path: fileID,
+                    isDirectory: isDir,
+                    size: isDir ? 0 : size,
+                    modifiedDate: nil,
+                    revision: etag,
+                    providerID: fileID,
+                    parentPath: parent
+                ))
             }
             // 123 分页:data.lastFileId == -1 表示到底。
             let next = Self.intValue(data["lastFileId"]) ?? -1
