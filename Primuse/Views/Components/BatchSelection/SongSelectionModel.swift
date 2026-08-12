@@ -31,6 +31,17 @@ enum SongListPerformanceSignpost {
     }
 
     @MainActor
+    static func sortSelection(current: String, requested: String, accepted: Bool) {
+        signposter.emitEvent(
+            "SortSelection",
+            "current: \(current, privacy: .public), requested: \(requested, privacy: .public), accepted: \(accepted, privacy: .public)"
+        )
+        logger.info(
+            "SortSelection current=\(current, privacy: .public) requested=\(requested, privacy: .public) accepted=\(accepted, privacy: .public)"
+        )
+    }
+
+    @MainActor
     static func sortIntent(generation: Int, count: Int, order: String) {
         signposter.emitEvent(
             "SortIntent",
@@ -38,6 +49,68 @@ enum SongListPerformanceSignpost {
         )
         logger.info(
             "SortIntent generation=\(generation, privacy: .public) count=\(count, privacy: .public) order=\(order, privacy: .public)"
+        )
+    }
+
+    @MainActor
+    static func sortDispatched(generation: Int, order: String) {
+        signposter.emitEvent(
+            "SortDispatched",
+            "generation: \(generation, privacy: .public), order: \(order, privacy: .public)"
+        )
+        logger.info(
+            "SortDispatched generation=\(generation, privacy: .public) order=\(order, privacy: .public)"
+        )
+    }
+
+    @MainActor
+    static func sortFeedbackScheduled(generation: Int, order: String) {
+        signposter.emitEvent(
+            "SortFeedbackScheduled",
+            "generation: \(generation, privacy: .public), order: \(order, privacy: .public)"
+        )
+        logger.info(
+            "SortFeedbackScheduled generation=\(generation, privacy: .public) order=\(order, privacy: .public)"
+        )
+    }
+
+    @MainActor
+    static func sortFeedbackShown(generation: Int, order: String, updated: Bool) {
+        if updated {
+            signposter.emitEvent(
+                "SortFeedbackUpdated",
+                "generation: \(generation, privacy: .public), order: \(order, privacy: .public)"
+            )
+        } else {
+            signposter.emitEvent(
+                "SortFeedbackShown",
+                "generation: \(generation, privacy: .public), order: \(order, privacy: .public)"
+            )
+        }
+        logger.info(
+            "SortFeedbackShown generation=\(generation, privacy: .public) order=\(order, privacy: .public) updated=\(updated, privacy: .public)"
+        )
+    }
+
+    @MainActor
+    static func sortWaitingForPublication(generation: Int, order: String) {
+        signposter.emitEvent(
+            "SortWaitingForPublication",
+            "generation: \(generation, privacy: .public), order: \(order, privacy: .public)"
+        )
+        logger.info(
+            "SortWaitingForPublication generation=\(generation, privacy: .public) order=\(order, privacy: .public)"
+        )
+    }
+
+    @MainActor
+    static func sortCancelled(generation: Int, order: String) {
+        signposter.emitEvent(
+            "SortCancelled",
+            "generation: \(generation, privacy: .public), order: \(order, privacy: .public)"
+        )
+        logger.info(
+            "SortCancelled generation=\(generation, privacy: .public) order=\(order, privacy: .public)"
         )
     }
 

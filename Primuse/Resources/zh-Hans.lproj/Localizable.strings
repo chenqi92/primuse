@@ -66,6 +66,9 @@
 "sort_album" = "专辑";
 "sort_date_added" = "添加日期";
 "sort_format" = "格式";
+"song_sort_progress_format" = "正在按%@排序…";
+"song_sort_progress_complete_format" = "已按%@完成排序";
+"song_sort_progress_cancelled" = "排序已取消";
 
 // MARK: - 正在播放
 "now_playing" = "正在播放";

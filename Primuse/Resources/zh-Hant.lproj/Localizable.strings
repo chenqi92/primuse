@@ -61,6 +61,9 @@
 "sort_album" = "專輯";
 "sort_date_added" = "加入日期";
 "sort_format" = "格式";
+"song_sort_progress_format" = "正在依%@排序…";
+"song_sort_progress_complete_format" = "已依%@完成排序";
+"song_sort_progress_cancelled" = "排序已取消";
 "now_playing" = "正在播放";
 "lyrics_title" = "歌詞";
 "no_lyrics" = "暫無歌詞";

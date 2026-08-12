@@ -217,6 +217,96 @@ struct SongListSnapshotTests {
         #expect(result == nil)
     }
 
+    @Test("Empty and single-song libraries produce complete snapshots")
+    func handlesEmptyAndSingleSongLibraries() {
+        let empty = SongListSnapshotBuilder.build(songs: [], order: .artist)
+        let single = SongListSnapshotBuilder.build(
+            songs: [song(id: "only", title: "Only")],
+            order: .album
+        )
+
+        #expect(empty.rows.isEmpty)
+        #expect(empty.songIDs.isEmpty)
+        #expect(single.rows.map(\.id) == ["only"])
+        #expect(single.orderedSongIDs == ["only"])
+    }
+
+    @Test("Repeated selection of the active order is a no-op")
+    func ignoresSameSortOrder() {
+        #expect(!SongListSortProgressState.acceptsChange(from: .title, to: .title))
+        #expect(SongListSortProgressState.acceptsChange(from: .title, to: .artist))
+    }
+
+    @Test("Delayed feedback follows the latest generation without flicker")
+    func feedbackUsesLatestGeneration() {
+        var state = SongListSortProgressState()
+
+        let firstBeganVisible = state.begin(generation: 1, order: .title)
+        let firstReveal = state.reveal(generation: 1)
+        #expect(!firstBeganVisible)
+        #expect(firstReveal)
+        #expect(state.isVisible)
+        let secondBeganVisible = state.begin(generation: 2, order: .artist)
+        #expect(secondBeganVisible)
+        #expect(state.isVisible)
+        #expect(state.order == .artist)
+        let staleReveal = state.reveal(generation: 1)
+        let stalePublication = state.markPublished(generation: 1)
+        #expect(!staleReveal)
+        #expect(!stalePublication)
+        #expect(state.generation == 2)
+    }
+
+    @Test("Fast publication completes before delayed feedback appears")
+    func fastPublicationDoesNotFlashFeedback() {
+        var state = SongListSortProgressState()
+
+        state.begin(generation: 3, order: .dateAdded)
+        let announcedCompletion = state.markPublished(generation: 3)
+        #expect(!announcedCompletion)
+        #expect(state.phase == .published)
+        #expect(!state.isVisible)
+        let finished = state.finish(generation: 3)
+        let revealAfterFinish = state.reveal(generation: 3)
+        #expect(finished)
+        #expect(!revealAfterFinish)
+    }
+
+    @Test("Feedback remains visible while publication waits for scrolling")
+    func feedbackWaitsForPublication() {
+        var state = SongListSortProgressState()
+
+        state.begin(generation: 7, order: .album)
+        let revealed = state.reveal(generation: 7)
+        let waited = state.markWaitingForPublication(generation: 7)
+        #expect(revealed)
+        #expect(waited)
+        #expect(state.phase == .waitingForPublication)
+        #expect(state.isVisible)
+        let announcedCompletion = state.markPublished(generation: 7)
+        #expect(announcedCompletion)
+        #expect(state.phase == .published)
+        #expect(state.isVisible)
+        let finished = state.finish(generation: 7)
+        #expect(finished)
+        #expect(state.phase == .idle)
+        #expect(!state.isVisible)
+    }
+
+    @Test("Selection cancellation clears only the current sort generation")
+    func cancellationIsGenerationBound() {
+        var state = SongListSortProgressState()
+
+        state.begin(generation: 11, order: .format)
+        let staleCancellation = state.cancel(generation: 10)
+        #expect(!staleCancellation)
+        #expect(state.phase == .requested)
+        let currentCancellation = state.cancel(generation: 11)
+        #expect(currentCancellation)
+        #expect(state.phase == .idle)
+        #expect(state.order == nil)
+    }
+
     private func song(
         id: String,
         title: String,

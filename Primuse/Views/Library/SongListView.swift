@@ -1,6 +1,9 @@
 import SwiftUI
 import PrimuseKit
 import os
+#if os(iOS)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -38,6 +41,21 @@ private final class SongListRowModel {
 
 @MainActor
 @Observable
+private final class SongListPositionModel {
+    private(set) var row: SongListRowIdentity?
+
+    init(row: SongListRowIdentity?) {
+        self.row = row
+    }
+
+    func replace(with row: SongListRowIdentity?) {
+        guard self.row != row else { return }
+        self.row = row
+    }
+}
+
+@MainActor
+@Observable
 private final class SongListCache {
     private struct ProjectionKey: Equatable {
         let snapshotIdentity: ObjectIdentifier
@@ -57,6 +75,8 @@ private final class SongListCache {
     @ObservationIgnored private var snapshot: SongListSnapshot?
 
     @ObservationIgnored private var rowModelsByID: [String: SongListRowModel] = [:]
+    @ObservationIgnored private var positionModelsByPosition: [Int: SongListPositionModel] = [:]
+    @ObservationIgnored private var visiblePositions: Set<Int> = []
     @ObservationIgnored private var projectionEntry: ProjectionEntry?
 
     private(set) var hasSnapshot = false
@@ -96,6 +116,15 @@ private final class SongListCache {
         if totalDuration != snapshot.totalDuration {
             totalDuration = snapshot.totalDuration
         }
+        if !positionModelsByPosition.isEmpty {
+            positionModelsByPosition = positionModelsByPosition.filter {
+                snapshot.rows.indices.contains($0.key)
+            }
+            visiblePositions = visiblePositions.filter(snapshot.rows.indices.contains)
+            for position in visiblePositions {
+                positionModelsByPosition[position]?.replace(with: snapshot.rows[position])
+            }
+        }
         rowOrderRevision &+= 1
     }
 
@@ -113,6 +142,24 @@ private final class SongListCache {
     func row(at position: Int) -> SongListRowIdentity? {
         guard let snapshot, snapshot.rows.indices.contains(position) else { return nil }
         return snapshot.rows[position]
+    }
+
+    func positionModel(at position: Int) -> SongListPositionModel {
+        if let model = positionModelsByPosition[position] {
+            return model
+        }
+        let model = SongListPositionModel(row: row(at: position))
+        positionModelsByPosition[position] = model
+        return model
+    }
+
+    func setPosition(_ position: Int, isVisible: Bool) {
+        if isVisible {
+            visiblePositions.insert(position)
+            positionModelsByPosition[position]?.replace(with: row(at: position))
+        } else {
+            visiblePositions.remove(position)
+        }
     }
 
     func rowModel(id: String, song: @autoclosure () -> Song?) -> SongListRowModel? {
@@ -268,6 +315,87 @@ private struct SongListProjection {
     static let empty = SongListProjection(rows: [], orderedSongIDs: [])
 }
 
+/// Keeps progress-only mutations below the song-list observation boundary.
+/// Revealing or hiding the toolbar status must not invalidate the 20,000-row
+/// parent view while the prepared snapshot is being published.
+@MainActor
+@Observable
+private final class SongListSortProgressModel {
+    private var state = SongListSortProgressState()
+
+    var generation: Int? { state.generation }
+    var order: LibrarySongSortOrder? { state.order }
+    var isVisible: Bool { state.isVisible }
+
+    @discardableResult
+    func begin(generation: Int, order: LibrarySongSortOrder) -> Bool {
+        state.begin(generation: generation, order: order)
+    }
+
+    @discardableResult
+    func reveal(generation: Int) -> Bool {
+        state.reveal(generation: generation)
+    }
+
+    @discardableResult
+    func markWaitingForPublication(generation: Int) -> Bool {
+        state.markWaitingForPublication(generation: generation)
+    }
+
+    @discardableResult
+    func markPublished(generation: Int) -> Bool {
+        state.markPublished(generation: generation)
+    }
+
+    @discardableResult
+    func finish(generation: Int) -> Bool {
+        state.finish(generation: generation)
+    }
+
+    @discardableResult
+    func cancel(generation: Int) -> Bool {
+        state.cancel(generation: generation)
+    }
+}
+
+private struct SongListSortProgressIndicator: View {
+    let progress: SongListSortProgressModel
+
+    @ViewBuilder
+    var body: some View {
+        if progress.isVisible, let order = progress.order {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(verbatim: progressMessage(for: order))
+                    .lineLimit(1)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color.secondary)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(verbatim: progressMessage(for: order)))
+            .accessibilityIdentifier("songSortProgress")
+        }
+    }
+
+    private func localizedSortLabel(_ order: LibrarySongSortOrder) -> String {
+        switch order {
+        case .title: return String(localized: "sort_title")
+        case .artist: return String(localized: "sort_artist")
+        case .album: return String(localized: "sort_album")
+        case .dateAdded: return String(localized: "sort_date_added")
+        case .format: return String(localized: "sort_format")
+        }
+    }
+
+    private func progressMessage(for order: LibrarySongSortOrder) -> String {
+        String(
+            format: String(localized: "song_sort_progress_format"),
+            localizedSortLabel(order)
+        )
+    }
+}
+
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
@@ -284,6 +412,9 @@ struct SongListView: View {
     @State private var searchText: String = ""
     @State private var sortGeneration: Int = 0
     @State private var sortTask: Task<Void, Never>?
+    @State private var sortFeedbackTask: Task<Void, Never>?
+    @State private var sortFeedbackDeadline: ContinuousClock.Instant?
+    @State private var sortProgress = SongListSortProgressModel()
     @State private var sortRequestActive = false
     @State private var activeSortIsExplicit = false
     @State private var isListInteracting = false
@@ -291,7 +422,7 @@ struct SongListView: View {
     @State private var pendingSnapshotPrunesRows = false
     @State private var pendingSnapshotIsExplicitSort = false
     @State private var pendingSnapshotGeneration = 0
-    @State private var pendingSnapshotOrder = ""
+    @State private var pendingSnapshotOrder: LibrarySongSortOrder?
     @State private var showNoScraperSourceAlert = false
     @State private var selection = SongSelectionModel()
     @State private var browseMode: LibrarySongBrowseMode
@@ -364,6 +495,7 @@ struct SongListView: View {
             case .format: return "sort_format"
             }
         }
+
     }
 
     #if os(macOS)
@@ -455,12 +587,6 @@ struct SongListView: View {
                 }
                 scheduleFolderIndexRecompute()
             }
-            .onChange(of: sortOrder) { _, _ in
-                scheduleSortedRecompute(
-                    pruneRowModels: false,
-                    isExplicitSort: true
-                )
-            }
             .onChange(of: library.visibleSongCollectionRevision) { _, _ in
                 scheduleSortedRecompute(
                     delay: .milliseconds(180),
@@ -476,6 +602,7 @@ struct SongListView: View {
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
             }
             .onChange(of: browseMode) { _, mode in
+                cancelExplicitSortForNavigation()
                 LibrarySongBrowseModePreference.save(mode)
                 selection.deactivate()
                 if mode == .folder {
@@ -508,6 +635,9 @@ struct SongListView: View {
                 if isActive {
                     cancelExplicitSortForSelection()
                 }
+            }
+            .onDisappear {
+                cancelExplicitSortForNavigation()
             }
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
@@ -543,6 +673,54 @@ struct SongListView: View {
         case .source(let sourceID):
             library.visibleSongs(forSourceID: sourceID)
         }
+    }
+
+    private var sortOrderBinding: Binding<SongSortOrder> {
+        Binding(
+            get: { sortOrder },
+            set: { requestedOrder in
+                let currentOrder = sortOrder
+                let accepted = SongListSortProgressState.acceptsChange(
+                    from: currentOrder.libraryOrder,
+                    to: requestedOrder.libraryOrder
+                )
+                SongListPerformanceSignpost.sortSelection(
+                    current: currentOrder.rawValue,
+                    requested: requestedOrder.rawValue,
+                    accepted: accepted
+                )
+                guard accepted else { return }
+                sortOrder = requestedOrder
+                scheduleSortedRecompute(
+                    pruneRowModels: false,
+                    isExplicitSort: true
+                )
+            }
+        )
+    }
+
+    private func localizedSortLabel(_ order: LibrarySongSortOrder) -> String {
+        switch order {
+        case .title: return String(localized: "sort_title")
+        case .artist: return String(localized: "sort_artist")
+        case .album: return String(localized: "sort_album")
+        case .dateAdded: return String(localized: "sort_date_added")
+        case .format: return String(localized: "sort_format")
+        }
+    }
+
+    private func sortProgressMessage(for order: LibrarySongSortOrder) -> String {
+        String(
+            format: String(localized: "song_sort_progress_format"),
+            localizedSortLabel(order)
+        )
+    }
+
+    private func sortCompletedMessage(for order: LibrarySongSortOrder) -> String {
+        String(
+            format: String(localized: "song_sort_progress_complete_format"),
+            localizedSortLabel(order)
+        )
     }
 
     private var showsFolderBrowser: Bool {
@@ -590,7 +768,7 @@ struct SongListView: View {
                     listCache: listCache,
                     rootSourceID: folderRootSourceID,
                     selection: selection,
-                    sortOrder: $sortOrder
+                    sortOrder: sortOrderBinding
                 )
             } else {
                 IOSSongListContainer(
@@ -636,7 +814,7 @@ struct SongListView: View {
                             listCache: listCache,
                             rootSourceID: folderRootSourceID,
                             selection: selection,
-                            sortOrder: $sortOrder
+                            sortOrder: sortOrderBinding
                         )
                     } else if filteredRows.isEmpty {
                         ContentUnavailableView.search(text: searchText)
@@ -750,6 +928,8 @@ struct SongListView: View {
 
             Spacer()
 
+            SongListSortProgressIndicator(progress: sortProgress)
+
             browseModeSegment
 
             Text("sort_by")
@@ -757,7 +937,7 @@ struct SongListView: View {
                 .foregroundStyle(PMColor.textFaint)
 
             Menu {
-                Picker("sort_by", selection: $sortOrder) {
+                Picker("sort_by", selection: sortOrderBinding) {
                     ForEach(SongSortOrder.allCases, id: \.self) { order in
                         Text(order.label).tag(order)
                     }
@@ -1628,6 +1808,9 @@ struct SongListView: View {
                 }
             }
         } else {
+            ToolbarItem(placement: .principal) {
+                SongListSortProgressIndicator(progress: sortProgress)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Section {
@@ -1641,7 +1824,7 @@ struct SongListView: View {
                     }
 
                     Section {
-                        Picker("sort_by", selection: $sortOrder) {
+                        Picker("sort_by", selection: sortOrderBinding) {
                             ForEach(SongSortOrder.allCases, id: \.self) { order in
                                 Text(order.label).tag(order)
                             }
@@ -1881,6 +2064,17 @@ struct SongListView: View {
         pruneRowModels: Bool,
         isExplicitSort: Bool = false
     ) {
+        if !isExplicitSort, let explicitGeneration = sortProgress.generation {
+            sortFeedbackTask?.cancel()
+            sortFeedbackTask = nil
+            sortFeedbackDeadline = nil
+            let cancelledOrder = sortProgress.order ?? sortOrder.libraryOrder
+            _ = sortProgress.cancel(generation: explicitGeneration)
+            SongListPerformanceSignpost.sortCancelled(
+                generation: explicitGeneration,
+                order: cancelledOrder.rawValue
+            )
+        }
         sortGeneration &+= 1
         let generation = sortGeneration
         let songsSnapshot = songs
@@ -1893,6 +2087,8 @@ struct SongListView: View {
         pendingSnapshot = nil
         pendingSnapshotPrunesRows = false
         pendingSnapshotIsExplicitSort = false
+        pendingSnapshotGeneration = 0
+        pendingSnapshotOrder = nil
         activeSortIsExplicit = isExplicitSort
         sortRequestActive = true
         SongListPerformanceSignpost.sortIntent(
@@ -1900,18 +2096,29 @@ struct SongListView: View {
             count: songsSnapshot.count,
             order: order.rawValue
         )
+        if isExplicitSort, !showsFolderBrowser {
+            beginSortFeedback(generation: generation, order: order.libraryOrder)
+        }
 
         sortTask?.cancel()
         sortTask = Task { @MainActor in
+            var didPublishOrQueue = false
             defer {
-                if sortGeneration == generation {
-                    sortRequestActive = false
-                    activeSortIsExplicit = false
+                if sortGeneration == generation, !didPublishOrQueue {
+                    finishSortWithoutPublication(
+                        generation: generation,
+                        order: order.libraryOrder,
+                        isExplicitSort: isExplicitSort
+                    )
                 }
             }
             // Give a system Menu one main-run-loop turn to dismiss. Cache hits
             // are still immediate; there is no fixed 350 ms latency floor.
             await Task.yield()
+            SongListPerformanceSignpost.sortDispatched(
+                generation: generation,
+                order: order.rawValue
+            )
             if let delay {
                 do {
                     try await Task.sleep(for: delay)
@@ -1927,19 +2134,28 @@ struct SongListView: View {
                 songs: songsSnapshot,
                 cancelSuperseded: true
             ) else { return }
+            // A delayed feedback task whose 200 ms deadline elapsed while the
+            // worker was sorting must get a main-actor turn before publication
+            // can cancel it. Fast cache hits still publish without feedback.
+            await Task.yield()
             guard !Task.isCancelled,
                   sortGeneration == generation,
                   sortOrder == order,
                   library.visibleSongCollectionRevision == snapshotVersion.collectionRevision,
                   library.songReplacementToken == snapshotVersion.replacementToken
             else { return }
+            await revealOverdueSortFeedbackBeforePublication(
+                generation: generation,
+                order: order.libraryOrder
+            )
             publishPreparedSnapshot(
                 prepared,
                 pruneRowModels: pruneRowModels,
                 isExplicitSort: isExplicitSort,
                 generation: generation,
-                order: order.rawValue
+                order: order.libraryOrder
             )
+            didPublishOrQueue = true
         }
     }
 
@@ -1948,7 +2164,7 @@ struct SongListView: View {
         pruneRowModels: Bool,
         isExplicitSort: Bool,
         generation: Int,
-        order: String
+        order: LibrarySongSortOrder
     ) {
         if isListInteracting, !listCache.isEmpty {
             pendingSnapshot = snapshot
@@ -1956,11 +2172,19 @@ struct SongListView: View {
             pendingSnapshotIsExplicitSort = isExplicitSort
             pendingSnapshotGeneration = generation
             pendingSnapshotOrder = order
+            if isExplicitSort,
+               sortProgress.markWaitingForPublication(generation: generation) {
+                SongListPerformanceSignpost.sortWaitingForPublication(
+                    generation: generation,
+                    order: order.rawValue
+                )
+            }
             return
         }
         publishSnapshotWithoutAnimation(
             snapshot,
             pruneRowModels: pruneRowModels,
+            isExplicitSort: isExplicitSort,
             generation: generation,
             order: order
         )
@@ -1974,16 +2198,18 @@ struct SongListView: View {
             isListInteracting = false
             guard let pendingSnapshot else { return }
             let pruneRowModels = pendingSnapshotPrunesRows
+            let isExplicitSort = pendingSnapshotIsExplicitSort
             let generation = pendingSnapshotGeneration
-            let order = pendingSnapshotOrder
+            guard let order = pendingSnapshotOrder else { return }
             self.pendingSnapshot = nil
             pendingSnapshotPrunesRows = false
             pendingSnapshotIsExplicitSort = false
             pendingSnapshotGeneration = 0
-            pendingSnapshotOrder = ""
+            pendingSnapshotOrder = nil
             publishSnapshotWithoutAnimation(
                 pendingSnapshot,
                 pruneRowModels: pruneRowModels,
+                isExplicitSort: isExplicitSort,
                 generation: generation,
                 order: order
             )
@@ -1995,8 +2221,9 @@ struct SongListView: View {
     private func publishSnapshotWithoutAnimation(
         _ snapshot: SongListSnapshot,
         pruneRowModels: Bool,
+        isExplicitSort: Bool,
         generation: Int,
-        order: String
+        order: LibrarySongSortOrder
     ) {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
@@ -2009,15 +2236,148 @@ struct SongListView: View {
         SongListPerformanceSignpost.sortPublished(
             generation: generation,
             count: snapshot.rows.count,
+            order: order.rawValue
+        )
+        if isExplicitSort {
+            finishSortAfterPublication(generation: generation, order: order)
+        } else if sortGeneration == generation {
+            sortRequestActive = false
+            activeSortIsExplicit = false
+        }
+    }
+
+    private func beginSortFeedback(
+        generation: Int,
+        order: LibrarySongSortOrder
+    ) {
+        SongListPerformanceSignpost.sortFeedbackScheduled(
+            generation: generation,
+            order: order.rawValue
+        )
+        sortFeedbackTask?.cancel()
+        let updatedVisibleFeedback = sortProgress.begin(
+            generation: generation,
             order: order
         )
+        if updatedVisibleFeedback {
+            sortFeedbackDeadline = nil
+            SongListPerformanceSignpost.sortFeedbackShown(
+                generation: generation,
+                order: order.rawValue,
+                updated: true
+            )
+            announceSortStatus(sortProgressMessage(for: order))
+            return
+        }
+
+        sortFeedbackDeadline = ContinuousClock.now.advanced(by: .milliseconds(200))
+
+        sortFeedbackTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+            guard sortProgress.reveal(generation: generation) else { return }
+            SongListPerformanceSignpost.sortFeedbackShown(
+                generation: generation,
+                order: order.rawValue,
+                updated: false
+            )
+            announceSortStatus(sortProgressMessage(for: order))
+        }
+    }
+
+    private func revealOverdueSortFeedbackBeforePublication(
+        generation: Int,
+        order: LibrarySongSortOrder
+    ) async {
+        guard sortProgress.generation == generation,
+              !sortProgress.isVisible,
+              let sortFeedbackDeadline else { return }
+        let now = ContinuousClock.now
+        if now < sortFeedbackDeadline {
+            let remaining = now.duration(to: sortFeedbackDeadline)
+            // A worker result arriving immediately before the threshold can
+            // otherwise start a costly List transaction just as the delayed
+            // reveal becomes eligible, leaving no visible feedback. Fast
+            // sorts outside one display window still publish immediately.
+            guard remaining <= .milliseconds(34) else { return }
+            try? await Task.sleep(for: remaining)
+        }
+        guard sortProgress.generation == generation,
+              !sortProgress.isVisible,
+              sortProgress.reveal(generation: generation) else { return }
+        SongListPerformanceSignpost.sortFeedbackShown(
+            generation: generation,
+            order: order.rawValue,
+            updated: false
+        )
+        announceSortStatus(sortProgressMessage(for: order))
+        // The deadline may have elapsed while a system Menu owned the main
+        // run loop. Keep the newly revealed status for at least one display
+        // opportunity before swapping the prepared snapshot.
+        try? await Task.sleep(for: .milliseconds(34))
+    }
+
+    private func finishSortWithoutPublication(
+        generation: Int,
+        order: LibrarySongSortOrder,
+        isExplicitSort: Bool
+    ) {
+        sortRequestActive = false
+        activeSortIsExplicit = false
+        guard isExplicitSort else { return }
+        sortFeedbackTask?.cancel()
+        sortFeedbackDeadline = nil
+        let wasVisible = sortProgress.isVisible
+        guard sortProgress.cancel(generation: generation) else { return }
+        SongListPerformanceSignpost.sortCancelled(
+            generation: generation,
+            order: order.rawValue
+        )
+        if wasVisible {
+            announceSortStatus(String(localized: "song_sort_progress_cancelled"))
+        }
+    }
+
+    private func finishSortAfterPublication(
+        generation: Int,
+        order: LibrarySongSortOrder
+    ) {
+        guard sortGeneration == generation else { return }
+        sortRequestActive = false
+        activeSortIsExplicit = false
+        sortFeedbackTask?.cancel()
+        sortFeedbackDeadline = nil
+        let shouldAnnounceCompletion = sortProgress.markPublished(generation: generation)
+        if shouldAnnounceCompletion {
+            announceSortStatus(sortCompletedMessage(for: order))
+        }
+        _ = sortProgress.finish(generation: generation)
     }
 
     private func cancelExplicitSortForSelection() {
-        guard activeSortIsExplicit || pendingSnapshotIsExplicitSort else { return }
+        cancelExplicitSort(announceCancellation: true)
+    }
+
+    private func cancelExplicitSortForNavigation() {
+        cancelExplicitSort(announceCancellation: false)
+    }
+
+    private func cancelExplicitSort(announceCancellation: Bool) {
+        guard activeSortIsExplicit
+                || pendingSnapshotIsExplicitSort
+                || sortProgress.generation != nil else { return }
+        let cancelledGeneration = sortGeneration
+        let cancelledOrder = sortProgress.order ?? sortOrder.libraryOrder
+        let wasVisible = sortProgress.isVisible
         sortGeneration &+= 1
         sortTask?.cancel()
         sortTask = nil
+        sortFeedbackTask?.cancel()
+        sortFeedbackTask = nil
+        sortFeedbackDeadline = nil
         sortRequestActive = false
         activeSortIsExplicit = false
         if pendingSnapshotIsExplicitSort {
@@ -2025,12 +2385,36 @@ struct SongListView: View {
             pendingSnapshotPrunesRows = false
             pendingSnapshotIsExplicitSort = false
             pendingSnapshotGeneration = 0
-            pendingSnapshotOrder = ""
+            pendingSnapshotOrder = nil
+        }
+        _ = sortProgress.cancel(generation: cancelledGeneration)
+        SongListPerformanceSignpost.sortCancelled(
+            generation: cancelledGeneration,
+            order: cancelledOrder.rawValue
+        )
+        if announceCancellation, wasVisible {
+            announceSortStatus(String(localized: "song_sort_progress_cancelled"))
         }
         let scopeKey = scope.snapshotCacheKey
         Task {
             await SongListSnapshotStore.shared.cancelPending(scopeKey: scopeKey)
         }
+    }
+
+    private func announceSortStatus(_ message: String) {
+        #if os(iOS)
+        UIAccessibility.post(notification: .announcement, argument: message)
+        #elseif os(macOS)
+        guard let application = NSApp else { return }
+        NSAccessibility.post(
+            element: application,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
+        #endif
     }
 
     private func playSong(_ song: Song) {
@@ -2046,9 +2430,9 @@ struct SongListView: View {
     }
 }
 
-/// Sorting changes the song attached to a stable position, not the List's
-/// structural children. Equatable isolates unrelated parent state (including
-/// the Picker binding) from the 20,000-position ForEach.
+/// Sorting changes only the visible models attached to stable positions, not
+/// the List's 20,000 structural children. Equatable also isolates unrelated
+/// parent state such as the Picker binding.
 private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let selection: SongSelectionModel
@@ -2629,9 +3013,9 @@ private struct LibraryFolderSongRow: View {
     }
 }
 
-/// Only instantiated List rows observe the order revision. Publishing a new
-/// immutable snapshot is constant-time on the main actor; visible/prefetched
-/// slots then resolve their new song without diffing every song ID.
+/// Each resolved List position observes its own lightweight model. Snapshot
+/// publication updates only visible/prefetched models; an offscreen slot syncs
+/// from the latest snapshot when it appears.
 private struct IOSSongListPositionRow: View {
     @Environment(MusicLibrary.self) private var library
 
@@ -2642,21 +3026,27 @@ private struct IOSSongListPositionRow: View {
 
     @ViewBuilder
     var body: some View {
-        let _ = cache.rowOrderRevision
-        if let row = cache.row(at: position),
-           let model = cache.rowModel(
-               id: row.id,
-               song: library.unobservedVisibleSong(id: row.id)
-           ) {
-            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
-                .songSelectable(
-                    songID: row.id,
-                    selection: selection,
-                    orderedIDs: { cache.orderedSongIDs },
-                    defaultAction: { onPlay(model.song) }
-                )
-                .id(row.id)
+        let positionModel = cache.positionModel(at: position)
+        Group {
+            if let row = positionModel.row,
+               let model = cache.rowModel(
+                   id: row.id,
+                   song: library.unobservedVisibleSong(id: row.id)
+               ) {
+                IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                    .songSelectable(
+                        songID: row.id,
+                        selection: selection,
+                        orderedIDs: { cache.orderedSongIDs },
+                        defaultAction: { onPlay(model.song) }
+                    )
+                    // The structural List identity stays bound to `position`,
+                    // while VoiceOver tracks the song currently occupying it.
+                    .accessibilityIdentifier("songRow.\(row.id)")
+            }
         }
+        .onAppear { cache.setPosition(position, isVisible: true) }
+        .onDisappear { cache.setPosition(position, isVisible: false) }
     }
 }
 
@@ -2716,24 +3106,23 @@ private struct IOSSongListRow: View {
 
     var body: some View {
         let song = model.song
-        Button {
+        SongRowView(
+            song: song,
+            isPlaying: player.currentSong?.id == song.id,
+            selection: selection,
+            context: SongRowView.context(
+                for: song,
+                sourcesStore: sourcesStore,
+                backfill: backfill
+            )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
             if selection.isActive {
                 selection.toggle(song.id)
             } else {
                 onPlay(song)
             }
-        } label: {
-            SongRowView(
-                song: song,
-                isPlaying: player.currentSong?.id == song.id,
-                selection: selection,
-                context: SongRowView.context(
-                    for: song,
-                    sourcesStore: sourcesStore,
-                    backfill: backfill
-                )
-            )
         }
-        .buttonStyle(.plain)
     }
 }

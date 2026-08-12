@@ -16,6 +16,94 @@ public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case format
 }
 
+/// Generation-bound UI state for an explicit song-list sort. The state stays
+/// active after the worker finishes when publication is deferred by scrolling,
+/// and ignores stale callbacks from superseded requests.
+public struct SongListSortProgressState: Equatable, Sendable {
+    public enum Phase: Equatable, Sendable {
+        case idle
+        case requested
+        case waitingForPublication
+        case published
+    }
+
+    public private(set) var phase: Phase = .idle
+    public private(set) var generation: Int?
+    public private(set) var order: LibrarySongSortOrder?
+    public private(set) var isVisible = false
+
+    public init() {}
+
+    public static func acceptsChange(
+        from current: LibrarySongSortOrder,
+        to requested: LibrarySongSortOrder
+    ) -> Bool {
+        current != requested
+    }
+
+    /// Returns true when an already-visible indicator should update in place
+    /// for a latest-wins request instead of restarting its reveal delay.
+    @discardableResult
+    public mutating func begin(
+        generation: Int,
+        order: LibrarySongSortOrder
+    ) -> Bool {
+        let keepsVisibleIndicator = isVisible
+        self.generation = generation
+        self.order = order
+        phase = .requested
+        isVisible = keepsVisibleIndicator
+        return keepsVisibleIndicator
+    }
+
+    /// Returns true exactly once when the delayed indicator becomes visible.
+    @discardableResult
+    public mutating func reveal(generation: Int) -> Bool {
+        guard self.generation == generation,
+              phase == .requested || phase == .waitingForPublication,
+              !isVisible else {
+            return false
+        }
+        isVisible = true
+        return true
+    }
+
+    @discardableResult
+    public mutating func markWaitingForPublication(generation: Int) -> Bool {
+        guard self.generation == generation,
+              phase == .requested || phase == .waitingForPublication else {
+            return false
+        }
+        phase = .waitingForPublication
+        return true
+    }
+
+    /// Returns whether a visible status should receive a completion announcement.
+    @discardableResult
+    public mutating func markPublished(generation: Int) -> Bool {
+        guard self.generation == generation,
+              phase == .requested || phase == .waitingForPublication else {
+            return false
+        }
+        phase = .published
+        return isVisible
+    }
+
+    @discardableResult
+    public mutating func finish(generation: Int) -> Bool {
+        guard self.generation == generation, phase == .published else { return false }
+        self = SongListSortProgressState()
+        return true
+    }
+
+    @discardableResult
+    public mutating func cancel(generation: Int) -> Bool {
+        guard self.generation == generation else { return false }
+        self = SongListSortProgressState()
+        return true
+    }
+}
+
 public struct SongListSnapshotVersion: Hashable, Sendable {
     public let collectionRevision: Int
     public let replacementToken: UUID
@@ -302,6 +390,9 @@ public enum SongListSnapshotBuilder {
                 var right = midpoint
 
                 for destinationIndex in lowerBound..<upperBound {
+                    if destinationIndex.isMultiple(of: 2_048) {
+                        try checkCancellation()
+                    }
                     if left >= midpoint {
                         destination[destinationIndex] = source[right]
                         right += 1

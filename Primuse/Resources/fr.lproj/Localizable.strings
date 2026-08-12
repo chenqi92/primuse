@@ -277,6 +277,9 @@
 "sort_album" = "Album";
 "sort_date_added" = "Date d'ajout";
 "sort_format" = "Format";
+"song_sort_progress_format" = "Tri par %@…";
+"song_sort_progress_complete_format" = "Trié par %@";
+"song_sort_progress_cancelled" = "Tri annulé";
 "now_playing" = "En cours de lecture";
 "lyrics_title" = "Paroles";
 "no_lyrics" = "Aucune parole disponible";

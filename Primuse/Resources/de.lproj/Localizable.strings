@@ -277,6 +277,9 @@
 "sort_album" = "Album";
 "sort_date_added" = "Hinzugefügt am";
 "sort_format" = "Format";
+"song_sort_progress_format" = "Sortierung nach %@…";
+"song_sort_progress_complete_format" = "Nach %@ sortiert";
+"song_sort_progress_cancelled" = "Sortierung abgebrochen";
 "now_playing" = "Aktuelle Wiedergabe";
 "lyrics_title" = "Liedtext";
 "no_lyrics" = "Kein Liedtext verfügbar";

@@ -56,15 +56,15 @@ private struct SongSelectableModifier: ViewModifier {
 
         #if os(iOS)
         if let defaultAction {
-            decorated
-                .accessibilityAction {
-                    if isActive {
-                        handleTap()
-                    } else {
+            if isActive {
+                decorated.highPriorityGesture(longPressGesture)
+            } else {
+                decorated
+                    .accessibilityAction(named: Text("play")) {
                         defaultAction()
                     }
-                }
-                .highPriorityGesture(longPressGesture)
+                    .highPriorityGesture(longPressGesture)
+            }
         } else {
             decorated.highPriorityGesture(longPressGesture)
         }

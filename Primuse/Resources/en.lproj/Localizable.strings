@@ -65,6 +65,9 @@
 "sort_album" = "Album";
 "sort_date_added" = "Date Added";
 "sort_format" = "Format";
+"song_sort_progress_format" = "Sorting by %@…";
+"song_sort_progress_complete_format" = "Sorted by %@";
+"song_sort_progress_cancelled" = "Sorting cancelled";
 
 // MARK: - Now Playing
 "now_playing" = "Now Playing";

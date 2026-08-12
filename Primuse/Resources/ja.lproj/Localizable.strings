@@ -278,6 +278,9 @@
 "sort_album" = "アルバム";
 "sort_date_added" = "追加日";
 "sort_format" = "フォーマット";
+"song_sort_progress_format" = "「%@」で並べ替え中…";
+"song_sort_progress_complete_format" = "「%@」で並べ替えました";
+"song_sort_progress_cancelled" = "並べ替えをキャンセルしました";
 "now_playing" = "再生中";
 "lyrics_title" = "歌詞";
 "no_lyrics" = "歌詞がありません";
