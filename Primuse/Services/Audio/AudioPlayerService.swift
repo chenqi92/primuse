@@ -4746,23 +4746,23 @@ final class AudioPlayerService {
         plog("⏹️ stopAtTrackEnd() currentSong preserved=\(currentSong?.title ?? "nil")")
     }
 
-    func next(caller: String = #fileID, callerLine: Int = #line) async {
+    @discardableResult
+    func next(caller: String = #fileID, callerLine: Int = #line) async -> Bool {
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,
-                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return }
+                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return false }
             let nextIndex = radioStationOrder.index(after: index)
             let target = nextIndex < radioStationOrder.endIndex
                 ? radioStationOrder[nextIndex]
                 : radioStationOrder[0]
             await play(station: target, within: radioStationOrder)
-            return
+            return true
         }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
-            AppServices.shared.appleMusic.skipToNextAppleMusic()
-            return
+            return await AppServices.shared.appleMusic.skipToNextAppleMusic()
         }
-        guard !queue.isEmpty else { return }
+        guard !queue.isEmpty else { return false }
         let callerFile = (caller as NSString).lastPathComponent
         plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
         if queue.count == 1, shuffleEnabled, repeatMode == .off {
@@ -4775,7 +4775,7 @@ final class AudioPlayerService {
             hasSuccessor: nextSongInQueue() != nil
         ) else {
             plog("⏭️ next: no successor in repeat-off single-song queue; keeping current playback")
-            return
+            return false
         }
         advanceToNextIndex()
         // 跳过相邻同 title+artist 的"重复歌曲" —— NAS 上同一首歌有多个版本
@@ -4790,30 +4790,32 @@ final class AudioPlayerService {
             }
         }
         await play(song: queue[currentIndex])
+        return true
     }
 
-    func previous() async {
+    @discardableResult
+    func previous() async -> Bool {
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,
-                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return }
+                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return false }
             let previousIndex = index > 0 ? index - 1 : radioStationOrder.count - 1
             await play(station: radioStationOrder[previousIndex], within: radioStationOrder)
-            return
+            return true
         }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             // 跟本地行为一致 ── 播放进度过 3s 时倒回开头, 否则跳上一首。
             if currentTime > 3 {
                 AppServices.shared.appleMusic.seekAppleMusic(to: 0)
+                return true
             } else {
-                AppServices.shared.appleMusic.skipToPreviousAppleMusic()
+                return await AppServices.shared.appleMusic.skipToPreviousAppleMusic()
             }
-            return
         }
-        guard !queue.isEmpty else { return }
+        guard !queue.isEmpty else { return false }
         if currentTime > 3 {
             seek(to: 0)
-            return
+            return true
         }
         if shuffleEnabled {
             if shuffledIndices.isEmpty {
@@ -4830,6 +4832,7 @@ final class AudioPlayerService {
             currentIndex = currentIndex > 0 ? currentIndex - 1 : queue.count - 1
         }
         await play(song: queue[currentIndex])
+        return true
     }
 
     private var seekTimeOffset: TimeInterval = 0

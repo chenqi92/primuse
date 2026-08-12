@@ -675,84 +675,26 @@ struct LegacyNowPlayingAccessory: View {
 @available(iOS 26.0, *)
 struct NowPlayingAccessory: View {
     var onTap: () -> Void
-    @Environment(AudioPlayerService.self) private var player
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     private var isInline: Bool { placement == .inline }
 
     var body: some View {
-        ZStack {
-            // Background tap area → opens player
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { onTap() }
-                .accessibilityElement()
-                .accessibilityLabel(
-                    "\(String(localized: "now_playing")): \(player.currentSong?.title ?? "")"
-                )
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { onTap() }
+        HStack(spacing: 0) {
+            MiniPlayerSwipeContent(
+                onTap: onTap,
+                artworkSize: isInline ? 32 : 40,
+                artworkCornerRadius: isInline ? 6 : 8,
+                titleFont: .caption
+            )
 
-            HStack(spacing: 0) {
-                // Fixed left: cover art
-                CachedArtworkView(
-                    coverRef: player.currentSong?.coverArtFileName,
-                    songID: player.currentSong?.id ?? "",
-                    size: isInline ? 32 : 40,
-                    cornerRadius: isInline ? 6 : 8,
-                    sourceID: player.currentSong?.sourceID,
-                    filePath: player.currentSong?.filePath,
-                    fileFormat: player.currentSong?.fileFormat,
-                    revisionToken: player.coverRevision
-                )
-                .padding(.trailing, isInline ? 10 : 10)
-
-                // Flexible middle: song title fills remaining space
-                Text(player.currentSong?.title ?? "")
-                    .font(isInline ? .caption : .caption)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Fixed right: transport controls
-                HStack(spacing: isInline ? 0 : 4) {
-                    Button { player.togglePlayPause() } label: {
-                        ZStack {
-                            Image(systemName: "play.fill")
-                                .font(isInline ? .subheadline : .body)
-                                .opacity(0)
-                            if player.isLoading && !player.isLiveRadio {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
-                                    ? "stop.fill"
-                                    : (player.isPlaying ? "pause.fill" : "play.fill"))
-                                    .font(isInline ? .subheadline : .body)
-                                    .contentTransition(.symbolEffect(.replace))
-                            }
-                        }
-                        .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
-                    }
-                    .disabled(player.isLoading && !player.isLiveRadio)
-                    .accessibilityLabel(player.isLiveRadio && (player.isPlaying || player.isLoading)
-                        ? String(localized: "radio_stop")
-                        : (player.isPlaying
-                            ? String(localized: "a11y_pause")
-                            : String(localized: "a11y_play")))
-
-                    if !isInline && !player.isLiveRadio {
-                        Button { Task { await player.next() } } label: {
-                            Image(systemName: "forward.fill").font(.caption)
-                                .frame(width: 28, height: 28)
-                        }
-                        .accessibilityLabel("a11y_next_track")
-                    }
-                }
-                .fixedSize()
-            }
-            .padding(.horizontal, isInline ? 12 : 8)
-            .padding(.vertical, isInline ? 2 : 4)
+            MiniPlayerTransportControls(
+                isInline: isInline,
+                showsNextButton: !isInline
+            )
         }
+        .padding(.horizontal, isInline ? 12 : 8)
+        .padding(.vertical, isInline ? 2 : 4)
     }
 }
 

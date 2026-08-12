@@ -348,29 +348,29 @@ final class AppleMusicService {
      /// 下一首 / 上一首 ── 走 ApplicationMusicPlayer 自带 queue 操作。
      /// 单首 queue 时 skipToNextEntry 等同 stop, 所以 caller 应通过
      /// playUserLibrary(songs:startAt:) 把上下文塞够再调用。
-     func skipToNextAppleMusic() {
-         guard let requestID = activePlaybackRequestID else { return }
-         Task { @MainActor [weak self] in
-             do {
-                 try await ApplicationMusicPlayer.shared.skipToNextEntry()
-             } catch {
-                 guard self?.isPlaybackRequestActive(requestID) == true,
-                       !Task.isCancelled else { return }
-                 plog("⚠️Apple Music skipNext failed: \(error.localizedDescription)")
-             }
+     @discardableResult
+     func skipToNextAppleMusic() async -> Bool {
+         guard let requestID = activePlaybackRequestID else { return false }
+         do {
+             try await ApplicationMusicPlayer.shared.skipToNextEntry()
+             return true
+         } catch {
+             guard isPlaybackRequestActive(requestID), !Task.isCancelled else { return false }
+             plog("⚠️Apple Music skipNext failed: \(error.localizedDescription)")
+             return false
          }
      }
 
-     func skipToPreviousAppleMusic() {
-         guard let requestID = activePlaybackRequestID else { return }
-         Task { @MainActor [weak self] in
-             do {
-                 try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
-             } catch {
-                 guard self?.isPlaybackRequestActive(requestID) == true,
-                       !Task.isCancelled else { return }
-                 plog("⚠️Apple Music skipPrev failed: \(error.localizedDescription)")
-             }
+     @discardableResult
+     func skipToPreviousAppleMusic() async -> Bool {
+         guard let requestID = activePlaybackRequestID else { return false }
+         do {
+             try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+             return true
+         } catch {
+             guard isPlaybackRequestActive(requestID), !Task.isCancelled else { return false }
+             plog("⚠️Apple Music skipPrev failed: \(error.localizedDescription)")
+             return false
          }
      }
 
