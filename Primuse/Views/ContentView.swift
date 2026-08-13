@@ -80,6 +80,11 @@ struct ContentView: View {
     private var miniPlayerActive: Bool {
         player.currentSong != nil || appleMusic.nowPlayingSong != nil
     }
+    /// Batch selection temporarily owns the bottom safe area. Playback keeps
+    /// running, but its accessory stays hidden until selection ends.
+    private var miniPlayerVisible: Bool {
+        miniPlayerActive && !batchSelectionActive
+    }
     /// iPad (regular) 走 NavigationSplitView; iPhone / iPad 分屏小窗 (compact)
     /// 走 TabView。Apple 推荐用 horizontalSizeClass 而不是 idiom 来判断,以
     /// 适配 Stage Manager / 分屏 / 折叠态。
@@ -91,6 +96,7 @@ struct ContentView: View {
     @State private var sidebarSelection: SidebarItem = .home
     @State private var searchText = ""
     @State private var showNowPlaying = false
+    @State private var batchSelectionActive = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
@@ -137,8 +143,8 @@ struct ContentView: View {
                 // Without a player accessory that leaves a large empty gap at
                 // the bottom and looks like the other tabs disappeared. Only
                 // minimize when Now Playing can occupy that compact space.
-                .tabBarMinimizeBehavior(miniPlayerActive ? .onScrollDown : .never)
-                .tabViewBottomAccessory(isEnabled: miniPlayerActive) {
+                .tabBarMinimizeBehavior(miniPlayerVisible ? .onScrollDown : .never)
+                .tabViewBottomAccessory(isEnabled: miniPlayerVisible) {
                     NowPlayingAccessory(onTap: { showNowPlaying = true })
                 }
         } else if #available(iOS 26.0, *) {
@@ -241,7 +247,7 @@ struct ContentView: View {
                 playerAwareTabRoot
             }
 
-            if miniPlayerActive {
+            if miniPlayerVisible {
                 if sizeClass == .regular {
                     // iPad split view 没有底部 tab bar, 直接钉一个紧凑的
                     // mini player 到 detail pane 底部。padding 给 16 留出
@@ -282,6 +288,9 @@ struct ContentView: View {
             }
         }
         .songBatchRemovalFeedback()
+        .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
+            batchSelectionActive = isActive
+        }
         // 隔离资料库批次更新观察。直接把 searchRevision 的 onChange 挂在
         // ContentView 上会让整个 TabView 在后台扫描/回填时反复重算。
         .background {

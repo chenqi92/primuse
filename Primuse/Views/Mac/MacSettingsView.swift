@@ -3432,7 +3432,7 @@ private struct MacSTThemeView: View {
     @State private var autoDetectMaterial = true
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
-    private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
+    private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),

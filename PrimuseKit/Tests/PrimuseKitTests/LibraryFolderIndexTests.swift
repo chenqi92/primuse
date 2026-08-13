@@ -837,6 +837,39 @@ struct LibrarySongBrowseModePreferenceTests {
         #expect(defaults.string(forKey: LibrarySongBrowseModePreference.storageKey) == "folder")
     }
 
+    @Test("A caller can use flat mode as its platform default")
+    func defaultsToFlatWhenRequested() throws {
+        let suiteName = "LibrarySongBrowseModePreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(
+            LibrarySongBrowseModePreference.load(
+                from: defaults,
+                defaultMode: .flat
+            ) == .flat
+        )
+        #expect(defaults.string(forKey: LibrarySongBrowseModePreference.storageKey) == "flat")
+    }
+
+    @Test("An explicit folder choice overrides a later flat platform default")
+    func preservesFolderChoiceAgainstFlatDefault() throws {
+        let suiteName = "LibrarySongBrowseModePreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        LibrarySongBrowseModePreference.save(.folder, to: defaults)
+
+        #expect(
+            LibrarySongBrowseModePreference.load(
+                from: defaults,
+                defaultMode: .flat
+            ) == .folder
+        )
+    }
+
     @Test("An explicit flat choice survives a new defaults instance")
     func persistsFlatChoice() throws {
         let suiteName = "LibrarySongBrowseModePreferenceTests.\(UUID().uuidString)"

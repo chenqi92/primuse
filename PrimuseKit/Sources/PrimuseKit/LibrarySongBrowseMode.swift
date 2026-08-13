@@ -27,18 +27,20 @@ public enum LibrarySongBrowseModePreference {
         save(mode(flatViewEnabled: isEnabled), to: defaults)
     }
 
-    /// A missing or unrecognized value represents an upgrade from the former
-    /// flat-only library. Persisting the new default makes that migration
-    /// explicit while preserving every later user choice.
+    /// Persist the caller's platform default only when no valid user choice
+    /// exists, then preserve every later explicit choice across relaunches.
     @discardableResult
-    public static func load(from defaults: UserDefaults = .standard) -> LibrarySongBrowseMode {
+    public static func load(
+        from defaults: UserDefaults = .standard,
+        defaultMode: LibrarySongBrowseMode = .folder
+    ) -> LibrarySongBrowseMode {
         if let rawValue = defaults.string(forKey: storageKey),
            let mode = LibrarySongBrowseMode(rawValue: rawValue) {
             return mode
         }
 
-        defaults.set(LibrarySongBrowseMode.folder.rawValue, forKey: storageKey)
-        return .folder
+        defaults.set(defaultMode.rawValue, forKey: storageKey)
+        return defaultMode
     }
 
     public static func save(

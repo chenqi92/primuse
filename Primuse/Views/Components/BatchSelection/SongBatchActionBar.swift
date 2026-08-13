@@ -77,6 +77,16 @@ private struct SongBatchActionBarPresentation<Bar: View>: View {
 #endif
 
 #if os(iOS)
+/// Visible song-list pages report selection mode to the app shell so the mini
+/// player and a batch toolbar never compete for the same bottom safe area.
+struct SongBatchSelectionActivePreferenceKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
 /// The system bottom bar owns safe-area, rotation, Dynamic Type, and Liquid
 /// Glass behavior. Keeping the three actions inside one lightweight child also
 /// prevents a selection-mode change from rebuilding the page that hosts it.
@@ -233,6 +243,10 @@ private struct SongBatchActionsModifier: ViewModifier {
     private func actionPresentation(_ content: Content) -> some View {
         #if os(iOS)
         content
+            .preference(
+                key: SongBatchSelectionActivePreferenceKey.self,
+                value: selection.isActive
+            )
             // A selection toolbar and the app tab bar cannot share the same
             // bottom edge on iPhone. On iOS 26 their glass backgrounds overlap
             // and taps can fall through to a tab item. Selection temporarily

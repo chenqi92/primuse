@@ -432,8 +432,13 @@ struct SongListView: View {
     @State private var browseModeTransitionTask: Task<Void, Never>?
     @State private var isBrowseModeTransitioning = false
     #endif
+    #if os(macOS)
+    @AppStorage(LibrarySongBrowseModePreference.storageKey)
+    private var storedBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
+    #else
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var storedBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
+    #endif
     @State private var folderCache = LibraryFolderBrowserCache()
     @State private var folderIndexStore = LibraryFolderIndexStore()
     @State private var folderIndexTask: Task<Void, Never>?
@@ -483,7 +488,11 @@ struct SongListView: View {
 
     init(sourceID: String? = nil) {
         scope = sourceID.map(Scope.source) ?? .library
+        #if os(macOS)
+        let initialBrowseMode = LibrarySongBrowseModePreference.load(defaultMode: .flat)
+        #else
         let initialBrowseMode = LibrarySongBrowseModePreference.load()
+        #endif
         _browseMode = State(initialValue: initialBrowseMode)
         #if os(iOS)
         _presentedBrowseMode = State(initialValue: initialBrowseMode)
@@ -649,7 +658,11 @@ struct SongListView: View {
                 }
             }
             .onChange(of: storedBrowseModeRawValue) { _, rawValue in
+                #if os(macOS)
+                let storedMode = LibrarySongBrowseMode(rawValue: rawValue) ?? .flat
+                #else
                 let storedMode = LibrarySongBrowseMode(rawValue: rawValue) ?? .folder
+                #endif
                 guard storedMode != browseMode else { return }
                 browseMode = storedMode
             }
@@ -2711,7 +2724,7 @@ private struct LibraryFolderRootView: View {
                 selection: selection,
                 sortOrder: $sortOrder
             )
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 12)
             .padding(.bottom, 112)
         }
         .background(LibraryFolderNodePresentation.background.ignoresSafeArea())
@@ -2767,17 +2780,28 @@ private struct LibraryFolderNodeBranch: View {
     var body: some View {
         if let node = folderCache.node(withID: nodeID) {
             VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    disclosureButton(for: node)
-                    rowAction(for: node)
+                Group {
+                    #if os(iOS)
+                    HStack(spacing: 0) {
+                        rowAction(for: node)
+                        if selection.isActive {
+                            disclosureButton(for: node)
+                        }
+                    }
+                    #else
+                    HStack(spacing: 0) {
+                        disclosureButton(for: node)
+                        rowAction(for: node)
+                    }
+                    #endif
                 }
-                .padding(.leading, CGFloat(min(depth, 8)) * 14)
-                .frame(minHeight: 56)
+                .padding(.leading, rowIndent)
+                .frame(minHeight: 54)
 
                 Divider()
-                    .padding(.leading, CGFloat(min(depth, 8)) * 14 + 52)
+                    .padding(.leading, rowIndent + 54)
 
-                if isExpanded {
+                if showsExpandedChildren {
                     LazyVStack(spacing: 0) {
                         ForEach(folderCache.children(of: node.id)) { child in
                             AnyView(LibraryFolderNodeBranch(
@@ -2794,6 +2818,22 @@ private struct LibraryFolderNodeBranch: View {
                 }
             }
         }
+    }
+
+    private var rowIndent: CGFloat {
+        #if os(iOS)
+        CGFloat(min(depth, 6)) * 12
+        #else
+        CGFloat(min(depth, 8)) * 14
+        #endif
+    }
+
+    private var showsExpandedChildren: Bool {
+        #if os(iOS)
+        selection.isActive && isExpanded
+        #else
+        isExpanded
+        #endif
     }
 
     @ViewBuilder
@@ -2928,26 +2968,31 @@ private struct LibraryFolderNodeLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if let selectionState {
                 Image(systemName: selectionIcon(for: selectionState))
-                    .font(.title3)
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(selectionState == .none ? .secondary : Color.accentColor)
-                    .frame(width: 24)
+                    .frame(width: 28, height: 44)
                     .accessibilityHidden(true)
             }
 
-            Image(systemName: LibraryFolderNodePresentation.icon(for: node.kind))
-                .font(.title3)
-                .foregroundStyle(node.kind == .other ? Color.secondary : Color.accentColor)
-                .frame(width: 28)
-                .accessibilityHidden(true)
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(folderTint.opacity(0.12))
 
-            VStack(alignment: .leading, spacing: 3) {
+                Image(systemName: LibraryFolderNodePresentation.icon(for: node.kind))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(folderTint)
+                    .accessibilityHidden(true)
+            }
+            .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: LibraryFolderNodePresentation.title(for: node))
-                    .font(.body.weight(.medium))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Color.primary)
-                    .lineLimit(2)
+                    .lineLimit(1)
 
                 Text(verbatim: LibraryFolderNodePresentation.songCount(node.descendantSongCount))
                     .font(.caption)
@@ -2961,12 +3006,20 @@ private struct LibraryFolderNodeLabel: View {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.secondary)
+                    .frame(width: 20, height: 44)
                     .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+        .background {
+            if let selectionState, selectionState != .none {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.accentColor.opacity(selectionState == .all ? 0.11 : 0.07))
+                    .padding(.vertical, 2)
+            }
+        }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: LibraryFolderNodePresentation.title(for: node)))
@@ -2982,6 +3035,10 @@ private struct LibraryFolderNodeLabel: View {
         case .partial: return "minus.circle.fill"
         case .all: return "checkmark.circle.fill"
         }
+    }
+
+    private var folderTint: Color {
+        node.kind == .other ? Color.secondary : Color.accentColor
     }
 
     private var accessibilityValue: String {
