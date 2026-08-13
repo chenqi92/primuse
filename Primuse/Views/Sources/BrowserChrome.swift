@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 import SwiftUI
 
 // MARK: - 通用目录浏览器外壳

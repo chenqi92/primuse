@@ -162,6 +162,14 @@ private final class BackgroundTaskCompletion: @unchecked Sendable {
 import AppKit
 import Observation
 
+private final class MacKeyboardEventBox: @unchecked Sendable {
+    let event: NSEvent
+
+    init(_ event: NSEvent) {
+        self.event = event
+    }
+}
+
 @MainActor
 @Observable
 final class MacKeyboardShortcutStore {
@@ -476,19 +484,21 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         keyboardShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // Local AppKit event monitors run synchronously on the main event
             // loop, but the SDK callback itself is not annotated @MainActor.
-            MainActor.assumeIsolated {
+            let input = MacKeyboardEventBox(event)
+            let output: MacKeyboardEventBox? = MainActor.assumeIsolated {
+                let event = input.event
                 let window = event.window ?? NSApp.keyWindow
                 let shortcutStore = MacKeyboardShortcutStore.shared
                 guard MacKeyboardShortcutPolicy.shouldHandleEvent(
                     isEditingText: Self.isEditingText(in: window),
                     isEligibleWindow: Self.acceptsKeyboardShortcut(in: window),
                     isRecordingShortcut: shortcutStore.recordingAction != nil
-                ) else { return event }
+                ) else { return input }
                 let shortcut = MacKeyboardShortcut.appKitShortcut(from: event)
                 guard let action = MacKeyboardShortcutPolicy.action(
                     matching: shortcut,
                     in: shortcutStore.shortcuts
-                ) else { return event }
+                ) else { return input }
 
                 if MacKeyboardShortcutPolicy.shouldPerform(
                     action: action,
@@ -498,6 +508,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return nil
             }
+            return output?.event
         }
     }
 

@@ -705,7 +705,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                 return "      <p\(attributeText)>\(escapeXML(text))</p>"
             }
 
-            let spans = syllables.map { syllable in
+            let spans = syllables.map { syllable -> String in
                 var spanAttributes = "begin=\"\(formatTimestamp(syllable.start))\""
                 if syllable.end > syllable.start {
                     spanAttributes += " end=\"\(formatTimestamp(syllable.end))\""
