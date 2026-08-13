@@ -2590,7 +2590,15 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                 }
             }
         }
-        .background(Color(.systemBackground))
+        .background(songListBackground)
+    }
+
+    private var songListBackground: Color {
+        #if os(macOS)
+        Color(NSColor.windowBackgroundColor)
+        #else
+        Color(UIColor.systemBackground)
+        #endif
     }
 }
 
@@ -3034,12 +3042,6 @@ private struct LibraryFolderNodeView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     #if os(macOS)
                     macFolderHeader(node)
-                    #else
-                    LibraryFolderPlayAllHeader(
-                        selection: selection,
-                        isEnabled: !actionSongIDs.isEmpty,
-                        action: playAllSongsInFolder
-                    )
                     #endif
 
                     let children = folderCache.children(of: nodeID)
@@ -3170,6 +3172,13 @@ private struct LibraryFolderNodeView: View {
             LibraryFolderToolbarPrincipal(
                 selection: selection,
                 title: navigationTitle
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            LibraryFolderPlayAllToolbarItem(
+                selection: selection,
+                isEnabled: !actionSongIDs.isEmpty,
+                action: playAllSongsInFolder
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -3436,7 +3445,7 @@ private struct LibraryFolderToolbarPrincipal: View {
     }
 }
 
-private struct LibraryFolderPlayAllHeader: View {
+private struct LibraryFolderPlayAllToolbarItem: View {
     let selection: SongSelectionModel
     let isEnabled: Bool
     let action: () -> Void
@@ -3445,17 +3454,11 @@ private struct LibraryFolderPlayAllHeader: View {
     var body: some View {
         if !selection.isActive {
             Button(action: action) {
-                Label("play_all", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                Image(systemName: "play.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
             .disabled(!isEnabled)
+            .accessibilityLabel(Text("play_all"))
             .accessibilityIdentifier("libraryFolder.playAll")
-            .padding(.horizontal, 12)
-            .padding(.top, 14)
-            .padding(.bottom, 2)
         }
     }
 }

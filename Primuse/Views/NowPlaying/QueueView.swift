@@ -3,124 +3,233 @@ import PrimuseKit
 
 struct QueueView: View {
     @Environment(AudioPlayerService.self) private var player
-    @Environment(SourcesStore.self) private var sourcesStore
-    @Environment(MetadataBackfillService.self) private var backfill
+    @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
         NavigationStack {
-            List {
-                if player.queue.isEmpty {
-                    EmptyStateView(
-                        titleKey: "queue_empty",
-                        descriptionKey: "queue_empty_desc",
-                        systemImage: "music.note.list"
-                    )
-                } else {
-                    // Now Playing
-                    if let current = player.currentSong {
-                        Section("now_playing") {
-                            SongRowView(
-                                song: current,
-                                isPlaying: true,
-                                showsActions: false,
-                                context: SongRowView.context(for: current, sourcesStore: sourcesStore, backfill: backfill)
-                            )
-                        }
+            content
+                .navigationTitle("queue_title")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let entries = player.queueEntries
+        if entries.isEmpty {
+            EmptyStateView(
+                titleKey: "queue_empty",
+                descriptionKey: "queue_empty_desc",
+                systemImage: "music.note.list"
+            )
+        } else {
+            ScrollView {
+                // Match the large song list's virtualization strategy. List's
+                // edit/reorder bridge registers every queue row up front; a
+                // LazyVStack creates only the visible lightweight rows and
+                // keeps long queues responsive while preserving one continuous
+                // scroll surface.
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
+                    let currentEntry = entries[currentIndex]
+                    queueSection(title: "now_playing") {
+                        queueRow(
+                            entry: currentEntry,
+                            displayedSong: player.currentSong ?? currentEntry.song,
+                            isPlaying: true
+                        )
                     }
 
-                    // Up Next (draggable). Iterate over presentation entries
-                    // (each has a stable slot + round identity) instead of integer
-                    // indices — the previous `id: \.self` on Int
-                    // index made SwiftUI's diff see no identity change
-                    // after a reorder (range stays 0..N-1), so only
-                    // the dragged row animated while the others
-                    // swapped contents in place. Two rows visually
-                    // overlapped for a few frames whenever the source
-                    // and destination weren't adjacent. Occurrence-keyed
-                    // ForEach lets SwiftUI animate every row's real
-                    // position swap, and is also robust to the queue
-                    // holding duplicate songs or previewing the same slot again
-                    // in the next repeat-all shuffle round.
-                    let queueEntries = player.queueEntries
-                    let currentIndex = queueEntries.isEmpty
-                        ? 0
-                        : min(max(player.currentIndex, 0), queueEntries.count - 1)
-
-                    // Up Next follows the *real* play order: in shuffle mode
-                    // that's the player's shuffled remainder (not the raw queue
-                    // tail), so the visible list matches what `next()` plays.
-                    let upNextEntries = player.upcomingQueueEntries
-                    if !upNextEntries.isEmpty {
-                        let upNextStart = currentIndex + 1
-                        Section("up_next") {
-                            ForEach(upNextEntries) { entry in
-                                SongRowView(
-                                    song: entry.entry.song,
-                                    isPlaying: false,
-                                    showsActions: false,
-                                    context: SongRowView.context(for: entry.entry.song, sourcesStore: sourcesStore, backfill: backfill)
+                    let upcoming = player.upcomingQueueEntries
+                    if !upcoming.isEmpty {
+                        queueSection(title: "up_next") {
+                            ForEach(upcoming) { presentation in
+                                queueRow(
+                                    entry: presentation.entry,
+                                    reorderID: QueueReorderOccurrenceID(
+                                        queueEntryID: presentation.id.queueEntryID,
+                                        roundOffset: presentation.id.roundOffset
+                                    )
                                 )
-                                .contentShape(Rectangle())
-                                .onTapGesture { playEntry(entry.entry) }
-                            }
-                            // Drag-reorder only maps cleanly to raw queue
-                            // offsets when the displayed order *is* the queue
-                            // order (shuffle off). Under shuffle the rows are in
-                            // shuffled order, so a section-relative move can't be
-                            // rebased to `queueEntries` indices — skip it there.
-                            .onMove { source, destination in
-                                guard !player.shuffleEnabled else { return }
-                                // ForEach's source/destination are
-                                // section-relative; rebase to queue
-                                // indices before mutating. Routed
-                                // through the player so shuffle plan
-                                // invalidation happens centrally.
-                                let adjustedSource = IndexSet(source.map { $0 + upNextStart })
-                                let adjustedDest = destination + upNextStart
-                                player.moveQueueItems(fromOffsets: adjustedSource, toOffset: adjustedDest)
                             }
                         }
                     }
 
-                    // Previously played follows the actual shuffle prefix instead
-                    // of the raw queue prefix, so no current-round row appears in
-                    // both Played and Up Next.
-                    let playedEntries = player.playedQueueEntries
-                    if !playedEntries.isEmpty {
-                        Section("played") {
-                            ForEach(playedEntries) { entry in
-                                SongRowView(
-                                    song: entry.entry.song,
-                                    isPlaying: false,
-                                    showsActions: false,
-                                    context: SongRowView.context(for: entry.entry.song, sourcesStore: sourcesStore, backfill: backfill)
-                                )
-                                .opacity(0.6)
-                                .contentShape(Rectangle())
-                                .onTapGesture { playEntry(entry.entry) }
+                    let played = player.playedQueueEntries
+                    if !played.isEmpty {
+                        queueSection(title: "played") {
+                            ForEach(played) { presentation in
+                                queueRow(entry: presentation.entry, dimmed: true)
                             }
                         }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .padding(.bottom, 28)
             }
-            #if os(iOS)
-            .environment(\.editMode, .constant(.active)) // Enable drag handles
-            #endif
-            .navigationTitle("queue_title")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
         }
     }
 
-    /// Resolve the tapped entry back to its raw `queueEntries` index (by stable
-    /// per-slot UUID) and route through the player. `playFromQueue(at:)` keeps
-    /// `currentIndex` *and* the shuffle bookkeeping (`shufflePosition` /
-    /// `shuffledIndices`) aligned, so `next()` advances from the tapped track
-    /// instead of a stale shuffle position — and without reshuffling the rest
-    /// of the round (which a plain `shuffleEnabled` re-toggle would do).
+    private func queueSection<Content: View>(
+        title: LocalizedStringKey,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+    }
+
+    @ViewBuilder
+    private func queueRow(
+        entry: QueueEntry,
+        displayedSong: Song? = nil,
+        isPlaying: Bool = false,
+        dimmed: Bool = false,
+        reorderID: QueueReorderOccurrenceID? = nil
+    ) -> some View {
+        let song = displayedSong ?? entry.song
+        let accessibilityLabel = [song.title, song.artistName]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: ", ")
+
+        let row = HStack(spacing: 10) {
+            if let reorderID {
+                Image(systemName: "line.3.horizontal")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 44)
+                    .contentShape(Rectangle())
+                    .draggable(reorderID.dragPayload)
+                    .accessibilityHidden(true)
+            }
+
+            ZStack {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 44,
+                    cornerRadius: 6,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                if isPlaying {
+                    Color.black.opacity(0.32)
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Image(systemName: player.isLoading ? "ellipsis" : "waveform")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.subheadline.weight(isPlaying ? .semibold : .regular))
+                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+                Text(song.artistName ?? song.albumTitle ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if song.duration > 0 {
+                Text(song.duration.formattedDuration)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(minHeight: 56)
+        .background(
+            isPlaying || dropTarget == reorderID
+                ? Color.accentColor.opacity(0.10)
+                : Color.clear,
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .opacity(dimmed ? 0.58 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture { playEntry(entry) }
+
+        if let reorderID {
+            row
+                .dropDestination(for: String.self) { payloads, _ in
+                    guard let payload = payloads.first,
+                          let dragged = QueueReorderOccurrenceID(dragPayload: payload) else {
+                        return false
+                    }
+                    return player.moveUpcomingQueueEntry(dragged, over: reorderID)
+                } isTargeted: { isTargeted in
+                    if isTargeted {
+                        dropTarget = reorderID
+                    } else if dropTarget == reorderID {
+                        dropTarget = nil
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: accessibilityLabel))
+                .accessibilityValue(Text(verbatim: song.duration.formattedDuration))
+                .accessibilityHint(Text("reorder"))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { playEntry(entry) }
+                .accessibilityAdjustableAction { direction in
+                    moveEntry(reorderID, direction: direction)
+                }
+        } else {
+            row
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text(verbatim: accessibilityLabel))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { playEntry(entry) }
+        }
+    }
+
     private func playEntry(_ entry: QueueEntry) {
         guard let index = player.queueEntries.firstIndex(where: { $0.id == entry.id }) else { return }
         Task { await player.playFromQueue(at: index) }
+    }
+
+    private func moveEntry(
+        _ entryID: QueueReorderOccurrenceID,
+        direction: AccessibilityAdjustmentDirection
+    ) {
+        let sameRound = player.upcomingQueueEntries.compactMap { entry -> QueueReorderOccurrenceID? in
+            guard entry.id.roundOffset == entryID.roundOffset else { return nil }
+            return QueueReorderOccurrenceID(
+                queueEntryID: entry.id.queueEntryID,
+                roundOffset: entry.id.roundOffset
+            )
+        }
+        guard let index = sameRound.firstIndex(of: entryID) else { return }
+
+        let targetIndex: Int
+        switch direction {
+        case .decrement:
+            guard index > sameRound.startIndex else { return }
+            targetIndex = sameRound.index(before: index)
+        case .increment:
+            guard sameRound.index(after: index) < sameRound.endIndex else { return }
+            targetIndex = sameRound.index(after: index)
+        @unknown default:
+            return
+        }
+        player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
     }
 }
