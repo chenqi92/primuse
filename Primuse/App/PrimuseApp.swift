@@ -274,6 +274,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private var menuBar: MacMenuBarController?
     @MainActor private var desktopLyrics: DesktopLyricsWindowController?
     @MainActor private var miniPlayer: MiniPlayerWindowController?
+    @MainActor private var playbackSpacebarMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
@@ -286,6 +287,8 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             let bar = MacMenuBarController()
             bar.install()
             self.menuBar = bar
+
+            self.installPlaybackSpacebarMonitor()
 
             let lyrics = DesktopLyricsWindowController()
             self.desktopLyrics = lyrics
@@ -330,6 +333,60 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             window.toggleFullScreen(nil)
         }
         NotificationCenter.default.post(name: .primuseRequestExpandNowPlaying, object: nil)
+    }
+
+    /// A bare space bar follows the standard desktop-player convention and
+    /// toggles playback. The event stays in the responder chain while a text
+    /// editor is active, so spaces still work in search fields and forms.
+    @MainActor
+    private func installPlaybackSpacebarMonitor() {
+        guard playbackSpacebarMonitor == nil else { return }
+        playbackSpacebarMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Local AppKit event monitors run synchronously on the main event
+            // loop, but the SDK callback itself is not annotated @MainActor.
+            MainActor.assumeIsolated {
+                let window = event.window ?? NSApp.keyWindow
+                let shortcutModifiers: NSEvent.ModifierFlags = [
+                    .command, .control, .option, .shift, .function,
+                ]
+                let shouldToggle = MacPlaybackSpacebarPolicy.shouldTogglePlayback(
+                    keyCode: event.keyCode,
+                    hasDisallowedModifiers: !event.modifierFlags
+                        .intersection(shortcutModifiers)
+                        .isEmpty,
+                    isRepeat: event.isARepeat,
+                    isEditingText: Self.isEditingText(in: window),
+                    isPlaybackWindow: Self.acceptsPlaybackShortcut(in: window)
+                )
+                guard shouldToggle else { return event }
+
+                AppServices.shared.playerService.togglePlayPause()
+                return nil
+            }
+        }
+    }
+
+    @MainActor
+    private static func isEditingText(in window: NSWindow?) -> Bool {
+        if let textView = window?.firstResponder as? NSTextView {
+            return textView.isEditable
+        }
+        if let textField = window?.firstResponder as? NSTextField {
+            return textField.isEditable
+        }
+        return false
+    }
+
+    @MainActor
+    private static func acceptsPlaybackShortcut(in window: NSWindow?) -> Bool {
+        guard let window,
+              window.sheetParent == nil,
+              window.attachedSheet == nil else {
+            return false
+        }
+        if isMainAppWindow(window) { return true }
+        return window.frameAutosaveName == "PrimuseMiniPlayer"
+            || window.frameAutosaveName == "PrimuseDesktopLyrics_v2"
     }
 
     /// 在所有 NSApp.windows 里挑出 SwiftUI 主窗口(不是 mini player /
