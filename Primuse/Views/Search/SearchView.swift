@@ -159,6 +159,11 @@ struct SearchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(PMColor.bg.ignoresSafeArea())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                NotificationCenter.default.post(name: .primuseDismissSearchFocus, object: nil)
+            }
+        )
         .onSubmit(of: .search) { addRecentSearch(searchText) }
         // 注意: Album/Artist 的 navigationDestination 由 MacDetailContainer 的
         // NavigationStack 统一注册, 这里不再重复声明 (否则会重复 destination)。

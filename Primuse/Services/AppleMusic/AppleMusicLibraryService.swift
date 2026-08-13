@@ -216,22 +216,48 @@ final class AppleMusicLibraryService {
         queueContext: [PrimuseKit.Song]? = nil,
         requestID: UUID
     ) async {
-        // songCache 是 in-memory, 重启后空。空 cache → orderedQueueFromCache
-        // 返回 [], ApplicationMusicPlayer 的 queue 只装当前歌, 用户点"播放全部"
-        // 看到的 queue 只剩 1 首播完就停。先确保 cache 至少有 user library
-        // 当前的全集再继续。已经在跑的 sync 会被 await 等到完成。
-        guard await ensureCachePopulated(for: requestID) else {
-            failUnavailablePlaybackRequestIfCurrent(requestID)
-            return
+        let appleMusicQueueContext = queueContext?.filter {
+            $0.sourceID == Self.systemSourceID
+        }
+        let requiresCompleteLibrarySnapshot = AppleMusicPlaybackCachePolicy
+            .requiresCompleteLibrarySnapshot(
+                hasQueueContext: queueContext != nil,
+                appleMusicItemCount: appleMusicQueueContext?.count ?? 0
+            )
+
+        // A full Apple Music queue needs a complete cache to preserve its
+        // ordering. Primuse-managed playback passes exactly one DRM item, so
+        // resolve that item first instead of blocking on an unrelated large
+        // library sync during cold launch.
+        if requiresCompleteLibrarySnapshot {
+            guard await ensureCachePopulated(for: requestID) else {
+                failUnavailablePlaybackRequestIfCurrent(requestID)
+                return
+            }
         }
 
         let amID = song.filePath
-        let musicKitSong = await musicKitSong(amID: amID)
+        var resolvedMusicKitSong = await musicKitSong(amID: amID)
+        if resolvedMusicKitSong == nil, !requiresCompleteLibrarySnapshot {
+            // A direct user-library lookup can miss while MusicKit is still
+            // hydrating its cold cache. Reuse the shared full sync as a
+            // fallback, then retry the requested item without changing the
+            // visible Primuse queue.
+            guard await ensureCachePopulated(for: requestID) else {
+                failUnavailablePlaybackRequestIfCurrent(requestID)
+                return
+            }
+            if let cachedMusicKitSong = songCache[amID] {
+                resolvedMusicKitSong = cachedMusicKitSong
+            } else {
+                resolvedMusicKitSong = await musicKitSong(amID: amID)
+            }
+        }
         guard playbackRequestCanContinue(requestID) else {
             failUnavailablePlaybackRequestIfCurrent(requestID)
             return
         }
-        guard let mk = musicKitSong else {
+        guard let mk = resolvedMusicKitSong else {
             plog("⚠️Apple Music 找不到曲目 \(amID)")
             appleMusic.failPlaybackRequest(
                 requestID,
@@ -242,8 +268,7 @@ final class AppleMusicLibraryService {
         // Prefer the exact queue selected in Primuse. Falling back to the full
         // Apple Music cache preserves the legacy direct-play behaviour for
         // callers that do not have a queue context.
-        let contextualQueue: [MusicKit.Song]? = queueContext?.compactMap { contextSong -> MusicKit.Song? in
-            guard contextSong.sourceID == Self.systemSourceID else { return nil }
+        let contextualQueue: [MusicKit.Song]? = appleMusicQueueContext?.compactMap { contextSong in
             return songCache[contextSong.filePath]
         }
         let queue: [MusicKit.Song]

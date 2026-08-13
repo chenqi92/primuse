@@ -89,13 +89,17 @@ private actor HomeInitialSnapshotCacheStore {
 /// batches do not invalidate the much larger home-page view tree.
 private struct HomeLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
-    let onRevisionChange: () -> Void
+    let onLibraryRevisionChange: () -> Void
+    let onPlaylistRevisionChange: () -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: library.searchRevision) { _, _ in
-                onRevisionChange()
+                onLibraryRevisionChange()
+            }
+            .onChange(of: library.playlistCollectionRevision) { _, _ in
+                onPlaylistRevisionChange()
             }
     }
 }
@@ -222,9 +226,10 @@ struct HomeView: View {
                 await refreshHomeSnapshotAfterPresentationIfNeeded()
             }
             .background {
-                HomeLibraryRevisionObserver {
-                    scheduleDebouncedHomeRefresh()
-                }
+                HomeLibraryRevisionObserver(
+                    onLibraryRevisionChange: scheduleDebouncedHomeRefresh,
+                    onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
                 refreshHomeSnapshot(force: true)
@@ -355,6 +360,7 @@ struct HomeView: View {
 
     private struct HomeSnapshotSignature: Equatable {
         let libraryRevision: Int
+        let playlistRevision: Int
         let visibleSongCount: Int
         let visibleAlbumCount: Int
         let visibleArtistCount: Int
@@ -965,6 +971,14 @@ struct HomeView: View {
         }
     }
 
+    /// Playlist mutations are comparatively rare and already coalesced by
+    /// `MusicLibrary`. Refresh them immediately instead of routing them through
+    /// the scan debounce, otherwise a batch add leaves the home card stale.
+    private func refreshHomeSnapshotForPlaylistChange() {
+        guard hasPreparedInitialSnapshot else { return }
+        refreshHomeSnapshot(force: true)
+    }
+
     private var homeSnapshotSignature: HomeSnapshotSignature {
         let components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         let dayStamp = (components.year ?? 0) * 10_000
@@ -972,6 +986,7 @@ struct HomeView: View {
             + (components.day ?? 0)
         return HomeSnapshotSignature(
             libraryRevision: library.searchRevision,
+            playlistRevision: library.playlistCollectionRevision,
             visibleSongCount: library.visibleSongs.count,
             visibleAlbumCount: library.visibleAlbums.count,
             visibleArtistCount: library.visibleArtists.count,

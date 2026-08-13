@@ -2512,11 +2512,11 @@ final class AudioPlayerService {
         startAppleMusicMirror(requestID: id)
         let appleMusicLibrary = AppServices.shared.appleMusicLibrary
 
-        // 4s 兜底必须先注册。Apple Music user-library sync 在缺 entitlement
+        // 15s 兜底必须先注册。Apple Music user-library sync 在缺 entitlement
         // 或系统账户服务异常时可能卡住；如果把 timeout 放在 await 之后,
         // UI 会永远停在 isLoading=true。
         appleMusicTimeoutTask = Task { @MainActor [weak self, songID = song.id] in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(15))
             guard let self,
                   self.currentSong?.id == songID,
                   self.activeAppleMusicRequestID == id,
@@ -2537,6 +2537,7 @@ final class AudioPlayerService {
                 self.appleMusicPlaybackTask?.cancel()
                 self.appleMusicPlaybackTask = nil
                 let message = String(localized: "playback_error_apple_music_generic")
+                plog("⚠️Apple Music playback request timed out before start")
                 am.failPlaybackRequest(id, message: message)
                 self.isLoading = false
                 self.lastPlaybackError = message
@@ -4225,12 +4226,13 @@ final class AudioPlayerService {
         if isAppleMusicMode {
             guard let song = currentSong else { return }
             let appleMusic = AppServices.shared.appleMusic
-            if appleMusic.activePlaybackRequestID != nil {
+            if let requestID = appleMusic.activePlaybackRequestID,
+               appleMusic.playbackPhase(for: requestID) == .started {
                 _ = appleMusic.resumeAppleMusic()
             } else {
-                // A restored MusicKit item has no live request generation yet.
-                // Recreate playback first, then apply the saved position when
-                // the mirror reports that the request actually started.
+                // A restored item or a failed/pending request has no resumable
+                // MusicKit generation. Recreate playback first, then apply the
+                // saved position when the mirror reports that it started.
                 pendingAppleMusicRestoredPosition = (song.id, currentTime)
                 Task { await play(song: song, caller: "RestoredAppleMusic") }
             }
@@ -4599,7 +4601,22 @@ final class AudioPlayerService {
             return
         }
         if isAppleMusicMode {
-            AppServices.shared.appleMusic.togglePlayPauseAppleMusic()
+            let appleMusic = AppServices.shared.appleMusic
+            let hasStartedRequest = appleMusic.activePlaybackRequestID.map {
+                appleMusic.playbackPhase(for: $0) == .started
+            } ?? false
+            switch AppleMusicTogglePlaybackPolicy.action(
+                hasStartedPlaybackRequest: hasStartedRequest
+            ) {
+            case .toggleActiveRequest:
+                appleMusic.togglePlayPauseAppleMusic()
+            case .rebuildRestoredRequest:
+                // Playback-session snapshots retain the visible Apple Music
+                // item, not MusicKit's process-local request generation.
+                // Re-enter the normal resume path so it recreates that request
+                // instead of silently asking a nil generation to play.
+                resume()
+            }
             return
         }
         if isCastingMode {

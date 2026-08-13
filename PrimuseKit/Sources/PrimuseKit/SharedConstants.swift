@@ -3361,6 +3361,31 @@ public enum AppleMusicPlaybackOwnershipPolicy {
     }
 }
 
+/// Chooses whether a Play/Pause toggle can control the current MusicKit
+/// generation or must rebuild playback restored from a previous app process.
+public enum AppleMusicTogglePlaybackPolicy {
+    public enum Action: Equatable, Sendable {
+        case toggleActiveRequest
+        case rebuildRestoredRequest
+    }
+
+    public static func action(hasStartedPlaybackRequest: Bool) -> Action {
+        hasStartedPlaybackRequest ? .toggleActiveRequest : .rebuildRestoredRequest
+    }
+}
+
+/// Decides whether playback needs the complete Apple Music library cache.
+/// A Primuse-managed queue hands MusicKit only the current DRM item, so a
+/// direct lookup can start immediately while the full library keeps syncing.
+public enum AppleMusicPlaybackCachePolicy {
+    public static func requiresCompleteLibrarySnapshot(
+        hasQueueContext: Bool,
+        appleMusicItemCount: Int
+    ) -> Bool {
+        !hasQueueContext || appleMusicItemCount != 1
+    }
+}
+
 /// Revalidates every condition that makes a user-library playback request
 /// meaningful after a shared sync suspension.
 public enum AppleMusicLibraryPlaybackGatePolicy {

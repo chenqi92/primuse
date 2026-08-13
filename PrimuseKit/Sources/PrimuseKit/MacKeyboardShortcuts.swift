@@ -275,3 +275,19 @@ public enum MacKeyboardShortcutPolicy {
         !isRepeat || action == .volumeUp || action == .volumeDown
     }
 }
+
+/// Keeps the title-bar search field from stealing the bare-space playback
+/// shortcut after navigation leaves Search.
+public enum MacTitleBarSearchPolicy {
+    public static func shouldActivateSearch(for query: String, isOnSearch: Bool) -> Bool {
+        !isOnSearch && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public static func shouldReleaseFocus(isOnSearch: Bool) -> Bool {
+        !isOnSearch
+    }
+
+    public static func queryAfterReleasingFocus(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : query
+    }
+}
