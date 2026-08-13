@@ -215,7 +215,7 @@ struct MacContentView: View {
         }
     }
 
-    /// 工具弹框内容 —— 三个工具各自的 macBody 已经是自带 header/footer 的
+    /// 工具弹框内容 —— 每个工具的 macBody 已经是自带 header/footer 的
     /// 整面板, 这里只负责按当前 `MacTool` 选一个塞进 sheet。
     @ViewBuilder
     private func toolSheet(_ tool: MacTool) -> some View {
@@ -224,6 +224,8 @@ struct MacContentView: View {
             // PlaylistImportView 的 macBody 现在自带固定尺寸 (620×680), 不再
             // 套外层 frame —— 否则会像之前那样把内容挤偏 / 留白。
             PlaylistImportView()
+        case .lyricsConverter:
+            LyricsFormatConverterView()
         case .duplicates:
             DuplicateSongsView()
         case .scrobble:

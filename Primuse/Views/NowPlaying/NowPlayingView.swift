@@ -1900,7 +1900,7 @@ struct NowPlayingView: View {
             setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision); return
         }
 
-        // Tier 2: Check local audio cache for sidecar .lrc (filesystem only, zero network)
+        // Tier 2: Check local audio cache for a lyrics sidecar (filesystem only, zero network)
         if let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
@@ -1938,8 +1938,8 @@ struct NowPlayingView: View {
                 let connectMs = Date().timeIntervalSince(tier3Start) * 1000
 
                 // 服务端歌词 (Subsonic getLyricsBySongId 等) —— 服务端曲库源不是
-                // "同目录 .lrc" 模型, 走 connector 的 ServerLyricsConnector 能力。
-                // 服务端源在此终结: 即使服务端没歌词也不去 fetchRange .lrc
+                // "同目录歌词 sidecar" 模型, 走 connector 的 ServerLyricsConnector 能力。
+                // 服务端源在此终结: 即使服务端没歌词也不去 fetchRange sidecar
                 // (对 Subsonic 那会拉到音频流, 既浪费又解析失败)。
                 if let server = connector as? ServerLyricsConnector {
                     if let raw = await server.fetchServerLyrics(for: song.filePath) {
@@ -1987,29 +1987,29 @@ struct NowPlayingView: View {
 
                 let songDir = (song.filePath as NSString).deletingLastPathComponent
                 let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
-                let lrcPath: String
+                let lyricsPath: String
                 if let ref = song.lyricsFileName, ref.contains("/") {
-                    lrcPath = ref
+                    lyricsPath = ref
                 } else {
-                    lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
+                    lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
                 }
 
                 let fetchStart = Date()
-                let lrcData = try await connector.fetchRange(
-                    path: lrcPath,
+                let lyricsData = try await connector.fetchRange(
+                    path: lyricsPath,
                     offset: 0,
                     length: 256 * 1024,
                     priority: .background
                 )
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
-                guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
-                    plog(String(format: "📜 loadLyrics '%@' Tier3 .lrc not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
+                guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     return
                 }
-                let parsed = LyricsParser.parse(lrcContent)
+                let parsed = LyricsParser.parse(lyricsContent)
                 guard !parsed.isEmpty else {
-                    plog(String(format: "📜 loadLyrics '%@' Tier3 .lrc empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lrcData.count))
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
                     return
                 }
 
@@ -2030,7 +2030,7 @@ struct NowPlayingView: View {
                 if isRefresh {
                     plog(String(format: "📜 lyrics refresh '%@' cache STALE → updated (%.0fms, %d→%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, currentCache?.count ?? 0, parsed.count))
                 } else {
-                    plog(String(format: "📜 loadLyrics '%@' Tier3 OK in %.0fms (connect=%.0fms fetch=%.0fms %dB %d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, connectMs, fetchMs, lrcData.count, parsed.count))
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 OK in %.0fms (connect=%.0fms fetch=%.0fms %dB %d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, connectMs, fetchMs, lyricsData.count, parsed.count))
                 }
                 if isCurrentLyricsLoad(loadRevision, songID: songID) {
                     setLyrics(parsed)

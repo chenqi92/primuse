@@ -1271,7 +1271,7 @@ public enum PrimuseConstants {
     public static let smallFileThreshold: Int64 = 50 * 1024 * 1024 // 50 MB
 
     public static let supportedCoverExtensions = ["jpg", "jpeg", "png", "webp"]
-    public static let supportedLyricsExtensions = ["lrc"]
+    public static let supportedLyricsExtensions = ["lrc", "ttml"]
     public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
     public static let supportedStreamDescriptorExtensions: Set<String> = ["strm"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]

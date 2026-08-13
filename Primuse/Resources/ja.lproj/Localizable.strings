@@ -2670,7 +2670,6 @@
 "library_folder_selection_partial" = "一部選択";
 "library_folder_selection_all" = "選択済み";
 
-
 /* MARK: - macOS キーボードショートカット */
 "keyboard_shortcuts_title" = "キーボードショートカット";
 "keyboard_shortcuts_recorder_title" = "ショートカットレコーダー";
@@ -2692,3 +2691,32 @@
 "keyboard_shortcuts_clear" = "ショートカットを消去";
 "keyboard_shortcuts_recording_short" = "記録中…";
 "keyboard_shortcuts_not_set" = "未設定";
+
+/* MARK: - macOS 歌詞形式コンバーター */
+"lyrics_converter_title" = "歌詞形式コンバーター";
+"lyrics_converter_subtitle" = "LRC、TTML、プレーンテキストをPrimuse内で変換";
+"lyrics_converter_input" = "入力";
+"lyrics_converter_output" = "出力";
+"lyrics_converter_overview_empty" = "歌詞ファイルをドロップするか内容を貼り付けてください";
+"lyrics_converter_choose_file" = "ファイルを選択";
+"lyrics_converter_change_file" = "変更";
+"lyrics_converter_drop_title" = "歌詞ファイルをドロップ、またはここに貼り付け";
+"lyrics_converter_drop_hint" = ".lrc、.ttml、.xml、.txtに対応";
+"lyrics_converter_output_placeholder" = "変換した歌詞がここに表示されます";
+"lyrics_converter_empty_notice" = "ファイルを選択するか歌詞を貼り付けてください。処理はこのMac内で完結します。";
+"lyrics_converter_invalid_notice" = "歌詞を解析できません。文書構造とタイムマーカーを確認してください。";
+"lyrics_converter_no_timing_notice" = "入力にタイムラインがないため、タイムスタンプは自動生成されません。";
+"lyrics_converter_plain_notice" = "プレーンテキストでは時間情報とボイス情報が削除されます。";
+"lyrics_converter_voice_notice" = "LRCは全行を保持しますが、TTMLのボイス配置は統合されます。";
+"lyrics_converter_preserve_notice" = "既存の行単位・単語単位の時間情報を保持します。";
+"lyrics_converter_summary_format" = "%1$d行 · 同期%2$d行 · 単語同期%3$d行";
+"lyrics_converter_local_only" = "このMac上でローカル処理";
+"lyrics_converter_copy" = "変換結果をコピー";
+"lyrics_converter_copied" = "変換結果をコピーしました";
+"lyrics_converter_exported_format" = "%@を保存しました";
+"lyrics_converter_error_title" = "歌詞の変換に失敗しました";
+"lyrics_converter_file_too_large" = "歌詞ファイルが4 MBを超えています。";
+"lyrics_converter_decode_failed" = "この歌詞ファイルをテキストとして読み込めません。";
+"lyrics_converter_lrc_help" = "LRC。単語タイミングは拡張LRCとして保持";
+"lyrics_converter_ttml_help" = "Apple Music互換のTTML";
+"lyrics_converter_txt_help" = "時間情報のないプレーンテキスト";

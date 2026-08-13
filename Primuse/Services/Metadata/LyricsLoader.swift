@@ -6,8 +6,8 @@ import PrimuseKit
 /// duplicating the (already non-trivial) sidecar / aux-connector logic.
 ///
 /// Tier 1: in-process disk cache via `MetadataAssetStore`
-/// Tier 2: sidecar `.lrc` next to the locally cached audio file
-/// Tier 3: fetch `.lrc` from the source via an auxiliary connector
+/// Tier 2: a supported lyrics sidecar next to the locally cached audio file
+/// Tier 3: fetch the source lyrics sidecar via an auxiliary connector
 @MainActor
 enum LyricsLoader {
     /// Loads the closest available representation of the original editable
@@ -15,7 +15,14 @@ enum LyricsLoader {
     /// editing; cached line models remain the offline fallback.
     static func loadEditableText(for song: Song, sourceManager: SourceManager) async -> String {
         if let sourceText = await loadSourceText(for: song, sourceManager: sourceManager) {
-            return normalizedEditableText(sourceText)
+            let normalized = normalizedEditableText(sourceText)
+            if LyricsContentParser.isTTML(normalized) {
+                // The editor is intentionally LRC/ELRC-oriented. Converting
+                // TTML to the shared model keeps XML markup out of lyric rows;
+                // LyricsWriteback serializes it back to TTML when appropriate.
+                return LyricsContentParser.serialize(LyricsContentParser.parse(normalized))
+            }
+            return normalized
         }
         return LyricsContentParser.serialize(await load(for: song, sourceManager: sourceManager))
     }
@@ -43,14 +50,14 @@ enum LyricsLoader {
             let songDir = (song.filePath as NSString).deletingLastPathComponent
             let baseName = ((song.filePath as NSString).lastPathComponent as NSString)
                 .deletingPathExtension
-            let lrcPath: String
+            let lyricsPath: String
             if let ref = song.lyricsFileName, ref.contains("/") {
-                lrcPath = ref
+                lyricsPath = ref
             } else {
-                lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
+                lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
             }
             let data = try await connector.fetchRange(
-                path: lrcPath,
+                path: lyricsPath,
                 offset: 0,
                 length: 256 * 1024,
                 priority: .background
@@ -142,23 +149,23 @@ enum LyricsLoader {
 
             let songDir = (song.filePath as NSString).deletingLastPathComponent
             let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
-            let lrcPath: String
+            let lyricsPath: String
             if let ref = song.lyricsFileName, ref.contains("/") {
-                lrcPath = ref
+                lyricsPath = ref
             } else {
-                lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
+                lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
             }
-            let lrcData = try await connector.fetchRange(
-                path: lrcPath,
+            let lyricsData = try await connector.fetchRange(
+                path: lyricsPath,
                 offset: 0,
                 length: 256 * 1024,
                 priority: .background
             )
             guard !Task.isCancelled else { return [] }
-            guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
+            guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
                 return []
             }
-            let parsed = LyricsParser.parse(lrcContent)
+            let parsed = LyricsParser.parse(lyricsContent)
             if !parsed.isEmpty {
                 await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
                 guard !Task.isCancelled else { return [] }

@@ -2773,7 +2773,6 @@
 "library_folder_selection_partial" = "部分选择";
 "library_folder_selection_all" = "已选择";
 
-
 /* MARK: - macOS 键盘快捷键 */
 "keyboard_shortcuts_title" = "键盘快捷键";
 "keyboard_shortcuts_recorder_title" = "快捷键录制器";
@@ -2795,3 +2794,32 @@
 "keyboard_shortcuts_clear" = "清除快捷键";
 "keyboard_shortcuts_recording_short" = "录制中…";
 "keyboard_shortcuts_not_set" = "未设置";
+
+/* MARK: - macOS 歌词格式转换 */
+"lyrics_converter_title" = "歌词格式转换";
+"lyrics_converter_subtitle" = "在 LRC、TTML 与纯文本之间转换";
+"lyrics_converter_input" = "输入";
+"lyrics_converter_output" = "输出";
+"lyrics_converter_overview_empty" = "拖入歌词文件或粘贴内容即可开始";
+"lyrics_converter_choose_file" = "选择文件";
+"lyrics_converter_change_file" = "更换";
+"lyrics_converter_drop_title" = "拖入歌词文件，或直接粘贴";
+"lyrics_converter_drop_hint" = "支持 .lrc、.ttml、.xml 和 .txt";
+"lyrics_converter_output_placeholder" = "转换结果会实时显示在这里";
+"lyrics_converter_empty_notice" = "请选择文件或粘贴歌词，转换仅在本机完成。";
+"lyrics_converter_invalid_notice" = "无法解析歌词，请检查文档结构和时间标记。";
+"lyrics_converter_no_timing_notice" = "源歌词没有时间轴，转换不会自动生成时间戳。";
+"lyrics_converter_plain_notice" = "纯文本输出会移除时间轴和声部信息。";
+"lyrics_converter_voice_notice" = "LRC 会保留全部歌词行，但 TTML 的声部对齐会被展平。";
+"lyrics_converter_preserve_notice" = "现有的行级与逐字时间轴都会保留。";
+"lyrics_converter_summary_format" = "%1$d 行 · %2$d 行有时间轴 · %3$d 行逐字";
+"lyrics_converter_local_only" = "所有转换均在本机完成";
+"lyrics_converter_copy" = "复制转换结果";
+"lyrics_converter_copied" = "已复制转换结果";
+"lyrics_converter_exported_format" = "已保存 %@";
+"lyrics_converter_error_title" = "歌词转换失败";
+"lyrics_converter_file_too_large" = "歌词文件超过 4 MB。";
+"lyrics_converter_decode_failed" = "无法将这个歌词文件解码为文本。";
+"lyrics_converter_lrc_help" = "LRC；逐字时间会保留为增强 LRC";
+"lyrics_converter_ttml_help" = "兼容 Apple Music 的 TTML";
+"lyrics_converter_txt_help" = "不含时间轴的纯文本";

@@ -2669,7 +2669,6 @@
 "library_folder_selection_partial" = "Teilweise ausgewählt";
 "library_folder_selection_all" = "Ausgewählt";
 
-
 /* MARK: - macOS-Tastaturkurzbefehle */
 "keyboard_shortcuts_title" = "Tastaturkurzbefehle";
 "keyboard_shortcuts_recorder_title" = "Kurzbefehl aufnehmen";
@@ -2691,3 +2690,32 @@
 "keyboard_shortcuts_clear" = "Kurzbefehl löschen";
 "keyboard_shortcuts_recording_short" = "Aufnahme…";
 "keyboard_shortcuts_not_set" = "Nicht festgelegt";
+
+/* MARK: - macOS Liedtextkonverter */
+"lyrics_converter_title" = "Liedtextkonverter";
+"lyrics_converter_subtitle" = "LRC, TTML und Klartext direkt in Primuse konvertieren";
+"lyrics_converter_input" = "Eingabe";
+"lyrics_converter_output" = "Ausgabe";
+"lyrics_converter_overview_empty" = "Liedtextdatei ablegen oder Inhalt einfügen";
+"lyrics_converter_choose_file" = "Datei wählen";
+"lyrics_converter_change_file" = "Ändern";
+"lyrics_converter_drop_title" = "Liedtextdatei ablegen oder hier einfügen";
+"lyrics_converter_drop_hint" = "Unterstützt .lrc, .ttml, .xml und .txt";
+"lyrics_converter_output_placeholder" = "Der konvertierte Liedtext erscheint hier";
+"lyrics_converter_empty_notice" = "Datei wählen oder Liedtext einfügen. Die Verarbeitung erfolgt lokal.";
+"lyrics_converter_invalid_notice" = "Der Liedtext konnte nicht gelesen werden. Struktur und Zeitmarken prüfen.";
+"lyrics_converter_no_timing_notice" = "Die Quelle enthält keine Zeitleiste; Zeitmarken werden nicht automatisch erzeugt.";
+"lyrics_converter_plain_notice" = "Klartext entfernt Zeit- und Stimmeninformationen.";
+"lyrics_converter_voice_notice" = "LRC behält alle Zeilen, reduziert aber die TTML-Stimmenausrichtung.";
+"lyrics_converter_preserve_notice" = "Vorhandene Zeilen- und Wortzeiten bleiben erhalten.";
+"lyrics_converter_summary_format" = "%1$d Zeilen · %2$d synchron · %3$d wortgenau";
+"lyrics_converter_local_only" = "Lokal auf diesem Mac verarbeitet";
+"lyrics_converter_copy" = "Konvertierten Liedtext kopieren";
+"lyrics_converter_copied" = "Konvertierter Liedtext kopiert";
+"lyrics_converter_exported_format" = "%@ gespeichert";
+"lyrics_converter_error_title" = "Konvertierung fehlgeschlagen";
+"lyrics_converter_file_too_large" = "Diese Liedtextdatei ist größer als 4 MB.";
+"lyrics_converter_decode_failed" = "Diese Liedtextdatei konnte nicht als Text gelesen werden.";
+"lyrics_converter_lrc_help" = "LRC; Wortzeiten bleiben als erweitertes LRC erhalten";
+"lyrics_converter_ttml_help" = "Mit Apple Music kompatibles TTML";
+"lyrics_converter_txt_help" = "Klartext ohne Zeitangaben";

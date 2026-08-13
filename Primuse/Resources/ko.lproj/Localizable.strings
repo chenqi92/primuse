@@ -2669,7 +2669,6 @@
 "library_folder_selection_partial" = "일부 선택됨";
 "library_folder_selection_all" = "선택됨";
 
-
 /* MARK: - macOS 키보드 단축키 */
 "keyboard_shortcuts_title" = "키보드 단축키";
 "keyboard_shortcuts_recorder_title" = "단축키 기록기";
@@ -2691,3 +2690,32 @@
 "keyboard_shortcuts_clear" = "단축키 지우기";
 "keyboard_shortcuts_recording_short" = "기록 중…";
 "keyboard_shortcuts_not_set" = "설정 안 함";
+
+/* MARK: - macOS 가사 형식 변환 */
+"lyrics_converter_title" = "가사 형식 변환";
+"lyrics_converter_subtitle" = "Primuse에서 LRC, TTML 및 일반 텍스트 변환";
+"lyrics_converter_input" = "입력";
+"lyrics_converter_output" = "출력";
+"lyrics_converter_overview_empty" = "가사 파일을 놓거나 내용을 붙여넣어 시작하세요";
+"lyrics_converter_choose_file" = "파일 선택";
+"lyrics_converter_change_file" = "변경";
+"lyrics_converter_drop_title" = "가사 파일을 놓거나 여기에 붙여넣기";
+"lyrics_converter_drop_hint" = ".lrc, .ttml, .xml 및 .txt 지원";
+"lyrics_converter_output_placeholder" = "변환된 가사가 여기에 표시됩니다";
+"lyrics_converter_empty_notice" = "파일을 선택하거나 가사를 붙여넣으세요. 변환은 이 Mac에서만 처리됩니다.";
+"lyrics_converter_invalid_notice" = "가사를 분석할 수 없습니다. 문서 구조와 시간 표시를 확인하세요.";
+"lyrics_converter_no_timing_notice" = "원본에 타임라인이 없어 타임스탬프를 자동 생성할 수 없습니다.";
+"lyrics_converter_plain_notice" = "일반 텍스트 출력은 시간 및 보컬 정보를 제거합니다.";
+"lyrics_converter_voice_notice" = "LRC는 모든 줄을 유지하지만 TTML 보컬 정렬은 단순화됩니다.";
+"lyrics_converter_preserve_notice" = "기존 줄 및 단어 타이밍이 유지됩니다.";
+"lyrics_converter_summary_format" = "%1$d줄 · 동기화 %2$d줄 · 단어 동기화 %3$d줄";
+"lyrics_converter_local_only" = "이 Mac에서 로컬 처리";
+"lyrics_converter_copy" = "변환된 가사 복사";
+"lyrics_converter_copied" = "변환된 가사를 복사했습니다";
+"lyrics_converter_exported_format" = "%@ 저장됨";
+"lyrics_converter_error_title" = "가사 변환 실패";
+"lyrics_converter_file_too_large" = "가사 파일이 4 MB보다 큽니다.";
+"lyrics_converter_decode_failed" = "이 가사 파일을 텍스트로 읽을 수 없습니다.";
+"lyrics_converter_lrc_help" = "LRC; 단어 타이밍은 확장 LRC로 유지";
+"lyrics_converter_ttml_help" = "Apple Music 호환 TTML";
+"lyrics_converter_txt_help" = "시간 정보 없는 일반 텍스트";

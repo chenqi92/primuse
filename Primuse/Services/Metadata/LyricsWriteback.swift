@@ -10,7 +10,7 @@ enum LyricsWriteback {
     enum Mode: Equatable {
         /// 还在探测。
         case checking
-        /// 写同目录的 .lrc sidecar 文件。
+        /// 写同目录的歌词 sidecar 文件（新文件默认 LRC，已有 TTML 保持 TTML）。
         case sidecar(fileName: String, replacesExistingFile: Bool)
         /// 走媒体服务器的写回接口(Jellyfin 等)。
         case mediaServer
@@ -168,7 +168,11 @@ enum LyricsWriteback {
             }
             if let error = await write(
                 validation.lines,
-                content: validation.normalizedContent,
+                content: persistenceContent(
+                    validation.normalizedContent,
+                    lines: validation.lines,
+                    mode: mode
+                ),
                 for: updated,
                 mode: mode,
                 sourceManager: sourceManager
@@ -187,7 +191,11 @@ enum LyricsWriteback {
                 forSongID: song.id,
                 force: true
             )
-            updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+            // LRC mirrors may intentionally yield to the richer local cache,
+            // but an existing TTML document is itself word-level and must stay
+            // addressable for later edits, deletion, and stale-cache refresh.
+            updated.lyricsFileName = retainedTTMLReference(for: song, mode: mode)
+                ?? MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
             updated.lyricsText = validation.lines.map(\.text).joined(separator: "\n")
         }
 
@@ -363,6 +371,28 @@ enum LyricsWriteback {
     static func normalized(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func persistenceContent(
+        _ editableContent: String,
+        lines: [LyricLine],
+        mode: Mode
+    ) -> String {
+        guard case .sidecar(let fileName, _) = mode,
+              (fileName as NSString).pathExtension.caseInsensitiveCompare("ttml") == .orderedSame else {
+            return editableContent
+        }
+        return LyricsContentParser.serializeTTML(lines)
+    }
+
+    private static func retainedTTMLReference(for song: Song, mode: Mode) -> String? {
+        guard case .sidecar(let fileName, _) = mode,
+              (fileName as NSString).pathExtension.caseInsensitiveCompare("ttml") == .orderedSame,
+              let reference = song.lyricsFileName,
+              (reference as NSString).pathExtension.caseInsensitiveCompare("ttml") == .orderedSame else {
+            return nil
+        }
+        return reference
     }
 
     private static func persistence(for mode: Mode) -> SaveOutcome.Persistence {

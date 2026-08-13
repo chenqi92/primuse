@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 public struct LyricSyllable: Codable, Hashable, Sendable {
     public var text: String
@@ -104,11 +107,17 @@ extension LyricLine: Codable {
 public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
     case plain      // 无时间戳的纯文本
     case lineLevel  // 行级 LRC：[mm:ss.xx]text
-    case wordLevel  // 字级：A2 扩展 LRC（<mm:ss.xx>word）或 KRC 偏移格式（<offset,duration,0>word）
+    case wordLevel  // 字级：A2/KRC 扩展 LRC，或带时间 span 的 TTML
 
     /// 通过扫描内容探测歌词格式。仅看是否存在字级 / 行级时间标记。
     public static func detect(_ content: String?) -> LyricsFormat {
         guard let content, !content.isEmpty else { return .plain }
+        if TTMLLyricsParser.looksLikeTTML(content) {
+            let lines = TTMLLyricsParser.parse(content)
+            if lines.contains(where: \.isWordLevel) { return .wordLevel }
+            if lines.contains(where: \.isSynchronized) { return .lineLevel }
+            return .plain
+        }
         if content.range(of: #"<\d+:\d+(?:[.:]\d+)?>"#, options: .regularExpression) != nil {
             return .wordLevel
         }
@@ -164,6 +173,102 @@ public struct LyricsEditableValidation: Sendable, Hashable {
     }
 }
 
+/// File containers exposed by the macOS lyrics conversion tool. `lrc`
+/// preserves word timing as enhanced LRC when the source carries syllables;
+/// `plainText` intentionally removes every timing marker.
+public enum LyricsFileFormat: String, Codable, Sendable, CaseIterable {
+    case lrc
+    case ttml
+    case plainText
+}
+
+public enum LyricsFileConversionError: Error, Equatable, Sendable {
+    case emptyInput
+    case invalidContent
+}
+
+public struct LyricsFileConversionResult: Equatable, Sendable {
+    public let sourceFormat: LyricsFormat
+    public let targetFormat: LyricsFileFormat
+    public let lines: [LyricLine]
+    public let output: String
+
+    public init(
+        sourceFormat: LyricsFormat,
+        targetFormat: LyricsFileFormat,
+        lines: [LyricLine],
+        output: String
+    ) {
+        self.sourceFormat = sourceFormat
+        self.targetFormat = targetFormat
+        self.lines = lines
+        self.output = output
+    }
+}
+
+/// Converts between the lyric formats that the shared parser can represent.
+/// Structured targets preserve line and syllable timing. Formats without a
+/// voice concept keep secondary/background text but cannot keep its visual
+/// alignment; the macOS tool explains that limitation.
+public enum LyricsFileConverter {
+    public static func convert(
+        _ content: String,
+        to targetFormat: LyricsFileFormat
+    ) throws -> LyricsFileConversionResult {
+        let normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { throw LyricsFileConversionError.emptyInput }
+
+        let validation = LyricsContentParser.validateEditableText(normalized)
+        guard validation.isValid else { throw LyricsFileConversionError.invalidContent }
+
+        let expandedLines = flattenBackgroundLines(validation.lines)
+        let output: String
+        switch targetFormat {
+        case .lrc:
+            output = LyricsContentParser.serialize(expandedLines)
+        case .ttml:
+            output = LyricsContentParser.serializeTTML(expandedLines)
+        case .plainText:
+            output = expandedLines.map(\.text).joined(separator: "\n")
+        }
+
+        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LyricsFileConversionError.invalidContent
+        }
+        return LyricsFileConversionResult(
+            sourceFormat: validation.format,
+            targetFormat: targetFormat,
+            lines: validation.lines,
+            output: output
+        )
+    }
+
+    private static func flattenBackgroundLines(_ lines: [LyricLine]) -> [LyricLine] {
+        var expanded: [(order: Int, line: LyricLine)] = []
+        expanded.reserveCapacity(lines.count)
+
+        for line in lines {
+            var primary = line
+            primary.background = nil
+            expanded.append((expanded.count, primary))
+
+            for background in line.background ?? [] {
+                var flattened = background
+                flattened.background = nil
+                expanded.append((expanded.count, flattened))
+            }
+        }
+
+        return expanded.sorted {
+            if $0.line.timestamp == $1.line.timestamp { return $0.order < $1.order }
+            return $0.line.timestamp < $1.line.timestamp
+        }.map(\.line)
+    }
+}
+
 public enum LyricsContentParser {
     nonisolated(unsafe) private static let lineHeadPattern = /\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/
     nonisolated(unsafe) private static let relativeLineHeadPattern = /^\[(\d+),(\d+)\]/
@@ -172,6 +277,10 @@ public enum LyricsContentParser {
     nonisolated(unsafe) private static let metadataPattern = /^\[[A-Za-z][A-Za-z0-9_-]*:.*\]\s*$/
 
     public static func parse(_ content: String) -> [LyricLine] {
+        if TTMLLyricsParser.looksLikeTTML(content) {
+            return TTMLLyricsParser.parse(content)
+        }
+
         var lines: [LyricLine] = []
         var metadataLines: [String] = []
         var isLeadingMetadataRegion = true
@@ -227,7 +336,16 @@ public enum LyricsContentParser {
         return lines
     }
 
+    public static func isTTML(_ content: String) -> Bool {
+        TTMLLyricsParser.looksLikeTTML(content)
+    }
+
     public static func parseText(_ text: String) -> [LyricLine] {
+        if TTMLLyricsParser.looksLikeTTML(text) {
+            // Malformed XML must not fall through and surface its tags as
+            // unsynchronized lyric lines.
+            return TTMLLyricsParser.parse(text)
+        }
         let synchronized = parse(text)
         if !synchronized.isEmpty { return synchronized }
 
@@ -264,6 +382,13 @@ public enum LyricsContentParser {
         return (metadata + [body]).joined(separator: "\n")
     }
 
+    /// Serializes the shared lyric model back to the Apple Music-compatible
+    /// TTML subset. The editor works in LRC/ELRC, then uses this path only when
+    /// the authoritative sidecar is a `.ttml` document.
+    public static func serializeTTML(_ lines: [LyricLine]) -> String {
+        TTMLLyricsParser.serialize(lines)
+    }
+
     /// Validates the raw structured-text editor without rewriting it. Valid
     /// metadata and blank lines are kept in `normalizedContent`; malformed
     /// time markers are reported with their original 1-based line numbers.
@@ -280,6 +405,20 @@ public enum LyricsContentParser {
                 format: format,
                 lines: [],
                 issues: []
+            )
+        }
+
+        if TTMLLyricsParser.looksLikeTTML(normalized) {
+            let lines = TTMLLyricsParser.parse(normalized)
+            return LyricsEditableValidation(
+                normalizedContent: normalized,
+                format: lines.contains(where: \.isWordLevel)
+                    ? .wordLevel
+                    : (lines.contains(where: \.isSynchronized) ? .lineLevel : .plain),
+                lines: lines,
+                issues: lines.isEmpty
+                    ? [.init(lineNumber: 1, kind: .invalidTimestamp)]
+                    : []
             )
         }
 
@@ -483,5 +622,391 @@ public enum LyricsContentParser {
         let seconds = (milliseconds % 60_000) / 1_000
         let fraction = milliseconds % 1_000
         return String(format: "%02d:%02d.%03d", minutes, seconds, fraction)
+    }
+}
+
+/// Parses the timed-text subset used by Apple Music lyrics. TTML is much
+/// broader than the representation Primuse needs, so styling and section
+/// metadata are intentionally ignored while line, syllable, and singer timing
+/// is retained.
+private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
+    private struct PendingSyllable {
+        let text: String
+        let start: TimeInterval
+        let explicitEnd: TimeInterval?
+    }
+
+    private struct SpanContext {
+        var text = ""
+        let begin: TimeInterval?
+        let end: TimeInterval?
+    }
+
+    private var parsedLines: [(order: Int, line: LyricLine)] = []
+    private var nextLineOrder = 0
+    private var sawTTMLRoot = false
+
+    private var insideParagraph = false
+    private var currentLineBegin: TimeInterval?
+    private var currentLineEnd: TimeInterval?
+    private var currentLineVoice: LyricVoice = .primary
+    private var primaryAgent: String?
+    private var currentTextFragments: [String] = []
+    private var currentDirectText = ""
+    private var currentSyllables: [PendingSyllable] = []
+    private var spanStack: [SpanContext] = []
+
+    static func looksLikeTTML(_ content: String) -> Bool {
+        content.range(
+            of: #"<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?tt(?:\s|>)"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    static func parse(_ content: String) -> [LyricLine] {
+        guard looksLikeTTML(content),
+              content.range(of: "<!DOCTYPE", options: .caseInsensitive) == nil,
+              content.range(of: "<!ENTITY", options: .caseInsensitive) == nil,
+              let data = content.data(using: .utf8) else { return [] }
+
+        let delegate = TTMLLyricsParser()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.shouldProcessNamespaces = true
+        parser.shouldReportNamespacePrefixes = false
+        parser.shouldResolveExternalEntities = false
+
+        guard parser.parse(), delegate.sawTTMLRoot else { return [] }
+        return delegate.parsedLines
+            .sorted {
+                if $0.line.timestamp == $1.line.timestamp { return $0.order < $1.order }
+                return $0.line.timestamp < $1.line.timestamp
+            }
+            .map(\.line)
+    }
+
+    static func serialize(_ lines: [LyricLine]) -> String {
+        let paragraphs = lines.compactMap { line -> String? in
+            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+
+            var attributes: [String] = []
+            if line.isSynchronized {
+                attributes.append("begin=\"\(formatTimestamp(line.timestamp))\"")
+            }
+            if let end = line.endTime, end > line.timestamp {
+                attributes.append("end=\"\(formatTimestamp(end))\"")
+            }
+            let agent = line.voice == .secondary ? "v2" : "v1"
+            attributes.append("ttm:agent=\"\(agent)\"")
+            let attributeText = attributes.isEmpty ? "" : " " + attributes.joined(separator: " ")
+
+            guard let syllables = line.syllables, !syllables.isEmpty else {
+                return "      <p\(attributeText)>\(escapeXML(text))</p>"
+            }
+
+            let spans = syllables.map { syllable in
+                var spanAttributes = "begin=\"\(formatTimestamp(syllable.start))\""
+                if syllable.end > syllable.start {
+                    spanAttributes += " end=\"\(formatTimestamp(syllable.end))\""
+                }
+                return "        <span \(spanAttributes)>\(escapeXML(syllable.text))</span>"
+            }.joined(separator: "\n")
+            return """
+                  <p\(attributeText)>
+            \(spans)
+                  </p>
+            """
+        }.joined(separator: "\n")
+
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <body>
+            <div>
+        \(paragraphs)
+            </div>
+          </body>
+        </tt>
+        """
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String]
+    ) {
+        let name = Self.localName(qName ?? elementName)
+        switch name {
+        case "tt":
+            sawTTMLRoot = true
+        case "p":
+            startParagraph(attributes: attributeDict)
+        case "span":
+            startSpan(attributes: attributeDict)
+        case "br":
+            appendText("\n")
+        default:
+            break
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        appendText(string)
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        switch Self.localName(qName ?? elementName) {
+        case "span":
+            endSpan()
+        case "p":
+            endParagraph()
+        default:
+            break
+        }
+    }
+
+    private func startParagraph(attributes: [String: String]) {
+        // Malformed nested paragraphs should not leak the outer state into the
+        // inner one. XMLParser will still ultimately report the document error.
+        resetParagraph()
+        insideParagraph = true
+        currentLineBegin = Self.timeAttribute("begin", in: attributes)
+        currentLineEnd = Self.endTime(
+            in: attributes,
+            elementBegin: currentLineBegin,
+            inheritedBegin: nil
+        )
+
+        if let agent = Self.attribute("agent", in: attributes)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !agent.isEmpty {
+            if primaryAgent == nil { primaryAgent = agent }
+            currentLineVoice = agent == primaryAgent ? .primary : .secondary
+        }
+    }
+
+    private func startSpan(attributes: [String: String]) {
+        guard insideParagraph else { return }
+        if spanStack.isEmpty { flushDirectText() }
+        let begin = Self.timeAttribute("begin", in: attributes)
+        spanStack.append(SpanContext(
+            begin: begin,
+            end: Self.endTime(
+                in: attributes,
+                elementBegin: begin,
+                inheritedBegin: currentLineBegin
+            )
+        ))
+    }
+
+    private func appendText(_ text: String) {
+        guard insideParagraph else { return }
+        if spanStack.isEmpty {
+            currentDirectText += text
+        } else {
+            spanStack[spanStack.count - 1].text += text
+        }
+    }
+
+    private func endSpan() {
+        guard insideParagraph, let span = spanStack.popLast() else { return }
+
+        // Nested spans are normally style wrappers. Bubble their text into the
+        // parent and let the outermost span own the timing so text is not
+        // duplicated in the rendered line.
+        if !spanStack.isEmpty {
+            spanStack[spanStack.count - 1].text += span.text
+            return
+        }
+
+        currentTextFragments.append(span.text)
+        if let begin = span.begin, !span.text.isEmpty {
+            currentSyllables.append(PendingSyllable(
+                text: span.text,
+                start: begin,
+                explicitEnd: span.end
+            ))
+        }
+    }
+
+    private func endParagraph() {
+        guard insideParagraph else { return }
+
+        // A valid document cannot leave spans open here, but clearing them
+        // keeps a partially parsed malformed document from contaminating later
+        // delegate callbacks before XMLParser reports failure.
+        spanStack.removeAll(keepingCapacity: true)
+        flushDirectText()
+
+        let text = currentTextFragments
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            let syllables = normalizedSyllables(currentSyllables, lineEnd: currentLineEnd)
+            let timestamp = currentLineBegin ?? syllables.first?.start ?? 0
+            parsedLines.append((
+                order: nextLineOrder,
+                line: LyricLine(
+                    timestamp: timestamp,
+                    text: text,
+                    isSynchronized: currentLineBegin != nil || !syllables.isEmpty,
+                    syllables: syllables.isEmpty ? nil : syllables,
+                    voice: currentLineVoice
+                )
+            ))
+            nextLineOrder += 1
+        }
+
+        resetParagraph()
+    }
+
+    private func flushDirectText() {
+        guard !currentDirectText.isEmpty else { return }
+        defer { currentDirectText = "" }
+
+        // Pretty-printed TTML places indentation between timed spans. It is
+        // markup whitespace rather than lyric content and must not be inserted
+        // between words. Meaningful mixed text is kept verbatim.
+        if currentDirectText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           currentDirectText.contains(where: { $0.isNewline }) {
+            return
+        }
+        currentTextFragments.append(currentDirectText)
+    }
+
+    private func resetParagraph() {
+        insideParagraph = false
+        currentLineBegin = nil
+        currentLineEnd = nil
+        currentLineVoice = .primary
+        currentTextFragments.removeAll(keepingCapacity: true)
+        currentDirectText = ""
+        currentSyllables.removeAll(keepingCapacity: true)
+        spanStack.removeAll(keepingCapacity: true)
+    }
+
+    private func normalizedSyllables(
+        _ syllables: [PendingSyllable],
+        lineEnd: TimeInterval?
+    ) -> [LyricSyllable] {
+        syllables.enumerated().map { index, syllable in
+            let nextStart = syllables.indices.contains(index + 1)
+                ? syllables[index + 1].start
+                : nil
+            let inferredEnd = [syllable.explicitEnd, nextStart, lineEnd]
+                .compactMap { $0 }
+                .first { $0 > syllable.start }
+                ?? (syllable.start + 0.5)
+            return LyricSyllable(
+                text: syllable.text,
+                start: syllable.start,
+                end: inferredEnd
+            )
+        }
+    }
+
+    private static func endTime(
+        in attributes: [String: String],
+        elementBegin: TimeInterval?,
+        inheritedBegin: TimeInterval?
+    ) -> TimeInterval? {
+        if let end = timeAttribute("end", in: attributes) { return end }
+        guard let begin = elementBegin ?? inheritedBegin,
+              let duration = timeAttribute("dur", in: attributes) else { return nil }
+        let end = begin + duration
+        return end.isFinite ? end : nil
+    }
+
+    private static func timeAttribute(
+        _ name: String,
+        in attributes: [String: String]
+    ) -> TimeInterval? {
+        attribute(name, in: attributes).flatMap(parseTimestamp)
+    }
+
+    private static func attribute(
+        _ name: String,
+        in attributes: [String: String]
+    ) -> String? {
+        attributes.first { localName($0.key) == name.lowercased() }?.value
+    }
+
+    private static func localName(_ qualifiedName: String) -> String {
+        qualifiedName.split(separator: ":", omittingEmptySubsequences: false)
+            .last
+            .map(String.init)?
+            .lowercased() ?? qualifiedName.lowercased()
+    }
+
+    /// Apple Music commonly emits `HH:MM:SS.fff`, while TTML also permits
+    /// offset times such as `1.5s`, `1500ms`, `2m`, and `1h`.
+    private static func parseTimestamp(_ rawValue: String) -> TimeInterval? {
+        let value = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !value.isEmpty else { return nil }
+
+        let units: [(suffix: String, multiplier: Double)] = [
+            ("ms", 0.001),
+            ("h", 3_600),
+            ("m", 60),
+            ("s", 1),
+        ]
+        for unit in units where value.hasSuffix(unit.suffix) {
+            guard let amount = Double(value.dropLast(unit.suffix.count)) else { return nil }
+            return validatedTime(amount * unit.multiplier)
+        }
+
+        let components = value
+            .replacingOccurrences(of: ",", with: ".")
+            .split(separator: ":", omittingEmptySubsequences: false)
+        guard (1...3).contains(components.count),
+              let last = components.last.flatMap({ Double($0) }),
+              last >= 0 else { return nil }
+
+        let result: Double
+        switch components.count {
+        case 1:
+            result = last
+        case 2:
+            guard let minutes = Double(components[0]), minutes >= 0, last < 60 else { return nil }
+            result = minutes * 60 + last
+        case 3:
+            guard let hours = Double(components[0]), hours >= 0,
+                  let minutes = Double(components[1]), (0..<60).contains(minutes),
+                  last < 60 else { return nil }
+            result = hours * 3_600 + minutes * 60 + last
+        default:
+            return nil
+        }
+        return validatedTime(result)
+    }
+
+    private static func validatedTime(_ value: TimeInterval) -> TimeInterval? {
+        guard value.isFinite, value >= 0, value <= 7 * 24 * 3_600 else { return nil }
+        return value
+    }
+
+    private static func formatTimestamp(_ time: TimeInterval) -> String {
+        let milliseconds = max(0, (time * 1_000).rounded()).finiteInt()
+        let hours = milliseconds / 3_600_000
+        let minutes = (milliseconds % 3_600_000) / 60_000
+        let seconds = (milliseconds % 60_000) / 1_000
+        let fraction = milliseconds % 1_000
+        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, fraction)
+    }
+
+    private static func escapeXML(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 }

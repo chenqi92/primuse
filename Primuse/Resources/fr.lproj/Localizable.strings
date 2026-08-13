@@ -2669,7 +2669,6 @@
 "library_folder_selection_partial" = "Partiellement sélectionné";
 "library_folder_selection_all" = "Sélectionné";
 
-
 /* MARK: - Raccourcis clavier macOS */
 "keyboard_shortcuts_title" = "Raccourcis clavier";
 "keyboard_shortcuts_recorder_title" = "Enregistreur de raccourci";
@@ -2691,3 +2690,32 @@
 "keyboard_shortcuts_clear" = "Effacer le raccourci";
 "keyboard_shortcuts_recording_short" = "Enregistrement…";
 "keyboard_shortcuts_not_set" = "Non défini";
+
+/* MARK: - Convertisseur de paroles macOS */
+"lyrics_converter_title" = "Convertisseur de paroles";
+"lyrics_converter_subtitle" = "Convertissez LRC, TTML et texte brut dans Primuse";
+"lyrics_converter_input" = "Entrée";
+"lyrics_converter_output" = "Sortie";
+"lyrics_converter_overview_empty" = "Déposez un fichier de paroles ou collez son contenu";
+"lyrics_converter_choose_file" = "Choisir un fichier";
+"lyrics_converter_change_file" = "Changer";
+"lyrics_converter_drop_title" = "Déposez un fichier de paroles ou collez ici";
+"lyrics_converter_drop_hint" = "Prend en charge .lrc, .ttml, .xml et .txt";
+"lyrics_converter_output_placeholder" = "Les paroles converties apparaîtront ici";
+"lyrics_converter_empty_notice" = "Choisissez un fichier ou collez des paroles. Le traitement reste local.";
+"lyrics_converter_invalid_notice" = "Impossible d’analyser ces paroles. Vérifiez la structure et les repères temporels.";
+"lyrics_converter_no_timing_notice" = "La source n’a pas de chronologie; aucun repère ne sera créé automatiquement.";
+"lyrics_converter_plain_notice" = "Le texte brut supprime les informations de temps et de voix.";
+"lyrics_converter_voice_notice" = "LRC conserve toutes les lignes, mais aplatit l’alignement des voix TTML.";
+"lyrics_converter_preserve_notice" = "Les temps de ligne et de mot existants seront conservés.";
+"lyrics_converter_summary_format" = "%1$d lignes · %2$d synchronisées · %3$d mot à mot";
+"lyrics_converter_local_only" = "Traitement local sur ce Mac";
+"lyrics_converter_copy" = "Copier les paroles converties";
+"lyrics_converter_copied" = "Paroles converties copiées";
+"lyrics_converter_exported_format" = "%@ enregistré";
+"lyrics_converter_error_title" = "Échec de la conversion";
+"lyrics_converter_file_too_large" = "Ce fichier de paroles dépasse 4 Mo.";
+"lyrics_converter_decode_failed" = "Impossible de décoder ce fichier de paroles comme texte.";
+"lyrics_converter_lrc_help" = "LRC; le minutage des mots reste en LRC amélioré";
+"lyrics_converter_ttml_help" = "TTML compatible avec Apple Music";
+"lyrics_converter_txt_help" = "Texte brut sans minutage";

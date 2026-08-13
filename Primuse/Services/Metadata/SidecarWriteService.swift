@@ -10,7 +10,7 @@ import AppKit
 
 /// Writes sidecar files (cover art, lyrics) alongside source audio files on NAS/remote storage.
 /// - Cover: `<basename>-cover.jpg` next to the audio file
-/// - Lyrics: `<basename>.lrc` next to the audio file
+/// - Lyrics: `<basename>.lrc` by default; an existing `.ttml` remains TTML
 actor SidecarWriteService {
     static let shared = SidecarWriteService()
     private init() {}
@@ -101,24 +101,26 @@ actor SidecarWriteService {
             }
         }
 
-        // 2. Write <basename>.lrc next to audio file
+        // 2. Write the lyrics sidecar next to the audio file. New documents
+        // default to LRC; an existing supported sidecar keeps its extension.
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
-            let lrcContent = lyricsContent?.trimmingCharacters(in: .newlines)
+            let sidecarContent = lyricsContent?.trimmingCharacters(in: .newlines)
                 ?? LyricsContentParser.serialize(lyricsLines)
-            if let lrcData = lrcContent.data(using: .utf8) {
-                let lrcPath = Self.lyricsTargetPath(for: song)
+            if let sidecarData = sidecarContent.data(using: .utf8) {
+                let lyricsPath = Self.lyricsTargetPath(for: song)
+                let lyricsFileName = (lyricsPath as NSString).lastPathComponent
                 do {
                     try await connector.writeFile(
-                        data: lrcData,
-                        to: lrcPath,
+                        data: sidecarData,
+                        to: lyricsPath,
                         priority: .background
                     )
                     result.lyricsWritten = true
-                    plog("📁 Sidecar: \(baseNameNoExt).lrc written to \(songDir)")
+                    plog("📁 Sidecar: \(lyricsFileName) written to \(songDir)")
                 } catch {
                     result.errors.append("Lyrics: \(error.localizedDescription)")
                     result.sourceUnavailable = Self.isSourceUnavailable(error)
-                    plog("⚠️ Sidecar: Failed to write .lrc: \(error)")
+                    plog("⚠️ Sidecar: Failed to write \(lyricsFileName): \(error)")
                 }
             }
         }
@@ -163,15 +165,18 @@ actor SidecarWriteService {
         let songBase = ((song.filePath as NSString).lastPathComponent as NSString)
             .deletingPathExtension
 
-        if let ref = song.lyricsFileName, ref.contains("/") {
-            let refDir = (ref as NSString).deletingLastPathComponent
-            let refName = (ref as NSString).lastPathComponent
+        if let ref = song.lyricsFileName, !ref.isEmpty {
+            let resolvedRef = ref.contains("/")
+                ? ref
+                : (songDir as NSString).appendingPathComponent(ref)
+            let refDir = (resolvedRef as NSString).deletingLastPathComponent
+            let refName = (resolvedRef as NSString).lastPathComponent
             let refBase = (refName as NSString).deletingPathExtension
-            let refExtension = (refName as NSString).pathExtension
+            let refExtension = (refName as NSString).pathExtension.lowercased()
             if refDir == songDir,
                refBase.caseInsensitiveCompare(songBase) == .orderedSame,
-               refExtension.caseInsensitiveCompare("lrc") == .orderedSame {
-                return ref
+               PrimuseConstants.supportedLyricsExtensions.contains(refExtension) {
+                return resolvedRef
             }
         }
         return (songDir as NSString).appendingPathComponent("\(songBase).lrc")

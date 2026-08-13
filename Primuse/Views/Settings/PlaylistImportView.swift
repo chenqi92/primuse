@@ -1,6 +1,9 @@
 import SwiftUI
 import PrimuseKit
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 /// 歌单导入页 — 走 .fileImporter 选 .m3u8 / .json, 解析 + 库匹配, 给
 /// 用户看预览 (匹配成功 N 首 / 缺 M 首) → 用户改名后确认 → 创建歌单。
@@ -1108,6 +1111,786 @@ private struct MacImportStatusPill: View {
         .overlay {
             Capsule(style: .continuous)
                 .strokeBorder(color.opacity(0.22), lineWidth: 0.5)
+        }
+    }
+}
+#endif
+
+#if os(macOS)
+/// macOS-only utility for converting standalone lyric files. It intentionally
+/// follows the same full-sheet shell as playlist import, duplicate cleanup and
+/// Scrobble: branded header, elevated work area, compact status strip, footer.
+struct LyricsFormatConverterView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var sourceText = ""
+    @State private var sourceFileName = ""
+    @State private var targetFormat: LyricsFileFormat = .ttml
+    @State private var conversion: LyricsFileConversionResult?
+    @State private var conversionIssue: LyricsFileConversionError?
+    @State private var isDropTargeted = false
+    @State private var showFileImporter = false
+    @State private var showFileExporter = false
+    @State private var exportDocument = LyricsConverterDocument()
+    @State private var actionMessage: String?
+    @State private var alertMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            VStack(spacing: PMSpace.m14) {
+                conversionOverview
+
+                HStack(spacing: PMSpace.m) {
+                    sourceEditor
+                    conversionGlyph
+                    outputPreview
+                }
+                .frame(maxHeight: .infinity)
+
+                noticeBar
+            }
+            .padding(PMSpace.l)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            footer
+        }
+        .frame(width: 860, height: 660)
+        .background(PMColor.bg)
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: LyricsConverterDocument.readableContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                loadFile(url)
+            case .failure(let error):
+                let nsError = error as NSError
+                guard nsError.code != NSUserCancelledError else { return }
+                alertMessage = error.localizedDescription
+            }
+        }
+        .fileExporter(
+            isPresented: $showFileExporter,
+            document: exportDocument,
+            contentType: targetFormat.contentType,
+            defaultFilename: defaultExportFilename
+        ) { result in
+            switch result {
+            case .success(let url):
+                actionMessage = String(
+                    format: String(localized: "lyrics_converter_exported_format"),
+                    url.lastPathComponent
+                )
+            case .failure(let error):
+                let nsError = error as NSError
+                guard nsError.code != NSUserCancelledError else { return }
+                alertMessage = error.localizedDescription
+            }
+        }
+        .alert(
+            String(localized: "lyrics_converter_error_title"),
+            isPresented: Binding(
+                get: { alertMessage != nil },
+                set: { if !$0 { alertMessage = nil } }
+            )
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(verbatim: alertMessage ?? "")
+        }
+        .onChange(of: sourceText) { _, _ in refreshConversion() }
+        .onChange(of: targetFormat) { _, _ in refreshConversion() }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: PMSpace.m14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                    .fill(PMColor.brand.opacity(0.16))
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("lyrics_converter_title")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text("lyrics_converter_subtitle")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+
+            Spacer()
+
+            HStack(spacing: PMSpace.s) {
+                converterHeaderPill("LRC")
+                converterHeaderPill("TTML")
+                converterHeaderPill("TXT")
+            }
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 26, height: 26)
+                    .background(PMColor.glassBtn, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help(Text("close"))
+        }
+        .padding(.horizontal, PMSpace.l24)
+        .padding(.vertical, PMSpace.l)
+    }
+
+    private func converterHeaderPill(_ label: String) -> some View {
+        Text(verbatim: label)
+            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+            .foregroundStyle(PMColor.textMuted)
+            .padding(.horizontal, PMSpace.s8)
+            .frame(height: 22)
+            .background(PMColor.glassBtn, in: .capsule)
+    }
+
+    // MARK: Overview
+
+    private var conversionOverview: some View {
+        HStack(spacing: PMSpace.s10) {
+            overviewNode(
+                icon: "doc.text",
+                eyebrow: String(localized: "lyrics_converter_input"),
+                value: detectedSourceFormat.label,
+                color: detectedSourceFormat.color
+            )
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+
+            overviewNode(
+                icon: targetFormat.icon,
+                eyebrow: String(localized: "lyrics_converter_output"),
+                value: targetFormat.shortLabel,
+                color: PMColor.brand
+            )
+
+            Spacer(minLength: PMSpace.m)
+
+            if let conversion {
+                Label(summaryText(for: conversion.lines), systemImage: "waveform.path")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            } else {
+                Text("lyrics_converter_overview_empty")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textFaint)
+            }
+        }
+        .padding(.horizontal, PMSpace.m14)
+        .frame(height: 54)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func overviewNode(
+        icon: String,
+        eyebrow: String,
+        value: String,
+        color: Color
+    ) -> some View {
+        HStack(spacing: PMSpace.s8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(color.opacity(0.12), in: .rect(cornerRadius: PMRadius.s))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: eyebrow.uppercased())
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+                Text(verbatim: value)
+                    .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(PMColor.text)
+            }
+        }
+    }
+
+    // MARK: Editors
+
+    private var sourceEditor: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: PMSpace.s8) {
+                Text("lyrics_converter_input")
+                    .font(PMFont.cardTitleS)
+                    .foregroundStyle(PMColor.text)
+
+                sourceFormatBadge
+
+                Spacer()
+
+                Button {
+                    showFileImporter = true
+                } label: {
+                    Label(
+                        sourceFileName.isEmpty
+                            ? String(localized: "lyrics_converter_choose_file")
+                            : String(localized: "lyrics_converter_change_file"),
+                        systemImage: "folder"
+                    )
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                    .padding(.horizontal, PMSpace.s8)
+                    .frame(height: 24)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, PMSpace.m)
+            .frame(height: 42)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ZStack {
+                TextEditor(text: $sourceText)
+                    .font(PMFont.mono)
+                    .foregroundStyle(PMColor.text)
+                    .scrollContentBackground(.hidden)
+                    .padding(PMSpace.s8)
+
+                if sourceText.isEmpty {
+                    VStack(spacing: PMSpace.s8) {
+                        Image(systemName: isDropTargeted ? "arrow.down.doc.fill" : "doc.badge.plus")
+                            .font(.system(size: 32, weight: .regular))
+                            .foregroundStyle(isDropTargeted ? PMColor.brand : PMColor.textFaint)
+                        Text("lyrics_converter_drop_title")
+                            .font(PMFont.bodyM)
+                            .foregroundStyle(PMColor.textMuted)
+                        Text("lyrics_converter_drop_hint")
+                            .font(PMFont.caption)
+                            .foregroundStyle(PMColor.textFaint)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(PMSpace.l24)
+                    .allowsHitTesting(false)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                .strokeBorder(
+                    isDropTargeted ? PMColor.brand : PMColor.cardBorder,
+                    lineWidth: isDropTargeted ? 1.5 : 0.5
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            loadFile(url)
+            return true
+        } isTargeted: { isTargeted in
+            isDropTargeted = isTargeted
+        }
+    }
+
+    private var sourceFormatBadge: some View {
+        Text(verbatim: detectedSourceFormat.label)
+            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .foregroundStyle(detectedSourceFormat.color)
+            .padding(.horizontal, PMSpace.s)
+            .frame(height: 20)
+            .background(detectedSourceFormat.color.opacity(0.11), in: .capsule)
+    }
+
+    private var conversionGlyph: some View {
+        VStack(spacing: PMSpace.s) {
+            Spacer()
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(conversion == nil ? PMColor.textFaint : PMColor.brand)
+                .frame(width: 34, height: 34)
+                .background(
+                    conversion == nil
+                        ? PMColor.glassBtn
+                        : PMColor.brand.opacity(0.13),
+                    in: .circle
+                )
+            Text("LIVE")
+                .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+            Spacer()
+        }
+        .frame(width: 38)
+        .accessibilityHidden(true)
+    }
+
+    private var outputPreview: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: PMSpace.s8) {
+                Text("lyrics_converter_output")
+                    .font(PMFont.cardTitleS)
+                    .foregroundStyle(PMColor.text)
+
+                Spacer()
+                outputFormatPicker
+
+                Button(action: copyOutput) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                }
+                .buttonStyle(.plain)
+                .disabled(conversion == nil)
+                .opacity(conversion == nil ? 0.45 : 1)
+                .help(Text("lyrics_converter_copy"))
+            }
+            .padding(.horizontal, PMSpace.m)
+            .frame(height: 42)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: true) {
+                if let conversion {
+                    Text(verbatim: conversion.output)
+                        .font(PMFont.mono)
+                        .foregroundStyle(PMColor.text)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .padding(PMSpace.m16)
+                } else {
+                    VStack(spacing: PMSpace.s8) {
+                        Image(systemName: conversionIssue == nil ? "text.document" : "exclamationmark.triangle")
+                            .font(.system(size: 30, weight: .regular))
+                            .foregroundStyle(conversionIssue == nil ? PMColor.textFaint : PMColor.bad)
+                        Text(conversionIssue == nil
+                             ? String(localized: "lyrics_converter_output_placeholder")
+                             : String(localized: "lyrics_converter_invalid_notice"))
+                            .font(PMFont.bodyM)
+                            .foregroundStyle(PMColor.textMuted)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                    .padding(PMSpace.l24)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+    }
+
+    private var outputFormatPicker: some View {
+        HStack(spacing: 2) {
+            ForEach(LyricsFileFormat.allCases, id: \.rawValue) { format in
+                Button {
+                    targetFormat = format
+                } label: {
+                    Text(verbatim: format.shortLabel)
+                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(targetFormat == format ? .white : PMColor.textMuted)
+                        .padding(.horizontal, 7)
+                        .frame(height: 20)
+                        .background(
+                            targetFormat == format ? PMColor.brand : .clear,
+                            in: .capsule
+                        )
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .help(Text(verbatim: format.helpText))
+            }
+        }
+        .padding(2)
+        .background(PMColor.glassBtn, in: .capsule)
+    }
+
+    // MARK: Status + footer
+
+    private var noticeBar: some View {
+        let notice = currentNotice
+        return HStack(spacing: PMSpace.s8) {
+            Image(systemName: notice.icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(notice.color)
+                .frame(width: 18)
+            Text(verbatim: notice.text)
+                .font(PMFont.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(2)
+            Spacer()
+        }
+        .padding(.horizontal, PMSpace.m)
+        .frame(minHeight: 38)
+        .background(notice.color.opacity(0.08), in: .rect(cornerRadius: PMRadius.m))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .strokeBorder(notice.color.opacity(0.18), lineWidth: 0.5)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: PMSpace.s10) {
+            if let actionMessage {
+                Label(actionMessage, systemImage: "checkmark.circle.fill")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.ok)
+                    .lineLimit(1)
+            } else {
+                Label("lyrics_converter_local_only", systemImage: "lock.shield")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textFaint)
+            }
+
+            Spacer()
+
+            if !sourceText.isEmpty {
+                Button("clear") { clearSource() }
+                    .font(PMFont.bodyM)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(PMColor.textMuted)
+                    .padding(.horizontal, PMSpace.s10)
+                    .frame(height: 28)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+            }
+
+            Button("cancel") { dismiss() }
+                .font(PMFont.bodyM)
+                .buttonStyle(.plain)
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, PMSpace.m)
+                .frame(height: 28)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+
+            Button(action: exportOutput) {
+                Label("export", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, PMSpace.m14)
+                    .frame(height: 28)
+                    .background(
+                        conversion == nil
+                            ? PMColor.textFaint.opacity(0.45)
+                            : PMColor.brand,
+                        in: .rect(cornerRadius: PMRadius.s)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(conversion == nil)
+        }
+        .padding(.horizontal, PMSpace.l)
+        .frame(height: 58)
+    }
+
+    // MARK: Conversion state
+
+    private var detectedSourceFormat: MacLyricsDetectedFormat {
+        guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .empty
+        }
+        if LyricsContentParser.isTTML(sourceText) {
+            return conversion == nil ? .invalid : .ttml
+        }
+        guard let conversion else { return .invalid }
+        switch conversion.sourceFormat {
+        case .plain: return .plain
+        case .lineLevel: return .lrc
+        case .wordLevel: return .elrc
+        }
+    }
+
+    private var currentNotice: LyricsConverterNotice {
+        guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return LyricsConverterNotice(
+                icon: "info.circle",
+                color: PMColor.textFaint,
+                text: String(localized: "lyrics_converter_empty_notice")
+            )
+        }
+        guard let conversion else {
+            return LyricsConverterNotice(
+                icon: "exclamationmark.triangle.fill",
+                color: PMColor.bad,
+                text: String(localized: "lyrics_converter_invalid_notice")
+            )
+        }
+
+        let lines = conversion.lines
+        let hasTiming = lines.contains(where: \.isSynchronized)
+        let hasVoices = lines.contains { line in
+            line.voice == .secondary || !(line.background?.isEmpty ?? true)
+        }
+        if targetFormat == .plainText, hasTiming || hasVoices {
+            return LyricsConverterNotice(
+                icon: "exclamationmark.triangle.fill",
+                color: PMColor.warn,
+                text: String(localized: "lyrics_converter_plain_notice")
+            )
+        }
+        if targetFormat == .lrc, hasVoices {
+            return LyricsConverterNotice(
+                icon: "person.2.wave.2",
+                color: PMColor.warn,
+                text: String(localized: "lyrics_converter_voice_notice")
+            )
+        }
+        if targetFormat != .plainText, !hasTiming {
+            return LyricsConverterNotice(
+                icon: "clock.badge.exclamationmark",
+                color: PMColor.warn,
+                text: String(localized: "lyrics_converter_no_timing_notice")
+            )
+        }
+        return LyricsConverterNotice(
+            icon: "checkmark.seal.fill",
+            color: PMColor.ok,
+            text: String(localized: "lyrics_converter_preserve_notice")
+        )
+    }
+
+    private func summaryText(for lines: [LyricLine]) -> String {
+        String(
+            format: String(localized: "lyrics_converter_summary_format"),
+            lines.count,
+            lines.filter(\.isSynchronized).count,
+            lines.filter(\.isWordLevel).count
+        )
+    }
+
+    private var defaultExportFilename: String {
+        let base: String
+        if sourceFileName.isEmpty {
+            base = "lyrics"
+        } else {
+            base = (sourceFileName as NSString).deletingPathExtension
+        }
+        return "\(base)-converted.\(targetFormat.fileExtension)"
+    }
+
+    private func refreshConversion() {
+        actionMessage = nil
+        guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            conversion = nil
+            conversionIssue = nil
+            return
+        }
+        do {
+            conversion = try LyricsFileConverter.convert(sourceText, to: targetFormat)
+            conversionIssue = nil
+        } catch let error as LyricsFileConversionError {
+            conversion = nil
+            conversionIssue = error
+        } catch {
+            conversion = nil
+            conversionIssue = .invalidContent
+        }
+    }
+
+    private func loadFile(_ url: URL) {
+        do {
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+
+            if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               size > 4 * 1_024 * 1_024 {
+                throw LyricsConverterFileError.tooLarge
+            }
+            let data = try Data(contentsOf: url)
+            guard var decoded = Self.decodeLyricsText(data) else {
+                throw LyricsConverterFileError.cannotDecode
+            }
+            if decoded.first == "\u{FEFF}" { decoded.removeFirst() }
+
+            sourceFileName = url.lastPathComponent
+            sourceText = decoded
+            targetFormat = LyricsContentParser.isTTML(decoded) ? .lrc : .ttml
+            refreshConversion()
+        } catch {
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    private static func decodeLyricsText(_ data: Data) -> String? {
+        TextEncodingRepair.bestDecoding(
+            of: data,
+            encodings: [
+                .utf8,
+                .utf16,
+                .utf16LittleEndian,
+                .utf16BigEndian,
+                TextEncodingRepair.gb18030,
+                TextEncodingRepair.big5,
+                .shiftJIS,
+                TextEncodingRepair.eucKR,
+                .windowsCP1252,
+                .isoLatin1,
+            ]
+        )
+    }
+
+    private func copyOutput() {
+        guard let conversion else { return }
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(conversion.output, forType: .string) else { return }
+        actionMessage = String(localized: "lyrics_converter_copied")
+    }
+
+    private func exportOutput() {
+        guard let conversion else { return }
+        exportDocument = LyricsConverterDocument(text: conversion.output)
+        showFileExporter = true
+    }
+
+    private func clearSource() {
+        sourceText = ""
+        sourceFileName = ""
+        conversion = nil
+        conversionIssue = nil
+        actionMessage = nil
+    }
+}
+
+private enum MacLyricsDetectedFormat {
+    case empty
+    case lrc
+    case elrc
+    case ttml
+    case plain
+    case invalid
+
+    var label: String {
+        switch self {
+        case .empty: "—"
+        case .lrc: "LRC"
+        case .elrc: "ELRC"
+        case .ttml: "TTML"
+        case .plain: "TXT"
+        case .invalid: "INVALID"
+        }
+    }
+
+    @MainActor
+    var color: Color {
+        switch self {
+        case .empty: PMColor.textFaint
+        case .lrc: PMColor.ok
+        case .elrc: PMColor.dsd
+        case .ttml: PMColor.brand
+        case .plain: PMColor.textMuted
+        case .invalid: PMColor.bad
+        }
+    }
+}
+
+private struct LyricsConverterNotice {
+    let icon: String
+    let color: Color
+    let text: String
+}
+
+private enum LyricsConverterFileError: LocalizedError {
+    case tooLarge
+    case cannotDecode
+
+    var errorDescription: String? {
+        switch self {
+        case .tooLarge: String(localized: "lyrics_converter_file_too_large")
+        case .cannotDecode: String(localized: "lyrics_converter_decode_failed")
+        }
+    }
+}
+
+private struct LyricsConverterDocument: FileDocument {
+    static var readableContentTypes: [UTType] {
+        [.primuseLRC, .primuseTTML, .xml, .plainText]
+    }
+
+    static var writableContentTypes: [UTType] {
+        [.primuseLRC, .primuseTTML, .plainText]
+    }
+
+    var text: String = ""
+
+    init(text: String = "") {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents,
+              let value = String(data: data, encoding: .utf8) else {
+            throw LyricsConverterFileError.cannotDecode
+        }
+        text = value
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
+
+private extension UTType {
+    static let primuseLRC = UTType(filenameExtension: "lrc", conformingTo: .plainText) ?? .plainText
+    static let primuseTTML = UTType(filenameExtension: "ttml", conformingTo: .xml) ?? .xml
+}
+
+private extension LyricsFileFormat {
+    var shortLabel: String {
+        switch self {
+        case .lrc: "LRC"
+        case .ttml: "TTML"
+        case .plainText: "TXT"
+        }
+    }
+
+    var fileExtension: String {
+        switch self {
+        case .lrc: "lrc"
+        case .ttml: "ttml"
+        case .plainText: "txt"
+        }
+    }
+
+    var contentType: UTType {
+        switch self {
+        case .lrc: .primuseLRC
+        case .ttml: .primuseTTML
+        case .plainText: .plainText
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .lrc: "text.badge.checkmark"
+        case .ttml: "chevron.left.forwardslash.chevron.right"
+        case .plainText: "text.alignleft"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .lrc: String(localized: "lyrics_converter_lrc_help")
+        case .ttml: String(localized: "lyrics_converter_ttml_help")
+        case .plainText: String(localized: "lyrics_converter_txt_help")
         }
     }
 }

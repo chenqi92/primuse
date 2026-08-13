@@ -286,10 +286,13 @@ actor SynologyScanner {
                 let baseName = (item.name as NSString).deletingPathExtension
                 let parentDir = (item.path as NSString).deletingLastPathComponent
 
-                // Lyrics sidecar: song.lrc
-                let lrcName = baseName + ".lrc"
-                let hasLrc = allNames.contains(lrcName) || allNames.contains(baseName + ".LRC")
-                let lyricsRef = hasLrc ? (parentDir as NSString).appendingPathComponent(lrcName) : nil
+                // Lyrics sidecar: prefer song.lrc, then song.ttml.
+                let lyricsRef = Self.sameNameSidecarPath(
+                    baseName: baseName,
+                    extensions: PrimuseConstants.supportedLyricsExtensions,
+                    in: parentDir,
+                    nameByLowercase: nameByLowercase
+                )
 
                 // Cover sidecar: song.jpg → song-cover.jpg → folder-level cover.jpg
                 var coverRef: String?
@@ -578,9 +581,12 @@ actor SynologyScanner {
             }
         }
         if coverRef == nil { coverRef = folderCoverPath }
-        let lrcName = baseName + ".lrc"
-        let hasLrc = allNames.contains(lrcName) || allNames.contains(baseName + ".LRC")
-        let lyricsRef = hasLrc ? (parentDir as NSString).appendingPathComponent(lrcName) : nil
+        let lyricsRef = Self.sameNameSidecarPath(
+            baseName: baseName,
+            extensions: PrimuseConstants.supportedLyricsExtensions,
+            in: parentDir,
+            nameByLowercase: nameByLowercase
+        )
 
         if let idx = existingByPath[item.path] {
             let existing = allSongs[idx]

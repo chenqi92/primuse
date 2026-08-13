@@ -2456,7 +2456,6 @@
 "library_folder_selection_partial" = "Partially selected";
 "library_folder_selection_all" = "Selected";
 
-
 /* MARK: - macOS keyboard shortcuts */
 "keyboard_shortcuts_title" = "Keyboard Shortcuts";
 "keyboard_shortcuts_recorder_title" = "Shortcut Recorder";
@@ -2478,3 +2477,32 @@
 "keyboard_shortcuts_clear" = "Clear shortcut";
 "keyboard_shortcuts_recording_short" = "Recording…";
 "keyboard_shortcuts_not_set" = "Not set";
+
+/* MARK: - macOS lyrics converter */
+"lyrics_converter_title" = "Lyrics Converter";
+"lyrics_converter_subtitle" = "Convert LRC, TTML, and plain text without leaving Primuse";
+"lyrics_converter_input" = "Input";
+"lyrics_converter_output" = "Output";
+"lyrics_converter_overview_empty" = "Drop a lyric file or paste its contents to begin";
+"lyrics_converter_choose_file" = "Choose File";
+"lyrics_converter_change_file" = "Change";
+"lyrics_converter_drop_title" = "Drop a lyric file, or paste here";
+"lyrics_converter_drop_hint" = "Supports .lrc, .ttml, .xml, and .txt";
+"lyrics_converter_output_placeholder" = "The converted lyrics will appear here";
+"lyrics_converter_empty_notice" = "Choose a file or paste lyrics. Conversion stays on this Mac.";
+"lyrics_converter_invalid_notice" = "These lyrics could not be parsed. Check the document structure and time markers.";
+"lyrics_converter_no_timing_notice" = "The source has no timeline, so conversion cannot create timestamps automatically.";
+"lyrics_converter_plain_notice" = "Plain-text output removes timing and voice information.";
+"lyrics_converter_voice_notice" = "LRC keeps every line, but TTML voice alignment is flattened.";
+"lyrics_converter_preserve_notice" = "Existing line and word timing will be preserved.";
+"lyrics_converter_summary_format" = "%1$d lines · %2$d synced · %3$d word-timed";
+"lyrics_converter_local_only" = "Processed locally on this Mac";
+"lyrics_converter_copy" = "Copy converted lyrics";
+"lyrics_converter_copied" = "Converted lyrics copied";
+"lyrics_converter_exported_format" = "Saved %@";
+"lyrics_converter_error_title" = "Lyrics Conversion Failed";
+"lyrics_converter_file_too_large" = "This lyric file is larger than 4 MB.";
+"lyrics_converter_decode_failed" = "Primuse could not decode this lyric file as text.";
+"lyrics_converter_lrc_help" = "LRC; word timing is kept as enhanced LRC";
+"lyrics_converter_ttml_help" = "Apple Music-compatible TTML";
+"lyrics_converter_txt_help" = "Plain text without timing";

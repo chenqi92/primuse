@@ -21,6 +21,24 @@ struct LyricsContentParserTests {
     [00:53.76]<00:53.76>NOW <00:54.15>I <00:54.40>KNOW <00:54.80>THAT <00:55.15>YOU <00:55.50>LOVE <00:55.95>ME
     """
 
+    private let issue27TTML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <tt xmlns="http://www.w3.org/ns/ttml"
+        xmlns:itunes="http://music.apple.com/lyrics"
+        xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+      <body>
+        <div itunes:song-part="Verse">
+          <p begin="00:00:09.420" end="00:00:12.000" ttm:agent="v1">
+            <span begin="00:00:09.420" end="00:00:10.000">HEL</span>
+            <span begin="00:00:10.000" end="00:00:10.500">LO </span>
+            <span begin="00:00:10.500" end="00:00:12.000">WORLD</span>
+          </p>
+          <p begin="12.500s" dur="1.5s" ttm:agent="v2">SECOND &amp; LINE</p>
+        </div>
+      </body>
+    </tt>
+    """
+
     @Test("Issue 15 ELRC fixture keeps every line and word timestamp")
     func parsesIssue15Fixture() throws {
         let lines = LyricsContentParser.parse(issue15ELRC)
@@ -32,6 +50,83 @@ struct LyricsContentParserTests {
         #expect(lines[5].syllables?.count == 10)
         #expect(lines[9].timestamp == 53.76)
         #expect(lines[9].syllables?.last?.start == 55.95)
+    }
+
+    @Test("Issue 27 Apple Music TTML keeps line, word, and voice timing")
+    func parsesIssue27TTMLFixture() throws {
+        let lines = LyricsContentParser.parse(issue27TTML)
+
+        #expect(lines.count == 2)
+        #expect(LyricsFormat.detect(issue27TTML) == .wordLevel)
+        #expect(lines[0].timestamp == 9.42)
+        #expect(lines[0].text == "HELLO WORLD")
+        #expect(lines[0].voice == .primary)
+        #expect(lines[0].syllables?.map(\.text) == ["HEL", "LO ", "WORLD"])
+        #expect(lines[0].syllables?.map(\.start) == [9.42, 10, 10.5])
+        #expect(lines[0].syllables?.map(\.end) == [10, 10.5, 12])
+        #expect(lines[1].timestamp == 12.5)
+        #expect(lines[1].text == "SECOND & LINE")
+        #expect(lines[1].voice == .secondary)
+        #expect(lines[1].isSynchronized)
+        #expect(!lines[1].isWordLevel)
+
+        let roundTrip = LyricsContentParser.parse(LyricsContentParser.serializeTTML(lines))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(lines, roundTrip))
+        #expect(roundTrip.map(\.voice) == lines.map(\.voice))
+    }
+
+    @Test("TTML without word spans is detected as line-level lyrics")
+    func detectsLineLevelTTML() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="00:00:00.000" end="00:00:02.000">Opening</p></div></body>
+        </tt>
+        """
+
+        let line = try #require(LyricsContentParser.parseText(content).first)
+        #expect(LyricsFormat.detect(content) == .lineLevel)
+        #expect(line.timestamp == 0)
+        #expect(line.isSynchronized)
+        #expect(line.text == "Opening")
+    }
+
+    @Test("Malformed TTML is not exposed as raw XML lyric lines")
+    func rejectsMalformedTTML() {
+        let malformed = "<tt><body><p begin=\"1s\">Opening</body></tt>"
+        #expect(LyricsContentParser.parseText(malformed).isEmpty)
+        #expect(!LyricsContentParser.validateEditableText(malformed).isValid)
+    }
+
+    @Test("TTML is a supported sidecar extension")
+    func supportsTTMLSidecars() {
+        #expect(PrimuseConstants.supportedLyricsExtensions.contains("ttml"))
+    }
+
+    @Test("Lyrics file converter supports TTML, enhanced LRC, and plain text")
+    func convertsBetweenSupportedLyricsFiles() throws {
+        let lrc = try LyricsFileConverter.convert(issue27TTML, to: .lrc)
+        #expect(lrc.sourceFormat == .wordLevel)
+        #expect(lrc.output.contains("[00:09.420]<00:09.420>HEL"))
+        #expect(lrc.output.contains("[00:12.500]SECOND & LINE"))
+
+        let ttml = try LyricsFileConverter.convert(lrc.output, to: .ttml)
+        #expect(ttml.output.contains("<tt xmlns="))
+        #expect(ttml.output.contains("<span begin=\"00:00:09.420\""))
+        #expect(LyricsContentParser.parse(ttml.output).map(\.text) == lrc.lines.map(\.text))
+
+        let plain = try LyricsFileConverter.convert(issue27TTML, to: .plainText)
+        #expect(plain.output == "HELLO WORLD\nSECOND & LINE")
+        #expect(!plain.output.contains("00:00"))
+    }
+
+    @Test("Lyrics file converter rejects empty and malformed documents")
+    func rejectsInvalidConversionInput() {
+        #expect(throws: LyricsFileConversionError.emptyInput) {
+            try LyricsFileConverter.convert("  \n", to: .lrc)
+        }
+        #expect(throws: LyricsFileConversionError.invalidContent) {
+            try LyricsFileConverter.convert("<tt><body><p begin=\"1s\">Broken</body></tt>", to: .ttml)
+        }
     }
 
     @Test("Line-level LRC beginning at zero remains synchronized")

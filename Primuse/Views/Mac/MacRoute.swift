@@ -33,11 +33,12 @@ extension MacRoute {
     }
 }
 
-/// 侧栏「工具」区的三个入口。点击不再切换路由 (不进详情栈), 而是以弹框
+/// 侧栏「工具」区的入口。点击不再切换路由 (不进详情栈), 而是以弹框
 /// (`.sheet`) 形式覆盖在当前页上 —— 工具是临时操作面板, 用完即关, 不该
 /// 占据主导航。`Identifiable` 让 `MacContentView` 能直接 `.sheet(item:)`。
 enum MacTool: String, Identifiable, Hashable {
     case playlistImport
+    case lyricsConverter
     case duplicates
     case scrobble
 
