@@ -10,7 +10,7 @@ import PrimuseKit
 /// The window chrome, sidebar, and every ST-* page use the same custom row
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
-    case playback, equalizer, effects, theme
+    case playback, equalizer, effects, keyboard, theme
     case scrape, lyrics, appleMusic, widgets, cloud, deleted, ssl, about
 
     var id: String { rawValue }
@@ -20,6 +20,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .playback: return Lz("Playback")
         case .equalizer: return Lz("Equalizer")
         case .effects: return Lz("Audio Effects")
+        case .keyboard: return String(localized: "keyboard_shortcuts_title")
         case .scrape: return Lz("Metadata Scraping")
         case .lyrics: return Lz("Lyrics Translation")
         case .appleMusic: return "Apple Music"
@@ -37,6 +38,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .playback: return "play.circle"
         case .equalizer: return "slider.horizontal.3"
         case .effects: return "waveform.badge.plus"
+        case .keyboard: return "keyboard"
         case .scrape: return "tag"
         case .lyrics: return "character.bubble"
         case .appleMusic: return "music.note"
@@ -54,6 +56,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .playback: return "ST-01"
         case .equalizer: return "ST-02"
         case .effects: return "ST-03"
+        case .keyboard: return "ST-13"
         case .scrape: return "ST-04"
         case .lyrics: return "ST-05"
         case .appleMusic: return "ST-06"
@@ -228,6 +231,8 @@ struct MacSettingsView: View {
             MacSTEqualizerView()
         case .effects:
             MacSTEffectsView()
+        case .keyboard:
+            MacSTKeyboardShortcutsView()
         case .scrape:
             MacSTScrapingView()
         case .lyrics:
@@ -729,6 +734,312 @@ private struct MacSTPlaybackView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - ST-13 Keyboard Shortcuts
+
+private struct MacSTKeyboardShortcutsView: View {
+    @State private var store = MacKeyboardShortcutStore.shared
+    @State private var pendingAssignment: PendingShortcutAssignment?
+    @State private var recorderMessage: String?
+
+    private let playbackActions: [MacKeyboardShortcutAction] = [
+        .playPause, .nextTrack, .previousTrack, .shuffle, .repeatMode,
+        .volumeUp, .volumeDown,
+    ]
+    private let windowActions: [MacKeyboardShortcutAction] = [
+        .focusSearch, .showMiniPlayer, .showDesktopLyrics, .toggleDesktopLyricsLock,
+    ]
+
+    var body: some View {
+        MacSTSection(
+            String(localized: "keyboard_shortcuts_recorder_title"),
+            hint: String(localized: "keyboard_shortcuts_recorder_hint")
+        ) {
+            shortcutRecorder
+        }
+
+        shortcutSection(
+            title: String(localized: "keyboard_shortcuts_playback_section"),
+            actions: playbackActions
+        )
+        shortcutSection(
+            title: String(localized: "keyboard_shortcuts_window_section"),
+            actions: windowActions
+        )
+
+        HStack {
+            Text(String(localized: "keyboard_shortcuts_changes_apply_immediately"))
+                .font(.system(size: 10.5))
+                .foregroundStyle(PMColor.textFaint)
+            Spacer()
+            MacSTButton(
+                title: String(localized: "keyboard_shortcuts_restore_defaults"),
+                systemImage: "arrow.counterclockwise"
+            ) {
+                store.restoreDefaults()
+                recorderMessage = nil
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 22)
+        .alert(item: $pendingAssignment) { pending in
+            Alert(
+                title: Text(String(localized: "keyboard_shortcuts_conflict_title")),
+                message: Text(String(
+                    format: String(localized: "keyboard_shortcuts_conflict_message_format"),
+                    pending.shortcut.displayString,
+                    pending.conflictingAction.localizedTitle
+                )),
+                primaryButton: .default(Text(String(localized: "keyboard_shortcuts_replace"))) {
+                    store.assign(pending.shortcut, to: pending.action)
+                    recorderMessage = nil
+                },
+                secondaryButton: .cancel()
+            )
+        }
+        .onDisappear {
+            store.recordingAction = nil
+            pendingAssignment = nil
+            recorderMessage = nil
+        }
+    }
+
+    private var shortcutRecorder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(PMColor.bgElev)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(
+                    store.recordingAction == nil
+                        ? PMColor.cardBorder
+                        : PMColor.brand.opacity(0.72),
+                    lineWidth: store.recordingAction == nil ? 0.5 : 1
+                )
+
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(PMColor.brand.opacity(store.recordingAction == nil ? 0.12 : 0.2))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: store.recordingAction == nil ? "keyboard" : "record.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                        .symbolEffect(.pulse, isActive: store.recordingAction != nil)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: recorderTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text(verbatim: recorderSubtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(recorderMessage == nil ? PMColor.textFaint : PMColor.warn)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 12)
+
+                if store.recordingAction != nil {
+                    MacSTButton(title: String(localized: "Cancel")) {
+                        store.recordingAction = nil
+                        recorderMessage = nil
+                    }
+                } else {
+                    Text(String(localized: "keyboard_shortcuts_click_a_keycap"))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .padding(14)
+        }
+        .frame(minHeight: 70)
+        .background {
+            MacShortcutRecorderBridge(
+                isRecording: store.recordingAction != nil,
+                onKeyDown: handleRecordedEvent
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func shortcutSection(
+        title: String,
+        actions: [MacKeyboardShortcutAction]
+    ) -> some View {
+        MacSTSection(title) {
+            MacSTGroup {
+                ForEach(Array(actions.enumerated()), id: \.offset) { index, action in
+                    MacSTShortcutRow(
+                        action: action,
+                        shortcut: store.shortcut(for: action),
+                        isRecording: store.recordingAction == action,
+                        divider: index != 0,
+                        onRecord: {
+                            store.recordingAction = action
+                            recorderMessage = nil
+                        },
+                        onClear: {
+                            store.remove(action)
+                            if store.recordingAction == action {
+                                store.recordingAction = nil
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private var recorderTitle: String {
+        guard let action = store.recordingAction else {
+            return String(localized: "keyboard_shortcuts_recorder_idle")
+        }
+        return String(
+            format: String(localized: "keyboard_shortcuts_recording_format"),
+            action.localizedTitle
+        )
+    }
+
+    private var recorderSubtitle: String {
+        if let recorderMessage { return recorderMessage }
+        if store.recordingAction == nil {
+            return String(localized: "keyboard_shortcuts_recorder_idle_hint")
+        }
+        return String(localized: "keyboard_shortcuts_press_combination")
+    }
+
+    private func handleRecordedEvent(_ event: NSEvent) {
+        guard let action = store.recordingAction else { return }
+        if event.keyCode == 53 {
+            store.recordingAction = nil
+            recorderMessage = nil
+            return
+        }
+        let shortcut = MacKeyboardShortcut.appKitShortcut(from: event)
+        switch MacKeyboardShortcutPolicy.validate(shortcut) {
+        case .reserved:
+            recorderMessage = String(localized: "keyboard_shortcuts_reserved_key")
+        case .modifierRequired:
+            recorderMessage = String(localized: "keyboard_shortcuts_modifier_required")
+        case .accepted:
+            store.recordingAction = nil
+            if let conflict = store.conflictingAction(for: shortcut, excluding: action) {
+                pendingAssignment = PendingShortcutAssignment(
+                    action: action,
+                    shortcut: shortcut,
+                    conflictingAction: conflict
+                )
+            } else {
+                store.assign(shortcut, to: action)
+                recorderMessage = nil
+            }
+        }
+    }
+}
+
+private struct PendingShortcutAssignment: Identifiable {
+    let id = UUID()
+    let action: MacKeyboardShortcutAction
+    let shortcut: MacKeyboardShortcut
+    let conflictingAction: MacKeyboardShortcutAction
+}
+
+private struct MacSTShortcutRow: View {
+    let action: MacKeyboardShortcutAction
+    let shortcut: MacKeyboardShortcut?
+    let isRecording: Bool
+    let divider: Bool
+    let onRecord: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if divider {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            }
+            HStack(spacing: 12) {
+                Text(verbatim: action.localizedTitle)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                Spacer(minLength: 12)
+
+                if shortcut != nil {
+                    Button(action: onClear) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(PMColor.textFaint)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text(String(localized: "keyboard_shortcuts_clear")))
+                    .accessibilityLabel(Text(String(localized: "keyboard_shortcuts_clear")))
+                }
+
+                Button(action: onRecord) {
+                    Text(verbatim: isRecording
+                         ? String(localized: "keyboard_shortcuts_recording_short")
+                         : shortcut?.displayString
+                            ?? String(localized: "keyboard_shortcuts_not_set"))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(isRecording ? Color.white : PMColor.text)
+                        .padding(.horizontal, 10)
+                        .frame(minWidth: 82, minHeight: 25)
+                        .background(
+                            isRecording ? PMColor.brand : PMColor.glassBtn,
+                            in: .rect(cornerRadius: 6)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(
+                                    isRecording ? PMColor.brand : PMColor.dividerStrong,
+                                    lineWidth: 0.5
+                                )
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 43)
+        }
+    }
+}
+
+private struct MacShortcutRecorderBridge: NSViewRepresentable {
+    let isRecording: Bool
+    let onKeyDown: (NSEvent) -> Void
+
+    func makeNSView(context: Context) -> MacShortcutRecorderNSView {
+        let view = MacShortcutRecorderNSView()
+        view.onKeyDown = onKeyDown
+        return view
+    }
+
+    func updateNSView(_ nsView: MacShortcutRecorderNSView, context: Context) {
+        nsView.onKeyDown = onKeyDown
+        nsView.isRecording = isRecording
+        if isRecording, nsView.window?.firstResponder !== nsView {
+            nsView.window?.makeFirstResponder(nsView)
+        } else if !isRecording, nsView.window?.firstResponder === nsView {
+            nsView.window?.makeFirstResponder(nil)
+        }
+    }
+}
+
+private final class MacShortcutRecorderNSView: NSView {
+    var onKeyDown: ((NSEvent) -> Void)?
+    var isRecording = false
+
+    override var acceptsFirstResponder: Bool { isRecording }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else {
+            super.keyDown(with: event)
+            return
+        }
+        onKeyDown?(event)
     }
 }
 

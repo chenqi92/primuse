@@ -2668,3 +2668,26 @@
 "library_folder_selection_none" = "Non sélectionné";
 "library_folder_selection_partial" = "Partiellement sélectionné";
 "library_folder_selection_all" = "Sélectionné";
+
+
+/* MARK: - Raccourcis clavier macOS */
+"keyboard_shortcuts_title" = "Raccourcis clavier";
+"keyboard_shortcuts_recorder_title" = "Enregistreur de raccourci";
+"keyboard_shortcuts_recorder_hint" = "Choisissez une action ci-dessous, puis appuyez sur le raccourci souhaité.";
+"keyboard_shortcuts_playback_section" = "Commandes de lecture";
+"keyboard_shortcuts_window_section" = "Fenêtres et navigation";
+"keyboard_shortcuts_changes_apply_immediately" = "Les modifications s’appliquent immédiatement.";
+"keyboard_shortcuts_restore_defaults" = "Rétablir les réglages par défaut";
+"keyboard_shortcuts_conflict_title" = "Raccourci déjà utilisé";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ est déjà attribué à %2$@. Le remplacement effacera l’ancienne attribution.";
+"keyboard_shortcuts_replace" = "Remplacer";
+"keyboard_shortcuts_click_a_keycap" = "Cliquez sur une touche ci-dessous";
+"keyboard_shortcuts_recorder_idle" = "Prêt à enregistrer";
+"keyboard_shortcuts_recorder_idle_hint" = "Sélectionnez un champ de raccourci pour commencer.";
+"keyboard_shortcuts_recording_format" = "Enregistrement de %@";
+"keyboard_shortcuts_press_combination" = "Appuyez maintenant sur la nouvelle combinaison.";
+"keyboard_shortcuts_reserved_key" = "Cette touche est réservée par macOS. Choisissez un autre raccourci.";
+"keyboard_shortcuts_modifier_required" = "Ajoutez Command, Option, Control ou Shift à cette touche.";
+"keyboard_shortcuts_clear" = "Effacer le raccourci";
+"keyboard_shortcuts_recording_short" = "Enregistrement…";
+"keyboard_shortcuts_not_set" = "Non défini";

@@ -2668,3 +2668,26 @@
 "library_folder_selection_none" = "Nicht ausgewählt";
 "library_folder_selection_partial" = "Teilweise ausgewählt";
 "library_folder_selection_all" = "Ausgewählt";
+
+
+/* MARK: - macOS-Tastaturkurzbefehle */
+"keyboard_shortcuts_title" = "Tastaturkurzbefehle";
+"keyboard_shortcuts_recorder_title" = "Kurzbefehl aufnehmen";
+"keyboard_shortcuts_recorder_hint" = "Wähle unten eine Aktion und drücke dann den gewünschten Kurzbefehl.";
+"keyboard_shortcuts_playback_section" = "Wiedergabesteuerung";
+"keyboard_shortcuts_window_section" = "Fenster & Navigation";
+"keyboard_shortcuts_changes_apply_immediately" = "Änderungen werden sofort angewendet.";
+"keyboard_shortcuts_restore_defaults" = "Standards wiederherstellen";
+"keyboard_shortcuts_conflict_title" = "Kurzbefehl bereits verwendet";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ ist bereits %2$@ zugewiesen. Beim Ersetzen wird die alte Zuweisung gelöscht.";
+"keyboard_shortcuts_replace" = "Ersetzen";
+"keyboard_shortcuts_click_a_keycap" = "Unten auf eine Tastenkappe klicken";
+"keyboard_shortcuts_recorder_idle" = "Aufnahmebereit";
+"keyboard_shortcuts_recorder_idle_hint" = "Wähle ein Kurzbefehlfeld, um die Aufnahme zu starten.";
+"keyboard_shortcuts_recording_format" = "%@ wird aufgenommen";
+"keyboard_shortcuts_press_combination" = "Drücke jetzt die neue Tastenkombination.";
+"keyboard_shortcuts_reserved_key" = "Diese Taste ist von macOS reserviert. Wähle einen anderen Kurzbefehl.";
+"keyboard_shortcuts_modifier_required" = "Verwende für diese Taste zusätzlich Command, Option, Control oder Shift.";
+"keyboard_shortcuts_clear" = "Kurzbefehl löschen";
+"keyboard_shortcuts_recording_short" = "Aufnahme…";
+"keyboard_shortcuts_not_set" = "Nicht festgelegt";

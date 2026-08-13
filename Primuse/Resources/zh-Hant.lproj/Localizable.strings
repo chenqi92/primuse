@@ -2645,3 +2645,26 @@
 "library_folder_selection_none" = "未選取";
 "library_folder_selection_partial" = "部分選取";
 "library_folder_selection_all" = "已選取";
+
+
+/* MARK: - macOS 鍵盤快速鍵 */
+"keyboard_shortcuts_title" = "鍵盤快速鍵";
+"keyboard_shortcuts_recorder_title" = "快速鍵錄製器";
+"keyboard_shortcuts_recorder_hint" = "在下方選擇一個操作，然後按下想要使用的快速鍵。";
+"keyboard_shortcuts_playback_section" = "播放控制";
+"keyboard_shortcuts_window_section" = "視窗與導覽";
+"keyboard_shortcuts_changes_apply_immediately" = "變更會立即生效。";
+"keyboard_shortcuts_restore_defaults" = "回復預設值";
+"keyboard_shortcuts_conflict_title" = "快速鍵已被佔用";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ 已指派給「%2$@」。取代後將清除原來的設定。";
+"keyboard_shortcuts_replace" = "取代";
+"keyboard_shortcuts_click_a_keycap" = "點按下方鍵帽";
+"keyboard_shortcuts_recorder_idle" = "準備錄製";
+"keyboard_shortcuts_recorder_idle_hint" = "點按任一快速鍵欄位開始錄製。";
+"keyboard_shortcuts_recording_format" = "正在錄製「%@」";
+"keyboard_shortcuts_press_combination" = "現在按下新的按鍵組合。";
+"keyboard_shortcuts_reserved_key" = "該按鍵由 macOS 保留，請選擇其他快速鍵。";
+"keyboard_shortcuts_modifier_required" = "該按鍵需要搭配 Command、Option、Control 或 Shift。";
+"keyboard_shortcuts_clear" = "清除快速鍵";
+"keyboard_shortcuts_recording_short" = "錄製中…";
+"keyboard_shortcuts_not_set" = "未設定";

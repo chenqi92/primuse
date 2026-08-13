@@ -2455,3 +2455,26 @@
 "library_folder_selection_none" = "Not selected";
 "library_folder_selection_partial" = "Partially selected";
 "library_folder_selection_all" = "Selected";
+
+
+/* MARK: - macOS keyboard shortcuts */
+"keyboard_shortcuts_title" = "Keyboard Shortcuts";
+"keyboard_shortcuts_recorder_title" = "Shortcut Recorder";
+"keyboard_shortcuts_recorder_hint" = "Choose an action below, then press the shortcut you want to use.";
+"keyboard_shortcuts_playback_section" = "Playback Controls";
+"keyboard_shortcuts_window_section" = "Windows & Navigation";
+"keyboard_shortcuts_changes_apply_immediately" = "Changes apply immediately.";
+"keyboard_shortcuts_restore_defaults" = "Restore Defaults";
+"keyboard_shortcuts_conflict_title" = "Shortcut Already in Use";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ is already assigned to %2$@. Replacing it will clear the old assignment.";
+"keyboard_shortcuts_replace" = "Replace";
+"keyboard_shortcuts_click_a_keycap" = "Click a keycap below";
+"keyboard_shortcuts_recorder_idle" = "Ready to record";
+"keyboard_shortcuts_recorder_idle_hint" = "Select a shortcut field to start recording.";
+"keyboard_shortcuts_recording_format" = "Recording %@";
+"keyboard_shortcuts_press_combination" = "Press the new key combination now.";
+"keyboard_shortcuts_reserved_key" = "That key is reserved by macOS. Choose another shortcut.";
+"keyboard_shortcuts_modifier_required" = "Add Command, Option, Control, or Shift to this key.";
+"keyboard_shortcuts_clear" = "Clear shortcut";
+"keyboard_shortcuts_recording_short" = "Recording…";
+"keyboard_shortcuts_not_set" = "Not set";

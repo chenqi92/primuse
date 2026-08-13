@@ -2772,3 +2772,26 @@
 "library_folder_selection_none" = "未选择";
 "library_folder_selection_partial" = "部分选择";
 "library_folder_selection_all" = "已选择";
+
+
+/* MARK: - macOS 键盘快捷键 */
+"keyboard_shortcuts_title" = "键盘快捷键";
+"keyboard_shortcuts_recorder_title" = "快捷键录制器";
+"keyboard_shortcuts_recorder_hint" = "在下方选择一个操作，然后按下想要使用的快捷键。";
+"keyboard_shortcuts_playback_section" = "播放控制";
+"keyboard_shortcuts_window_section" = "窗口与导航";
+"keyboard_shortcuts_changes_apply_immediately" = "更改会立即生效。";
+"keyboard_shortcuts_restore_defaults" = "恢复默认";
+"keyboard_shortcuts_conflict_title" = "快捷键已被占用";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ 已分配给“%2$@”。替换后将清除原来的设置。";
+"keyboard_shortcuts_replace" = "替换";
+"keyboard_shortcuts_click_a_keycap" = "点击下方键帽";
+"keyboard_shortcuts_recorder_idle" = "准备录制";
+"keyboard_shortcuts_recorder_idle_hint" = "点击任意快捷键字段开始录制。";
+"keyboard_shortcuts_recording_format" = "正在录制“%@”";
+"keyboard_shortcuts_press_combination" = "现在按下新的组合键。";
+"keyboard_shortcuts_reserved_key" = "该按键由 macOS 保留，请选择其他快捷键。";
+"keyboard_shortcuts_modifier_required" = "该按键需要搭配 Command、Option、Control 或 Shift。";
+"keyboard_shortcuts_clear" = "清除快捷键";
+"keyboard_shortcuts_recording_short" = "录制中…";
+"keyboard_shortcuts_not_set" = "未设置";

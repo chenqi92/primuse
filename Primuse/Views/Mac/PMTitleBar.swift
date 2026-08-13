@@ -13,6 +13,7 @@ struct PMTitleBar: View {
 
     @Environment(\.pmAppearance) private var mode
     @FocusState private var searchFocused: Bool
+    @State private var keyboardShortcuts = MacKeyboardShortcutStore.shared
     /// titlebar 右上喇叭按钮的 popover 显示状态 — 设计稿 P-21 Output Picker。
     /// 之前 onAudioOutput 是空 callback 让点击没反应; 现在把 popover 直接挂在
     /// 按钮上, 点击就弹真 AudioOutputPickerView。
@@ -111,7 +112,7 @@ struct PMTitleBar: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                Text(verbatim: "⌘F")
+                Text(verbatim: keyboardShortcuts.shortcut(for: .focusSearch)?.displayString ?? "—")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint.opacity(0.7))
             }

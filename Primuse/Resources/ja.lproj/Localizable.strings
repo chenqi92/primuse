@@ -2669,3 +2669,26 @@
 "library_folder_selection_none" = "未選択";
 "library_folder_selection_partial" = "一部選択";
 "library_folder_selection_all" = "選択済み";
+
+
+/* MARK: - macOS キーボードショートカット */
+"keyboard_shortcuts_title" = "キーボードショートカット";
+"keyboard_shortcuts_recorder_title" = "ショートカットレコーダー";
+"keyboard_shortcuts_recorder_hint" = "下で操作を選び、使用するショートカットを押してください。";
+"keyboard_shortcuts_playback_section" = "再生コントロール";
+"keyboard_shortcuts_window_section" = "ウインドウとナビゲーション";
+"keyboard_shortcuts_changes_apply_immediately" = "変更はすぐに適用されます。";
+"keyboard_shortcuts_restore_defaults" = "デフォルトに戻す";
+"keyboard_shortcuts_conflict_title" = "使用中のショートカット";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ はすでに「%2$@」に割り当てられています。置き換えると以前の割り当ては解除されます。";
+"keyboard_shortcuts_replace" = "置き換える";
+"keyboard_shortcuts_click_a_keycap" = "下のキー表示をクリック";
+"keyboard_shortcuts_recorder_idle" = "記録できます";
+"keyboard_shortcuts_recorder_idle_hint" = "ショートカット欄を選択すると記録を開始します。";
+"keyboard_shortcuts_recording_format" = "「%@」を記録中";
+"keyboard_shortcuts_press_combination" = "新しいキーの組み合わせを押してください。";
+"keyboard_shortcuts_reserved_key" = "このキーは macOS が使用します。別のショートカットを選んでください。";
+"keyboard_shortcuts_modifier_required" = "このキーには Command、Option、Control、Shift のいずれかを追加してください。";
+"keyboard_shortcuts_clear" = "ショートカットを消去";
+"keyboard_shortcuts_recording_short" = "記録中…";
+"keyboard_shortcuts_not_set" = "未設定";

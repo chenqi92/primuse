@@ -160,6 +160,141 @@ private final class BackgroundTaskCompletion: @unchecked Sendable {
 }
 #else
 import AppKit
+import Observation
+
+@MainActor
+@Observable
+final class MacKeyboardShortcutStore {
+    static let shared = MacKeyboardShortcutStore()
+
+    var shortcuts: [MacKeyboardShortcutAction: MacKeyboardShortcut]
+    var recordingAction: MacKeyboardShortcutAction?
+
+    private init() {
+        shortcuts = MacKeyboardShortcutPolicy.decode(
+            UserDefaults.standard.data(forKey: MacKeyboardShortcutPolicy.storageKey)
+        )
+    }
+
+    func shortcut(for action: MacKeyboardShortcutAction) -> MacKeyboardShortcut? {
+        shortcuts[action]
+    }
+
+    func conflictingAction(
+        for shortcut: MacKeyboardShortcut,
+        excluding action: MacKeyboardShortcutAction
+    ) -> MacKeyboardShortcutAction? {
+        MacKeyboardShortcutPolicy.conflictingAction(
+            for: shortcut,
+            excluding: action,
+            in: shortcuts
+        )
+    }
+
+    func assign(_ shortcut: MacKeyboardShortcut, to action: MacKeyboardShortcutAction) {
+        shortcuts = MacKeyboardShortcutPolicy.assigning(shortcut, to: action, in: shortcuts)
+        persist()
+    }
+
+    func remove(_ action: MacKeyboardShortcutAction) {
+        shortcuts.removeValue(forKey: action)
+        persist()
+    }
+
+    func restoreDefaults() {
+        shortcuts = MacKeyboardShortcutPolicy.defaults
+        recordingAction = nil
+        persist()
+    }
+
+    private func persist() {
+        UserDefaults.standard.set(
+            MacKeyboardShortcutPolicy.encode(shortcuts),
+            forKey: MacKeyboardShortcutPolicy.storageKey
+        )
+    }
+}
+
+extension MacKeyboardShortcutAction {
+    var localizedTitle: String {
+        switch self {
+        case .playPause: return String(localized: "play_pause")
+        case .nextTrack: return String(localized: "next_song")
+        case .previousTrack: return String(localized: "previous_song")
+        case .shuffle: return String(localized: "shuffle")
+        case .repeatMode: return String(localized: "repeat")
+        case .volumeUp: return String(localized: "volume_up")
+        case .volumeDown: return String(localized: "volume_down")
+        case .focusSearch: return String(localized: "search_title")
+        case .showMiniPlayer: return String(localized: "mini_player")
+        case .showDesktopLyrics: return String(localized: "show_desktop_lyrics")
+        case .toggleDesktopLyricsLock: return String(localized: "toggle_desktop_lyrics_lock")
+        }
+    }
+}
+
+extension MacKeyboardShortcut {
+    @MainActor
+    static func appKitShortcut(from event: NSEvent) -> MacKeyboardShortcut {
+        var modifiers = 0
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) { modifiers |= commandModifier }
+        if flags.contains(.option) { modifiers |= optionModifier }
+        if flags.contains(.control) { modifiers |= controlModifier }
+        if flags.contains(.shift) { modifiers |= shiftModifier }
+        return MacKeyboardShortcut(
+            keyCode: event.keyCode,
+            modifiers: modifiers,
+            keyEquivalent: event.charactersIgnoringModifiers
+        )
+    }
+
+    var displayString: String {
+        var result = ""
+        if modifiers & Self.controlModifier != 0 { result += "⌃" }
+        if modifiers & Self.optionModifier != 0 { result += "⌥" }
+        if modifiers & Self.shiftModifier != 0 { result += "⇧" }
+        if modifiers & Self.commandModifier != 0 { result += "⌘" }
+        return result + Self.semanticKeyName(keyEquivalent, fallbackKeyCode: keyCode)
+    }
+
+    private static func semanticKeyName(_ key: String?, fallbackKeyCode: UInt16) -> String {
+        let names: [String: String] = [
+            " ": "Space", "\t": "⇥", "\r": "↩", "\u{7F}": "⌫",
+            "\u{F700}": "↑", "\u{F701}": "↓", "\u{F702}": "←", "\u{F703}": "→",
+            "\u{F704}": "F1", "\u{F705}": "F2", "\u{F706}": "F3", "\u{F707}": "F4",
+            "\u{F708}": "F5", "\u{F709}": "F6", "\u{F70A}": "F7", "\u{F70B}": "F8",
+            "\u{F70C}": "F9", "\u{F70D}": "F10", "\u{F70E}": "F11", "\u{F70F}": "F12",
+            "\u{F710}": "F13", "\u{F711}": "F14", "\u{F712}": "F15", "\u{F713}": "F16",
+            "\u{F714}": "F17", "\u{F715}": "F18", "\u{F716}": "F19", "\u{F717}": "F20",
+        ]
+        if let key, let name = names[key] { return name }
+        if let key, key.count == 1 { return key.uppercased() }
+        return keyName(for: fallbackKeyCode)
+    }
+
+    private static func keyName(for keyCode: UInt16) -> String {
+        let names: [UInt16: String] = [
+            0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+            8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+            16: "Y", 17: "T", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
+            23: "5", 24: "=", 25: "9", 26: "7", 27: "−", 28: "8", 29: "0",
+            30: "]", 31: "O", 32: "U", 33: "[", 34: "I", 35: "P", 36: "↩",
+            37: "L", 38: "J", 39: "'", 40: "K", 41: ";", 42: "\\", 43: ",",
+            44: "/", 45: "N", 46: "M", 47: ".", 48: "⇥", 49: "Space",
+            50: "`", 51: "⌫", 52: "⌤", 53: "⎋", 65: ".", 67: "*", 69: "+",
+            71: "Clear", 75: "/", 76: "⌅", 78: "−", 81: "=", 82: "0", 83: "1",
+            84: "2", 85: "3", 86: "4", 87: "5", 88: "6", 89: "7", 91: "8",
+            92: "9", 96: "F5", 97: "F6", 98: "F7", 99: "F3", 100: "F8",
+            101: "F9", 103: "F11", 105: "F13", 106: "F16", 107: "F14",
+            109: "F10", 111: "F12", 113: "F15", 114: "Help", 115: "↖",
+            116: "⇞", 117: "⌦", 118: "F4", 119: "↘", 120: "F2", 121: "⇟",
+            122: "F1", 123: "←", 124: "→", 125: "↓", 126: "↑",
+            64: "F17", 79: "F18", 80: "F19", 90: "F20",
+        ]
+        return names[keyCode] ?? "Key \(keyCode)"
+    }
+}
 
 extension Notification.Name {
     /// 进入全屏播放器时由 PrimuseAppDelegate 发出,MacContentView 收到后
@@ -274,7 +409,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private var menuBar: MacMenuBarController?
     @MainActor private var desktopLyrics: DesktopLyricsWindowController?
     @MainActor private var miniPlayer: MiniPlayerWindowController?
-    @MainActor private var playbackSpacebarMonitor: Any?
+    @MainActor private var keyboardShortcutMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
@@ -288,7 +423,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             bar.install()
             self.menuBar = bar
 
-            self.installPlaybackSpacebarMonitor()
+            self.installKeyboardShortcutMonitor()
 
             let lyrics = DesktopLyricsWindowController()
             self.desktopLyrics = lyrics
@@ -335,34 +470,89 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .primuseRequestExpandNowPlaying, object: nil)
     }
 
-    /// A bare space bar follows the standard desktop-player convention and
-    /// toggles playback. The event stays in the responder chain while a text
-    /// editor is active, so spaces still work in search fields and forms.
     @MainActor
-    private func installPlaybackSpacebarMonitor() {
-        guard playbackSpacebarMonitor == nil else { return }
-        playbackSpacebarMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    private func installKeyboardShortcutMonitor() {
+        guard keyboardShortcutMonitor == nil else { return }
+        keyboardShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // Local AppKit event monitors run synchronously on the main event
             // loop, but the SDK callback itself is not annotated @MainActor.
             MainActor.assumeIsolated {
                 let window = event.window ?? NSApp.keyWindow
-                let shortcutModifiers: NSEvent.ModifierFlags = [
-                    .command, .control, .option, .shift, .function,
-                ]
-                let shouldToggle = MacPlaybackSpacebarPolicy.shouldTogglePlayback(
-                    keyCode: event.keyCode,
-                    hasDisallowedModifiers: !event.modifierFlags
-                        .intersection(shortcutModifiers)
-                        .isEmpty,
-                    isRepeat: event.isARepeat,
+                let shortcutStore = MacKeyboardShortcutStore.shared
+                guard MacKeyboardShortcutPolicy.shouldHandleEvent(
                     isEditingText: Self.isEditingText(in: window),
-                    isPlaybackWindow: Self.acceptsPlaybackShortcut(in: window)
-                )
-                guard shouldToggle else { return event }
+                    isEligibleWindow: Self.acceptsKeyboardShortcut(in: window),
+                    isRecordingShortcut: shortcutStore.recordingAction != nil
+                ) else { return event }
+                let shortcut = MacKeyboardShortcut.appKitShortcut(from: event)
+                guard let action = MacKeyboardShortcutPolicy.action(
+                    matching: shortcut,
+                    in: shortcutStore.shortcuts
+                ) else { return event }
 
-                AppServices.shared.playerService.togglePlayPause()
+                if MacKeyboardShortcutPolicy.shouldPerform(
+                    action: action,
+                    isRepeat: event.isARepeat
+                ) {
+                    self.performKeyboardShortcut(action)
+                }
                 return nil
             }
+        }
+    }
+
+    @MainActor
+    private func performKeyboardShortcut(_ action: MacKeyboardShortcutAction) {
+        let services = AppServices.shared
+        switch action {
+        case .playPause:
+            services.playerService.togglePlayPause()
+        case .nextTrack:
+            Task { await services.playerService.next() }
+        case .previousTrack:
+            Task { await services.playerService.previous() }
+        case .shuffle:
+            services.playerService.shuffleEnabled.toggle()
+        case .repeatMode:
+            switch services.playerService.repeatMode {
+            case .off: services.playerService.repeatMode = .all
+            case .all: services.playerService.repeatMode = .one
+            case .one: services.playerService.repeatMode = .off
+            }
+        case .volumeUp:
+            services.playerService.audioEngine.volume = min(
+                1,
+                services.playerService.audioEngine.volume + 0.05
+            )
+        case .volumeDown:
+            services.playerService.audioEngine.volume = max(
+                0,
+                services.playerService.audioEngine.volume - 0.05
+            )
+        case .focusSearch:
+            focusSearchFromShortcut()
+        case .showMiniPlayer:
+            toggleMiniPlayer()
+        case .showDesktopLyrics:
+            toggleDesktopLyrics()
+        case .toggleDesktopLyricsLock:
+            let key = "desktopLyricsLocked"
+            UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+        }
+    }
+
+    @MainActor
+    private func focusSearchFromShortcut() {
+        if let window = mainAppWindow() {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
+            return
+        }
+        MainWindowOpener.openMainWindow()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
         }
     }
 
@@ -378,7 +568,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    private static func acceptsPlaybackShortcut(in window: NSWindow?) -> Bool {
+    private static func acceptsKeyboardShortcut(in window: NSWindow?) -> Bool {
         guard let window,
               window.sheetParent == nil,
               window.attachedSheet == nil else {
@@ -1010,7 +1200,6 @@ struct PrimuseApp: App {
                 Button("show_desktop_lyrics") {
                     PrimuseAppDelegate.shared?.toggleDesktopLyrics()
                 }
-                .keyboardShortcut("l", modifiers: [.command])
 
                 // 锁定后桌面歌词上的工具条会消失(因为 panel 设了
                 // ignoresMouseEvents 实现"点击穿透"),用户没法再点
@@ -1021,7 +1210,6 @@ struct PrimuseApp: App {
                     let locked = UserDefaults.standard.bool(forKey: key)
                     UserDefaults.standard.set(!locked, forKey: key)
                 }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
             }
 
             // Playback menu —— Apple Music / Spotify 一致的桌面播放范式。
@@ -1031,24 +1219,20 @@ struct PrimuseApp: App {
                 Button("play_pause") {
                     AppServices.shared.playerService.togglePlayPause()
                 }
-                .keyboardShortcut("p", modifiers: [.command])
 
                 Button("next_song") {
                     Task { await AppServices.shared.playerService.next() }
                 }
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
 
                 Button("previous_song") {
                     Task { await AppServices.shared.playerService.previous() }
                 }
-                .keyboardShortcut(.leftArrow, modifiers: [.command])
 
                 Divider()
 
                 Button("shuffle") {
                     AppServices.shared.playerService.shuffleEnabled.toggle()
                 }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
 
                 Button("repeat") {
                     let p = AppServices.shared.playerService
@@ -1058,7 +1242,6 @@ struct PrimuseApp: App {
                     case .one: p.repeatMode = .off
                     }
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
 
                 Divider()
 
@@ -1066,13 +1249,11 @@ struct PrimuseApp: App {
                     let engine = AppServices.shared.playerService.audioEngine
                     engine.volume = min(1.0, engine.volume + 0.05)
                 }
-                .keyboardShortcut(.upArrow, modifiers: [.command])
 
                 Button("volume_down") {
                     let engine = AppServices.shared.playerService.audioEngine
                     engine.volume = max(0.0, engine.volume - 0.05)
                 }
-                .keyboardShortcut(.downArrow, modifiers: [.command])
             }
         }
         #endif

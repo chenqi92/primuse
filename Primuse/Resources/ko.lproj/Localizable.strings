@@ -2668,3 +2668,26 @@
 "library_folder_selection_none" = "선택 안 함";
 "library_folder_selection_partial" = "일부 선택됨";
 "library_folder_selection_all" = "선택됨";
+
+
+/* MARK: - macOS 키보드 단축키 */
+"keyboard_shortcuts_title" = "키보드 단축키";
+"keyboard_shortcuts_recorder_title" = "단축키 기록기";
+"keyboard_shortcuts_recorder_hint" = "아래에서 동작을 선택한 다음 사용할 단축키를 누르세요.";
+"keyboard_shortcuts_playback_section" = "재생 제어";
+"keyboard_shortcuts_window_section" = "윈도우 및 탐색";
+"keyboard_shortcuts_changes_apply_immediately" = "변경 사항은 즉시 적용됩니다.";
+"keyboard_shortcuts_restore_defaults" = "기본값 복원";
+"keyboard_shortcuts_conflict_title" = "이미 사용 중인 단축키";
+"keyboard_shortcuts_conflict_message_format" = "%1$@ 단축키는 이미 ‘%2$@’에 지정되어 있습니다. 대치하면 이전 지정이 지워집니다.";
+"keyboard_shortcuts_replace" = "대치";
+"keyboard_shortcuts_click_a_keycap" = "아래 키 캡을 클릭";
+"keyboard_shortcuts_recorder_idle" = "기록 준비됨";
+"keyboard_shortcuts_recorder_idle_hint" = "단축키 필드를 선택하여 기록을 시작하세요.";
+"keyboard_shortcuts_recording_format" = "‘%@’ 기록 중";
+"keyboard_shortcuts_press_combination" = "지금 새 키 조합을 누르세요.";
+"keyboard_shortcuts_reserved_key" = "이 키는 macOS에서 사용합니다. 다른 단축키를 선택하세요.";
+"keyboard_shortcuts_modifier_required" = "이 키에는 Command, Option, Control 또는 Shift를 함께 사용하세요.";
+"keyboard_shortcuts_clear" = "단축키 지우기";
+"keyboard_shortcuts_recording_short" = "기록 중…";
+"keyboard_shortcuts_not_set" = "설정 안 함";
