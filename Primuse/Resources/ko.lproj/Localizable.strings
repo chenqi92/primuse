@@ -2409,7 +2409,7 @@
 "baidu_error_invalid_parameter" = "매개변수가 올바르지 않습니다(errno 2).";
 "baidu_error_token_expired" = "access_token이 만료되었습니다(errno 111).";
 "baidu_error_rate_limited" = "API 요청이 너무 많습니다(errno 31034).";
-"baidu_error_temporary_read" = "Baidu Netdisk에서 일시적인 읽기 오류가 발생했습니다(errno -9).";
+"baidu_error_path_not_found" = "Baidu Netdisk 경로가 더 이상 존재하지 않습니다(errno -9). 폴더를 다시 선택하세요.";
 "baidu_error_invalid_directory" = "폴더 매개변수가 올바르지 않습니다(errno 42213).";
 "baidu_error_code_format" = "Baidu Netdisk 오류 %d.";
 "update_policy_macos_bundle_id" = "macOS와 iOS 업데이트는 별도로 확인합니다. Mac App Store ID가 설정되지 않아 Bundle ID 조회에서 kind=mac-software인 네이티브 Mac 기록만 허용하며 iOS 1.x 버전 계열은 무시합니다.";

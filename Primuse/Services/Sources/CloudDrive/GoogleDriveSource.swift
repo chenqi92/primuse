@@ -108,8 +108,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         let parentId = path.isEmpty || path == "/" ? "root" : path
         var all: [RemoteFileItem] = []
         var pageToken: String? = nil
+        var seenPageTokens: Set<String> = []
         repeat {
-            let token = try await getToken()
             var components = URLComponents(string: "\(Self.apiBase)/files")!
             var items: [URLQueryItem] = [
                 .init(name: "q", value: "'\(parentId)' in parents and trashed = false"),
@@ -125,14 +125,26 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             if let p = pageToken { items.append(.init(name: "pageToken", value: p)) }
             components.queryItems = items
             let pageURL = components.url!
-            let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
-                try await self.helper.makeAuthorizedRequest(url: pageURL, accessToken: tok)
+            let (data, http) = try await requestListPage(pageURL)
+            if http.statusCode == 404 { throw CloudDriveError.fileNotFound(parentId) }
+            if http.statusCode == 403 {
+                if GoogleDriveHTTPErrorPolicy.disposition(
+                    statusCode: http.statusCode,
+                    reasons: Self.errorReasons(from: data)
+                ) == .retryRateLimit {
+                    throw CloudDriveError.rateLimited
+                }
+                throw CloudDriveError.permissionDenied(.fileRead)
             }
             guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            let files = json["files"] as? [[String: Any]] ?? []
-            all.append(contentsOf: files.compactMap { item in
-                guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let files = json["files"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
+            all.append(contentsOf: try files.map { item in
+                guard let id = item["id"] as? String, let name = item["name"] as? String else {
+                    throw CloudDriveError.invalidResponse
+                }
                 let isDir = (item["mimeType"] as? String) == "application/vnd.google-apps.folder"
                 let mtime = (item["modifiedTime"] as? String).flatMap(Self.parseISO8601)
                 // Prefer md5Checksum (binary content fingerprint, doesn't
@@ -155,9 +167,53 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                     parentPath: (item["parents"] as? [String])?.first ?? parentId
                 )
             })
-            pageToken = json["nextPageToken"] as? String
+            if let next = json["nextPageToken"] as? String {
+                guard CloudPaginationTokenPolicy.canAdvance(
+                    to: next,
+                    seenTokens: seenPageTokens
+                ) else {
+                    throw CloudDriveError.invalidResponse
+                }
+                seenPageTokens.insert(next)
+                pageToken = next
+            } else {
+                pageToken = nil
+            }
         } while pageToken != nil
         return all
+    }
+
+    private func requestListPage(_ url: URL) async throws -> (Data, HTTPURLResponse) {
+        var rateLimitAttempt = 0
+        var delay: TimeInterval = 0.75
+        while true {
+            let token = try await getToken()
+            let result = try await helper.withTokenRetry(
+                initialToken: token,
+                refresh: refreshToken
+            ) { @Sendable tok in
+                try await self.helper.makeAuthorizedRequest(url: url, accessToken: tok)
+            }
+            let disposition = GoogleDriveHTTPErrorPolicy.disposition(
+                statusCode: result.1.statusCode,
+                reasons: Self.errorReasons(from: result.0)
+            )
+            guard disposition == .retryRateLimit, rateLimitAttempt < 4 else {
+                return result
+            }
+            rateLimitAttempt += 1
+            try await Task.sleep(for: .seconds(delay))
+            delay = min(delay * 2, 8)
+        }
+    }
+
+    private nonisolated static func errorReasons(from data: Data) -> Set<String> {
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let error = json["error"] as? [String: Any],
+              let errors = error["errors"] as? [[String: Any]] else {
+            return []
+        }
+        return Set(errors.compactMap { $0["reason"] as? String })
     }
 
     func initialChangeCursors(for roots: [String]) async throws -> [String: String] {

@@ -2410,7 +2410,7 @@
 "baidu_error_invalid_parameter" = "パラメータが無効です（errno 2）。";
 "baidu_error_token_expired" = "access_token の有効期限が切れました（errno 111）。";
 "baidu_error_rate_limited" = "API リクエストが多すぎます（errno 31034）。";
-"baidu_error_temporary_read" = "Baidu Netdisk で一時的な読み取りエラーが発生しました（errno -9）。";
+"baidu_error_path_not_found" = "Baidu Netdisk のパスが存在しません（errno -9）。フォルダを選択し直してください。";
 "baidu_error_invalid_directory" = "フォルダのパラメータが無効です（errno 42213）。";
 "baidu_error_code_format" = "Baidu Netdisk エラー %d。";
 "update_policy_macos_bundle_id" = "macOS と iOS のアップデートは別々に確認します。Mac App Store ID が未設定のため、Bundle ID 検索では kind=mac-software のネイティブ Mac レコードだけを採用し、iOS 1.x 系列は無視します。";

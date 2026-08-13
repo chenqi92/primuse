@@ -145,19 +145,35 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         let parentFileId = path.isEmpty || path == "/" ? "root" : path
         var all: [RemoteFileItem] = []
         var marker: String? = nil
+        var seenMarkers: Set<String> = []
         repeat {
             var body: [String: Any] = ["drive_id": driveId, "parent_file_id": parentFileId, "limit": 200, "order_by": "name", "order_direction": "ASC"]
             if let m = marker, !m.isEmpty { body["marker"] = m }
             let bodyData = try SafeJSONSerialization.data(withJSONObject: body)
             let token = try await getToken()
             let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
-                try await self.helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/list")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: tok)
+                try await self.helper.makeAuthorizedRequest(
+                    url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/list")!,
+                    method: "POST",
+                    body: bodyData,
+                    contentType: "application/json",
+                    accessToken: tok,
+                    isIdempotent: true
+                )
             }
+            if http.statusCode == 404 { throw CloudDriveError.fileNotFound(parentFileId) }
+            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
             guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            let items = json["items"] as? [[String: Any]] ?? []
-            all.append(contentsOf: items.compactMap { item in
-                guard let name = item["name"] as? String, let fileId = item["file_id"] as? String, let type = item["type"] as? String else { return nil }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["items"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
+            all.append(contentsOf: try items.map { item in
+                guard let name = item["name"] as? String,
+                      let fileId = item["file_id"] as? String,
+                      let type = item["type"] as? String else {
+                    throw CloudDriveError.invalidResponse
+                }
                 // Aliyun returns content_hash (sha1 by default) for files;
                 // use it as the revision so re-scan catches same-size,
                 // same-mtime overwrites.
@@ -173,8 +189,18 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                     parentPath: parentFileId
                 )
             })
-            let next = json["next_marker"] as? String
-            marker = (next?.isEmpty == false) ? next : nil
+            if let next = json["next_marker"] as? String, !next.isEmpty {
+                guard CloudPaginationTokenPolicy.canAdvance(
+                    to: next,
+                    seenTokens: seenMarkers
+                ) else {
+                    throw CloudDriveError.invalidResponse
+                }
+                seenMarkers.insert(next)
+                marker = next
+            } else {
+                marker = nil
+            }
         } while marker != nil
         return all
     }

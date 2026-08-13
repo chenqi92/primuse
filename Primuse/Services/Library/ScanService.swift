@@ -1078,6 +1078,22 @@ final class ScanService {
             }
         } catch {
             guard isCurrentScan(source.id, generation: generation) else { return }
+            if Self.isMissingConnectorRootError(error) {
+                // ConnectorScanner only lets a missing-path error escape for
+                // a selected root. Clear its durable resume intent so the UI
+                // cannot loop forever on "Continue Scan" with that stale root.
+                do {
+                    try await clearCheckpointAndWait(for: source.id)
+                } catch {
+                    plog("⛔ Unable to clear missing-root checkpoint for \(source.name): \(error.localizedDescription)")
+                }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
+                Self.notifyScanFailed(sourceName: source.name, error: error)
+                return
+            }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
             if trusted {
                 guard isCurrentScan(source.id, generation: generation) else { return }
@@ -1527,6 +1543,17 @@ final class ScanService {
         }
         let digest = SHA256.hash(data: Data(components.joined(separator: "\u{1E}").utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func isMissingConnectorRootError(_ error: Error) -> Bool {
+        switch error {
+        case CloudDriveError.fileNotFound,
+             SourceError.pathNotFound,
+             SourceError.fileNotFound:
+            return true
+        default:
+            return false
+        }
     }
 
     private func resumeCheckpoint(for sourceID: String, directories: [String]) -> ScanCheckpoint? {

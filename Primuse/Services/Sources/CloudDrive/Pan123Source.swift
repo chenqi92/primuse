@@ -57,14 +57,20 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
         let parent = path.isEmpty || path == "/" ? "0" : path
         var all: [RemoteFileItem] = []
         var lastFileId: String? = nil
+        var seenLastFileIDs: Set<String> = []
         while true {
             var query = "/api/v2/file/list?parentFileId=\(parent)&limit=100"
             if let l = lastFileId { query += "&lastFileId=\(l)" }
             let json = try await authedRequest(query)
-            let data = json["data"] as? [String: Any] ?? [:]
-            let list = data["fileList"] as? [[String: Any]] ?? []
+            guard let data = json["data"] as? [String: Any],
+                  let list = data["fileList"] as? [[String: Any]],
+                  let lastValue = data["lastFileId"] else {
+                throw CloudDriveError.invalidResponse
+            }
             for item in list {
-                guard let name = item["filename"] as? String, let fid = item["fileId"] else { continue }
+                guard let name = item["filename"] as? String, let fid = item["fileId"] else {
+                    throw CloudDriveError.invalidResponse
+                }
                 if (Self.intValue(item["trashed"]) ?? 0) != 0 { continue }   // 跳过回收站文件
                 let isDir = Self.intValue(item["type"]) == 1
                 let size = (item["size"] as? Int64) ?? Int64(Self.intValue(item["size"]) ?? 0)
@@ -82,9 +88,16 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
                 ))
             }
             // 123 分页:data.lastFileId == -1 表示到底。
-            let next = Self.intValue(data["lastFileId"]) ?? -1
-            if next == -1 { break }
-            lastFileId = String(next)
+            let next = Self.idString(lastValue)
+            if next == "-1" { break }
+            guard CloudPaginationTokenPolicy.canAdvance(
+                to: next,
+                seenTokens: seenLastFileIDs
+            ) else {
+                throw CloudDriveError.invalidResponse
+            }
+            seenLastFileIDs.insert(next)
+            lastFileId = next
         }
         return all
     }
@@ -267,14 +280,57 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
             req.timeoutInterval = 60
-            let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
-            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
-            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-            let code = Self.intValue(json["code"]) ?? -1
-            if code == 401 { throw CloudDriveError.tokenExpired }
-            guard code == 0 else { throw CloudDriveError.apiError(code, json["message"] as? String ?? "") }
-            return json
+            let mayRetry = method.uppercased() == "GET"
+            var transientAttempt = 0
+            var delay: TimeInterval = 0.75
+            while true {
+                let data: Data
+                let response: URLResponse
+                do {
+                    (data, response) = try await URLSession.shared.data(for: req)
+                } catch {
+                    let nsError = error as NSError
+                    guard mayRetry,
+                          nsError.domain == NSURLErrorDomain,
+                          CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code),
+                          transientAttempt < 4 else { throw error }
+                    transientAttempt += 1
+                    try await Task.sleep(for: .seconds(delay))
+                    delay = min(delay * 2, 8)
+                    continue
+                }
+                guard let http = response as? HTTPURLResponse else {
+                    throw CloudDriveError.invalidResponse
+                }
+                if mayRetry,
+                   CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode),
+                   transientAttempt < 4 {
+                    transientAttempt += 1
+                    try await Task.sleep(for: .seconds(delay))
+                    delay = min(delay * 2, 8)
+                    continue
+                }
+                if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+                if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
+                if http.statusCode == 404 { throw CloudDriveError.fileNotFound(pathAndQuery) }
+                if http.statusCode == 429 { throw CloudDriveError.rateLimited }
+                guard (200...299).contains(http.statusCode) else {
+                    throw CloudDriveError.apiError(
+                        http.statusCode,
+                        String(data: data, encoding: .utf8) ?? ""
+                    )
+                }
+                guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let code = Self.intValue(json["code"]) else {
+                    throw CloudDriveError.invalidResponse
+                }
+                if code == 401 { throw CloudDriveError.tokenExpired }
+                if code == 429 { throw CloudDriveError.rateLimited }
+                guard code == 0 else {
+                    throw CloudDriveError.apiError(code, json["message"] as? String ?? "")
+                }
+                return json
+            }
         }
     }
 

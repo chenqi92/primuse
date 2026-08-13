@@ -921,16 +921,11 @@ final class MetadataBackfillService {
             guard sourceIDs.contains(song.sourceID) else { continue }
 
             let hasFailed = failedIDs.contains(song.id)
-                || incompleteIDs.contains(song.id)
                 || sourceIssueIDs.contains(song.id)
                 || sessionGivenUpSnapshot.contains(song.id)
             if hasFailed {
                 if Self.isBareSong(song) { failedTotal += 1 }
-                if failedIDs.contains(song.id)
-                    || sourceIssueIDs.contains(song.id)
-                    || sessionGivenUpSnapshot.contains(song.id) {
-                    continue
-                }
+                continue
             }
             guard Self.needsBackfill(
                 song,
@@ -1053,9 +1048,14 @@ final class MetadataBackfillService {
             // infinite loop, and surface the diagnostic so we can
             // pinpoint where the round-trip drops the duration.
             let snapIDs = Set(snapshot.map(\.id))
+            let hasTransientAttemptsBelowLimit = snapIDs.contains { songID in
+                guard let count = transientFailureCounts[songID] else { return false }
+                return count > 0 && count < Self.maxTransientRetries
+            }
             if MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
                 previousIDs: lastSnapshotIDs,
-                currentIDs: snapIDs
+                currentIDs: snapIDs,
+                hasTransientAttemptsBelowLimit: hasTransientAttemptsBelowLimit
             ) {
                 sessionGivenUpIDs.formUnion(snapIDs)
                 for parkedID in snapIDs {
@@ -1316,7 +1316,15 @@ final class MetadataBackfillService {
         case CloudDriveError.fileNotFound:
             return false
         case CloudDriveError.apiError(let code, _):
-            return !(400..<500).contains(code) // 4xx 永久, 5xx/其它瞬时
+            // HTTP 408/425/429 are explicitly retryable. Provider body codes
+            // may be negative, so they remain transient unless a connector
+            // first maps a documented permanent code (such as Baidu -9) to
+            // `fileNotFound`.
+            return code < 0
+                || code == 408
+                || code == 425
+                || code == 429
+                || code >= 500
         default:
             return true // 未知的读取错误 → 当瞬时, 倾向重试而非永久卡死
         }
@@ -1328,8 +1336,11 @@ final class MetadataBackfillService {
     static func isSourceUnavailableBackfillError(_ error: Error) -> Bool {
         switch error {
         case SourceError.authenticationFailed, SourceError.credentialUnavailable,
-             CloudDriveError.permissionDenied:
+             CloudDriveError.notAuthenticated, CloudDriveError.tokenExpired,
+             CloudDriveError.tokenRefreshFailed, CloudDriveError.permissionDenied:
             return true
+        case CloudDriveError.apiError(let code, _):
+            return code == 401 || code == 403
         default:
             return false
         }

@@ -63,16 +63,30 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             ]
             return components.url
         }()
+        var seenPageURLs: Set<String> = []
         while let url = nextURL {
+            guard CloudPaginationTokenPolicy.canAdvance(
+                to: url.absoluteString,
+                seenTokens: seenPageURLs
+            ) else {
+                throw CloudDriveError.invalidResponse
+            }
+            seenPageURLs.insert(url.absoluteString)
             let token = try await getToken()
             let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
                 try await self.helper.makeAuthorizedRequest(url: url, accessToken: tok)
             }
+            if http.statusCode == 404 { throw CloudDriveError.fileNotFound(path) }
+            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
             guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            let items = json["value"] as? [[String: Any]] ?? []
-            all.append(contentsOf: items.compactMap { item in
-                guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["value"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
+            all.append(contentsOf: try items.map { item in
+                guard let id = item["id"] as? String, let name = item["name"] as? String else {
+                    throw CloudDriveError.invalidResponse
+                }
                 // Microsoft Graph driveItem returns file.hashes.sha1Hash /
                 // sha256Hash / quickXorHash. Use whichever is present as
                 // the revision fingerprint; eTag is a final fallback.
@@ -101,7 +115,10 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                 )
             })
             // @odata.nextLink 是完整 URL（已包含 skiptoken）
-            if let next = json["@odata.nextLink"] as? String, let nextU = URL(string: next) {
+            if let next = json["@odata.nextLink"] as? String {
+                guard !next.isEmpty, let nextU = URL(string: next) else {
+                    throw CloudDriveError.invalidResponse
+                }
                 nextURL = nextU
             } else {
                 nextURL = nil

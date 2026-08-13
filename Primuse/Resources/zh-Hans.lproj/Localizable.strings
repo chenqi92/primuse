@@ -2513,7 +2513,7 @@
 "baidu_error_invalid_parameter" = "参数错误（errno 2）。";
 "baidu_error_token_expired" = "access_token 已过期（errno 111）。";
 "baidu_error_rate_limited" = "接口请求频次超限（errno 31034）。";
-"baidu_error_temporary_read" = "百度网盘临时读取错误（errno -9）。";
+"baidu_error_path_not_found" = "百度网盘路径已不存在（errno -9），请重新选择目录。";
 "baidu_error_invalid_directory" = "目录参数非法（errno 42213）。";
 "baidu_error_code_format" = "百度网盘错误 %d。";
 "update_policy_macos_bundle_id" = "macOS 与 iOS 分开检查；当前未配置 Mac App Store ID，因此只接受 Bundle ID 查询中 kind=mac-software 的原生 Mac 记录，忽略 iOS 1.x 版本线。";

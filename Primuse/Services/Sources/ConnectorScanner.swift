@@ -279,6 +279,7 @@ actor ConnectorScanner {
                     plog("🔍 ConnectorScanner.scan connected")
                     // Remove redundant child directories when a parent is already selected
                     let dirs = SynologyScanner.deduplicateDirectories(directories)
+                    let selectedRoots = Set(dirs)
 
                     // Single-pass scan. Total count is unknown until we finish walking
                     // the tree — UI shows scannedCount as an indeterminate counter
@@ -795,6 +796,55 @@ actor ConnectorScanner {
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
+                            let disposition = ScanDirectoryFailurePolicy.disposition(
+                                isMissingPath: Self.isMissingPathError(error),
+                                isSelectedRoot: selectedRoots.contains(directory)
+                            )
+                            switch disposition {
+                            case .failMissingRoot:
+                                // Do not write the missing root back into the
+                                // resume queue. ScanService clears the stale
+                                // checkpoint and keeps the existing library
+                                // snapshot until the user selects a new root.
+                                plog("⚠️ Selected scan root no longer exists: \(directory)")
+                                throw error
+                            case .discardMissingChild:
+                                // A child captured by an older checkpoint may
+                                // have been moved or deleted. Dropping it lets
+                                // the rest of the tree finish and prevents an
+                                // endless Continue Scan loop on the same path.
+                                // Preserve its previously-committed subtree in
+                                // this scan result: absence of a listing is not
+                                // authoritative enough to delete user library
+                                // rows. A later parent listing/change feed can
+                                // reconcile a real move or deletion safely.
+                                let preserved = Self.indexedSubtree(
+                                    rootedAt: directory,
+                                    in: identityBaseline
+                                )
+                                for (key, entry) in preserved {
+                                    syncIndex[key] = entry
+                                    encounteredSongIDs.formUnion(entry.songIDs)
+                                }
+                                plog("↷ Dropped stale child directory from scan checkpoint: \(directory)")
+                                continuation.yield(
+                                    ScanUpdate(
+                                        scannedCount: scannedCount,
+                                        addedCount: addedCount,
+                                        totalCount: totalCount,
+                                        currentFile: "",
+                                        songs: allSongs,
+                                        resumeState: SourceScanResumeState(
+                                            pendingDirectories: pendingDirectories + failedDirectories,
+                                            encounteredSongIDs: encounteredSongIDs,
+                                            index: syncIndex
+                                        )
+                                    )
+                                )
+                                continue
+                            case .retainForResume:
+                                break
+                            }
                             hadDirectoryFailure = true
                             if firstDirectoryError == nil {
                                 firstDirectoryError = error
@@ -858,6 +908,40 @@ actor ConnectorScanner {
                 task.cancel()
             }
         }
+    }
+
+    private nonisolated static func isMissingPathError(_ error: Error) -> Bool {
+        switch error {
+        case CloudDriveError.fileNotFound,
+             SourceError.pathNotFound,
+             SourceError.fileNotFound:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private nonisolated static func indexedSubtree(
+        rootedAt rootPath: String,
+        in index: [String: SourceSyncIndexedItem]
+    ) -> [String: SourceSyncIndexedItem] {
+        var knownPaths: Set<String> = [rootPath]
+        var result: [String: SourceSyncIndexedItem] = [:]
+        var madeProgress = true
+        while madeProgress {
+            madeProgress = false
+            for (key, entry) in index where result[key] == nil {
+                guard entry.path == rootPath
+                        || entry.parentPath.map(knownPaths.contains) == true else {
+                    continue
+                }
+                result[key] = entry
+                if entry.isDirectory, knownPaths.insert(entry.path).inserted {
+                    madeProgress = true
+                }
+            }
+        }
+        return result
     }
 
     private struct CueTrackDescriptor: Sendable {

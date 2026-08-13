@@ -3,6 +3,9 @@ import PrimuseKit
 
 /// Dropbox Source — API v2
 actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSourceConnector {
+    private enum DropboxAPIError: Error {
+        case invalidCursor
+    }
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Dropbox 同目录
     private let helper: CloudDriveHelper
@@ -89,35 +92,86 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
         // 首次：files/list_folder
         var json = try await postJSON(
             url: "\(Self.apiBase)/files/list_folder",
-            body: ["path": folderPath, "limit": 2000, "include_mounted_folders": true]
+            body: ["path": folderPath, "limit": 2000, "include_mounted_folders": true],
+            isIdempotent: true
         )
-        all.append(contentsOf: parseEntries(json, parentPath: folderPath))
+        all.append(contentsOf: try parseEntries(json, parentPath: folderPath))
 
         // 翻页：files/list_folder/continue 直到 has_more == false
-        while (json["has_more"] as? Bool) == true, let cursor = json["cursor"] as? String {
+        var seenCursors: Set<String> = []
+        while (json["has_more"] as? Bool) == true {
+            guard let cursor = json["cursor"] as? String,
+                  CloudPaginationTokenPolicy.canAdvance(
+                    to: cursor,
+                    seenTokens: seenCursors
+                  ) else {
+                throw CloudDriveError.invalidResponse
+            }
+            seenCursors.insert(cursor)
             json = try await postJSON(
                 url: "\(Self.apiBase)/files/list_folder/continue",
-                body: ["cursor": cursor]
+                body: ["cursor": cursor],
+                isIdempotent: true
             )
-            all.append(contentsOf: parseEntries(json, parentPath: folderPath))
+            all.append(contentsOf: try parseEntries(json, parentPath: folderPath))
         }
         return all
     }
 
-    private func postJSON(url: String, body: [String: Any]) async throws -> [String: Any] {
+    private func postJSON(
+        url: String,
+        body: [String: Any],
+        isIdempotent: Bool = false
+    ) async throws -> [String: Any] {
         let token = try await getToken()
         let bodyData = try SafeJSONSerialization.data(withJSONObject: body)
         let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
-            try await self.helper.makeAuthorizedRequest(url: URL(string: url)!, method: "POST", body: bodyData, contentType: "application/json", accessToken: tok)
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: url)!,
+                method: "POST",
+                body: bodyData,
+                contentType: "application/json",
+                accessToken: tok,
+                isIdempotent: isIdempotent
+            )
+        }
+        if http.statusCode == 409 {
+            if Self.isPathNotFoundError(data) {
+                throw CloudDriveError.fileNotFound(body["path"] as? String ?? "")
+            }
+            if Self.isInvalidCursorError(data) {
+                throw DropboxAPIError.invalidCursor
+            }
         }
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CloudDriveError.invalidResponse
+        }
+        return json
     }
 
-    private func parseEntries(_ json: [String: Any], parentPath: String?) -> [RemoteFileItem] {
-        guard let entries = json["entries"] as? [[String: Any]] else { return [] }
-        return entries.compactMap { entry in
-            guard let name = entry["name"] as? String, let pathDisplay = entry["path_display"] as? String, let tag = entry[".tag"] as? String else { return nil }
+    private nonisolated static func isPathNotFoundError(_ data: Data) -> Bool {
+        let body = String(data: data, encoding: .utf8) ?? ""
+        return body.contains("path/not_found") || body.contains("path_lookup/not_found")
+    }
+
+    private nonisolated static func isInvalidCursorError(_ data: Data) -> Bool {
+        let body = String(data: data, encoding: .utf8) ?? ""
+        return body.contains("reset")
+            || body.contains("invalid_cursor")
+            || body.contains("invalid/cursor")
+    }
+
+    private func parseEntries(_ json: [String: Any], parentPath: String?) throws -> [RemoteFileItem] {
+        guard let entries = json["entries"] as? [[String: Any]] else {
+            throw CloudDriveError.invalidResponse
+        }
+        return try entries.map { entry in
+            guard let name = entry["name"] as? String,
+                  let pathDisplay = entry["path_display"] as? String,
+                  let tag = entry[".tag"] as? String else {
+                throw CloudDriveError.invalidResponse
+            }
             // Dropbox returns `content_hash` (their custom 4MB-block hash)
             // for files. `rev` is also stable per file version. Either
             // works as the revision fingerprint.
@@ -147,7 +201,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                     "recursive": true,
                     "include_deleted": true,
                     "include_mounted_folders": true,
-                ]
+                ],
+                isIdempotent: true
             )
             guard let cursor = json["cursor"] as? String, !cursor.isEmpty else {
                 throw CloudDriveError.invalidResponse
@@ -172,17 +227,28 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             guard var cursor = cursors[root], !cursor.isEmpty else {
                 return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
             }
+            var seenCursors: Set<String> = []
             while true {
+                guard CloudPaginationTokenPolicy.canAdvance(
+                    to: cursor,
+                    seenTokens: seenCursors
+                ) else {
+                    throw CloudDriveError.invalidResponse
+                }
+                seenCursors.insert(cursor)
                 let json: [String: Any]
                 do {
                     json = try await postJSON(
                         url: "\(Self.apiBase)/files/list_folder/continue",
-                        body: ["cursor": cursor]
+                        body: ["cursor": cursor],
+                        isIdempotent: true
                     )
-                } catch CloudDriveError.apiError(let code, _) where code == 409 {
+                } catch DropboxAPIError.invalidCursor {
                     return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
                 }
-                let entries = json["entries"] as? [[String: Any]] ?? []
+                guard let entries = json["entries"] as? [[String: Any]] else {
+                    throw CloudDriveError.invalidResponse
+                }
                 for entry in entries {
                     let tag = entry[".tag"] as? String
                     let displayPath = (entry["path_display"] as? String)
@@ -221,7 +287,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                         changedParents.insert(oldParent)
                     }
                 }
-                guard let returnedCursor = json["cursor"] as? String else {
+                guard let returnedCursor = json["cursor"] as? String,
+                      !returnedCursor.isEmpty else {
                     throw CloudDriveError.invalidResponse
                 }
                 cursor = returnedCursor

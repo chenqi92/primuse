@@ -2281,9 +2281,110 @@ public enum MetadataBackfillActivityState: Equatable, Sendable {
 public enum MetadataBackfillStallPolicy {
     public static func shouldParkRepeatedSnapshot(
         previousIDs: Set<String>,
-        currentIDs: Set<String>
+        currentIDs: Set<String>,
+        hasTransientAttemptsBelowLimit: Bool = false
     ) -> Bool {
-        !previousIDs.isEmpty && previousIDs == currentIDs
+        !hasTransientAttemptsBelowLimit
+            && !previousIDs.isEmpty
+            && previousIDs == currentIDs
+    }
+}
+
+public enum BaiduAPIErrorDisposition: Equatable, Sendable {
+    case success
+    case refreshAuthentication
+    case retryAfterBackoff
+    case missingPath
+    case fail
+}
+
+/// Baidu returns application errors in an HTTP-200 JSON body. Keep the
+/// provider-specific values out of generic HTTP classification: notably,
+/// `-9` is a missing path, while only `31034` is the documented rate limit.
+public enum BaiduAPIErrorPolicy {
+    public static func disposition(errno: Int) -> BaiduAPIErrorDisposition {
+        switch errno {
+        case 0:
+            return .success
+        case -6, 111:
+            return .refreshAuthentication
+        case 31034:
+            return .retryAfterBackoff
+        case -9:
+            return .missingPath
+        default:
+            return .fail
+        }
+    }
+}
+
+public enum ScanDirectoryFailureDisposition: Equatable, Sendable {
+    case retainForResume
+    case discardMissingChild
+    case failMissingRoot
+}
+
+/// A selected root disappearing requires user action. A child remembered by
+/// an older checkpoint can simply be dropped from that queue, while unknown
+/// or transient failures remain resumable.
+public enum ScanDirectoryFailurePolicy {
+    public static func disposition(
+        isMissingPath: Bool,
+        isSelectedRoot: Bool
+    ) -> ScanDirectoryFailureDisposition {
+        guard isMissingPath else { return .retainForResume }
+        return isSelectedRoot ? .failMissingRoot : .discardMissingChild
+    }
+}
+
+public enum CloudHTTPRetryPolicy {
+    public static func shouldRetry(statusCode: Int) -> Bool {
+        statusCode == 408 || statusCode == 425 || statusCode == 429 || statusCode >= 500
+    }
+
+    public static func shouldRetry(urlErrorCode: Int) -> Bool {
+        switch URLError.Code(rawValue: urlErrorCode) {
+        case .timedOut, .cannotFindHost, .cannotConnectToHost,
+             .networkConnectionLost, .dnsLookupFailed,
+             .notConnectedToInternet, .resourceUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+public enum GoogleDriveHTTPDisposition: Equatable, Sendable {
+    case retryRateLimit
+    case permissionDenied
+    case other
+}
+
+/// Google uses HTTP 403 for both permanent permission failures and documented
+/// per-user/project quota throttling. Only the two Drive rate-limit reasons
+/// are retryable; an ordinary 403 must still stop at the source boundary.
+public enum GoogleDriveHTTPErrorPolicy {
+    public static func disposition(
+        statusCode: Int,
+        reasons: Set<String>
+    ) -> GoogleDriveHTTPDisposition {
+        guard statusCode == 403 else { return .other }
+        if !reasons.isDisjoint(with: ["rateLimitExceeded", "userRateLimitExceeded"]) {
+            return .retryRateLimit
+        }
+        return .permissionDenied
+    }
+}
+
+/// Pagination must make globally monotonic progress within a request. This
+/// rejects empty tokens and cycles such as A -> B -> A, not just a token that
+/// repeats on two adjacent pages.
+public enum CloudPaginationTokenPolicy {
+    public static func canAdvance(
+        to token: String,
+        seenTokens: Set<String>
+    ) -> Bool {
+        !token.isEmpty && !seenTokens.contains(token)
     }
 }
 

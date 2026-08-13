@@ -82,13 +82,21 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
             let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
                 try await self.helper.makeAuthorizedRequest(url: listURL, accessToken: tok)
             }
+            if http.statusCode == 404 { throw CloudDriveError.fileNotFound(cid) }
+            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
             guard http.statusCode == 200 else {
                 throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            let items = json["data"] as? [[String: Any]] ?? []
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CloudDriveError.invalidResponse
+            }
+            guard let items = json["data"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
             for item in items {
-                guard let name = item["fn"] as? String ?? item["n"] as? String else { continue }
+                guard let name = item["fn"] as? String ?? item["n"] as? String else {
+                    throw CloudDriveError.invalidResponse
+                }
                 // fc == "0" 目录 / "1" 文件(以官方文档为准)。
                 let isDir = (item["fc"] as? String == "0") || (item["fc"] as? Int == 0)
                 let size = (item["fs"] as? Int64) ?? Int64(item["fs"] as? String ?? "0") ?? 0

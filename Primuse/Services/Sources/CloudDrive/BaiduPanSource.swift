@@ -383,10 +383,14 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 .init(name: "limit", value: String(Self.pageSize)),
             ]
         )
-        guard let list = json["list"] as? [[String: Any]] else { return [] }
-        return list.compactMap { item in
+        guard let list = json["list"] as? [[String: Any]] else {
+            throw CloudDriveError.invalidResponse
+        }
+        return try list.map { item in
             guard let p = item["path"] as? String,
-                  let name = item["server_filename"] as? String else { return nil }
+                  let name = item["server_filename"] as? String else {
+                throw CloudDriveError.invalidResponse
+            }
             let isDir = (item["isdir"] as? Int ?? 0) == 1
             let size = item["size"] as? Int64 ?? 0
             // Baidu's list API returns md5 for files. Use it as the
@@ -433,7 +437,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             let data = try await rangeRequestUsingCachedCdnURL(path: path, offset: offset, length: length)
             clearRetryCooldown(for: path)
             return data
-        } catch CloudDriveError.apiError(let code, _) where code == 401 || code == 403 || code == 410 {
+        } catch CloudDriveError.apiError(let code, _) where code == 401 || code == 403 || code == 404 || code == 410 {
             // Re-check: another suspended task may have set the cooldown
             // while we were in flight. If so, fail fast — don't burn a
             // second HTTP request on a known-bad path.
@@ -659,7 +663,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                         .init(name: "dlink", value: "1"),
                     ]
                 )
-                guard let metas = metaJson["list"] as? [[String: Any]] else { continue }
+                guard let metas = metaJson["list"] as? [[String: Any]] else {
+                    throw CloudDriveError.invalidResponse
+                }
                 for meta in metas {
                     guard let fsId = meta["fs_id"] as? Int64,
                           let dlink = meta["dlink"] as? String,
@@ -688,10 +694,24 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         if let cached = dlinkCache[path], cached.expiresAt > Date() {
             return cached.url
         }
+        do {
+            return try await resolveDlink(for: path, forceRefreshDirectory: false)
+        } catch CloudDriveError.fileNotFound {
+            // The five-minute sibling listing cache can outlive a remote
+            // rename/move. Refresh the parent and resolve the current fs_id
+            // once before declaring the persisted song path permanently stale.
+            return try await resolveDlink(for: path, forceRefreshDirectory: true)
+        }
+    }
+
+    private func resolveDlink(
+        for path: String,
+        forceRefreshDirectory: Bool
+    ) async throws -> String {
         let dir = (path as NSString).deletingLastPathComponent
         let name = (path as NSString).lastPathComponent
 
-        let entries = try await listEntries(in: dir)
+        let entries = try await listEntries(in: dir, forceRefresh: forceRefreshDirectory)
         guard let entry = entries.first(where: { ($0["server_filename"] as? String) == name }),
               let fsId = entry["fs_id"] as? Int64 else {
             throw CloudDriveError.fileNotFound(path)
@@ -705,8 +725,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 .init(name: "dlink", value: "1"),
             ]
         )
-        guard let metas = metaJson["list"] as? [[String: Any]],
-              let dlink = metas.first?["dlink"] as? String else {
+        guard let metas = metaJson["list"] as? [[String: Any]] else {
+            throw CloudDriveError.invalidResponse
+        }
+        guard let dlink = metas.first?["dlink"] as? String else {
             throw CloudDriveError.fileNotFound(path)
         }
         dlinkCache[path] = (dlink, Date().addingTimeInterval(Self.dlinkTTL))
@@ -716,10 +738,15 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
 
     /// Returns the full paginated entries of a directory, cached briefly
     /// so concurrent dlink lookups for sibling songs share one list call.
-    private func listEntries(in dir: String) async throws -> [[String: Any]] {
-        if let cached = dirListingCache[dir], cached.expiresAt > Date() {
+    private func listEntries(
+        in dir: String,
+        forceRefresh: Bool = false
+    ) async throws -> [[String: Any]] {
+        if !forceRefresh,
+           let cached = dirListingCache[dir], cached.expiresAt > Date() {
             return cached.entries
         }
+        if forceRefresh { dirListingCache.removeValue(forKey: dir) }
         var all: [[String: Any]] = []
         var start = 0
         while true {
@@ -732,7 +759,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                     .init(name: "limit", value: String(Self.pageSize)),
                 ]
             )
-            let entries = json["list"] as? [[String: Any]] ?? []
+            guard let entries = json["list"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
             all.append(contentsOf: entries)
             if entries.count < Self.pageSize { break }
             start += Self.pageSize
@@ -748,8 +777,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         queryItems: [URLQueryItem]
     ) async throws -> [String: Any] {
         var attempt = 0
+        var transportAttempt = 0
         var didRefreshRejectedToken = false
         var backoff: TimeInterval = 0.5
+        var transportBackoff: TimeInterval = 0.75
         while true {
             try await throttle()
             let token = try await getToken()
@@ -757,7 +788,18 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             components.queryItems = queryItems + [.init(name: "access_token", value: token)]
             guard let url = components.url else { throw CloudDriveError.invalidResponse }
 
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await URLSession.shared.data(from: url)
+            } catch {
+                guard Self.isRetryableTransportError(error),
+                      transportAttempt < Self.transportMaxRetries else { throw error }
+                transportAttempt += 1
+                try await Task.sleep(for: .seconds(transportBackoff))
+                transportBackoff = min(transportBackoff * 2, 6)
+                continue
+            }
             if let http = response as? HTTPURLResponse,
                (http.statusCode == 401 || http.statusCode == 403),
                !didRefreshRejectedToken {
@@ -768,34 +810,54 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 plog("☁️ Baidu HTTP \(http.statusCode) url=\(base) body=\(body.prefix(500))")
+                if (http.statusCode == 408 || http.statusCode == 429 || http.statusCode >= 500),
+                   transportAttempt < Self.transportMaxRetries {
+                    transportAttempt += 1
+                    try await Task.sleep(for: .seconds(transportBackoff))
+                    transportBackoff = min(transportBackoff * 2, 6)
+                    continue
+                }
                 throw CloudDriveError.apiError(http.statusCode, body)
             }
-            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-            let errno = (json["errno"] as? Int) ?? 0
-            if errno == 0 {
+            guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let errno = (json["errno"] as? NSNumber)?.intValue else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                plog("☁️ Baidu invalid response url=\(base) body=\(body.prefix(500))")
+                throw CloudDriveError.invalidResponse
+            }
+            let disposition = BaiduAPIErrorPolicy.disposition(errno: errno)
+            if disposition == .success {
                 return json
             }
 
-            if (errno == 111 || errno == -6), !didRefreshRejectedToken {
+            if disposition == .refreshAuthentication, !didRefreshRejectedToken {
                 _ = try await helper.tokenManager.refreshDeduped(.ifMatches(token), refresh: refreshToken)
                 didRefreshRejectedToken = true
                 continue
+            }
+            if disposition == .refreshAuthentication {
+                // A refreshed token that is still rejected is a source-level
+                // authentication/scope problem, not a per-song transient read.
+                throw CloudDriveError.tokenExpired
             }
 
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
             plog("☁️ Baidu errno=\(errno) attempt=\(attempt) url=\(base) body=\(bodyPreview)")
 
-            // 31034 is the documented frequency limit. Large directory walks
-            // also intermittently return -9 after several successful pages;
-            // retrying a GET is safe and prevents one transient read from
-            // cancelling the rest of that selected directory tree.
-            if (errno == 31034 || errno == -9), attempt < Self.rateLimitMaxRetries {
-                plog("☁️ Baidu transient read errno=\(errno), backoff \(backoff)s and retry")
+            if disposition == .retryAfterBackoff, attempt < Self.rateLimitMaxRetries {
+                plog("☁️ Baidu rate limited errno=\(errno), backoff \(backoff)s and retry")
                 let nanoseconds = (backoff * 1_000_000_000).finiteUInt64(or: 1_000_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
                 backoff *= 2
                 attempt += 1
                 continue
+            }
+
+            if disposition == .missingPath {
+                let requestedPath = queryItems.first(where: { $0.name == "dir" })?.value
+                    ?? queryItems.first(where: { $0.name == "path" })?.value
+                    ?? ""
+                throw CloudDriveError.fileNotFound(requestedPath)
             }
 
             let msg = (json["errmsg"] as? String) ?? humanReadable(errno: errno)
@@ -870,22 +932,34 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 plog("☁️ Baidu invalid filemanager response url=\(base) body=\(body.prefix(500))")
                 throw CloudDriveError.invalidResponse
             }
-            if errno == 0 { return data }
+            let disposition = BaiduAPIErrorPolicy.disposition(errno: errno)
+            if disposition == .success { return data }
 
-            if (errno == 111 || errno == -6), !didRefreshRejectedToken {
+            if disposition == .refreshAuthentication, !didRefreshRejectedToken {
                 _ = try await helper.tokenManager.refreshDeduped(.ifMatches(token), refresh: refreshToken)
                 didRefreshRejectedToken = true
                 continue
             }
+            if disposition == .refreshAuthentication {
+                throw CloudDriveError.tokenExpired
+            }
 
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
             plog("☁️ Baidu errno=\(errno) attempt=\(rateLimitAttempt) url=\(base) body=\(bodyPreview)")
-            if errno == 31034, rateLimitAttempt < Self.rateLimitMaxRetries {
+            if disposition == .retryAfterBackoff,
+               rateLimitAttempt < Self.rateLimitMaxRetries {
                 let nanoseconds = (rateLimitBackoff * 1_000_000_000).finiteUInt64(or: 1_000_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
                 rateLimitBackoff *= 2
                 rateLimitAttempt += 1
                 continue
+            }
+
+            if disposition == .missingPath {
+                let requestedPath = formItems.first(where: { $0.name == "filelist" })?.value
+                    ?? queryItems.first(where: { $0.name == "path" })?.value
+                    ?? ""
+                throw CloudDriveError.fileNotFound(requestedPath)
             }
 
             let message = (json["errmsg"] as? String) ?? humanReadable(errno: errno)
@@ -897,18 +971,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         if error is CancellationError { return false }
         let nsError = error as NSError
         guard nsError.domain == NSURLErrorDomain else { return false }
-        switch URLError.Code(rawValue: nsError.code) {
-        case .timedOut,
-             .cannotFindHost,
-             .cannotConnectToHost,
-             .networkConnectionLost,
-             .dnsLookupFailed,
-             .notConnectedToInternet,
-             .resourceUnavailable:
-            return true
-        default:
-            return false
-        }
+        return CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code)
     }
 
     private func throttle() async throws {
@@ -929,7 +992,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         case 2: return String(localized: "baidu_error_invalid_parameter")
         case 111: return String(localized: "baidu_error_token_expired")
         case 31034: return String(localized: "baidu_error_rate_limited")
-        case -9: return String(localized: "baidu_error_temporary_read")
+        case -9: return String(localized: "baidu_error_path_not_found")
         case 42213: return String(localized: "baidu_error_invalid_directory")
         default: return String(format: String(localized: "baidu_error_code_format"), errno)
         }

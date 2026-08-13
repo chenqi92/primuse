@@ -2237,7 +2237,7 @@
 "baidu_error_invalid_parameter" = "Invalid parameter (errno 2).";
 "baidu_error_token_expired" = "The access_token expired (errno 111).";
 "baidu_error_rate_limited" = "Too many API requests (errno 31034).";
-"baidu_error_temporary_read" = "Baidu Netdisk encountered a temporary read error (errno -9).";
+"baidu_error_path_not_found" = "The Baidu Netdisk path no longer exists (errno -9). Select the folder again.";
 "baidu_error_invalid_directory" = "The directory parameter is invalid (errno 42213).";
 "baidu_error_code_format" = "Baidu Netdisk error %d.";
 "update_policy_macos_bundle_id" = "macOS and iOS updates are checked separately. No Mac App Store ID is configured, so only native Mac records with kind=mac-software from the Bundle ID lookup are accepted; the iOS 1.x release line is ignored.";

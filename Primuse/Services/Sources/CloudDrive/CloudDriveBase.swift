@@ -338,7 +338,8 @@ struct CloudDriveHelper: Sendable {
 
     func makeAuthorizedRequest(
         url: URL, method: String = "GET", body: Data? = nil,
-        contentType: String? = nil, accessToken: String
+        contentType: String? = nil, accessToken: String,
+        isIdempotent: Bool? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -350,13 +351,58 @@ struct CloudDriveHelper: Sendable {
         request.httpBody = body
         request.timeoutInterval = 60
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw CloudDriveError.invalidResponse
+        let mayRetry = isIdempotent ?? ["GET", "HEAD"].contains(method.uppercased())
+        var attempt = 0
+        var delay: TimeInterval = 0.75
+        while true {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw CloudDriveError.invalidResponse
+                }
+                if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+                if mayRetry,
+                   CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode),
+                   attempt < 4 {
+                    attempt += 1
+                    let retryAfter = Self.retryAfterDelay(from: http)
+                    try await Task.sleep(for: .seconds(retryAfter ?? delay))
+                    delay = min(delay * 2, 8)
+                    continue
+                }
+                if http.statusCode == 429 { throw CloudDriveError.rateLimited }
+                return (data, http)
+            } catch let error as CloudDriveError {
+                throw error
+            } catch {
+                guard mayRetry,
+                      Self.isRetryableTransportError(error),
+                      attempt < 4 else { throw error }
+                attempt += 1
+                try await Task.sleep(for: .seconds(delay))
+                delay = min(delay * 2, 8)
+            }
         }
-        if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
-        if http.statusCode == 429 { throw CloudDriveError.rateLimited }
-        return (data, http)
+    }
+
+    private static func retryAfterDelay(from response: HTTPURLResponse) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
+        if let seconds = TimeInterval(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return min(max(seconds, 0), 60)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
+        guard let date = formatter.date(from: raw) else { return nil }
+        return min(max(date.timeIntervalSinceNow, 0), 60)
+    }
+
+    private static func isRetryableTransportError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        return CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code)
     }
 
     // MARK: - Cache

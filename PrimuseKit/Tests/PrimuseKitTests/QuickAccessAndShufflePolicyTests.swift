@@ -311,4 +311,81 @@ struct MetadataBackfillStallPolicyTests {
             currentIDs: ["sftp-1"]
         ))
     }
+
+    @Test("Transient retries reach their per-song limit before stall parking")
+    func transientRetriesAreNotParkedEarly() {
+        #expect(!MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
+            previousIDs: ["baidu-1"],
+            currentIDs: ["baidu-1"],
+            hasTransientAttemptsBelowLimit: true
+        ))
+    }
+}
+
+@Suite("Cloud scan error classification")
+struct CloudScanErrorClassificationTests {
+    @Test("Baidu body error codes keep provider semantics")
+    func baiduErrorCodes() {
+        #expect(BaiduAPIErrorPolicy.disposition(errno: -9) == .missingPath)
+        #expect(BaiduAPIErrorPolicy.disposition(errno: -6) == .refreshAuthentication)
+        #expect(BaiduAPIErrorPolicy.disposition(errno: 111) == .refreshAuthentication)
+        #expect(BaiduAPIErrorPolicy.disposition(errno: 31034) == .retryAfterBackoff)
+        #expect(BaiduAPIErrorPolicy.disposition(errno: -1) == .fail)
+    }
+
+    @Test("Missing child checkpoints are discarded but missing roots fail")
+    func missingDirectoryHandling() {
+        #expect(ScanDirectoryFailurePolicy.disposition(
+            isMissingPath: true,
+            isSelectedRoot: false
+        ) == .discardMissingChild)
+        #expect(ScanDirectoryFailurePolicy.disposition(
+            isMissingPath: true,
+            isSelectedRoot: true
+        ) == .failMissingRoot)
+        #expect(ScanDirectoryFailurePolicy.disposition(
+            isMissingPath: false,
+            isSelectedRoot: false
+        ) == .retainForResume)
+    }
+
+    @Test("Only transient HTTP statuses use bounded request retry")
+    func cloudHTTPRetryStatuses() {
+        #expect(CloudHTTPRetryPolicy.shouldRetry(statusCode: 408))
+        #expect(CloudHTTPRetryPolicy.shouldRetry(statusCode: 425))
+        #expect(CloudHTTPRetryPolicy.shouldRetry(statusCode: 429))
+        #expect(CloudHTTPRetryPolicy.shouldRetry(statusCode: 503))
+        #expect(!CloudHTTPRetryPolicy.shouldRetry(statusCode: 401))
+        #expect(!CloudHTTPRetryPolicy.shouldRetry(statusCode: 403))
+        #expect(!CloudHTTPRetryPolicy.shouldRetry(statusCode: 404))
+        #expect(CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: URLError.timedOut.rawValue))
+        #expect(CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: URLError.networkConnectionLost.rawValue))
+        #expect(!CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: URLError.cancelled.rawValue))
+    }
+
+    @Test("Google quota reasons remain retryable while ordinary 403 is permanent")
+    func googleDrive403Reasons() {
+        #expect(GoogleDriveHTTPErrorPolicy.disposition(
+            statusCode: 403,
+            reasons: ["rateLimitExceeded"]
+        ) == .retryRateLimit)
+        #expect(GoogleDriveHTTPErrorPolicy.disposition(
+            statusCode: 403,
+            reasons: ["userRateLimitExceeded"]
+        ) == .retryRateLimit)
+        #expect(GoogleDriveHTTPErrorPolicy.disposition(
+            statusCode: 403,
+            reasons: ["insufficientFilePermissions"]
+        ) == .permissionDenied)
+    }
+
+    @Test("Pagination rejects empty and non-adjacent repeated tokens")
+    func paginationRequiresGlobalProgress() {
+        #expect(!CloudPaginationTokenPolicy.canAdvance(to: "", seenTokens: []))
+        #expect(CloudPaginationTokenPolicy.canAdvance(to: "page-b", seenTokens: ["page-a"]))
+        #expect(!CloudPaginationTokenPolicy.canAdvance(
+            to: "page-a",
+            seenTokens: ["page-a", "page-b"]
+        ))
+    }
 }

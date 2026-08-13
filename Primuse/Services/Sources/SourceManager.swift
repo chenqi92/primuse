@@ -4898,6 +4898,7 @@ private extension SourceManager {
     nonisolated static func isMissingFileError(_ error: Error) -> Bool {
         if case SourceError.fileNotFound = error { return true }
         if case SourceError.pathNotFound = error { return true }
+        if case CloudDriveError.fileNotFound = error { return true }
 
         let ns = error as NSError
         if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) {
