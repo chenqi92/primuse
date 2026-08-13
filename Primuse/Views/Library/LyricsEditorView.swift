@@ -2061,10 +2061,6 @@ struct LyricsEditorView: View {
 
     // MARK: - 提交
 
-    private var hasEdits: Bool {
-        !document.hasSameContent(as: originalDocument)
-    }
-
     /// 部分打轴的文档存下去会掉行 ── `LyricsContentParser.parseText` 一旦发现
     /// 存在带时间戳的行,就只返回那些行,未打轴的会被静默丢弃。所以这里拦一道。
     private var willDropUnstampedLines: Bool {
@@ -2080,12 +2076,19 @@ struct LyricsEditorView: View {
     }
 
     private func commit() {
-        let committedText = document.committedText(
+        let preparedDocument = document.preparedForTimingCommit(
+            eligibleIndices: timingEligibleIndices
+        )
+        let committedText = preparedDocument.committedText(
             preserving: text,
             comparedTo: originalDocument
         )
         // 没改就不回写,免得规范化后的文本让标签编辑器误判有改动。
-        if hasEdits { text = committedText }
+        let preparedHasEdits = !preparedDocument.hasSameContent(as: originalDocument)
+        if preparedHasEdits {
+            document = preparedDocument
+            text = committedText
+        }
 
         // 独立入口(LyricsEditorSheet)要在关闭前先把歌词落盘，落盘可能失败、
         // 也可能需要二次确认，所以由它决定何时 dismiss。嵌在标签编辑器里时

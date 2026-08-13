@@ -144,9 +144,25 @@ enum LyricsWriteback {
         } else {
             let validation = LyricsContentParser.validateEditableText(content)
             guard validation.isValid else {
+                let errorMessage: String
+                if validation.lines.isEmpty {
+                    errorMessage = String(localized: "tag_editor_lyrics_invalid_error")
+                } else {
+                    let lineNumbers = validation.issues
+                        .map(\.lineNumber)
+                        .reduce(into: [Int]()) { result, lineNumber in
+                            if result.last != lineNumber { result.append(lineNumber) }
+                        }
+                        .map(String.init)
+                        .joined(separator: ", ")
+                    errorMessage = String(
+                        format: String(localized: "tag_editor_lyrics_invalid_lines_format"),
+                        lineNumbers
+                    )
+                }
                 return SaveOutcome(
                     updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_invalid_error"),
+                    errorMessage: errorMessage,
                     persistence: persistence
                 )
             }

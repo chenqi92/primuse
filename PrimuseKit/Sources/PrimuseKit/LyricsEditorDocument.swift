@@ -258,6 +258,39 @@ public struct LyricsEditorDocument: Hashable, Sendable {
         }
     }
 
+    /// 为打轴完成后的保存准备一份可提交文档。
+    ///
+    /// 标题、歌手和制作信息不会进入打轴游标，但刮削得到的 LRC 往往仍给这些行
+    /// 带了时间戳。用户重新给所有唱词打轴后，这些被跳过的旧时间戳可能夹在新
+    /// 时间轴之间，导致整篇校验报“时间顺序错误”，即使所有真正的歌词行都已按
+    /// 顺序完成。只有在歌词行本身全部有时间且顺序正确、乱序明确来自被跳过行时，
+    /// 才把已打轴行按时间排序；用户自己打乱的歌词仍交给编辑器提示，不悄悄修正。
+    public func preparedForTimingCommit(eligibleIndices: [Int]) -> LyricsEditorDocument {
+        guard !isMonotonic else { return self }
+
+        let eligible = Array(Set(eligibleIndices.filter(lines.indices.contains))).sorted()
+        guard !eligible.isEmpty,
+              eligible.allSatisfy({ lines[$0].timestamp != nil }),
+              Self.timestampsAreMonotonic(eligible.compactMap { lines[$0].timestamp }) else {
+            return self
+        }
+
+        let eligibleSet = Set(eligible)
+        guard lines.indices.contains(where: {
+            !eligibleSet.contains($0) && lines[$0].timestamp != nil
+        }) else {
+            return self
+        }
+
+        var prepared = self
+        prepared.sortByTimestamp()
+        return prepared
+    }
+
+    private static func timestampsAreMonotonic(_ timestamps: [TimeInterval]) -> Bool {
+        zip(timestamps, timestamps.dropFirst()).allSatisfy { $0 <= $1 }
+    }
+
     // MARK: - 增删改
 
     public mutating func updateText(_ text: String, at index: Int) {

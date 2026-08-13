@@ -253,6 +253,84 @@ struct LyricsEditorDocumentTests {
         #expect(document.lines[1].timestamp == nil)
     }
 
+    @Test("Timing commit repairs ordering caused by skipped scraped information lines")
+    func timingCommitRepairsSkippedInformationLines() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:12.000]愿得一人心 - 李行亮
+        [00:02.000]只愿得一人心
+        [00:14.000]作词：胡小健
+        [00:04.000]白首不分离
+        """)
+
+        let prepared = document.preparedForTimingCommit(eligibleIndices: [1, 3])
+        let validation = LyricsContentParser.validateEditableText(prepared.serialized())
+
+        #expect(!document.isMonotonic)
+        #expect(prepared.isMonotonic)
+        #expect(prepared.lines.map(\.text) == [
+            "只愿得一人心",
+            "白首不分离",
+            "愿得一人心 - 李行亮",
+            "作词：胡小健",
+        ])
+        #expect(validation.isValid)
+        #expect(validation.lines.count == 4)
+    }
+
+    @Test("Timing commit repairs the 82 of 82 timing workflow with two skipped information lines")
+    func timingCommitRepairsEightyTwoTimedLines() {
+        var lines = (0..<84).map { index in
+            EditableLyricLine(
+                timestamp: TimeInterval(index + 1),
+                text: "第\(index + 1)行"
+            )
+        }
+        lines[0] = EditableLyricLine(timestamp: 70, text: "愿得一人心 - 李行亮")
+        lines[43] = EditableLyricLine(timestamp: 10, text: "作词：胡小健")
+        let eligibleIndices = lines.indices.filter { $0 != 0 && $0 != 43 }
+        for (offset, index) in eligibleIndices.enumerated() {
+            lines[index].timestamp = TimeInterval(offset + 1)
+        }
+        let document = LyricsEditorDocument(lines: lines)
+
+        let prepared = document.preparedForTimingCommit(eligibleIndices: eligibleIndices)
+        let validation = LyricsContentParser.validateEditableText(prepared.serialized())
+
+        #expect(eligibleIndices.count == 82)
+        #expect(!document.isMonotonic)
+        #expect(prepared.isMonotonic)
+        #expect(validation.isValid)
+        #expect(validation.lines.count == 84)
+        #expect(Set(prepared.lines.map(\.text)) == Set(document.lines.map(\.text)))
+    }
+
+    @Test("Timing commit does not hide an ordering mistake in lyric lines")
+    func timingCommitKeepsLyricOrderingMistakesVisible() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:01.000]愿得一人心 - 李行亮
+        [00:12.000]只愿得一人心
+        [00:04.000]白首不分离
+        """)
+
+        let prepared = document.preparedForTimingCommit(eligibleIndices: [1, 2])
+
+        #expect(prepared == document)
+        #expect(!prepared.isMonotonic)
+        #expect(!LyricsContentParser.validateEditableText(prepared.serialized()).isValid)
+    }
+
+    @Test("Timing commit keeps a valid scraped timeline unchanged")
+    func timingCommitKeepsValidTimeline() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:01.000]愿得一人心 - 李行亮
+        [00:12.000]只愿得一人心
+        [00:14.000]作词：胡小健
+        [00:18.000]白首不分离
+        """)
+
+        #expect(document.preparedForTimingCommit(eligibleIndices: [1, 3]) == document)
+    }
+
     // MARK: - 高亮
 
     @Test("Active line tracks playback time")
