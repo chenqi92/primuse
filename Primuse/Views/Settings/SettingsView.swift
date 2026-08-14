@@ -93,6 +93,12 @@ struct SettingsView: View {
                 Section("appearance") {
                     #if os(iOS)
                     NavigationLink {
+                        VisualAppearanceSettingsView()
+                    } label: {
+                        Label("visual_appearance_title", systemImage: "sparkles.rectangle.stack")
+                    }
+
+                    NavigationLink {
                         ThemeColorSettingsView()
                     } label: {
                         Label("theme_color_title", systemImage: "paintpalette")
@@ -238,6 +244,9 @@ struct SettingsView: View {
                 MetadataScrapingView()
             }
         }
+        #if os(iOS)
+        .primuseScreenSkin()
+        #endif
     }
 }
 
@@ -272,6 +281,163 @@ private struct LibraryDisplaySettingsView: View {
         #endif
     }
 }
+
+#if os(iOS)
+private struct VisualAppearanceSettingsView: View {
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var skinRawValue = PrimuseAppSkin.system.rawValue
+    @AppStorage(PrimusePlayerStageStyle.storageKey)
+    private var playerStageRawValue = PrimusePlayerStageStyle.followsSkin.rawValue
+
+    private var skin: PrimuseAppSkin {
+        get { PrimuseAppSkin(rawValue: skinRawValue) ?? .system }
+        nonmutating set { skinRawValue = newValue.rawValue }
+    }
+
+    private var playerStage: PrimusePlayerStageStyle {
+        get { PrimusePlayerStageStyle(rawValue: playerStageRawValue) ?? .followsSkin }
+        nonmutating set { playerStageRawValue = newValue.rawValue }
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(PrimuseAppSkin.allCases) { option in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.24)) {
+                            skin = option
+                        }
+                    } label: {
+                        HStack(spacing: 14) {
+                            skinPreview(option)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(option.titleKey)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(option.descriptionKey)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            Image(systemName: skin == option ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(skin == option ? Color.accentColor : Color.secondary.opacity(0.55))
+                        }
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(skin == option ? .isSelected : [])
+                }
+            } header: {
+                Text("appearance_skin_section")
+            } footer: {
+                Text("appearance_skin_footer")
+            }
+
+            Section {
+                ForEach(PrimusePlayerStageStyle.allCases) { option in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            playerStage = option
+                        }
+                    } label: {
+                        HStack(spacing: 13) {
+                            Image(systemName: option.icon)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(playerStage == option
+                                    ? PrimuseNocturnePalette.violet
+                                    : .secondary)
+                                .frame(width: 38, height: 38)
+                                .background(
+                                    (playerStage == option
+                                        ? PrimuseNocturnePalette.violet.opacity(0.15)
+                                        : Color.secondary.opacity(0.08)),
+                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                )
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(option.titleKey)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(option.descriptionKey)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            if playerStage == option {
+                                Image(systemName: "checkmark")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(PrimuseNocturnePalette.violet)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(playerStage == option ? .isSelected : [])
+                }
+            } header: {
+                Text("player_stage_section")
+            } footer: {
+                Text("player_stage_footer")
+            }
+        }
+        .navigationTitle("visual_appearance_title")
+        .navigationBarTitleDisplayMode(.inline)
+        .primuseScreenSkin()
+    }
+
+    @ViewBuilder
+    private func skinPreview(_ option: PrimuseAppSkin) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            if option == .nocturne {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.92, green: 0.55, blue: 0.40),
+                        Color(red: 0.23, green: 0.16, blue: 0.26),
+                        PrimuseNocturnePalette.canvas,
+                    ],
+                    startPoint: .topTrailing,
+                    endPoint: .bottomLeading
+                )
+            } else {
+                LinearGradient(
+                    colors: [Color(.systemBackground), Color(.secondarySystemBackground)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Capsule()
+                    .fill(option == .nocturne ? PrimuseNocturnePalette.violet : Color.accentColor)
+                    .frame(width: 24, height: 3)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(option == .nocturne ? Color.white.opacity(0.9) : Color.primary.opacity(0.75))
+                    .frame(width: 34, height: 4)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(option == .nocturne ? Color.white.opacity(0.35) : Color.secondary.opacity(0.45))
+                    .frame(width: 24, height: 3)
+            }
+            .padding(8)
+        }
+        .frame(width: 66, height: 54)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+        }
+    }
+}
+#endif
 
 /// Settings row that lets the user manually poll the App Store. Three
 /// visual states:

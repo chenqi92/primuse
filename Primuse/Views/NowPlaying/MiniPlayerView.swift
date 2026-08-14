@@ -5,20 +5,113 @@ import UIKit
 
 struct MiniPlayerView: View {
     var onTap: (() -> Void)? = nil
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
+
+    @ViewBuilder
+    var body: some View {
+        if PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne {
+            NocturneMiniPlayerContent(
+                onTap: { onTap?() },
+                isInline: false,
+                showsNextButton: true
+            )
+        } else {
+            HStack(spacing: 0) {
+                MiniPlayerSwipeContent(
+                    onTap: { onTap?() },
+                    artworkSize: 40,
+                    artworkCornerRadius: 8,
+                    titleFont: .caption
+                )
+
+                MiniPlayerTransportControls(showsNextButton: true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+    }
+}
+
+struct NocturneMiniPlayerContent: View {
+    let onTap: () -> Void
+    let isInline: Bool
+    let showsNextButton: Bool
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(AudioVisualizerService.self) private var visualizer
+
+    private var stripColor: Color {
+        PrimuseNocturnePalette.stripColor(for: player.currentSong?.id ?? "primuse")
+    }
+
+    private var liveLevels: [Float] {
+        visualizer.bandLevels
+    }
 
     var body: some View {
-        HStack(spacing: 0) {
-            MiniPlayerSwipeContent(
-                onTap: { onTap?() },
-                artworkSize: 40,
-                artworkCornerRadius: 8,
-                titleFont: .caption
-            )
+        HStack(spacing: isInline ? 9 : 12) {
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.9), stripColor, PrimuseNocturnePalette.peach],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 4, height: isInline ? 28 : 42)
 
-            MiniPlayerTransportControls(showsNextButton: true)
+            VStack(alignment: .leading, spacing: isInline ? 1 : 3) {
+                Text(player.currentSong?.title ?? "")
+                    .font(isInline ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
+                    .foregroundStyle(PrimuseNocturnePalette.ink)
+                    .lineLimit(1)
+
+                if !isInline {
+                    Text(player.currentSong?.artistName ?? "")
+                        .font(.caption2.monospaced())
+                        .tracking(0.8)
+                        .foregroundStyle(PrimuseNocturnePalette.muted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !isInline {
+                VisualizerBarsView(
+                    levels: liveLevels,
+                    barColor: PrimuseNocturnePalette.violet.opacity(0.8),
+                    barWidth: 2,
+                    spacing: 2,
+                    maxHeight: 24
+                )
+                .frame(width: 46)
+                .opacity(player.isPlaybackActive ? 1 : 0.42)
+                .accessibilityHidden(true)
+            }
+
+            MiniPlayerTransportControls(
+                isInline: true,
+                showsNextButton: showsNextButton
+            )
+            .foregroundStyle(PrimuseNocturnePalette.ink)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, isInline ? 10 : 14)
+        .padding(.vertical, isInline ? 3 : 7)
+        .background(PrimuseNocturnePalette.canvas.opacity(0.96))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 0.5)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(String(localized: "now_playing")): \(player.currentSong?.title ?? "")")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            onTap()
+        }
     }
 }
 

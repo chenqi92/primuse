@@ -194,7 +194,14 @@ struct HomeView: View {
     /// 都手动切一次。
     @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
+    #if os(iOS)
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
+    #endif
     @State private var showRadioBatchAdd = false
+    #if os(iOS)
+    @State private var showSourcesView = false
+    #endif
 
     private var homeMode: HomeMode {
         guard showRadioOnHome else { return .music }
@@ -202,6 +209,18 @@ struct HomeView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        if PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne {
+            nocturneHomeRoot
+        } else {
+            standardHomeRoot
+        }
+        #else
+        standardHomeRoot
+        #endif
+    }
+
+    private var standardHomeRoot: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
@@ -330,6 +349,437 @@ struct HomeView: View {
             #endif
         }
     }
+
+    #if os(iOS)
+    private var nocturneHomeRoot: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    if homeMode == .radio {
+                        radioModeContent
+                            .padding(.top, 10)
+                    } else if !hasPreparedInitialSnapshot {
+                        initialLoadingView
+                            .padding(.top, 24)
+                    } else if hasContent {
+                        nocturneMusicHome
+                    } else {
+                        nocturneFreshHome
+                    }
+                }
+                .padding(.bottom, 118)
+            }
+            .scrollIndicators(.hidden)
+            .background(PrimuseNocturneBackdrop(accent: themeAccentForNocturneHome))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("PRIMUSE")
+                        .font(.caption2.weight(.semibold).monospaced())
+                        .tracking(4)
+                        .foregroundStyle(PrimuseNocturnePalette.muted)
+                }
+
+                if showRadioOnHome {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        modeToggleButton
+                    }
+                }
+            }
+            .sheet(isPresented: $showRadioBatchAdd) {
+                RadioBatchAddView()
+            }
+            .sheet(isPresented: $showSourcesView) {
+                NavigationStack {
+                    SourcesView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("done") { showSourcesView = false }
+                            }
+                        }
+                }
+                .preferredColorScheme(.dark)
+            }
+            .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
+            .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+            .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
+        }
+        .task {
+            await refreshHomeSnapshotAfterPresentationIfNeeded()
+        }
+        .background {
+            HomeLibraryRevisionObserver(
+                onLibraryRevisionChange: scheduleDebouncedHomeRefresh,
+                onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
+            refreshHomeSnapshot(force: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+            tintProvider.invalidateArtwork(from: note)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+            tintProvider.invalidateArtwork(from: note)
+        }
+        .onChange(of: quickAccessRawValue) { _, _ in
+            refreshHomeSnapshot(force: true)
+        }
+        .onChange(of: updateChecker.availableUpdate) { _, newValue in
+            showUpdateSheet = newValue != nil
+        }
+        .onAppear {
+            if !showRadioOnHome {
+                homeModeRawValue = HomeMode.music.rawValue
+            }
+            if updateChecker.availableUpdate != nil { showUpdateSheet = true }
+        }
+        .onChange(of: showRadioOnHome) { _, isVisible in
+            guard !isVisible else { return }
+            homeModeRawValue = HomeMode.music.rawValue
+        }
+        .onDisappear {
+            refreshCoordinator.cancelAll()
+        }
+        .alert("insecure_http_warning_title", isPresented: Binding(
+            get: { pendingInsecureHomeStation != nil },
+            set: { if !$0 { pendingInsecureHomeStation = nil } }
+        )) {
+            Button("cancel", role: .cancel) {
+                pendingInsecureHomeStation = nil
+            }
+            Button("insecure_http_continue", role: .destructive) {
+                guard let station = pendingInsecureHomeStation,
+                      let url = station.url,
+                      let trustTarget = TrustedHTTPTransport.trustTarget(for: url) else { return }
+                SSLTrustStore.shared.allowInsecureHTTP(domain: trustTarget)
+                pendingInsecureHomeStation = nil
+                performHomeRadioToggle(station)
+            }
+        } message: {
+            Text(String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                pendingInsecureHomeStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
+            ))
+        }
+        .fullScreenCover(isPresented: $showUpdateSheet) {
+            UpdateBannerSheet()
+        }
+    }
+
+    private var nocturneReturningSong: Song? {
+        if !player.isLiveRadio, let currentSong = player.currentSong, currentSong.isPlayable {
+            return currentSong
+        }
+        return nocturneRecentSongs.first
+    }
+
+    private var nocturneRecentSongs: [Song] {
+        homeSnapshot.recentSongs.filteredPlayable()
+    }
+
+    private var nocturneForYouPicks: [Song] {
+        forYouPicks.filteredPlayable()
+    }
+
+    private var themeAccentForNocturneHome: Color {
+        guard let song = nocturneReturningSong else {
+            return PrimuseNocturnePalette.violet
+        }
+        return PrimuseNocturnePalette.stripColor(for: song.id)
+    }
+
+    @ViewBuilder
+    private var nocturneMusicHome: some View {
+        if let song = nocturneReturningSong {
+            nocturneResumeHero(song)
+        } else {
+            nocturneFreshHome
+        }
+
+        if !nocturneRecentSongs.isEmpty {
+            nocturneContinueSection
+        }
+
+        if !nocturneForYouPicks.isEmpty {
+            nocturneRecommendationSection
+        }
+
+        if !homeSnapshot.quickItems.isEmpty {
+            quickAccessSection
+                .preferredColorScheme(.dark)
+        }
+    }
+
+    private func nocturneResumeHero(_ song: Song) -> some View {
+        ZStack(alignment: .topLeading) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 430,
+                cornerRadius: 0,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            .scaleEffect(1.18)
+            .blur(radius: 54)
+            .opacity(0.52)
+            .offset(x: 96, y: -58)
+
+            LinearGradient(
+                colors: [
+                    PrimuseNocturnePalette.canvas.opacity(0.05),
+                    PrimuseNocturnePalette.canvas.opacity(0.58),
+                    PrimuseNocturnePalette.canvas,
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(greeting.uppercased())
+                    .font(.caption2.weight(.semibold).monospaced())
+                    .tracking(3)
+                    .foregroundStyle(PrimuseNocturnePalette.muted)
+                    .padding(.top, 68)
+
+                Text("nocturne_resume_heading")
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .tracking(-1.4)
+                    .foregroundStyle(PrimuseNocturnePalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 14)
+
+                Button {
+                    resumeNocturneSong(song)
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: player.currentSong?.id == song.id && player.isPlaying
+                            ? "pause.fill"
+                            : "play.fill")
+                            .font(.caption.weight(.bold))
+                        Text("nocturne_continue_button \(song.title)")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(PrimuseNocturnePalette.violet)
+                    .padding(.horizontal, 18)
+                    .frame(height: 48)
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(PrimuseNocturnePalette.violet, lineWidth: 1.25)
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 28)
+
+                HStack(spacing: 8) {
+                    Capsule()
+                        .fill(PrimuseNocturnePalette.stripColor(for: song.id))
+                        .frame(width: 3, height: 36)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(song.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(PrimuseNocturnePalette.ink)
+                            .lineLimit(1)
+                        Text(song.artistName ?? String(localized: "unknown_artist"))
+                            .font(.caption)
+                            .foregroundStyle(PrimuseNocturnePalette.muted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.top, 22)
+            }
+            .padding(.horizontal, 24)
+        }
+        .frame(minHeight: 430, alignment: .topLeading)
+        .clipped()
+        .overlay(alignment: .leading) {
+            LinearGradient(
+                colors: [.clear, PrimuseNocturnePalette.violet, .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(width: 1)
+            .padding(.vertical, 76)
+        }
+    }
+
+    private var nocturneFreshHome: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("nocturne_fresh_eyebrow")
+                .font(.caption2.weight(.semibold).monospaced())
+                .tracking(3)
+                .foregroundStyle(PrimuseNocturnePalette.violet)
+
+            Text("nocturne_fresh_heading")
+                .font(.system(size: 45, weight: .bold, design: .rounded))
+                .tracking(-1.6)
+                .foregroundStyle(PrimuseNocturnePalette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("nocturne_fresh_description")
+                .font(.body)
+                .foregroundStyle(PrimuseNocturnePalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                showSourcesView = true
+            } label: {
+                Label("add_music_source", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PrimuseNocturnePalette.canvas)
+                    .padding(.horizontal, 18)
+                    .frame(height: 46)
+                    .background(PrimuseNocturnePalette.ink, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+
+            HStack(spacing: 0) {
+                nocturneMetric(value: library.visibleSongs.count.formatted(), label: "songs_count")
+                Divider().overlay(Color.white.opacity(0.12)).padding(.horizontal, 18)
+                nocturneMetric(value: library.visibleAlbums.count.formatted(), label: "albums_count")
+                Divider().overlay(Color.white.opacity(0.12)).padding(.horizontal, 18)
+                nocturneMetric(value: library.visibleArtists.count.formatted(), label: "artists_count")
+            }
+            .frame(height: 54)
+            .padding(.top, 24)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 78)
+        .padding(.bottom, 38)
+    }
+
+    private func nocturneMetric(value: String, label: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(PrimuseNocturnePalette.ink)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(PrimuseNocturnePalette.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var nocturneContinueSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            nocturneSectionHeading("continue_listening")
+
+            ForEach(Array(nocturneRecentSongs.prefix(4).enumerated()), id: \.element.id) { _, song in
+                Button { playSong(song) } label: {
+                    HStack(spacing: 14) {
+                        Capsule()
+                            .fill(PrimuseNocturnePalette.stripColor(for: song.id))
+                            .frame(width: 3, height: 42)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(song.title)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(PrimuseNocturnePalette.ink)
+                                .lineLimit(1)
+                            Text(song.artistName ?? String(localized: "unknown_artist"))
+                                .font(.caption)
+                                .foregroundStyle(PrimuseNocturnePalette.muted)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: player.currentSong?.id == song.id && player.isPlaying
+                            ? "waveform"
+                            : "play.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(player.currentSong?.id == song.id
+                                ? PrimuseNocturnePalette.violet
+                                : PrimuseNocturnePalette.muted)
+                            .frame(width: 38, height: 38)
+                            .overlay {
+                                Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)
+                            }
+                    }
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Divider()
+                    .overlay(Color.white.opacity(0.09))
+                    .padding(.leading, 17)
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var nocturneRecommendationSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            nocturneSectionHeading("for_you")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(nocturneForYouPicks.prefix(6)) { song in
+                        Button { playSong(song) } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(song.albumTitle ?? String(localized: "recommended"))
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(PrimuseNocturnePalette.violet)
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text(song.title)
+                                    .font(.headline)
+                                    .foregroundStyle(PrimuseNocturnePalette.ink)
+                                    .lineLimit(2)
+                                Text(song.artistName ?? String(localized: "unknown_artist"))
+                                    .font(.caption)
+                                    .foregroundStyle(PrimuseNocturnePalette.muted)
+                                    .lineLimit(1)
+                            }
+                            .padding(16)
+                            .frame(width: 176, height: 142, alignment: .leading)
+                            .background(
+                                LinearGradient(
+                                    colors: [
+                                        PrimuseNocturnePalette.stripColor(for: song.id).opacity(0.12),
+                                        PrimuseNocturnePalette.elevated.opacity(0.88),
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+        }
+    }
+
+    private func nocturneSectionHeading(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold).monospaced())
+            .tracking(2)
+            .textCase(.uppercase)
+            .foregroundStyle(PrimuseNocturnePalette.muted)
+    }
+
+    private func resumeNocturneSong(_ song: Song) {
+        if player.currentSong?.id == song.id {
+            player.togglePlayPause()
+        } else {
+            playSong(song)
+        }
+    }
+    #endif
 
     // MARK: - Content
 
@@ -1156,7 +1606,7 @@ struct HomeView: View {
 
         let heroCoverSongs = persisted.heroSongIDs.compactMap {
             library.unobservedVisibleSong(id: $0)
-        }
+        }.filter(\.isPlayable)
         guard heroCoverSongs.count == persisted.heroSongIDs.count else { return nil }
 
         let albumsByID = Dictionary(
@@ -1177,14 +1627,14 @@ struct HomeView: View {
             return nil
         }
 
-        let recommendations = persisted.recommendations.compactMap { recommendation in
-            library.unobservedVisibleSong(id: recommendation.songID).map { song in
-                MusicDiscoveryResult(
-                    song: song,
-                    score: recommendation.score,
-                    reasons: recommendation.reasons.compactMap(MusicDiscoveryReason.init(rawValue:))
-                )
-            }
+        let recommendations: [MusicDiscoveryResult] = persisted.recommendations.compactMap { recommendation in
+            guard let song = library.unobservedVisibleSong(id: recommendation.songID),
+                  song.isPlayable else { return nil }
+            return MusicDiscoveryResult(
+                song: song,
+                score: recommendation.score,
+                reasons: recommendation.reasons.compactMap(MusicDiscoveryReason.init(rawValue:))
+            )
         }
         guard recommendations.count == persisted.recommendations.count else { return nil }
 
@@ -1258,10 +1708,10 @@ struct HomeView: View {
         let visibleSongIDs = Set(library.visibleSongs.map(\.id))
         let visibleAlbumIDs = Set(library.visibleAlbums.map(\.id))
         let retainedRecommendations = homeSnapshot.forYouResults.filter {
-            visibleSongIDs.contains($0.song.id)
+            visibleSongIDs.contains($0.song.id) && $0.song.isPlayable
         }
         let retainedHeroCovers = homeSnapshot.heroCoverSongs.filter {
-            visibleSongIDs.contains($0.id)
+            visibleSongIDs.contains($0.id) && $0.isPlayable
         }
         let retainedRecentlyAddedAlbums = homeSnapshot.recentlyAddedAlbums.filter {
             visibleAlbumIDs.contains($0.id)
@@ -1427,7 +1877,7 @@ struct HomeView: View {
         let quickFinishedAt = Date()
 
         let snapshot = HomeSnapshot(
-            hasContent: !library.visibleSongs.isEmpty,
+            hasContent: library.visibleSongs.contains(where: \.isPlayable),
             statsGlimpse: summary.totalPlays > 0 ? summary : nil,
             forYouResults: forYouResults,
             recentSongs: recentSongs,
@@ -1515,7 +1965,7 @@ struct HomeView: View {
         var accumulators: [String: HomeAlbumAccumulator] = [:]
         accumulators.reserveCapacity(albums.count)
 
-        for song in songs {
+        for song in songs where song.isPlayable {
             guard let albumID = song.albumID, !albumID.isEmpty else { continue }
             let hasCover = song.coverArtFileName?.isEmpty == false
 
@@ -1882,7 +2332,8 @@ struct HomeView: View {
         // 去重), 否则下方 ForEach(id: \.element.id) 会因重复 id 触发 SwiftUI 告警/崩溃。
         var pool: [Song] = []
         var seenIDs = Set<String>()
-        for song in recentSongs + added where seenIDs.insert(song.id).inserted {
+        for song in recentSongs + added
+        where song.isPlayable && seenIDs.insert(song.id).inserted {
             pool.append(song)
         }
         let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
@@ -2242,9 +2693,14 @@ struct HomeView: View {
     }
 
     private func makeRecentSongs() -> [Song] {
-        let recent = library.recentlyPlayedSongs(limit: 30)
+        let recent = library.recentlyPlayedSongs(limit: 30).filteredPlayable()
         if !recent.isEmpty { return recent }
-        return Array(library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
+        return Array(
+            library.visibleSongs
+                .filteredPlayable()
+                .sorted { $0.dateAdded > $1.dateAdded }
+                .prefix(30)
+        )
     }
 
     // MARK: - Recently Added Albums

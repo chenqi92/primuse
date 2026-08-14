@@ -599,6 +599,9 @@ struct SongListView: View {
 
     var body: some View {
         content
+            #if os(iOS)
+            .primuseScreenSkin()
+            #endif
             .songBatchActions(
                 selection: selection,
                 orderedIDs: { batchOrderedSongIDs },
@@ -2558,7 +2561,7 @@ struct SongListView: View {
     }
 
     private func playSong(_ song: Song) {
-        let visibleQueue = filteredSongs
+        let visibleQueue = filteredSongs.filteredPlayable()
         guard let index = visibleQueue.firstIndex(where: { $0.id == song.id }) else { return }
 
         let queue = Array(visibleQueue[index...]) + Array(visibleQueue[..<index])
@@ -2578,12 +2581,15 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.cache === rhs.cache && lhs.selection === rhs.selection
     }
 
     var body: some View {
+        let usesNocturne = PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(0..<cache.positionCount, id: \.self) { position in
@@ -2593,12 +2599,13 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                         selection: selection,
                         onPlay: onPlay
                     )
-                    .padding(.horizontal)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, usesNocturne ? 12 : 16)
+                    .padding(.vertical, usesNocturne ? 0 : 4)
 
                     if position < cache.positionCount - 1 {
                         Divider()
-                            .padding(.leading, 66)
+                            .overlay(usesNocturne ? Color.white.opacity(0.08) : Color.clear)
+                            .padding(.leading, usesNocturne ? 18 : 66)
                     }
                 }
             }
@@ -2607,10 +2614,13 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     }
 
     private var songListBackground: Color {
+        if PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne {
+            return PrimuseNocturnePalette.canvas
+        }
         #if os(macOS)
-        Color(NSColor.windowBackgroundColor)
+        return Color(NSColor.windowBackgroundColor)
         #else
-        Color(UIColor.systemBackground)
+        return Color(UIColor.systemBackground)
         #endif
     }
 }
@@ -3583,10 +3593,15 @@ private struct IOSSongListRow: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
+    #if os(iOS)
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
+    #endif
 
     let model: SongListRowModel
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
+    @State private var showUnavailableAlert = false
 
     var body: some View {
         let song = model.song
@@ -3602,6 +3617,25 @@ private struct IOSSongListRow: View {
                     membership: membership
                 )
             } else {
+                #if os(iOS)
+                if PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne {
+                    NocturneSongListRow(
+                        song: song,
+                        isPlaying: player.currentSong?.id == song.id
+                    )
+                } else {
+                    SongRowView(
+                        song: song,
+                        isPlaying: player.currentSong?.id == song.id,
+                        selection: selection,
+                        context: SongRowView.context(
+                            for: song,
+                            sourcesStore: sourcesStore,
+                            backfill: backfill
+                        )
+                    )
+                }
+                #else
                 SongRowView(
                     song: song,
                     isPlaying: player.currentSong?.id == song.id,
@@ -3612,14 +3646,17 @@ private struct IOSSongListRow: View {
                         backfill: backfill
                     )
                 )
+                #endif
             }
         }
         .contentShape(Rectangle())
         .onTapGesture {
             if selection.isActive {
                 selection.toggle(song.id)
-            } else {
+            } else if song.isPlayable {
                 onPlay(song)
+            } else {
+                showUnavailableAlert = true
             }
         }
         #if os(iOS)
@@ -3649,11 +3686,97 @@ private struct IOSSongListRow: View {
             }
         }
         .accessibilityAction(named: Text("play")) {
-            onPlay(song)
+            if song.isPlayable {
+                onPlay(song)
+            } else {
+                showUnavailableAlert = true
+            }
         }
         #endif
+        .alert("song_details_unavailable", isPresented: $showUnavailableAlert) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text("song_details_unavailable_message")
+        }
     }
 }
+
+#if os(iOS)
+private struct NocturneSongListRow: View {
+    let song: Song
+    let isPlaying: Bool
+
+    private var technicalLine: String {
+        var parts = [song.artistName ?? String(localized: "unknown_artist")]
+        if let album = song.albumTitle, !album.isEmpty {
+            parts.append(album)
+        } else {
+            parts.append(song.fileFormat.displayName)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            PrimuseNocturnePalette.stripColor(for: song.id).opacity(0.72),
+                            PrimuseNocturnePalette.stripColor(for: song.id),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 3, height: 42)
+                .shadow(
+                    color: PrimuseNocturnePalette.stripColor(for: song.id).opacity(isPlaying ? 0.7 : 0),
+                    radius: 7
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(song.title)
+                    .font(.body.weight(isPlaying ? .semibold : .medium))
+                    .foregroundStyle(isPlaying
+                        ? PrimuseNocturnePalette.violet
+                        : PrimuseNocturnePalette.ink)
+                    .lineLimit(1)
+
+                Text(technicalLine.uppercased())
+                    .font(.caption2.monospaced())
+                    .tracking(0.4)
+                    .foregroundStyle(PrimuseNocturnePalette.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 10)
+
+            if isPlaying {
+                Image(systemName: "waveform")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PrimuseNocturnePalette.violet)
+                    .symbolEffect(.variableColor.iterative, options: .repeating)
+                    .accessibilityLabel(Text("now_playing"))
+            } else if song.isPlayable {
+                Text(song.duration.formattedDuration)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(PrimuseNocturnePalette.muted)
+            } else {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PrimuseNocturnePalette.muted)
+                    .accessibilityLabel(Text("song_details_unavailable"))
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(minHeight: 64)
+        .background(isPlaying ? PrimuseNocturnePalette.violet.opacity(0.08) : .clear)
+        .opacity(song.isPlayable ? 1 : 0.58)
+        .contentShape(Rectangle())
+    }
+}
+#endif
 
 /// Selection scrolling deliberately uses a compact row instead of the full
 /// single-song interaction tree. The regular row owns menus, sheets, alerts,

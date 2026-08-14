@@ -2834,3 +2834,33 @@
 "lyrics_converter_lrc_help" = "LRC；逐字时间会保留为增强 LRC";
 "lyrics_converter_ttml_help" = "兼容 Apple Music 的 TTML";
 "lyrics_converter_txt_help" = "不含时间轴的纯文本";
+
+/* MARK: - 光脊皮肤与播放器舞台 */
+"visual_appearance_title" = "界面与播放器";
+"appearance_skin_section" = "App 皮肤";
+"appearance_skin_footer" = "皮肤会统一首页、资料库、搜索、设置与迷你播放器的视觉语言，不会改变功能。";
+"appearance_skin_system" = "原生";
+"appearance_skin_system_description" = "保留当前的系统组件与动态主题色。";
+"appearance_skin_nocturne" = "光脊";
+"appearance_skin_nocturne_description" = "暗色唱片目录、封面光源与色条长列表。";
+"player_stage_section" = "播放器舞台";
+"player_stage_footer" = "播放器舞台独立于 App 皮肤，可自由组合；歌词、队列、投送与播放控制都会保留。";
+"player_stage_follows_skin" = "跟随皮肤";
+"player_stage_follows_skin_description" = "原生皮肤使用原播放器，光脊皮肤使用唱片目录播放器。";
+"player_stage_sleeve_index" = "唱片目录";
+"player_stage_sleeve_index_description" = "封面出血、编辑式大标题与精密音频信息。";
+"player_stage_lyric_well" = "歌词井";
+"player_stage_lyric_well_description" = "让逐字歌词成为主角，播放控制收在底部。";
+"player_stage_cover_stage" = "封面舞台";
+"player_stage_cover_stage_description" = "大封面、克制信息层级和具有呼吸感的留白。";
+"player_stage_spectrum_nebula" = "星云频谱";
+"player_stage_spectrum_nebula_description" = "使用实时 PCM 频段驱动光晕与频谱。";
+"player_stage_luminous_field" = "织光";
+"player_stage_luminous_field_description" = "从封面取色生成缓慢流动的光场。";
+"player_stage_typography" = "排印";
+"player_stage_typography_description" = "用歌曲标题代替缺失封面，也适合极简展示。";
+"nocturne_resume_heading" = "从你上次\n停下的地方";
+"nocturne_continue_button %@" = "继续 · %@";
+"nocturne_fresh_eyebrow" = "你的声音，从这里开始";
+"nocturne_fresh_heading" = "让音乐找到\n自己的光";
+"nocturne_fresh_description" = "连接本地、NAS 或流媒体资料库，Primuse 会为每一首歌建立独特的色彩与舞台。";

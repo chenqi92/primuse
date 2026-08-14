@@ -164,6 +164,9 @@ struct LibraryView: View {
                 LibraryQuickAccessEditor(pinsRawValue: $quickAccessRawValue)
             }
         }
+        #if os(iOS)
+        .primuseScreenSkin()
+        #endif
     }
 
     private var libraryHub: some View {

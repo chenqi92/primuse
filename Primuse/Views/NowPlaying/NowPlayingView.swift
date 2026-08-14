@@ -101,6 +101,7 @@ struct NowPlayingView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @Environment(AudioVisualizerService.self) private var visualizer
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
@@ -142,10 +143,30 @@ struct NowPlayingView: View {
     @State private var showMusicVideoFullScreen = false
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
+    #if os(iOS)
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
+    @AppStorage(PrimusePlayerStageStyle.storageKey)
+    private var playerStageRawValue = PrimusePlayerStageStyle.followsSkin.rawValue
+    #endif
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
+
+    #if os(iOS)
+    private var activeDesignedStage: PrimusePlayerStageStyle? {
+        let configured = PrimusePlayerStageStyle(rawValue: playerStageRawValue) ?? .followsSkin
+        let resolved: PrimusePlayerStageStyle? = if configured == .followsSkin {
+            PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne ? .sleeveIndex : nil
+        } else {
+            configured
+        }
+        guard resolved != nil else { return nil }
+        return showLyrics ? .lyricWell : resolved
+    }
+
+    #endif
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
     // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
@@ -322,13 +343,6 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             let artSize = min(geo.size.width - 60, geo.size.height * 0.38)
-            let landscapeMode = NowPlayingLandscapePolicy.mode(
-                viewportWidth: Double(geo.size.width),
-                viewportHeight: Double(geo.size.height),
-                isMusicVideoActive: player.isMusicVideoPlaybackActive,
-                areLyricsVisible: showLyrics,
-                areLyricsImmersive: isLyricsImmersive
-            )
 
             ZStack {
                 // Opaque base — prevents content bleeding through
@@ -339,26 +353,16 @@ struct NowPlayingView: View {
                 if player.isLiveRadio {
                     liveRadioLayout(geo: geo)
                 } else {
-                    switch landscapeMode {
-                    case .musicVideo:
-                        if let videoPlayer = player.musicVideoPlayer {
-                            landscapeMusicVideoLayout(videoPlayer: videoPlayer)
-                        } else {
-                            portraitLayout(geo: geo, artSize: artSize)
-                        }
-                    case .immersiveLyrics:
-                        immersiveLandscapeLyricsLayout(geo: geo)
-                    case .standardLyrics:
-                        standardLandscapeLyricsLayout(geo: geo)
-                    case .none:
-                        if showLyrics {
-                            portraitLayout(geo: geo, artSize: artSize)
-                        } else if shouldUseWideLayout(geo: geo) {
-                            wideLandscapeLayout(geo: geo)
-                        } else {
-                            portraitLayout(geo: geo, artSize: artSize)
-                        }
+                    #if os(iOS)
+                    if let stage = activeDesignedStage,
+                       !player.isMusicVideoPlaybackActive {
+                        designedStageLayout(geo: geo, style: stage)
+                    } else {
+                        standardPlayerLayout(geo: geo, artSize: artSize)
                     }
+                    #else
+                    standardPlayerLayout(geo: geo, artSize: artSize)
+                    #endif
                 }
             }
         }
@@ -577,6 +581,519 @@ struct NowPlayingView: View {
             activity.requiredUserInfoKeys = ["songID"]
         }
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private func designedStageLayout(
+        geo: GeometryProxy,
+        style: PrimusePlayerStageStyle
+    ) -> some View {
+        let viewportWidth = designedStageViewportWidth(geo)
+
+        ZStack {
+            designedStageBackground(style: style, geo: geo)
+
+            VStack(spacing: 0) {
+                designedStageChrome(style: style)
+
+                if style == .lyricWell {
+                    lyricsFullView
+                        .padding(.top, 4)
+
+                    designedStageTransport(compact: true)
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, max(bottomSafeArea, 10) + 4)
+                } else {
+                    ScrollView {
+                        designedStageCore(style: style, geo: geo)
+                            .padding(.bottom, 12)
+                    }
+                    .scrollIndicators(.hidden)
+
+                    designedStageTransport(compact: false)
+                        .padding(.horizontal, 18)
+
+                    designedStageFooter
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, max(bottomSafeArea, 10))
+                }
+            }
+        }
+        .frame(width: viewportWidth, height: geo.size.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(PrimuseNocturnePalette.ink)
+        .preferredColorScheme(.dark)
+    }
+
+    private func designedStageViewportWidth(_ geo: GeometryProxy) -> CGFloat {
+        min(geo.size.width, UIScreen.main.bounds.width)
+    }
+
+    private func designedStageChrome(style: PrimusePlayerStageStyle) -> some View {
+        VStack(spacing: 6) {
+            Capsule()
+                .fill(Color.white.opacity(0.42))
+                .frame(width: 46, height: 4)
+                .padding(.top, topSafeArea + 5)
+
+            HStack(spacing: 10) {
+                Text(stageEyebrow(style))
+                    .font(.caption2.weight(.semibold).monospaced())
+                    .tracking(2.2)
+                    .foregroundStyle(PrimuseNocturnePalette.muted)
+                    .lineLimit(1)
+
+                Spacer()
+
+                if style == .lyricWell {
+                    Button { setStandardLyricsVisible(false) } label: {
+                        Image(systemName: "photo")
+                            .font(.body)
+                            .foregroundStyle(PrimuseNocturnePalette.ink.opacity(0.78))
+                            .frame(width: 42, height: 42)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("a11y_close_lyrics"))
+                }
+
+                Button { toggleLikedCurrent() } label: {
+                    Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
+                        .font(.body)
+                        .foregroundStyle(isCurrentLiked ? .red : PrimuseNocturnePalette.ink.opacity(0.78))
+                        .frame(width: 42, height: 42)
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentSong == nil)
+                .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+
+                moreMenu
+            }
+            .padding(.horizontal, 20)
+        }
+        .frame(minHeight: topSafeArea + 54, alignment: .bottom)
+    }
+
+    @ViewBuilder
+    private func designedStageCore(
+        style: PrimusePlayerStageStyle,
+        geo: GeometryProxy
+    ) -> some View {
+        switch style {
+        case .sleeveIndex:
+            sleeveIndexStage(geo: geo)
+        case .coverStage:
+            coverStage(geo: geo)
+        case .spectrumNebula:
+            spectrumNebulaStage(geo: geo)
+        case .luminousField:
+            luminousFieldStage(geo: geo)
+        case .typography:
+            typographyStage(geo: geo)
+        case .lyricWell, .followsSkin:
+            sleeveIndexStage(geo: geo)
+        }
+    }
+
+    private func sleeveIndexStage(geo: GeometryProxy) -> some View {
+        let width = max(0, min(designedStageViewportWidth(geo) - 32, 640))
+        let cropHeight = min(width * 0.84, geo.size.height * 0.38)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: width,
+                cornerRadius: 4,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                revisionToken: player.coverRevision
+            )
+            .frame(width: width, height: cropHeight, alignment: .top)
+            .clipped()
+            .overlay(alignment: .topTrailing) {
+                Text(designedStageSourceLabel)
+                    .font(.caption2.monospaced())
+                    .tracking(2)
+                    .foregroundStyle(Color.white.opacity(0.62))
+                    .padding(16)
+            }
+
+            VStack(alignment: .leading, spacing: 11) {
+                Text("now_playing")
+                    .font(.caption2.weight(.semibold).monospaced())
+                    .tracking(3)
+                    .textCase(.uppercase)
+                    .foregroundStyle(PrimuseNocturnePalette.violet)
+
+                Text(player.currentSong?.title ?? "")
+                    .font(.system(size: 39, weight: .medium, design: .rounded))
+                    .tracking(-1.5)
+                    .foregroundStyle(PrimuseNocturnePalette.ink)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.76)
+
+                nowPlayingMetadataLinks(font: .body)
+
+                designedTechnicalLine
+            }
+            .padding(.horizontal, 2)
+            .padding(.top, 24)
+        }
+        .frame(width: width, alignment: .leading)
+        .padding(.horizontal, 16)
+    }
+
+    private func coverStage(geo: GeometryProxy) -> some View {
+        let width = max(0, min(designedStageViewportWidth(geo) - 56, geo.size.height * 0.48, 520))
+
+        return VStack(spacing: 18) {
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: width,
+                cornerRadius: 4,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                revisionToken: player.coverRevision
+            )
+            .shadow(color: .black.opacity(0.56), radius: 28, y: 18)
+            .scaleEffect(player.isPlaying ? 1 : 0.965)
+            .animation(.spring(response: 0.5, dampingFraction: 0.78), value: player.isPlaying)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Capsule()
+                    .fill(PrimuseNocturnePalette.violet)
+                    .frame(width: 22, height: 2)
+                Text(player.currentSong?.title ?? "")
+                    .font(.system(size: 31, weight: .semibold, design: .rounded))
+                    .tracking(-0.8)
+                    .lineLimit(2)
+                nowPlayingMetadataLinks(font: .subheadline)
+                designedTechnicalLine
+                    .padding(.top, 3)
+            }
+            .frame(maxWidth: width, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 4)
+    }
+
+    private func spectrumNebulaStage(geo: GeometryProxy) -> some View {
+        let orbSize = min(max(220, designedStageViewportWidth(geo) * 0.72), 390)
+
+        return VStack(spacing: 22) {
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(0.92),
+                                PrimuseNocturnePalette.peach.opacity(0.9),
+                                PrimuseNocturnePalette.violet.opacity(0.58),
+                                .clear,
+                            ],
+                            center: .center,
+                            startRadius: 4,
+                            endRadius: orbSize * 0.52
+                        )
+                    )
+                    .frame(width: orbSize, height: orbSize)
+                    .blur(radius: 18)
+                    .scaleEffect(player.isPlaybackActive ? 1.04 : 0.9)
+                    .animation(.easeInOut(duration: 1.4), value: player.isPlaybackActive)
+
+                VisualizerBarsView(
+                    levels: designedSpectrumLevels,
+                    barColor: Color.white.opacity(0.88),
+                    barWidth: 4,
+                    spacing: 4,
+                    maxHeight: orbSize * 0.42
+                )
+            }
+            .frame(height: orbSize)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("player_stage_spectrum_nebula")
+                    .font(.caption2.weight(.semibold).monospaced())
+                    .tracking(2.4)
+                    .foregroundStyle(PrimuseNocturnePalette.peach)
+                Text(player.currentSong?.title ?? "")
+                    .font(.system(size: 31, weight: .semibold, design: .rounded))
+                    .lineLimit(2)
+                nowPlayingMetadataLinks(font: .subheadline)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 28)
+        }
+        .padding(.top, 6)
+    }
+
+    private func luminousFieldStage(geo: GeometryProxy) -> some View {
+        let stageHeight = min(max(330, geo.size.height * 0.48), 480)
+        let viewportWidth = designedStageViewportWidth(geo)
+
+        return ZStack(alignment: .bottomLeading) {
+            ForEach(0..<4, id: \.self) { index in
+                let colors: [Color] = switch index {
+                case 0: [PrimuseNocturnePalette.peach, Color.red.opacity(0.52), .clear]
+                case 1: [PrimuseNocturnePalette.violet, Color.indigo.opacity(0.54), .clear]
+                case 2: [Color.cyan.opacity(0.72), Color.blue.opacity(0.46), .clear]
+                default: [Color.pink.opacity(0.62), PrimuseNocturnePalette.peach.opacity(0.56), .clear]
+                }
+                Capsule()
+                    .fill(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
+                    .frame(width: viewportWidth * 1.16, height: 74)
+                    .blur(radius: 24)
+                    .rotationEffect(.degrees(Double(index * 12 - 18)))
+                    .offset(x: -42, y: CGFloat(index * 76 - 128))
+                    .opacity(0.74 - Double(index) * 0.08)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Capsule()
+                    .fill(PrimuseNocturnePalette.violet)
+                    .frame(width: 22, height: 2)
+                Text(player.currentSong?.title ?? "")
+                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .tracking(-1)
+                    .lineLimit(2)
+                nowPlayingMetadataLinks(font: .subheadline)
+            }
+            .padding(.horizontal, 26)
+            .padding(.bottom, 24)
+        }
+        .frame(height: stageHeight)
+        .clipped()
+    }
+
+    private func typographyStage(geo: GeometryProxy) -> some View {
+        let title = player.currentSong?.title.isEmpty == false
+            ? player.currentSong?.title ?? "PRIMUSE"
+            : "PRIMUSE"
+
+        return ZStack(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: -8) {
+                Text(title.uppercased())
+                    .foregroundStyle(Color.white.opacity(0.08))
+                Text(title.uppercased())
+                    .foregroundStyle(Color.white.opacity(0.16))
+                Text(title)
+                    .foregroundStyle(PrimuseNocturnePalette.ink)
+            }
+            .font(.system(size: min(54, max(38, designedStageViewportWidth(geo) * 0.12)), weight: .black, design: .rounded))
+            .tracking(-2)
+            .lineLimit(2)
+            .minimumScaleFactor(0.58)
+            .rotationEffect(.degrees(-4))
+            .offset(x: -6, y: -62)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(designedStageSourceLabel)
+                    .font(.caption2.monospaced())
+                    .tracking(2)
+                    .foregroundStyle(PrimuseNocturnePalette.violet)
+                nowPlayingMetadataLinks(font: .body)
+                designedTechnicalLine
+            }
+            .padding(.horizontal, 26)
+            .padding(.bottom, 24)
+        }
+        .frame(height: min(max(360, geo.size.height * 0.48), 500))
+        .clipped()
+    }
+
+    private func designedStageTransport(compact: Bool) -> some View {
+        VStack(spacing: compact ? 9 : 13) {
+            PlaybackProgressBar()
+
+            HStack(spacing: compact ? 28 : 34) {
+                Button { player.shuffleEnabled.toggle() } label: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(player.shuffleEnabled
+                            ? PrimuseNocturnePalette.violet
+                            : PrimuseNocturnePalette.muted)
+                        .frame(width: 38, height: 38)
+                }
+                .accessibilityLabel("a11y_shuffle")
+
+                Button { Task { await player.previous() } } label: {
+                    Image(systemName: "backward.fill")
+                        .frame(width: 38, height: 38)
+                }
+                .accessibilityLabel("a11y_previous_track")
+
+                Button { player.togglePlayPause() } label: {
+                    ZStack {
+                        Circle()
+                            .strokeBorder(PrimuseNocturnePalette.violet, lineWidth: 1.35)
+                            .frame(width: compact ? 48 : 56, height: compact ? 48 : 56)
+
+                        if player.isLoading {
+                            ProgressView()
+                                .tint(PrimuseNocturnePalette.ink)
+                        } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.title3.weight(.semibold))
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                }
+                .disabled(player.isLoading)
+                .accessibilityLabel(player.isPlaying
+                    ? String(localized: "a11y_pause")
+                    : String(localized: "a11y_play"))
+
+                Button { Task { await player.next() } } label: {
+                    Image(systemName: "forward.fill")
+                        .frame(width: 38, height: 38)
+                }
+                .accessibilityLabel("a11y_next_track")
+
+                Button {
+                    switch player.repeatMode {
+                    case .off: player.repeatMode = .all
+                    case .all: player.repeatMode = .one
+                    case .one: player.repeatMode = .off
+                    }
+                } label: {
+                    Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                        .foregroundStyle(player.repeatMode == .off
+                            ? PrimuseNocturnePalette.muted
+                            : PrimuseNocturnePalette.violet)
+                        .frame(width: 38, height: 38)
+                }
+                .accessibilityLabel("a11y_repeat")
+            }
+            .font(.body)
+            .foregroundStyle(PrimuseNocturnePalette.ink)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, compact ? 10 : 12)
+        .background(PrimuseNocturnePalette.canvas.opacity(compact ? 0.66 : 0.96))
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
+        }
+    }
+
+    private var designedStageFooter: some View {
+        HStack {
+            Button { toggleStandardLyrics() } label: {
+                Label("lyrics_title", systemImage: "quote.bubble")
+            }
+
+            Spacer()
+
+            Button { showQueue = true } label: {
+                Label("queue", systemImage: "list.bullet")
+            }
+
+            Spacer()
+
+            AirPlayButton()
+                .frame(width: 34, height: 34)
+                .accessibilityLabel(Text("cast_to_device"))
+        }
+        .labelStyle(.titleAndIcon)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(PrimuseNocturnePalette.muted)
+        .frame(height: 46)
+    }
+
+    @ViewBuilder
+    private var designedTechnicalLine: some View {
+        if let song = player.currentSong {
+            HStack(spacing: 8) {
+                AudioQualityBadge(quality: song.audioQuality, compact: true)
+                Text(designedTechnicalSummary(song))
+                    .font(.caption2.monospaced())
+                    .tracking(0.7)
+                    .foregroundStyle(PrimuseNocturnePalette.muted)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func designedTechnicalSummary(_ song: Song) -> String {
+        var parts = [song.fileFormat.displayName]
+        if let sampleRate = song.sampleRate {
+            parts.append("\(sampleRate / 1000) kHz")
+        }
+        if let bitDepth = song.bitDepth {
+            parts.append("\(bitDepth) bit")
+        }
+        return parts.joined(separator: " / ")
+    }
+
+    private var designedStageSourceLabel: String {
+        guard let song = player.currentSong,
+              let source = sourcesStore.source(id: song.sourceID) else {
+            return "PRIMUSE"
+        }
+        return source.name.uppercased()
+    }
+
+    private func stageEyebrow(_ style: PrimusePlayerStageStyle) -> String {
+        switch style {
+        case .sleeveIndex: return String(localized: "player_stage_sleeve_index").uppercased()
+        case .lyricWell: return String(localized: "player_stage_lyric_well").uppercased()
+        case .coverStage: return String(localized: "player_stage_cover_stage").uppercased()
+        case .spectrumNebula: return String(localized: "player_stage_spectrum_nebula").uppercased()
+        case .luminousField: return String(localized: "player_stage_luminous_field").uppercased()
+        case .typography: return String(localized: "player_stage_typography").uppercased()
+        case .followsSkin: return String(localized: "now_playing").uppercased()
+        }
+    }
+
+    private var designedSpectrumLevels: [Float] {
+        visualizer.bandLevels
+    }
+
+    private func designedStageBackground(
+        style: PrimusePlayerStageStyle,
+        geo: GeometryProxy
+    ) -> some View {
+        ZStack {
+            PrimuseNocturnePalette.canvas
+
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: max(geo.size.width, geo.size.height),
+                cornerRadius: 0,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                revisionToken: player.coverRevision
+            )
+            .scaleEffect(1.32)
+            .blur(radius: style == .coverStage ? 74 : 92)
+            .saturation(style == .typography ? 0.25 : 1.12)
+            .opacity(style == .luminousField ? 0.18 : 0.34)
+
+            RadialGradient(
+                colors: [theme.accentColor.opacity(0.42), .clear],
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: max(geo.size.width, geo.size.height) * 0.74
+            )
+
+            LinearGradient(
+                colors: [
+                    PrimuseNocturnePalette.canvas.opacity(0.22),
+                    PrimuseNocturnePalette.canvas.opacity(0.78),
+                    PrimuseNocturnePalette.canvas,
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.55), value: theme.colorID)
+    }
+    #endif
 
     @ViewBuilder
     private func liveRadioLayout(geo: GeometryProxy) -> some View {
@@ -1072,6 +1589,38 @@ struct NowPlayingView: View {
         #if os(iOS)
         .statusBarHidden(true)
         #endif
+    }
+
+    @ViewBuilder
+    private func standardPlayerLayout(geo: GeometryProxy, artSize: CGFloat) -> some View {
+        let landscapeMode = NowPlayingLandscapePolicy.mode(
+            viewportWidth: Double(geo.size.width),
+            viewportHeight: Double(geo.size.height),
+            isMusicVideoActive: player.isMusicVideoPlaybackActive,
+            areLyricsVisible: showLyrics,
+            areLyricsImmersive: isLyricsImmersive
+        )
+
+        switch landscapeMode {
+        case .musicVideo:
+            if let videoPlayer = player.musicVideoPlayer {
+                landscapeMusicVideoLayout(videoPlayer: videoPlayer)
+            } else {
+                portraitLayout(geo: geo, artSize: artSize)
+            }
+        case .immersiveLyrics:
+            immersiveLandscapeLyricsLayout(geo: geo)
+        case .standardLyrics:
+            standardLandscapeLyricsLayout(geo: geo)
+        case .none:
+            if showLyrics {
+                portraitLayout(geo: geo, artSize: artSize)
+            } else if shouldUseWideLayout(geo: geo) {
+                wideLandscapeLayout(geo: geo)
+            } else {
+                portraitLayout(geo: geo, artSize: artSize)
+            }
+        }
     }
 
     // MARK: - 原 portrait layout (iPhone + iPad 竖屏 + 分屏小窗)

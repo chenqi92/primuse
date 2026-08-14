@@ -2731,3 +2731,33 @@
 "lyrics_converter_lrc_help" = "LRC。単語タイミングは拡張LRCとして保持";
 "lyrics_converter_ttml_help" = "Apple Music互換のTTML";
 "lyrics_converter_txt_help" = "時間情報のないプレーンテキスト";
+
+/* MARK: - Nocturne skin and player stages */
+"visual_appearance_title" = "Interface & Player";
+"appearance_skin_section" = "App Skin";
+"appearance_skin_footer" = "The skin unifies Home, Library, Search, Settings and the mini player without changing features.";
+"appearance_skin_system" = "Native";
+"appearance_skin_system_description" = "Keep the current system components and dynamic accent color.";
+"appearance_skin_nocturne" = "Luminous Spine";
+"appearance_skin_nocturne_description" = "A dark sleeve index with cover-driven light and color-strip lists.";
+"player_stage_section" = "Player Stage";
+"player_stage_footer" = "Player stages are independent from the app skin. Lyrics, queue, casting and controls remain available.";
+"player_stage_follows_skin" = "Follow Skin";
+"player_stage_follows_skin_description" = "Native keeps the original player; Luminous Spine uses Sleeve Index.";
+"player_stage_sleeve_index" = "Sleeve Index";
+"player_stage_sleeve_index_description" = "Full-bleed artwork, editorial type and precise audio details.";
+"player_stage_lyric_well" = "Lyric Well";
+"player_stage_lyric_well_description" = "Makes synchronized lyrics the focus with controls docked below.";
+"player_stage_cover_stage" = "Cover Stage";
+"player_stage_cover_stage_description" = "Large artwork, quiet hierarchy and generous breathing room.";
+"player_stage_spectrum_nebula" = "Spectrum Nebula";
+"player_stage_spectrum_nebula_description" = "Drives a luminous spectrum from live PCM bands.";
+"player_stage_luminous_field" = "Luminous Field";
+"player_stage_luminous_field_description" = "Builds a slowly moving field from the cover palette.";
+"player_stage_typography" = "Typography";
+"player_stage_typography_description" = "Lets the title replace missing artwork for a minimal display.";
+"nocturne_resume_heading" = "Where you\nleft off";
+"nocturne_continue_button %@" = "Continue · %@";
+"nocturne_fresh_eyebrow" = "Your sound starts here";
+"nocturne_fresh_heading" = "Give every song\nits own light";
+"nocturne_fresh_description" = "Connect local, NAS or streaming libraries and Primuse will give every track its own color and stage.";

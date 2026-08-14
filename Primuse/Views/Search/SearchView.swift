@@ -80,6 +80,9 @@ struct SearchView: View {
             }
             #endif
         }
+        #if os(iOS)
+        .primuseScreenSkin()
+        #endif
         .songBatchActions(
             selection: selection,
             orderedIDs: { selectableSongIDs },

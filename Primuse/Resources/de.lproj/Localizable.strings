@@ -2730,3 +2730,33 @@
 "lyrics_converter_lrc_help" = "LRC; Wortzeiten bleiben als erweitertes LRC erhalten";
 "lyrics_converter_ttml_help" = "Mit Apple Music kompatibles TTML";
 "lyrics_converter_txt_help" = "Klartext ohne Zeitangaben";
+
+/* MARK: - Nocturne skin and player stages */
+"visual_appearance_title" = "Oberfläche & Player";
+"appearance_skin_section" = "App-Design";
+"appearance_skin_footer" = "Das Design vereinheitlicht Start, Mediathek, Suche, Einstellungen und Mini-Player, ohne Funktionen zu ändern.";
+"appearance_skin_system" = "Nativ";
+"appearance_skin_system_description" = "Behält die aktuellen Systemkomponenten und die dynamische Akzentfarbe.";
+"appearance_skin_nocturne" = "Lichtgrat";
+"appearance_skin_nocturne_description" = "Dunkler Plattenindex mit Cover-Licht und Farbstreifenlisten.";
+"player_stage_section" = "Player-Bühne";
+"player_stage_footer" = "Player-Bühnen sind unabhängig vom App-Design. Liedtext, Warteschlange, Streaming und Steuerung bleiben verfügbar.";
+"player_stage_follows_skin" = "Design folgen";
+"player_stage_follows_skin_description" = "Nativ nutzt den bisherigen Player, Lichtgrat den Plattenindex.";
+"player_stage_sleeve_index" = "Plattenindex";
+"player_stage_sleeve_index_description" = "Randloses Cover, redaktionelle Typografie und präzise Audiodetails.";
+"player_stage_lyric_well" = "Textbrunnen";
+"player_stage_lyric_well_description" = "Stellt synchronisierte Liedtexte in den Mittelpunkt.";
+"player_stage_cover_stage" = "Cover-Bühne";
+"player_stage_cover_stage_description" = "Großes Cover, ruhige Hierarchie und großzügiger Freiraum.";
+"player_stage_spectrum_nebula" = "Spektrumnebel";
+"player_stage_spectrum_nebula_description" = "Erzeugt ein leuchtendes Spektrum aus Live-PCM-Bändern.";
+"player_stage_luminous_field" = "Lichtfeld";
+"player_stage_luminous_field_description" = "Erzeugt ein langsam fließendes Feld aus der Cover-Palette.";
+"player_stage_typography" = "Typografie";
+"player_stage_typography_description" = "Ersetzt fehlende Cover durch den Titel.";
+"nocturne_resume_heading" = "Weiter, wo du\naufgehört hast";
+"nocturne_continue_button %@" = "Weiter · %@";
+"nocturne_fresh_eyebrow" = "Dein Klang beginnt hier";
+"nocturne_fresh_heading" = "Jeder Song bekommt\nsein eigenes Licht";
+"nocturne_fresh_description" = "Verbinde lokale, NAS- oder Streaming-Mediatheken. Primuse gibt jedem Titel seine eigene Farbe und Bühne.";

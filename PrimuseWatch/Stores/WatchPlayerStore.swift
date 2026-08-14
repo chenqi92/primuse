@@ -234,6 +234,14 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         }
     }
 
+    #if os(iOS)
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        session.activate()
+    }
+    #endif
+
     nonisolated func session(_ session: WCSession,
                              didReceiveMessage message: [String: Any]) {
         // 即时投递路径。两种 payload 都可能走 sendMessage:

@@ -74,6 +74,7 @@ struct ContentView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(AudioVisualizerService.self) private var visualizer
 
     /// Mini player 是否应该显示 — 猿音自家在播 或 Apple Music 在系统侧播。
     /// 这两路是独立 player, 任一非空都显示 accessory。
@@ -104,8 +105,36 @@ struct ContentView: View {
     @State private var autoYearlyReport: YearlyReportData?
     /// 首启 onboarding —— @AppStorage 持久, 关掉后永久 true。
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
+    @AppStorage(PrimusePlayerStageStyle.storageKey)
+    private var playerStageRawValue = PrimusePlayerStageStyle.followsSkin.rawValue
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
+
+    private var usesNocturneSkin: Bool {
+        PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne
+    }
+
+    private var visualizerShouldRun: Bool {
+        guard player.isPlaybackActive,
+              !player.isLiveRadio,
+              !player.isAppleMusicMode else { return false }
+        let configuredStage = PrimusePlayerStageStyle(rawValue: playerStageRawValue)
+            ?? .followsSkin
+        let needsNocturneMiniPlayer = usesNocturneSkin && miniPlayerVisible
+        let needsSpectrumStage = showNowPlaying && configuredStage == .spectrumNebula
+        return needsNocturneMiniPlayer || needsSpectrumStage
+    }
+
+    private var visualizerSessionID: String {
+        [
+            player.currentSong?.id ?? "none",
+            visualizerShouldRun ? "running" : "stopped",
+            appSkinRawValue,
+            playerStageRawValue,
+        ].joined(separator: ":")
+    }
 
     @ViewBuilder
     private var tabRoot: some View {
@@ -131,14 +160,41 @@ struct ContentView: View {
     }
 
     @ViewBuilder
+    private var skinnedTabRoot: some View {
+        if usesNocturneSkin {
+            tabRoot
+                .toolbar(.hidden, for: .tabBar)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        if miniPlayerVisible {
+                            NocturneMiniPlayerContent(
+                                onTap: { showNowPlaying = true },
+                                isInline: false,
+                                showsNextButton: true
+                            )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+
+                        NocturneBottomTabBar(selection: $selectedTab)
+                    }
+                    .background(PrimuseNocturnePalette.canvas)
+                }
+        } else {
+            tabRoot
+        }
+    }
+
+    @ViewBuilder
     private var playerAwareTabRoot: some View {
         // Keep the modifier identity stable while search is active. Toggling
         // between two different TabView structures at the instant a search
         // result starts playback makes UIKit tear down UISearchController and
         // install the accessory in the same update; on iOS 26 that can abort
         // in `_willDismissSearchController` with an unowned-reference crash.
-        if #available(iOS 26.1, *) {
-            tabRoot
+        if usesNocturneSkin {
+            skinnedTabRoot
+        } else if #available(iOS 26.1, *) {
+            skinnedTabRoot
                 // A minimized tab bar keeps only the selected tab and Search.
                 // Without a player accessory that leaves a large empty gap at
                 // the bottom and looks like the other tabs disappeared. Only
@@ -152,10 +208,10 @@ struct ContentView: View {
             // still reserves transparent space. Keep the TabView identity
             // stable for Search, disable minimization, and render the player
             // as the outer legacy overlay below instead.
-            tabRoot
+            skinnedTabRoot
                 .tabBarMinimizeBehavior(.never)
         } else {
-            tabRoot
+            skinnedTabRoot
         }
     }
 
@@ -256,6 +312,8 @@ struct ContentView: View {
                         .padding(.bottom, 16)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
+                } else if usesNocturneSkin {
+                    EmptyView()
                 } else if #available(iOS 26.1, *) {
                     EmptyView()
                 } else {
@@ -336,6 +394,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             showNowPlaying = true
         }
+        .task(id: visualizerSessionID) {
+            await updateVisualizerSession()
+        }
         // SSL trust prompt
         .alert(
             String(localized: "ssl_trust_title"),
@@ -400,6 +461,30 @@ struct ContentView: View {
         .environment(\.openScraperSettings, OpenScraperSettingsAction {
             openScraperSettings()
         })
+        .preferredColorScheme(usesNocturneSkin ? .dark : nil)
+        .tint(usesNocturneSkin ? PrimuseNocturnePalette.violet : nil)
+    }
+
+    private func updateVisualizerSession() async {
+        guard visualizerShouldRun else {
+            visualizer.stop()
+            return
+        }
+
+        for _ in 0..<8 {
+            guard !Task.isCancelled, visualizerShouldRun else {
+                visualizer.stop()
+                return
+            }
+            if let engine = player.audioEngine.engineForVisualizer,
+               let mixer = player.audioEngine.mainMixerForVisualizer,
+               engine.isRunning {
+                visualizer.start(engine: engine, on: mixer)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        visualizer.stop()
     }
 
     private func openScraperSettings() {
@@ -497,6 +582,55 @@ struct ContentView: View {
         selectedTab = 1
         sidebarSelection = .library
         libraryDeepLink = link
+    }
+}
+
+private struct NocturneBottomTabBar: View {
+    @Binding var selection: Int
+
+    private let items: [(title: String.LocalizationValue, value: Int)] = [
+        ("home_title", 0),
+        ("library_title", 1),
+        ("search_title", 2),
+        ("settings_title", 3),
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(items, id: \.value) { item in
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        selection = item.value
+                    }
+                } label: {
+                    VStack(spacing: 7) {
+                        Capsule()
+                            .fill(selection == item.value
+                                  ? PrimuseNocturnePalette.violet
+                                  : Color.clear)
+                            .frame(width: 18, height: 2)
+
+                        Text(String(localized: item.title))
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .tracking(0.7)
+                            .foregroundStyle(selection == item.value
+                                             ? PrimuseNocturnePalette.violet
+                                             : PrimuseNocturnePalette.muted)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == item.value ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 10)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 0.5)
+        }
     }
 }
 
@@ -685,25 +819,36 @@ struct LegacyNowPlayingAccessory: View {
 struct NowPlayingAccessory: View {
     var onTap: () -> Void
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    @AppStorage(PrimuseAppSkin.storageKey)
+    private var appSkinRawValue = PrimuseAppSkin.system.rawValue
 
     private var isInline: Bool { placement == .inline }
 
+    @ViewBuilder
     var body: some View {
-        HStack(spacing: 0) {
-            MiniPlayerSwipeContent(
+        if PrimuseAppSkin(rawValue: appSkinRawValue) == .nocturne {
+            NocturneMiniPlayerContent(
                 onTap: onTap,
-                artworkSize: isInline ? 32 : 40,
-                artworkCornerRadius: isInline ? 6 : 8,
-                titleFont: .caption
-            )
-
-            MiniPlayerTransportControls(
                 isInline: isInline,
                 showsNextButton: !isInline
             )
+        } else {
+            HStack(spacing: 0) {
+                MiniPlayerSwipeContent(
+                    onTap: onTap,
+                    artworkSize: isInline ? 32 : 40,
+                    artworkCornerRadius: isInline ? 6 : 8,
+                    titleFont: .caption
+                )
+
+                MiniPlayerTransportControls(
+                    isInline: isInline,
+                    showsNextButton: !isInline
+                )
+            }
+            .padding(.horizontal, isInline ? 12 : 8)
+            .padding(.vertical, isInline ? 2 : 4)
         }
-        .padding(.horizontal, isInline ? 12 : 8)
-        .padding(.vertical, isInline ? 2 : 4)
     }
 }
 

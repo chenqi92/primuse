@@ -14,7 +14,11 @@ struct PrimuseWatchApp: App {
                     LibraryWatchView()
                 }
             }
+            #if os(watchOS)
             .tabViewStyle(.verticalPage)
+            #else
+            .tabViewStyle(.page)
+            #endif
             .environment(store)
         }
     }

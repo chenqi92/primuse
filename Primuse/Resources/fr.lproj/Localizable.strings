@@ -2730,3 +2730,33 @@
 "lyrics_converter_lrc_help" = "LRC; le minutage des mots reste en LRC amélioré";
 "lyrics_converter_ttml_help" = "TTML compatible avec Apple Music";
 "lyrics_converter_txt_help" = "Texte brut sans minutage";
+
+/* MARK: - Nocturne skin and player stages */
+"visual_appearance_title" = "Interface et lecteur";
+"appearance_skin_section" = "Thème de l’app";
+"appearance_skin_footer" = "Le thème unifie Accueil, Bibliothèque, Recherche, Réglages et le mini-lecteur sans modifier leurs fonctions.";
+"appearance_skin_system" = "Natif";
+"appearance_skin_system_description" = "Conserve les composants système et la couleur d’accent dynamique.";
+"appearance_skin_nocturne" = "Échine lumineuse";
+"appearance_skin_nocturne_description" = "Un index sombre avec lumière issue des pochettes et listes colorées.";
+"player_stage_section" = "Scène du lecteur";
+"player_stage_footer" = "La scène est indépendante du thème. Paroles, file d’attente, diffusion et commandes restent disponibles.";
+"player_stage_follows_skin" = "Suivre le thème";
+"player_stage_follows_skin_description" = "Le thème natif garde le lecteur original ; Échine lumineuse utilise Index de pochettes.";
+"player_stage_sleeve_index" = "Index de pochettes";
+"player_stage_sleeve_index_description" = "Pochette plein cadre, typographie éditoriale et détails audio précis.";
+"player_stage_lyric_well" = "Puits de paroles";
+"player_stage_lyric_well_description" = "Place les paroles synchronisées au centre, avec les commandes en bas.";
+"player_stage_cover_stage" = "Scène de pochette";
+"player_stage_cover_stage_description" = "Grande pochette, hiérarchie calme et espace généreux.";
+"player_stage_spectrum_nebula" = "Nébuleuse spectrale";
+"player_stage_spectrum_nebula_description" = "Anime un spectre lumineux à partir des bandes PCM en direct.";
+"player_stage_luminous_field" = "Champ lumineux";
+"player_stage_luminous_field_description" = "Crée un champ lentement mouvant depuis la palette de la pochette.";
+"player_stage_typography" = "Typographie";
+"player_stage_typography_description" = "Remplace une pochette absente par le titre pour un affichage minimal.";
+"nocturne_resume_heading" = "Reprenez là où\nvous en étiez";
+"nocturne_continue_button %@" = "Continuer · %@";
+"nocturne_fresh_eyebrow" = "Votre son commence ici";
+"nocturne_fresh_heading" = "Chaque morceau mérite\nsa propre lumière";
+"nocturne_fresh_description" = "Connectez une bibliothèque locale, NAS ou en streaming. Primuse donne à chaque titre sa couleur et sa scène.";
