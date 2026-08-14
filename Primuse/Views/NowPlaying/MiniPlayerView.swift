@@ -173,9 +173,9 @@ struct MiniPlayerTransportControls: View {
                     if player.isLoading && !player.isLiveRadio {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
+                        Image(systemName: player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
                             ? "stop.fill"
-                            : (player.isPlaying ? "pause.fill" : "play.fill"))
+                            : (player.isPlaybackActive ? "pause.fill" : "play.fill"))
                             .font(isInline ? .subheadline : .body)
                             .contentTransition(.symbolEffect(.replace))
                     }
@@ -184,9 +184,9 @@ struct MiniPlayerTransportControls: View {
                 .contentShape(Rectangle())
             }
             .disabled(player.isLoading && !player.isLiveRadio)
-            .accessibilityLabel(player.isLiveRadio && (player.isPlaying || player.isLoading)
+            .accessibilityLabel(player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
                 ? String(localized: "radio_stop")
-                : (player.isPlaying
+                : (player.isPlaybackActive
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play")))
 

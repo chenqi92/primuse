@@ -7,8 +7,10 @@ final class AudioSessionManager {
 
     /// Called when an interruption begins — UI should show "paused" state
     var onInterruptionBegan: (() -> Void)?
-    /// Called when an interruption ends and the system suggests resuming
-    var onInterruptionEndedShouldResume: (() -> Void)?
+    /// Called whenever an interruption ends, carrying the system resume grant.
+    /// Delivering denied endings is required so stale resume intent can be
+    /// cleared instead of being revived by a later lifecycle callback.
+    var onInterruptionEnded: ((Bool) -> Void)?
     /// Called when the audio engine's hardware configuration changes (route change, etc.)
     var onConfigurationChange: (() -> Void)?
 
@@ -115,16 +117,14 @@ final class AudioSessionManager {
                 self.onInterruptionBegan?()
 
             case .ended:
-                // Interruption ended. Check if we should auto-resume.
+                // Always forward the ending. The player owns user intent and
+                // generation checks; `.shouldResume` alone is not authorization.
                 if shouldResume {
                     plog("🔊 Audio interruption ended — shouldResume")
-                    // The player callback decides whether there is still a song
-                    // that should resume. Its resume path activates the session;
-                    // doing so here would reclaim audio even while Primuse is idle.
-                    self.onInterruptionEndedShouldResume?()
                 } else {
                     plog("🔊 Audio interruption ended — should NOT resume")
                 }
+                self.onInterruptionEnded?(shouldResume)
 
             @unknown default:
                 break

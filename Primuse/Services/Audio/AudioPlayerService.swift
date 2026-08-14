@@ -743,6 +743,10 @@ final class AudioPlayerService {
         }
         return isPlaying && audioEngine.isActuallyPlaying
     }
+    /// Canonical state for in-app controls, widgets and system transport UI.
+    /// `isPlaying` is retained as the mirrored backend flag; this additionally
+    /// verifies local engine output so a stopped engine cannot show Pause.
+    var isPlaybackActive: Bool { isPlaybackActuallyActive }
     private var appleMusicPlaybackTask: Task<Void, Never>?
     private var appleMusicTimeoutTask: Task<Void, Never>?
     private var activeAppleMusicRequestID: UUID?
@@ -897,7 +901,8 @@ final class AudioPlayerService {
     private var lastDecodedBufferRecoveryAt: Date?
 
     private var errorDismissTask: Task<Void, Never>?
-    private var shouldResumeAfterInterruption = false
+    @ObservationIgnored private var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
+    private var lastPublishedPlaybackWasActive = false
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
 
@@ -1079,6 +1084,7 @@ final class AudioPlayerService {
     /// 翻译过来设上, 让 NowPlayingView 复用同一份实现; 仅本地引擎和 time
     /// updater 停掉。
     private func yieldToAppleMusic(requestID: UUID) {
+        registerPlayIntent()
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)
         }
@@ -1291,7 +1297,17 @@ final class AudioPlayerService {
             if self.isAppleMusicMode {
                 AppServices.shared.appleMusic.markPlaybackInterrupted()
             }
-            let wasPlaying = self.isPlaying
+            // Casting owns playback on another device and is not interrupted by
+            // this phone's AVAudioSession. Its polling remains authoritative.
+            guard !self.isCastingMode else { return }
+            // The engine may already be stopped by the time AVAudioSession
+            // delivers `.began`. Use the last state that was published after
+            // validating the real backend output, never the raw mirrored flag.
+            let wasPlaying = self.lastPublishedPlaybackWasActive
+            self.interruptionResumePolicy.interruptionBegan(
+                wasActuallyPlaying: wasPlaying,
+                currentItemID: self.currentSong?.id
+            )
             // Once a fade has committed, currentSong already points at the
             // incoming track while the engine's primary node still belongs to
             // the outgoing one. Finish the node swap before reading progress,
@@ -1301,7 +1317,6 @@ final class AudioPlayerService {
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = wasPlaying
-            self.shouldResumeAfterInterruption = wasPlaying
 
             guard wasPlaying else { return }
             // Sync UI to paused state — the engine was already stopped by the system.
@@ -1311,9 +1326,18 @@ final class AudioPlayerService {
             self.updatePlaybackState()
         }
 
-        manager.onInterruptionEndedShouldResume = { [weak self] in
-            guard let self, !self.isPlaying, self.currentSong != nil else { return }
-            self.resume()
+        manager.onInterruptionEnded = { [weak self] systemShouldResume in
+            guard let self else { return }
+            let shouldResume = self.interruptionResumePolicy.interruptionEnded(
+                systemShouldResume: systemShouldResume,
+                currentItemID: self.currentSong?.id
+            )
+            guard shouldResume, !self.isPlaybackActuallyActive, self.currentSong != nil else {
+                self.updateNowPlayingInfo()
+                self.updatePlaybackState()
+                return
+            }
+            self.resumeCurrentPlayback(registeringUserIntent: false)
         }
 
         manager.onConfigurationChange = { [weak self] in
@@ -1325,12 +1349,16 @@ final class AudioPlayerService {
                   !self.isLiveRadio,
                   !self.isCastingMode,
                   !self.isMusicVideoPlaybackActive else { return }
-            let shouldAutoResume = self.isPlaying || self.shouldResumeAfterInterruption
+            let shouldAutoResume = self.isPlaying
+                && self.interruptionResumePolicy.playbackIsIntended
             self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = self.needsPlaybackRecovery || shouldAutoResume
 
+            // A configuration-change notification commonly accompanies an
+            // interruption. It may prepare recovery, but cannot grant resume.
+            guard !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
             guard shouldAutoResume else { return }
             // The route interruption already decided that playback should resume.
             // Restart the local graph, then mirror only an actual engine success
@@ -1420,9 +1448,20 @@ final class AudioPlayerService {
     #endif
 
     private func clearPendingPlaybackRecovery() {
-        shouldResumeAfterInterruption = false
         needsPlaybackRecovery = false
         pendingRecoveryTime = 0
+    }
+
+    private func registerPlayIntent() {
+        interruptionResumePolicy.registerPlayIntent()
+    }
+
+    private func registerPauseOrStopIntent() {
+        interruptionResumePolicy.registerPauseOrStopIntent()
+    }
+
+    private func invalidateInterruptionResumePreservingIntent() {
+        interruptionResumePolicy.invalidatePendingResumePreservingIntent()
     }
 
     private func syncPlaybackProgressFromEngine() {
@@ -1817,6 +1856,7 @@ final class AudioPlayerService {
             showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
             return
         }
+        registerPlayIntent()
 
         let id = UUID()
         playID = id
@@ -2307,6 +2347,7 @@ final class AudioPlayerService {
     }
 
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
+        registerPlayIntent()
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)
         }
@@ -2545,6 +2586,8 @@ final class AudioPlayerService {
                 return
             }
             self.appleMusicTimeoutTask = nil
+            self.updateNowPlayingInfo()
+            self.updatePlaybackState()
         }
 
         // 不阻塞 play(song:) 调用方。成功后 AppleMusicService 的 mirror 会把
@@ -2652,6 +2695,8 @@ final class AudioPlayerService {
                 isCancelled: false
                ) else { return }
          guard let phase = am.playbackPhase(for: requestID) else { return }
+         let previousPlayingState = isPlaying
+         let previousLoadingState = isLoading
          switch phase {
          case .pending:
              return
@@ -2660,11 +2705,17 @@ final class AudioPlayerService {
              isLoading = false
              isPlaying = false
              pendingAppleMusicRestoredPosition = nil
+             updateNowPlayingInfo()
              updatePlaybackState()
              return
          case .started:
              lastPlaybackError = nil
              isLoading = false
+             isPlaying = am.isAppleMusicPlaying
+         }
+         if previousPlayingState != isPlaying || previousLoadingState != isLoading {
+             updateNowPlayingInfo()
+             updatePlaybackState()
          }
          guard let nps = am.nowPlayingSong else { return }
          isMirroringFromAppleMusic = true
@@ -2688,7 +2739,6 @@ final class AudioPlayerService {
          if !isPrimuseManagingAppleMusicQueue, pSong.id != currentSong?.id {
              currentSong = pSong
          }
-         let previousPlayingState = isPlaying
          isPlaying = am.isAppleMusicPlaying
          // 首次播 (isLoading=true) 收到 playing 状态才清 isLoading,
          // 避免 polling 命中前 UI 一直显示 spinner。
@@ -2726,9 +2776,6 @@ final class AudioPlayerService {
              if repeatMode != am.repeatModeMirror { repeatMode = am.repeatModeMirror }
              if shuffleEnabled != am.shuffleEnabledMirror { shuffleEnabled = am.shuffleEnabledMirror }
          }
-         if previousPlayingState != isPlaying {
-             updatePlaybackState()
-         }
      }
 
     /// Called when the one-item MusicKit queue reaches a terminal boundary.
@@ -2751,6 +2798,7 @@ final class AudioPlayerService {
     }
 
     func play(song: Song, from url: URL) async {
+        registerPlayIntent()
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)
         }
@@ -3014,6 +3062,7 @@ final class AudioPlayerService {
                     // Empty stream — skip to next
                     guard playID == id else { return }
                     isLoading = false
+                    republishNowPlayingSurfaces()
                     await autoAdvanceAfterFailure()
                     return
                 }
@@ -3029,6 +3078,7 @@ final class AudioPlayerService {
                 plog("⚠️ '\(song.title)' first-buffer timeout (35s) — likely cloud fetch stalled")
                 showPlaybackError(String(localized: "playback_error_connection"))
                 isLoading = false
+                republishNowPlayingSurfaces()
                 await autoAdvanceAfterFailure()
                 return
             } catch {
@@ -3058,6 +3108,7 @@ final class AudioPlayerService {
                     return
                 } else {
                     isLoading = false
+                    republishNowPlayingSurfaces()
                 }
                 return
             }
@@ -4171,6 +4222,9 @@ final class AudioPlayerService {
     }
 
     func pause() {
+        // Record this before route-specific early returns so Apple Music,
+        // radio, casting and MV all cancel a pending interruption resume.
+        registerPauseOrStopIntent()
         if isLiveRadio {
             playID = UUID()
             stopRadioTransport(clearSelection: false)
@@ -4181,6 +4235,7 @@ final class AudioPlayerService {
         if isAppleMusicMode {
             if AppServices.shared.appleMusic.pauseAppleMusic() {
                 isPlaying = false
+                updateNowPlayingInfo()
                 updatePlaybackState()
             }
             return
@@ -4190,7 +4245,6 @@ final class AudioPlayerService {
             return
         }
         if isMusicVideoPlaybackActive {
-            shouldResumeAfterInterruption = false
             syncPlaybackProgressFromEngine()
             musicVideoPlayer?.pause()
             // AVPlayer pause only stops presentation. The parallel full-file
@@ -4204,7 +4258,6 @@ final class AudioPlayerService {
             updatePlaybackState()
             return
         }
-        shouldResumeAfterInterruption = false
         // Align the engine's primary node with currentSong before capturing
         // the pause position during an already-committed fade.
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
@@ -4217,6 +4270,13 @@ final class AudioPlayerService {
     }
 
     func resume() {
+        resumeCurrentPlayback(registeringUserIntent: true)
+    }
+
+    private func resumeCurrentPlayback(registeringUserIntent: Bool) {
+        if registeringUserIntent {
+            registerPlayIntent()
+        }
         if isLiveRadio {
             guard let station = currentRadioStation else { return }
             let stations = radioStationOrder
@@ -4247,7 +4307,6 @@ final class AudioPlayerService {
             _ = AudioSessionManager.shared.activatePlaybackSession()
             musicVideoPlayer?.play()
             isPlaying = true
-            shouldResumeAfterInterruption = false
             updateNowPlayingInfo()
             updatePlaybackState()
             return
@@ -4275,7 +4334,6 @@ final class AudioPlayerService {
         syncPlaybackProgressFromEngine()
         isPlaying = didResume
         if didResume {
-            shouldResumeAfterInterruption = false
             startTimeUpdater()
         } else {
             stopTimeUpdater()
@@ -4443,6 +4501,7 @@ final class AudioPlayerService {
     /// RemoteRendererController。Apple Music DRM 歌无法投屏, 调用前 caller 应
     /// 自己 disable 按钮。
     func startCasting(to renderer: RemoteRenderer) async {
+        invalidateInterruptionResumePreservingIntent()
         let hasActiveAppleMusicRequest = activeAppleMusicRequestID != nil
             || AppServices.shared.appleMusic.activePlaybackRequestID != nil
             || appleMusicCastingHandoffTask != nil
@@ -4497,6 +4556,7 @@ final class AudioPlayerService {
     /// 停投屏 ── controller stop + 本地从同一首歌当前进度续播 (用户期望)。
     /// 如果 controller 已经断 / 出错, 也强制清状态。
     func stopCasting() async {
+        invalidateInterruptionResumePreservingIntent()
         castingPositionTask?.cancel(); castingPositionTask = nil
         let controller = castingController
         let resumeSong = currentSong
@@ -4601,29 +4661,14 @@ final class AudioPlayerService {
             return
         }
         if isAppleMusicMode {
-            let appleMusic = AppServices.shared.appleMusic
-            let hasStartedRequest = appleMusic.activePlaybackRequestID.map {
-                appleMusic.playbackPhase(for: $0) == .started
-            } ?? false
-            switch AppleMusicTogglePlaybackPolicy.action(
-                hasStartedPlaybackRequest: hasStartedRequest
-            ) {
-            case .toggleActiveRequest:
-                appleMusic.togglePlayPauseAppleMusic()
-            case .rebuildRestoredRequest:
-                // Playback-session snapshots retain the visible Apple Music
-                // item, not MusicKit's process-local request generation.
-                // Re-enter the normal resume path so it recreates that request
-                // instead of silently asking a nil generation to play.
-                resume()
-            }
+            isPlaybackActuallyActive ? pause() : resume()
             return
         }
         if isCastingMode {
-            setCastingPlayback(shouldPlay: !isPlaying)
+            isPlaybackActuallyActive ? pause() : resume()
             return
         }
-        if isPlaying { pause() } else { resume() }
+        if isPlaybackActuallyActive { pause() } else { resume() }
     }
 
     private func setCastingPlayback(shouldPlay: Bool) {
@@ -4647,6 +4692,7 @@ final class AudioPlayerService {
     }
 
     func stop() {
+        registerPauseOrStopIntent()
         if isLiveRadio {
             playID = UUID()
             resetDecodedBufferHealth(resetRecoveryAttempts: true)
@@ -4720,6 +4766,7 @@ final class AudioPlayerService {
     /// (sheet 白屏 / mini player 闪一下消失)。用户再点 play 可以从头重放
     /// (resume() 检测到 isAtTrackEnd 会走 play(song:) 重新解码)。
     private func stopAtTrackEnd() {
+        registerPauseOrStopIntent()
         // Invalidate the completed playback before stopping the node. The
         // safety-net timer and AVAudioPlayerNode's .dataPlayedBack callback can
         // arrive a few milliseconds apart for the same track. Without this,
@@ -4777,6 +4824,7 @@ final class AudioPlayerService {
             return true
         }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
+            invalidateInterruptionResumePreservingIntent()
             return await AppServices.shared.appleMusic.skipToNextAppleMusic()
         }
         guard !queue.isEmpty else { return false }
@@ -4826,6 +4874,7 @@ final class AudioPlayerService {
                 AppServices.shared.appleMusic.seekAppleMusic(to: 0)
                 return true
             } else {
+                invalidateInterruptionResumePreservingIntent()
                 return await AppServices.shared.appleMusic.skipToPreviousAppleMusic()
             }
         }
@@ -4972,7 +5021,13 @@ final class AudioPlayerService {
                 activeDSDPlaybackMode = try await configureOutputPipeline(for: song, url: url)
                 applySpatialAudioSettings()
                 applyPlaybackRate()
-                guard let outputFormat = audioEngine.outputFormat else { return }
+                guard let outputFormat = audioEngine.outputFormat else {
+                    isLoading = false
+                    isPlaying = false
+                    showPlaybackError(String(localized: "playback_error_decode"))
+                    republishNowPlayingSurfaces()
+                    return
+                }
                 try audioEngine.start()
 
                 let settings = playbackSettings.snapshot()
@@ -4995,6 +5050,7 @@ final class AudioPlayerService {
                     guard let cached = sourceManager?.cachedURL(for: song) else {
                         plog("⚠️ Seek: streaming song not cached yet, seek not available")
                         isLoading = false
+                        republishNowPlayingSurfaces()
                         if isRecovery {
                             clearPendingPlaybackRecovery()
                             await play(song: song)
@@ -5094,6 +5150,7 @@ final class AudioPlayerService {
                     } else {
                         plog("⚠️ Seek: failed to build HTTP streaming InputSource")
                         isLoading = false
+                        republishNowPlayingSurfaces()
                         if isRecovery {
                             clearPendingPlaybackRecovery()
                             await play(song: song)
@@ -5133,6 +5190,7 @@ final class AudioPlayerService {
                     } else {
                         plog("⚠️ Seek: failed to build cloud streaming InputSource")
                         isLoading = false
+                        republishNowPlayingSurfaces()
                         if isRecovery {
                             clearPendingPlaybackRecovery()
                             await play(song: song)
@@ -5290,11 +5348,6 @@ final class AudioPlayerService {
     }
 
     func handleAppDidBecomeActive() {
-        if shouldResumeAfterInterruption, !isPlaying, currentSong != nil {
-            resume()
-            return
-        }
-
         if needsPlaybackRecovery {
             currentTime = max(0, pendingRecoveryTime)
             updateNowPlayingInfo()
@@ -6040,6 +6093,7 @@ final class AudioPlayerService {
     }
 
     private func invalidateQueueTransitions() {
+        invalidateInterruptionResumePreservingIntent()
         queueGeneration += 1
         cancelGaplessTasks()
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
@@ -7125,12 +7179,14 @@ final class AudioPlayerService {
         artwork: MPMediaItemArtwork? = nil,
         artworkSongID: String? = nil
     ) {
+        let actualPlaybackIsActive = isPlaybackActuallyActive
+        lastPublishedPlaybackWasActive = actualPlaybackIsActive
         let preferredRate = playbackSettings.outputMode == .effects
             ? Double(playbackSettings.playbackRate)
             : 1
         let projection = NowPlayingPlaybackProjectionPolicy.projection(
             hasCurrentItem: currentSong != nil,
-            isPlaying: isPlaybackActuallyActive,
+            isPlaying: actualPlaybackIsActive,
             isLoading: isLoading,
             preferredPlaybackRate: preferredRate
         )
@@ -7202,7 +7258,7 @@ final class AudioPlayerService {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.isEnabled = projection.playCommandEnabled
         center.pauseCommand.isEnabled = projection.pauseCommandEnabled
-        center.togglePlayPauseCommand.isEnabled = currentSong != nil && (!isLoading || isLiveRadio)
+        center.togglePlayPauseCommand.isEnabled = currentSong != nil
         center.changePlaybackPositionCommand.isEnabled = playbackCapabilities.canSeek
         center.nextTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
         center.previousTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
@@ -7393,26 +7449,44 @@ final class AudioPlayerService {
     }
 
     private func handleRemotePlayCommand() -> MPRemoteCommandHandlerStatus {
-        guard currentSong != nil else { return .noActionableNowPlayingItem }
-        guard !isLoading || isLiveRadio else { return .commandFailed }
-        guard !isPlaybackActuallyActive else { return .success }
-
-        let expectsSynchronousEngineResult = !isAppleMusicMode
-            && !isCastingMode
-            && !isAtTrackEnd
-            && !needsPlaybackRecovery
-            && hasPreparedLocalPlayback
-        resume()
-        if expectsSynchronousEngineResult, !isPlaying {
-            return .commandFailed
+        let action = RemotePlayCommandPolicy.action(
+            hasCurrentItem: currentSong != nil,
+            isPlaybackActuallyActive: isPlaybackActuallyActive,
+            isLoading: isLoading,
+            playbackIsIntended: interruptionResumePolicy.playbackIsIntended
+        )
+        switch action {
+        case .noActionableItem:
+            return .noActionableNowPlayingItem
+        case .alreadyPlaying, .awaitInFlightRequest:
+            return .success
+        case .retryLoadingPlayback:
+            retryLoadingPlaybackFromRemote()
+            return .success
+        case .resume:
+            let expectsSynchronousEngineResult = !isAppleMusicMode
+                && !isCastingMode
+                && !isAtTrackEnd
+                && !needsPlaybackRecovery
+                && hasPreparedLocalPlayback
+            resume()
+            if expectsSynchronousEngineResult, !isPlaybackActuallyActive {
+                return .commandFailed
+            }
+            return .success
         }
-        return .success
     }
 
     private func handleRemotePauseCommand() -> MPRemoteCommandHandlerStatus {
         guard currentSong != nil else { return .noActionableNowPlayingItem }
-        guard !isLoading || isLiveRadio else { return .commandFailed }
-        guard isPlaybackActuallyActive else { return .success }
+        guard isPlaybackActuallyActive else {
+            // A remote Pause during an interruption is still an explicit user
+            // decision and must invalidate the pending automatic resume.
+            registerPauseOrStopIntent()
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return .success
+        }
         let isAsynchronousRoute = isCastingMode
         pause()
         return isAsynchronousRoute || !isPlaying ? .success : .commandFailed
@@ -7420,6 +7494,20 @@ final class AudioPlayerService {
 
     private func handleRemoteToggleCommand() -> MPRemoteCommandHandlerStatus {
         isPlaybackActuallyActive ? handleRemotePauseCommand() : handleRemotePlayCommand()
+    }
+
+    private func retryLoadingPlaybackFromRemote() {
+        guard currentSong != nil else { return }
+        if isAppleMusicMode || isLiveRadio || isCastingMode {
+            resume()
+            return
+        }
+        registerPlayIntent()
+        seek(
+            to: currentTime,
+            startPlaying: true,
+            isRecovery: needsPlaybackRecovery
+        )
     }
 
     // MARK: - Sleep Timer
@@ -7516,7 +7604,7 @@ final class AudioPlayerService {
         hasPreparedLocalPlayback = false
         pendingRecoveryTime = currentTime
         needsPlaybackRecovery = currentTime > 0 && !isAtTrackEnd
-        shouldResumeAfterInterruption = false
+        interruptionResumePolicy = PlaybackInterruptionResumePolicy()
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
@@ -7608,7 +7696,7 @@ final class AudioPlayerService {
         #if os(macOS)
         let request = MacWidgetPlaybackPublishRequest(
             currentSong: currentSong,
-            isPlaying: isPlaying,
+            isPlaying: isPlaybackActuallyActive,
             currentTime: currentTime,
             duration: duration,
             queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
@@ -7696,7 +7784,7 @@ final class AudioPlayerService {
             albumTitle: currentSong?.albumTitle,
             fileFormat: currentSong.map { $0.fileFormat.displayName },
             coverImageName: coverName,
-            isPlaying: isPlaying,
+            isPlaying: isPlaybackActuallyActive,
             // Progress gated by scope: omit currentTime/duration when the user
             // hasn't granted progress disclosure (defaults to 0 via the init).
             currentTime: scope.includesProgress ? currentTime : 0,

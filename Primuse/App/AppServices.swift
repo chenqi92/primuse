@@ -605,7 +605,7 @@ final class AppServices {
         bridge.setPlaying = { desired in
             // 状态对齐: 想播放且当前没播 → toggle 一下; 想暂停且当前在播 → toggle。
             // 已经对齐就别动 (避免来回开停)。
-            if desired != player.isPlaying { player.togglePlayPause() }
+            if desired != player.isPlaybackActive { player.togglePlayPause() }
         }
         bridge.next = { await player.next(caller: "AppIntent") }
         bridge.previous = { await player.previous() }
