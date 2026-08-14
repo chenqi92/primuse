@@ -117,6 +117,7 @@ final class AppleMusicService {
     @ObservationIgnored var preparePlaybackHandoff: (@MainActor (UUID) async -> Bool)?
     @ObservationIgnored private var hasObservedActivePlayback = false
     @ObservationIgnored private var wasPausedByUser = false
+    @ObservationIgnored private var playbackCommandGeneration: UInt64 = 0
     @ObservationIgnored private var isPlaybackInterrupted = false
     @ObservationIgnored private var lastObservedPlaybackTime: TimeInterval?
     @ObservationIgnored private var furthestObservedPlaybackTime: TimeInterval = 0
@@ -269,8 +270,10 @@ final class AppleMusicService {
         requestID: UUID,
         requestCanContinue: () -> Bool
      ) async {
+         let commandGeneration = playbackCommandGeneration
          guard !songs.isEmpty,
                isPlaybackRequestPending(requestID),
+               !wasPausedByUser,
                !Task.isCancelled else { return }
          guard requestCanContinue() else {
              failPlaybackRequest(
@@ -287,7 +290,10 @@ final class AppleMusicService {
          guard await ensurePlayablePreflight(for: source, requestID: requestID) else {
              return
          }
-         guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
+         guard isPlaybackRequestPending(requestID),
+               playbackCommandGeneration == commandGeneration,
+               !wasPausedByUser,
+               !Task.isCancelled else { return }
          guard requestCanContinue() else {
              failPlaybackRequest(
                 requestID,
@@ -311,8 +317,16 @@ final class AppleMusicService {
          observePlaybackStatusIfNeeded(requestID: requestID)
          do {
              player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: starting)
+             guard playbackCommandGeneration == commandGeneration,
+                   !wasPausedByUser else { return }
              try await player.play()
-             guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
+             guard isPlaybackRequestPending(requestID),
+                   playbackCommandGeneration == commandGeneration,
+                   !wasPausedByUser,
+                   !Task.isCancelled else {
+                 quiesceStalePlaybackIfNeeded(requestID: requestID)
+                 return
+             }
              guard requestCanContinue() else {
                  player.stop()
                  failPlaybackRequest(
@@ -325,7 +339,13 @@ final class AppleMusicService {
              }
              markPlaybackStarted(requestID)
          } catch {
-             guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
+             guard isPlaybackRequestPending(requestID),
+                   playbackCommandGeneration == commandGeneration,
+                   !wasPausedByUser,
+                   !Task.isCancelled else {
+                 quiesceStalePlaybackIfNeeded(requestID: requestID)
+                 return
+             }
              guard requestCanContinue() else {
                  player.stop()
                  failPlaybackRequest(
@@ -404,12 +424,17 @@ final class AppleMusicService {
     }
 
     private func performCatalogPlay(_ song: MusicKit.Song, requestID: UUID) async {
+        let commandGeneration = playbackCommandGeneration
+        guard !wasPausedByUser else { return }
         // 订阅探测 + 清上次错误 ── 没订阅 / 不支持时直接 bail, 避免触发 player
         // 的边界 case。
         guard await ensurePlayablePreflight(for: .catalog, requestID: requestID) else {
             return
         }
-        guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
+        guard isPlaybackRequestPending(requestID),
+              playbackCommandGeneration == commandGeneration,
+              !wasPausedByUser,
+              !Task.isCancelled else { return }
 
         let player = ApplicationMusicPlayer.shared
 #if os(iOS)
@@ -425,11 +450,25 @@ final class AppleMusicService {
         observePlaybackStatusIfNeeded(requestID: requestID)
         do {
             player.queue = ApplicationMusicPlayer.Queue(for: [song])
+            guard playbackCommandGeneration == commandGeneration,
+                  !wasPausedByUser else { return }
             try await player.play()
-            guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
+            guard isPlaybackRequestPending(requestID),
+                  playbackCommandGeneration == commandGeneration,
+                  !wasPausedByUser,
+                  !Task.isCancelled else {
+                quiesceStalePlaybackIfNeeded(requestID: requestID)
+                return
+            }
             markPlaybackStarted(requestID)
         } catch {
-            guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
+            guard isPlaybackRequestPending(requestID),
+                  playbackCommandGeneration == commandGeneration,
+                  !wasPausedByUser,
+                  !Task.isCancelled else {
+                quiesceStalePlaybackIfNeeded(requestID: requestID)
+                return
+            }
             // MusicKit 已知 quirk: error 2 (`MPMusicPlayerControllerErrorDomain
             // error 2`) 经常在播放实际成功的情况下被抛, 不当 failure 处理。
             // 其他 error 才暴露给 UI。
@@ -468,6 +507,7 @@ final class AppleMusicService {
     @discardableResult
     func pauseAppleMusic() -> Bool {
         guard activePlaybackRequestID != nil else { return false }
+        playbackCommandGeneration &+= 1
         if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
             ApplicationMusicPlayer.shared.pause()
         }
@@ -479,6 +519,8 @@ final class AppleMusicService {
     @discardableResult
     func resumeAppleMusic() -> Bool {
         guard let requestID = activePlaybackRequestID else { return false }
+        playbackCommandGeneration &+= 1
+        let commandGeneration = playbackCommandGeneration
         if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
             isAppleMusicPlaying = true
             wasPausedByUser = false
@@ -488,15 +530,29 @@ final class AppleMusicService {
         wasPausedByUser = false
         isPlaybackInterrupted = false
         Task { @MainActor [weak self] in
+            guard let self,
+                  self.isPlaybackRequestActive(requestID),
+                  self.playbackCommandGeneration == commandGeneration,
+                  !self.wasPausedByUser else { return }
             // Task 内重新取 shared 引用, 避免 Swift 6 报 non-Sendable 跨边界。
             do { try await ApplicationMusicPlayer.shared.play() } catch {
-                guard self?.isPlaybackRequestActive(requestID) == true,
-                      !Task.isCancelled else { return }
+                guard self.isPlaybackRequestActive(requestID),
+                      self.playbackCommandGeneration == commandGeneration,
+                      !self.wasPausedByUser,
+                      !Task.isCancelled else {
+                    self.quiesceStalePlaybackIfNeeded(requestID: requestID)
+                    return
+                }
                 plog("⚠️Apple Music resume failed: \(error.localizedDescription)")
             }
-            guard self?.isPlaybackRequestActive(requestID) == true,
-                  !Task.isCancelled else { return }
-            self?.isAppleMusicPlaying = ApplicationMusicPlayer.shared.state.playbackStatus == .playing
+            guard self.isPlaybackRequestActive(requestID),
+                  self.playbackCommandGeneration == commandGeneration,
+                  !self.wasPausedByUser,
+                  !Task.isCancelled else {
+                self.quiesceStalePlaybackIfNeeded(requestID: requestID)
+                return
+            }
+            self.isAppleMusicPlaying = ApplicationMusicPlayer.shared.state.playbackStatus == .playing
         }
         return true
     }
@@ -514,6 +570,7 @@ final class AppleMusicService {
     /// 下一首 — 当前实现一首一首播 (queue 只塞一首歌), 所以 skip 实际等同 stop。
     /// 后续可以扩展成顺播多首。
     func stopAppleMusic() {
+        playbackCommandGeneration &+= 1
         catalogPlaybackTask?.cancel()
         catalogPlaybackTask = nil
         playbackRequestState = nil
@@ -592,10 +649,6 @@ final class AppleMusicService {
              let madeProgress = lastObservedPlaybackTime.map {
                  playbackTime > $0 + 0.05
              } ?? true
-             if madeProgress {
-                 wasPausedByUser = false
-                 isPlaybackInterrupted = false
-             }
              let nearEnd = AppleMusicPlaybackEndPolicy.isNearEnd(
                  duration: currentDuration,
                  playbackTime: playbackTime,
@@ -704,6 +757,7 @@ final class AppleMusicService {
      /// Audio-session interruptions are not natural track endings. Keep the
      /// near-end watchdog suppressed until MusicKit's clock actually resumes.
      func markPlaybackInterrupted() {
+         playbackCommandGeneration &+= 1
          isPlaybackInterrupted = true
          wasPausedByUser = true
          nearEndStallSampleCount = 0
@@ -714,6 +768,7 @@ final class AppleMusicService {
      /// result must still match this ID before it can publish state.
      @discardableResult
      func beginPlaybackRequest(id requestID: UUID = UUID()) -> UUID {
+         playbackCommandGeneration &+= 1
          catalogPlaybackTask?.cancel()
          catalogPlaybackTask = nil
          playbackStatusObservation?.cancel()
@@ -740,6 +795,17 @@ final class AppleMusicService {
              activeRequestID: activePlaybackRequestID,
              isCancelled: false
          )
+     }
+
+     func isPlaybackStartAuthorized(_ requestID: UUID) -> Bool {
+         isPlaybackRequestActive(requestID) && !wasPausedByUser
+     }
+
+     private func quiesceStalePlaybackIfNeeded(requestID: UUID) {
+         guard isPlaybackRequestActive(requestID),
+               wasPausedByUser || isPlaybackInterrupted else { return }
+         ApplicationMusicPlayer.shared.pause()
+         isAppleMusicPlaying = false
      }
 
      func isPlaybackRequestPending(_ requestID: UUID) -> Bool {

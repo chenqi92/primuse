@@ -1343,7 +1343,7 @@ final class DLNARendererService {
             }
             logEvent(.control, "Set current URI → \(item.title) (\(item.url.host ?? item.url.scheme ?? "?"))")
             markController(controllerID, isCasting: true)
-            playTransportItem(item)
+            prepareTransportItem(item)
             await sendSOAP(action: "SetAVTransportURI", body: "", on: connection)
         case "SetNextAVTransportURI":
             guard let item = transportItem(uriTag: "NextURI", metadataTag: "NextURIMetaData", from: body) else {
@@ -1533,6 +1533,20 @@ final class DLNARendererService {
             }
             self.notifyAllSubscribers()
         }
+    }
+
+    /// UPnP SetAVTransportURI selects media but does not grant playback. Keep
+    /// the renderer stopped until the controller sends an explicit Play (or
+    /// another explicit transport action such as Next).
+    private func prepareTransportItem(_ item: TransportItem) {
+        transportPlaybackTask?.cancel()
+        transportPlaybackTask = nil
+        if player.currentSong != nil || player.isPlaying || player.isLoading {
+            player.stop()
+        }
+        currentTransportItem = item
+        statusText = String(localized: "dlna_status_listening")
+        notifyAllSubscribers()
     }
 
     /// 创建一个临时 Song 喂给 player.play(song:from:)。sourceID 用 "dlna"

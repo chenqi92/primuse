@@ -520,7 +520,7 @@ extension WatchSessionBridge: WCSessionDelegate {
         // 拿当下最新状态)。Watch 端 send() 也已在不可达时丢弃控制命令,
         // 这里是防旧 build / 残留消息的二道防线。
         let cmd = WatchCommand(userInfo)
-        guard cmd.command == "requestState" else {
+        guard WatchQueuedCommandPolicy.acceptsQueuedDelivery(command: cmd.command) else {
             plog("⌚️ drop stale userInfo cmd=\(cmd.command)")
             return
         }

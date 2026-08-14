@@ -464,10 +464,23 @@ struct ContentView: View {
         let resumeTime = baseTime + elapsed
 
         Task {
-            await player.play(song: song, caller: "Handoff")
-            // play(song:) 必定从 0 开始; 立刻 seek 到接力位置, startPlaying
-            // 沿用 publisher 的状态。wasPlaying=false 时 seek 后停在该点。
-            player.seek(to: resumeTime, startPlaying: wasPlaying)
+            if wasPlaying {
+                await player.play(song: song, caller: "Handoff")
+                // play(song:) starts at zero; seek to the publisher's live
+                // position only for an explicitly playing Handoff.
+                player.seek(to: resumeTime, startPlaying: true)
+            } else {
+                player.stop()
+                player.setQueue(resolvedQueue, startAt: songIndex)
+                if let shuffle = info["shuffleEnabled"] as? Bool {
+                    player.shuffleEnabled = shuffle
+                }
+                if let rmRaw = info["repeatMode"] as? String,
+                   let rm = RepeatMode(rawValue: rmRaw) {
+                    player.repeatMode = rm
+                }
+                player.stagePausedHandoff(song: song, at: resumeTime)
+            }
         }
     }
 

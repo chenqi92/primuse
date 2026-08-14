@@ -210,6 +210,7 @@ private struct PCMBufferBox: @unchecked Sendable {
 /// back through `AudioPlayerService` on MainActor.
 private final class GaplessTransitionState: @unchecked Sendable {
     let queueGeneration: Int
+    let advanceTicket: PlaybackAdvanceTicket
     var prepared: GaplessPreparedTrack?
     var bufferGate: AsyncBufferGate?
     var didBoundaryFire = false
@@ -217,8 +218,9 @@ private final class GaplessTransitionState: @unchecked Sendable {
     var isFullyScheduled = false
     var didFail = false
 
-    init(queueGeneration: Int) {
+    init(queueGeneration: Int, advanceTicket: PlaybackAdvanceTicket) {
         self.queueGeneration = queueGeneration
+        self.advanceTicket = advanceTicket
     }
 }
 
@@ -726,6 +728,9 @@ final class AudioPlayerService {
 
     /// 跟当前 castingRenderer 对应的 SOAP controller。生命周期跟 castingRenderer 绑定。
     private var castingController: RemoteRendererController?
+    /// Orders asynchronous renderer commands. Any newer Play/Pause/ownership
+    /// change makes an older network response observationally stale.
+    private var castingCommandGeneration: UInt64 = 0
 
     /// 1Hz 轮询 GetPositionInfo + GetTransportInfo 同步进度 / 播放状态。
     private var castingPositionTask: Task<Void, Never>?
@@ -903,6 +908,9 @@ final class AudioPlayerService {
 
     private var errorDismissTask: Task<Void, Never>?
     @ObservationIgnored private var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
+    @ObservationIgnored private var playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
+    @ObservationIgnored private var localPipelineAdvanceTicket: PlaybackAdvanceTicket?
+    private var configurationRecoveryOwnerPlayID: UUID?
     private var lastPublishedPlaybackWasActive = false
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
@@ -1085,13 +1093,13 @@ final class AudioPlayerService {
     /// 翻译过来设上, 让 NowPlayingView 复用同一份实现; 仅本地引擎和 time
     /// updater 停掉。
     private func yieldToAppleMusic(requestID: UUID) {
+        let appleMusic = AppServices.shared.appleMusic
+        guard appleMusic.isPlaybackStartAuthorized(requestID) else { return }
         registerPlayIntent()
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)
         }
         playbackKind = .track
-        let appleMusic = AppServices.shared.appleMusic
-        guard appleMusic.isPlaybackRequestActive(requestID) else { return }
         appleMusicPlaybackTask?.cancel()
         appleMusicPlaybackTask = nil
         appleMusicTimeoutTask?.cancel()
@@ -1100,6 +1108,7 @@ final class AudioPlayerService {
         // Use the Apple Music request itself as playID so every async callback,
         // mirror update and timeout has one shared generation identity.
         playID = requestID
+        invalidateAutomaticAdvance(reason: "apple-music-handoff")
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
         cancelCrossfadeAttempt()
@@ -1294,9 +1303,24 @@ final class AudioPlayerService {
         let manager = AudioSessionManager.shared
 
         manager.onInterruptionBegan = { [weak self] in
-            guard let self, self.currentSong != nil else { return }
-            if self.isAppleMusicMode {
-                AppServices.shared.appleMusic.markPlaybackInterrupted()
+            guard let self else { return }
+            let appleMusic = AppServices.shared.appleMusic
+            let hasAppleMusicRequest = self.isAppleMusicMode
+                || self.activeAppleMusicRequestID != nil
+                || appleMusic.activePlaybackRequestID != nil
+            guard self.currentSong != nil || hasAppleMusicRequest else { return }
+            if hasAppleMusicRequest {
+                appleMusic.markPlaybackInterrupted()
+            }
+            // A cold catalog request may not have mirrored currentSong yet.
+            // It was never actually playing, so the interruption only cancels
+            // its pending start; it must not create an automatic resume ticket.
+            guard self.currentSong != nil else {
+                self.isLoading = false
+                self.isPlaying = false
+                self.updateNowPlayingInfo()
+                self.updatePlaybackState()
+                return
             }
             // Casting owns playback on another device and is not interrupted by
             // this phone's AVAudioSession. Its polling remains authoritative.
@@ -1309,6 +1333,7 @@ final class AudioPlayerService {
                 wasActuallyPlaying: wasPlaying,
                 currentItemID: self.currentSong?.id
             )
+            self.invalidateAutomaticAdvance(reason: "interruption-began")
             // Once a fade has committed, currentSong already points at the
             // incoming track while the engine's primary node still belongs to
             // the outgoing one. Finish the node swap before reading progress,
@@ -1318,6 +1343,28 @@ final class AudioPlayerService {
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = wasPlaying
+            if self.isLiveRadio {
+                // A delayed reconnect is an internal recovery attempt, not a
+                // user Play. Quiesce every radio backend and give authorized
+                // interruption end a fresh playID to rebuild the same station.
+                self.playID = UUID()
+                self.radioReconnectTask?.cancel()
+                self.radioReconnectTask = nil
+                self.radioPlaybackController.stop()
+                self.radioLiveStreamSource?.cancel()
+                self.radioLiveStreamSource = nil
+                self.decodingTask?.cancel()
+                self.decodingTask = nil
+                self.audioEngine.stopPlayback()
+                self.hasPreparedLocalPlayback = false
+                self.isLoading = false
+            }
+            if !self.isAppleMusicMode, !self.isLiveRadio {
+                // An in-flight local/MV rebuild must not swallow the one-shot
+                // authorized interruption end behind the generic isLoading
+                // resume guard. Its stale task is already disqualified above.
+                self.isLoading = false
+            }
 
             guard wasPlaying else { return }
             // Sync UI to paused state — the engine was already stopped by the system.
@@ -1350,36 +1397,42 @@ final class AudioPlayerService {
                   !self.isLiveRadio,
                   !self.isCastingMode,
                   !self.isMusicVideoPlaybackActive else { return }
-            let shouldAutoResume = self.isPlaying
+            // The graph rebuild below can itself enqueue a configuration
+            // notification. Suppress only that explicitly-owned rebuild,
+            // never every notification that happens to arrive while loading.
+            if self.configurationRecoveryOwnerPlayID == self.playID {
+                // Consume exactly one notification emitted by our own graph
+                // rebuild. A second notification may be a real route/config
+                // change and must invalidate the replacement pipeline.
+                self.configurationRecoveryOwnerPlayID = nil
+                plog("🔧 Audio engine configuration change absorbed by active configuration recovery")
+                return
+            }
+            let shouldAutoResume = (self.isPlaying || self.isLoading)
                 && self.interruptionResumePolicy.playbackIsIntended
+            self.invalidateAutomaticAdvance(reason: "engine-configuration-change")
             self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
-            self.needsPlaybackRecovery = self.needsPlaybackRecovery || shouldAutoResume
+            self.needsPlaybackRecovery = self.hasPreparedLocalPlayback
+                || self.needsPlaybackRecovery
+                || shouldAutoResume
+            self.isPlaying = false
+            self.stopTimeUpdater()
 
             // A configuration-change notification commonly accompanies an
             // interruption. It may prepare recovery, but cannot grant resume.
             guard !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
             guard shouldAutoResume else { return }
-            // The route interruption already decided that playback should resume.
-            // Restart the local graph, then mirror only an actual engine success
-            // back into UI, Now Playing, and the progress timer.
-            let didRestart = self.audioEngine.restartIfNeeded()
-            if AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
-                playbackWasIntended: shouldAutoResume,
-                engineRestarted: didRestart
-            ) {
-                self.isPlaying = true
-                self.clearPendingPlaybackRecovery()
-                self.startTimeUpdater()
-                self.updateNowPlayingInfo()
-                self.updatePlaybackState()
-            } else {
-                self.isPlaying = false
-                self.stopTimeUpdater()
-                self.updateNowPlayingInfo()
-                self.updatePlaybackState()
-            }
+            // A configuration rebuild may have flushed every scheduled buffer.
+            // Recreate the same song at the captured position so no empty node
+            // or old completion can masquerade as a natural track ending.
+            self.seek(
+                to: self.pendingRecoveryTime,
+                startPlaying: true,
+                isRecovery: true,
+                isConfigurationRecovery: true
+            )
         }
     }
 
@@ -1419,9 +1472,12 @@ final class AudioPlayerService {
             let reasonValue = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                let reason = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+                plog("🔀 Audio route changed reason=\(String(describing: reason)) raw=\(reasonValue.map(String.init) ?? "nil")")
                 if let reasonValue,
                    AVAudioSession.RouteChangeReason(rawValue: reasonValue) == .oldDeviceUnavailable {
                     self.handleOutputDeviceDisappeared()
+                    return
                 }
                 self.forceAudioOnlyIfNeeded()
             }
@@ -1437,13 +1493,28 @@ final class AudioPlayerService {
     /// 用 `pause()` 而不是 `stop()` —— 保留曲目和进度, 重新插上耳机 / 上车后
     /// 用户按播放就能接着听。
     private func handleOutputDeviceDisappeared() {
-        guard isPlaying || isLoading else { return }
+        // A local AVAudioSession route change does not describe the renderer
+        // that owns a cast session, so it must not pause remote playback.
+        guard !isCastingMode else {
+            plog("🔌 Local output disappeared while casting — remote transport unchanged")
+            return
+        }
+        let appleMusic = AppServices.shared.appleMusic
+        let hasAppleMusicRequest = activeAppleMusicRequestID != nil
+            || appleMusic.activePlaybackRequestID != nil
+        guard currentSong != nil || hasAppleMusicRequest,
+              hasAppleMusicRequest
+                || isPlaying
+                || isLoading
+                || interruptionResumePolicy.playbackIsIntended else { return }
         plog("🔌 Output device disappeared (CarPlay/headphones/BT) — pausing instead of falling back to the speaker")
         pause()
     }
 
     private func forceAudioOnlyIfNeeded() {
-        guard shouldForceAudioOnly, isMusicVideoPlaybackActive else { return }
+        guard shouldForceAudioOnly,
+              isMusicVideoPlaybackActive,
+              isPlaying || isLoading else { return }
         Task { await replayCurrentSongAsAudio(restoreMusicVideoModeAfterPlay: true) }
     }
     #endif
@@ -1455,14 +1526,129 @@ final class AudioPlayerService {
 
     private func registerPlayIntent() {
         interruptionResumePolicy.registerPlayIntent()
+        castingCommandGeneration &+= 1
     }
 
     private func registerPauseOrStopIntent() {
         interruptionResumePolicy.registerPauseOrStopIntent()
+        castingCommandGeneration &+= 1
+        invalidateAutomaticAdvance(reason: "pause-or-stop")
+        let appleMusic = AppServices.shared.appleMusic
+        if activeAppleMusicRequestID != nil || appleMusic.activePlaybackRequestID != nil {
+            _ = appleMusic.pauseAppleMusic()
+        }
     }
 
     private func invalidateInterruptionResumePreservingIntent() {
         interruptionResumePolicy.invalidatePendingResumePreservingIntent()
+    }
+
+    @discardableResult
+    private func beginAutomaticAdvanceTransport(
+        itemID: String,
+        reason: String
+    ) -> PlaybackAdvanceTicket {
+        let ticket = playbackAdvancePolicy.beginTransport(itemID: itemID)
+        localPipelineAdvanceTicket = ticket
+        plog("🎫 auto-advance transport began reason=\(reason) generation=\(ticket.generation) ticket=\(ticket.id.uuidString.prefix(8))")
+        return ticket
+    }
+
+    private func invalidateAutomaticAdvance(reason: String) {
+        let oldGeneration = playbackAdvancePolicy.generation
+        playbackAdvancePolicy.invalidate()
+        plog("🚫 auto-advance invalidated reason=\(reason) generation=\(oldGeneration)->\(playbackAdvancePolicy.generation)")
+    }
+
+    private func preparedAutomaticAdvanceTicket(itemID: String) -> PlaybackAdvanceTicket? {
+        playbackAdvancePolicy.prepareSuccessor(itemID: itemID)
+    }
+
+    private func automaticAdvanceDecision(
+        for ticket: PlaybackAdvanceTicket,
+        trigger: String,
+        consume: Bool,
+        transportIsActive explicitTransportIsActive: Bool? = nil
+    ) -> PlaybackAdvanceDecision {
+        let intended = interruptionResumePolicy.playbackIsIntended
+        let transportIsActive = explicitTransportIsActive
+            ?? (isPlaying && audioEngine.isActuallyPlaying)
+        let decision: PlaybackAdvanceDecision
+        if consume {
+            decision = playbackAdvancePolicy.consume(
+                ticket,
+                currentItemID: currentSong?.id,
+                playbackIsIntended: intended,
+                transportIsActive: transportIsActive
+            )
+        } else {
+            decision = playbackAdvancePolicy.decision(
+                for: ticket,
+                currentItemID: currentSong?.id,
+                playbackIsIntended: intended,
+                transportIsActive: transportIsActive
+            )
+        }
+        if decision == .accepted {
+            plog("✅ auto-advance accepted trigger=\(trigger) generation=\(ticket.generation) ticket=\(ticket.id.uuidString.prefix(8))")
+        } else {
+            plog("🛡️ dropped stale playback completion trigger=\(trigger) reason=\(decision.rawValue) ticketGeneration=\(ticket.generation) activeGeneration=\(playbackAdvancePolicy.generation)")
+        }
+        return decision
+    }
+
+    private func isLocalTransportStartAuthorized(
+        playID id: UUID,
+        itemID: String,
+        trigger: String,
+        expectedTicket: PlaybackAdvanceTicket? = nil
+    ) -> Bool {
+        guard playID == id,
+              let ticket = playbackAdvancePolicy.activeTicket,
+              ticket.itemID == itemID,
+              expectedTicket.map({ $0 == ticket }) ?? true else {
+            plog("🛡️ prevented local transport start trigger=\(trigger) reason=stale-transport")
+            return false
+        }
+        let decision = playbackAdvancePolicy.decision(
+            for: ticket,
+            currentItemID: currentSong?.id,
+            playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
+            // This is a pre-start identity/intent check. A render node cannot
+            // be active until after this decision authorizes play().
+            transportIsActive: true
+        )
+        guard decision == .accepted else {
+            plog("🛡️ prevented local transport start trigger=\(trigger) reason=\(decision.rawValue) generation=\(ticket.generation)")
+            return false
+        }
+        return true
+    }
+
+    /// Validates an explicitly selected transport while its async ownership
+    /// handoff is still in flight and before currentSong is installed.
+    private func isPendingTransportStartAuthorized(
+        playID id: UUID,
+        itemID: String,
+        trigger: String,
+        expectedTicket: PlaybackAdvanceTicket
+    ) -> Bool {
+        guard playID == id,
+              playbackAdvancePolicy.activeTicket == expectedTicket else {
+            plog("🛡️ prevented pending transport start trigger=\(trigger) reason=stale-transport")
+            return false
+        }
+        let decision = playbackAdvancePolicy.decision(
+            for: expectedTicket,
+            currentItemID: itemID,
+            playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
+            transportIsActive: true
+        )
+        guard decision == .accepted else {
+            plog("🛡️ prevented pending transport start trigger=\(trigger) reason=\(decision.rawValue) generation=\(expectedTicket.generation)")
+            return false
+        }
+        return true
     }
 
     private func syncPlaybackProgressFromEngine() {
@@ -1502,13 +1688,23 @@ final class AudioPlayerService {
         let shouldPlay = isPlaying || isLoading
         isMusicVideoModeEnabled = enabled
 
+        if !shouldPlay {
+            // A mode preference change while paused is not a Play command.
+            // Disabling an active MV stages same-position audio recovery;
+            // enabling MV is applied by the next explicit resume.
+            if isMusicVideoPlaybackActive, !enabled {
+                await replayCurrentSongAsAudio(restoreMusicVideoModeAfterPlay: false)
+            } else {
+                updateNowPlayingInfo()
+                updatePlaybackState()
+            }
+            return
+        }
+
         await play(song: song)
         if resumeTime > 0 {
             await waitForPlaybackPipelineSettled()
             seek(to: resumeTime, startPlaying: shouldPlay)
-        }
-        if !shouldPlay {
-            pause()
         }
     }
 
@@ -1519,6 +1715,27 @@ final class AudioPlayerService {
         let previousMode = isMusicVideoModeEnabled
 
         isMusicVideoModeEnabled = false
+        if !shouldPlay {
+            registerPauseOrStopIntent()
+            stopMusicVideoPlayback(clearPlayer: true)
+            decodingTask?.cancel()
+            decodingTask = nil
+            audioEngine.stopPlayback()
+            hasPreparedLocalPlayback = false
+            currentSong = song
+            currentTime = resumeTime
+            pendingRecoveryTime = resumeTime
+            needsPlaybackRecovery = true
+            isLoading = false
+            isPlaying = false
+            isAtTrackEnd = false
+            if restoreMusicVideoModeAfterPlay {
+                isMusicVideoModeEnabled = previousMode
+            }
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
         await play(song: song)
         if restoreMusicVideoModeAfterPlay {
             isMusicVideoModeEnabled = previousMode
@@ -1546,6 +1763,7 @@ final class AudioPlayerService {
         case started
         case skipped
         case needsAudioFallback
+        case cancelled
     }
 
     private func startMusicVideoPlaybackIfAvailable(for song: Song, playID id: UUID) async -> MusicVideoStartResult {
@@ -1572,6 +1790,19 @@ final class AudioPlayerService {
         do {
             guard let resolved = try await sourceManager.resolveVideoAsset(for: song) else { return .needsAudioFallback }
             guard playID == id else { return .started }
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "music-video-start"
+            ) else {
+                isLoading = false
+                isPlaying = false
+                needsPlaybackRecovery = true
+                pendingRecoveryTime = currentTime
+                updateNowPlayingInfo()
+                updatePlaybackState()
+                return .cancelled
+            }
 
             _ = AudioSessionManager.shared.activatePlaybackSession()
             stopMusicVideoPlayback(clearPlayer: true)
@@ -1634,6 +1865,7 @@ final class AudioPlayerService {
 
     private func configureMusicVideoObservers(for player: AVPlayer, playID id: UUID) {
         removeMusicVideoObservers()
+        let advanceTicket = playbackAdvancePolicy.activeTicket
         let interval = CMTime(seconds: Self.timeUpdateInterval, preferredTimescale: 600)
         musicVideoTimeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self, weak player] time in
             Task { @MainActor [weak self, weak player] in
@@ -1661,7 +1893,12 @@ final class AudioPlayerService {
                 let error = observed.error
                 Task { @MainActor [weak self] in
                     guard let self, self.playID == id else { return }
-                    await self.handleMusicVideoPlaybackFailure(playID: id, error: error, item: box.item)
+                    await self.handleMusicVideoPlaybackFailure(
+                        playID: id,
+                        advanceTicket: advanceTicket,
+                        error: error,
+                        item: box.item
+                    )
                 }
             }
 
@@ -1673,7 +1910,12 @@ final class AudioPlayerService {
                 let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                 Task { @MainActor [weak self] in
                     guard let self, self.playID == id else { return }
-                    await self.handleMusicVideoPlaybackFailure(playID: id, error: error, item: box.item)
+                    await self.handleMusicVideoPlaybackFailure(
+                        playID: id,
+                        advanceTicket: advanceTicket,
+                        error: error,
+                        item: box.item
+                    )
                 }
             }
         }
@@ -1686,7 +1928,12 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
                 self.currentTime = self.duration
-                await self.handleTrackEnd()
+                guard let advanceTicket else { return }
+                await self.handleTrackEnd(
+                    advanceTicket: advanceTicket,
+                    trigger: "music-video-end",
+                    transportIsActive: self.isPlaying && self.isMusicVideoPlaybackActive
+                )
             }
         }
     }
@@ -1696,7 +1943,12 @@ final class AudioPlayerService {
         init(_ item: AVPlayerItem) { self.item = item }
     }
 
-    private func handleMusicVideoPlaybackFailure(playID id: UUID, error: Error?, item: AVPlayerItem?) async {
+    private func handleMusicVideoPlaybackFailure(
+        playID id: UUID,
+        advanceTicket: PlaybackAdvanceTicket?,
+        error: Error?,
+        item: AVPlayerItem?
+    ) async {
         guard playID == id, isMusicVideoPlaybackActive else { return }
         if let song = currentSong {
             plog("🎞️ MV playback failed for '\(song.title)': \(error?.localizedDescription ?? "-")")
@@ -1708,8 +1960,12 @@ final class AudioPlayerService {
         // 独立 MV 没有独立音频可回落, 单个文件坏也不该连坐关掉全局
         // MV 模式 —— 停掉后跳下一首。
         if currentSong?.isStandaloneMusicVideo == true {
-            stopMusicVideoPlayback(clearPlayer: true)
-            await autoAdvanceAfterFailure()
+            guard let advanceTicket else { return }
+            await autoAdvanceAfterFailure(
+                advanceTicket: advanceTicket,
+                trigger: "music-video-failure",
+                transportIsActive: isPlaying && isMusicVideoPlaybackActive
+            )
             return
         }
         isMusicVideoModeEnabled = false
@@ -1858,6 +2114,7 @@ final class AudioPlayerService {
             return
         }
         registerPlayIntent()
+        let startGeneration = playbackAdvancePolicy.generation
 
         let id = UUID()
         playID = id
@@ -1878,6 +2135,12 @@ final class AudioPlayerService {
             try? await controller.stop()
             castingRenderer = nil
             castingController = nil
+        }
+        guard playbackAdvancePolicy.generation == startGeneration,
+              playID == id,
+              interruptionResumePolicy.playbackIsIntended else {
+            plog("🛡️ Radio start cancelled during renderer handoff")
+            return
         }
         appleMusicPlaybackTask?.cancel()
         appleMusicPlaybackTask = nil
@@ -1983,7 +2246,11 @@ final class AudioPlayerService {
     }
 
     private func startRadioTransport(station: RadioStation, playID id: UUID) {
-        guard let url = station.url, playID == id, currentRadioStation?.id == station.id else { return }
+        guard let url = station.url,
+              playID == id,
+              currentRadioStation?.id == station.id,
+              interruptionResumePolicy.playbackIsIntended,
+              !interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
         radioPlaybackController.stop()
         radioLiveStreamSource?.cancel()
         radioLiveStreamSource = nil
@@ -2026,7 +2293,9 @@ final class AudioPlayerService {
                 guard !Task.isCancelled,
                       self.playID == id,
                       self.currentRadioStation?.id == station.id,
-                      self.radioLiveStreamSource === source else { return }
+                      self.radioLiveStreamSource === source,
+                      self.interruptionResumePolicy.playbackIsIntended,
+                      !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
 
                 let settings = self.playbackSettings.snapshot()
                 _ = AudioSessionManager.shared.activatePlaybackSession()
@@ -2059,7 +2328,9 @@ final class AudioPlayerService {
                 guard !Task.isCancelled,
                       self.playID == id,
                       self.currentRadioStation?.id == station.id,
-                      self.radioLiveStreamSource === source else { return }
+                      self.radioLiveStreamSource === source,
+                      self.interruptionResumePolicy.playbackIsIntended,
+                      !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
 
                 self.audioEngine.scheduleBuffer(firstBuffer)
                 self.hasPreparedLocalPlayback = true
@@ -2216,6 +2487,13 @@ final class AudioPlayerService {
             if let bitRate { radioBitRate = bitRate }
             updateRadioPresentation()
         case .playing:
+            guard interruptionResumePolicy.playbackIsIntended,
+                  !interruptionResumePolicy.isAwaitingInterruptionEnd else {
+                radioPlaybackController.stop()
+                isLoading = false
+                isPlaying = false
+                break
+            }
             isLoading = false
             isPlaying = true
             if radioUsesDecodedTransport {
@@ -2278,7 +2556,9 @@ final class AudioPlayerService {
             }
             guard let self,
                   self.playID == id,
-                  self.currentRadioStation?.id == station.id else { return }
+                  self.currentRadioStation?.id == station.id,
+                  self.interruptionResumePolicy.playbackIsIntended,
+                  !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
             self.radioPlaybackStartedAt = nil
             self.startRadioTransport(station: station, playID: id)
         }
@@ -2359,6 +2639,10 @@ final class AudioPlayerService {
         }
         let id = UUID()
         playID = id
+        let transportTicket = beginAutomaticAdvanceTransport(
+            itemID: song.id,
+            reason: "play-request"
+        )
         resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
@@ -2394,7 +2678,13 @@ final class AudioPlayerService {
             stopAppleMusicMirror()
             AppServices.shared.appleMusic.stopAppleMusic()
             isPrimuseManagingAppleMusicQueue = false
-            guard await awaitCastingHandoffForLocalPlayback(ownerID: id) else {
+            guard await awaitCastingHandoffForLocalPlayback(ownerID: id),
+                  isPendingTransportStartAuthorized(
+                    playID: id,
+                    itemID: song.id,
+                    trigger: "play-after-casting-handoff",
+                    expectedTicket: transportTicket
+                  ) else {
                 return
             }
         }
@@ -2403,8 +2693,14 @@ final class AudioPlayerService {
         // AVAudioEngine 解), 跨 player 切换 — 先停我们自己的播放器再让
         // AppleMusicService 接手, audio session 系统自动 hand-off。
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
+            guard isPendingTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "apple-music-handoff-start",
+                expectedTicket: transportTicket
+            ) else { return }
             stopMusicVideoPlayback(clearPlayer: true)
-            await playAppleMusicSong(song, playID: id)
+            await playAppleMusicSong(song, playID: id, transportTicket: transportTicket)
             return
         }
 
@@ -2412,7 +2708,7 @@ final class AudioPlayerService {
         // 本地 audioEngine。next/previous 走到这里时同样路由。
         if castingController != nil {
             stopMusicVideoPlayback(clearPlayer: true)
-            await castSong(song)
+            await castSong(song, expectedTicket: transportTicket)
             return
         }
 
@@ -2466,13 +2762,24 @@ final class AudioPlayerService {
             sourceManager?.cancelBackgroundAudioCaching(keeping: [])
             return
         }
+        if case .cancelled = musicVideoStartResult { return }
 
         do {
             await sourceManager?.waitForBackgroundAudioCache(for: song)
-            guard playID == id else { return }
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "play-after-cache-wait",
+                expectedTicket: transportTicket
+            ) else { return }
             let url = try await resolvedURL(for: song)
             // Check if another play was initiated while downloading
-            guard playID == id else { return }
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "play-after-url-resolution",
+                expectedTicket: transportTicket
+            ) else { return }
             await playFromURL(song: song, url: url, playID: id)
             if case .needsAudioFallback = musicVideoStartResult {
                 markMusicVideoAudioFallbackIfNeeded(playID: id)
@@ -2495,7 +2802,11 @@ final class AudioPlayerService {
     /// 通过 ApplicationMusicPlayer 接手 DRM 流播放。currentSong **保留**为这首
     /// Apple Music 歌, 让 NowPlayingView / MiniPlayer 复用同一份实现; mirror
     /// task 会持续把 ApplicationMusicPlayer 的状态同步到 self 的字段。
-    private func playAppleMusicSong(_ song: Song, playID id: UUID) async {
+    private func playAppleMusicSong(
+        _ song: Song,
+        playID id: UUID,
+        transportTicket: PlaybackAdvanceTicket
+    ) async {
         // 停猿音自家 engine, audio session 让给 ApplicationMusicPlayer。
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
@@ -2517,7 +2828,17 @@ final class AudioPlayerService {
         beginPlaybackErrorScope()
         guard await prepareAppleMusicPlaybackHandoff(requestID: id),
               playID == id,
-              activeAppleMusicRequestID == id else { return }
+              activeAppleMusicRequestID == id,
+              isPendingTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "apple-music-after-renderer-handoff",
+                expectedTicket: transportTicket
+              ) else {
+            appleMusic.cancelPlaybackRequest(id)
+            activeAppleMusicRequestID = nil
+            return
+        }
         currentSong = song
         currentTime = 0
         duration = song.duration
@@ -2788,13 +3109,15 @@ final class AudioPlayerService {
               isAppleMusicMode,
               activeAppleMusicRequestID == requestID,
               playID == requestID,
+              interruptionResumePolicy.playbackIsIntended,
               appleMusic.isPlaybackRequestActive(requestID) else { return }
         Task { @MainActor [weak self] in
             guard let self,
                   self.activeAppleMusicRequestID == requestID,
                   self.playID == requestID,
+                  self.interruptionResumePolicy.playbackIsIntended,
                   AppServices.shared.appleMusic.isPlaybackRequestActive(requestID) else { return }
-            await self.handleTrackEnd()
+            await self.handleAppleMusicTrackEnd(requestID: requestID)
         }
     }
 
@@ -2809,6 +3132,10 @@ final class AudioPlayerService {
         // 仍会把 currentSong 改回 Apple Music 那首。
         let id = UUID()
         playID = id
+        let transportTicket = beginAutomaticAdvanceTransport(
+            itemID: song.id,
+            reason: "direct-url-play-request"
+        )
         resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
@@ -2826,13 +3153,19 @@ final class AudioPlayerService {
             stopAppleMusicMirror()
             AppServices.shared.appleMusic.stopAppleMusic()
             isPrimuseManagingAppleMusicQueue = false
-            guard await awaitCastingHandoffForLocalPlayback(ownerID: id) else {
+            guard await awaitCastingHandoffForLocalPlayback(ownerID: id),
+                  isPendingTransportStartAuthorized(
+                    playID: id,
+                    itemID: song.id,
+                    trigger: "direct-url-after-casting-handoff",
+                    expectedTicket: transportTicket
+                  ) else {
                 return
             }
         }
 
         if castingController != nil {
-            await castSong(song)
+            await castSong(song, expectedTicket: transportTicket)
             return
         }
         if isAppleMusicMode
@@ -2891,6 +3224,7 @@ final class AudioPlayerService {
         } else {
             decoderAvailable = await ffmpegCanDecodeOffMain(url)
         }
+        guard playID == id else { return }
         guard decoderAvailable else {
             plog("Unsupported format: \(url.pathExtension)")
             isLoading = false
@@ -3130,6 +3464,21 @@ final class AudioPlayerService {
             }
             installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "decoded-first-buffer"
+            ) else {
+                audioEngine.stopPlayback()
+                hasPreparedLocalPlayback = false
+                isLoading = false
+                isPlaying = false
+                needsPlaybackRecovery = currentSong?.id == song.id && !isAtTrackEnd
+                pendingRecoveryTime = currentTime
+                await gate.drain()
+                republishNowPlayingSurfaces()
+                return
+            }
             let didStartPlayback = audioEngine.play()
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
 
@@ -3261,12 +3610,24 @@ final class AudioPlayerService {
                     // queue finally drained. Spawn a short timer Task that
                     // hard-cuts the audio engine and advances; whichever
                     // event happens first wins.
-                    Task { @MainActor [id] in
+                    guard let failureTicket = self.playbackAdvancePolicy.activeTicket else { return }
+                    Task { @MainActor [id, failureTicket] in
                         try? await Task.sleep(for: .seconds(Self.midStreamErrorGrace))
                         guard self.playID == id else { return }
+                        let wasActive = self.isPlaying && self.audioEngine.isActuallyPlaying
+                        guard self.automaticAdvanceDecision(
+                            for: failureTicket,
+                            trigger: "mid-stream-grace",
+                            consume: false,
+                            transportIsActive: wasActive
+                        ) == .accepted else { return }
                         plog("🛑 mid-stream grace elapsed; stopping engine and advancing")
                         self.audioEngine.stopPlayback()
-                        await self.autoAdvanceAfterFailure()
+                        await self.autoAdvanceAfterFailure(
+                            advanceTicket: failureTicket,
+                            trigger: "mid-stream-grace",
+                            transportIsActive: wasActive
+                        )
                     }
                 } else if let finalBuffer = lastBuffer {
                     // Natural EOF — schedule with track-end completion.
@@ -3289,21 +3650,39 @@ final class AudioPlayerService {
     /// 完整文件缓存下载后重新打开，避免继续重复失败的 Range 请求。
     /// 返回 true 表示已接管(发起了下载或已切歌), 调用方不应再走默认错误分支。
     private func cloudFullDownloadFallback(song: Song, outputFormat: AVAudioFormat, playID id: UUID) async -> Bool {
-        guard let manager = sourceManager else { return false }
+        guard let manager = sourceManager,
+              let fallbackTicket = localPipelineAdvanceTicket else { return false }
         if let directURL = await manager.resolveDirectDownloadURL(for: song) {
-            guard playID == id else { return true }
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "cloud-direct-download-fallback",
+                expectedTicket: fallbackTicket
+            ) else { return true }
             plog("↳ cloud chunked-stream failed; falling back to full progressive download (\(song.fileSize / 1_048_576)MB) via \(directURL.host ?? "?")")
             let cacheURL = playbackSettings.audioCacheEnabled ? manager.cacheURL(for: song) : nil
             await playWithStreamingDownload(song: song, url: directURL, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
             return true
         }
 
+        guard isLocalTransportStartAuthorized(
+            playID: id,
+            itemID: song.id,
+            trigger: "cloud-materialization-fallback",
+            expectedTicket: fallbackTicket
+        ) else { return true }
+
         guard playbackSettings.audioCacheEnabled else { return false }
         plog("↳ cloud chunked-stream failed; materializing a complete connector file")
         guard let cached = await manager.materializeCachedURLForSeeking(for: song) else {
             return false
         }
-        guard playID == id else { return true }
+        guard isLocalTransportStartAuthorized(
+            playID: id,
+            itemID: song.id,
+            trigger: "cloud-materialized-fallback",
+            expectedTicket: fallbackTicket
+        ) else { return true }
         await play(song: song, from: cached)
         return true
     }
@@ -3325,6 +3704,11 @@ final class AudioPlayerService {
         decodingTask?.cancel()
         decodingTask = nil
         resetDecodedBufferHealth(resetRecoveryAttempts: false)
+        invalidateAutomaticAdvance(reason: "remote-mid-stream-recovery")
+        let recoveryTicket = beginAutomaticAdvanceTransport(
+            itemID: song.id,
+            reason: "remote-recovery-pending"
+        )
         audioEngine.stopPlayback()
         stopTimeUpdater()
         isPlaying = false
@@ -3338,14 +3722,41 @@ final class AudioPlayerService {
                 guard self.playID == id, self.currentSong?.id == song.id else { return }
                 self.isLoading = false
                 self.showPlaybackError(String(localized: "playback_error_connection"))
-                await self.autoAdvanceAfterFailure()
+                await self.autoAdvanceAfterFailure(
+                    advanceTicket: recoveryTicket,
+                    trigger: "remote-recovery-failed",
+                    transportIsActive: true
+                )
                 return
             }
-            guard self.playID == id, self.currentSong?.id == song.id else { return }
+            guard self.isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "remote-mid-stream-recovery-materialized",
+                expectedTicket: recoveryTicket
+            ) else {
+                self.isLoading = false
+                self.pendingRecoveryTime = resumeTime
+                self.needsPlaybackRecovery = self.currentSong?.id == song.id
+                self.republishNowPlayingSurfaces()
+                return
+            }
 
             self.activeDecoderKind = await self.usesFFmpegDecoder(for: song, url: cached)
                 ? .ffmpeg
                 : .native
+            guard self.isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "remote-mid-stream-recovery-decoder",
+                expectedTicket: recoveryTicket
+            ) else {
+                self.isLoading = false
+                self.pendingRecoveryTime = resumeTime
+                self.needsPlaybackRecovery = self.currentSong?.id == song.id
+                self.republishNowPlayingSurfaces()
+                return
+            }
             plog("↳ remote playback recovered from complete local cache; resuming at \(String(format: "%.2f", resumeTime))s")
             self.seek(to: resumeTime, startPlaying: true, isRecovery: true)
         }
@@ -3396,6 +3807,21 @@ final class AudioPlayerService {
             }
             installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "full-download-first-buffer"
+            ) else {
+                audioEngine.stopPlayback()
+                hasPreparedLocalPlayback = false
+                isLoading = false
+                isPlaying = false
+                needsPlaybackRecovery = currentSong?.id == song.id && !isAtTrackEnd
+                pendingRecoveryTime = currentTime
+                await gate.drain()
+                republishNowPlayingSurfaces()
+                return
+            }
             let didStartPlayback = audioEngine.play()
             plog("🌊 Engine diagnostics after play: \(audioEngine.diagnosticInfo())")
 
@@ -3953,6 +4379,7 @@ final class AudioPlayerService {
         } else {
             useFFmpeg = false
         }
+        guard playID == id else { return }
         guard useFFmpeg || assetReaderDecoder.canDecode(url: url) else {
             plog("⚠️ No decoder available for '\(song.title)'")
             showPlaybackError(String(localized: "playback_error_format"))
@@ -4007,6 +4434,21 @@ final class AudioPlayerService {
             }
             installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
+            guard isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "fallback-first-buffer"
+            ) else {
+                audioEngine.stopPlayback()
+                hasPreparedLocalPlayback = false
+                isLoading = false
+                isPlaying = false
+                needsPlaybackRecovery = currentSong?.id == song.id && !isAtTrackEnd
+                pendingRecoveryTime = currentTime
+                await gate.drain()
+                republishNowPlayingSurfaces()
+                return
+            }
             let didStartPlayback = audioEngine.play()
 
             // Fetch duration asynchronously
@@ -4115,13 +4557,21 @@ final class AudioPlayerService {
     }
 
     private func scheduleDecodedFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) async {
+        guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
+            plog("🛡️ final buffer scheduled without auto-advance eligibility")
+            audioEngine.scheduleBuffer(buffer)
+            return
+        }
         guard shouldAttemptGapless(settings: playbackSettings.snapshot()),
               nextSongInQueue() != nil else {
-            scheduleLastBuffer(buffer, playID: id)
+            scheduleLastBuffer(buffer, playID: id, advanceTicket: advanceTicket)
             return
         }
 
-        let transition = GaplessTransitionState(queueGeneration: queueGeneration)
+        let transition = GaplessTransitionState(
+            queueGeneration: queueGeneration,
+            advanceTicket: advanceTicket
+        )
         audioEngine.scheduleBuffer(
             buffer,
             completionCallbackType: .dataPlayedBack
@@ -4143,10 +4593,21 @@ final class AudioPlayerService {
     /// owns the crossfaded song. The callback remains valid across node swap
     /// because the logical play ID is assigned when the fade begins.
     private func scheduleCrossfadeFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+        guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
+            if crossfadeSwapDone {
+                audioEngine.scheduleBuffer(buffer)
+            } else {
+                audioEngine.scheduleCrossfadeBuffer(buffer)
+            }
+            return
+        }
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
-                await self.handleTrackEnd()
+                await self.handleTrackEnd(
+                    advanceTicket: advanceTicket,
+                    trigger: "crossfade-final"
+                )
             }
         }
         if crossfadeSwapDone {
@@ -4168,10 +4629,21 @@ final class AudioPlayerService {
         _ buffer: AVAudioPCMBuffer,
         playID id: UUID
     ) {
+        guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
+            if crossfadeSwapDone {
+                audioEngine.scheduleBuffer(buffer)
+            } else {
+                audioEngine.scheduleCrossfadeBuffer(buffer)
+            }
+            return
+        }
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
-                await self.autoAdvanceAfterFailure()
+                await self.autoAdvanceAfterFailure(
+                    advanceTicket: advanceTicket,
+                    trigger: "crossfade-failure"
+                )
             }
         }
         if crossfadeSwapDone {
@@ -4228,7 +4700,11 @@ final class AudioPlayerService {
 
     /// Schedule the final buffer of a track with the appropriate completion callback
     /// for track-end detection, respecting gapless and crossfade settings.
-    private func scheduleLastBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+    private func scheduleLastBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        playID id: UUID,
+        advanceTicket: PlaybackAdvanceTicket
+    ) {
         let settings = playbackSettings.snapshot()
         plog("📍 scheduleLastBuffer for playID=\(id.uuidString.prefix(8)) frames=\(buffer.frameLength)")
 
@@ -4242,7 +4718,10 @@ final class AudioPlayerService {
                 plog("🔔 lastBuffer dataPlayedBack fired playID=\(id.uuidString.prefix(8))")
                 // In crossfade mode, only handle track end if crossfade wasn't triggered
                 if self.shouldUseCrossfade(settings) && self.crossfadeTriggered { return }
-                await self.handleTrackEnd()
+                await self.handleTrackEnd(
+                    advanceTicket: advanceTicket,
+                    trigger: "final-buffer"
+                )
             }
         }
     }
@@ -4253,13 +4732,20 @@ final class AudioPlayerService {
     /// `handleTrackEnd` — so repeat-one stops on a broken song instead of
     /// looping it, and the play-count isn't bumped for an aborted track.
     private func scheduleLastBufferAsFailure(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+        guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
+            audioEngine.scheduleBuffer(buffer)
+            return
+        }
         audioEngine.scheduleBuffer(
             buffer,
             completionCallbackType: .dataPlayedBack
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
-                await self.autoAdvanceAfterFailure()
+                await self.autoAdvanceAfterFailure(
+                    advanceTicket: advanceTicket,
+                    trigger: "final-buffer-failure"
+                )
             }
         }
     }
@@ -4282,12 +4768,13 @@ final class AudioPlayerService {
             updatePlaybackState()
             return
         }
-        if isAppleMusicMode {
-            if AppServices.shared.appleMusic.pauseAppleMusic() {
-                isPlaying = false
-                updateNowPlayingInfo()
-                updatePlaybackState()
-            }
+        let appleMusic = AppServices.shared.appleMusic
+        if isAppleMusicMode
+            || activeAppleMusicRequestID != nil
+            || appleMusic.activePlaybackRequestID != nil {
+            isPlaying = false
+            updateNowPlayingInfo()
+            updatePlaybackState()
             return
         }
         if isCastingMode {
@@ -4312,6 +4799,8 @@ final class AudioPlayerService {
         // the pause position during an already-committed fade.
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
         syncPlaybackProgressFromEngine()
+        pendingRecoveryTime = currentTime
+        needsPlaybackRecovery = hasPreparedLocalPlayback && currentSong != nil && !isAtTrackEnd
         audioEngine.pause()
         isPlaying = false
         stopTimeUpdater()
@@ -4330,7 +4819,14 @@ final class AudioPlayerService {
         if isLiveRadio {
             guard let station = currentRadioStation else { return }
             let stations = radioStationOrder
-            Task { await play(station: station, within: stations) }
+            let resumeGeneration = playbackAdvancePolicy.generation
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.playbackAdvancePolicy.generation == resumeGeneration,
+                      self.interruptionResumePolicy.playbackIsIntended,
+                      self.currentRadioStation?.id == station.id else { return }
+                await self.play(station: station, within: stations)
+            }
             return
         }
         if isAppleMusicMode {
@@ -4344,7 +4840,14 @@ final class AudioPlayerService {
                 // MusicKit generation. Recreate playback first, then apply the
                 // saved position when the mirror reports that it started.
                 pendingAppleMusicRestoredPosition = (song.id, currentTime)
-                Task { await play(song: song, caller: "RestoredAppleMusic") }
+                let resumeGeneration = playbackAdvancePolicy.generation
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.playbackAdvancePolicy.generation == resumeGeneration,
+                          self.interruptionResumePolicy.playbackIsIntended,
+                          self.currentSong?.id == song.id else { return }
+                    await self.play(song: song, caller: "RestoredAppleMusic")
+                }
             }
             return
         }
@@ -4353,7 +4856,34 @@ final class AudioPlayerService {
             return
         }
         guard !isLoading, let song = currentSong else { return }
+        if isMusicVideoModeEnabled,
+           canPlayMusicVideo,
+           !isMusicVideoPlaybackActive {
+            let resumeTime = currentTime
+            let resumeGeneration = playbackAdvancePolicy.generation
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.playbackAdvancePolicy.generation == resumeGeneration,
+                      self.interruptionResumePolicy.playbackIsIntended,
+                      self.currentSong?.id == song.id else { return }
+                await self.play(song: song)
+                if resumeTime > 0 {
+                    await self.waitForPlaybackPipelineSettled()
+                    guard self.interruptionResumePolicy.playbackIsIntended,
+                          self.currentSong?.id == song.id else { return }
+                    self.seek(to: resumeTime, startPlaying: true)
+                }
+            }
+            return
+        }
         if isMusicVideoPlaybackActive {
+            _ = beginAutomaticAdvanceTransport(
+                itemID: song.id,
+                reason: registeringUserIntent ? "music-video-manual-resume" : "music-video-system-resume"
+            )
+            if let player = musicVideoPlayer, let id = playID {
+                configureMusicVideoObservers(for: player, playID: id)
+            }
             _ = AudioSessionManager.shared.activatePlaybackSession()
             musicVideoPlayer?.play()
             isPlaying = true
@@ -4371,13 +4901,28 @@ final class AudioPlayerService {
             // need a fresh resolve/decode pipeline; an empty player node cannot
             // be resumed.
             isAtTrackEnd = false
-            Task { await play(song: song) }
+            let resumeGeneration = playbackAdvancePolicy.generation
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.playbackAdvancePolicy.generation == resumeGeneration,
+                      self.interruptionResumePolicy.playbackIsIntended,
+                      self.currentSong?.id == song.id else { return }
+                await self.play(song: song)
+            }
             return
         case .recoverFromInterruption:
             seek(to: pendingRecoveryTime, startPlaying: true, isRecovery: true)
             return
         case .resumePreparedAudio:
-            break
+            let preparedTicket = playbackAdvancePolicy.activeTicket
+            guard preparedTicket?.itemID == song.id,
+                  preparedTicket == localPipelineAdvanceTicket else {
+                // The buffers may still be playable, but their terminal
+                // callbacks belong to an invalidated ticket. Rebuild rather
+                // than minting a ticket those callbacks never captured.
+                seek(to: currentTime, startPlaying: true, isRecovery: true)
+                return
+            }
         }
         _ = AudioSessionManager.shared.activatePlaybackSession()
         let didResume = audioEngine.resume()
@@ -4552,6 +5097,8 @@ final class AudioPlayerService {
     /// 自己 disable 按钮。
     func startCasting(to renderer: RemoteRenderer) async {
         invalidateInterruptionResumePreservingIntent()
+        castingCommandGeneration &+= 1
+        let operationGeneration = castingCommandGeneration
         let hasActiveAppleMusicRequest = activeAppleMusicRequestID != nil
             || AppServices.shared.appleMusic.activePlaybackRequestID != nil
             || appleMusicCastingHandoffTask != nil
@@ -4577,6 +5124,7 @@ final class AudioPlayerService {
         appleMusicCastingHandoffController = nil
         appleMusicCastingHandoffRenderer = nil
         playID = UUID()
+        invalidateAutomaticAdvance(reason: "casting-start")
         resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         decodingTask?.cancel(); decodingTask = nil
@@ -4597,7 +5145,12 @@ final class AudioPlayerService {
 
         // 3. 推当前歌到 renderer + seek 到 resumeTime + 自动 play
         if let song = resumeSong {
-            await castSong(song, startAt: resumeTime, autoPlay: wasPlaying)
+            await castSong(
+                song,
+                startAt: resumeTime,
+                autoPlay: wasPlaying,
+                expectedCastingGeneration: operationGeneration
+            )
         }
         // 4. 启动 1Hz 状态轮询
         startCastingPolling()
@@ -4607,6 +5160,8 @@ final class AudioPlayerService {
     /// 如果 controller 已经断 / 出错, 也强制清状态。
     func stopCasting() async {
         invalidateInterruptionResumePreservingIntent()
+        castingCommandGeneration &+= 1
+        let operationGeneration = castingCommandGeneration
         castingPositionTask?.cancel(); castingPositionTask = nil
         let controller = castingController
         let resumeSong = currentSong
@@ -4614,47 +5169,102 @@ final class AudioPlayerService {
         let shouldResumeLocally = isPlaying
         castingRenderer = nil
         castingController = nil
+        isPlaying = false
+        if let resumeSong {
+            currentSong = resumeSong
+            currentTime = max(0, resumeTime)
+            pendingRecoveryTime = max(0, resumeTime)
+            needsPlaybackRecovery = true
+            isLoading = false
+            hasPreparedLocalPlayback = false
+            invalidateAutomaticAdvance(reason: "casting-stop-local-recovery")
+            updateNowPlayingInfo()
+            updatePlaybackState()
+        }
 
         if let controller {
             try? await controller.stop()
         }
         plog("📡 Cast: stopped, resuming local from \(resumeTime)s")
 
-        if let song = resumeSong {
-            await play(song: song)
-            if resumeTime > 1 || !shouldResumeLocally {
-                // play 完成后再 seek; 给一点 buffer 时间
-                try? await Task.sleep(for: .milliseconds(300))
-                seek(to: max(0, resumeTime), startPlaying: shouldResumeLocally)
-            }
+        guard let song = resumeSong,
+              castingCommandGeneration == operationGeneration,
+              currentSong?.id == song.id else { return }
+        if shouldResumeLocally, interruptionResumePolicy.playbackIsIntended {
+            // Build at the renderer's last position. Starting at zero and
+            // seeking later can leak a short burst from the beginning.
+            seek(to: max(0, resumeTime), startPlaying: true, isRecovery: true)
         }
     }
 
     /// cast 模式下播指定歌 ── 解析 URL → 推 SetAVTransportURI → Play → 可选 Seek。
     /// 失败不抛错, 只 log + 保持 cast 状态让用户能手动重试。
-    private func castSong(_ song: Song, startAt seconds: TimeInterval = 0, autoPlay: Bool = true) async {
+    private func castSong(
+        _ song: Song,
+        startAt seconds: TimeInterval = 0,
+        autoPlay: Bool = true,
+        expectedTicket: PlaybackAdvanceTicket? = nil,
+        expectedCastingGeneration: UInt64? = nil
+    ) async {
         guard let controller = castingController else { return }
+        let operationGeneration = expectedCastingGeneration ?? castingCommandGeneration
+        if let expectedTicket {
+            guard let id = playID,
+                  isPendingTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "cast-song-start",
+                expectedTicket: expectedTicket
+            ) else { return }
+        }
         currentSong = song
         currentTime = seconds
         duration = song.duration.sanitizedDuration
         do {
             let uri = try await resolveCastURI(for: song)
+            guard castingCommandGeneration == operationGeneration,
+                  castingController === controller,
+                  currentSong?.id == song.id,
+                  !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
             try await controller.setAVTransportURI(uri: uri.absoluteString,
                                                     title: song.title,
                                                     artist: song.artistName)
+            guard castingCommandGeneration == operationGeneration,
+                  castingController === controller,
+                  currentSong?.id == song.id,
+                  !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
             if autoPlay {
                 try await controller.play()
+                guard castingCommandGeneration == operationGeneration,
+                      castingController === controller,
+                      interruptionResumePolicy.playbackIsIntended else {
+                    try? await controller.pause()
+                    return
+                }
                 isPlaying = true
             }
             if seconds > 0 {
                 try? await Task.sleep(for: .milliseconds(200))
+                guard castingCommandGeneration == operationGeneration,
+                      castingController === controller,
+                      currentSong?.id == song.id,
+                      !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
                 try? await controller.seek(toSeconds: seconds)
             }
+            guard castingCommandGeneration == operationGeneration,
+                  castingController === controller,
+                  currentSong?.id == song.id else { return }
             plog("📡 Cast: '\(song.title)' → \(controller.renderer.friendlyName)")
         } catch {
+            guard castingCommandGeneration == operationGeneration,
+                  castingController === controller,
+                  currentSong?.id == song.id else { return }
             plog("⚠️ Cast playback failed for '\(song.title)': \(error.localizedDescription)")
             isPlaying = false
         }
+        guard castingCommandGeneration == operationGeneration,
+              castingController === controller,
+              currentSong?.id == song.id else { return }
         updateNowPlayingInfo()
         updatePlaybackState()
     }
@@ -4723,7 +5333,12 @@ final class AudioPlayerService {
 
     private func setCastingPlayback(shouldPlay: Bool) {
         guard let controller = castingController else { return }
+        castingCommandGeneration &+= 1
+        let commandGeneration = castingCommandGeneration
         Task { [weak self] in
+            guard let self,
+                  self.castingCommandGeneration == commandGeneration,
+                  self.castingController === controller else { return }
             do {
                 if shouldPlay {
                     try await controller.play()
@@ -4734,7 +5349,17 @@ final class AudioPlayerService {
                 plog("⚠️ Cast \(shouldPlay ? "play" : "pause") failed: \(error.localizedDescription)")
                 return
             }
-            guard let self, self.castingController === controller else { return }
+            guard self.castingCommandGeneration == commandGeneration,
+                  self.castingController === controller else {
+                if self.castingController === controller {
+                    if self.interruptionResumePolicy.playbackIsIntended {
+                        try? await controller.play()
+                    } else {
+                        try? await controller.pause()
+                    }
+                }
+                return
+            }
             self.isPlaying = shouldPlay
             self.updateNowPlayingInfo()
             self.updatePlaybackState()
@@ -4953,7 +5578,12 @@ final class AudioPlayerService {
 
     private var seekTimeOffset: TimeInterval = 0
 
-    func seek(to time: TimeInterval, startPlaying: Bool? = nil, isRecovery: Bool = false) {
+    func seek(
+        to time: TimeInterval,
+        startPlaying: Bool? = nil,
+        isRecovery: Bool = false,
+        isConfigurationRecovery: Bool = false
+    ) {
         guard !isLiveRadio else { return }
         if isAppleMusicMode {
             AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))
@@ -4986,10 +5616,7 @@ final class AudioPlayerService {
                 plog("⚠️ Seek: streaming song not cached yet, leaving playback unchanged")
                 return
             case .restartCurrentSong:
-                plog("🔄 Recovery: streaming song has no seekable cache; restarting current song")
-                clearPendingPlaybackRecovery()
-                Task { await play(song: song) }
-                return
+                plog("🔄 Recovery: streaming song has no seekable cache; materializing before same-position resume")
             }
         }
         let previousTime = currentTime
@@ -4998,22 +5625,45 @@ final class AudioPlayerService {
         let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
         if isMusicVideoPlaybackActive {
             let shouldStartPlaying = startPlaying ?? isPlaying
+            guard let song = currentSong,
+                  let id = playID,
+                  let player = musicVideoPlayer else { return }
+            invalidateAutomaticAdvance(reason: "music-video-seek")
+            let musicVideoSeekTicket: PlaybackAdvanceTicket?
+            if shouldStartPlaying, interruptionResumePolicy.playbackIsIntended {
+                musicVideoSeekTicket = beginAutomaticAdvanceTransport(
+                    itemID: song.id,
+                    reason: "music-video-seek"
+                )
+            } else {
+                musicVideoSeekTicket = nil
+            }
+            configureMusicVideoObservers(for: player, playID: id)
             currentTime = targetTime
             isLoading = true
+            isPlaying = false
             isAtTrackEnd = false
             // 默认 tolerance —— 视频精确 seek 要重解整个 GOP, 拖进度条会
             // 明显顿挫; 落点由 periodic observer 回写, 进度条自然对齐。
-            musicVideoPlayer?.seek(
+            player.seek(
                 to: CMTime(seconds: targetTime, preferredTimescale: 600)
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self,
+                          self.playID == id,
+                          self.musicVideoPlayer === player else { return }
                     self.isLoading = false
-                    if shouldStartPlaying {
-                        self.musicVideoPlayer?.play()
+                    if shouldStartPlaying,
+                       self.isLocalTransportStartAuthorized(
+                        playID: id,
+                        itemID: song.id,
+                        trigger: "music-video-seek-start",
+                        expectedTicket: musicVideoSeekTicket
+                       ) {
+                        player.play()
                         self.isPlaying = true
                     } else {
-                        self.musicVideoPlayer?.pause()
+                        player.pause()
                         self.isPlaying = false
                     }
                     if isRecovery { self.clearPendingPlaybackRecovery() }
@@ -5034,12 +5684,20 @@ final class AudioPlayerService {
         let savedDuration = duration
         let shouldStartPlaying = startPlaying ?? isPlaying
         let hadPreparedLocalPlayback = hasPreparedLocalPlayback
+        isPlaying = false
 
         // Invalidate old playID BEFORE stopPlayback() so any pending completion
         // callbacks (triggered by AVAudioPlayerNode.stop()) will fail
         // their guard check and won't trigger handleTrackEnd() → next().
         let id = UUID()
         playID = id
+        if isConfigurationRecovery {
+            configurationRecoveryOwnerPlayID = id
+        }
+        let seekAdvanceTicket = beginAutomaticAdvanceTransport(
+            itemID: song.id,
+            reason: isRecovery ? "recovery-rebuild" : "seek-rebuild"
+        )
         resetDecodedBufferHealth(resetRecoveryAttempts: !isRecovery)
 
         // Stop only the playerNode, not the full pipeline — preserve Live Activity,
@@ -5058,6 +5716,12 @@ final class AudioPlayerService {
         duration = savedDuration
 
         Task {
+            defer {
+                if isConfigurationRecovery,
+                   configurationRecoveryOwnerPlayID == id {
+                    configurationRecoveryOwnerPlayID = nil
+                }
+            }
             do {
                 let url = try await resolvedURL(for: song)
                 guard playID == id else { return }
@@ -5097,14 +5761,18 @@ final class AudioPlayerService {
                 var seekURL: URL
                 var seekDecoderKind = activeDecoderKind
                 if activeDecoderKind == .streaming {
-                    guard let cached = sourceManager?.cachedURL(for: song) else {
-                        plog("⚠️ Seek: streaming song not cached yet, seek not available")
+                    var cached = sourceManager?.cachedURL(for: song)
+                    if cached == nil, isRecovery {
+                        cached = await sourceManager?.materializeCachedURLForSeeking(for: song)
+                    }
+                    guard playID == id else { return }
+                    guard let cached else {
+                        plog("⚠️ Seek: streaming song could not be materialized for same-position recovery")
                         isLoading = false
+                        isPlaying = false
+                        invalidateAutomaticAdvance(reason: "streaming-recovery-materialization-failed")
+                        showPlaybackError(String(localized: "playback_error_connection"))
                         republishNowPlayingSurfaces()
-                        if isRecovery {
-                            clearPendingPlaybackRecovery()
-                            await play(song: song)
-                        }
                         return
                     }
                     seekURL = cached
@@ -5200,11 +5868,11 @@ final class AudioPlayerService {
                     } else {
                         plog("⚠️ Seek: failed to build HTTP streaming InputSource")
                         isLoading = false
+                        isPlaying = false
+                        pendingRecoveryTime = targetTime
+                        needsPlaybackRecovery = isRecovery
+                        invalidateAutomaticAdvance(reason: "http-seek-input-source-failed")
                         republishNowPlayingSurfaces()
-                        if isRecovery {
-                            clearPendingPlaybackRecovery()
-                            await play(song: song)
-                        }
                         return
                     }
                 case .cloudStream:
@@ -5240,11 +5908,11 @@ final class AudioPlayerService {
                     } else {
                         plog("⚠️ Seek: failed to build cloud streaming InputSource")
                         isLoading = false
+                        isPlaying = false
+                        pendingRecoveryTime = targetTime
+                        needsPlaybackRecovery = isRecovery
+                        invalidateAutomaticAdvance(reason: "cloud-seek-input-source-failed")
                         republishNowPlayingSurfaces()
-                        if isRecovery {
-                            clearPendingPlaybackRecovery()
-                            await play(song: song)
-                        }
                         return
                     }
                 case .assetReader:
@@ -5294,13 +5962,36 @@ final class AudioPlayerService {
                     isLoading = false
                     isPlaying = false
                     currentTime = targetTime
+                    let seekEndAction = PlaybackSeekEndPolicy.action(isRecovery: isRecovery)
+                    if seekEndAction == .preserveCurrentItem {
+                        // An authorized interruption/configuration recovery may
+                        // only rebuild this item. Reaching EOF while seeking is
+                        // not permission to advance before the item resumes.
+                        invalidateAutomaticAdvance(reason: "recovery-seek-reached-end")
+                        needsPlaybackRecovery = false
+                        pendingRecoveryTime = targetTime
+                        isAtTrackEnd = true
+                    }
                     updateNowPlayingInfo()
                     updatePlaybackState()
-                    if shouldStartPlaying {
-                        await handleTrackEnd()
+                    if seekEndAction == .advance,
+                       shouldStartPlaying,
+                       playbackAdvancePolicy.activeTicket == seekAdvanceTicket {
+                        await handleTrackEnd(
+                            advanceTicket: seekAdvanceTicket,
+                            trigger: "seek-reached-end",
+                            transportIsActive: true
+                        )
                     }
                     return
                 }
+                guard playID == id else { return }
+
+                // Hold one buffer ahead just like the initial playback path.
+                // Without this prefetch, a seek/recovery with exactly one
+                // remaining buffer schedules it as an ordinary buffer and an
+                // unknown-duration stream never receives a terminal callback.
+                let secondPlayableBuffer = try await iteratorBox.next()
                 guard playID == id else { return }
 
                 let gate = AsyncBufferGate(
@@ -5308,13 +5999,35 @@ final class AudioPlayerService {
                     maxBufferedBytes: Self.maxInFlightDecodedBytes,
                     maxBufferCount: Self.maxInFlightDecodedBufferCount
                 )
-                await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
+                if secondPlayableBuffer == nil {
+                    await scheduleDecodedFinalBuffer(firstBuffer, playID: id)
+                } else {
+                    await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
+                }
                 guard !Task.isCancelled, playID == id else {
                     await gate.drain()
                     return
                 }
                 installDecodedBufferGate(gate, playID: id)
                 hasPreparedLocalPlayback = true
+                if shouldStartPlaying,
+                   !isLocalTransportStartAuthorized(
+                    playID: id,
+                    itemID: song.id,
+                    trigger: isRecovery ? "recovery-start" : "seek-start",
+                    expectedTicket: seekAdvanceTicket
+                   ) {
+                    audioEngine.stopPlayback()
+                    hasPreparedLocalPlayback = false
+                    isLoading = false
+                    isPlaying = false
+                    pendingRecoveryTime = targetTime
+                    needsPlaybackRecovery = true
+                    await gate.drain()
+                    updateNowPlayingInfo()
+                    updatePlaybackState()
+                    return
+                }
                 let didStartPlayback = shouldStartPlaying ? audioEngine.play() : false
 
                 isLoading = false
@@ -5335,42 +6048,46 @@ final class AudioPlayerService {
                 updatePlaybackState()
 
                 // Decode remaining buffers with track-end detection
-                decodingTask = Task { [id, iteratorBox, gate] in
-                    var lastBuffer: AVAudioPCMBuffer?
-                    defer { Task { await gate.drain() } }
+                if let secondPlayableBuffer {
+                    decodingTask = Task { [id, iteratorBox, gate, secondPlayableBuffer] in
+                        var lastBuffer: AVAudioPCMBuffer? = secondPlayableBuffer
+                        defer { Task { await gate.drain() } }
 
-                    do {
-                        while let buffer = try await iteratorBox.next() {
-                            guard !Task.isCancelled, self.playID == id else { return }
-
-                            if let prev = lastBuffer {
-                                let bufferedDuration = Self.decodedBufferDuration(prev)
-                                let bufferedByteCount = Self.decodedBufferByteCount(prev)
-                                await gate.acquire(
-                                    duration: bufferedDuration,
-                                    byteCount: bufferedByteCount
-                                )
+                        do {
+                            while let buffer = try await iteratorBox.next() {
                                 guard !Task.isCancelled, self.playID == id else { return }
-                                self.audioEngine.scheduleBuffer(
-                                    prev,
-                                    completionCallbackType: .dataPlayedBack
-                                ) { _ in
-                                    gate.release(
+
+                                if let prev = lastBuffer {
+                                    let bufferedDuration = Self.decodedBufferDuration(prev)
+                                    let bufferedByteCount = Self.decodedBufferByteCount(prev)
+                                    await gate.acquire(
                                         duration: bufferedDuration,
                                         byteCount: bufferedByteCount
                                     )
+                                    guard !Task.isCancelled, self.playID == id else { return }
+                                    self.audioEngine.scheduleBuffer(
+                                        prev,
+                                        completionCallbackType: .dataPlayedBack
+                                    ) { _ in
+                                        gate.release(
+                                            duration: bufferedDuration,
+                                            byteCount: bufferedByteCount
+                                        )
+                                    }
                                 }
+                                lastBuffer = buffer
                             }
-                            lastBuffer = buffer
+                        } catch {
+                            if !Task.isCancelled { plog("Seek decode error: \(error)") }
                         }
-                    } catch {
-                        if !Task.isCancelled { plog("Seek decode error: \(error)") }
-                    }
 
-                    if let finalBuffer = lastBuffer {
-                        guard !Task.isCancelled, self.playID == id else { return }
-                        await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
+                        if let finalBuffer = lastBuffer {
+                            guard !Task.isCancelled, self.playID == id else { return }
+                            await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
+                        }
                     }
+                } else {
+                    decodingTask = nil
                 }
             } catch {
                 plog("Seek error: \(error)")
@@ -5381,11 +6098,21 @@ final class AudioPlayerService {
                 showPlaybackError(String(localized: "playback_error_decode"))
                 updateNowPlayingInfo()
                 updatePlaybackState()
-                if shouldStartPlaying {
+                if !isRecovery,
+                   shouldStartPlaying,
+                   playbackAdvancePolicy.activeTicket == seekAdvanceTicket,
+                   interruptionResumePolicy.playbackIsIntended,
+                   playbackAdvancePolicy.isGenerationCurrent(for: seekAdvanceTicket) {
                     // The seek pipeline has already stopped the node. Restart
                     // predictably from the track beginning instead of leaving
                     // a play icon/progress position that does not match audio.
                     await play(song: song)
+                } else if isRecovery {
+                    currentTime = targetTime
+                    pendingRecoveryTime = targetTime
+                    needsPlaybackRecovery = true
+                    invalidateAutomaticAdvance(reason: "same-position-recovery-failed")
+                    republishNowPlayingSurfaces()
                 }
             }
         }
@@ -5398,11 +6125,16 @@ final class AudioPlayerService {
     }
 
     func handleAppDidBecomeActive() {
-        if needsPlaybackRecovery {
+        switch PlaybackAppActivationPolicy.action(
+            needsPlaybackRecovery: needsPlaybackRecovery
+        ) {
+        case .preservePendingRecovery:
             currentTime = max(0, pendingRecoveryTime)
             updateNowPlayingInfo()
             updatePlaybackState()
             return
+        case .synchronizeVisibleState:
+            break
         }
 
         syncPlaybackProgressFromEngine()
@@ -5767,6 +6499,19 @@ final class AudioPlayerService {
         transition: GaplessTransitionState,
         playID id: UUID
     ) async {
+        guard !transition.didBoundaryFire else {
+            plog("🛡️ dropped duplicate gapless boundary ticket=\(transition.advanceTicket.id.uuidString.prefix(8))")
+            return
+        }
+        guard automaticAdvanceDecision(
+            for: transition.advanceTicket,
+            trigger: "gapless-boundary",
+            consume: false
+        ) == .accepted else {
+            transition.shouldCancelPreparation = true
+            cancelGaplessTasks()
+            return
+        }
         transition.didBoundaryFire = true
 
         // 防御性兜底: 10 秒内 boundary 触发 ≥4 次 = 队列里有 partial/坏掉
@@ -5826,9 +6571,28 @@ final class AudioPlayerService {
             transition.shouldCancelPreparation = true
             gaplessPreparationTask?.cancel()
             gaplessPreparationTask = nil
-            await handleTrackEnd()
+            await handleTrackEnd(
+                advanceTicket: transition.advanceTicket,
+                trigger: "gapless-fallback"
+            )
             return
         }
+
+        let handoff = playbackAdvancePolicy.handoff(
+            from: transition.advanceTicket,
+            to: prepared.followingTransition.advanceTicket,
+            currentItemID: currentSong?.id,
+            playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
+            transportIsActive: isPlaying && audioEngine.isActuallyPlaying
+        )
+        guard handoff == .accepted else {
+            plog("🛡️ dropped gapless handoff reason=\(handoff.rawValue) generation=\(transition.advanceTicket.generation)")
+            transition.shouldCancelPreparation = true
+            cancelGaplessTasks()
+            return
+        }
+        localPipelineAdvanceTicket = prepared.followingTransition.advanceTicket
+        plog("✅ auto-advance handoff trigger=gapless-boundary generation=\(prepared.followingTransition.advanceTicket.generation) ticket=\(prepared.followingTransition.advanceTicket.id.uuidString.prefix(8))")
 
         activateGaplessTrack(prepared, completedTransition: transition, playID: id)
     }
@@ -5964,7 +6728,13 @@ final class AudioPlayerService {
             return
         }
 
-        let followingTransition = GaplessTransitionState(queueGeneration: queueGeneration)
+        guard let followingTicket = preparedAutomaticAdvanceTicket(itemID: nextSong.id) else {
+            return
+        }
+        let followingTransition = GaplessTransitionState(
+            queueGeneration: queueGeneration,
+            advanceTicket: followingTicket
+        )
         var lastBuffer: AVAudioPCMBuffer?
         var didMarkPrepared = false
         // Pace the next track's buffers to consumption of the *current* track's
@@ -6035,7 +6805,10 @@ final class AudioPlayerService {
                 ) { [weak self] _ in
                     Task { @MainActor [weak self] in
                         guard let self, self.playID == id else { return }
-                        await self.autoAdvanceAfterFailure()
+                        await self.autoAdvanceAfterFailure(
+                            advanceTicket: followingTransition.advanceTicket,
+                            trigger: "gapless-failure"
+                        )
                     }
                 }
                 markPreparedIfNeeded()
@@ -6144,9 +6917,37 @@ final class AudioPlayerService {
 
     private func invalidateQueueTransitions() {
         invalidateInterruptionResumePreservingIntent()
+        let hadAdvanceEligibility = playbackAdvancePolicy.activeTicket != nil
+        let shouldRebuildCurrentTransport = hadAdvanceEligibility
+            && isPlaying
+            && currentSong != nil
+            && !isAppleMusicMode
+            && !isLiveRadio
+            && !isCastingMode
+            && !isMusicVideoPlaybackActive
+        let shouldRearmMusicVideo = hadAdvanceEligibility
+            && isPlaying
+            && isMusicVideoPlaybackActive
+        invalidateAutomaticAdvance(reason: "queue-generation-change")
         queueGeneration += 1
         cancelGaplessTasks()
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
+        if shouldRearmMusicVideo,
+           let song = currentSong,
+           let player = musicVideoPlayer,
+           let id = playID {
+            _ = beginAutomaticAdvanceTransport(
+                itemID: song.id,
+                reason: "queue-generation-music-video-rearm"
+            )
+            configureMusicVideoObservers(for: player, playID: id)
+        } else if shouldRebuildCurrentTransport {
+            syncPlaybackProgressFromEngine()
+            let resumeTime = currentTime
+            pendingRecoveryTime = resumeTime
+            needsPlaybackRecovery = true
+            seek(to: resumeTime, startPlaying: true, isRecovery: true)
+        }
     }
 
     private func checkCrossfade() {
@@ -6327,6 +7128,10 @@ final class AudioPlayerService {
                 decoderKind: nextDecoderKind
             )
             playID = nextPlayID
+            beginAutomaticAdvanceTransport(
+                itemID: activatedSong.id,
+                reason: "crossfade-commit"
+            )
             resetDecodedBufferHealth(resetRecoveryAttempts: true)
 
             // 解码就绪, 现在才把 UI/索引/scrobble 切到下一首 —— 用户听到 next
@@ -6537,6 +7342,7 @@ final class AudioPlayerService {
         crossfadeStartupTask = nil
         crossfadeTriggered = false; isCrossfading = false
         isCrossfading = false
+        startTimeUpdater()
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
 
         // Apply ReplayGain (now on the swapped primary node)
@@ -6781,6 +7587,7 @@ final class AudioPlayerService {
         ))
         decodingTask?.cancel()
         decodingTask = nil
+        invalidateAutomaticAdvance(reason: "decoded-underflow-stop")
         audioEngine.stopPlayback()
         hasPreparedLocalPlayback = false
         isPlaying = false
@@ -6802,6 +7609,7 @@ final class AudioPlayerService {
         stopTimeUpdater()
         lastEngineProgressSample = nil
         nearEndStallSampleCount = 0
+        let watchdogTicket = playbackAdvancePolicy.activeTicket
         let timer = Timer(timeInterval: Self.timeUpdateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -6846,7 +7654,12 @@ final class AudioPlayerService {
                         || self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold {
                         plog("⚠️ Track-end watchdog: progress ended at \(self.currentTime)/\(self.duration), forcing queue advance")
                         self.stopTimeUpdater()
-                        await self.handleTrackEnd()
+                        if let watchdogTicket {
+                            await self.handleTrackEnd(
+                                advanceTicket: watchdogTicket,
+                                trigger: "track-end-watchdog"
+                            )
+                        }
                         return
                     }
 
@@ -6877,8 +7690,30 @@ final class AudioPlayerService {
 
     // MARK: - Track End
 
-    private func handleTrackEnd() async {
-        plog("⏭️ handleTrackEnd() currentSong=\(currentSong?.title ?? "nil") playID=\(playID?.uuidString.prefix(8) ?? "nil")")
+    private func handleTrackEnd(
+        advanceTicket: PlaybackAdvanceTicket,
+        trigger: String,
+        transportIsActive: Bool? = nil
+    ) async {
+        guard automaticAdvanceDecision(
+            for: advanceTicket,
+            trigger: trigger,
+            consume: true,
+            transportIsActive: transportIsActive
+        ) == .accepted else { return }
+        await performTrackEnd(trigger: trigger)
+    }
+
+    private func handleAppleMusicTrackEnd(requestID: UUID) async {
+        guard interruptionResumePolicy.playbackIsIntended,
+              activeAppleMusicRequestID == requestID,
+              playID == requestID else { return }
+        plog("✅ Apple Music queue end accepted request=\(requestID.uuidString.prefix(8))")
+        await performTrackEnd(trigger: "apple-music-end")
+    }
+
+    private func performTrackEnd(trigger: String) async {
+        plog("⏭️ track end trigger=\(trigger) playID=\(playID?.uuidString.prefix(8) ?? "nil") queueGeneration=\(queueGeneration)")
         // 曲终停止 sleep 模式 ── 锁定的歌刚播完, 暂停而不是 advance。
         if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
             sleepStopAfterSongID = nil
@@ -6892,7 +7727,7 @@ final class AudioPlayerService {
         case .one:
             if let song = currentSong { await play(song: song) }
         case .all:
-            await next()
+            await next(caller: "auto:\(trigger)", callerLine: 0)
         case .off:
             // Under shuffle, currentIndex is the queue index of the
             // currently-playing song, not the shufflePosition — so
@@ -6901,7 +7736,7 @@ final class AudioPlayerService {
             // order) and auto-advance kept generating fresh shuffle
             // rounds even though the user picked repeat-off.
             if nextSongInQueue() != nil {
-                await next()
+                await next(caller: "auto:\(trigger)", callerLine: 0)
             } else {
                 // 没下一首 —— 进 "已播完" 状态而不是 stop() 全清。
                 // 否则 currentSong 一旦为 nil, 上层各种 sheet (刮削 /
@@ -6929,7 +7764,37 @@ final class AudioPlayerService {
     ///   track failed, repeat-off), stop so the player exits the
     ///   half-broken loading/streaming state cleanly instead of
     ///   leaving the engine wedged with currentSong still set.
-    private func autoAdvanceAfterFailure(skippingSourceID failedSourceID: String? = nil) async {
+    private func autoAdvanceAfterFailure(
+        skippingSourceID failedSourceID: String? = nil,
+        trigger: String = #function
+    ) async {
+        guard let advanceTicket = localPipelineAdvanceTicket else {
+            plog("🛡️ dropped failure advance trigger=\(trigger) reason=noActiveTicket")
+            return
+        }
+        let transportIsActive = isPlaying
+            ? audioEngine.isActuallyPlaying
+            : interruptionResumePolicy.playbackIsIntended
+        await autoAdvanceAfterFailure(
+            advanceTicket: advanceTicket,
+            trigger: trigger,
+            skippingSourceID: failedSourceID,
+            transportIsActive: transportIsActive
+        )
+    }
+
+    private func autoAdvanceAfterFailure(
+        advanceTicket: PlaybackAdvanceTicket,
+        trigger: String,
+        skippingSourceID failedSourceID: String? = nil,
+        transportIsActive: Bool? = nil
+    ) async {
+        guard automaticAdvanceDecision(
+            for: advanceTicket,
+            trigger: trigger,
+            consume: true,
+            transportIsActive: transportIsActive
+        ) == .accepted else { return }
         if isDLNACast(currentSong) {
             stop()
             return
@@ -6980,7 +7845,14 @@ final class AudioPlayerService {
 
         if nextSongInQueue() != nil {
             await Task.yield()
-            await next()
+            guard interruptionResumePolicy.playbackIsIntended,
+                  currentSong?.id == advanceTicket.itemID,
+                  playbackAdvancePolicy.isGenerationCurrent(for: advanceTicket),
+                  playbackAdvancePolicy.activeTicket == nil else {
+                plog("🛡️ cancelled failure advance after yield trigger=\(trigger)")
+                return
+            }
+            await next(caller: "auto-failure:\(trigger)", callerLine: 0)
         } else {
             stop()
         }
@@ -7546,10 +8418,9 @@ final class AudioPlayerService {
         guard currentSong != nil else { return .noActionableNowPlayingItem }
         guard isPlaybackActuallyActive else {
             // A remote Pause during an interruption is still an explicit user
-            // decision and must invalidate the pending automatic resume.
-            registerPauseOrStopIntent()
-            updateNowPlayingInfo()
-            updatePlaybackState()
+            // decision. Route it through the real transport stop so loading
+            // radio/MusicKit/cast work cannot start after the command.
+            pause()
             return .success
         }
         let isAsynchronousRoute = isCastingMode
@@ -7663,13 +8534,15 @@ final class AudioPlayerService {
             ? song.duration
             : plan.duration
         currentTime = duration > 0 ? min(plan.currentTime, duration) : plan.currentTime
-        isPlaying = false
+        isPlaying = plan.shouldStartPlayback
         isLoading = false
         isAtTrackEnd = plan.isAtTrackEnd
         hasPreparedLocalPlayback = false
         pendingRecoveryTime = currentTime
         needsPlaybackRecovery = currentTime > 0 && !isAtTrackEnd
         interruptionResumePolicy = PlaybackInterruptionResumePolicy()
+        playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
+        localPipelineAdvanceTicket = nil
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
@@ -7685,6 +8558,29 @@ final class AudioPlayerService {
             (lookupFinishedAt - planFinishedAt) * 1_000,
             (restoreFinishedAt - lookupFinishedAt) * 1_000
         ))
+    }
+
+    /// Installs a Handoff selection without starting any audio pipeline. The
+    /// caller has already stopped the previous transport and restored queue
+    /// context; a later explicit Play rebuilds at this saved position.
+    func stagePausedHandoff(song: Song, at time: TimeInterval) {
+        registerPauseOrStopIntent()
+        playbackKind = .track
+        playID = UUID()
+        playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
+        localPipelineAdvanceTicket = nil
+        currentSong = song
+        duration = song.duration.sanitizedDuration
+        currentTime = duration > 0 ? min(max(0, time), duration) : max(0, time)
+        isPlaying = false
+        isLoading = false
+        isAtTrackEnd = false
+        hasPreparedLocalPlayback = false
+        pendingRecoveryTime = currentTime
+        needsPlaybackRecovery = currentTime > 0
+        updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
+        updatePlaybackState()
     }
 
     private func persistPlaybackSession(clearWhenEmpty: Bool = false) {

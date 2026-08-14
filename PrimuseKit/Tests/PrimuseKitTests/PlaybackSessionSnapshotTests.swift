@@ -48,6 +48,20 @@ struct PlaybackSessionSnapshotTests {
         #expect(plan.pendingNextShuffleIndices == [1, 0, 2])
         #expect(plan.currentTime == 42)
         #expect(plan.repeatMode == .all)
+        #expect(!plan.shouldStartPlayback)
+    }
+
+    @Test("A previously playing snapshot restores paused")
+    func playingSnapshotDoesNotAutoPlay() throws {
+        var snapshot = makeSnapshot()
+        snapshot.wasPlaying = true
+
+        let plan = try #require(PlaybackSessionRestorationPolicy.plan(
+            snapshot: snapshot,
+            availableSongIDs: Set(snapshot.queueSongIDs)
+        ))
+
+        #expect(!plan.shouldStartPlayback)
     }
 
     @Test("An unavailable current track rejects the stale session")

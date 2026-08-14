@@ -1,3 +1,5 @@
+import Foundation
+
 public struct NowPlayingPlaybackProjection: Equatable, Sendable {
     public var playbackRate: Double
     public var playCommandEnabled: Bool
@@ -11,6 +13,154 @@ public struct NowPlayingPlaybackProjection: Equatable, Sendable {
         self.playbackRate = playbackRate
         self.playCommandEnabled = playCommandEnabled
         self.pauseCommandEnabled = pauseCommandEnabled
+    }
+}
+
+public struct PlaybackAdvanceTicket: Equatable, Sendable {
+    public let generation: UInt64
+    public let id: UUID
+    public let itemID: String
+
+    public init(generation: UInt64, id: UUID = UUID(), itemID: String) {
+        self.generation = generation
+        self.id = id
+        self.itemID = itemID
+    }
+}
+
+public enum PlaybackAdvanceDecision: String, Equatable, Sendable {
+    case accepted
+    case noActiveTicket
+    case staleGeneration
+    case staleTicket
+    case wrongItem
+    case playbackNotIntended
+    case transportNotActive
+}
+
+public enum PlaybackSeekEndAction: Equatable, Sendable {
+    case preserveCurrentItem
+    case advance
+}
+
+public enum PlaybackSeekEndPolicy {
+    public static func action(isRecovery: Bool) -> PlaybackSeekEndAction {
+        isRecovery ? .preserveCurrentItem : .advance
+    }
+}
+
+/// Owns the one-shot right for a local transport completion to advance the
+/// queue. A ticket invalidated by pause, interruption, route loss, or graph
+/// replacement can never become valid again. Gapless playback prepares a
+/// successor ticket and atomically hands ownership to it at the boundary.
+public struct PlaybackAdvanceEligibilityPolicy: Equatable, Sendable {
+    public private(set) var generation: UInt64
+    public private(set) var activeTicket: PlaybackAdvanceTicket?
+
+    public init(generation: UInt64 = 0) {
+        self.generation = generation
+        activeTicket = nil
+    }
+
+    @discardableResult
+    public mutating func beginTransport(itemID: String) -> PlaybackAdvanceTicket {
+        generation &+= 1
+        let ticket = PlaybackAdvanceTicket(generation: generation, itemID: itemID)
+        activeTicket = ticket
+        return ticket
+    }
+
+    public func prepareSuccessor(itemID: String) -> PlaybackAdvanceTicket? {
+        guard activeTicket != nil else { return nil }
+        return PlaybackAdvanceTicket(generation: generation, itemID: itemID)
+    }
+
+    public mutating func invalidate() {
+        generation &+= 1
+        activeTicket = nil
+    }
+
+    /// Remains true after a ticket is consumed, but becomes false as soon as
+    /// pause, interruption, route loss, or another transport invalidates the
+    /// generation. Async completion handlers use this after suspension points.
+    public func isGenerationCurrent(for ticket: PlaybackAdvanceTicket) -> Bool {
+        ticket.generation == generation
+    }
+
+    public func decision(
+        for ticket: PlaybackAdvanceTicket,
+        currentItemID: String?,
+        playbackIsIntended: Bool,
+        transportIsActive: Bool
+    ) -> PlaybackAdvanceDecision {
+        guard let activeTicket else { return .noActiveTicket }
+        guard ticket.generation == generation else { return .staleGeneration }
+        guard ticket.id == activeTicket.id else { return .staleTicket }
+        guard ticket.itemID == activeTicket.itemID,
+              ticket.itemID == currentItemID else { return .wrongItem }
+        guard playbackIsIntended else { return .playbackNotIntended }
+        guard transportIsActive else { return .transportNotActive }
+        return .accepted
+    }
+
+    @discardableResult
+    public mutating func consume(
+        _ ticket: PlaybackAdvanceTicket,
+        currentItemID: String?,
+        playbackIsIntended: Bool,
+        transportIsActive: Bool
+    ) -> PlaybackAdvanceDecision {
+        let result = decision(
+            for: ticket,
+            currentItemID: currentItemID,
+            playbackIsIntended: playbackIsIntended,
+            transportIsActive: transportIsActive
+        )
+        if result == .accepted {
+            activeTicket = nil
+        }
+        return result
+    }
+
+    @discardableResult
+    public mutating func handoff(
+        from currentTicket: PlaybackAdvanceTicket,
+        to successorTicket: PlaybackAdvanceTicket,
+        currentItemID: String?,
+        playbackIsIntended: Bool,
+        transportIsActive: Bool
+    ) -> PlaybackAdvanceDecision {
+        let result = decision(
+            for: currentTicket,
+            currentItemID: currentItemID,
+            playbackIsIntended: playbackIsIntended,
+            transportIsActive: transportIsActive
+        )
+        guard result == .accepted,
+              successorTicket.generation == generation,
+              successorTicket.id != currentTicket.id,
+              !successorTicket.itemID.isEmpty else {
+            return result == .accepted ? .staleTicket : result
+        }
+        activeTicket = successorTicket
+        return .accepted
+    }
+}
+
+public enum PlaybackAppActivationAction: Equatable, Sendable {
+    case preservePendingRecovery
+    case synchronizeVisibleState
+}
+
+public enum PlaybackAppActivationPolicy {
+    public static func action(needsPlaybackRecovery: Bool) -> PlaybackAppActivationAction {
+        needsPlaybackRecovery ? .preservePendingRecovery : .synchronizeVisibleState
+    }
+}
+
+public enum WatchQueuedCommandPolicy {
+    public static func acceptsQueuedDelivery(command: String) -> Bool {
+        command == "requestState"
     }
 }
 

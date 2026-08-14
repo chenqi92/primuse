@@ -68,6 +68,7 @@ public struct PlaybackSessionRestorationPlan: Equatable, Sendable {
     public var pendingNextShuffleIndices: [Int]?
     public var repeatMode: RepeatMode
     public var isAtTrackEnd: Bool
+    public var shouldStartPlayback: Bool
 }
 
 public enum PlaybackSessionRestorationPolicy {
@@ -145,7 +146,8 @@ public enum PlaybackSessionRestorationPolicy {
             shufflePosition: shufflePosition,
             pendingNextShuffleIndices: pendingOrder,
             repeatMode: snapshot.repeatMode,
-            isAtTrackEnd: snapshot.isAtTrackEnd
+            isAtTrackEnd: snapshot.isAtTrackEnd,
+            shouldStartPlayback: false
         )
     }
 
