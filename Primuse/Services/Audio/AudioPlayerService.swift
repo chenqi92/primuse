@@ -886,6 +886,7 @@ final class AudioPlayerService {
     private var crossfadeTimer: Timer?
     private var crossfadeTimerAttemptID: UUID?
     private var crossfadeTriggered = false
+    @ObservationIgnored private var silenceProfiles: [String: AudioSilenceProfile] = [:]
     /// crossfade 进行中 —— 用来让 startTimeUpdater 跳过 currentTime 更新。
     /// crossfade 期间 audioEngine.currentTime 还是旧曲的 primary node 时间,
     /// 但 UI 已经切到新曲, 这两值对不上, 直接刷会让进度条乱跳。crossfade
@@ -3626,7 +3627,7 @@ final class AudioPlayerService {
                         onResolveSourceLength: onResolveLength
                     )
                 }
-                return rawStream.map { segmented($0, for: song) }
+                return rawStream.map { transitionPreparedStream($0, for: song) }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
             guard let manager = sourceManager,
@@ -3637,7 +3638,7 @@ final class AudioPlayerService {
                 return nil
             }
             rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-            return rawStream.map { segmented($0, for: song) }
+            return rawStream.map { transitionPreparedStream($0, for: song) }
         }
         if url.scheme == "http" || url.scheme == "https" {
             if let cached = sourceManager?.cachedURL(for: song) {
@@ -3654,17 +3655,17 @@ final class AudioPlayerService {
                         onResolveSourceLength: onResolveLength
                     )
                 }
-                return rawStream.map { segmented($0, for: song) }
+                return rawStream.map { transitionPreparedStream($0, for: song) }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
             if SourceManager.isTranscodedStreamURL(url), assetReaderDecoder.canDecode(url: url) {
                 // 服务端转码流: 渐进 AVAssetReader, 不走已知大小的 Range / 缓存。
                 rawStream = assetReaderDecoder.decode(from: url, outputFormat: outputFormat)
-                return rawStream.map { segmented($0, for: song) }
+                return rawStream.map { transitionPreparedStream($0, for: song) }
             }
             if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
                 rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-                return rawStream.map { segmented($0, for: song) }
+                return rawStream.map { transitionPreparedStream($0, for: song) }
             }
             rawStream = streamingDecoder.decode(
                 from: url,
@@ -3673,7 +3674,7 @@ final class AudioPlayerService {
                 fileExtension: song.fileFormat.rawValue,
                 onResolveSourceLength: onResolveLength
             )
-            return rawStream.map { segmented($0, for: song) }
+            return rawStream.map { transitionPreparedStream($0, for: song) }
         }
         if await usesFFmpegDecoder(for: song, url: url) {
             rawStream = ffmpegDecoder.decode(
@@ -3688,7 +3689,56 @@ final class AudioPlayerService {
                 onResolveSourceLength: onResolveLength
             )
         }
-        return rawStream.map { segmented($0, for: song) }
+        return rawStream.map { transitionPreparedStream($0, for: song) }
+    }
+
+    private func transitionPreparedStream(
+        _ stream: AudioBufferStream,
+        for song: Song
+    ) -> AudioBufferStream {
+        let segmentedStream = segmented(stream, for: song)
+        let settings = playbackSettings.snapshot()
+        let effectsEnabled = settings.outputMode == .effects
+        let smartCrossfade = effectsEnabled
+            && settings.crossfadeEnabled
+            && settings.crossfadeMode == .smart
+        let trimLeading = effectsEnabled
+            && (settings.skipLeadingSilenceEnabled || smartCrossfade)
+        let trimTrailing = effectsEnabled
+            && (settings.skipTrailingSilenceEnabled || smartCrossfade)
+
+        silenceProfiles[song.id] = nil
+        guard trimLeading || trimTrailing else { return segmentedStream }
+
+        let songID = song.id
+        let maximumTrimDuration = max(12, settings.crossfadeDuration)
+        return AudioSilenceStream.trim(
+            segmentedStream,
+            leading: trimLeading,
+            trailing: trimTrailing,
+            maximumLeadingDuration: maximumTrimDuration,
+            maximumTrailingDuration: maximumTrimDuration
+        ) { [weak self] profile in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.silenceProfiles.count >= 64,
+                   self.silenceProfiles[songID] == nil,
+                   let oldestKey = self.silenceProfiles.keys.first {
+                    self.silenceProfiles[oldestKey] = nil
+                }
+                self.silenceProfiles[songID] = profile
+                if profile.leadingTrimmedDuration > 0.01
+                    || profile.trailingTrimmedDuration > 0.01 {
+                    plog(String(
+                        format: "Smart transition profile %@: head %.2fs, tail %.2fs, playable %.2fs",
+                        String(songID.prefix(8)),
+                        profile.leadingTrimmedDuration,
+                        profile.trailingTrimmedDuration,
+                        profile.playableDuration
+                    ))
+                }
+            }
+        }
     }
 
     private func segmented(
@@ -6106,7 +6156,13 @@ final class AudioPlayerService {
               playbackSettings.crossfadeEnabled,
               !crossfadeTriggered else { return }
         let settings = playbackSettings.snapshot()
-        guard duration > 0, currentTime >= duration - settings.crossfadeDuration else { return }
+        let analyzedDuration = currentSong.flatMap { silenceProfiles[$0.id]?.playableDuration }
+        let nominalDuration = duration > 0 ? duration : (analyzedDuration ?? 0)
+        guard let triggerTime = SmartTransitionPolicy.triggerTime(
+            nominalDuration: nominalDuration,
+            analyzedPlayableDuration: analyzedDuration,
+            requestedOverlap: settings.crossfadeDuration
+        ), currentTime >= triggerTime else { return }
         // "Stop after this song" owns the upcoming boundary. Let the normal
         // end callback stop playback instead of committing the next queue item.
         if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
@@ -6125,12 +6181,21 @@ final class AudioPlayerService {
 
         let attemptID = UUID()
         let sourceQueueGeneration = queueGeneration
+        let playableEndpoint = analyzedDuration.flatMap {
+            $0.isFinite && $0 > 0 && $0 <= nominalDuration ? $0 : nil
+        } ?? nominalDuration
+        let effectiveDuration = SmartTransitionPolicy.effectiveOverlap(
+            requestedOverlap: settings.crossfadeDuration,
+            currentTime: currentTime,
+            playableEndpoint: playableEndpoint
+        )
+        guard effectiveDuration > 0 else { return }
         crossfadeAttemptID = attemptID
         crossfadeTriggered = true
         crossfadeStartupTask?.cancel()
         crossfadeStartupTask = Task {
             await startCrossfade(
-                duration: settings.crossfadeDuration,
+                duration: effectiveDuration,
                 attemptID: attemptID,
                 sourcePlayID: sourcePlayID,
                 queueGeneration: sourceQueueGeneration,

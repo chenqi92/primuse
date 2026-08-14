@@ -682,7 +682,21 @@ private struct MacSTPlaybackView: View {
                 }
                 .disabled(s.outputMode == .highFidelity)
                 if s.crossfadeEnabled {
-                    MacSTRow(Lz("Crossfade Duration"), hint: Lz("1–12 seconds")) {
+                    MacSTRow(Lz("Crossfade Mode"), hint: s.crossfadeMode == .smart
+                        ? Lz("Energy-aware song boundaries")
+                        : Lz("Fixed overlap")) {
+                        MacSTPicker(
+                            selection: $s.crossfadeMode,
+                            options: CrossfadeMode.allCases.map { ($0, $0.displayName) },
+                            width: 160
+                        )
+                    }
+                    MacSTRow(
+                        s.crossfadeMode == .smart
+                            ? Lz("Maximum Crossfade Duration")
+                            : Lz("Crossfade Duration"),
+                        hint: Lz("1–12 seconds")
+                    ) {
                         MacSTSlider(
                             value: $s.crossfadeDuration,
                             in: 1...12,
@@ -697,6 +711,7 @@ private struct MacSTPlaybackView: View {
                     MacSTToggle(isOn: $s.skipTrailingSilenceEnabled)
                 }
             }
+            .disabled(s.outputMode == .highFidelity)
         }
 
         MacSTSection(Lz("Cache")) {

@@ -530,6 +530,17 @@
 "crossfade" = "クロスフェード";
 "crossfade_duration" = "クロスフェードの長さ";
 "crossfade_desc" = "現在のトラックの終わりを次のトラックの始まりへなめらかに重ね合わせます。";
+"crossfade_mode" = "トランジションモード";
+"crossfade_mode_fixed" = "固定";
+"crossfade_mode_smart" = "スマート";
+"crossfade_max_duration" = "最大トランジション時間";
+"skip_leading_silence" = "冒頭の無音をスキップ";
+"skip_trailing_silence" = "末尾の無音をスキップ";
+"silence_skipping_desc" = "スマートトランジションは可聴境界を自動分析します。これらの設定は通常再生でも前後の無音をスキップします。高音質モードでは音声境界を変更しません。";
+"Crossfade Mode" = "クロスフェードモード";
+"Energy-aware song boundaries" = "音量を考慮した曲の境界";
+"Fixed overlap" = "固定オーバーラップ";
+"Maximum Crossfade Duration" = "最大クロスフェード時間";
 "seconds" = "秒";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "オーディオファイルに埋め込まれた ReplayGain タグに基づいて音量を自動調整します。";

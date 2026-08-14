@@ -529,6 +529,17 @@
 "crossfade" = "Überblenden";
 "crossfade_duration" = "Überblenddauer";
 "crossfade_desc" = "Lasse das Ende eines Titels sanft in den Anfang des nächsten übergehen.";
+"crossfade_mode" = "Übergangsmodus";
+"crossfade_mode_fixed" = "Fest";
+"crossfade_mode_smart" = "Intelligent";
+"crossfade_max_duration" = "Maximale Übergangsdauer";
+"skip_leading_silence" = "Stille am Anfang überspringen";
+"skip_trailing_silence" = "Stille am Ende überspringen";
+"silence_skipping_desc" = "Intelligente Übergänge analysieren hörbare Grenzen automatisch. Diese Schalter überspringen Stille auch bei normaler Wiedergabe. Im High-Fidelity-Modus bleiben Audiogrenzen unverändert.";
+"Crossfade Mode" = "Überblendmodus";
+"Energy-aware song boundaries" = "Energieabhängige Titelgrenzen";
+"Fixed overlap" = "Feste Überlappung";
+"Maximum Crossfade Duration" = "Maximale Überblenddauer";
 "seconds" = "Sekunden";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Passe die Lautstärke automatisch anhand der in den Audiodateien eingebetteten ReplayGain-Tags an.";

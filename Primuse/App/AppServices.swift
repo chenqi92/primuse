@@ -127,7 +127,7 @@ final class AppServices {
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
         self.spotlightIndex = SpotlightIndexService()
-        let amService = AppleMusicService()
+        let amService = AppleMusicService(playbackSettings: playbackSettings)
         self.appleMusic = amService
         self.appleMusicLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
         amService.onPlaybackEnded = { [weak player] requestID in

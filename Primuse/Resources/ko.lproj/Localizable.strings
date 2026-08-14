@@ -529,6 +529,17 @@
 "crossfade" = "크로스페이드";
 "crossfade_duration" = "크로스페이드 시간";
 "crossfade_desc" = "한 트랙의 끝부분을 다음 트랙의 시작 부분으로 부드럽게 섞습니다.";
+"crossfade_mode" = "전환 모드";
+"crossfade_mode_fixed" = "고정";
+"crossfade_mode_smart" = "스마트";
+"crossfade_max_duration" = "최대 전환 시간";
+"skip_leading_silence" = "시작 부분 무음 건너뛰기";
+"skip_trailing_silence" = "끝부분 무음 건너뛰기";
+"silence_skipping_desc" = "스마트 전환은 들리는 경계를 자동으로 분석합니다. 이 옵션은 일반 재생에서도 앞뒤 무음을 건너뜁니다. 하이파이 모드에서는 오디오 경계를 변경하지 않습니다.";
+"Crossfade Mode" = "크로스페이드 모드";
+"Energy-aware song boundaries" = "에너지 기반 곡 경계";
+"Fixed overlap" = "고정 겹침";
+"Maximum Crossfade Duration" = "최대 크로스페이드 시간";
 "seconds" = "초";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "오디오 파일에 포함된 ReplayGain 태그에 따라 볼륨을 자동으로 조절합니다.";

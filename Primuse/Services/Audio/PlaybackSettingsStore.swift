@@ -38,6 +38,18 @@ enum ReplayGainMode: String, Codable, Sendable, CaseIterable {
     }
 }
 
+enum CrossfadeMode: String, Codable, Sendable, CaseIterable {
+    case fixed
+    case smart
+
+    var displayName: String {
+        switch self {
+        case .fixed: String(localized: "crossfade_mode_fixed")
+        case .smart: String(localized: "crossfade_mode_smart")
+        }
+    }
+}
+
 struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
 
@@ -48,6 +60,9 @@ struct PlaybackSettings: Codable, Sendable {
     var dsdPlaybackMode: DSDPlaybackMode = .automatic
     var gaplessEnabled: Bool = false
     var crossfadeEnabled: Bool = false
+    /// New installs use energy-aware boundaries. Persisted payloads from
+    /// earlier builds decode as `.fixed` below to preserve their exact sound.
+    var crossfadeMode: CrossfadeMode = .smart
     var crossfadeDuration: Double = 3.0
     var replayGainEnabled: Bool = false
     var replayGainMode: ReplayGainMode = .track
@@ -91,6 +106,7 @@ struct PlaybackSettings: Codable, Sendable {
         dsdPlaybackMode = try c.decodeIfPresent(DSDPlaybackMode.self, forKey: .dsdPlaybackMode) ?? .automatic
         gaplessEnabled = try c.decodeIfPresent(Bool.self, forKey: .gaplessEnabled) ?? false
         crossfadeEnabled = try c.decodeIfPresent(Bool.self, forKey: .crossfadeEnabled) ?? false
+        crossfadeMode = try c.decodeIfPresent(CrossfadeMode.self, forKey: .crossfadeMode) ?? .fixed
         crossfadeDuration = try c.decodeIfPresent(Double.self, forKey: .crossfadeDuration) ?? 3.0
         replayGainEnabled = try c.decodeIfPresent(Bool.self, forKey: .replayGainEnabled) ?? false
         replayGainMode = try c.decodeIfPresent(ReplayGainMode.self, forKey: .replayGainMode) ?? .track
@@ -122,6 +138,7 @@ struct PlaybackSettings: Codable, Sendable {
         dsdPlaybackMode: DSDPlaybackMode = .automatic,
         gaplessEnabled: Bool = false,
         crossfadeEnabled: Bool = false,
+        crossfadeMode: CrossfadeMode = .smart,
         crossfadeDuration: Double = 3.0,
         replayGainEnabled: Bool = false,
         replayGainMode: ReplayGainMode = .track,
@@ -151,6 +168,7 @@ struct PlaybackSettings: Codable, Sendable {
         self.dsdPlaybackMode = dsdPlaybackMode
         self.gaplessEnabled = gaplessEnabled
         self.crossfadeEnabled = crossfadeEnabled
+        self.crossfadeMode = crossfadeMode
         self.crossfadeDuration = crossfadeDuration
         self.replayGainEnabled = replayGainEnabled
         self.replayGainMode = replayGainMode
@@ -212,6 +230,7 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var crossfadeMode: CrossfadeMode { didSet { persist() } }
     var crossfadeDuration: Double { didSet { persist() } }
     var replayGainEnabled: Bool { didSet { persist() } }
     var replayGainMode: ReplayGainMode { didSet { persist() } }
@@ -284,6 +303,7 @@ final class PlaybackSettingsStore {
         self.dsdPlaybackMode = s.dsdPlaybackMode
         self.gaplessEnabled = s.gaplessEnabled
         self.crossfadeEnabled = s.crossfadeEnabled
+        self.crossfadeMode = s.crossfadeMode
         self.crossfadeDuration = s.crossfadeDuration
         self.replayGainEnabled = s.replayGainEnabled
         self.replayGainMode = s.replayGainMode
@@ -324,6 +344,7 @@ final class PlaybackSettingsStore {
         dsdPlaybackMode = s.dsdPlaybackMode
         gaplessEnabled = s.gaplessEnabled
         crossfadeEnabled = s.crossfadeEnabled
+        crossfadeMode = s.crossfadeMode
         crossfadeDuration = s.crossfadeDuration
         replayGainEnabled = s.replayGainEnabled
         replayGainMode = s.replayGainMode
@@ -356,6 +377,7 @@ final class PlaybackSettingsStore {
             dsdPlaybackMode: dsdPlaybackMode,
             gaplessEnabled: gaplessEnabled,
             crossfadeEnabled: crossfadeEnabled,
+            crossfadeMode: crossfadeMode,
             crossfadeDuration: crossfadeDuration,
             replayGainEnabled: replayGainEnabled,
             replayGainMode: replayGainMode,

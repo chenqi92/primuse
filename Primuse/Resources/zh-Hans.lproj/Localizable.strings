@@ -335,6 +335,17 @@
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出时长";
 "crossfade_desc" = "当前曲目结束时，平滑过渡到下一首。";
+"crossfade_mode" = "转场模式";
+"crossfade_mode_fixed" = "固定";
+"crossfade_mode_smart" = "智能";
+"crossfade_max_duration" = "最长转场时长";
+"skip_leading_silence" = "跳过开头静音";
+"skip_trailing_silence" = "跳过结尾静音";
+"silence_skipping_desc" = "智能转场会自动分析可听边界；这些开关也会在普通播放时跳过首尾静音。高保真模式不会修改音频边界。";
+"Crossfade Mode" = "转场模式";
+"Energy-aware song boundaries" = "感知歌曲能量边界";
+"Fixed overlap" = "固定重叠时长";
+"Maximum Crossfade Duration" = "最长淡入淡出时长";
 "seconds" = "秒";
 "replay_gain" = "回放增益";
 "replay_gain_desc" = "根据音频文件中嵌入的 ReplayGain 标签自动调整音量。";

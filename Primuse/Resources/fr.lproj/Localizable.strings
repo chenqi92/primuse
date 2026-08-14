@@ -529,6 +529,17 @@
 "crossfade" = "Fondu enchaîné";
 "crossfade_duration" = "Durée du fondu enchaîné";
 "crossfade_desc" = "Fondez en douceur la fin d'un morceau avec le début du suivant.";
+"crossfade_mode" = "Mode de transition";
+"crossfade_mode_fixed" = "Fixe";
+"crossfade_mode_smart" = "Intelligent";
+"crossfade_max_duration" = "Durée maximale de transition";
+"skip_leading_silence" = "Ignorer le silence au début";
+"skip_trailing_silence" = "Ignorer le silence à la fin";
+"silence_skipping_desc" = "Les transitions intelligentes analysent automatiquement les limites audibles. Ces options ignorent aussi les silences en lecture normale. Le mode haute fidélité ne modifie pas les limites audio.";
+"Crossfade Mode" = "Mode de fondu";
+"Energy-aware song boundaries" = "Limites basées sur l’énergie";
+"Fixed overlap" = "Chevauchement fixe";
+"Maximum Crossfade Duration" = "Durée maximale du fondu";
 "seconds" = "secondes";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Ajustez automatiquement le volume selon les tags ReplayGain intégrés aux fichiers audio.";

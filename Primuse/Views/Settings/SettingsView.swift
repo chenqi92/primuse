@@ -922,8 +922,16 @@ struct PlaybackSettingsView: View {
                     }
 
                 if settings.crossfadeEnabled {
+                    Picker("crossfade_mode", selection: $settings.crossfadeMode) {
+                        ForEach(CrossfadeMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
                     VStack(alignment: .leading) {
-                        Text("crossfade_duration")
+                        Text(settings.crossfadeMode == .smart
+                             ? "crossfade_max_duration"
+                             : "crossfade_duration")
                             .font(.caption)
                         Slider(value: $settings.crossfadeDuration, in: 1...12, step: 1) {
                             Text("\(settings.crossfadeDuration.finiteInt())s")
@@ -935,6 +943,14 @@ struct PlaybackSettingsView: View {
                 }
             } footer: {
                 Text("crossfade_desc")
+            }
+            .disabled(settings.outputMode == .highFidelity)
+
+            Section {
+                Toggle("skip_leading_silence", isOn: $settings.skipLeadingSilenceEnabled)
+                Toggle("skip_trailing_silence", isOn: $settings.skipTrailingSilenceEnabled)
+            } footer: {
+                Text("silence_skipping_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 

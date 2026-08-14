@@ -320,6 +320,17 @@
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出時長";
 "crossfade_desc" = "當前曲目結束時，平滑過渡到下一首。";
+"crossfade_mode" = "轉場模式";
+"crossfade_mode_fixed" = "固定";
+"crossfade_mode_smart" = "智慧";
+"crossfade_max_duration" = "最長轉場時長";
+"skip_leading_silence" = "略過開頭靜音";
+"skip_trailing_silence" = "略過結尾靜音";
+"silence_skipping_desc" = "智慧轉場會自動分析可聽邊界；這些開關也會在一般播放時略過首尾靜音。高傳真模式不會修改音訊邊界。";
+"Crossfade Mode" = "轉場模式";
+"Energy-aware song boundaries" = "感知歌曲能量邊界";
+"Fixed overlap" = "固定重疊時長";
+"Maximum Crossfade Duration" = "最長淡入淡出時長";
 "seconds" = "秒";
 "replay_gain" = "回放增益";
 "replay_gain_desc" = "根據音訊檔案中嵌入的 ReplayGain 標籤自動調整音量。";

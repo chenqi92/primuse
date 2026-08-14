@@ -334,6 +334,17 @@
 "crossfade" = "Crossfade";
 "crossfade_duration" = "Crossfade Duration";
 "crossfade_desc" = "Smoothly blend the end of one track into the beginning of the next.";
+"crossfade_mode" = "Transition Mode";
+"crossfade_mode_fixed" = "Fixed";
+"crossfade_mode_smart" = "Smart";
+"crossfade_max_duration" = "Maximum Transition Duration";
+"skip_leading_silence" = "Skip leading silence";
+"skip_trailing_silence" = "Skip trailing silence";
+"silence_skipping_desc" = "Smart transitions analyze audible boundaries automatically. These switches also skip boundary silence during ordinary playback. High Fidelity mode leaves audio boundaries unchanged.";
+"Crossfade Mode" = "Crossfade Mode";
+"Energy-aware song boundaries" = "Energy-aware song boundaries";
+"Fixed overlap" = "Fixed overlap";
+"Maximum Crossfade Duration" = "Maximum Crossfade Duration";
 "seconds" = "seconds";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Automatically adjust volume based on ReplayGain tags embedded in audio files.";

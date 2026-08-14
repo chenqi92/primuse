@@ -125,8 +125,10 @@ final class AppleMusicService {
     /// 上个 tick 的 queue 轻量指纹 (entry id 列表) ── 只有指纹变化才重做
     /// 全量 SHA256 + Song 结构体投影, 避免每 0.5s 对几千首 queue 烧主线程。
     private var lastQueueSignature: [String] = []
+    private let playbackSettings: PlaybackSettingsStore
 
-    init() {
+    init(playbackSettings: PlaybackSettingsStore) {
+        self.playbackSettings = playbackSettings
         self.authState = Self.mapStatus(MusicAuthorization.currentStatus)
         plog("AppleMusicService init: authState=\(String(describing: self.authState))")
     }
@@ -296,6 +298,9 @@ final class AppleMusicService {
          // caller (AudioPlayerService.playAppleMusicSong) 已经把猿音自己的
          // engine 停掉了, 这里直接接管 audio session。
          let player = ApplicationMusicPlayer.shared
+#if os(iOS)
+         player.transition = configuredTransition()
+#endif
          nowPlayingSong = starting
          let fallbackDuration = expectedDuration.isFinite && expectedDuration > 0
              ? expectedDuration
@@ -407,6 +412,9 @@ final class AppleMusicService {
         guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return }
 
         let player = ApplicationMusicPlayer.shared
+#if os(iOS)
+        player.transition = configuredTransition()
+#endif
         // 乐观先把 nowPlayingSong 设上 — MusicKit 的 play() 在 iOS 26 上经常误抛
         // MPMusicPlayerControllerErrorDomain error 2 (即便音频实际已经开始播),
         // 不能等 try 成功才设, 否则 UI 永远不显示 mini player。
@@ -441,6 +449,19 @@ final class AppleMusicService {
             }
         }
     }
+
+#if os(iOS)
+    /// MusicKit currently exposes only none/fixed crossfade on iOS. Smart
+    /// boundary analysis requires decoded PCM, which DRM catalog streams do not
+    /// expose, so Apple Music intentionally honors the duration as a fixed fade.
+    private func configuredTransition() -> MusicKit.MusicPlayer.Transition {
+        let settings = playbackSettings.snapshot()
+        if settings.outputMode == .effects, settings.crossfadeEnabled {
+            return .crossfade(duration: settings.crossfadeDuration)
+        }
+        return .none
+    }
+#endif
 
     /// Explicit commands stay idempotent when Lock Screen sends Play or Pause
     /// after MusicKit's state changed independently of Primuse's last mirror.
