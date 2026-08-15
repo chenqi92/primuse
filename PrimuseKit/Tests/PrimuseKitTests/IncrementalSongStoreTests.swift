@@ -7,10 +7,15 @@ struct IncrementalSongStoreTests {
     @Test("Fresh and authoritative empty stores remain distinct")
     func emptyAuthority() throws {
         try withStore { store in
-            #expect(try store.isAuthoritative() == false)
+            #expect(try store.startupState() == IncrementalSongStoreStartupState(
+                isAuthoritative: false,
+                contentRevision: 0,
+                completedMigrationVersion: 0
+            ))
             try store.replaceAll(with: [])
             #expect(try store.isAuthoritative() == true)
             #expect(try store.loadSongs().isEmpty)
+            #expect(try store.startupState().contentRevision == 1)
         }
     }
 
@@ -44,6 +49,29 @@ struct IncrementalSongStoreTests {
             #expect(loaded.map(\.id) == ["first", "third"])
             #expect(loaded.first?.title == "New")
             #expect(try store.songCount() == 2)
+            #expect(try store.startupState().contentRevision == 2)
+        }
+    }
+
+    @Test("Content revisions and launch migration markers are monotonic")
+    func startupMetadata() throws {
+        try withStore { store in
+            let song = makeSong(id: "first", path: "/a.mp3", title: "First")
+            let replacementRevision = try store.replaceAll(with: [song])
+            #expect(replacementRevision == 1)
+
+            try store.markMigrationCompleted(version: 2)
+            try store.markMigrationCompleted(version: 1)
+            var state = try store.startupState()
+            #expect(state.completedMigrationVersion == 2)
+
+            var changed = song
+            changed.title = "Changed"
+            let applyRevision = try store.apply(upserts: [changed])
+            #expect(applyRevision == 2)
+            state = try store.startupState()
+            #expect(state.contentRevision == 2)
+            #expect(state.completedMigrationVersion == 2)
         }
     }
 
@@ -59,6 +87,7 @@ struct IncrementalSongStoreTests {
                 try store.apply(upserts: [invalid])
             }
             #expect(try store.loadSongs() == [original])
+            #expect(try store.startupState().contentRevision == 1)
         }
     }
 

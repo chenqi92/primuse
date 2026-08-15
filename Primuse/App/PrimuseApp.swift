@@ -844,6 +844,14 @@ struct PrimuseApp: App {
                 }
                 #endif
                 .task {
+                    // Let SwiftUI commit the first interactive frame before
+                    // restoring a potentially 10K+ queue or running launch
+                    // maintenance. The pause is deliberately short: users still
+                    // see their previous Now Playing context almost immediately.
+                    try? await Task.sleep(for: .milliseconds(150))
+                    guard !Task.isCancelled else { return }
+                    await AppServices.shared.completeDeferredStartup()
+
                     PrimuseAppDelegate.sync = cloudSync
                     // Apple Watch 桥 ── 启动 WCSession, 1Hz 推 Now Playing
                     // 状态到 Watch, 接收 Watch 端的播控指令。
@@ -906,11 +914,11 @@ struct PrimuseApp: App {
                         guard !Task.isCancelled else { return }
                         await LibrarySearchIndex.shared.prepare(songs: searchSongs)
                     }
-                    // 清掉 7 天没动的 .partial 半成品 —— Range streaming 路径
-                    // 用户跳过 / prewarm 完没接着播的歌会留下大量孤立
-                    // .partial 永久占盘, LRU 看不到这些。同步执行很快
-                    // (只 stat mtime, 不读内容)。
-                    sourceManager.pruneStalePartialFiles()
+                    // 清掉 7 天没动的 .partial 半成品。即使只读取 mtime,
+                    // 大缓存目录的枚举也不能占用首屏后的 main actor。
+                    Task.detached(priority: .background) {
+                        SourceManager.pruneStalePartialFiles()
+                    }
                     // 把内容寻址的封面 content/ 目录限定在 500MB 以内。
                     // 超过就按 mtime 删最老的物理 jpeg, ref 文件下次读
                     // miss → CachedArtworkView 自动重新拉。运行在 background

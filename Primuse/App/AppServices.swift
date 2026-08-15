@@ -40,6 +40,12 @@ final class AppServices {
     private var sourceCleanupTask: Task<Void, Never>?
     private var pendingSourceCloudCleanups: [String: SourceCloudCleanupIntent] = [:]
     private var sourceCloudCleanupPropagationTask: Task<Void, Never>?
+    private var didCompleteDeferredStartup = false
+
+    private struct StartupLibraryReconciliation: Sendable {
+        let sourceSongCounts: [String: Int]
+        let staleSourceIDsWithSongs: Set<String>
+    }
 
     private var sourceCloudCleanupJournalURL: URL {
         #if os(tvOS)
@@ -180,7 +186,6 @@ final class AppServices {
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
         )
-        player.restorePlaybackSessionIfAvailable()
         let playbackRestoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
         // Wire the library's tombstone identity resolver. Maps a song's
@@ -195,33 +200,11 @@ final class AppServices {
         loadPendingSourceCloudCleanups()
         observeSourceLifecycle()
 
-        let pruneThreshold = Date(timeIntervalSinceNow: -7 * 24 * 60 * 60)
-        library.prunePlaylists(deletedBefore: pruneThreshold)
-        let sourcePruneResults = store.pruneSources(deletedBefore: pruneThreshold)
-        let sourcePruneFailures = sourcePruneResults.filter {
-            $0.value == .credentialCleanupFailed
-        }
-        if !sourcePruneFailures.isEmpty {
-            plog("⏳ Source prune retained \(sourcePruneFailures.count) tombstone(s) for credential cleanup retry")
-        }
-        ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
-        reconcileDeletedSourceSongs()
-        reconcileSourceSongCounts()
-
-        CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
-        CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
-
-        // Phase 3:Apple TV 中继(默认关闭,用户在设置开启)。开启后 Apple TV 可经本机
-        // 局域网播放本地 / SMB / SFTP / NFS / WebDAV 等不可直连的源。
-        PhoneRelayServer.shared.startIfEnabled(sourceManager: manager, sourcesStore: store, library: library)
-
         wireIntentBridge()
         observeSpotlightReindex()
-        rescanLocalImportIfNeeded()
-        schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         let startupFinishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
-            format: "🚀 launch services total=%.0fms keychain=%.0f sources=%.0f library=%.0f core=%.0f auxiliary=%.0f restore=%.0f maintenance=%.0f",
+            format: "🚀 launch services total=%.0fms keychain=%.0f sources=%.0f library=%.0f core=%.0f auxiliary=%.0f wiring=%.0f observers=%.0f",
             (startupFinishedAt - startupStartedAt) * 1_000,
             (keychainFinishedAt - startupStartedAt) * 1_000,
             (sourcesFinishedAt - keychainFinishedAt) * 1_000,
@@ -230,6 +213,83 @@ final class AppServices {
             (auxiliaryServicesFinishedAt - coreServicesFinishedAt) * 1_000,
             (playbackRestoreFinishedAt - auxiliaryServicesFinishedAt) * 1_000,
             (startupFinishedAt - playbackRestoreFinishedAt) * 1_000
+        ))
+    }
+
+    /// Runs after SwiftUI has had a chance to present the first frame. Queue
+    /// decoding and whole-library reconciliation are intentionally absent from
+    /// `init`, where even background-capable work would extend Time to First
+    /// Draw on the main actor.
+    func completeDeferredStartup() async {
+        guard !didCompleteDeferredStartup else { return }
+        didCompleteDeferredStartup = true
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        let sourceSnapshot = sourcesStore.allSources
+        let songSnapshot = musicLibrary.songs
+        async let playbackRestore: Void = playerService.restorePlaybackSessionIfAvailable()
+        let reconciliation = await Task.detached(priority: .utility) {
+            var counts: [String: Int] = [:]
+            counts.reserveCapacity(sourceSnapshot.count)
+            for song in songSnapshot {
+                counts[song.sourceID, default: 0] += 1
+            }
+            let knownSourceIDs = Set(sourceSnapshot.map(\.id))
+            let deletedSourceIDs = Set(sourceSnapshot.lazy.filter(\.isDeleted).map(\.id))
+            let missingSourceIDs = Set(counts.keys).subtracting(knownSourceIDs)
+            let staleSourceIDs = deletedSourceIDs.union(missingSourceIDs)
+            return StartupLibraryReconciliation(
+                sourceSongCounts: counts,
+                staleSourceIDsWithSongs: Set(staleSourceIDs.filter { (counts[$0] ?? 0) > 0 })
+            )
+        }.value
+        await playbackRestore
+        let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
+
+        let pruneThreshold = Date(timeIntervalSinceNow: -7 * 24 * 60 * 60)
+        musicLibrary.prunePlaylists(deletedBefore: pruneThreshold)
+        let sourcePruneResults = sourcesStore.pruneSources(deletedBefore: pruneThreshold)
+        let sourcePruneFailures = sourcePruneResults.filter {
+            $0.value == .credentialCleanupFailed
+        }
+        if !sourcePruneFailures.isEmpty {
+            plog("⏳ Source prune retained \(sourcePruneFailures.count) tombstone(s) for credential cleanup retry")
+        }
+        ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
+
+        let currentlyStaleSourceIDs = reconciliation.staleSourceIDsWithSongs.filter { sourceID in
+            guard let currentSource = sourcesStore.source(id: sourceID) else { return true }
+            return currentSource.isDeleted
+        }
+        if !currentlyStaleSourceIDs.isEmpty {
+            let removedCount = currentlyStaleSourceIDs.reduce(0) {
+                $0 + (reconciliation.sourceSongCounts[$1] ?? 0)
+            }
+            plog("📚 removing \(removedCount) song(s) from deleted/missing source(s): \(currentlyStaleSourceIDs)")
+            for id in currentlyStaleSourceIDs {
+                removeSourceLibraryData(id: id, purgePersistentCaches: false)
+            }
+        }
+        sourcesStore.reconcileLocalSongCounts(reconciliation.sourceSongCounts)
+
+        CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
+
+        // Phase 3: Apple TV relay is opt-in. Starting its listeners after the
+        // first frame preserves behavior without charging launch rendering.
+        PhoneRelayServer.shared.startIfEnabled(
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore,
+            library: musicLibrary
+        )
+        rescanLocalImportIfNeeded()
+        schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
+        let finishedAt = ProcessInfo.processInfo.systemUptime
+        plog(String(
+            format: "🚀 deferred startup total=%.0fms restore=%.0fms maintenance=%.0fms",
+            (finishedAt - startedAt) * 1_000,
+            (restoreFinishedAt - startedAt) * 1_000,
+            (finishedAt - restoreFinishedAt) * 1_000
         ))
     }
 

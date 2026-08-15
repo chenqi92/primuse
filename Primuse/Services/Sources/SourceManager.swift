@@ -3771,7 +3771,7 @@ final class SourceManager {
     ///
     /// 只清 mtime 超过阈值的, 现在正在 streaming 的 `.partial` (mtime
     /// 是新的) 不会被误删。
-    func pruneStalePartialFiles(olderThanDays days: Int = 7) {
+    nonisolated static func pruneStalePartialFiles(olderThanDays days: Int = 7) {
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         guard let enumerator = FileManager.default.enumerator(

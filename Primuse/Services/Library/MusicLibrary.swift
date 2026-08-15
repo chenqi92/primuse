@@ -2077,6 +2077,7 @@ final class MusicLibrary {
 
     private let snapshotURL: URL
     private let backupSnapshotURL: URL
+    private let startupCacheURL: URL
     private let derivedIndexCacheURL: URL
     private let playlistDurabilityURL: URL
     private let playlistSyncWriterID: String
@@ -2087,6 +2088,8 @@ final class MusicLibrary {
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
+    private static let startupCacheFormatVersion = 1
+    private static let loadedSongMigrationVersion = 1
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -2227,6 +2230,7 @@ final class MusicLibrary {
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
+        startupCacheURL = directory.appendingPathComponent("library-startup-cache.plist")
         derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
         playlistDurabilityURL = directory.appendingPathComponent("playlist-durability.json")
         let writerDefaultsKey = "primuse.playlist.syncWriterID"
@@ -4119,54 +4123,102 @@ final class MusicLibrary {
 
     private func loadSnapshot(preferExternalSnapshot: Bool = false) {
         let loadStartedAt = ProcessInfo.processInfo.systemUptime
-        let canonicalSongs: [Song]? = {
+        let hasCompatibilitySnapshot = FileManager.default.fileExists(atPath: snapshotURL.path)
+        let compatibilityFingerprint = hasCompatibilitySnapshot
+            ? Self.snapshotFingerprint(at: snapshotURL)
+            : nil
+
+        let initialStoreState: IncrementalSongStoreStartupState? = {
             guard !preferExternalSnapshot, let songStore else { return nil }
             do {
-                guard try songStore.isAuthoritative() else { return nil }
-                return try songStore.loadSongs()
+                return try songStore.startupState()
             } catch {
-                plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                plog("⚠️ Incremental song store metadata read failed; recovering from JSON: \(error.localizedDescription)")
                 return nil
             }
         }()
-        guard FileManager.default.fileExists(atPath: snapshotURL.path) else {
-            persistenceBlockedByCorruption = false
-            if let canonicalSongs {
-                songs = canonicalSongs
-                songIndexByID = Self.makeSongIndex(canonicalSongs)
-                rebuildIndexSync()
-                plog("🚀 library load recovered \(canonicalSongs.count) song(s) from SQLite without a compatibility snapshot")
-            }
-            loadPlaylistDurabilityLedger()
-            return
-        }
-        guard let data = try? Data(contentsOf: snapshotURL) else {
-            persistenceBlockedByCorruption = true
-            plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
-            return
-        }
-        let readFinishedAt = ProcessInfo.processInfo.systemUptime
+        let startupCache = initialStoreState?.isAuthoritative == true
+            ? loadStartupCache(
+                songStoreRevision: initialStoreState?.contentRevision,
+                snapshotFingerprint: compatibilityFingerprint
+            )
+            : nil
 
-        let snapshot: Snapshot
-        if let decoded = try? decoder.decode(Snapshot.self, from: data) {
-            snapshot = decoded
+        var canonicalSongs: [Song]?
+        var resolvedSnapshot: Snapshot?
+        var snapshotByteCount = 0
+        var canRefreshStartupCache = false
+        var readFinishedAt = ProcessInfo.processInfo.systemUptime
+        var decodeFinishedAt = readFinishedAt
+        if let startupCache {
+            resolvedSnapshot = startupCache.snapshot
+            canonicalSongs = startupCache.snapshot.songs
+            canRefreshStartupCache = true
+            readFinishedAt = ProcessInfo.processInfo.systemUptime
+            decodeFinishedAt = readFinishedAt
             persistenceBlockedByCorruption = false
         } else {
-            let corruptURL = snapshotURL.deletingLastPathComponent()
-                .appendingPathComponent("library-cache.corrupt-\(Int(Date().timeIntervalSince1970)).json")
-            try? FileManager.default.copyItem(at: snapshotURL, to: corruptURL)
-
-            guard let backupData = try? Data(contentsOf: backupSnapshotURL),
-                  let backup = try? decoder.decode(Snapshot.self, from: backupData) else {
-                persistenceBlockedByCorruption = true
-                plog("⛔ Library snapshot is corrupt and no valid backup exists; persistence disabled to prevent an empty overwrite")
-                return
+            if initialStoreState?.isAuthoritative == true, let songStore {
+                do {
+                    canonicalSongs = try songStore.loadSongs()
+                } catch {
+                    plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                }
             }
-            snapshot = backup
-            persistenceBlockedByCorruption = false
-            plog("⚠️ Library snapshot was corrupt; restored the last valid backup")
+
+            if !hasCompatibilitySnapshot {
+                persistenceBlockedByCorruption = false
+                if let canonicalSongs {
+                    resolvedSnapshot = Snapshot(
+                        songs: canonicalSongs,
+                        playlists: [],
+                        mirrorPlaylistSuppressions: nil,
+                        smartPlaylists: nil,
+                        playlistSongIDs: nil,
+                        recentPlaybackSongIDs: nil,
+                        deletedSongIdentities: nil,
+                        pendingPlaylistIdentities: nil,
+                        pendingHistoryIdentities: nil
+                    )
+                    canRefreshStartupCache = true
+                } else {
+                    loadPlaylistDurabilityLedger()
+                    return
+                }
+                readFinishedAt = ProcessInfo.processInfo.systemUptime
+                decodeFinishedAt = readFinishedAt
+            } else {
+                guard let data = try? Data(contentsOf: snapshotURL) else {
+                    persistenceBlockedByCorruption = true
+                    plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
+                    return
+                }
+                readFinishedAt = ProcessInfo.processInfo.systemUptime
+                snapshotByteCount = data.count
+                if let decoded = try? decoder.decode(Snapshot.self, from: data) {
+                    resolvedSnapshot = decoded
+                    canRefreshStartupCache = true
+                    persistenceBlockedByCorruption = false
+                } else {
+                    let corruptURL = snapshotURL.deletingLastPathComponent()
+                        .appendingPathComponent("library-cache.corrupt-\(Int(Date().timeIntervalSince1970)).json")
+                    try? FileManager.default.copyItem(at: snapshotURL, to: corruptURL)
+
+                    guard let backupData = try? Data(contentsOf: backupSnapshotURL),
+                          let backup = try? decoder.decode(Snapshot.self, from: backupData) else {
+                        persistenceBlockedByCorruption = true
+                        plog("⛔ Library snapshot is corrupt and no valid backup exists; persistence disabled to prevent an empty overwrite")
+                        return
+                    }
+                    resolvedSnapshot = backup
+                    canRefreshStartupCache = false
+                    persistenceBlockedByCorruption = false
+                    plog("⚠️ Library snapshot was corrupt; restored the last valid backup")
+                }
+                decodeFinishedAt = ProcessInfo.processInfo.systemUptime
+            }
         }
-        let decodeFinishedAt = ProcessInfo.processInfo.systemUptime
+        guard let snapshot = resolvedSnapshot else { return }
 
         // Migrate the decoded value before publishing it. `songs` is backed by
         // an immutable observable reference, so mutating `songs[i]` would run
@@ -4175,15 +4227,26 @@ final class MusicLibrary {
         // Keeping the work local gives the array one copy-on-write mutation
         // and the observable model one final publication.
         var loadedSongs = canonicalSongs ?? snapshot.songs
-        let migration = Self.migrateLoadedSongs(&loadedSongs)
+        let shouldInspectLoadedSongs = preferExternalSnapshot
+            || canonicalSongs == nil
+            || (initialStoreState?.completedMigrationVersion ?? 0) < Self.loadedSongMigrationVersion
+        let migration = shouldInspectLoadedSongs
+            ? Self.migrateLoadedSongs(&loadedSongs)
+            : (
+                repairedTextCount: 0,
+                filledDerivedIDCount: 0,
+                correctedLegacyDTSDurationCount: 0,
+                changedSongs: []
+            )
         let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
-        if canonicalSongs == nil || !migration.changedSongs.isEmpty {
+        if shouldInspectLoadedSongs, let songStore {
             do {
-                if canonicalSongs == nil {
-                    try songStore?.replaceAll(with: loadedSongs)
-                } else {
-                    try songStore?.apply(upserts: migration.changedSongs)
+                if preferExternalSnapshot || canonicalSongs == nil {
+                    try songStore.replaceAll(with: loadedSongs)
+                } else if !migration.changedSongs.isEmpty {
+                    try songStore.apply(upserts: migration.changedSongs)
                 }
+                try songStore.markMigrationCompleted(version: Self.loadedSongMigrationVersion)
             } catch {
                 plog("⚠️ Incremental song store migration failed; JSON remains authoritative: \(error.localizedDescription)")
             }
@@ -4212,33 +4275,51 @@ final class MusicLibrary {
         // sessions). Try resolving them once on load.
         flushPendingIdentities()
         let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
-        let currentDerivedSignature = Self.derivedIndexSignature(for: loadedSongs)
         let usedDerivedIndexCache: Bool
-        if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
-            albums = cachedIndex.albums
-            artists = cachedIndex.artists
-            derivedIndexSignature = currentDerivedSignature
+        if let startupCache, migration.changedSongs.isEmpty {
+            albums = startupCache.albums
+            artists = startupCache.artists
+            derivedIndexSignature = startupCache.derivedIndexSignature
             rebuildVisibleCache()
             usedDerivedIndexCache = true
         } else {
-            // The cache is disposable. An old installation pays the grouping
-            // cost once, then subsequent launches decode the compact binary
-            // index instead of sorting the whole library before the first frame.
-            rebuildIndexSync(precomputedSignature: currentDerivedSignature)
-            persistDerivedIndexCache()
-            usedDerivedIndexCache = false
+            let currentDerivedSignature = Self.derivedIndexSignature(for: loadedSongs)
+            if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
+                albums = cachedIndex.albums
+                artists = cachedIndex.artists
+                derivedIndexSignature = currentDerivedSignature
+                rebuildVisibleCache()
+                usedDerivedIndexCache = true
+            } else {
+                // The cache is disposable. An old installation pays the grouping
+                // cost once, then subsequent launches decode the compact binary
+                // index instead of sorting the whole library before the first frame.
+                rebuildIndexSync(precomputedSignature: currentDerivedSignature)
+                persistDerivedIndexCache()
+                usedDerivedIndexCache = false
+            }
         }
         let indexFinishedAt = ProcessInfo.processInfo.systemUptime
+
+        if startupCache == nil, canRefreshStartupCache {
+            let currentStoreRevision = try? songStore?.startupState().contentRevision
+            scheduleStartupCacheWrite(
+                snapshot: makeSnapshot(),
+                songStoreRevision: currentStoreRevision,
+                snapshotFingerprint: Self.snapshotFingerprint(at: snapshotURL)
+            )
+        }
         plog(String(
-            format: "🚀 library load total=%.0fms read=%.0f decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f derivedCache=%@ bytes=%d songs=%d",
+            format: "🚀 library load total=%.0fms read=%.0f decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f startupCache=%@ derivedCache=%@ bytes=%d songs=%d",
             (indexFinishedAt - loadStartedAt) * 1_000,
             (readFinishedAt - loadStartedAt) * 1_000,
             (decodeFinishedAt - readFinishedAt) * 1_000,
             (migrationFinishedAt - decodeFinishedAt) * 1_000,
             (cleanupFinishedAt - migrationFinishedAt) * 1_000,
             (indexFinishedAt - cleanupFinishedAt) * 1_000,
+            startupCache == nil ? "miss" : "hit",
             usedDerivedIndexCache ? "hit" : "miss",
-            data.count,
+            snapshotByteCount,
             loadedSongs.count
         ))
         if migration.repairedTextCount > 0 {
@@ -4333,12 +4414,77 @@ final class MusicLibrary {
     private var persistTask: Task<Void, Never>?
     /// Incremental SQLite writes are serialized independently from the JSON
     /// compatibility snapshot. Scan cursor commits await this chain.
-    private var songStoreWriteTask: Task<Bool, Never>?
+    private var songStoreWriteTask: Task<Int64?, Never>?
     /// Serializes off-main-actor snapshot writes. Each `persistNow` chains
     /// onto the previous write so the JSON encode + atomic write happen in
     /// order off the main thread, and the latest snapshot always wins.
     private var persistWriteTask: Task<Bool, Never>?
     private var derivedIndexCacheWriteTask: Task<Void, Never>?
+    private var startupCacheWriteTask: Task<Void, Never>?
+
+    private nonisolated static func snapshotFingerprint(at url: URL) -> SnapshotFileFingerprint? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attributes[.size] as? NSNumber)?.int64Value,
+              let modifiedAt = attributes[.modificationDate] as? Date else {
+            return nil
+        }
+        let nanoseconds = Int64((modifiedAt.timeIntervalSince1970 * 1_000_000_000).rounded())
+        return SnapshotFileFingerprint(
+            fileSize: size,
+            modificationTimeNanoseconds: nanoseconds,
+            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        )
+    }
+
+    private func loadStartupCache(
+        songStoreRevision: Int64?,
+        snapshotFingerprint: SnapshotFileFingerprint?
+    ) -> StartupCache? {
+        guard let data = try? Data(contentsOf: startupCacheURL),
+              let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
+              cache.formatVersion == Self.startupCacheFormatVersion,
+              cache.songStoreRevision == songStoreRevision,
+              cache.snapshotFingerprint == snapshotFingerprint else {
+            return nil
+        }
+        return cache
+    }
+
+    private func scheduleStartupCacheWrite(
+        snapshot: Snapshot,
+        songStoreRevision: Int64?,
+        snapshotFingerprint: SnapshotFileFingerprint?
+    ) {
+        let cache = StartupCache(
+            formatVersion: Self.startupCacheFormatVersion,
+            songStoreRevision: songStoreRevision,
+            snapshotFingerprint: snapshotFingerprint,
+            snapshot: snapshot,
+            albums: albums,
+            artists: artists,
+            derivedIndexSignature: derivedIndexSignature
+        )
+        let url = startupCacheURL
+        let previous = startupCacheWriteTask
+        let task = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            Self.writeStartupCache(cache, to: url)
+        }
+        startupCacheWriteTask = task
+    }
+
+    private nonisolated static func writeStartupCache(_ cache: StartupCache, to url: URL) {
+        do {
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            let data = try encoder.encode(cache)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // The cache is an accelerator only. Keep the durable SQLite/JSON
+            // state untouched and simply rebuild on the next launch.
+            plog("⚠️ Library startup cache write failed: \(error.localizedDescription)")
+        }
+    }
 
     private func loadDerivedIndexCache(matching signature: String) -> DerivedIndexCache? {
         guard let data = try? Data(contentsOf: derivedIndexCacheURL),
@@ -4383,20 +4529,19 @@ final class MusicLibrary {
             let previous = songStoreWriteTask
             let recoverySnapshot = songs
             songStoreWriteTask = Task.detached(priority: .utility) {
-                let previousSucceeded = await previous?.value ?? true
+                let previousSucceeded = await previous?.value != nil
                 do {
-                    if previousSucceeded {
-                        try songStore.apply(upserts: upserts, deletingIDs: deletingIDs)
+                    if previous == nil || previousSucceeded {
+                        return try songStore.apply(upserts: upserts, deletingIDs: deletingIDs)
                     } else {
                         // A failed earlier delta may have left unknown rows
                         // stale. Reconcile from the current immutable snapshot
                         // instead of committing a cursor over that gap.
-                        try songStore.replaceAll(with: recoverySnapshot)
+                        return try songStore.replaceAll(with: recoverySnapshot)
                     }
-                    return true
                 } catch {
                     plog("⛔ Incremental song persistence failed: \(error.localizedDescription)")
-                    return false
+                    return nil
                 }
             }
         }
@@ -4445,7 +4590,47 @@ final class MusicLibrary {
             plog("⛔ Library persistence skipped because the on-disk snapshot is corrupt")
             return nil
         }
-        let snapshot = Snapshot(
+        let snapshot = makeSnapshot()
+        let url = snapshotURL
+        let backupURL = backupSnapshotURL
+        let cacheURL = startupCacheURL
+        let pendingSongStoreWrite = songStoreWriteTask
+        let capturedStoreRevision = pendingSongStoreWrite == nil
+            ? (try? songStore?.startupState().contentRevision)
+            : nil
+        let cachedAlbums = albums
+        let cachedArtists = artists
+        let cachedDerivedSignature = derivedIndexSignature
+        let cacheFormatVersion = Self.startupCacheFormatVersion
+        let previous = persistWriteTask
+        let previousStartupCacheWrite = startupCacheWriteTask
+        let task = Task.detached(priority: .utility) {
+            // Chain after any in-flight write so the atomic file is updated in
+            // call order and we never run two encodes against the same path.
+            _ = await previous?.value
+            let songStoreRevision = await pendingSongStoreWrite?.value ?? capturedStoreRevision
+            guard Self.writeSnapshot(snapshot, to: url, backupURL: backupURL) else {
+                return false
+            }
+            _ = await previousStartupCacheWrite?.value
+            let cache = StartupCache(
+                formatVersion: cacheFormatVersion,
+                songStoreRevision: songStoreRevision,
+                snapshotFingerprint: Self.snapshotFingerprint(at: url),
+                snapshot: snapshot,
+                albums: cachedAlbums,
+                artists: cachedArtists,
+                derivedIndexSignature: cachedDerivedSignature
+            )
+            Self.writeStartupCache(cache, to: cacheURL)
+            return true
+        }
+        persistWriteTask = task
+        return task
+    }
+
+    private func makeSnapshot() -> Snapshot {
+        Snapshot(
             songs: songs,
             playlists: allPlaylists,
             mirrorPlaylistSuppressions: hiddenMirrorPlaylists.isEmpty ? nil : hiddenMirrorPlaylists,
@@ -4456,17 +4641,6 @@ final class MusicLibrary {
             pendingPlaylistIdentities: pendingPlaylistIdentities.isEmpty ? nil : pendingPlaylistIdentities,
             pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities
         )
-        let url = snapshotURL
-        let backupURL = backupSnapshotURL
-        let previous = persistWriteTask
-        let task = Task.detached(priority: .utility) {
-            // Chain after any in-flight write so the atomic file is updated in
-            // call order and we never run two encodes against the same path.
-            _ = await previous?.value
-            return Self.writeSnapshot(snapshot, to: url, backupURL: backupURL)
-        }
-        persistWriteTask = task
-        return task
     }
 
     /// Persist the current snapshot and wait until its atomic file replacement
@@ -4508,24 +4682,24 @@ final class MusicLibrary {
 
     private func flushIncrementalSongStore() async -> Bool {
         guard let songStoreWriteTask else { return true }
-        guard !(await songStoreWriteTask.value) else { return true }
+        guard await songStoreWriteTask.value == nil else { return true }
         guard let songStore else { return false }
 
         let recoverySnapshot = songs
-        let recovered = await Task.detached(priority: .utility) {
+        let recoveryTask = Task<Int64?, Never>.detached(priority: .utility) {
             do {
-                try songStore.replaceAll(with: recoverySnapshot)
-                return true
+                return try songStore.replaceAll(with: recoverySnapshot)
             } catch {
                 plog("⛔ Incremental song recovery failed: \(error.localizedDescription)")
-                return false
+                return nil
             }
-        }.value
-        guard recovered else {
+        }
+        let recoveredRevision = await recoveryTask.value
+        guard let recoveredRevision else {
             plog("⛔ Incremental song persistence failed before library commit")
             return false
         }
-        self.songStoreWriteTask = Task { true }
+        self.songStoreWriteTask = Task { recoveredRevision }
         return true
     }
 
@@ -4803,6 +4977,26 @@ final class MusicLibrary {
         let signature: String
         let albums: [Album]
         let artists: [Artist]
+    }
+
+    private struct SnapshotFileFingerprint: Codable, Equatable, Sendable {
+        let fileSize: Int64
+        let modificationTimeNanoseconds: Int64
+        let fileNumber: UInt64?
+    }
+
+    /// Disposable binary mirror used only for local launch. The portable JSON
+    /// remains the interchange and recovery format; matching both the SQLite
+    /// content revision and JSON file identity prevents this accelerator from
+    /// ever overriding newer durable state.
+    private struct StartupCache: Codable, Sendable {
+        let formatVersion: Int
+        let songStoreRevision: Int64?
+        let snapshotFingerprint: SnapshotFileFingerprint?
+        let snapshot: Snapshot
+        let albums: [Album]
+        let artists: [Artist]
+        let derivedIndexSignature: String?
     }
 
     private struct Snapshot: Codable, Sendable {

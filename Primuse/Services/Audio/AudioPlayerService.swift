@@ -247,6 +247,14 @@ struct QueueEntry: Sendable, Identifiable {
     }
 }
 
+private struct PreparedPlaybackSessionRestore: Sendable {
+    let plan: PlaybackSessionRestorationPlan
+    let entries: [QueueEntry]
+    let loadFinishedAt: TimeInterval
+    let planFinishedAt: TimeInterval
+    let lookupFinishedAt: TimeInterval
+}
+
 /// One visible occurrence of a queue slot. Repeat-all may show the same slot in
 /// both the current and next shuffle rounds, so the presentation identity also
 /// carries a round offset instead of reusing `QueueEntry.id` by itself.
@@ -8478,47 +8486,65 @@ final class AudioPlayerService {
 
     /// Restores only queue/navigation context. Relaunching never starts audio
     /// on its own; a later Play command rebuilds the decoder at the saved time.
-    func restorePlaybackSessionIfAvailable() {
+    func restorePlaybackSessionIfAvailable() async {
         let restoreStartedAt = ProcessInfo.processInfo.systemUptime
         guard !hasAttemptedPlaybackSessionRestore else { return }
         hasAttemptedPlaybackSessionRestore = true
         guard let library else { return }
+        let initialQueueGeneration = queueGeneration
+        let visibleSongs = library.visibleSongs
+        let store = playbackSessionStore
+        let preparationTask = Task<PreparedPlaybackSessionRestore?, Never>.detached(priority: .userInitiated) {
+            let snapshot: PlaybackSessionSnapshot
+            do {
+                guard let loaded = try store.load() else { return nil }
+                snapshot = loaded
+            } catch {
+                plog("⚠️ Playback session load failed: \(error.localizedDescription)")
+                return nil
+            }
+            let loadFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        let snapshot: PlaybackSessionSnapshot
-        do {
-            guard let loaded = try playbackSessionStore.load() else { return }
-            snapshot = loaded
-        } catch {
-            plog("⚠️ Playback session load failed: \(error.localizedDescription)")
-            return
-        }
-        let loadFinishedAt = ProcessInfo.processInfo.systemUptime
+            var playableSongsByID: [String: Song] = [:]
+            playableSongsByID.reserveCapacity(visibleSongs.count)
+            for song in visibleSongs where song.isPlayable && playableSongsByID[song.id] == nil {
+                playableSongsByID[song.id] = song
+            }
+            guard let plan = PlaybackSessionRestorationPolicy.plan(
+                snapshot: snapshot,
+                availableSongIDs: Set(playableSongsByID.keys)
+            ) else {
+                plog("⚠️ Playback session ignored because its current track is unavailable or invalid")
+                return nil
+            }
+            let planFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        // The library already owns an O(1) visible-song index. Building a
-        // second full `[Song]` plus dictionary during launch was wasted work,
-        // especially when the saved queue contains the whole 10K+ library.
-        let availableIDs = Set(snapshot.queueSongIDs.filter {
-            library.unobservedVisibleSong(id: $0)?.isPlayable == true
-        })
-        guard let plan = PlaybackSessionRestorationPolicy.plan(
-            snapshot: snapshot,
-            availableSongIDs: availableIDs
-        ) else {
-            plog("⚠️ Playback session ignored because its current track is unavailable or invalid")
-            return
+            let entries = plan.queueSongIDs.compactMap { songID in
+                playableSongsByID[songID].map { QueueEntry(song: $0) }
+            }
+            guard entries.count == plan.queueSongIDs.count,
+                  entries.indices.contains(plan.currentIndex) else { return nil }
+            return PreparedPlaybackSessionRestore(
+                plan: plan,
+                entries: entries,
+                loadFinishedAt: loadFinishedAt,
+                planFinishedAt: planFinishedAt,
+                lookupFinishedAt: ProcessInfo.processInfo.systemUptime
+            )
         }
-        let planFinishedAt = ProcessInfo.processInfo.systemUptime
+        let prepared = await preparationTask.value
+        guard let prepared else { return }
 
-        let restoredSongs = plan.queueSongIDs.compactMap {
-            library.unobservedVisibleSong(id: $0)
-        }
-        guard restoredSongs.count == plan.queueSongIDs.count,
-              restoredSongs.indices.contains(plan.currentIndex) else { return }
-        let lookupFinishedAt = ProcessInfo.processInfo.systemUptime
+        // The user may have started a new queue while the old session was being
+        // decoded off-main. Never let delayed restoration replace live intent.
+        guard queueGeneration == initialQueueGeneration,
+              currentSong == nil,
+              queueEntries.isEmpty else { return }
+        let plan = prepared.plan
 
         isRestoringPlaybackSession = true
         defer { isRestoringPlaybackSession = false }
-        queueEntries = restoredSongs.map { QueueEntry(song: $0) }
+        queueEntries = prepared.entries
         currentIndex = plan.currentIndex
         // Apply these while currentSong is nil so restoring an Apple Music
         // item cannot write into ApplicationMusicPlayer during AppServices init.
@@ -8528,7 +8554,7 @@ final class AudioPlayerService {
         shufflePosition = plan.shufflePosition
         pendingNextShuffleIndices = plan.pendingNextShuffleIndices
 
-        let song = restoredSongs[plan.currentIndex]
+        let song = prepared.entries[plan.currentIndex].song
         currentSong = song
         duration = song.duration.isFinite && song.duration > 0
             ? song.duration
@@ -8553,10 +8579,10 @@ final class AudioPlayerService {
             String(shuffleEnabled),
             shufflePosition,
             (restoreFinishedAt - restoreStartedAt) * 1_000,
-            (loadFinishedAt - restoreStartedAt) * 1_000,
-            (planFinishedAt - loadFinishedAt) * 1_000,
-            (lookupFinishedAt - planFinishedAt) * 1_000,
-            (restoreFinishedAt - lookupFinishedAt) * 1_000
+            (prepared.loadFinishedAt - restoreStartedAt) * 1_000,
+            (prepared.planFinishedAt - prepared.loadFinishedAt) * 1_000,
+            (prepared.lookupFinishedAt - prepared.planFinishedAt) * 1_000,
+            (restoreFinishedAt - prepared.lookupFinishedAt) * 1_000
         ))
     }
 

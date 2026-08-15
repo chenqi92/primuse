@@ -9,6 +9,8 @@ import GRDB
 /// adding two files to a large library does not encode every existing song.
 public final class IncrementalSongStore: @unchecked Sendable {
     private static let authoritativeKey = "songs-authoritative"
+    private static let contentRevisionKey = "songs-content-revision"
+    private static let completedMigrationVersionKey = "songs-migration-version"
 
     private let database: DatabaseQueue
     private let encoder: JSONEncoder
@@ -48,12 +50,33 @@ public final class IncrementalSongStore: @unchecked Sendable {
     /// library. The distinction lets the app import an existing JSON snapshot
     /// exactly once without resurrecting deleted songs on later launches.
     public func isAuthoritative() throws -> Bool {
+        try startupState().isAuthoritative
+    }
+
+    /// Cheap metadata used to validate the disposable binary launch cache
+    /// without decoding every song row first.
+    public func startupState() throws -> IncrementalSongStoreStartupState {
         try database.read { db in
-            try String.fetchOne(
+            let rows = try Row.fetchAll(
                 db,
-                sql: "SELECT value FROM libraryStoreMetadata WHERE key = ?",
-                arguments: [Self.authoritativeKey]
-            ) == "1"
+                sql: "SELECT key, value FROM libraryStoreMetadata WHERE key IN (?, ?, ?)",
+                arguments: [
+                    Self.authoritativeKey,
+                    Self.contentRevisionKey,
+                    Self.completedMigrationVersionKey,
+                ]
+            )
+            let values = Dictionary(uniqueKeysWithValues: rows.compactMap { row -> (String, String)? in
+                guard let key: String = row["key"], let value: String = row["value"] else {
+                    return nil
+                }
+                return (key, value)
+            })
+            return IncrementalSongStoreStartupState(
+                isAuthoritative: values[Self.authoritativeKey] == "1",
+                contentRevision: Int64(values[Self.contentRevisionKey] ?? "") ?? 0,
+                completedMigrationVersion: Int(values[Self.completedMigrationVersionKey] ?? "") ?? 0
+            )
         }
     }
 
@@ -69,11 +92,12 @@ public final class IncrementalSongStore: @unchecked Sendable {
 
     /// Seeds or replaces the canonical table in one transaction. Used only for
     /// first migration and for an explicitly downloaded external snapshot.
-    public func replaceAll(with songs: [Song]) throws {
+    @discardableResult
+    public func replaceAll(with songs: [Song]) throws -> Int64 {
         let rows = try songs.enumerated().map { index, song in
             (song.id, song.sourceID, Int64(index), try encoder.encode(song))
         }
-        try database.write { db in
+        return try database.write { db in
             try db.execute(sql: "DELETE FROM librarySongRecords")
             for row in rows {
                 try db.execute(
@@ -85,18 +109,22 @@ public final class IncrementalSongStore: @unchecked Sendable {
                 )
             }
             try Self.markAuthoritative(in: db)
+            return try Self.bumpContentRevision(in: db)
         }
     }
 
     /// Applies a completed in-memory mutation atomically. Existing rows retain
     /// their stable order; genuinely new rows are appended in input order.
-    public func apply(upserts: [Song], deletingIDs: Set<String> = []) throws {
-        guard !upserts.isEmpty || !deletingIDs.isEmpty else { return }
+    @discardableResult
+    public func apply(upserts: [Song], deletingIDs: Set<String> = []) throws -> Int64 {
+        guard !upserts.isEmpty || !deletingIDs.isEmpty else {
+            return try startupState().contentRevision
+        }
         let encoded = try upserts.map { song in
             (song.id, song.sourceID, try encoder.encode(song))
         }
 
-        try database.write { db in
+        return try database.write { db in
             if !deletingIDs.isEmpty {
                 let ids = Array(deletingIDs)
                 for chunkStart in stride(from: 0, to: ids.count, by: 500) {
@@ -135,6 +163,25 @@ public final class IncrementalSongStore: @unchecked Sendable {
                 }
             }
             try Self.markAuthoritative(in: db)
+            return try Self.bumpContentRevision(in: db)
+        }
+    }
+
+    /// Records that all rows currently in the canonical store have passed a
+    /// particular launch migration. Future launches can skip an otherwise
+    /// O(librarySize) inspection until the migration version is bumped.
+    public func markMigrationCompleted(version: Int) throws {
+        try database.write { db in
+            let current = try Self.metadataValue(
+                forKey: Self.completedMigrationVersionKey,
+                in: db
+            ).flatMap(Int.init) ?? 0
+            guard version > current else { return }
+            try Self.setMetadataValue(
+                String(version),
+                forKey: Self.completedMigrationVersionKey,
+                in: db
+            )
         }
     }
 
@@ -145,12 +192,48 @@ public final class IncrementalSongStore: @unchecked Sendable {
     }
 
     private static func markAuthoritative(in db: Database) throws {
+        try setMetadataValue("1", forKey: authoritativeKey, in: db)
+    }
+
+    private static func bumpContentRevision(in db: Database) throws -> Int64 {
+        let current = try metadataValue(forKey: contentRevisionKey, in: db)
+            .flatMap(Int64.init) ?? 0
+        let next = current == .max ? 1 : current + 1
+        try setMetadataValue(String(next), forKey: contentRevisionKey, in: db)
+        return next
+    }
+
+    private static func metadataValue(forKey key: String, in db: Database) throws -> String? {
+        try String.fetchOne(
+            db,
+            sql: "SELECT value FROM libraryStoreMetadata WHERE key = ?",
+            arguments: [key]
+        )
+    }
+
+    private static func setMetadataValue(_ value: String, forKey key: String, in db: Database) throws {
         try db.execute(
             sql: """
-                INSERT INTO libraryStoreMetadata (key, value) VALUES (?, '1')
+                INSERT INTO libraryStoreMetadata (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
-            arguments: [authoritativeKey]
+            arguments: [key, value]
         )
+    }
+}
+
+public struct IncrementalSongStoreStartupState: Equatable, Sendable {
+    public let isAuthoritative: Bool
+    public let contentRevision: Int64
+    public let completedMigrationVersion: Int
+
+    public init(
+        isAuthoritative: Bool,
+        contentRevision: Int64,
+        completedMigrationVersion: Int
+    ) {
+        self.isAuthoritative = isAuthoritative
+        self.contentRevision = contentRevision
+        self.completedMigrationVersion = completedMigrationVersion
     }
 }
