@@ -7,6 +7,12 @@ struct ArtistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     let artist: Artist
+    private let onMacInlineBack: (() -> Void)?
+
+    init(artist: Artist, onMacInlineBack: (() -> Void)? = nil) {
+        self.artist = artist
+        self.onMacInlineBack = onMacInlineBack
+    }
 
     private var albums: [Album] {
         library.visibleAlbums.filter {
@@ -87,6 +93,10 @@ struct ArtistDetailView: View {
                 macHero
 
                 VStack(alignment: .leading, spacing: 24) {
+                    if let onMacInlineBack {
+                        inlineNavigationBar(onBack: onMacInlineBack)
+                    }
+
                     if albums.isEmpty && songs.isEmpty {
                         EmptyStateView(
                             titleKey: "no_songs",
@@ -156,6 +166,43 @@ struct ArtistDetailView: View {
         }
         .frame(height: 260)
         .clipped()
+    }
+
+    private func inlineNavigationBar(onBack: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                selection.deactivate()
+                onBack()
+            } label: {
+                Label("tab_artists", systemImage: "chevron.left")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                    .padding(.horizontal, 11)
+                    .frame(height: 28)
+                    .background(PMColor.glassBtn, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("artistInlineBack")
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+                .accessibilityHidden(true)
+
+            Text(artist.name)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .lineLimit(1)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 48)
+        .background(PMColor.card, in: .rect(cornerRadius: PMRadius.m))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
     }
 
     private var macActionRow: some View {

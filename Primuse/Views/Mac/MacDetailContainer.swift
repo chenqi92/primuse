@@ -19,8 +19,14 @@ struct MacDetailContainer: View {
                 .transaction { transaction in
                     transaction.animation = nil
                 }
-                .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-                .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+                .navigationDestination(for: Album.self) { album in
+                    AlbumDetailView(album: album, onMacInlineBack: popDetail)
+                        .navigationBarBackButtonHidden(true)
+                }
+                .navigationDestination(for: Artist.self) { artist in
+                    ArtistDetailView(artist: artist, onMacInlineBack: popDetail)
+                        .navigationBarBackButtonHidden(true)
+                }
                 .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
                 // 隐藏 NavigationStack 顶部的原生 toolbar 区域 — 我们用 PMTitleBar
                 // 自定义了全局 titlebar, 子视图里的 .toolbar/.searchable 不应再
@@ -50,10 +56,18 @@ struct MacDetailContainer: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
             guard let album = note.object as? Album else { return }
+            if case .section(.albums) = route {
+                clearDetailPath()
+                return
+            }
             pushAlbum(album)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
             guard let artist = note.object as? Artist else { return }
+            if case .section(.artists) = route {
+                clearDetailPath()
+                return
+            }
             pushArtist(artist)
         }
     }
@@ -123,6 +137,20 @@ struct MacDetailContainer: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             path.append(artist)
+        }
+    }
+
+    private func popDetail() {
+        guard !path.isEmpty else { return }
+        path.removeLast()
+    }
+
+    private func clearDetailPath() {
+        guard !path.isEmpty else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            path = NavigationPath()
         }
     }
 }

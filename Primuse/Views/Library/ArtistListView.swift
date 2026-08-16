@@ -14,6 +14,12 @@ struct ArtistListView: View {
     var body: some View {
         #if os(macOS)
         macBody
+            .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
+                guard let artist = note.object as? Artist,
+                      artists.contains(where: { $0.id == artist.id }) else { return }
+                searchText = ""
+                selectedArtistID = artist.id
+            }
         #else
         iosBody
         #endif

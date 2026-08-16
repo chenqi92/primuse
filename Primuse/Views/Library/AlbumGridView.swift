@@ -19,6 +19,12 @@ struct AlbumGridView: View {
         } else {
             #if os(macOS)
             macGrid
+                .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
+                    guard let album = note.object as? Album,
+                          library.visibleAlbums.contains(where: { $0.id == album.id }) else { return }
+                    albumFilter = ""
+                    openAlbum(album)
+                }
             #else
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 20) {
