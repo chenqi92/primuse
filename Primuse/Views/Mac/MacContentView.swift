@@ -58,15 +58,6 @@ struct MacContentView: View {
                 if !sidebarCollapsed {
                     MacSidebar(selection: $selection, onOpenTool: { activeTool = $0 })
                         .frame(width: preferences.sidebarWidth)
-                        // 拖拽改宽的命中区直接盖在侧栏与正文的原有边界上 (overlay 不占
-                        // 布局宽度), 不再额外画一条分割线。
-                        .overlay(alignment: .trailing) {
-                            SidebarResizeHandle(preferences: preferences)
-                                .frame(width: 10)
-                                .frame(maxHeight: .infinity)
-                                // 右移半个宽度让命中区跨在侧栏与正文的边界上。
-                                .offset(x: 5)
-                        }
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
@@ -100,6 +91,16 @@ struct MacContentView: View {
                     })
                     .frame(width: 380)
                     .transition(.move(edge: .trailing))
+                }
+            }
+            // 手柄放在整个 HStack 的顶层 overlay,保证跨进正文的右半边不会被
+            // MacDetailContainer 里的 NSScrollView / NSClipView 抢走鼠标事件。
+            .overlay(alignment: .leading) {
+                if !sidebarCollapsed {
+                    SidebarResizeHandle(preferences: preferences)
+                        .frame(width: 10)
+                        .frame(maxHeight: .infinity)
+                        .offset(x: preferences.sidebarWidth - 5)
                 }
             }
             // BottomBar 用 safeAreaInset 挂在内容 HStack 底部, 而不是当 VStack 的
