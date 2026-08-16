@@ -917,6 +917,10 @@ struct PrimuseApp: App {
                     .automaticAppReviewPrompt()
                 #endif
             }
+                // Keep one scene-level presenter alive on every platform so
+                // background scans and playback never wait for a sheet-local
+                // certificate prompt that has already disappeared.
+                .transportTrustAlerts()
                 .task {
                     // Background-poll the App Store. Throttled internally
                     // to once per day, so calling on every scene-active is

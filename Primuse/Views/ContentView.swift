@@ -336,10 +336,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             showNowPlaying = true
         }
-        // One active presenter owns the app-wide transport trust queue. Sheets
-        // register a nearer presenter while visible, so the same request can
-        // never create alert controllers in both hierarchies.
-        .transportTrustAlerts()
         // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
         .alert(
             String(localized: "cellular_backfill_title"),

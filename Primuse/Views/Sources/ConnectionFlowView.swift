@@ -25,6 +25,7 @@ struct ConnectionFlowView: View {
     @State private var activeSynologySource: MusicSource?
     @State private var activeSynologyCandidateKind: SourceConnectionCandidateKind?
     @State private var rootItems: [SynologyAPI.FileItem] = []
+    @State private var connectionTask: Task<Void, Never>?
     @FocusState private var otpFocused: Bool
     @FocusState private var passwordFocused: Bool
 
@@ -46,6 +47,10 @@ struct ConnectionFlowView: View {
         }
         .interactiveDismissDisabled(step == .connecting)
         .onAppear { startConnection() }
+        .onDisappear {
+            connectionTask?.cancel()
+            connectionTask = nil
+        }
         .transportTrustAlerts()
     }
 
@@ -285,7 +290,8 @@ struct ConnectionFlowView: View {
         plog("🔐 Synology credential replacement validation started source=\(source.id.prefix(8))…")
         errorMessage = ""
         step = .connecting
-        Task {
+        connectionTask?.cancel()
+        connectionTask = Task { @MainActor in
             await connectSynology(otpCode: nil, overridePassword: pwd)
         }
     }
@@ -319,7 +325,8 @@ struct ConnectionFlowView: View {
         activeSynologySource = nil
         activeSynologyCandidateKind = nil
         rememberDevice = source.rememberDevice
-        Task {
+        connectionTask?.cancel()
+        connectionTask = Task { @MainActor in
             switch source.type {
             case .synology: await connectSynology(otpCode: nil)
             default: withAnimation { step = .browsing }
@@ -333,6 +340,7 @@ struct ConnectionFlowView: View {
         candidate explicitCandidate: SourceConnectionCandidate? = nil,
         attemptedKinds: Set<SourceConnectionCandidateKind> = []
     ) async {
+        guard !Task.isCancelled else { return }
         let candidate: SourceConnectionCandidate?
         if let explicitCandidate {
             candidate = explicitCandidate
@@ -371,6 +379,7 @@ struct ConnectionFlowView: View {
         do {
             baseURL = try await api.resolveBaseURL()
         } catch {
+            guard !Task.isCancelled else { return }
             await handleSynologyRouteFailure(
                 error,
                 candidate: candidate,
@@ -385,6 +394,7 @@ struct ConnectionFlowView: View {
            let trustTarget = TrustedHTTPTransport.trustTarget(for: baseURL),
            !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) {
             let approved = await promptInsecureHTTPTrust(host: trustTarget)
+            guard !Task.isCancelled else { return }
             guard approved else {
                 pendingPasswordCandidate = nil
                 errorMessage = String(
@@ -430,10 +440,12 @@ struct ConnectionFlowView: View {
             deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil,
             deviceId: rememberDevice ? source.deviceId : nil
         )
+        guard !Task.isCancelled else { return }
 
         if result.success {
             do {
                 let shares = try await api.listSharedFolders()
+                guard !Task.isCancelled else { return }
 
                 if let validatedPassword = NetworkCredentialPolicy.validatedReplacement(
                     candidate: overridePassword,
@@ -465,8 +477,10 @@ struct ConnectionFlowView: View {
                 }
                 withAnimation { step = .browsing }
             } catch {
+                guard !Task.isCancelled else { return }
                 if let domain = SSLTrustStore.sslErrorDomain(from: error) {
                     let trusted = await promptSSLTrust(domain: domain)
+                    guard !Task.isCancelled else { return }
                     if trusted {
                         await connectSynology(
                             otpCode: otpCode,
@@ -500,6 +514,7 @@ struct ConnectionFlowView: View {
             if let error = result.underlyingError,
                let domain = SSLTrustStore.sslErrorDomain(from: error) {
                 let trusted = await promptSSLTrust(domain: domain)
+                guard !Task.isCancelled else { return }
                 if trusted {
                     await connectSynology(
                         otpCode: otpCode,
@@ -548,6 +563,7 @@ struct ConnectionFlowView: View {
         otpCode: String?,
         overridePassword: String?
     ) async {
+        guard !Task.isCancelled else { return }
         guard let candidate, source.connectionConfiguration != nil else {
             pendingPasswordCandidate = nil
             errorMessage = error.localizedDescription
@@ -578,7 +594,10 @@ struct ConnectionFlowView: View {
         errorMessage = ""
         step = .connecting
         let candidate = pendingPasswordCandidate
-        Task { await connectSynology(otpCode: otpCode, overridePassword: candidate) }
+        connectionTask?.cancel()
+        connectionTask = Task { @MainActor in
+            await connectSynology(otpCode: otpCode, overridePassword: candidate)
+        }
     }
 }
 

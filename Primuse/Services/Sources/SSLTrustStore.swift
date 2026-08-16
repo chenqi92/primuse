@@ -143,18 +143,23 @@ final class SSLTrustStore {
         let trustedAt: Date
     }
 
-    struct TrustRequest: Identifiable {
+    private struct TrustWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private struct TrustRequest: Identifiable {
         let id = UUID()
         let domain: String
         let certificateInfo: TrustedCertificateInfo?
         // 同一 domain 的并发请求合并到一次用户决策,共享同一个结果。
-        var continuations: [CheckedContinuation<Bool, Never>]
+        var waiters: [TrustWaiter]
     }
 
-    struct InsecureHTTPTrustRequest: Identifiable {
+    private struct InsecureHTTPTrustRequest: Identifiable {
         let id = UUID()
         let endpoint: String
-        var continuations: [CheckedContinuation<Bool, Never>]
+        var waiters: [TrustWaiter]
     }
 
     enum TransportPrompt: Identifiable {
@@ -169,7 +174,7 @@ final class SSLTrustStore {
     }
 
     /// 当前正在向用户征询的请求 (UI 的 `.sslTrustAlert` 绑定它)。
-    private(set) var pendingTrustRequest: TrustRequest?
+    private var pendingTrustRequest: TrustRequest?
 
     /// 等待中的请求队列,逐个弹出向用户征询。每个不同 domain 一条。
     private var waitingTrustRequests: [TrustRequest] = []
@@ -177,7 +182,7 @@ final class SSLTrustStore {
     /// Dynamic routes such as FN Connect can reveal their public HTTP endpoint
     /// only after discovery. They use this global queue so the same explicit
     /// warning still applies before the first cleartext request is sent.
-    private(set) var pendingInsecureHTTPTrustRequest: InsecureHTTPTrustRequest?
+    private var pendingInsecureHTTPTrustRequest: InsecureHTTPTrustRequest?
     private var waitingInsecureHTTPTrustRequests: [InsecureHTTPTrustRequest] = []
 
     private static let defaultDomains: [String] = []
@@ -308,26 +313,38 @@ final class SSLTrustStore {
         guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return false }
         if allowsInsecureHTTP(domain: normalized) { return true }
 
-        return await withCheckedContinuation { continuation in
-            if pendingInsecureHTTPTrustRequest?.endpoint == normalized {
-                pendingInsecureHTTPTrustRequest?.continuations.append(continuation)
-                return
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                let waiter = TrustWaiter(id: waiterID, continuation: continuation)
+                if pendingInsecureHTTPTrustRequest?.endpoint == normalized {
+                    pendingInsecureHTTPTrustRequest?.waiters.append(waiter)
+                    return
+                }
+                if let index = waitingInsecureHTTPTrustRequests.firstIndex(where: {
+                    $0.endpoint == normalized
+                }) {
+                    waitingInsecureHTTPTrustRequests[index].waiters.append(waiter)
+                    return
+                }
+                let request = InsecureHTTPTrustRequest(
+                    endpoint: normalized,
+                    waiters: [waiter]
+                )
+                if pendingInsecureHTTPTrustRequest == nil {
+                    pendingInsecureHTTPTrustRequest = request
+                    AppAlertCoordinator.shared.enqueue(.transport(request.id))
+                } else {
+                    waitingInsecureHTTPTrustRequests.append(request)
+                }
             }
-            if let index = waitingInsecureHTTPTrustRequests.firstIndex(where: {
-                $0.endpoint == normalized
-            }) {
-                waitingInsecureHTTPTrustRequests[index].continuations.append(continuation)
-                return
-            }
-            let request = InsecureHTTPTrustRequest(
-                endpoint: normalized,
-                continuations: [continuation]
-            )
-            if pendingInsecureHTTPTrustRequest == nil {
-                pendingInsecureHTTPTrustRequest = request
-                AppAlertCoordinator.shared.enqueue(.transport(request.id))
-            } else {
-                waitingInsecureHTTPTrustRequests.append(request)
+        } onCancel: {
+            Task { @MainActor in
+                SSLTrustStore.shared.cancelInsecureHTTPWaiter(id: waiterID)
             }
         }
     }
@@ -345,9 +362,41 @@ final class SSLTrustStore {
         if let nextRequest {
             AppAlertCoordinator.shared.enqueue(.transport(nextRequest.id))
         }
-        for continuation in request.continuations {
-            continuation.resume(returning: approved)
+        for waiter in request.waiters {
+            waiter.continuation.resume(returning: approved)
         }
+    }
+
+    private func cancelInsecureHTTPWaiter(id: UUID) {
+        if var request = pendingInsecureHTTPTrustRequest,
+           let waiterIndex = request.waiters.firstIndex(where: { $0.id == id }) {
+            let waiter = request.waiters.remove(at: waiterIndex)
+            if request.waiters.isEmpty {
+                let nextRequest = waitingInsecureHTTPTrustRequests.isEmpty
+                    ? nil
+                    : waitingInsecureHTTPTrustRequests.removeFirst()
+                pendingInsecureHTTPTrustRequest = nextRequest
+                AppAlertCoordinator.shared.cancel(.transport(request.id))
+                if let nextRequest {
+                    AppAlertCoordinator.shared.enqueue(.transport(nextRequest.id))
+                }
+            } else {
+                pendingInsecureHTTPTrustRequest = request
+            }
+            waiter.continuation.resume(returning: false)
+            return
+        }
+
+        guard let requestIndex = waitingInsecureHTTPTrustRequests.firstIndex(where: {
+            $0.waiters.contains(where: { $0.id == id })
+        }), let waiterIndex = waitingInsecureHTTPTrustRequests[requestIndex].waiters.firstIndex(where: {
+            $0.id == id
+        }) else { return }
+        let waiter = waitingInsecureHTTPTrustRequests[requestIndex].waiters.remove(at: waiterIndex)
+        if waitingInsecureHTTPTrustRequests[requestIndex].waiters.isEmpty {
+            waitingInsecureHTTPTrustRequests.remove(at: requestIndex)
+        }
+        waiter.continuation.resume(returning: false)
     }
 
     func certificateInfo(for domain: String) -> TrustedCertificateInfo? {
@@ -402,31 +451,10 @@ final class SSLTrustStore {
         // Already trusted — no need to ask
         if isTrusted(domain: normalized) { return true }
 
-        return await withCheckedContinuation { continuation in
-            // 同一 domain 已在征询 (无论是当前请求还是排队中的),合并到那次决策,
-            // 共享同一个用户选择,避免重复弹窗,也避免覆盖丢失旧 continuation。
-            if pendingTrustRequest?.domain == normalized {
-                pendingTrustRequest?.continuations.append(continuation)
-                return
-            }
-            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == normalized }) {
-                waitingTrustRequests[index].continuations.append(continuation)
-                return
-            }
-            let request = TrustRequest(
-                domain: normalized,
-                certificateInfo: certificateInfo,
-                continuations: [continuation]
-            )
-            if pendingTrustRequest == nil {
-                // 没有正在征询的请求,直接展示。
-                pendingTrustRequest = request
-                AppAlertCoordinator.shared.enqueue(.transport(request.id))
-            } else {
-                // 已有不同 domain 在征询,排队等待,不覆盖。
-                waitingTrustRequests.append(request)
-            }
-        }
+        return await waitForTrustDecision(
+            domain: normalized,
+            certificateInfo: certificateInfo
+        )
     }
 
     /// Record the leaf-certificate fingerprint for an already-trusted domain on first contact (TOFU).
@@ -454,26 +482,48 @@ final class SSLTrustStore {
     func requestTrustForChangedCertificate(domain: String, certificateInfo: TrustedCertificateInfo?) async -> Bool {
         let normalized = Self.normalizeDomain(domain)
         guard !normalized.isEmpty else { return false }
-        return await withCheckedContinuation { continuation in
-            // 同一 domain 已在征询 (无论当前还是排队中),合并到那次决策,共享同一个用户选择。
-            if pendingTrustRequest?.domain == normalized {
-                pendingTrustRequest?.continuations.append(continuation)
-                return
+        return await waitForTrustDecision(
+            domain: normalized,
+            certificateInfo: certificateInfo
+        )
+    }
+
+    private func waitForTrustDecision(
+        domain: String,
+        certificateInfo: TrustedCertificateInfo?
+    ) async -> Bool {
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                let waiter = TrustWaiter(id: waiterID, continuation: continuation)
+                // 同一 domain 的并发请求共享一次决策，但各自保留可取消的 waiter。
+                if pendingTrustRequest?.domain == domain {
+                    pendingTrustRequest?.waiters.append(waiter)
+                    return
+                }
+                if let index = waitingTrustRequests.firstIndex(where: { $0.domain == domain }) {
+                    waitingTrustRequests[index].waiters.append(waiter)
+                    return
+                }
+                let request = TrustRequest(
+                    domain: domain,
+                    certificateInfo: certificateInfo,
+                    waiters: [waiter]
+                )
+                if pendingTrustRequest == nil {
+                    pendingTrustRequest = request
+                    AppAlertCoordinator.shared.enqueue(.transport(request.id))
+                } else {
+                    waitingTrustRequests.append(request)
+                }
             }
-            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == normalized }) {
-                waitingTrustRequests[index].continuations.append(continuation)
-                return
-            }
-            let request = TrustRequest(
-                domain: normalized,
-                certificateInfo: certificateInfo,
-                continuations: [continuation]
-            )
-            if pendingTrustRequest == nil {
-                pendingTrustRequest = request
-                AppAlertCoordinator.shared.enqueue(.transport(request.id))
-            } else {
-                waitingTrustRequests.append(request)
+        } onCancel: {
+            Task { @MainActor in
+                SSLTrustStore.shared.cancelTrustWaiter(id: waiterID)
             }
         }
     }
@@ -490,9 +540,39 @@ final class SSLTrustStore {
         if let nextRequest {
             AppAlertCoordinator.shared.enqueue(.transport(nextRequest.id))
         }
-        for continuation in request.continuations {
-            continuation.resume(returning: approved)
+        for waiter in request.waiters {
+            waiter.continuation.resume(returning: approved)
         }
+    }
+
+    private func cancelTrustWaiter(id: UUID) {
+        if var request = pendingTrustRequest,
+           let waiterIndex = request.waiters.firstIndex(where: { $0.id == id }) {
+            let waiter = request.waiters.remove(at: waiterIndex)
+            if request.waiters.isEmpty {
+                let nextRequest = waitingTrustRequests.isEmpty ? nil : waitingTrustRequests.removeFirst()
+                pendingTrustRequest = nextRequest
+                AppAlertCoordinator.shared.cancel(.transport(request.id))
+                if let nextRequest {
+                    AppAlertCoordinator.shared.enqueue(.transport(nextRequest.id))
+                }
+            } else {
+                pendingTrustRequest = request
+            }
+            waiter.continuation.resume(returning: false)
+            return
+        }
+
+        guard let requestIndex = waitingTrustRequests.firstIndex(where: {
+            $0.waiters.contains(where: { $0.id == id })
+        }), let waiterIndex = waitingTrustRequests[requestIndex].waiters.firstIndex(where: {
+            $0.id == id
+        }) else { return }
+        let waiter = waitingTrustRequests[requestIndex].waiters.remove(at: waiterIndex)
+        if waitingTrustRequests[requestIndex].waiters.isEmpty {
+            waitingTrustRequests.remove(at: requestIndex)
+        }
+        waiter.continuation.resume(returning: false)
     }
 
     func transportPrompt(id: UUID) -> TransportPrompt? {
@@ -845,16 +925,28 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     /// the URLSession delegate returns `.useCredential`.
     private func explicitlyTrustedCredential(for trust: SecTrust) -> URLCredential? {
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
-              let leaf = chain.first,
+              let leaf = chain.first else {
+            return nil
+        }
+
+        // The caller has already scoped the decision to the exact
+        // scheme/host/port and verified (or just recorded) this leaf's SHA256
+        // fingerprint. Re-evaluate it as a server certificate without a DNS
+        // name requirement so a NAS reached by LAN IP can use the same
+        // certificate as its public hostname. The endpoint pin still prevents
+        // another certificate on that IP from being accepted silently.
+        let endpointPinnedSSLPolicy = SecPolicyCreateSSL(true, nil)
+        guard SecTrustSetPolicies(trust, endpointPinnedSSLPolicy) == errSecSuccess,
               SecTrustSetAnchorCertificates(trust, [leaf] as CFArray) == errSecSuccess,
               SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess else {
             return nil
         }
 
-        // Pinning authorizes this leaf only as a private trust anchor. Hostname,
-        // validity period, key usage, and the remaining system policy checks
-        // must still pass; a user decision never installs broad exceptions.
-        guard SecTrustEvaluateWithError(trust, nil) else {
+        var trustError: CFError?
+        guard SecTrustEvaluateWithError(trust, &trustError) else {
+            if let trustError {
+                plog("Pinned certificate failed endpoint-scoped SSL evaluation: \(trustError)")
+            }
             return nil
         }
         return URLCredential(trust: trust)
