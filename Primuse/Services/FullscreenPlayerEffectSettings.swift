@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 import SwiftUI
 
 /// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
@@ -39,13 +40,13 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .native:
-            String(localized: "fullscreen_effect_collection_native", defaultValue: "原生效果")
+            PMString("fullscreen_effect_collection_native")
         case .coverReactive:
-            String(localized: "fullscreen_effect_collection_cover_reactive", defaultValue: "封面驱动")
+            PMString("fullscreen_effect_collection_cover_reactive")
         case .sceneMotion:
-            String(localized: "fullscreen_effect_collection_scene_motion", defaultValue: "动态场景")
+            PMString("fullscreen_effect_collection_scene_motion")
         case .audioReactive:
-            String(localized: "fullscreen_effect_collection_audio_reactive", defaultValue: "声音响应")
+            PMString("fullscreen_effect_collection_audio_reactive")
         }
     }
 
@@ -169,59 +170,16 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     private var subtitleLocalizationKey: String { "\(titleLocalizationKey)_subtitle" }
     private var motionLocalizationKey: String { "\(titleLocalizationKey)_motion" }
 
-    var titleKey: LocalizedStringKey { LocalizedStringKey(titleLocalizationKey) }
-    var subtitleKey: LocalizedStringKey { LocalizedStringKey(subtitleLocalizationKey) }
-
-    var fallbackTitle: String {
-        switch self {
-        case .native: "原生 Native"
-        case .coverFlow: "封面流光 Cover Flow"
-        case .coverGallery: "流动封面墙 Cover Gallery"
-        case .starryNight: "星夜 Starry Night"
-        case .flowingLines: "流动声纹 Flowing Lines"
-        case .lightRhythm: "光影呼吸 Light Rhythm"
-        case .kineticTitle: "曲名展墙 Title Wall"
-        case .radialPulse: "环形声谱 Radial Pulse"
-        case .liveWaveform: "实时波形 Live Waveform"
-        }
-    }
-
     var localizedTitle: String {
-        Bundle.main.localizedString(forKey: titleLocalizationKey, value: fallbackTitle, table: nil)
-    }
-
-    var fallbackSubtitle: String {
-        switch self {
-        case .native: "保留系统原生全屏切换与播放布局"
-        case .coverFlow: "从当前封面提取颜色，生成会呼吸的整屏光场"
-        case .coverGallery: "当前封面居前，资料库封面在背景缓慢流动"
-        case .starryNight: "封面色星空持续漂移，只显示最新一句歌词"
-        case .flowingLines: "动态线条围绕封面变化，右上展示前后歌词"
-        case .lightRhythm: "封面色光影缓慢韵动，规格下展示当前歌词"
-        case .kineticTitle: "播放队列曲名以空心字堆叠，当前曲目实心显示，歌词横穿画面"
-        case .radialPulse: "旋转唱片外圈跟随实际声音起伏"
-        case .liveWaveform: "横向频谱按实际播放音频实时变化"
-        }
+        PMString(titleLocalizationKey)
     }
 
     var localizedSubtitle: String {
-        Bundle.main.localizedString(forKey: subtitleLocalizationKey, value: fallbackSubtitle, table: nil)
+        PMString(subtitleLocalizationKey)
     }
 
     var motionDescription: String {
-        let fallback: String
-        switch self {
-        case .native: fallback = "系统原生转场 · 默认"
-        case .coverFlow: fallback = "真实封面取色 · 光场缓慢漂移"
-        case .coverGallery: fallback = "资料库真实封面 · 分层错速移动"
-        case .starryNight: fallback = "星点生成、漂移与闪烁 · 封面色渲染"
-        case .flowingLines: fallback = "线条轨迹持续演化 · 三句歌词"
-        case .lightRhythm: fallback = "多层封面色光影 · 低频呼吸"
-        case .kineticTitle: fallback = "多行曲名缓慢错位 · 当前歌词横向巡游"
-        case .radialPulse: fallback = "实时频谱驱动 · 唱片随播放旋转"
-        case .liveWaveform: fallback = "实时频谱驱动 · 无音频时保持静止"
-        }
-        return Bundle.main.localizedString(forKey: motionLocalizationKey, value: fallback, table: nil)
+        PMString(motionLocalizationKey)
     }
 
     var symbolName: String {
@@ -237,8 +195,6 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .liveWaveform: "waveform"
         }
     }
-
-    var tvTitle: String { fallbackTitle }
 }
 
 enum ImmersiveLyricsMotionSettings {

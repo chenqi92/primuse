@@ -12,10 +12,15 @@
 "library_display_settings_title" = "ライブラリ表示";
 "library_edit_quick_access" = "クイックアクセスを編集";
 "library_add_quick_access" = "ショートカットを追加";
-"library_quick_access_limit" = "最大5件のショートカットを追加できます";
+"library_quick_access_count" = "クイックアクセスの数";
+"library_quick_access_count_description" = "ライブラリとホームに表示するクイックアクセスの最大数を設定します。";
+"library_quick_access_limit_description" = "この上限は「設定 > 外観 > ライブラリ表示」で変更できます。";
 "library_quick_access_selected" = "選択済み";
 "library_quick_access_selected_empty" = "ショートカットが選択されていません";
 "library_quick_access_search_prompt" = "アルバム、アーティスト、プレイリストを検索";
+"library_sections_settings_label" = "ライブラリのカテゴリ";
+"library_sections_settings_footer" = "ドラッグして並べ替えます。オフにするとライブラリとサイドバーで非表示になります。";
+"library_sections_restore_default_order" = "デフォルトの順序に戻す";
 "playlists_count" = "件のプレイリスト";
 "search_title" = "検索";
 "settings_title" = "設定";

@@ -11,10 +11,15 @@
 "library_display_settings_title" = "Affichage de la bibliothèque";
 "library_edit_quick_access" = "Modifier les accès rapides";
 "library_add_quick_access" = "Ajouter un raccourci";
-"library_quick_access_limit" = "Ajoutez jusqu’à 5 raccourcis";
+"library_quick_access_count" = "Nombre d’accès rapides";
+"library_quick_access_count_description" = "Définissez le nombre maximal d’accès rapides affichés dans la bibliothèque et l’accueil.";
+"library_quick_access_limit_description" = "Réglez cette limite dans Réglages > Apparence > Affichage de la bibliothèque.";
 "library_quick_access_selected" = "Sélectionnés";
 "library_quick_access_selected_empty" = "Aucun raccourci sélectionné";
 "library_quick_access_search_prompt" = "Rechercher des albums, artistes ou playlists";
+"library_sections_settings_label" = "Catégories de la bibliothèque";
+"library_sections_settings_footer" = "Faites glisser pour réorganiser. Désactivez une catégorie pour la masquer dans la bibliothèque et la barre latérale.";
+"library_sections_restore_default_order" = "Rétablir l’ordre par défaut";
 "playlists_count" = "playlists";
 "search_title" = "Rechercher";
 "settings_title" = "Réglages";

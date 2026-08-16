@@ -149,6 +149,18 @@ HAN_LITERAL_ALLOWLIST = {
   "Primuse/Views/NowPlaying/NowPlayingView.swift" => [
     /"音箱"|"群晖"/
   ],
+  "Primuse/Views/NowPlaying/ImmersiveStageScenery.swift" => [
+    /"猿音"|"猿音 · PRIMUSE"|"PRIMUSE \/ 猿音"|音乐在此刻铺满整个空间|让声音拥有自己的光与形状|猿音，让聆听成为一场演出/
+  ],
+  "Primuse/Views/NowPlaying/ImmersivePlayerView.swift" => [
+    /"未知", "未知艺术家", "未知专辑"/
+  ],
+  "Primuse/Views/Mac/MacImmersivePlayerView.swift" => [
+    /"未知", "未知艺术家", "未知专辑"/
+  ],
+  "PrimuseTV/Views/TVImmersivePlayerView.swift" => [
+    /"未知", "未知标题", "未知艺术家", "未知专辑"/
+  ],
   "Primuse/Views/Sources/BrowserChrome.swift" => [
     /"网络"|"联网"|"连接"|"权限"|"不可达"|"超时"/
   ]

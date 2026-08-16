@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 import SwiftUI
 
 struct ImmersiveStageLyric: Identifiable, Equatable {
@@ -57,7 +58,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveGrain(opacity: 0.032)
         }
         .frame(width: metrics.size.width, height: metrics.size.height)
-        .background(ImmersiveStagePalette.obsidian)
+        .background(palette.secondary)
         .foregroundStyle(ImmersiveStagePalette.ink)
         .overlay(alignment: .bottom) {
             ImmersiveHairlinePlaybackProgress(
@@ -184,7 +185,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 artwork: galleryArtwork
             )
             LinearGradient(
-                colors: [ImmersiveStagePalette.obsidian.opacity(0.44), ImmersiveStagePalette.obsidian.opacity(0.90)],
+                colors: [palette.secondary.opacity(0.44), palette.secondary.opacity(0.90)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -224,7 +225,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private var galleryTrackBlock: some View {
         VStack(alignment: .leading, spacing: metrics.s(platform == .tvOS ? 18 : 9)) {
-            Text("正在播放 · \(track.source.isEmpty ? track.album : track.source)")
+            Text(verbatim: "\(PMString("ext.tv.nowPlaying.eyebrow")) · \(track.source.isEmpty ? track.album : track.source)")
                 .font(.system(size: metrics.s(platform == .tvOS ? 18 : 10), weight: .semibold, design: .monospaced))
                 .tracking(metrics.f(1.8))
                 .foregroundStyle(palette.primary.opacity(0.86))
@@ -247,7 +248,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 startRadius: 0,
                 endRadius: max(metrics.size.width, metrics.size.height) * 0.76
             )
-            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.25, strength: 0.64)
+            ImmersiveVignette(color: palette.secondary, clearStop: 0.25, strength: 0.64)
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(24)) {
@@ -285,7 +286,11 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private var flowingLinesScene: some View {
         ZStack {
-            ImmersiveStagePalette.obsidian
+            LinearGradient(
+                colors: [palette.secondary, ImmersiveStagePalette.obsidian.opacity(0.82)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
             ImmersiveFlowingContourField(palette: palette, isAnimating: sceneIsAnimating)
             ImmersiveVignette(color: .black, clearStop: 0.30, strength: 0.56)
 
@@ -395,8 +400,11 @@ struct ImmersiveStageView<Artwork: View>: View {
         let minimumRows = metrics.isPortrait ? 11 : (metrics.layout == .phoneLandscape ? 8 : 10)
 
         return ZStack {
-            ImmersiveStagePalette.obsidian
-            ImmersiveTypographyMotion(isAnimating: sceneIsAnimating && lyricsMotionEnabled)
+            palette.secondary
+            ImmersiveTypographyMotion(
+                isAnimating: sceneIsAnimating && lyricsMotionEnabled,
+                palette: palette
+            )
                 .opacity(0.52)
             RadialGradient(
                 colors: [palette.primary.opacity(0.16), .clear],
@@ -416,10 +424,10 @@ struct ImmersiveStageView<Artwork: View>: View {
 
             LinearGradient(
                 colors: [
-                    ImmersiveStagePalette.obsidian.opacity(0.58),
+                    palette.secondary.opacity(0.58),
                     .clear,
                     .clear,
-                    ImmersiveStagePalette.obsidian.opacity(0.70),
+                    palette.secondary.opacity(0.70),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -446,7 +454,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             metrics.size.width * (metrics.isPortrait ? 0.88 : 0.49)
         )
         return ZStack {
-            ImmersiveStagePalette.obsidian
+            palette.secondary
             RadialGradient(
                 colors: [palette.primary.opacity(0.38), .clear],
                 center: metrics.isPortrait ? .top : .leading,
@@ -500,7 +508,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var liveWaveformScene: some View {
         ZStack {
             ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, intensity: 0.50)
-            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.14, strength: 0.72)
+            ImmersiveVignette(color: palette.secondary, clearStop: 0.14, strength: 0.72)
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(22)) {
@@ -1107,7 +1115,7 @@ private struct ImmersivePlaylistTitleWall: View {
                             rowCount: 1,
                             solidRow: isCurrent ? 0 : -1,
                             lineWidth: max(0.75, rowFont * 0.012),
-                            tint: index.isMultiple(of: 3) ? tint : ImmersiveStagePalette.accent200,
+                            tint: tint,
                             outlineOpacity: 0.25 + Double(index % 4) * 0.035,
                             fillsSolidRow: isCurrent
                         )

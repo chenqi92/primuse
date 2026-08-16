@@ -1741,7 +1741,13 @@ struct NowPlayingView: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showsImmersiveEffectPicker, arrowEdge: .top) {
-            ImmersiveEffectPickerPanel(selected: fullscreenPlayerEffect) { candidate in
+            ImmersiveEffectPickerPanel(
+                selected: fullscreenPlayerEffect,
+                palette: ImmersiveArtworkPalette(
+                    primary: theme.accentColor,
+                    secondary: theme.darkAccent
+                )
+            ) { candidate in
                 showsImmersiveEffectPicker = false
                 fullscreenPlayerEffectBinding.wrappedValue = candidate
             }
@@ -3537,7 +3543,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
             Section {
                 Toggle(isOn: $lyricsMotionEnabled) {
-                    Label("沉浸文字动效", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    Label(
+                        String(localized: "immersive_lyrics_motion_title"),
+                        systemImage: "text.line.first.and.arrowtriangle.forward"
+                    )
                 }
 
                 Button(action: onShowSleepTimer) {

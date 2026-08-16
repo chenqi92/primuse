@@ -35,8 +35,14 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
 
     /// 顶级 4 项 + Library 下展开的 4 个子项,在 sidebar 里按分段渲染。
     static var topLevel: [SidebarItem] { [.home, .library, .search, .settings] }
-    static var libraryChildren: [SidebarItem] {
-        [.librarySongs, .libraryAlbums, .libraryArtists, .libraryPlaylists, .libraryRadio]
+    static func libraryChild(for section: LibrarySection) -> SidebarItem {
+        switch section {
+        case .songs: return .librarySongs
+        case .albums: return .libraryAlbums
+        case .artists: return .libraryArtists
+        case .playlists: return .libraryPlaylists
+        case .radio: return .libraryRadio
+        }
     }
 
     var titleKey: String.LocalizationValue {
@@ -104,8 +110,19 @@ struct ContentView: View {
     @State private var autoYearlyReport: YearlyReportData?
     /// 首启 onboarding —— @AppStorage 持久, 关掉后永久 true。
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
+    @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
+    private var librarySectionOrderRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
+    private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
+
+    private var librarySidebarItems: [SidebarItem] {
+        LibraryDisplayConfiguration.visibleSections(
+            orderRawValue: librarySectionOrderRawValue,
+            hiddenRawValue: hiddenLibrarySectionsRawValue
+        ).map(SidebarItem.libraryChild(for:))
+    }
 
     @ViewBuilder
     private var tabRoot: some View {
@@ -182,7 +199,7 @@ struct ContentView: View {
                     }
                 }
                 Section(String(localized: "library_title")) {
-                    ForEach(SidebarItem.libraryChildren) { item in
+                    ForEach(librarySidebarItems) { item in
                         Label(String(localized: item.titleKey), systemImage: item.icon)
                             .tag(item as SidebarItem?)
                     }

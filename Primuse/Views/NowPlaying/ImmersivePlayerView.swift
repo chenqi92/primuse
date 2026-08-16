@@ -90,6 +90,7 @@ struct ImmersivePlayerView: View {
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
+        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .opacity(hasEntered ? 1 : 0)
@@ -312,6 +313,7 @@ struct ImmersivePlayerView: View {
         .popover(isPresented: $showsEffectPicker, arrowEdge: .top) {
             ImmersiveEffectPickerPanel(
                 selected: effect,
+                palette: artworkPalette,
                 panelWidth: effectPickerWidth(metrics),
                 panelHeight: effectPickerHeight(metrics)
             ) { candidate in
@@ -424,11 +426,11 @@ struct ImmersivePlayerView: View {
                 Text(audioMetadata.uppercased())
                     .font(.system(size: metrics.s(8), weight: .medium, design: .monospaced))
                     .tracking(metrics.f(0.8))
-                    .foregroundStyle(ImmersiveStagePalette.accent200.opacity(0.92))
+                    .foregroundStyle(theme.onAccent.opacity(0.92))
                     .padding(.horizontal, metrics.s(10))
                     .padding(.vertical, metrics.s(6))
                     .background(
-                        ImmersiveStagePalette.accent600.opacity(0.46),
+                        artworkPalette.primary.opacity(0.58),
                         in: RoundedRectangle(cornerRadius: metrics.f(4), style: .continuous)
                     )
                 Spacer()
@@ -499,7 +501,7 @@ struct ImmersivePlayerView: View {
             HStack(spacing: metrics.s(18)) {
                 Image(systemName: "quote.closing")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(ImmersiveStagePalette.accent300.opacity(0.82))
+                    .foregroundStyle(artworkPalette.primary.opacity(0.82))
                 Spacer()
                 transportButton("backward.fill", size: 17, diameter: 38, label: "a11y_previous_track") {
                     Task { await player.previous() }
@@ -573,7 +575,7 @@ struct ImmersivePlayerView: View {
     }
 
     private func playPauseButton(diameter: CGFloat, outlined: Bool) -> some View {
-        let emphasis = ImmersiveStagePalette.accent300
+        let emphasis = artworkPalette.primary
         return Button {
             revealChrome()
             player.togglePlayPause()
@@ -602,7 +604,7 @@ struct ImmersivePlayerView: View {
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(active ? ImmersiveStagePalette.accent300 : pillInk.opacity(0.54))
+                .foregroundStyle(active ? artworkPalette.primary : pillInk.opacity(0.54))
                 .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
@@ -622,7 +624,7 @@ struct ImmersivePlayerView: View {
                 .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(target.titleKey))
+        .accessibilityLabel(Text(verbatim: target.localizedTitle))
     }
 
     private func queueButton(diameter: CGFloat) -> some View {
@@ -667,7 +669,7 @@ struct ImmersivePlayerView: View {
     }
 
     private var seekTint: Color {
-        presentationEffect.prefersLightContent ? ImmersiveStagePalette.accent700 : ImmersiveStagePalette.accent300
+        artworkPalette.primary
     }
 
     private var chromeInk: Color { pillInk }
@@ -675,11 +677,7 @@ struct ImmersivePlayerView: View {
     // MARK: - 数据
 
     private var artworkPalette: ImmersiveArtworkPalette {
-        if let songID = player.currentSong?.id,
-           let extracted = coverTintProvider.palette(forSongID: songID) {
-            return extracted
-        }
-        return ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.darkAccent)
+        ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.darkAccent)
     }
 
     private func refreshArtworkInputs() {

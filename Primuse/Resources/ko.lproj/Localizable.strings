@@ -11,10 +11,15 @@
 "library_display_settings_title" = "보관함 표시";
 "library_edit_quick_access" = "빠른 접근 편집";
 "library_add_quick_access" = "바로가기 추가";
-"library_quick_access_limit" = "바로가기를 최대 5개 추가할 수 있습니다";
+"library_quick_access_count" = "빠른 접근 개수";
+"library_quick_access_count_description" = "라이브러리와 홈에 표시할 빠른 접근 항목의 최대 개수를 설정합니다.";
+"library_quick_access_limit_description" = "설정 > 모양 > 보관함 표시에서 이 한도를 조정할 수 있습니다.";
 "library_quick_access_selected" = "선택됨";
 "library_quick_access_selected_empty" = "선택한 바로가기가 없습니다";
 "library_quick_access_search_prompt" = "앨범, 아티스트 또는 플레이리스트 검색";
+"library_sections_settings_label" = "라이브러리 카테고리";
+"library_sections_settings_footer" = "드래그하여 순서를 바꾸고, 끄면 라이브러리와 사이드바에서 숨깁니다.";
+"library_sections_restore_default_order" = "기본 순서 복원";
 "playlists_count" = "개의 플레이리스트";
 "search_title" = "검색";
 "settings_title" = "설정";

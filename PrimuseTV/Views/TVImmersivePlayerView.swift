@@ -48,6 +48,13 @@ struct TVImmersivePlayerView: View {
         return FullscreenPlayerEffect(rawValue: raw) ?? .coverFlow
     }
 
+    private var artworkPalette: ImmersiveArtworkPalette {
+        ImmersiveArtworkPalette(
+            primary: store.nowPlaying.tint,
+            secondary: store.nowPlaying.tint2
+        )
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let metrics = ImmersiveStageMetrics(size: geometry.size, prefersWide: true)
@@ -174,7 +181,7 @@ struct TVImmersivePlayerView: View {
             metrics: metrics,
             track: stageTrack,
             playbackTime: { store.currentTime },
-            palette: ImmersiveArtworkPalette(primary: np.tint, secondary: np.tint2),
+            palette: artworkPalette,
             lyricWindow: lyricWindow,
             currentLyric: currentLyric,
             nextLyric: nextLyric,
@@ -214,12 +221,12 @@ struct TVImmersivePlayerView: View {
         ) { side in
             if np.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ImmersiveArtworkFallback(
-                    palette: ImmersiveArtworkPalette(primary: np.tint, secondary: np.tint2)
+                    palette: artworkPalette
                 )
             } else {
                 ZStack {
                     ImmersiveArtworkFallback(
-                        palette: ImmersiveArtworkPalette(primary: np.tint, secondary: np.tint2)
+                        palette: artworkPalette
                     )
                     TVArtworkView(
                         coverKey: np.albumID,
@@ -302,7 +309,7 @@ struct TVImmersivePlayerView: View {
                 let fraction = store.duration > 0 ? min(1, max(0, store.currentTime / store.duration)) : 0
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.16)).frame(height: 5)
-                    Capsule().fill(ImmersiveStagePalette.accent300).frame(width: max(5, geometry.size.width * fraction), height: 5)
+                    Capsule().fill(artworkPalette.primary).frame(width: max(5, geometry.size.width * fraction), height: 5)
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
             }
@@ -377,12 +384,12 @@ struct TVImmersivePlayerView: View {
                     if surface == .tile {
                         RoundedRectangle(cornerRadius: radius)
                             .strokeBorder(
-                                primary ? ImmersiveStagePalette.accent200.opacity(0.76) : .white.opacity(0.24),
+                                primary ? artworkPalette.primary.opacity(0.76) : .white.opacity(0.24),
                                 lineWidth: primary ? 1.8 : 1
                             )
                     } else if surface == .outlined {
                         Circle()
-                            .strokeBorder(ImmersiveStagePalette.accent200.opacity(0.72), lineWidth: primary ? 2.4 : 1.2)
+                            .strokeBorder(artworkPalette.primary.opacity(0.72), lineWidth: primary ? 2.4 : 1.2)
                     }
                 }
                 .tvFocusRing(focused, radius: radius, accent: .white, scale: 1.10, lift: 7)
@@ -407,10 +414,10 @@ struct TVImmersivePlayerView: View {
                     } label: {
                         HStack(spacing: metrics.s(12)) {
                             Image(systemName: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle")
-                            Text("歌词过渡")
+                            Text(PMString("immersive_lyrics_motion_title"))
                         }
                         .font(.system(size: metrics.s(18), weight: .medium))
-                        .foregroundStyle(lyricsMotionEnabled ? ImmersiveStagePalette.accent200 : .white.opacity(0.72))
+                        .foregroundStyle(lyricsMotionEnabled ? artworkPalette.primary : .white.opacity(0.72))
                         .padding(.horizontal, metrics.s(22))
                         .frame(height: metrics.s(54))
                         .background(.white.opacity(toggleFocused ? 0.18 : 0.08), in: Capsule())
@@ -452,29 +459,29 @@ struct TVImmersivePlayerView: View {
                                                     .font(.system(size: metrics.s(24), weight: .semibold))
                                                     .frame(width: metrics.s(42))
                                                 VStack(alignment: .leading, spacing: metrics.s(4)) {
-                                                    Text(candidate.tvTitle)
+                                                    Text(candidate.localizedTitle)
                                                         .font(.system(size: metrics.s(17), weight: .semibold))
                                                         .lineLimit(1)
                                                         .minimumScaleFactor(0.78)
-                                                    Text(candidate.fallbackSubtitle)
+                                                    Text(candidate.localizedSubtitle)
                                                         .font(.system(size: metrics.s(12)))
                                                         .foregroundStyle(.white.opacity(0.58))
                                                         .lineLimit(2)
                                                     Label(candidate.motionDescription, systemImage: "waveform.path")
                                                         .font(.system(size: metrics.s(11)))
-                                                        .foregroundStyle(ImmersiveStagePalette.accent200.opacity(0.82))
+                                                        .foregroundStyle(artworkPalette.primary.opacity(0.82))
                                                         .lineLimit(2)
                                                 }
                                                 Spacer(minLength: 0)
                                             }
-                                            .foregroundStyle(selected ? ImmersiveStagePalette.accent200 : .white.opacity(0.88))
+                                            .foregroundStyle(selected ? artworkPalette.primary : .white.opacity(0.88))
                                             .padding(metrics.s(16))
                                             .frame(maxWidth: .infinity, minHeight: metrics.s(124), alignment: .topLeading)
                                             .background(.white.opacity(focused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 8))
                                             .overlay {
                                                 RoundedRectangle(cornerRadius: 8)
                                                     .strokeBorder(
-                                                        selected ? ImmersiveStagePalette.accent300 : .white.opacity(0.20),
+                                                        selected ? artworkPalette.primary : .white.opacity(0.20),
                                                         lineWidth: selected ? 2 : 1
                                                     )
                                             }
@@ -515,7 +522,7 @@ struct TVImmersivePlayerView: View {
             elapsed: 0,
             duration: store.duration,
             source: "Primuse TV",
-            queueSummary: "\(store.queueUpNextIDs.count + 1) 首"
+            queueSummary: PMString("ext.tv.songsCount", store.queueUpNextIDs.count + 1)
         )
     }
 

@@ -89,6 +89,7 @@ struct TVOptionsView: View {
 }
 
 struct TVFullscreenEffectPicker: View {
+    @Environment(TVStore.self) private var store
     @Binding var selectedRawValue: String
     @Binding var lyricsMotionEnabled: Bool
     let onDismiss: () -> Void
@@ -98,6 +99,13 @@ struct TVFullscreenEffectPicker: View {
 
     private var selectedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
+    }
+
+    private var previewPalette: ImmersiveArtworkPalette {
+        ImmersiveArtworkPalette(
+            primary: store.nowPlaying.tint,
+            secondary: store.nowPlaying.tint2
+        )
     }
 
     var body: some View {
@@ -112,22 +120,22 @@ struct TVFullscreenEffectPicker: View {
                             Text(PMString("ext.tv.settings.immersive"))
                                 .font(.system(size: 38, weight: .bold))
                                 .foregroundStyle(TVColor.text)
-                            Text("原生效果保持默认，另有 8 类动态场景可选")
-                                .font(.system(size: 17))
-                                .foregroundStyle(TVColor.textMuted)
                         }
                         Spacer()
                         Button {
                             lyricsMotionEnabled.toggle()
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Label("沉浸文字动效", systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle")
+                                Label(
+                                    PMString("immersive_lyrics_motion_title"),
+                                    systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle"
+                                )
                                     .font(.system(size: 19, weight: .semibold))
-                                Text("控制曲名墙的缓慢漂移和歌词横向巡游；关闭后文字保持静态")
+                                Text(PMString("immersive_lyrics_motion_subtitle"))
                                     .font(.system(size: 13))
                                     .foregroundStyle(.white.opacity(0.58))
                             }
-                            .foregroundStyle(lyricsMotionEnabled ? ImmersiveStagePalette.accent200 : .white.opacity(0.82))
+                            .foregroundStyle(lyricsMotionEnabled ? previewPalette.primary : .white.opacity(0.82))
                             .padding(.horizontal, 22)
                             .padding(.vertical, 13)
                             .background(.white.opacity(lyricsToggleFocused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
@@ -175,33 +183,44 @@ struct TVFullscreenEffectPicker: View {
             FullscreenPlayerEffectSync.shared.select(candidate)
             onDismiss()
         } label: {
-            HStack(alignment: .top, spacing: 13) {
-                Image(systemName: candidate.symbolName)
-                    .font(.system(size: 24, weight: .bold))
-                    .frame(width: 42)
+            VStack(alignment: .leading, spacing: 11) {
+                ImmersiveEffectPreview(
+                    effect: candidate,
+                    isActive: focused || selected,
+                    palette: previewPalette
+                )
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(selected ? previewPalette.primary : .white.opacity(0.56))
+                        .symbolRenderingMode(.hierarchical)
+                        .padding(10)
+                }
+
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(candidate.tvTitle)
+                    Text(candidate.localizedTitle)
                         .font(.system(size: 18, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
-                    Text(candidate.fallbackSubtitle)
+                    Text(candidate.localizedSubtitle)
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.58))
                         .lineLimit(2)
                     Label(candidate.motionDescription, systemImage: "waveform.path")
                         .font(.system(size: 12))
-                        .foregroundStyle(ImmersiveStagePalette.accent200.opacity(0.84))
-                        .lineLimit(2)
+                        .foregroundStyle(previewPalette.primary.opacity(0.84))
+                        .lineLimit(1)
                 }
-                Spacer(minLength: 0)
             }
-            .foregroundStyle(selected ? ImmersiveStagePalette.accent200 : TVColor.text)
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .foregroundStyle(selected ? previewPalette.primary : TVColor.text)
+            .padding(11)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(.white.opacity(focused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
             .overlay {
                 RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(selected ? ImmersiveStagePalette.accent300 : .white.opacity(0.20), lineWidth: selected ? 2 : 1)
+                    .strokeBorder(selected ? previewPalette.primary : .white.opacity(0.20), lineWidth: selected ? 2 : 1)
             }
             .tvFocusRing(focused, radius: 14, accent: .white, scale: 1.04, lift: 6)
         }

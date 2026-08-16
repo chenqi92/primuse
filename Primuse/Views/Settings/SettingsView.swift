@@ -250,6 +250,20 @@ struct SettingsView: View {
 private struct LibraryDisplaySettingsView: View {
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
+    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
+    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
+    @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
+    private var sectionOrderRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
+    private var hiddenSectionsRawValue = ""
+
+    private var quickAccessLimit: Int {
+        LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
+    }
+
+    private var sectionOrder: [LibrarySection] {
+        LibraryDisplayConfiguration.decodeSectionOrder(sectionOrderRawValue)
+    }
 
     private var defaultFlatBrowseBinding: Binding<Bool> {
         Binding(
@@ -264,18 +278,102 @@ private struct LibraryDisplaySettingsView: View {
         )
     }
 
+    private var quickAccessLimitBinding: Binding<Double> {
+        Binding(
+            get: { Double(quickAccessLimit) },
+            set: { configuredQuickAccessLimit = Int($0.rounded()) }
+        )
+    }
+
     var body: some View {
         Form {
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label("library_quick_access_count", systemImage: "pin")
+                        Spacer()
+                        Text("\(quickAccessLimit)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+
+                    Slider(
+                        value: quickAccessLimitBinding,
+                        in: Double(LibraryDisplayConfiguration.quickAccessLimitRange.lowerBound)...Double(
+                            LibraryDisplayConfiguration.quickAccessLimitRange.upperBound
+                        ),
+                        step: 1
+                    )
+                    .accessibilityLabel(Text("library_quick_access_count"))
+                    .accessibilityValue(Text("\(quickAccessLimit)"))
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("library_quick_access")
+            } footer: {
+                Text("library_quick_access_count_description")
+            }
+
+            Section {
+                ForEach(sectionOrder) { section in
+                    Toggle(isOn: visibilityBinding(for: section)) {
+                        Label(section.title, systemImage: section.icon)
+                    }
+                }
+                .onMove(perform: moveSections)
+            } header: {
+                Text("library_sections_settings_label")
+            } footer: {
+                Text("library_sections_settings_footer")
+            }
+
+            Section {
+                Button("library_sections_restore_default_order") {
+                    sectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(
+                        LibraryDisplayConfiguration.defaultSectionOrder
+                    )
+                }
+            }
+
             Section {
                 Toggle("library_default_flat_view", isOn: defaultFlatBrowseBinding)
             } footer: {
                 Text("library_default_flat_view_description")
             }
         }
+        #if os(iOS)
+        .environment(\.editMode, .constant(.active))
+        #endif
         .navigationTitle("library_display_settings_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    private func visibilityBinding(for section: LibrarySection) -> Binding<Bool> {
+        Binding(
+            get: {
+                !LibraryDisplayConfiguration.decodeHiddenSections(hiddenSectionsRawValue)
+                    .contains(section)
+            },
+            set: { isVisible in
+                var hidden = LibraryDisplayConfiguration.decodeHiddenSections(
+                    hiddenSectionsRawValue
+                )
+                if isVisible {
+                    hidden.remove(section)
+                } else {
+                    hidden.insert(section)
+                }
+                hiddenSectionsRawValue = LibraryDisplayConfiguration.encodeHiddenSections(hidden)
+            }
+        )
+    }
+
+    private func moveSections(from source: IndexSet, to destination: Int) {
+        var updated = sectionOrder
+        updated.move(fromOffsets: source, toOffset: destination)
+        sectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
     }
 }
 

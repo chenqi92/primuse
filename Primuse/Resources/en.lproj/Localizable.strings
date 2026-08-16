@@ -7,10 +7,15 @@
 "library_display_settings_title" = "Library Display";
 "library_edit_quick_access" = "Edit Quick Access";
 "library_add_quick_access" = "Add Shortcut";
-"library_quick_access_limit" = "Add up to 5 shortcuts";
+"library_quick_access_count" = "Quick Access Count";
+"library_quick_access_count_description" = "Set the maximum number of Quick Access items shown in Library and Home.";
+"library_quick_access_limit_description" = "Adjust this limit in Settings > Appearance > Library Display.";
 "library_quick_access_selected" = "Selected";
 "library_quick_access_selected_empty" = "No shortcuts selected";
 "library_quick_access_search_prompt" = "Search albums, artists, or playlists";
+"library_sections_settings_label" = "Library Categories";
+"library_sections_settings_footer" = "Drag to reorder. Turn off a category to hide it from Library and the sidebar.";
+"library_sections_restore_default_order" = "Restore Default Order";
 "playlists_count" = "playlists";
 "sources_title" = "Sources";
 "settings_title" = "Settings";

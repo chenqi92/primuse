@@ -11,10 +11,15 @@
 "library_display_settings_title" = "Mediatheksanzeige";
 "library_edit_quick_access" = "Schnellzugriff bearbeiten";
 "library_add_quick_access" = "Kurzbefehl hinzufügen";
-"library_quick_access_limit" = "Bis zu 5 Kurzbefehle hinzufügen";
+"library_quick_access_count" = "Anzahl der Schnellzugriffe";
+"library_quick_access_count_description" = "Legt fest, wie viele Schnellzugriffe maximal in Mediathek und Start angezeigt werden.";
+"library_quick_access_limit_description" = "Diese Grenze lässt sich unter Einstellungen > Darstellung > Mediatheksanzeige ändern.";
 "library_quick_access_selected" = "Ausgewählt";
 "library_quick_access_selected_empty" = "Keine Kurzbefehle ausgewählt";
 "library_quick_access_search_prompt" = "Alben, Künstler oder Playlists suchen";
+"library_sections_settings_label" = "Mediathekskategorien";
+"library_sections_settings_footer" = "Zum Sortieren ziehen. Deaktivierte Kategorien werden in der Mediathek und Seitenleiste ausgeblendet.";
+"library_sections_restore_default_order" = "Standardreihenfolge wiederherstellen";
 "playlists_count" = "Playlists";
 "search_title" = "Suchen";
 "settings_title" = "Einstellungen";

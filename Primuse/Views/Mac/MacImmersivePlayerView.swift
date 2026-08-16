@@ -91,6 +91,7 @@ struct MacImmersivePlayerView: View {
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
+        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .focusable()
         .focused($acceptsKeyInput)
         .onKeyPress(phases: [.down, .repeat]) { press in
@@ -229,13 +230,13 @@ struct MacImmersivePlayerView: View {
     /// 给复杂场景留出一个稳定布局周期后再淡入。
     private func entrySurface(metrics: ImmersiveStageMetrics) -> some View {
         ZStack {
-            ImmersiveStagePalette.night
+            artworkPalette.secondary
 
             RadialGradient(
                 stops: [
-                    .init(color: ImmersiveStagePalette.indigo.opacity(0.72), location: 0),
-                    .init(color: ImmersiveStagePalette.violet.opacity(0.24), location: 0.44),
-                    .init(color: ImmersiveStagePalette.night.opacity(0), location: 1),
+                    .init(color: artworkPalette.primary.opacity(0.72), location: 0),
+                    .init(color: artworkPalette.secondary.opacity(0.28), location: 0.44),
+                    .init(color: artworkPalette.secondary.opacity(0), location: 1),
                 ],
                 center: .center,
                 startRadius: 0,
@@ -246,7 +247,7 @@ struct MacImmersivePlayerView: View {
                 Text("now_playing")
                     .font(.system(size: metrics.s(14), weight: .medium, design: .monospaced))
                     .tracking(metrics.f(2.4))
-                    .foregroundStyle(ImmersiveStagePalette.accent200.opacity(0.78))
+                    .foregroundStyle(artworkPalette.primary.opacity(0.78))
                 Text(songTitle)
                     .font(.system(size: metrics.s(42), weight: .semibold))
                     .foregroundStyle(ImmersiveStagePalette.ink)
@@ -524,7 +525,7 @@ struct MacImmersivePlayerView: View {
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(active ? ImmersiveStagePalette.accent300 : chromeInk.opacity(0.54))
+                .foregroundStyle(active ? artworkPalette.primary : chromeInk.opacity(0.54))
                 .frame(width: 36, height: 36)
         }
         .buttonStyle(.plain)
@@ -595,7 +596,7 @@ struct MacImmersivePlayerView: View {
     }
 
     private var seekTint: Color {
-        presentationEffect.prefersLightContent ? ImmersiveStagePalette.accent700 : ImmersiveStagePalette.accent300
+        artworkPalette.primary
     }
 
     private var volumeSymbol: String {
@@ -609,11 +610,7 @@ struct MacImmersivePlayerView: View {
     // MARK: - 数据
 
     private var artworkPalette: ImmersiveArtworkPalette {
-        if let songID = player.currentSong?.id,
-           let extracted = coverTintProvider.palette(forSongID: songID) {
-            return extracted
-        }
-        return ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.darkAccent)
+        ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.darkAccent)
     }
 
     private func refreshArtworkInputs() {

@@ -52,7 +52,7 @@ struct TVSettingsView: View {
                         toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
                         appearanceRow()
                         navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
-                               immersiveEffect.tvTitle,
+                               immersiveEffect.localizedTitle,
                                action: { showsEffectPicker = true })
                         navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                         navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }

@@ -246,6 +246,9 @@ struct HomeView: View {
                 // until another library revision happened to arrive.
                 refreshHomeSnapshot(force: true)
             }
+            .onChange(of: configuredQuickAccessLimit) { _, _ in
+                refreshHomeSnapshot(force: true)
+            }
             .onDisappear {
                 refreshCoordinator.cancelAll()
             }
@@ -343,6 +346,8 @@ struct HomeView: View {
     @AppStorage("primuse.home.showPlaylists") private var showPlaylists: Bool = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
+    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
     @State private var homeSnapshot = HomeSnapshot()
     @State private var lastHomeSnapshotSignature: HomeSnapshotSignature?
     @State private var hasPreparedInitialSnapshot = false
@@ -1480,7 +1485,13 @@ struct HomeView: View {
             allPlaylists.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        return LibraryPinStorage.decode(quickAccessRawValue).compactMap { pin in
+        let quickAccessLimit = LibraryDisplayConfiguration.normalizedQuickAccessLimit(
+            configuredQuickAccessLimit
+        )
+        return LibraryPinStorage.decode(
+            quickAccessRawValue,
+            maximumCount: quickAccessLimit
+        ).compactMap { pin in
             switch pin.kind {
             case .album:
                 return albumsByID[pin.itemID].map(HomeQuickItem.album)

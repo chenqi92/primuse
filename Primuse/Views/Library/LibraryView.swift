@@ -1,10 +1,10 @@
 import SwiftUI
 import PrimuseKit
 
-enum LibrarySection: String, CaseIterable, Hashable {
+enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable {
     case playlists, artists, albums, songs, radio
 
-    static let browserOrder: [LibrarySection] = [.songs, .albums, .artists, .playlists, .radio]
+    var id: String { rawValue }
 
     var title: LocalizedStringKey {
         switch self {
@@ -35,6 +35,75 @@ enum LibrarySection: String, CaseIterable, Hashable {
         case .radio: return .orange
         }
     }
+
+    var localizedTitle: String {
+        switch self {
+        case .playlists: return String(localized: "tab_playlists")
+        case .artists: return String(localized: "tab_artists")
+        case .albums: return String(localized: "tab_albums")
+        case .songs: return String(localized: "tab_songs")
+        case .radio: return String(localized: "radio_title")
+        }
+    }
+}
+
+enum LibraryDisplayConfiguration {
+    static let quickAccessLimitKey = "primuse.library.quickAccessLimit.v1"
+    static let sectionOrderKey = "primuse.library.sectionOrder.v1"
+    static let hiddenSectionsKey = "primuse.library.hiddenSections.v1"
+
+    static let defaultQuickAccessLimit = 5
+    static let quickAccessLimitRange = 1...12
+    static let defaultSectionOrder: [LibrarySection] = [
+        .songs,
+        .albums,
+        .artists,
+        .playlists,
+        .radio,
+    ]
+
+    static func normalizedQuickAccessLimit(_ value: Int) -> Int {
+        min(max(value, quickAccessLimitRange.lowerBound), quickAccessLimitRange.upperBound)
+    }
+
+    static func decodeSectionOrder(_ rawValue: String) -> [LibrarySection] {
+        let stored: [LibrarySection]
+        if let data = rawValue.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([LibrarySection].self, from: data) {
+            stored = decoded
+        } else {
+            stored = []
+        }
+
+        var seen = Set<LibrarySection>()
+        let known = stored.filter { seen.insert($0).inserted }
+        let missing = defaultSectionOrder.filter { seen.insert($0).inserted }
+        return known + missing
+    }
+
+    static func encodeSectionOrder(_ sections: [LibrarySection]) -> String {
+        guard let data = try? JSONEncoder().encode(sections) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func decodeHiddenSections(_ rawValue: String) -> Set<LibrarySection> {
+        guard let data = rawValue.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([LibrarySection].self, from: data) else {
+            return []
+        }
+        return Set(decoded)
+    }
+
+    static func encodeHiddenSections(_ sections: Set<LibrarySection>) -> String {
+        let ordered = defaultSectionOrder.filter(sections.contains)
+        guard let data = try? JSONEncoder().encode(ordered) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func visibleSections(orderRawValue: String, hiddenRawValue: String) -> [LibrarySection] {
+        let hidden = decodeHiddenSections(hiddenRawValue)
+        return decodeSectionOrder(orderRawValue).filter { !hidden.contains($0) }
+    }
 }
 
 enum LibraryDeepLink: Equatable, Sendable {
@@ -48,22 +117,30 @@ typealias LibraryPinReference = QuickAccessPinReference
 
 enum LibraryPinStorage {
     static let defaultsKey = "primuse.library.quickAccess.v1"
-    static let maximumCount = 5
     static let likedSongsPin = LibraryPinReference(
         kind: .playlist,
         itemID: MusicLibrary.likedSongsPlaylistID
     )
 
-    static func decode(_ rawValue: String) -> [LibraryPinReference] {
+    static func decode(
+        _ rawValue: String,
+        maximumCount: Int = LibraryDisplayConfiguration.defaultQuickAccessLimit
+    ) -> [LibraryPinReference] {
         QuickAccessPinStorageCodec.decode(
             rawValue,
             defaultPins: [likedSongsPin],
-            maximumCount: maximumCount
+            maximumCount: LibraryDisplayConfiguration.normalizedQuickAccessLimit(maximumCount)
         )
     }
 
-    static func encode(_ pins: [LibraryPinReference]) -> String {
-        QuickAccessPinStorageCodec.encode(pins, maximumCount: maximumCount)
+    static func encode(
+        _ pins: [LibraryPinReference],
+        maximumCount: Int = LibraryDisplayConfiguration.defaultQuickAccessLimit
+    ) -> String {
+        QuickAccessPinStorageCodec.encode(
+            pins,
+            maximumCount: LibraryDisplayConfiguration.normalizedQuickAccessLimit(maximumCount)
+        )
     }
 }
 
@@ -75,6 +152,12 @@ struct LibraryView: View {
     @State private var showQuickAccessEditor = false
     @AppStorage(LibraryPinStorage.defaultsKey)
     private var quickAccessRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
+    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
+    @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
+    private var sectionOrderRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
+    private var hiddenSectionsRawValue = ""
 
     private var songs: [Song] { library.visibleSongs }
     private var albums: [Album] { library.visibleAlbums }
@@ -91,7 +174,7 @@ struct LibraryView: View {
             || !radioStationsStore.stations.isEmpty
     }
     private var storedPins: [LibraryPinReference] {
-        LibraryPinStorage.decode(quickAccessRawValue)
+        LibraryPinStorage.decode(quickAccessRawValue, maximumCount: quickAccessLimit)
     }
     private var visiblePins: [LibraryPinReference] {
         storedPins.filter(pinExists)
@@ -102,6 +185,15 @@ struct LibraryView: View {
                 id: MusicLibrary.likedSongsPlaylistID,
                 name: String(localized: "playlist_liked_name")
             )
+    }
+    private var quickAccessLimit: Int {
+        LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
+    }
+    private var visibleLibrarySections: [LibrarySection] {
+        LibraryDisplayConfiguration.visibleSections(
+            orderRawValue: sectionOrderRawValue,
+            hiddenRawValue: hiddenSectionsRawValue
+        )
     }
 
     init(deepLink: Binding<LibraryDeepLink?> = .constant(nil)) {
@@ -161,7 +253,10 @@ struct LibraryView: View {
                 )
             }
             .sheet(isPresented: $showQuickAccessEditor) {
-                LibraryQuickAccessEditor(pinsRawValue: $quickAccessRawValue)
+                LibraryQuickAccessEditor(
+                    pinsRawValue: $quickAccessRawValue,
+                    maximumCount: quickAccessLimit
+                )
             }
         }
     }
@@ -206,18 +301,22 @@ struct LibraryView: View {
     }
 
     private var browseLibrarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("library_browse")
+        Group {
+            if !visibleLibrarySections.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("library_browse")
 
-            LazyVStack(spacing: 10) {
-                ForEach(LibrarySection.browserOrder, id: \.self) { section in
-                    NavigationLink(value: section) {
-                        libraryCategoryRow(section)
+                    LazyVStack(spacing: 10) {
+                        ForEach(visibleLibrarySections) { section in
+                            NavigationLink(value: section) {
+                                libraryCategoryRow(section)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
                 }
             }
-            .padding(.horizontal, 16)
         }
     }
 
@@ -302,7 +401,7 @@ struct LibraryView: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            Text("\(visiblePins.count)/\(LibraryPinStorage.maximumCount)")
+            Text("\(visiblePins.count)/\(quickAccessLimit)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -609,7 +708,10 @@ struct LibraryView: View {
     private func sanitizeStoredPins() {
         let sanitized = storedPins.filter(pinExists)
         guard sanitized != storedPins else { return }
-        quickAccessRawValue = LibraryPinStorage.encode(sanitized)
+        quickAccessRawValue = LibraryPinStorage.encode(
+            sanitized,
+            maximumCount: quickAccessLimit
+        )
     }
 
     private func applyDeepLink(_ link: LibraryDeepLink?) {
@@ -632,10 +734,11 @@ private struct LibraryQuickAccessEditor: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Binding var pinsRawValue: String
+    let maximumCount: Int
     @State private var searchText = ""
 
     private var pins: [LibraryPinReference] {
-        LibraryPinStorage.decode(pinsRawValue)
+        LibraryPinStorage.decode(pinsRawValue, maximumCount: maximumCount)
     }
     private var likedPlaylist: Playlist {
         library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
@@ -708,11 +811,11 @@ private struct LibraryQuickAccessEditor: View {
                         HStack {
                             Text("library_quick_access_selected")
                             Spacer()
-                            Text("\(pins.count)/\(LibraryPinStorage.maximumCount)")
+                            Text("\(pins.count)/\(maximumCount)")
                                 .monospacedDigit()
                         }
                     } footer: {
-                        Text("library_quick_access_limit")
+                        Text("library_quick_access_limit_description")
                     }
                 }
 
@@ -888,7 +991,7 @@ private struct LibraryQuickAccessEditor: View {
         @ViewBuilder subtitle: () -> Subtitle
     ) -> some View {
         let isSelected = pins.contains(pin)
-        let canSelect = isSelected || pins.count < LibraryPinStorage.maximumCount
+        let canSelect = isSelected || pins.count < maximumCount
 
         return Button {
             toggle(pin)
@@ -960,17 +1063,17 @@ private struct LibraryQuickAccessEditor: View {
         var updated = pins
         if let index = updated.firstIndex(of: pin) {
             updated.remove(at: index)
-        } else if updated.count < LibraryPinStorage.maximumCount {
+        } else if updated.count < maximumCount {
             updated.append(pin)
         }
-        pinsRawValue = LibraryPinStorage.encode(updated)
+        pinsRawValue = LibraryPinStorage.encode(updated, maximumCount: maximumCount)
     }
 
     private func movePins(from source: IndexSet, to destination: Int) {
         guard searchText.isEmpty else { return }
         var updated = pins
         updated.move(fromOffsets: source, toOffset: destination)
-        pinsRawValue = LibraryPinStorage.encode(updated)
+        pinsRawValue = LibraryPinStorage.encode(updated, maximumCount: maximumCount)
     }
 }
 

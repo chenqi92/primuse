@@ -7,10 +7,15 @@
 "library_display_settings_title" = "资料库显示";
 "library_edit_quick_access" = "编辑快捷收藏";
 "library_add_quick_access" = "添加快捷收藏";
-"library_quick_access_limit" = "最多可添加 5 个快捷收藏";
+"library_quick_access_count" = "快捷收藏数量";
+"library_quick_access_count_description" = "设置资料库和首页最多显示的快捷收藏数量。";
+"library_quick_access_limit_description" = "可在“设置 > 外观 > 资料库显示”中调整数量上限。";
 "library_quick_access_selected" = "已选择";
 "library_quick_access_selected_empty" = "尚未选择快捷收藏";
 "library_quick_access_search_prompt" = "搜索专辑、艺术家或歌单";
+"library_sections_settings_label" = "资料库分类";
+"library_sections_settings_footer" = "拖动调整顺序；关闭后会从资料库入口和侧栏中隐藏。";
+"library_sections_restore_default_order" = "恢复默认顺序";
 "playlists_count" = "个歌单";
 "sources_title" = "音乐源";
 "settings_title" = "设置";

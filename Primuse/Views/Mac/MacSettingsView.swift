@@ -3450,12 +3450,14 @@ private struct MacSTThemeView: View {
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
+    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
+    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
+    @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
+    private var librarySectionOrderRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
+    private var hiddenLibrarySectionsRawValue = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
-
-    private var fullscreenEffect: FullscreenPlayerEffect {
-        FullscreenPlayerEffect(rawValue: fullscreenEffectRawValue) ?? .defaultValue
-    }
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
@@ -3483,6 +3485,21 @@ private struct MacSTThemeView: View {
         )
     }
 
+    private var quickAccessLimit: Int {
+        LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
+    }
+
+    private var quickAccessLimitBinding: Binding<Double> {
+        Binding(
+            get: { Double(quickAccessLimit) },
+            set: { configuredQuickAccessLimit = Int($0.rounded()) }
+        )
+    }
+
+    private var librarySectionOrder: [LibrarySection] {
+        LibraryDisplayConfiguration.decodeSectionOrder(librarySectionOrderRawValue)
+    }
+
     var body: some View {
         MacSTSection(Lz("Appearance")) {
             MacSTGroup {
@@ -3501,24 +3518,15 @@ private struct MacSTThemeView: View {
                 }
                 MacSTRow(String(localized: "fullscreen_effect_settings_title"),
                          hint: Lz("Shown when the player window goes full screen"),
-                         divider: false) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        MacSTPicker(
-                            selection: $fullscreenEffectRawValue,
-                            options: FullscreenPlayerEffect.allCases.map { ($0.rawValue, $0.localizedTitle) },
-                            width: 230
+                         divider: false,
+                         block: true) {
+                    MacFullscreenEffectGallery(
+                        selection: $fullscreenEffectRawValue,
+                        palette: ImmersiveArtworkPalette(
+                            primary: themeService.accentColor,
+                            secondary: themeService.darkAccent
                         )
-                        Text(verbatim: fullscreenEffect.localizedSubtitle)
-                            .font(.caption)
-                            .foregroundStyle(PMColor.textMuted)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 300, alignment: .trailing)
-                        Label(fullscreenEffect.motionDescription, systemImage: "waveform.path")
-                            .font(.caption2)
-                            .foregroundStyle(PMColor.brand)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 300, alignment: .trailing)
-                    }
+                    )
                 }
             }
         }
@@ -3633,17 +3641,183 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(String(localized: "library")) {
+        MacSTSection(String(localized: "library_display_settings_title")) {
             MacSTGroup {
                 MacSTRow(
-                    String(localized: "library_default_flat_view"),
-                    hint: String(localized: "library_default_flat_view_description"),
+                    String(localized: "library_quick_access_count"),
+                    hint: String(localized: "library_quick_access_count_description"),
                     divider: false
+                ) {
+                    MacSTSlider(
+                        value: quickAccessLimitBinding,
+                        in: Double(LibraryDisplayConfiguration.quickAccessLimitRange.lowerBound)...Double(
+                            LibraryDisplayConfiguration.quickAccessLimitRange.upperBound
+                        ),
+                        formatter: { "\(Int($0.rounded()))" }
+                    )
+                }
+                MacSTRow(
+                    String(localized: "library_default_flat_view"),
+                    hint: String(localized: "library_default_flat_view_description")
                 ) {
                     MacSTToggle(isOn: defaultFlatBrowseBinding)
                 }
             }
+
+            MacSTGroup {
+                ForEach(Array(librarySectionOrder.enumerated()), id: \.element.id) { index, section in
+                    MacSTRow(section.localizedTitle, divider: index != 0) {
+                        HStack(spacing: 8) {
+                            Button {
+                                moveLibrarySection(at: index, offset: -1)
+                            } label: {
+                                Image(systemName: "chevron.up")
+                                    .frame(width: 18, height: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(index == librarySectionOrder.startIndex)
+
+                            Button {
+                                moveLibrarySection(at: index, offset: 1)
+                            } label: {
+                                Image(systemName: "chevron.down")
+                                    .frame(width: 18, height: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(index == librarySectionOrder.index(before: librarySectionOrder.endIndex))
+
+                            MacSTToggle(isOn: librarySectionVisibilityBinding(for: section))
+                        }
+                        .foregroundStyle(PMColor.textMuted)
+                    }
+                }
+
+                MacSTRow(
+                    String(localized: "library_sections_settings_label"),
+                    hint: String(localized: "library_sections_settings_footer")
+                ) {
+                    MacSTButton(title: String(localized: "library_sections_restore_default_order")) {
+                        librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(
+                            LibraryDisplayConfiguration.defaultSectionOrder
+                        )
+                    }
+                }
+            }
         }
+    }
+
+    private func librarySectionVisibilityBinding(for section: LibrarySection) -> Binding<Bool> {
+        Binding(
+            get: {
+                !LibraryDisplayConfiguration.decodeHiddenSections(hiddenLibrarySectionsRawValue)
+                    .contains(section)
+            },
+            set: { isVisible in
+                var hidden = LibraryDisplayConfiguration.decodeHiddenSections(
+                    hiddenLibrarySectionsRawValue
+                )
+                if isVisible {
+                    hidden.remove(section)
+                } else {
+                    hidden.insert(section)
+                }
+                hiddenLibrarySectionsRawValue = LibraryDisplayConfiguration.encodeHiddenSections(hidden)
+            }
+        )
+    }
+
+    private func moveLibrarySection(at index: Int, offset: Int) {
+        let destination = index + offset
+        guard librarySectionOrder.indices.contains(index),
+              librarySectionOrder.indices.contains(destination) else { return }
+        var updated = librarySectionOrder
+        let section = updated.remove(at: index)
+        updated.insert(section, at: destination)
+        librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
+    }
+}
+
+private struct MacFullscreenEffectGallery: View {
+    @Binding var selection: String
+    let palette: ImmersiveArtworkPalette
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 205), spacing: 10, alignment: .top),
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            ForEach(FullscreenPlayerEffect.allCases) { effect in
+                MacFullscreenEffectPreviewCard(
+                    effect: effect,
+                    selected: selection == effect.rawValue,
+                    palette: palette
+                ) {
+                    selection = effect.rawValue
+                }
+            }
+        }
+    }
+}
+
+private struct MacFullscreenEffectPreviewCard: View {
+    let effect: FullscreenPlayerEffect
+    let selected: Bool
+    let palette: ImmersiveArtworkPalette
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                ImmersiveEffectPreview(
+                    effect: effect,
+                    isActive: selected || hovering,
+                    palette: palette
+                )
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(selected ? palette.primary : .white.opacity(0.56))
+                        .symbolRenderingMode(.hierarchical)
+                        .padding(7)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: effect.localizedTitle)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(selected ? PMColor.brand : PMColor.text)
+                        .lineLimit(1)
+                    Text(verbatim: effect.localizedSubtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                selected ? PMColor.brand.opacity(0.11) : PMColor.glassBtn,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(
+                        selected ? PMColor.brand : PMColor.dividerStrong,
+                        lineWidth: selected ? 1.3 : 0.5
+                    )
+            }
+            .scaleEffect(hovering ? 1.012 : 1)
+            .animation(.easeOut(duration: 0.16), value: hovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(Text(verbatim: effect.localizedTitle))
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

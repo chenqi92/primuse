@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreText
 import Foundation
+import PrimuseKit
 import SwiftUI
 
 #if canImport(UIKit)
@@ -58,8 +59,8 @@ struct ImmersiveArtworkPalette {
     var secondary: Color
 
     static let fallback = ImmersiveArtworkPalette(
-        primary: ImmersiveStagePalette.accent,
-        secondary: ImmersiveStagePalette.indigo
+        primary: Color(red: 0.078, green: 0.490, blue: 0.541),
+        secondary: Color(red: 0.043, green: 0.267, blue: 0.294)
     )
 }
 
@@ -199,26 +200,18 @@ struct ImmersiveStageTrack: Equatable {
     }
 }
 
-/// 设置预览和无曲目状态使用固定内容，避免出现“未知标题”并保证三端截图一致。
+/// 设置预览和无曲目状态使用固定品牌内容，避免把演示曲目误认为真实歌曲。
 enum ImmersiveDemoContent {
-    static var title: String {
-        String(localized: "immersive_demo_title", defaultValue: "潮汐记")
-    }
-
-    static var artist: String {
-        String(localized: "immersive_demo_artist", defaultValue: "柳川")
-    }
-
-    static var album: String {
-        String(localized: "immersive_demo_album", defaultValue: "夜航")
-    }
+    static let title = "猿音"
+    static let artist = "Primuse"
+    static let album = "Immersive Player"
     static let format = "HI-RES 96/24 FLAC"
     static let lyrics = [
-        "灯塔把海面折成两半",
-        "The lighthouse folds the sea in two",
-        "我把名字写在退潮的沙上",
-        "I wrote my name where the tide withdrew",
-        "风来了，字迹先走一步",
+        "音乐在此刻铺满整个空间",
+        "Primuse turns every song into a scene",
+        "让声音拥有自己的光与形状",
+        "Every note finds its own light",
+        "猿音，让聆听成为一场演出",
     ]
 
     static var track: ImmersiveStageTrack {
@@ -233,12 +226,279 @@ enum ImmersiveDemoContent {
             trackCount: 9,
             elapsed: 108,
             duration: 252,
-            source: "本地资料库",
-            nextTitle: "退潮以后 · After the Tide",
-            queueSummary: "9 首",
+            source: PMString("ext.tv.nav.library"),
+            nextTitle: "Primuse",
+            queueSummary: PMString("ext.tv.songsCount", 9),
             genre: "electronic",
             year: 2024
         )
+    }
+}
+
+// MARK: - 设置页真实效果预览
+
+/// 设置页与效果选择器共用的真实舞台缩略图。这里直接缩放正式的
+/// `ImmersiveStageView`，避免设置页展示的示意图与最终全屏效果不一致。
+/// 只有选中或聚焦的卡片才会运行动画；其余卡片停在真实静态帧。
+struct ImmersiveEffectPreview: View {
+    var effect: FullscreenPlayerEffect
+    var isActive = false
+    var palette: ImmersiveArtworkPalette = .fallback
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    private let canvasSize = CGSize(width: 960, height: 540)
+
+    private var animates: Bool {
+        isActive && !accessibilityReduceMotion
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let scale = min(
+                geometry.size.width / canvasSize.width,
+                geometry.size.height / canvasSize.height
+            )
+
+            ZStack {
+                previewContent
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .scaleEffect(scale)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .background(ImmersiveStagePalette.obsidian)
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var previewContent: some View {
+        if effect.isNative {
+            ImmersiveNativeEffectPreview(
+                isAnimating: animates,
+                palette: palette
+            )
+        } else if effect.usesRealtimeSpectrum {
+            TimelineView(.animation(minimumInterval: 1 / 12, paused: !animates)) { context in
+                immersiveStage(
+                    levels: animatedLevels(at: animates ? context.date.timeIntervalSinceReferenceDate : 0),
+                    elapsed: previewElapsed(at: animates ? context.date.timeIntervalSinceReferenceDate : 0)
+                )
+            }
+        } else {
+            immersiveStage(levels: Self.baseLevels, elapsed: 108)
+        }
+    }
+
+    private func immersiveStage(levels: [CGFloat], elapsed: TimeInterval) -> some View {
+        var track = ImmersiveDemoContent.track
+        track.isPlaying = animates
+        track.elapsed = elapsed
+        track.progress = track.duration > 0 ? elapsed / track.duration : 0
+
+        return ImmersiveStageView(
+            style: effect,
+            platform: previewPlatform,
+            metrics: ImmersiveStageMetrics(size: canvasSize, prefersWide: true),
+            track: track,
+            palette: palette,
+            lyricWindow: previewLyrics,
+            currentLyric: ImmersiveDemoContent.lyrics[1],
+            nextLyric: ImmersiveDemoContent.lyrics[2],
+            levels: levels,
+            galleryArtworkCount: 8,
+            galleryArtwork: { index, side in
+                AnyView(
+                    ImmersivePreviewArtwork(
+                        variant: index + 1,
+                        palette: palette
+                    )
+                    .frame(width: side, height: side)
+                )
+            },
+            titleWallTitles: previewTitles,
+            reduceMotion: !animates,
+            lyricsMotionEnabled: animates,
+            lyricInterlude: false,
+            lyricsPlaceholder: ImmersiveDemoContent.lyrics[1],
+            controlsInset: 0,
+            showsClock: false
+        ) { side in
+            ImmersivePreviewArtwork(variant: 0, palette: palette)
+                .frame(width: side, height: side)
+        }
+    }
+
+    private var previewPlatform: ImmersiveStagePlatform {
+        #if os(tvOS)
+        .tvOS
+        #elseif os(macOS)
+        .macOS
+        #else
+        .iOS
+        #endif
+    }
+
+    private var previewLyrics: [ImmersiveStageLyric] {
+        Array(ImmersiveDemoContent.lyrics.prefix(3)).enumerated().map { index, text in
+            ImmersiveStageLyric(
+                id: index,
+                text: text,
+                isActive: index == 1,
+                offset: index - 1
+            )
+        }
+    }
+
+    private var previewTitles: [String] {
+        [
+            "猿音",
+            "PRIMUSE",
+            "猿音 · PRIMUSE",
+            "PRIMUSE / 猿音",
+        ]
+    }
+
+    private func previewElapsed(at time: TimeInterval) -> TimeInterval {
+        guard animates else { return 108 }
+        return 36 + time.truncatingRemainder(dividingBy: 176)
+    }
+
+    private func animatedLevels(at time: TimeInterval) -> [CGFloat] {
+        guard animates else { return Self.baseLevels }
+        return Self.baseLevels.enumerated().map { index, value in
+            let primary = sin(time * 3.1 + Double(index) * 0.73)
+            let secondary = sin(time * 1.7 - Double(index) * 0.41)
+            let pulse = CGFloat(0.76 + primary * 0.17 + secondary * 0.07)
+            return min(max(value * pulse + 0.035, 0), 1)
+        }
+    }
+
+    private static let baseLevels: [CGFloat] = [
+        0.18, 0.31, 0.46, 0.38, 0.62, 0.74, 0.54, 0.82,
+        0.66, 0.43, 0.57, 0.91, 0.70, 0.48, 0.79, 0.60,
+        0.36, 0.52, 0.68, 0.44, 0.73, 0.58, 0.39, 0.63,
+        0.47, 0.34, 0.51, 0.41, 0.29, 0.38, 0.24, 0.17,
+    ]
+}
+
+private struct ImmersiveNativeEffectPreview: View {
+    var isAnimating: Bool
+    var palette: ImmersiveArtworkPalette
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 12, paused: !isAnimating)) { context in
+            let progress = isAnimating
+                ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 48) / 48
+                : 0.43
+
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        palette.secondary.opacity(0.96),
+                        ImmersiveStagePalette.obsidian,
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                HStack(spacing: 54) {
+                    ImmersivePreviewArtwork(variant: 0, palette: palette)
+                        .frame(width: 286, height: 286)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .shadow(color: palette.primary.opacity(0.32), radius: 34, y: 18)
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text(ImmersiveDemoContent.title)
+                            .font(.system(size: 48, weight: .semibold))
+                            .foregroundStyle(ImmersiveStagePalette.ink)
+                            .lineLimit(1)
+                        Text("\(ImmersiveDemoContent.artist) · \(ImmersiveDemoContent.album)")
+                            .font(.system(size: 20, weight: .regular))
+                            .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
+                            .lineLimit(1)
+
+                        ImmersiveHairlineProgress(
+                            fraction: progress,
+                            height: 5,
+                            accent: palette.primary,
+                            trackOpacity: 0.18
+                        )
+                        .frame(width: 420)
+
+                        HStack(spacing: 34) {
+                            Image(systemName: "backward.fill")
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 29, weight: .semibold))
+                                .frame(width: 68, height: 68)
+                                .background(.white.opacity(0.11), in: Circle())
+                            Image(systemName: "forward.fill")
+                        }
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(ImmersiveStagePalette.ink.opacity(0.92))
+                    }
+                }
+                .padding(.horizontal, 66)
+            }
+            .overlay(alignment: .bottom) {
+                ImmersiveHairlineProgress(
+                    fraction: progress,
+                    height: 3,
+                    accent: palette.primary
+                )
+            }
+        }
+    }
+}
+
+private struct ImmersivePreviewArtwork: View {
+    var variant: Int
+    var palette: ImmersiveArtworkPalette
+
+    private var accent: Color {
+        variant.isMultiple(of: 2) ? palette.primary : palette.secondary
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [accent.opacity(0.92), palette.secondary, ImmersiveStagePalette.obsidian],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            applicationIcon
+                .scaledToFill()
+                .scaleEffect(variant == 0 ? 1 : 1.025)
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            .clear,
+                            accent.opacity(variant == 0 ? 0.02 : 0.12),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(.white.opacity(0.16), lineWidth: 2)
+                .padding(20)
+        }
+        .clipped()
+    }
+
+    @ViewBuilder
+    private var applicationIcon: some View {
+        #if os(tvOS)
+        Image("BrandMark")
+            .resizable()
+        #else
+        Image("AppIconPreview")
+            .resizable()
+        #endif
     }
 }
 
@@ -522,6 +782,7 @@ struct ImmersiveGlassActionButton: View {
 /// 面板是否仍在展示，并在此期间暂停浮动控件的自动隐藏计时。
 struct ImmersiveEffectPickerPanel: View {
     var selected: FullscreenPlayerEffect
+    var palette: ImmersiveArtworkPalette = .fallback
     var panelWidth: CGFloat = 340
     var panelHeight: CGFloat = 500
     var onSelect: (FullscreenPlayerEffect) -> Void
@@ -559,7 +820,7 @@ struct ImmersiveEffectPickerPanel: View {
                                     if candidate == selected {
                                         Image(systemName: "checkmark.circle.fill")
                                             .font(.system(size: 17, weight: .semibold))
-                                            .foregroundStyle(ImmersiveStagePalette.accent300)
+                                            .foregroundStyle(palette.primary)
                                     }
                                 }
                                 .foregroundStyle(.primary)
@@ -568,7 +829,7 @@ struct ImmersiveEffectPickerPanel: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
                                     candidate == selected
-                                        ? ImmersiveStagePalette.accent.opacity(0.15)
+                                        ? palette.primary.opacity(0.15)
                                         : Color.primary.opacity(0.045),
                                     in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 )
@@ -576,7 +837,7 @@ struct ImmersiveEffectPickerPanel: View {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                                         .strokeBorder(
                                             candidate == selected
-                                                ? ImmersiveStagePalette.accent300.opacity(0.48)
+                                                ? palette.primary.opacity(0.48)
                                                 : Color.primary.opacity(0.08),
                                             lineWidth: 0.8
                                         )
@@ -605,6 +866,7 @@ struct ImmersiveEffectPickerSurface: View {
     var body: some View {
         ImmersiveEffectPickerPanel(
             selected: selected,
+            palette: palette,
             panelWidth: panelWidth,
             panelHeight: panelHeight,
             onSelect: onSelect
@@ -637,6 +899,7 @@ struct ImmersiveEffectPickerSurface: View {
 /// 提供持续但不抢歌词注意力的运动。Reduce Motion 时 TimelineView 会暂停。
 struct ImmersiveTypographyMotion: View {
     var isAnimating: Bool
+    var palette: ImmersiveArtworkPalette = .fallback
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 8, paused: !isAnimating)) { context in
@@ -645,11 +908,11 @@ struct ImmersiveTypographyMotion: View {
                 ZStack {
                     AngularGradient(
                         colors: [
-                            ImmersiveStagePalette.accent700.opacity(0.18),
-                            ImmersiveStagePalette.indigo.opacity(0.08),
+                            palette.secondary.opacity(0.30),
+                            palette.primary.opacity(0.10),
                             .clear,
-                            ImmersiveStagePalette.violet.opacity(0.12),
-                            ImmersiveStagePalette.accent700.opacity(0.18),
+                            palette.primary.opacity(0.18),
+                            palette.secondary.opacity(0.30),
                         ],
                         center: .center
                     )
