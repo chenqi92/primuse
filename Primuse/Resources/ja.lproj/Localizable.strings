@@ -786,6 +786,7 @@
 "icloud_sync_status" = "状況";
 "status" = "状況";
 "status_disabled" = "オフ";
+"status_icloud_unavailable_in_build" = "このビルドには iCloud アクセス権がありません";
 "status_unavailable" = "一時的に利用できません";
 "status_quota_exceeded" = "iCloud ストレージがいっぱいです";
 "status_network_unavailable" = "ネットワークに接続できません";

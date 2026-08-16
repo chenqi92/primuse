@@ -579,6 +579,7 @@
 "icloud_sync_status" = "狀態";
 "status" = "狀態";
 "status_disabled" = "已關閉";
+"status_icloud_unavailable_in_build" = "此版本未包含 iCloud 權限";
 "status_unavailable" = "暫時無法使用";
 "status_quota_exceeded" = "iCloud 儲存空間已滿";
 "status_network_unavailable" = "網路無法使用";

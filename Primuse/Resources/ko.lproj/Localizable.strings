@@ -785,6 +785,7 @@
 "icloud_sync_status" = "상태";
 "status" = "상태";
 "status_disabled" = "꺼짐";
+"status_icloud_unavailable_in_build" = "이 빌드에는 iCloud 접근 권한이 없습니다";
 "status_unavailable" = "일시적으로 사용할 수 없음";
 "status_quota_exceeded" = "iCloud 저장 공간이 가득 참";
 "status_network_unavailable" = "네트워크를 사용할 수 없음";

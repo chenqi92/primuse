@@ -3246,6 +3246,7 @@ private struct MacSTCloudView: View {
                             }
                         }
                     ))
+                    .disabled(!sync.isAvailableInCurrentBuild)
                 }
                 MacSTRow(Lz("Sync Status")) {
                     Circle()
@@ -3271,7 +3272,7 @@ private struct MacSTCloudView: View {
                             isSyncingNow = false
                         }
                     }
-                    .disabled(isSyncingNow || !enabled)
+                    .disabled(isSyncingNow || !enabled || !sync.isAvailableInCurrentBuild)
                 }
             }
         }
@@ -3313,16 +3314,16 @@ private struct MacSTCloudView: View {
                         MacSTButton(title: familyBusy ? Lz("Processing…") : Lz("Invite…"), systemImage: "square.and.arrow.up") {
                             Task { await inviteFamily() }
                         }
-                        .disabled(familyBusy)
+                        .disabled(familyBusy || !sync.isAvailableInCurrentBuild)
                         MacSTButton(title: Lz("Off"), destructive: true) {
                             Task { await disableFamily() }
                         }
-                        .disabled(familyBusy)
+                        .disabled(familyBusy || !sync.isAvailableInCurrentBuild)
                     } else {
                         MacSTButton(title: familyBusy ? Lz("Creating…") : Lz("Create"), systemImage: "person.2.badge.plus", prominent: true) {
                             Task { await inviteFamily() }
                         }
-                        .disabled(familyBusy)
+                        .disabled(familyBusy || !sync.isAvailableInCurrentBuild)
                     }
                 }
 
@@ -3356,13 +3357,14 @@ private struct MacSTCloudView: View {
                     Task { await sync.catchUp(channel: channel) }
                 }
             ))
-            .disabled(!enabled)
+            .disabled(!enabled || !sync.isAvailableInCurrentBuild)
         }
     }
 
     private var statusText: String {
         switch sync.status {
         case .disabled: return String(localized: "status_disabled")
+        case .unavailableInBuild: return String(localized: "status_icloud_unavailable_in_build")
         case .idle: return String(localized: "status_idle")
         case .syncing: return String(localized: "status_syncing")
         case .upToDate: return String(localized: "status_up_to_date")
@@ -3378,7 +3380,7 @@ private struct MacSTCloudView: View {
         case .upToDate: return PMColor.ok
         case .syncing: return PMColor.brand
         case .error, .quotaExceeded: return PMColor.bad
-        case .accountUnavailable, .networkUnavailable: return PMColor.warn
+        case .accountUnavailable, .networkUnavailable, .unavailableInBuild: return PMColor.warn
         case .disabled, .idle: return PMColor.textMuted
         }
     }

@@ -625,6 +625,7 @@
 "icloud_sync_status" = "Status";
 "status" = "Status";
 "status_disabled" = "Off";
+"status_icloud_unavailable_in_build" = "This build doesn't include iCloud access";
 "status_unavailable" = "Temporarily unavailable";
 "status_quota_exceeded" = "iCloud storage is full";
 "status_network_unavailable" = "Network unavailable";

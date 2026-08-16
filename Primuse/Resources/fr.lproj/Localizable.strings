@@ -785,6 +785,7 @@
 "icloud_sync_status" = "État";
 "status" = "État";
 "status_disabled" = "Désactivé";
+"status_icloud_unavailable_in_build" = "Cette version n’inclut pas l’accès à iCloud";
 "status_unavailable" = "Temporairement indisponible";
 "status_quota_exceeded" = "Le stockage iCloud est plein";
 "status_network_unavailable" = "Réseau indisponible";

@@ -626,6 +626,7 @@
 "icloud_sync_status" = "状态";
 "status" = "状态";
 "status_disabled" = "已关闭";
+"status_icloud_unavailable_in_build" = "此构建未包含 iCloud 权限";
 "status_unavailable" = "暂时不可用";
 "status_quota_exceeded" = "iCloud 存储已满";
 "status_network_unavailable" = "网络不可用";

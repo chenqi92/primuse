@@ -5,6 +5,10 @@ import SwiftUI
 
 enum CloudSyncStatus: Equatable, Sendable {
     case disabled
+    /// The running binary has no usable CloudKit entitlement (simulator,
+    /// linker-signed preview, or ad-hoc QA build). This is a build capability,
+    /// not an account or synchronization failure.
+    case unavailableInBuild
     case idle
     case syncing
     case upToDate
@@ -160,6 +164,7 @@ final class CloudKitSyncService {
         didSet { Self.notifyOnErrorTransition(old: oldValue, new: status) }
     }
     private(set) var lastSyncedAt: Date?
+    var isAvailableInCurrentBuild: Bool { CloudKitRuntime.canCreateContainer }
 
     /// Listens for `CKAccountChanged` so we can flip into `.accountUnavailable`
     /// when the user signs out of iCloud while the app is running.
@@ -198,6 +203,9 @@ final class CloudKitSyncService {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.stateURL = directory.appendingPathComponent("cloudkit-engine-state.bin")
         self.systemFieldsURL = directory.appendingPathComponent("cloudkit-system-fields.plist")
+        if !CloudKitRuntime.canCreateContainer {
+            self.status = .unavailableInBuild
+        }
     }
 
     // MARK: - Lifecycle
@@ -206,6 +214,10 @@ final class CloudKitSyncService {
     /// then does an initial fetch + sends any locally pending changes.
     func start() async {
         guard engine == nil, startAttemptID == nil else { return }
+        guard CloudKitRuntime.canCreateContainer else {
+            status = .unavailableInBuild
+            return
+        }
         preparePersistedStateForSupportedSourceTypes()
         guard let database = configuredDatabase() else { return }
         let attemptID = UUID()
@@ -495,7 +507,7 @@ final class CloudKitSyncService {
     private func configuredContainer() -> CKContainer? {
         if let container { return container }
         guard let container = CloudKitRuntime.makeContainer() else {
-            status = .error("CloudKit unavailable in this build — \(String(localized: "icloud_container_setup_hint"))")
+            status = .unavailableInBuild
             return nil
         }
         self.container = container
@@ -541,7 +553,9 @@ final class CloudKitSyncService {
         engine = nil
         sharedEngine = nil
         isStarted = false
-        if updateStatus { status = .disabled }
+        if updateStatus {
+            status = CloudKitRuntime.canCreateContainer ? .disabled : .unavailableInBuild
+        }
     }
 
     /// Re-enqueue every local entity belonging to a channel. Use this when a

@@ -31,6 +31,7 @@ struct CloudSyncSettingsView: View {
                             }
                         }
                     }
+                    .disabled(!sync.isAvailableInCurrentBuild)
             } footer: {
                 Text("icloud_sync_footer")
             }
@@ -86,7 +87,7 @@ struct CloudSyncSettingsView: View {
                             }
                         }
                     }
-                    .disabled(isSyncingNow)
+                    .disabled(isSyncingNow || !sync.isAvailableInCurrentBuild)
                 }
             }
 
@@ -122,7 +123,7 @@ struct CloudSyncSettingsView: View {
         Toggle(isOn: isOn) {
             Label(titleKey, systemImage: systemImage)
         }
-        .disabled(!enabled)
+        .disabled(!enabled || !sync.isAvailableInCurrentBuild)
         .onChange(of: isOn.wrappedValue) { _, newValue in
             guard newValue, enabled else { return }
             Task { await sync.catchUp(channel: channel) }
@@ -134,6 +135,9 @@ struct CloudSyncSettingsView: View {
         switch sync.status {
         case .disabled:
             Text("status_disabled")
+        case .unavailableInBuild:
+            Text("status_icloud_unavailable_in_build")
+                .foregroundStyle(.orange)
         case .idle:
             Text("status_idle")
         case .syncing:

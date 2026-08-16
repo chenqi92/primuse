@@ -30,6 +30,7 @@ struct MacCloudSyncSettingsView: View {
                         if newValue { await sync.start() } else { sync.stop() }
                     }
                 }
+                .disabled(!sync.isAvailableInCurrentBuild)
             } footer: {
                 Text("icloud_sync_footer")
             }
@@ -81,7 +82,7 @@ struct MacCloudSyncSettingsView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isSyncingNow)
+                        .disabled(isSyncingNow || !sync.isAvailableInCurrentBuild)
                     }
                 }
 
@@ -162,7 +163,7 @@ struct MacCloudSyncSettingsView: View {
             Label(titleKey, systemImage: systemImage)
         }
         .toggleStyle(.switch)
-        .disabled(!enabled)
+        .disabled(!enabled || !sync.isAvailableInCurrentBuild)
         .onChange(of: isOn.wrappedValue) { _, newValue in
             guard newValue, enabled else { return }
             Task { await sync.catchUp(channel: channel) }
@@ -174,6 +175,8 @@ struct MacCloudSyncSettingsView: View {
         switch sync.status {
         case .disabled:
             Text("status_disabled").foregroundStyle(.secondary)
+        case .unavailableInBuild:
+            Text("status_icloud_unavailable_in_build").foregroundStyle(.orange)
         case .idle:
             Text("status_idle").foregroundStyle(.secondary)
         case .syncing:
@@ -231,7 +234,7 @@ private struct MacFamilySharingSection: View {
                     } label: {
                         Label("family_sharing_manage", systemImage: "person.crop.circle.badge.checkmark")
                     }
-                    .disabled(isBusy)
+                    .disabled(isBusy || !sync.isAvailableInCurrentBuild)
 
                     Spacer()
 
@@ -240,7 +243,7 @@ private struct MacFamilySharingSection: View {
                     } label: {
                         Label("family_sharing_leave", systemImage: "person.crop.circle.badge.xmark")
                     }
-                    .disabled(isBusy)
+                    .disabled(isBusy || !sync.isAvailableInCurrentBuild)
                 }
             } else {
                 Button {
@@ -248,7 +251,7 @@ private struct MacFamilySharingSection: View {
                 } label: {
                     Label("family_sharing_create", systemImage: "person.2.badge.plus")
                 }
-                .disabled(isBusy)
+                .disabled(isBusy || !sync.isAvailableInCurrentBuild)
             }
 
             if let errorMessage {
