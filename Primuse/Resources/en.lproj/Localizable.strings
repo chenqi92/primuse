@@ -115,12 +115,9 @@
 "icon_default" = "Folded Note";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";
-"icon_theme_10" = "Vinyl Ape";
 "icon_theme_11" = "Color Brush";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_4" = "Music Pulse";
 "icon_theme_6" = "Soft Note";
-"icon_theme_7" = "Primuse Mark";
 "icon_theme_9" = "Classic Icon";
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";

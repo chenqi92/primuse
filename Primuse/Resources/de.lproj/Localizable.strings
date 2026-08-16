@@ -323,12 +323,9 @@
 "icon_default" = "Gefaltete Note";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
-"icon_theme_10" = "Vinyl-Affe";
 "icon_theme_11" = "Farbpinsel";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_4" = "Musikpuls";
 "icon_theme_6" = "Sanfte Note";
-"icon_theme_7" = "Primuse-Zeichen";
 "icon_theme_9" = "Klassisches Symbol";
 "queue_title" = "Warteschlange";
 "queue_empty" = "Warteschlange leer";

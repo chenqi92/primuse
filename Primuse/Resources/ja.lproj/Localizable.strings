@@ -324,12 +324,9 @@
 "icon_default" = "折り返し音符";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";
-"icon_theme_10" = "レコード・エイプ";
 "icon_theme_11" = "カラーブラシ";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_4" = "ミュージックパルス";
 "icon_theme_6" = "ソフトノート";
-"icon_theme_7" = "Primuse マーク";
 "icon_theme_9" = "クラシックアイコン";
 "queue_title" = "再生キュー";
 "queue_empty" = "キューが空です";

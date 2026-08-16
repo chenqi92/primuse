@@ -323,12 +323,9 @@
 "icon_default" = "접힌 음표";
 "icon_appearance_gray" = "회색";
 "icon_appearance_hint" = "아이콘은 홈 화면 모드를 따릅니다. 홈 화면을 길게 누른 다음 편집 → 사용자화 → 자동을 선택하세요.";
-"icon_theme_10" = "바이닐 에이프";
 "icon_theme_11" = "컬러 브러시";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_4" = "뮤직 펄스";
 "icon_theme_6" = "소프트 노트";
-"icon_theme_7" = "Primuse 마크";
 "icon_theme_9" = "클래식 아이콘";
 "queue_title" = "재생 대기열";
 "queue_empty" = "대기열 비어 있음";

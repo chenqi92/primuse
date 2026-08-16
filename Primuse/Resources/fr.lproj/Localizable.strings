@@ -323,12 +323,9 @@
 "icon_default" = "Note pliée";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";
-"icon_theme_10" = "Singe vinyle";
 "icon_theme_11" = "Trait coloré";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_4" = "Pulsation musicale";
 "icon_theme_6" = "Note douce";
-"icon_theme_7" = "Monogramme Primuse";
 "icon_theme_9" = "Icône classique";
 "queue_title" = "File de lecture";
 "queue_empty" = "File vide";

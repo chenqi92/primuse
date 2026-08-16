@@ -33,6 +33,12 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        Task { @MainActor in
+            await AppIconService.shared.restorePrimaryIconIfNeeded()
+        }
+    }
+
     /// 系统在用户从 iMessage / 邮件 / Files 点开 .ck 分享链接时调这里, 把
     /// CKShare metadata 传给 app。我们转交给 CloudKitSyncService.acceptShare
     /// 完成 share 接受 + 启动 participant 侧的 sharedEngine。

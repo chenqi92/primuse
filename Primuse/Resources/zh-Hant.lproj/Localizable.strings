@@ -107,12 +107,9 @@
 "icon_default" = "折頁音符";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
-"icon_theme_10" = "黑膠猿面";
 "icon_theme_11" = "流彩筆觸";
 "icon_theme_12" = "皮卡丘";
-"icon_theme_4" = "音符律動";
 "icon_theme_6" = "清新音符";
-"icon_theme_7" = "Primuse 標誌";
 "icon_theme_9" = "經典圖示";
 "queue_title" = "播放佇列";
 "queue_empty" = "佇列為空";
