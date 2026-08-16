@@ -9,31 +9,26 @@ struct SiriSettingsView: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    Label("Siri", systemImage: "waveform")
-                    Spacer()
-                    Image(systemName: statusImage)
-                        .foregroundStyle(statusColor)
-                }
-
                 switch authorizationStatus {
                 case .notDetermined:
                     Button {
                         requestAuthorization()
                     } label: {
-                        Label("enable", systemImage: "checkmark.circle")
+                        statusRow
                     }
+                    .buttonStyle(.plain)
                 case .denied:
                     Button {
                         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                         UIApplication.shared.open(url)
                     } label: {
-                        Label("settings_title", systemImage: "gear")
+                        statusRow
                     }
+                    .buttonStyle(.plain)
                 case .restricted, .authorized:
-                    EmptyView()
+                    statusRow
                 @unknown default:
-                    EmptyView()
+                    statusRow
                 }
             } footer: {
                 Text(usageDescription)
@@ -44,6 +39,16 @@ struct SiriSettingsView: View {
         .onAppear {
             authorizationStatus = SiriAuthorizationRuntime.status
         }
+    }
+
+    private var statusRow: some View {
+        HStack {
+            Label("Siri", systemImage: "waveform")
+            Spacer()
+            Image(systemName: statusImage)
+                .foregroundStyle(statusColor)
+        }
+        .contentShape(Rectangle())
     }
 
     private var statusImage: String {

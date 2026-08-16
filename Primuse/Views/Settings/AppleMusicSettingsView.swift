@@ -16,36 +16,23 @@ struct AppleMusicSettingsView: View {
     var body: some View {
         Form {
             Section {
-                statusRow
-                if appleMusic.authState == .notDetermined {
+                switch appleMusic.authState {
+                case .notDetermined:
                     Button {
                         Task { await appleMusic.requestAuthorization() }
                     } label: {
-                        Label(String(localized: "settings_apple_music_connect"),
-                              systemImage: "music.note")
+                        statusRow
                     }
-                } else if appleMusic.authState == .denied || appleMusic.authState == .restricted {
-                    Text(String(localized: "settings_apple_music_denied"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    #if os(iOS)
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        Link(destination: url) {
-                            Label(String(localized: "settings_apple_music_connect"),
-                                  systemImage: "gearshape")
-                        }
-                    }
-                    #else
-                    // macOS 走系统设置 → 隐私 → 媒体与 Apple Music。
+                    .buttonStyle(.plain)
+                case .denied, .restricted:
                     Button {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        openSystemSettings()
                     } label: {
-                        Label(String(localized: "settings_apple_music_connect"),
-                              systemImage: "gearshape")
+                        statusRow
                     }
-                    #endif
+                    .buttonStyle(.plain)
+                case .authorized:
+                    statusRow
                 }
             } footer: {
                 Text(String(localized: "settings_apple_music_footer"))
@@ -125,12 +112,33 @@ struct AppleMusicSettingsView: View {
 
     private var statusRow: some View {
         HStack {
-            Image(systemName: appleMusic.authState == .authorized
-                  ? "checkmark.circle.fill"
-                  : "circle.dashed")
-                .foregroundStyle(appleMusic.authState == .authorized ? .green : .secondary)
+            Image(systemName: authorizationStatusImage)
+                .foregroundStyle(authorizationStatusColor)
             Text(statusText)
             Spacer()
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var authorizationStatusImage: String {
+        switch appleMusic.authState {
+        case .authorized:
+            return "checkmark.circle.fill"
+        case .denied, .restricted:
+            return "exclamationmark.circle.fill"
+        case .notDetermined:
+            return "circle"
+        }
+    }
+
+    private var authorizationStatusColor: Color {
+        switch appleMusic.authState {
+        case .authorized:
+            return .green
+        case .denied, .restricted:
+            return .orange
+        case .notDetermined:
+            return .secondary
         }
     }
 
@@ -138,7 +146,18 @@ struct AppleMusicSettingsView: View {
         switch appleMusic.authState {
         case .authorized: return String(localized: "settings_apple_music_connected")
         case .denied, .restricted: return String(localized: "settings_apple_music_denied")
-        case .notDetermined: return ""
+        case .notDetermined: return String(localized: "settings_apple_music_connect")
         }
+    }
+
+    private func openSystemSettings() {
+        #if os(iOS)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #else
+        // macOS 走系统设置 → 隐私 → 媒体与 Apple Music。
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") else { return }
+        NSWorkspace.shared.open(url)
+        #endif
     }
 }
