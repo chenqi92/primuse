@@ -40,6 +40,66 @@ struct ImmersiveControlsStateTests {
     }
 }
 
+@Suite("Immersive presentation fallback")
+struct ImmersivePresentationFallbackPolicyTests {
+    @Test("Kinetic title remains selected without synchronized lyrics")
+    func lyricsFallback() {
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "kineticTitle",
+            hasSynchronizedLyrics: false,
+            hasArtwork: true
+        ) == "kineticTitle")
+    }
+
+    @Test("Artwork-dependent groups remain selected without artwork")
+    func artworkFallback() {
+        for selected in ["coverFlow", "coverGallery", "starryNight"] {
+            #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: selected,
+                hasSynchronizedLyrics: true,
+                hasArtwork: false
+            ) == selected)
+        }
+    }
+
+    @Test("Unknown stored values fall back to cover flow")
+    func unknownValueFallback() {
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "unknown",
+            hasSynchronizedLyrics: false,
+            hasArtwork: false
+        ) == "coverFlow")
+    }
+
+    @Test("Available content preserves the selected group")
+    func preservesSelection() {
+        for selected in [
+            "coverFlow", "coverGallery", "starryNight", "flowingLines",
+            "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+        ] {
+            #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: selected,
+                hasSynchronizedLyrics: true,
+                hasArtwork: true
+            ) == selected)
+        }
+    }
+
+    @Test("Legacy selections migrate to semantic effects")
+    func migratesLegacySelection() {
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "coverWall",
+            hasSynchronizedLyrics: true,
+            hasArtwork: true
+        ) == "coverGallery")
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "radialSpectrum",
+            hasSynchronizedLyrics: true,
+            hasArtwork: true
+        ) == "radialPulse")
+    }
+}
+
 @Suite("Now Playing landscape policy")
 struct NowPlayingLandscapePolicyTests {
     @Test("Normal lyrics stay distinct from immersive lyrics")

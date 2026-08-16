@@ -165,6 +165,24 @@
 "ext.tv.nowPlaying.eyebrow"                = "Aktuelle Wiedergabe";
 "ext.tv.nowPlaying.noLyrics"               = "Kein Liedtext";
 
+// tvOS — Immersive Vollbildwiedergabe
+"ext.tv.settings.immersive"                = "Immersiver Stil";
+"ext.tv.immersive.exitHint"                = "Menü drücken zum Beenden";
+"ext.tv.immersive.style.native"            = "Original";
+"ext.tv.immersive.style.lyrics"            = "Songtext";
+"ext.tv.immersive.style.cover"             = "Cover";
+"ext.tv.immersive.style.visualizer"        = "Visualisierung";
+"ext.tv.immersive.style.lightField"        = "Lichtfeld";
+"ext.tv.immersive.style.typography"        = "Typografie";
+"ext.tv.immersive.style.deepField"         = "Deep Field";
+"ext.tv.immersive.style.ambientBloom"      = "Ambient Bloom";
+"ext.tv.immersive.style.lyricStage"        = "Lyric Stage";
+"ext.tv.immersive.style.spectrum"          = "Spektrum";
+"ext.tv.immersive.style.vinyl"             = "Vinyl";
+"ext.tv.immersive.timelineDisclosure"      = "Zeitachsenbasiert · keine Live-Pegel";
+"ext.tv.immersive.lyricsHint"              = "Für Songtext nach oben wischen";
+"ext.tv.immersive.holdForQueue"            = "Für Warteschlange halten";
+
 // tvOS — Queue
 "ext.tv.queue.nowPlaying"                  = "Aktuelle Wiedergabe";
 "ext.tv.queue.upNext"                      = "Als Nächstes · %d Titel";

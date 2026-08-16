@@ -25,6 +25,11 @@ final class TVSFBEngine: NSObject, AudioPlayer.Delegate, @unchecked Sendable {
     func stop() { player.stop() }
     func seek(_ time: Double) { _ = player.seek(time: time) }
 
+    /// 在 SFBAudioEngine 自己的 AVAudioEngine 图上安全挂接/移除只读频谱 tap。
+    func modifyProcessingGraph(_ block: @escaping (AVAudioEngine) -> Void) {
+        player.modifyProcessingGraph(block)
+    }
+
     var isPlaying: Bool { player.isPlaying }
     var currentTime: Double { player.currentTime ?? 0 }
     var duration: Double { player.totalTime ?? 0 }

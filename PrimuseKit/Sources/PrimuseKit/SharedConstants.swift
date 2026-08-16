@@ -3663,3 +3663,45 @@ public enum SourceDirectorySelectionPolicy {
         }
     }
 }
+
+/// Keeps the selected immersive group stable. Missing lyrics or artwork are
+/// handled inside the scene so choosing one group never opens another group.
+public enum ImmersivePresentationFallbackPolicy {
+    public static func effectiveEffectRawValue(
+        selectedRawValue: String,
+        hasSynchronizedLyrics: Bool,
+        hasArtwork: Bool
+    ) -> String {
+        _ = hasSynchronizedLyrics
+        _ = hasArtwork
+        let supported = [
+            "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
+            "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+        ]
+        if supported.contains(selectedRawValue) {
+            return selectedRawValue
+        }
+
+        switch selectedRawValue {
+        case "cover", "deepField", "ambientBloom", "amberDust", "jadeMoss", "sectionIndigo",
+             "duotone", "daylight", "ambientRefined", "editorial", "coverDriven":
+            return "coverFlow"
+        case "coverWall":
+            return "coverGallery"
+        case "starField":
+            return "starryNight"
+        case "contour":
+            return "flowingLines"
+        case "lightField", "auroraDrift", "liquidChrome":
+            return "lightRhythm"
+        case "typography", "typeWall", "lyricStage", "lyrics":
+            return "kineticTitle"
+        case "radialSpectrum", "vinyl":
+            return "radialPulse"
+        case "spectrum", "visualizer":
+            return "liveWaveform"
+        default:
+            return "coverFlow"
+        }
+    }
+}

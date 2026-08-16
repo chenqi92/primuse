@@ -713,7 +713,7 @@ private final class PMWindowSafeSlider: NSSlider {
     }
 }
 
-private struct PMWindowResolver: NSViewRepresentable {
+struct PMWindowResolver: NSViewRepresentable {
     var onResolve: (NSWindow?) -> Void
 
     func makeNSView(context: Context) -> NSView {

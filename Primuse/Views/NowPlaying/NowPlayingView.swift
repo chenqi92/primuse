@@ -94,6 +94,7 @@ struct NowPlayingView: View {
 
     var onOpenAlbum: ((Album) -> Void)? = nil
     var onOpenArtist: ((Artist) -> Void)? = nil
+    var onMinimize: (() -> Void)? = nil
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -115,8 +116,10 @@ struct NowPlayingView: View {
     }
     @State private var showLyrics = false
     @State private var isLyricsImmersive = false
+    @State private var isFullscreenPlayerPresented = false
     @State private var immersiveControlsState = ImmersiveControlsState.inactive
     @State private var immersiveControlsAutoHideTask: Task<Void, Never>?
+    @State private var showsImmersiveEffectPicker = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsRevision: UInt = 0
@@ -150,6 +153,22 @@ struct NowPlayingView: View {
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
     // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+
+    private var fullscreenPlayerEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+    }
+
+    private var fullscreenPlayerEffectBinding: Binding<FullscreenPlayerEffect> {
+        Binding(
+            get: { fullscreenPlayerEffect },
+            set: { newValue in
+                fullscreenPlayerEffectRawValue = newValue.rawValue
+                FullscreenPlayerEffectSync.shared.select(newValue)
+            }
+        )
+    }
 
     /// Whether the current song is in any playlist (not a dedicated "favorites" concept)
     private var isInAnyPlaylist: Bool {
@@ -207,12 +226,37 @@ struct NowPlayingView: View {
     }
 
     private func presentImmersiveLyrics() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            showLyrics = true
-            isLyricsImmersive = true
-            immersiveControlsState = immersiveControlsState.applying(.present)
+        if fullscreenPlayerEffect == .native {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showLyrics = true
+                isLyricsImmersive = true
+                immersiveControlsState = immersiveControlsState.applying(.present)
+            }
+            scheduleImmersiveControlsAutoHide()
+        } else {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                isFullscreenPlayerPresented = true
+            }
         }
-        scheduleImmersiveControlsAutoHide()
+    }
+
+    private func applyFullscreenEffectPresentation(_ effect: FullscreenPlayerEffect) {
+        if effect == .native, isFullscreenPlayerPresented {
+            withAnimation(.easeInOut(duration: 0.24)) {
+                isFullscreenPlayerPresented = false
+                showLyrics = true
+                isLyricsImmersive = true
+                immersiveControlsState = immersiveControlsState.applying(.present)
+            }
+            scheduleImmersiveControlsAutoHide()
+        } else if effect != .native, isLyricsImmersive {
+            immersiveControlsAutoHideTask?.cancel()
+            withAnimation(.easeInOut(duration: 0.24)) {
+                isLyricsImmersive = false
+                immersiveControlsState = immersiveControlsState.applying(.dismiss)
+                isFullscreenPlayerPresented = true
+            }
+        }
     }
 
     private func dismissImmersiveLyrics() {
@@ -263,14 +307,18 @@ struct NowPlayingView: View {
 
     private func scheduleImmersiveControlsAutoHide() {
         immersiveControlsAutoHideTask?.cancel()
-        guard isLyricsImmersive, immersiveControlsState.isVisible else { return }
+        guard isLyricsImmersive,
+              immersiveControlsState.isVisible,
+              !showsImmersiveEffectPicker else { return }
         immersiveControlsAutoHideTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: .seconds(4))
             } catch {
                 return
             }
-            guard !Task.isCancelled, isLyricsImmersive else { return }
+            guard !Task.isCancelled,
+                  isLyricsImmersive,
+                  !showsImmersiveEffectPicker else { return }
             withAnimation(.easeOut(duration: 0.25)) {
                 immersiveControlsState = immersiveControlsState.applying(.autoHide)
             }
@@ -280,14 +328,33 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func lyricsFullScreenButton(font: Font, trailing: CGFloat = 0) -> some View {
         Button { presentImmersiveLyrics() } label: {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .font(font)
-                .foregroundStyle(appearance.secondary)
+            nowPlayingActionIcon(
+                symbol: "viewfinder.rectangular",
+                tint: appearance.primary
+            )
         }
         .frame(width: 44, height: 44)
+        .buttonStyle(.plain)
         .disabled(player.currentSong == nil)
         .padding(.trailing, trailing)
-        .accessibilityLabel(Text("lyrics_full_screen"))
+        .accessibilityLabel(Text("full_screen_player"))
+    }
+
+    private func nowPlayingActionIcon(
+        symbol: String,
+        tint: Color,
+        isSelected: Bool = false
+    ) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(tint)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: 38, height: 38)
+            .background(appearance.primary.opacity(isSelected ? 0.10 : 0.065), in: Circle())
+            .overlay {
+                Circle()
+                    .strokeBorder(appearance.primary.opacity(isSelected ? 0.24 : 0.14), lineWidth: 0.75)
+            }
     }
 
 
@@ -331,36 +398,74 @@ struct NowPlayingView: View {
             )
 
             ZStack {
-                // Opaque base — prevents content bleeding through
-                appearance.backgroundBase.ignoresSafeArea()
-                // Dynamic background from cover colors — fully opaque
-                backgroundGradient.ignoresSafeArea()
+                if !isFullscreenPlayerPresented {
+                    Group {
+                        // Opaque base — prevents content bleeding through
+                        appearance.backgroundBase.ignoresSafeArea()
+                        // Dynamic background from cover colors — fully opaque
+                        backgroundGradient.ignoresSafeArea()
 
-                if player.isLiveRadio {
-                    liveRadioLayout(geo: geo)
-                } else {
-                    switch landscapeMode {
-                    case .musicVideo:
-                        if let videoPlayer = player.musicVideoPlayer {
-                            landscapeMusicVideoLayout(videoPlayer: videoPlayer)
+                        if player.isLiveRadio {
+                            liveRadioLayout(geo: geo)
                         } else {
-                            portraitLayout(geo: geo, artSize: artSize)
-                        }
-                    case .immersiveLyrics:
-                        immersiveLandscapeLyricsLayout(geo: geo)
-                    case .standardLyrics:
-                        standardLandscapeLyricsLayout(geo: geo)
-                    case .none:
-                        if showLyrics {
-                            portraitLayout(geo: geo, artSize: artSize)
-                        } else if shouldUseWideLayout(geo: geo) {
-                            wideLandscapeLayout(geo: geo)
-                        } else {
-                            portraitLayout(geo: geo, artSize: artSize)
+                            switch landscapeMode {
+                            case .musicVideo:
+                                if let videoPlayer = player.musicVideoPlayer {
+                                    landscapeMusicVideoLayout(videoPlayer: videoPlayer)
+                                } else {
+                                    portraitLayout(geo: geo, artSize: artSize)
+                                }
+                            case .immersiveLyrics:
+                                immersiveLandscapeLyricsLayout(geo: geo)
+                            case .standardLyrics:
+                                standardLandscapeLyricsLayout(geo: geo)
+                            case .none:
+                                if showLyrics {
+                                    portraitLayout(geo: geo, artSize: artSize)
+                                } else if shouldUseWideLayout(geo: geo) {
+                                    wideLandscapeLayout(geo: geo)
+                                } else {
+                                    portraitLayout(geo: geo, artSize: artSize)
+                                }
+                            }
                         }
                     }
+                    .transition(.opacity)
                 }
+
+                #if os(iOS)
+                if isFullscreenPlayerPresented {
+                    ImmersivePlayerView(
+                        effect: fullscreenPlayerEffectBinding,
+                        lyrics: lyrics,
+                        onDismiss: {
+                            withAnimation(.easeInOut(duration: 0.24)) {
+                                isFullscreenPlayerPresented = false
+                            }
+                        },
+                        onMinimize: {
+                            isFullscreenPlayerPresented = false
+                            onMinimize?()
+                        },
+                        onShowQueue: { showQueue = true }
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 1.015)))
+                    .zIndex(100)
+                }
+                #endif
             }
+        }
+        .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        .onChange(of: showsImmersiveEffectPicker) { _, isPresented in
+            if isPresented {
+                immersiveControlsAutoHideTask?.cancel()
+            } else if isLyricsImmersive, immersiveControlsState.isVisible {
+                scheduleImmersiveControlsAutoHide()
+            }
+        }
+        .onChange(of: fullscreenPlayerEffectRawValue) { _, rawValue in
+            guard let effect = FullscreenPlayerEffect(rawValue: rawValue) else { return }
+            applyFullscreenEffectPresentation(effect)
         }
         .task(id: player.currentSong?.id) {
             if player.isLiveRadio {
@@ -798,13 +903,14 @@ struct NowPlayingView: View {
                 musicVideoToggleButton(font: .title2, trailing: 6)
                 lyricsFullScreenButton(font: .title2, trailing: 2)
                 Button { toggleLikedCurrent() } label: {
-                    Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                        .font(.title2)
-                        .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                        .contentTransition(.symbolEffect(.replace))
+                    nowPlayingActionIcon(
+                        symbol: isCurrentLiked ? "heart.fill" : "heart",
+                        tint: isCurrentLiked ? .red : appearance.secondary,
+                        isSelected: isCurrentLiked
+                    )
                 }
+                .frame(width: 44, height: 44)
                 .disabled(player.currentSong == nil)
-                .padding(.trailing, 6)
                 .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                 moreMenu
             }
@@ -962,15 +1068,15 @@ struct NowPlayingView: View {
                     Spacer()
 
                     lyricsFullScreenButton(font: .title3)
-                        .background(.ultraThinMaterial, in: Circle())
 
                     Button { toggleLikedCurrent() } label: {
-                        Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                            .font(.title3)
-                            .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                        nowPlayingActionIcon(
+                            symbol: isCurrentLiked ? "heart.fill" : "heart",
+                            tint: isCurrentLiked ? .red : appearance.secondary,
+                            isSelected: isCurrentLiked
+                        )
                     }
+                    .frame(width: 44, height: 44)
                     .buttonStyle(.plain)
                     .disabled(player.currentSong == nil)
                     .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
@@ -1145,11 +1251,13 @@ struct NowPlayingView: View {
                             lyricsFullScreenButton(font: .title3)
 
                             Button { toggleLikedCurrent() } label: {
-                                Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                                    .font(.title3)
-                                    .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                                    .contentTransition(.symbolEffect(.replace))
+                                nowPlayingActionIcon(
+                                    symbol: isCurrentLiked ? "heart.fill" : "heart",
+                                    tint: isCurrentLiked ? .red : appearance.secondary,
+                                    isSelected: isCurrentLiked
+                                )
                             }
+                            .frame(width: 44, height: 44)
                             .disabled(player.currentSong == nil)
                             .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
@@ -1206,13 +1314,14 @@ struct NowPlayingView: View {
 
                             // Like button
                             Button { toggleLikedCurrent() } label: {
-                                Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                                    .font(.title2)
-                                    .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                                    .contentTransition(.symbolEffect(.replace))
+                                nowPlayingActionIcon(
+                                    symbol: isCurrentLiked ? "heart.fill" : "heart",
+                                    tint: isCurrentLiked ? .red : appearance.secondary,
+                                    isSelected: isCurrentLiked
+                                )
                             }
+                            .frame(width: 44, height: 44)
                             .disabled(player.currentSong == nil)
-                            .padding(.trailing, 4)
                             .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                             // More menu
@@ -1343,9 +1452,10 @@ struct NowPlayingView: View {
     ) -> some View {
         ZStack {
             content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
 
-            if immersiveControlsState.isLocked {
+            if immersiveControlsState.isLocked || !immersiveControlsState.isVisible {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { handleImmersiveContentTap() }
@@ -1360,40 +1470,40 @@ struct NowPlayingView: View {
         if immersiveControlsState.showsPrimaryControls {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Button { lockImmersiveControls() } label: {
-                        Image(systemName: "lock")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(appearance.primary)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                    ImmersiveGlassActionButton(
+                        symbol: "lock",
+                        label: "immersive_lock_controls",
+                        tint: appearance.primary,
+                        diameter: 44
+                    ) {
+                        lockImmersiveControls()
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("immersive_lock_controls"))
 
                     Spacer()
 
-                    Button { toggleLikedCurrent() } label: {
-                        Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                            .font(.title3)
-                            .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                    immersiveEffectMenu
+
+                    ImmersiveGlassActionButton(
+                        symbol: isCurrentLiked ? "heart.fill" : "heart",
+                        label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                        tint: isCurrentLiked ? .red : appearance.primary,
+                        diameter: 44,
+                        isSelected: isCurrentLiked
+                    ) {
+                        toggleLikedCurrent()
                     }
-                    .buttonStyle(.plain)
                     .disabled(player.currentSong == nil)
-                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                     immersiveMoreMenu
 
-                    Button { dismissImmersiveLyrics() } label: {
-                        Image(systemName: "arrow.down.right.and.arrow.up.left")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(appearance.primary)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                    ImmersiveGlassActionButton(
+                        symbol: "arrow.down.right.and.arrow.up.left",
+                        label: "lyrics_exit_full_screen",
+                        tint: appearance.primary,
+                        diameter: 44
+                    ) {
+                        dismissImmersiveLyrics()
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("lyrics_exit_full_screen"))
                 }
                 .padding(.horizontal, isLandscape ? 24 : 20)
                 .padding(.top, max(topSafeArea, 10) + (isLandscape ? 0 : 8))
@@ -1615,6 +1725,29 @@ struct NowPlayingView: View {
 
     private var immersiveMoreMenu: some View {
         makeMoreMenu(immersiveChrome: true)
+    }
+
+    private var immersiveEffectMenu: some View {
+        Button {
+            immersiveControlsAutoHideTask?.cancel()
+            showsImmersiveEffectPicker = true
+        } label: {
+            ImmersiveGlassActionLabel(
+                symbol: "viewfinder.rectangular",
+                tint: appearance.primary,
+                diameter: 44,
+                isSelected: fullscreenPlayerEffect != .native
+            )
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showsImmersiveEffectPicker, arrowEdge: .top) {
+            ImmersiveEffectPickerPanel(selected: fullscreenPlayerEffect) { candidate in
+                showsImmersiveEffectPicker = false
+                fullscreenPlayerEffectBinding.wrappedValue = candidate
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
     }
 
     private func makeMoreMenu(immersiveChrome: Bool = false) -> some View {
@@ -2514,7 +2647,20 @@ private final class MusicVideoLayerView: NSView {
 struct ProgressSlider: View {
     let value: TimeInterval
     let total: TimeInterval
+    let fillTint: Color?
     let onSeek: (TimeInterval) -> Void
+
+    init(
+        value: TimeInterval,
+        total: TimeInterval,
+        fillTint: Color? = nil,
+        onSeek: @escaping (TimeInterval) -> Void
+    ) {
+        self.value = value
+        self.total = total
+        self.fillTint = fillTint
+        self.onSeek = onSeek
+    }
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -2537,6 +2683,7 @@ struct ProgressSlider: View {
     }
 
     private var fillColor: Color {
+        if let fillTint { return fillTint }
         guard theme.colorID != "default" else { return appearance.primary }
         return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
@@ -3251,6 +3398,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let snapshot: NowPlayingMoreMenuSnapshot
     @Binding var lyricsFontScale: Double
     @Binding var playbackRate: Float
+    @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
+    private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     let immersiveChrome: Bool
 
     let onAddToPlaylist: () -> Void
@@ -3387,6 +3536,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
+                Toggle(isOn: $lyricsMotionEnabled) {
+                    Label("歌词逐字动效", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+
                 Button(action: onShowSleepTimer) {
                     Label(
                         snapshot.isSleepTimerActive
@@ -3433,14 +3586,28 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             if immersiveChrome {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(appearance.primary)
+                    .foregroundStyle(appearance.primary.opacity(0.88))
                     .frame(width: 44, height: 44)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .environment(\.colorScheme, .dark)
+                        Circle().fill(.black.opacity(0.16))
+                    }
+                    .overlay {
+                        Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
+                    }
             } else {
-                Image(systemName: "ellipsis.circle.fill")
-                    .font(.title)
-                    .symbolRenderingMode(.hierarchical)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(appearance.secondary)
+                    .frame(width: 38, height: 38)
+                    .background(appearance.primary.opacity(0.065), in: Circle())
+                    .overlay {
+                        Circle()
+                            .strokeBorder(appearance.primary.opacity(0.14), lineWidth: 0.75)
+                    }
+                    .frame(width: 44, height: 44)
             }
         }
     }

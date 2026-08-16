@@ -162,6 +162,24 @@
 "ext.tv.nowPlaying.eyebrow"                = "正在播放";
 "ext.tv.nowPlaying.noLyrics"               = "暂无歌词";
 
+// tvOS — 沉浸全屏播放
+"ext.tv.settings.immersive"                = "沉浸风格";
+"ext.tv.immersive.exitHint"                = "按 Menu 键退出";
+"ext.tv.immersive.style.native"            = "原生";
+"ext.tv.immersive.style.lyrics"            = "歌词";
+"ext.tv.immersive.style.cover"             = "封面";
+"ext.tv.immersive.style.visualizer"        = "视觉化";
+"ext.tv.immersive.style.lightField"        = "光场";
+"ext.tv.immersive.style.typography"        = "排印";
+"ext.tv.immersive.style.deepField"         = "深空";
+"ext.tv.immersive.style.ambientBloom"      = "光晕";
+"ext.tv.immersive.style.lyricStage"        = "词台";
+"ext.tv.immersive.style.spectrum"          = "频谱";
+"ext.tv.immersive.style.vinyl"             = "黑胶";
+"ext.tv.immersive.timelineDisclosure"      = "时间线驱动 · 非实时电平";
+"ext.tv.immersive.lyricsHint"              = "上滑查看歌词";
+"ext.tv.immersive.holdForQueue"            = "按住选曲";
+
 // tvOS — Queue
 "ext.tv.queue.nowPlaying"                  = "正在播放";
 "ext.tv.queue.upNext"                      = "接下来 · %d 首";

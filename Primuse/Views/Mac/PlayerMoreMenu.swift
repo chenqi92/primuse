@@ -21,6 +21,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @Environment(SourcesStore.self) private var sourcesStore
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
+    private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
 
     @State private var showAddToPlaylist = false
     @State private var showScrapeOptions = false
@@ -253,6 +255,22 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 .buttonStyle(.plain)
             }
             divider()
+            Toggle(isOn: $lyricsMotionEnabled) {
+                HStack(spacing: 10) {
+                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                        .frame(width: 18)
+                        .foregroundStyle(PMColor.textMuted)
+                    Text("immersive_lyrics_motion_title")
+                        .font(.callout)
+                        .foregroundStyle(PMColor.text)
+                    Spacer()
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .pmRowBackground(cornerRadius: 6)
+                .contentShape(Rectangle())
+            }
+            .toggleStyle(.switch)
+
             // 字号子菜单 —— 用 popover 打开第二层。
             Button { fontPickerShown.toggle() } label: {
                 HStack(spacing: 10) {

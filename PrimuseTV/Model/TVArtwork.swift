@@ -611,6 +611,7 @@ struct TVArtworkView: View {
     var size: CGFloat
     var height: CGFloat? = nil
     var radius: CGFloat = 0
+    var onResolutionChange: (Bool) -> Void = { _ in }
 
     @State private var image: UIImage? = nil
     @State private var loadedIdentity: String? = nil
@@ -655,6 +656,7 @@ struct TVArtworkView: View {
                 loadedIdentity = nil
                 paletteAppliedIdentity = nil
                 image = nil
+                onResolutionChange(false)
                 return
             }
             guard loadedIdentity != identity || image == nil
@@ -703,6 +705,7 @@ struct TVArtworkView: View {
             }
             guard activeIdentity == identity, !Task.isCancelled else { return }
             loadedIdentity = identity
+            onResolutionChange(false)
             // A timeout or offline response is only a short-lived negative.
             // Keep a visible card recoverable even when its identity does not
             // change and no external cache notification arrives.
@@ -719,6 +722,9 @@ struct TVArtworkView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard notificationMatchesCurrentArtwork(note) else { return }
             forceArtworkReload()
+        }
+        .onChange(of: image != nil) { _, isResolved in
+            if isResolved { onResolutionChange(true) }
         }
     }
 
@@ -773,21 +779,30 @@ struct TVArtworkView: View {
         return true
     }
 
-    init(album a: TVAlbum, size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0) {
+    init(
+        album a: TVAlbum,
+        size: CGFloat,
+        height: CGFloat? = nil,
+        radius: CGFloat = 0,
+        onResolutionChange: @escaping (Bool) -> Void = { _ in }
+    ) {
         self.coverKey = a.id; self.artist = a.artist; self.album = a.title
         self.tint = a.tint; self.tint2 = a.tint2; self.glyph = a.glyph
         self.size = size; self.height = height; self.radius = radius
+        self.onResolutionChange = onResolutionChange
     }
     init(coverKey: String, artist: String, album: String,
          songID: String? = nil, coverRef: String? = nil,
          tint: Color, tint2: Color,
          glyph: String, placeholderKind: TVArtworkPlaceholderKind = .music,
-         size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0) {
+         size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0,
+         onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverKey = coverKey; self.artist = artist; self.album = album
         self.songID = songID; self.coverRef = coverRef
         self.tint = tint; self.tint2 = tint2; self.glyph = glyph
         self.placeholderKind = placeholderKind
         self.size = size; self.height = height; self.radius = radius
+        self.onResolutionChange = onResolutionChange
     }
 }
 #endif

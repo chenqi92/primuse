@@ -70,6 +70,7 @@ struct TVOptionsView: View {
             }
         }
         .onExitCommand { dismiss() }
+        .onAppear { FullscreenPlayerEffectSync.shared.install() }
     }
 
     private func actionTile(_ a: Action) -> some View {
@@ -84,6 +85,129 @@ struct TVOptionsView: View {
             .frame(width: 150, height: 150)
             .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong))
         }
+    }
+}
+
+struct TVFullscreenEffectPicker: View {
+    @Binding var selectedRawValue: String
+    @Binding var lyricsMotionEnabled: Bool
+    let onDismiss: () -> Void
+
+    @FocusState private var focusedEffect: FullscreenPlayerEffect?
+    @FocusState private var lyricsToggleFocused: Bool
+
+    private var selectedEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
+    }
+
+    var body: some View {
+        GeometryReader { _ in
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 18), count: 4)
+            ZStack {
+                Color.black.opacity(0.92).ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(PMString("ext.tv.settings.immersive"))
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(TVColor.text)
+                            Text("原生效果保持默认，另有 8 类动态场景可选")
+                                .font(.system(size: 17))
+                                .foregroundStyle(TVColor.textMuted)
+                        }
+                        Spacer()
+                        Button {
+                            lyricsMotionEnabled.toggle()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label("歌词逐字动效", systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 19, weight: .semibold))
+                                Text("换句时轻柔上移并淡入；关闭后歌词保持静态")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.white.opacity(0.58))
+                            }
+                            .foregroundStyle(lyricsMotionEnabled ? ImmersiveStagePalette.accent200 : .white.opacity(0.82))
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 13)
+                            .background(.white.opacity(lyricsToggleFocused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.20), lineWidth: 1) }
+                            .tvFocusRing(lyricsToggleFocused, radius: 14, accent: .white, scale: 1.04, lift: 5)
+                        }
+                        .buttonStyle(TVBareButtonStyle())
+                        .focused($lyricsToggleFocused)
+                        .focusEffectDisabled()
+                    }
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 24) {
+                            ForEach(FullscreenEffectCollection.allCases) { collection in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(collection.title)
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(TVColor.textMuted)
+
+                                    LazyVGrid(columns: columns, spacing: 18) {
+                                        ForEach(collection.effects) { candidate in
+                                            effectChoice(candidate)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.horizontal, 70)
+                .padding(.vertical, 46)
+            }
+        }
+        .focusSection()
+        .onAppear { focusedEffect = selectedEffect }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private func effectChoice(_ candidate: FullscreenPlayerEffect) -> some View {
+        let focused = focusedEffect == candidate
+        let selected = selectedEffect == candidate
+        return Button {
+            selectedRawValue = candidate.rawValue
+            FullscreenPlayerEffectSync.shared.select(candidate)
+            onDismiss()
+        } label: {
+            HStack(alignment: .top, spacing: 13) {
+                Image(systemName: candidate.symbolName)
+                    .font(.system(size: 24, weight: .bold))
+                    .frame(width: 42)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(candidate.tvTitle)
+                        .font(.system(size: 18, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                    Text(candidate.fallbackSubtitle)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .lineLimit(2)
+                    Label(candidate.motionDescription, systemImage: "waveform.path")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ImmersiveStagePalette.accent200.opacity(0.84))
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? ImmersiveStagePalette.accent200 : TVColor.text)
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .background(.white.opacity(focused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(selected ? ImmersiveStagePalette.accent300 : .white.opacity(0.20), lineWidth: selected ? 2 : 1)
+            }
+            .tvFocusRing(focused, radius: 14, accent: .white, scale: 1.04, lift: 6)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedEffect, equals: candidate)
+        .focusEffectDisabled()
     }
 }
 #endif

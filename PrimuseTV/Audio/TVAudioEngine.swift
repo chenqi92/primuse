@@ -1,9 +1,16 @@
 #if os(tvOS)
+import Accelerate
 import AVFoundation
 import Foundation
 import MediaPlayer
+import MediaToolbox
 import Observation
+import os.lock
 import PrimuseKit
+
+private enum TVSpectrumConfiguration {
+    static let bandCount = 32
+}
 
 /// tvOS 真实音频播放引擎 —— AVPlayer + AVAudioSession + Now Playing Info / 遥控中心。
 /// 只播纯 https 流(由 PrimuseKit 的 StreamResolver 解析得到的 URL)。
@@ -13,11 +20,25 @@ final class TVAudioEngine {
     enum Status: Equatable { case idle, loading, playing, paused, failed(String) }
 
     private(set) var status: Status = .idle
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false {
+        didSet {
+            guard oldValue != isPlaying, spectrumAnalysisEnabled else { return }
+            if isPlaying {
+                startSpectrumPolling()
+            } else {
+                suspendSpectrumPolling()
+            }
+        }
+    }
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
     private(set) var isVideoMode = false
     private(set) var isLiveStream = false
+    /// 32 个真实频段，供环形声谱与实时波形直接观察。没有采样时始终为零。
+    private(set) var spectrumLevels: [Float] = Array(
+        repeating: 0,
+        count: TVSpectrumConfiguration.bandCount
+    )
     var displayPlayer: AVPlayer { player }
 
     /// 一曲播完回调(队列推进用;Phase 1 可空)。
@@ -40,6 +61,13 @@ final class TVAudioEngine {
     private var liveMetadataOutput: AVPlayerItemMetadataOutput?
     private var liveMetadataReceiver: TVLiveMetadataReceiver?
     private var liveStartedAt: Date?
+    @ObservationIgnored private let spectrumPipeline = TVRealtimeSpectrumPipeline(capacity: 1024)
+    @ObservationIgnored private var spectrumTimer: Timer?
+    @ObservationIgnored private var processingTap: MTAudioProcessingTap?
+    @ObservationIgnored private weak var tappedMixer: AVAudioMixerNode?
+    @ObservationIgnored private var spectrumTask: Task<Void, Never>?
+    @ObservationIgnored private var spectrumSetupTask: Task<Void, Never>?
+    @ObservationIgnored private var spectrumAnalysisEnabled = false
 
     private struct LiveRequest: Sendable {
         let url: URL
@@ -396,6 +424,9 @@ final class TVAudioEngine {
             }
         }
         player.replaceCurrentItem(with: item)
+        if spectrumAnalysisEnabled {
+            installAVPlayerSpectrumTap(on: item, expectedItemID: observedItemID)
+        }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: item,
@@ -431,6 +462,7 @@ final class TVAudioEngine {
         startSFBPolling()
         do {
             try sfb.play(url: fileURL)
+            if spectrumAnalysisEnabled { installSFBSpectrumTap() }
             isPlaying = true
             status = .playing
             plog("📺 TV engine.loadDecoded(SFB) \(fileURL.lastPathComponent) dur=\(duration)")
@@ -489,6 +521,7 @@ final class TVAudioEngine {
             liveMetadataReceiver = nil
             liveStartedAt = nil
             isPlaying = false
+            resetSpectrumLevels()
             currentTime = 0
             status = .paused
             updateNowPlayingInfo()
@@ -496,6 +529,7 @@ final class TVAudioEngine {
         }
         if usingSFB { sfb.pause() } else { player.pause() }
         isPlaying = false
+        resetSpectrumLevels()
         status = .paused
         updateNowPlayingInfo()
     }
@@ -543,10 +577,143 @@ final class TVAudioEngine {
         }
     }
 
+    // MARK: 实时频谱
+
+    /// Only spectrum-backed immersive themes opt into PCM taps and FFT work.
+    /// Other screens no longer receive an invisible 25Hz observable update.
+    func setSpectrumAnalysisEnabled(_ enabled: Bool) {
+        guard spectrumAnalysisEnabled != enabled else { return }
+        spectrumAnalysisEnabled = enabled
+        if enabled {
+            installCurrentSpectrumSource()
+        } else {
+            clearSpectrumSource()
+        }
+    }
+
+    private func installCurrentSpectrumSource() {
+        guard spectrumAnalysisEnabled else { return }
+        if usingSFB {
+            installSFBSpectrumTap()
+        } else if usingLivePCM {
+            installMixerSpectrumTap(on: livePCMEngine.mainMixerNode)
+        } else if let item = player.currentItem, let activeItemID {
+            installAVPlayerSpectrumTap(on: item, expectedItemID: activeItemID)
+        }
+    }
+
+    /// AVPlayer 的解码结果通过 MTAudioProcessingTap 读取。它只旁路复制 PCM，
+    /// 不改变声音，也不使用与音乐无关的合成动画。
+    private func installAVPlayerSpectrumTap(
+        on item: AVPlayerItem,
+        expectedItemID: ObjectIdentifier
+    ) {
+        guard spectrumAnalysisEnabled else { return }
+        spectrumSetupTask?.cancel()
+        spectrumSetupTask = Task { [weak self, weak item] in
+            guard let item else { return }
+            do {
+                let tracks = try await item.asset.loadTracks(withMediaType: .audio)
+                guard !Task.isCancelled,
+                      let self,
+                      self.spectrumAnalysisEnabled,
+                      self.activeItemID == expectedItemID,
+                      let track = tracks.first,
+                      let tap = TVAudioProcessingTapFactory.make(pipeline: self.spectrumPipeline) else {
+                    return
+                }
+
+                let parameters = AVMutableAudioMixInputParameters(track: track)
+                parameters.audioTapProcessor = tap
+                let mix = AVMutableAudioMix()
+                mix.inputParameters = [parameters]
+                item.audioMix = mix
+                self.processingTap = tap
+                self.startSpectrumPolling()
+            } catch {
+                // 部分直播流没有可枚举的 AVAssetTrack；这时保持零频谱，绝不伪造数据。
+                plog("TVAudioEngine: spectrum track unavailable — \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func installSFBSpectrumTap() {
+        guard spectrumAnalysisEnabled else { return }
+        sfb.modifyProcessingGraph { [weak self] engine in
+            self?.installMixerSpectrumTap(on: engine.mainMixerNode)
+        }
+    }
+
+    private func installMixerSpectrumTap(on mixer: AVAudioMixerNode) {
+        guard spectrumAnalysisEnabled else { return }
+        if tappedMixer === mixer {
+            startSpectrumPolling()
+            return
+        }
+        if let tappedMixer { tappedMixer.removeTap(onBus: 0) }
+        let format = mixer.outputFormat(forBus: 0)
+        guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else {
+            return
+        }
+        TVMixerSpectrumTap.install(
+            on: mixer,
+            bufferSize: AVAudioFrameCount(spectrumPipeline.capacity),
+            format: format,
+            pipeline: spectrumPipeline
+        )
+        tappedMixer = mixer
+        startSpectrumPolling()
+    }
+
+    private func startSpectrumPolling() {
+        guard spectrumAnalysisEnabled, isPlaying, spectrumTask == nil else { return }
+        let pipeline = spectrumPipeline
+        spectrumTask = Task.detached(priority: .userInitiated) { [weak self, pipeline] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(40))
+                guard !Task.isCancelled else { break }
+                guard let next = pipeline.analyzeIfReady(
+                    bandCount: TVSpectrumConfiguration.bandCount
+                ) else { continue }
+                await MainActor.run { [weak self] in
+                    guard let self, self.spectrumAnalysisEnabled, self.isPlaying else { return }
+                    self.spectrumLevels = next
+                }
+            }
+        }
+    }
+
+    private func suspendSpectrumPolling() {
+        spectrumTask?.cancel()
+        spectrumTask = nil
+        resetSpectrumLevels()
+    }
+
+    private func clearSpectrumSource() {
+        spectrumSetupTask?.cancel()
+        spectrumSetupTask = nil
+        spectrumTask?.cancel()
+        spectrumTask = nil
+        if let tappedMixer {
+            tappedMixer.removeTap(onBus: 0)
+        }
+        tappedMixer = nil
+        player.currentItem?.audioMix = nil
+        processingTap = nil
+        spectrumPipeline.reset()
+        resetSpectrumLevels()
+    }
+
+    private func resetSpectrumLevels() {
+        guard spectrumLevels.contains(where: { $0 != 0 }) else { return }
+        spectrumLevels = Array(repeating: 0, count: TVSpectrumConfiguration.bandCount)
+    }
+
     // MARK: SFB(非原生格式)引擎切换 / 状态镜像
 
     /// 切回 AVPlayer 路径前,确保 SFB 引擎停掉、轮询取消。
     private func resetSFBIfNeeded() {
+        clearSpectrumSource()
         radioLiveStreamTask?.cancel()
         radioLiveStreamTask = nil
         radioLiveStreamSource?.cancel()
@@ -574,6 +741,9 @@ final class TVAudioEngine {
         }
         livePCMEngine.disconnectNodeOutput(livePCMNode)
         livePCMEngine.connect(livePCMNode, to: livePCMEngine.mainMixerNode, format: format)
+        if spectrumAnalysisEnabled {
+            installMixerSpectrumTap(on: livePCMEngine.mainMixerNode)
+        }
         livePCMEngine.prepare()
         try livePCMEngine.start()
         usingLivePCM = true
@@ -997,6 +1167,311 @@ private final class TVLiveMetadataReceiver: NSObject, AVPlayerItemMetadataOutput
                 return
             }
         }
+    }
+}
+
+/// 音频实时线程只把第一个声道复制进固定缓冲；FFT 始终在后台轮询任务执行。
+private final class TVRealtimeSpectrumPipeline: @unchecked Sendable {
+    let capacity: Int
+
+    private var samples: [Float]
+    private var analysisSamples: [Float]
+    private var hasFreshSamples = false
+    private var sampleLock = os_unfair_lock_s()
+    private var analysisLock = os_unfair_lock_s()
+    private var formatLock = os_unfair_lock_s()
+    private var acceptsFloat32 = false
+    private var sampleStride = 1
+    private let analyzer: TVSpectrumFFTAnalyzer
+
+    init(capacity: Int) {
+        self.capacity = capacity
+        self.samples = Array(repeating: 0, count: capacity)
+        self.analysisSamples = Array(repeating: 0, count: capacity)
+        self.analyzer = TVSpectrumFFTAnalyzer(
+            log2n: Int(log2(Double(capacity))),
+            bandCount: TVSpectrumConfiguration.bandCount
+        )
+    }
+
+    func configure(format: AudioStreamBasicDescription) {
+        os_unfair_lock_lock(&formatLock)
+        acceptsFloat32 = format.mFormatID == kAudioFormatLinearPCM
+            && (format.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+            && format.mBitsPerChannel == 32
+        sampleStride = (format.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+            ? 1
+            : max(Int(format.mChannelsPerFrame), 1)
+        os_unfair_lock_unlock(&formatLock)
+    }
+
+    func fill(from buffer: AVAudioPCMBuffer) {
+        guard let channel = buffer.floatChannelData else { return }
+        fill(pointer: channel[0], frameCount: Int(buffer.frameLength), stride: 1)
+    }
+
+    func fill(from buffers: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) {
+        os_unfair_lock_lock(&formatLock)
+        let supported = acceptsFloat32
+        let stride = sampleStride
+        os_unfair_lock_unlock(&formatLock)
+        guard supported, frameCount > 0 else { return }
+
+        let list = UnsafeMutableAudioBufferListPointer(buffers)
+        guard let first = list.first, let data = first.mData else { return }
+        let availableFrames = Int(first.mDataByteSize) / MemoryLayout<Float>.size / max(stride, 1)
+        let frames = min(frameCount, availableFrames)
+        guard frames > 0 else { return }
+        fill(
+            pointer: data.assumingMemoryBound(to: Float.self),
+            frameCount: frames,
+            stride: stride
+        )
+    }
+
+    private func fill(pointer: UnsafePointer<Float>, frameCount: Int, stride: Int) {
+        let frames = min(frameCount, capacity)
+        guard frames > 0, os_unfair_lock_trylock(&sampleLock) else { return }
+        samples.withUnsafeMutableBufferPointer { destination in
+            guard let base = destination.baseAddress else { return }
+            if stride == 1 {
+                memcpy(base, pointer, frames * MemoryLayout<Float>.size)
+            } else {
+                for index in 0..<frames {
+                    base[index] = pointer[index * stride]
+                }
+            }
+            if frames < capacity {
+                memset(
+                    base.advanced(by: frames),
+                    0,
+                    (capacity - frames) * MemoryLayout<Float>.size
+                )
+            }
+        }
+        hasFreshSamples = true
+        os_unfair_lock_unlock(&sampleLock)
+    }
+
+    func analyzeIfReady(bandCount: Int) -> [Float]? {
+        os_unfair_lock_lock(&analysisLock)
+        defer { os_unfair_lock_unlock(&analysisLock) }
+        os_unfair_lock_lock(&sampleLock)
+        guard hasFreshSamples else {
+            os_unfair_lock_unlock(&sampleLock)
+            return nil
+        }
+        hasFreshSamples = false
+        swap(&samples, &analysisSamples)
+        os_unfair_lock_unlock(&sampleLock)
+        return analyzer.bandLevels(samples: analysisSamples, bandCount: bandCount)
+    }
+
+    func reset() {
+        os_unfair_lock_lock(&sampleLock)
+        samples.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            memset(base, 0, buffer.count * MemoryLayout<Float>.size)
+        }
+        hasFreshSamples = false
+        os_unfair_lock_unlock(&sampleLock)
+        os_unfair_lock_lock(&formatLock)
+        acceptsFloat32 = false
+        sampleStride = 1
+        os_unfair_lock_unlock(&formatLock)
+    }
+}
+
+private enum TVMixerSpectrumTap {
+    static func install(
+        on node: AVAudioMixerNode,
+        bufferSize: AVAudioFrameCount,
+        format: AVAudioFormat,
+        pipeline: TVRealtimeSpectrumPipeline
+    ) {
+        node.installTap(onBus: 0, bufferSize: bufferSize, format: format) { buffer, _ in
+            pipeline.fill(from: buffer)
+        }
+    }
+}
+
+private enum TVAudioProcessingTapFactory {
+    static func make(pipeline: TVRealtimeSpectrumPipeline) -> MTAudioProcessingTap? {
+        var callbacks = MTAudioProcessingTapCallbacks(
+            version: kMTAudioProcessingTapCallbacksVersion_0,
+            clientInfo: Unmanaged.passUnretained(pipeline).toOpaque(),
+            init: { _, clientInfo, storageOut in
+                storageOut.pointee = clientInfo
+            },
+            finalize: nil,
+            prepare: { tap, _, processingFormat in
+                let pipeline = Unmanaged<TVRealtimeSpectrumPipeline>
+                    .fromOpaque(MTAudioProcessingTapGetStorage(tap))
+                    .takeUnretainedValue()
+                pipeline.configure(format: processingFormat.pointee)
+            },
+            unprepare: nil,
+            process: { tap, frameCount, _, bufferList, frameCountOut, flagsOut in
+                let status = MTAudioProcessingTapGetSourceAudio(
+                    tap,
+                    frameCount,
+                    bufferList,
+                    flagsOut,
+                    nil,
+                    frameCountOut
+                )
+                guard status == noErr, frameCountOut.pointee > 0 else { return }
+                let pipeline = Unmanaged<TVRealtimeSpectrumPipeline>
+                    .fromOpaque(MTAudioProcessingTapGetStorage(tap))
+                    .takeUnretainedValue()
+                pipeline.fill(from: bufferList, frameCount: frameCountOut.pointee)
+            }
+        )
+        var tap: MTAudioProcessingTap?
+        let status = MTAudioProcessingTapCreate(
+            kCFAllocatorDefault,
+            &callbacks,
+            kMTAudioProcessingTapCreationFlag_PostEffects,
+            &tap
+        )
+        return status == noErr ? tap : nil
+    }
+}
+
+private final class TVSpectrumFFTAnalyzer: @unchecked Sendable {
+    private let n: Int
+    private var window: [Float]
+    private let fft: vDSP.FFT<DSPSplitComplex>?
+    private var windowed: [Float]
+    private var real: [Float]
+    private var imaginary: [Float]
+    private var magnitudes: [Float]
+    private var roots: [Float]
+    private var bands: [Float]
+    private var spectrallySmoothed: [Float]
+    private var temporallySmoothed: [Float]
+
+    init(log2n: Int, bandCount: Int) {
+        n = 1 << log2n
+        var window = [Float](repeating: 0, count: n)
+        vDSP_hann_window(&window, vDSP_Length(n), Int32(vDSP_HANN_NORM))
+        self.window = window
+        fft = vDSP.FFT(
+            log2n: vDSP_Length(log2n),
+            radix: .radix2,
+            ofType: DSPSplitComplex.self
+        )
+        windowed = Array(repeating: 0, count: n)
+        real = Array(repeating: 0, count: n / 2)
+        imaginary = Array(repeating: 0, count: n / 2)
+        magnitudes = Array(repeating: 0, count: n / 2)
+        roots = Array(repeating: 0, count: n / 2)
+        bands = Array(repeating: 0, count: bandCount)
+        spectrallySmoothed = Array(repeating: 0, count: bandCount)
+        temporallySmoothed = Array(repeating: 0, count: bandCount)
+    }
+
+    func bandLevels(samples: [Float], bandCount: Int) -> [Float] {
+        guard samples.count >= n, let fft, bandCount > 0 else {
+            return Array(repeating: 0, count: max(bandCount, 0))
+        }
+        if bands.count != bandCount {
+            bands = Array(repeating: 0, count: bandCount)
+            spectrallySmoothed = Array(repeating: 0, count: bandCount)
+            temporallySmoothed = Array(repeating: 0, count: bandCount)
+        }
+
+        vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
+
+        windowed.withUnsafeBytes { bytes in
+            guard let source = bytes.bindMemory(to: DSPComplex.self).baseAddress else { return }
+            real.withUnsafeMutableBufferPointer { realBuffer in
+                imaginary.withUnsafeMutableBufferPointer { imaginaryBuffer in
+                    var split = DSPSplitComplex(
+                        realp: realBuffer.baseAddress!,
+                        imagp: imaginaryBuffer.baseAddress!
+                    )
+                    vDSP_ctoz(source, 2, &split, 1, vDSP_Length(n / 2))
+                }
+            }
+        }
+
+        real.withUnsafeMutableBufferPointer { realBuffer in
+            imaginary.withUnsafeMutableBufferPointer { imaginaryBuffer in
+                var split = DSPSplitComplex(
+                    realp: realBuffer.baseAddress!,
+                    imagp: imaginaryBuffer.baseAddress!
+                )
+                fft.forward(input: split, output: &split)
+            }
+        }
+
+        real.withUnsafeMutableBufferPointer { realBuffer in
+            imaginary.withUnsafeMutableBufferPointer { imaginaryBuffer in
+                var split = DSPSplitComplex(
+                    realp: realBuffer.baseAddress!,
+                    imagp: imaginaryBuffer.baseAddress!
+                )
+                vDSP_zvmags(&split, 1, &magnitudes, 1, vDSP_Length(n / 2))
+            }
+        }
+        var rootCount = Int32(n / 2)
+        vvsqrtf(&roots, magnitudes, &rootCount)
+        var fftScale = Float(2) / Float(n)
+        roots.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            vDSP_vsmul(
+                baseAddress,
+                1,
+                &fftScale,
+                baseAddress,
+                1,
+                vDSP_Length(n / 2)
+            )
+        }
+
+        let binCount = n / 2
+        let minimumBin = 2
+        let logarithmicMinimum = log(Float(minimumBin))
+        let logarithmicMaximum = log(Float(binCount - 1))
+        let step = (logarithmicMaximum - logarithmicMinimum) / Float(bandCount)
+
+        for band in 0..<bandCount {
+            let lower = Int(exp(logarithmicMinimum + Float(band) * step))
+            let upper = min(
+                max(lower + 1, Int(exp(logarithmicMinimum + Float(band + 1) * step))),
+                binCount
+            )
+            var sum: Float = 0
+            for index in lower..<upper { sum += roots[index] }
+            let average = sum / Float(max(1, upper - lower))
+            let decibels = 20 * log10f(max(1e-7, average))
+            let normalized = min(max((decibels + 72) / 64, 0), 1)
+            bands[band] = normalized < 0.035 ? 0 : powf(normalized, 0.72)
+        }
+
+        if bandCount > 2 {
+            spectrallySmoothed[0] = bands[0]
+            spectrallySmoothed[bandCount - 1] = bands[bandCount - 1]
+            for index in 1..<(bandCount - 1) {
+                spectrallySmoothed[index] = bands[index - 1] * 0.18
+                    + bands[index] * 0.64
+                    + bands[index + 1] * 0.18
+            }
+        } else {
+            for index in 0..<bandCount { spectrallySmoothed[index] = bands[index] }
+        }
+
+        for index in 0..<bandCount {
+            let old = temporallySmoothed[index]
+            let target = spectrallySmoothed[index]
+            let blend: Float = target >= old ? 0.72 : 0.18
+            temporallySmoothed[index] = old + (target - old) * blend
+        }
+
+        // Force one tiny 32-float output copy. Every FFT work buffer above is
+        // retained and reused; the audio callback never participates in COW.
+        return temporallySmoothed.withUnsafeBufferPointer { Array($0) }
     }
 }
 #endif

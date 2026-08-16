@@ -56,6 +56,7 @@ struct PrimuseTVApp: App {
                 .tint(TVColor.brand)
                 .onOpenURL { store.handleDeepLink($0) }
                 .task {
+                    FullscreenPlayerEffectSync.shared.install()
                     #if DEBUG
                     switch ProcessInfo.processInfo.environment["TV_AUDIO_SMOKE"] {
                     case "1": store.engine.runSmokeTest()

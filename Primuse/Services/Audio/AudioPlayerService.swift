@@ -675,6 +675,13 @@ final class AudioPlayerService {
     /// the @Observable macro tracks reads through `queueEntries`,
     /// so SwiftUI re-renders correctly when entries change.
     var queue: [Song] { queueEntries.map(\.song) }
+    /// Queue metadata accessors for views that only need a count or one row.
+    /// Avoid materializing a complete `[Song]` on every playback-time update.
+    var queueCount: Int { queueEntries.count }
+    func queuedSong(at index: Int) -> Song? {
+        guard queueEntries.indices.contains(index) else { return nil }
+        return queueEntries[index].song
+    }
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet {

@@ -165,6 +165,24 @@
 "ext.tv.nowPlaying.eyebrow"                = "En cours de lecture";
 "ext.tv.nowPlaying.noLyrics"               = "Aucune parole";
 
+// tvOS — Lecture plein écran immersive
+"ext.tv.settings.immersive"                = "Style immersif";
+"ext.tv.immersive.exitHint"                = "Appuyez sur Menu pour quitter";
+"ext.tv.immersive.style.native"            = "D’origine";
+"ext.tv.immersive.style.lyrics"            = "Paroles";
+"ext.tv.immersive.style.cover"             = "Pochette";
+"ext.tv.immersive.style.visualizer"        = "Visualiseur";
+"ext.tv.immersive.style.lightField"        = "Champ lumineux";
+"ext.tv.immersive.style.typography"        = "Typographie";
+"ext.tv.immersive.style.deepField"         = "Champ profond";
+"ext.tv.immersive.style.ambientBloom"      = "Halo ambiant";
+"ext.tv.immersive.style.lyricStage"        = "Scène paroles";
+"ext.tv.immersive.style.spectrum"          = "Spectre";
+"ext.tv.immersive.style.vinyl"             = "Vinyle";
+"ext.tv.immersive.timelineDisclosure"      = "Piloté par la chronologie · niveaux non temps réel";
+"ext.tv.immersive.lyricsHint"              = "Balayer vers le haut pour les paroles";
+"ext.tv.immersive.holdForQueue"            = "Maintenir pour la file";
+
 // tvOS — Queue
 "ext.tv.queue.nowPlaying"                  = "En cours de lecture";
 "ext.tv.queue.upNext"                      = "À suivre · %d titres";

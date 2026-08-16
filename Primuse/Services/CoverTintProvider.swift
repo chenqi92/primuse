@@ -24,7 +24,7 @@ final class CoverTintProvider {
     /// pressure via `clearCache()`. Covers don't change often, so a
     /// cold launch + extract pass for ~12 visible cards is cheap and
     /// the cache stays warm afterwards.
-    private var cache: [String: Color] = [:]
+    private var cache: [String: ImmersiveArtworkPalette] = [:]
     /// A valid cover was decoded but contained no representative chromatic
     /// region. Remembering that negative result avoids re-decoding grayscale
     /// artwork every time HomeView refreshes.
@@ -40,6 +40,11 @@ final class CoverTintProvider {
     /// fall back to plain Material until the cache fills in, at which
     /// point @Observable triggers a re-render.
     func tint(forSongID songID: String) -> Color? {
+        cache[songID]?.primary
+    }
+
+    /// 沉浸播放器使用完整的明暗双色，而不是把一个固定色套到所有场景。
+    func palette(forSongID songID: String) -> ImmersiveArtworkPalette? {
         cache[songID]
     }
 
@@ -62,7 +67,7 @@ final class CoverTintProvider {
             // Read/decode the small visible set serially on one utility task.
             // Publishing one completed dictionary avoids re-evaluating the
             // entire HomeView once for every individual cover tint.
-            var extracted: [String: Color] = [:]
+            var extracted: [String: ImmersiveArtworkPalette] = [:]
             var noColorIDs: Set<String> = []
             extracted.reserveCapacity(pending.count)
             for song in pending {
@@ -71,8 +76,8 @@ final class CoverTintProvider {
                     songID: song.id,
                     coverFileName: song.coverArtFileName
                 )
-                if let color = result.color {
-                    extracted[song.id] = color
+                if let palette = result.palette {
+                    extracted[song.id] = palette
                 } else if result.analyzedImage {
                     noColorIDs.insert(song.id)
                 }
@@ -137,7 +142,7 @@ final class CoverTintProvider {
     nonisolated private static func computeTint(
         songID: String,
         coverFileName: String?
-    ) -> (color: Color?, analyzedImage: Bool) {
+    ) -> (palette: ImmersiveArtworkPalette?, analyzedImage: Bool) {
         let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
         var data = MetadataAssetStore.shared.readCoverData(named: hashedName)
         if data == nil,
@@ -148,6 +153,7 @@ final class CoverTintProvider {
             data = MetadataAssetStore.shared.readCoverData(named: coverFileName)
         }
         guard let data, let image = PlatformImage(data: data) else { return (nil, false) }
-        return (ThemeService.extractDominantColor(from: image)?.accent, true)
+        let result = ThemeService.extractDominantColor(from: image)
+        return (result.map { ImmersiveArtworkPalette(primary: $0.accent, secondary: $0.dark) }, true)
     }
 }

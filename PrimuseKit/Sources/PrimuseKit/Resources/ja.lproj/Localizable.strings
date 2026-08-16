@@ -165,6 +165,24 @@
 "ext.tv.nowPlaying.eyebrow"                = "再生中";
 "ext.tv.nowPlaying.noLyrics"               = "歌詞がありません";
 
+// tvOS — 没入フルスクリーン再生
+"ext.tv.settings.immersive"                = "没入スタイル";
+"ext.tv.immersive.exitHint"                = "メニューボタンで戻る";
+"ext.tv.immersive.style.native"            = "Original";
+"ext.tv.immersive.style.lyrics"            = "Lyrics";
+"ext.tv.immersive.style.cover"             = "Artwork";
+"ext.tv.immersive.style.visualizer"        = "Visualizer";
+"ext.tv.immersive.style.lightField"        = "Light field";
+"ext.tv.immersive.style.typography"        = "Typography";
+"ext.tv.immersive.style.deepField"         = "Deep Field";
+"ext.tv.immersive.style.ambientBloom"      = "Ambient Bloom";
+"ext.tv.immersive.style.lyricStage"        = "Lyric Stage";
+"ext.tv.immersive.style.spectrum"          = "Spectrum";
+"ext.tv.immersive.style.vinyl"             = "Vinyl";
+"ext.tv.immersive.timelineDisclosure"      = "Timeline-driven · not live levels";
+"ext.tv.immersive.lyricsHint"              = "Swipe up for lyrics";
+"ext.tv.immersive.holdForQueue"            = "Hold for queue";
+
 // tvOS — Queue
 "ext.tv.queue.nowPlaying"                  = "再生中";
 "ext.tv.queue.upNext"                      = "次に再生 · %d曲";

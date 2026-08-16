@@ -43,6 +43,7 @@ struct CachedArtworkView: View {
     /// 但 coverRef / songID 这些 key 字段没变, onChange 不会触发时使用。
     /// 调用方传 player.coverRevision, 任意 bump 都会让本 view 重 loadImage。
     var revisionToken: Int = 0
+    var onResolutionChange: (Bool) -> Void = { _ in }
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: PlatformImage?
@@ -111,7 +112,8 @@ struct CachedArtworkView: View {
          sourceID: String? = nil, filePath: String? = nil,
          fileFormat: AudioFormat? = nil,
          showsPlaceholder: Bool = true,
-         revisionToken: Int = 0) {
+         revisionToken: Int = 0,
+         onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverFileName
         self.size = size
         self.cornerRadius = cornerRadius
@@ -120,6 +122,7 @@ struct CachedArtworkView: View {
         self.fileFormat = fileFormat
         self.showsPlaceholder = showsPlaceholder
         self.revisionToken = revisionToken
+        self.onResolutionChange = onResolutionChange
     }
 
     // New init with explicit songID
@@ -128,7 +131,8 @@ struct CachedArtworkView: View {
          fileFormat: AudioFormat? = nil,
          placeholderIcon: String = "music.note",
          showsPlaceholder: Bool = true,
-         revisionToken: Int = 0) {
+         revisionToken: Int = 0,
+         onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverRef
         self.songID = songID
         self.size = size
@@ -139,12 +143,14 @@ struct CachedArtworkView: View {
         self.placeholderIcon = placeholderIcon
         self.showsPlaceholder = showsPlaceholder
         self.revisionToken = revisionToken
+        self.onResolutionChange = onResolutionChange
     }
 
     // Album cover init — fetches via ArtworkFetchService if not cached
     init(albumID: String, albumTitle: String, artistName: String?,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
-         showsPlaceholder: Bool = true) {
+         showsPlaceholder: Bool = true,
+         onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = nil
         self.albumID = albumID
         self.albumTitle = albumTitle
@@ -153,12 +159,14 @@ struct CachedArtworkView: View {
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "square.stack"
         self.showsPlaceholder = showsPlaceholder
+        self.onResolutionChange = onResolutionChange
     }
 
     // Artist image init — fetches via ArtworkFetchService if not cached
     init(artistID: String, artistName: String,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
-         showsPlaceholder: Bool = true) {
+         showsPlaceholder: Bool = true,
+         onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = nil
         self.artistID = artistID
         self.artistName = artistName
@@ -166,6 +174,7 @@ struct CachedArtworkView: View {
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "music.mic"
         self.showsPlaceholder = showsPlaceholder
+        self.onResolutionChange = onResolutionChange
     }
 
     var body: some View {
@@ -180,6 +189,9 @@ struct CachedArtworkView: View {
         }
         .task(id: appleMusicArtworkIdentity) {
             await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
+        }
+        .onChange(of: hasResolvedArtwork) { _, isResolved in
+            if isResolved { onResolutionChange(true) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard shouldReload(after: note) else { return }
@@ -242,6 +254,10 @@ struct CachedArtworkView: View {
         return AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: amID)?.artwork
     }
 
+    private var hasResolvedArtwork: Bool {
+        appleMusicArtwork != nil || image != nil
+    }
+
     private var appleMusicArtworkIdentity: String {
         guard sourceID == AppleMusicLibraryService.systemSourceID,
               let filePath, !filePath.isEmpty else { return "" }
@@ -252,11 +268,15 @@ struct CachedArtworkView: View {
         guard !identity.isEmpty else {
             resolvedAppleMusicArtwork = nil
             resolvedAppleMusicArtworkID = nil
+            if sourceID == AppleMusicLibraryService.systemSourceID {
+                onResolutionChange(false)
+            }
             return
         }
         if let cached = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: identity)?.artwork {
             resolvedAppleMusicArtwork = cached
             resolvedAppleMusicArtworkID = identity
+            onResolutionChange(true)
             return
         }
         if resolvedAppleMusicArtworkID != identity {
@@ -267,6 +287,7 @@ struct CachedArtworkView: View {
         guard !Task.isCancelled, appleMusicArtworkIdentity == identity else { return }
         resolvedAppleMusicArtwork = resolved
         resolvedAppleMusicArtworkID = resolved == nil ? nil : identity
+        onResolutionChange(resolved != nil)
     }
 
     private var placeholderView: some View {
@@ -330,6 +351,7 @@ struct CachedArtworkView: View {
         guard !key.isEmpty else {
             if image != nil { image = nil }
             loadedIdentity = identity
+            onResolutionChange(hasResolvedArtwork)
             return
         }
 
@@ -345,12 +367,14 @@ struct CachedArtworkView: View {
         if let cached = Self.memoryCache.object(forKey: cacheNSKey) {
             loadedIdentity = identity
             image = cached
+            onResolutionChange(true)
             return
         }
 
         if Self.hasRecentFailure(for: failureNSKey) {
             loadedIdentity = identity
             if image != nil { image = nil }
+            onResolutionChange(hasResolvedArtwork)
             return
         }
 
@@ -389,6 +413,9 @@ struct CachedArtworkView: View {
             image = decoded
         } else if image != nil {
             image = nil
+        }
+        if sourceID != AppleMusicLibraryService.systemSourceID || appleMusicArtworkIdentity.isEmpty {
+            onResolutionChange(decoded != nil)
         }
         if decoded == nil {
             Self.failedLoadCache.setObject(NSDate(), forKey: failureNSKey)

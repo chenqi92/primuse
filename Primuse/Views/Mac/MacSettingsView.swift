@@ -3450,6 +3450,12 @@ private struct MacSTThemeView: View {
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+
+    private var fullscreenEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: fullscreenEffectRawValue) ?? .defaultValue
+    }
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
@@ -3480,7 +3486,7 @@ private struct MacSTThemeView: View {
     var body: some View {
         MacSTSection(Lz("Appearance")) {
             MacSTGroup {
-                MacSTRow(Lz("Theme"), divider: false, block: true) {
+                MacSTRow(Lz("Theme"), block: true) {
                     HStack(spacing: 8) {
                         MacThemeChoiceCard(title: Lz("Light"), icon: "sun.max", selected: preferences.colorScheme == .light) {
                             preferences.colorScheme = .light
@@ -3491,6 +3497,27 @@ private struct MacSTThemeView: View {
                         MacThemeChoiceCard(title: Lz("System"), icon: "desktopcomputer", selected: preferences.colorScheme == .system) {
                             preferences.colorScheme = .system
                         }
+                    }
+                }
+                MacSTRow(String(localized: "fullscreen_effect_settings_title"),
+                         hint: Lz("Shown when the player window goes full screen"),
+                         divider: false) {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        MacSTPicker(
+                            selection: $fullscreenEffectRawValue,
+                            options: FullscreenPlayerEffect.allCases.map { ($0.rawValue, $0.localizedTitle) },
+                            width: 230
+                        )
+                        Text(verbatim: fullscreenEffect.localizedSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(PMColor.textMuted)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 300, alignment: .trailing)
+                        Label(fullscreenEffect.motionDescription, systemImage: "waveform.path")
+                            .font(.caption2)
+                            .foregroundStyle(PMColor.brand)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 300, alignment: .trailing)
                     }
                 }
             }
@@ -3523,6 +3550,11 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $autoDetectMaterial)
                 }
             }
+        }
+        .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        .onChange(of: fullscreenEffectRawValue) { _, rawValue in
+            guard let effect = FullscreenPlayerEffect(rawValue: rawValue) else { return }
+            FullscreenPlayerEffectSync.shared.select(effect)
         }
 
         MacSTSection(Lz("Brand Color")) {

@@ -577,7 +577,8 @@ struct PlayerOverlay: View {
     var body: some View {
         NowPlayingView(
             onOpenAlbum: onOpenAlbum,
-            onOpenArtist: onOpenArtist
+            onOpenArtist: onOpenArtist,
+            onMinimize: dismissPlayer
         )
             .background {
                 GeometryReader { geo in

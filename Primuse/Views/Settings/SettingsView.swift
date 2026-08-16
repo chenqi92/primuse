@@ -99,6 +99,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        FullscreenPlayerEffectSettingsView()
+                    } label: {
+                        Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
+                    }
+
+                    NavigationLink {
                         AppIconSettingsView()
                     } label: {
                         Label("app_icon", systemImage: "app.badge")

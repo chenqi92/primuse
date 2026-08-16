@@ -12,8 +12,17 @@ struct TVSettingsView: View {
     @AppStorage("tvAutoSync") private var autoSync = true
     @AppStorage(TVAppearancePreference.storageKey)
     private var appearanceRawValue = TVAppearancePreference.system.rawValue
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var immersiveEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
+    private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @State private var showsEffectPicker = false
     @State private var isSyncing = false
     @State private var syncMsg: String?
+
+    private var immersiveEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: immersiveEffectRawValue) ?? .defaultValue
+    }
 
     private var version: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0.0" }
     private var build: String { (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "1" }
@@ -33,14 +42,18 @@ struct TVSettingsView: View {
     var body: some View {
         ZStack {
             TVColor.bg.ignoresSafeArea()
-            HStack(alignment: .top, spacing: 80) {
-                VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 80) {
+                    VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.settings.eyebrow")).padding(.bottom, 6)
                     Text(PMString("ext.tv.settings.general")).font(TVFont.pageTitle).foregroundStyle(TVColor.text).padding(.bottom, 24)
                     VStack(spacing: 12) {
                         navRow("icloud.fill", PMString("ext.tv.settings.icloudSync"), syncValue, trailing: "arrow.clockwise", action: sync)
                         toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
                         appearanceRow()
+                        navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
+                               immersiveEffect.tvTitle,
+                               action: { showsEffectPicker = true })
                         navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                         navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
                         navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
@@ -63,11 +76,31 @@ struct TVSettingsView: View {
                     }
                     .padding(.top, 32)
                 }
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.bottom, 24)
             .tvPage()
+
+            if showsEffectPicker {
+                TVFullscreenEffectPicker(
+                    selectedRawValue: $immersiveEffectRawValue,
+                    lyricsMotionEnabled: $lyricsMotionEnabled,
+                    onDismiss: { showsEffectPicker = false }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(10)
+            }
         }
-        .onExitCommand { dismiss() }
+        .animation(.easeInOut(duration: 0.24), value: showsEffectPicker)
+        .onExitCommand {
+            if showsEffectPicker {
+                showsEffectPicker = false
+            } else {
+                dismiss()
+            }
+        }
+        .onAppear { FullscreenPlayerEffectSync.shared.install() }
     }
 
     private func sync() {
@@ -179,6 +212,9 @@ struct TVSettingsView: View {
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
             .background(focused ? TVColor.surfaceStrong : TVColor.card)
+            .accessibilityValue(Text(isOn.wrappedValue
+                ? PMString("ext.tv.sources.status.enabled")
+                : PMString("ext.tv.sources.status.disabled")))
         }
     }
 

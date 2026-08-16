@@ -66,6 +66,7 @@ final class AppServices {
         // will hop here implicitly and we'd silently break invariants in
         // the services we own. Crash loudly instead.
         dispatchPrecondition(condition: .onQueue(.main))
+        FullscreenPlayerEffectSync.shared.install()
 
         if CloudSyncChannel.usesSynchronizableKeychain() {
             KeychainService.migrateLegacyEntriesToICloud()

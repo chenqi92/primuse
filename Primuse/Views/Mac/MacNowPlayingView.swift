@@ -20,6 +20,7 @@ struct MacNowPlayingView: View {
     var onClose: () -> Void
     var isScrapingCurrentSong: Bool
     var onScrapeCurrentSong: () -> Void
+    var onToggleQueue: () -> Void
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
     @Environment(MusicLibrary.self) private var library
@@ -38,6 +39,24 @@ struct MacNowPlayingView: View {
     /// 当前主窗口是否处于 macOS 全屏。全屏时使用设计稿 SYS-05 的
     /// NP-FullScreen 双栏布局: 隐藏侧栏后放大封面、歌词和浮动控制。
     @State private var isWindowFullScreen = false
+    @State private var showsNativeFullscreenEffectPicker = false
+    /// 全屏时是否切到「沉浸展示」(共享的 ImmersiveStageView),而非常规播放页。
+    @State private var showsImmersiveStage = false
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+
+    private var fullscreenPlayerEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+    }
+
+    /// 是否正在显示沉浸展示屏(仅全屏、有歌、非直播时)。
+    private var isImmersiveStageActive: Bool {
+        isWindowFullScreen
+            && fullscreenPlayerEffect != .native
+            && showsImmersiveStage
+            && player.currentSong != nil
+            && !player.isLiveRadio
+    }
 
     /// 与 iOS 共用同一个键 `lyricsFontScale` (0.7..1.8),通过 CloudKVS 双向同步。
     /// 之前的 `now_playing_lyrics_base_font` 是 macOS 独有的本地键,改这里
@@ -87,47 +106,62 @@ struct MacNowPlayingView: View {
 
     var body: some View {
         ZStack {
-            backdrop
-
-            if player.currentSong == nil {
-                emptyNowPlaying
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, 48)
-            } else if player.isLiveRadio {
-                radioNowPlaying
+            if isImmersiveStageActive {
+                MacImmersivePlayerView(
+                    lyrics: lyrics,
+                    onExitFullScreen: { exitFullScreen() },
+                    onToggleQueue: onToggleQueue
+                )
+                .transition(.opacity)
             } else {
-                HStack(alignment: .center, spacing: isWindowFullScreen ? 80 : 40) {
-                    artworkPane
-                        .frame(width: isWindowFullScreen ? 520 : 380)
-                        .frame(maxHeight: .infinity)
-                    lyricsPane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .padding(.horizontal, isWindowFullScreen ? 100 : 56)
-                .padding(.top, isWindowFullScreen ? 70 : 50)
-                .padding(.bottom, isWindowFullScreen ? 80 : 60)
-            }
+                ZStack {
+                    backdrop
 
-            VStack(alignment: .trailing, spacing: 10) {
-                if player.isLiveRadio {
-                    radioFloatingControls
-                } else {
-                    floatingControls
-                }
-                if isWindowFullScreen {
-                    fullscreenVolumeControl
+                    if player.currentSong == nil {
+                        emptyNowPlaying
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.horizontal, 48)
+                    } else if player.isLiveRadio {
+                        radioNowPlaying
+                    } else {
+                        HStack(alignment: .center, spacing: isWindowFullScreen ? 80 : 40) {
+                            artworkPane
+                                .frame(width: isWindowFullScreen ? 520 : 380)
+                                .frame(maxHeight: .infinity)
+                            lyricsPane
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .padding(.horizontal, isWindowFullScreen ? 100 : 56)
+                        .padding(.top, isWindowFullScreen ? 70 : 50)
+                        .padding(.bottom, isWindowFullScreen ? 80 : 60)
+                    }
+
+                    VStack(alignment: .trailing, spacing: 10) {
+                        if player.isLiveRadio {
+                            radioFloatingControls
+                        } else {
+                            floatingControls
+                        }
+                        if isWindowFullScreen {
+                            fullscreenVolumeControl
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(isWindowFullScreen ? 24 : 16)
                 }
             }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(isWindowFullScreen ? 24 : 16)
         }
         .overlay(alignment: .topLeading) {
-            if isWindowFullScreen {
-                exitFullScreenPill
+            if isWindowFullScreen, !isImmersiveStageActive {
+                HStack(spacing: 10) {
+                    exitFullScreenPill
+                    nativeFullscreenEffectMenu
+                }
                     .padding(.top, 18)
                     .padding(.leading, 22)
             }
         }
+        .animation(.easeInOut(duration: 0.28), value: isImmersiveStageActive)
         .background {
             NowPlayingWindowResolver { window in
                 hostWindow = window
@@ -136,6 +170,9 @@ struct MacNowPlayingView: View {
                 // 否则全屏下会错渲染成窗口版布局。
                 if let window {
                     isWindowFullScreen = window.styleMask.contains(.fullScreen)
+                    if isWindowFullScreen {
+                        showsImmersiveStage = fullscreenPlayerEffect != .native
+                    }
                 }
             }
         }
@@ -147,7 +184,9 @@ struct MacNowPlayingView: View {
             }
         }
         .background {
-            MacNowPlayingTimeObserver { updateIndex(time: $0) }
+            if !isImmersiveStageActive {
+                MacNowPlayingTimeObserver { updateIndex(time: $0) }
+            }
         }
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
@@ -166,10 +205,17 @@ struct MacNowPlayingView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === hostWindow else { return }
             isWindowFullScreen = true
+            showsImmersiveStage = fullscreenPlayerEffect != .native
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === hostWindow else { return }
             isWindowFullScreen = false
+            showsImmersiveStage = false
+        }
+        .onChange(of: fullscreenPlayerEffectRawValue) { _, rawValue in
+            guard isWindowFullScreen else { return }
+            let selected = FullscreenPlayerEffect(rawValue: rawValue) ?? .defaultValue
+            showsImmersiveStage = selected != .native
         }
     }
 
@@ -383,6 +429,7 @@ struct MacNowPlayingView: View {
 
                         if !isWindowFullScreen {
                             Button {
+                                showsImmersiveStage = fullscreenPlayerEffect != .native
                                 fullScreenWindow()?.toggleFullScreen(nil)
                             } label: {
                                 circleIcon("arrow.up.left.and.arrow.down.right")
@@ -762,6 +809,42 @@ struct MacNowPlayingView: View {
         .help(Text("exit_full_screen"))
     }
 
+    private var nativeFullscreenEffectMenu: some View {
+        Button {
+            showsNativeFullscreenEffectPicker = true
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "viewfinder.rectangular")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(verbatim: fullscreenPlayerEffect.localizedTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(playerPrimaryColor.opacity(0.88))
+            .padding(.horizontal, 14)
+            .frame(height: 30)
+            .background(playerGlassFill, in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(playerGlassBorder, lineWidth: 0.5)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .popover(isPresented: $showsNativeFullscreenEffectPicker, arrowEdge: .bottom) {
+            ImmersiveEffectPickerPanel(selected: fullscreenPlayerEffect) { candidate in
+                showsNativeFullscreenEffectPicker = false
+                selectFullscreenEffect(candidate)
+            }
+        }
+        .help(Text("fullscreen_effect_settings_title"))
+        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+    }
+
     private var floatingControls: some View {
         HStack(spacing: 8) {
             // Heart
@@ -934,6 +1017,11 @@ struct MacNowPlayingView: View {
         library.toggleLiked(songID: songID)
     }
 
+    private func selectFullscreenEffect(_ value: FullscreenPlayerEffect) {
+        fullscreenPlayerEffectRawValue = value.rawValue
+        FullscreenPlayerEffectSync.shared.select(value)
+    }
+
     private func exitFullScreen() {
         let window = fullScreenWindow()
         guard isWindowFullScreen || window?.styleMask.contains(.fullScreen) == true else { return }
@@ -941,13 +1029,7 @@ struct MacNowPlayingView: View {
     }
 
     private func fullScreenWindow() -> NSWindow? {
-        if let hostWindow, hostWindow.styleMask.contains(.fullScreen) {
-            return hostWindow
-        }
-        if let fullScreen = NSApp.windows.first(where: { $0.styleMask.contains(.fullScreen) }) {
-            return fullScreen
-        }
-        return hostWindow ?? NSApp.mainWindow ?? NSApp.keyWindow
+        hostWindow
     }
 
     // MARK: - Lyrics loading

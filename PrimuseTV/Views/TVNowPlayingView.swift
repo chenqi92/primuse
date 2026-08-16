@@ -19,8 +19,26 @@ struct TVNowPlayingView: View {
 
     @State private var showQueue = false
     @State private var showOptions = false
+    @State private var showImmersive = false
+    @State private var immersiveStartsWithEffectPicker = false
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    /// 最近一次遥控操作的时间戳。播放中静置一段时间自动进入沉浸展示。
+    @State private var lastInteraction = Date()
     @Namespace private var playerFocus
     @FocusState private var focusedTransport: TVNowPlayingFocusTarget?
+
+    /// 播放中静置多久自动进入沉浸展示(设计稿「展示屏」的待机语义)。
+    private let immersiveIdleThreshold: TimeInterval = 20
+
+    private var fullscreenPlayerEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+    }
+
+    private func presentImmersivePlayer() {
+        immersiveStartsWithEffectPicker = fullscreenPlayerEffect == .native
+        showImmersive = true
+    }
 
     var body: some View {
         ZStack {
@@ -34,6 +52,7 @@ struct TVNowPlayingView: View {
             }
         }
         .onAppear {
+            FullscreenPlayerEffectSync.shared.install()
             onContentAppeared(focusMode)
         }
         .task(id: focusRequest?.id) {
@@ -47,6 +66,35 @@ struct TVNowPlayingView: View {
         }
         .fullScreenCover(isPresented: $showQueue) { TVQueueView().environment(store) }
         .fullScreenCover(isPresented: $showOptions) { TVOptionsView().environment(store) }
+        .fullScreenCover(isPresented: $showImmersive) {
+            TVImmersivePlayerView(
+                presentsModePickerOnAppear: immersiveStartsWithEffectPicker
+            )
+            .environment(store)
+        }
+        .onChange(of: focusedTransport) { _, _ in
+            // 遥控切换焦点即视为有操作,推迟自动进入沉浸展示。
+            lastInteraction = Date()
+        }
+        .onChange(of: showImmersive) { _, presented in
+            if !presented {
+                immersiveStartsWithEffectPicker = false
+                lastInteraction = Date()
+            }
+        }
+        .task(id: store.hasNowPlaying) {
+            // 仅普通歌曲播放态跑空闲检测:直播 / MV 有自己的画面,不进入沉浸展示。
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard store.hasNowPlaying, store.isPlaying,
+                      !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
+                      fullscreenPlayerEffect != .native,
+                      !showImmersive, !showQueue, !showOptions else { continue }
+                if Date().timeIntervalSince(lastInteraction) >= immersiveIdleThreshold {
+                    showImmersive = true
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -219,7 +267,10 @@ struct TVNowPlayingView: View {
         action: @escaping () -> Void
     ) -> some View {
         let focused = focusedTransport == target
-        return Button(action: action) {
+        return Button {
+            lastInteraction = Date()
+            action()
+        } label: {
             Image(systemName: icon)
                 .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(primary
@@ -344,6 +395,7 @@ struct TVNowPlayingView: View {
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .trailing)
             TVScrubber(progress: p, tint: np.tint, immersiveDark: immersiveDark,
+                       currentTime: cur, duration: dur,
                        onBack: { store.skipBackward() }, onForward: { store.skipForward() })
             Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 16, design: .monospaced))
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
@@ -387,6 +439,10 @@ struct TVNowPlayingView: View {
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark) { store.cycleRepeatMode() }
             // 队列 / 更多移到同一行——和左侧传输键焦点左右线性可达,不再困在右上角。
+            TVRoundBtn(icon: "sparkles.tv", size: 64, immersiveDark: immersiveDark) {
+                lastInteraction = Date()
+                presentImmersivePlayer()
+            }
             TVRoundBtn(icon: "list.bullet", size: 64, immersiveDark: immersiveDark) { showQueue = true }
             TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark) { showOptions = true }
             Spacer()
@@ -481,6 +537,10 @@ struct TVNowPlayingView: View {
         .scaleEffect(scale, anchor: .leading)
         .opacity(opacity)
         .animation(.smooth(duration: 0.5, extraBounce: 0), value: cur)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(ln.text))
+        .accessibilityValue(Text(isCur ? PMString("playback") : ""))
+        .accessibilityAddTraits(isCur ? [.isSelected] : [])
     }
 }
 
@@ -577,6 +637,8 @@ private struct TVScrubber: View {
     let progress: Double
     let tint: Color
     var immersiveDark = false
+    let currentTime: Double
+    let duration: Double
     var onBack: () -> Void
     var onForward: () -> Void
     @FocusState private var focused: Bool
@@ -624,6 +686,16 @@ private struct TVScrubber: View {
             default: break
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(PMString("playback")))
+        .accessibilityValue(Text("\(TVFmt.time(currentTime)) / \(TVFmt.time(duration))"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: onForward()
+            case .decrement: onBack()
+            @unknown default: break
+            }
+        }
         .animation(.easeOut(duration: 0.18), value: focused)
     }
 }
@@ -636,6 +708,7 @@ struct TVRoundBtn: View {
     var primary: Bool = false
     var active: Bool = false   // 开启态(随机/循环)——图标染品牌色
     var immersiveDark: Bool = false
+    var accessibilityLabel: String?
     var action: () -> Void = {}
 
     var body: some View {
@@ -652,6 +725,19 @@ struct TVRoundBtn: View {
                             ? AnyShapeStyle(immersiveDark ? Color.white : TVColor.brand)
                             : AnyShapeStyle(immersiveDark ? Color.white.opacity(0.14) : TVColor.surfaceStrong),
                             in: Circle())
+        }
+        .accessibilityLabel(Text(accessibilityLabel ?? Self.defaultAccessibilityLabel(for: icon)))
+    }
+
+    private static func defaultAccessibilityLabel(for icon: String) -> String {
+        switch icon {
+        case "shuffle": return PMString("shuffle")
+        case "repeat", "repeat.1": return PMString("repeat")
+        case "list.bullet": return PMString("queue_title")
+        case "ellipsis": return PMString("more")
+        case "sparkles.tv": return PMString("ext.tv.settings.immersive")
+        case "play.rectangle", "play.rectangle.fill": return PMString("playback")
+        default: return icon
         }
     }
 }

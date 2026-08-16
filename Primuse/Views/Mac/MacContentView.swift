@@ -13,6 +13,7 @@ struct MacContentView: View {
     @State private var nowPlayingPresented = false
     @State private var queuePresented = false
     @State private var isWindowFullScreen = false
+    @State private var hostWindow: NSWindow?
     @State private var searchText = ""
     @State private var preferences = MacUIPreferences.shared
     @State private var showNewPlaylist = false
@@ -79,7 +80,12 @@ struct MacContentView: View {
                                 nowPlayingPresented = false
                             }
                         }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
-                           onScrapeCurrentSong: startCurrentSongLyricsScrape)
+                           onScrapeCurrentSong: startCurrentSongLyricsScrape,
+                           onToggleQueue: {
+                               withAnimation(.easeInOut(duration: 0.25)) {
+                                   queuePresented.toggle()
+                               }
+                           })
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
                     }
@@ -184,9 +190,20 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewSmartPlaylist)) { _ in
             showSmartEditor = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { _ in
-            withAnimation(.easeInOut(duration: 0.25)) {
-                nowPlayingPresented = true
+        .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { note in
+            let animated = note.userInfo?[PrimuseNowPlayingExpansion.animatedKey] as? Bool ?? true
+            if animated {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    nowPlayingPresented = true
+                    queuePresented = false
+                }
+            } else {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    nowPlayingPresented = true
+                    queuePresented = false
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectScrobble)) { _ in
@@ -200,14 +217,21 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectRadio)) { _ in
             selectRoute(.section(.radio))
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+        .background {
+            PMWindowResolver { window in
+                hostWindow = window
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            guard let window = note.object as? NSWindow, window === hostWindow else { return }
             isWindowFullScreen = true
             savedSidebarCollapsed = sidebarCollapsed
             withAnimation(.easeInOut(duration: 0.25)) {
                 sidebarCollapsed = true
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            guard let window = note.object as? NSWindow, window === hostWindow else { return }
             isWindowFullScreen = false
             withAnimation(.easeInOut(duration: 0.25)) {
                 sidebarCollapsed = savedSidebarCollapsed

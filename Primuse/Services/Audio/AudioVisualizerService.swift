@@ -4,7 +4,7 @@ import Foundation
 import os.lock
 
 /// 实时音频频谱可视化器 —— 在 AudioEngine 的 mainMixerNode 上挂 tap, 拿到
-/// 输出 buffer 做 FFT, 把 1024 点频谱压成 16 个频段强度发布给 UI。
+/// 输出 buffer 做 FFT, 把 1024 点频谱压成 32 个频段强度发布给 UI。
 ///
 /// **音频线程安全**:
 /// tap callback 跑在音频实时线程, 严格限制只做 memcpy + 翻 atomic flag,
@@ -20,7 +20,7 @@ import os.lock
 @Observable
 final class AudioVisualizerService {
     // nonisolated 让 detached Task 和 SwiftUI 视图都能直接读, 不用 hop main actor。
-    nonisolated static let bandCount = 16
+    nonisolated static let bandCount = 32
     nonisolated static let fftSize = 1024
 
     /// 0...1 归一化的频段强度。bandLevels.count == bandCount 永远成立。
@@ -62,12 +62,16 @@ final class AudioVisualizerService {
 
         // 用 detached Task 周期性拉 buffer 做 FFT, 跟音频线程完全解耦。
         // 25Hz 节流, 落到 main actor 才更新 @Observable bandLevels。
-        let analyzer = FFTAnalyzer(log2n: Int(log2(Double(Self.fftSize))))
+        let analyzer = FFTAnalyzer(
+            log2n: Int(log2(Double(Self.fftSize))),
+            bandCount: Self.bandCount
+        )
         pollTask = Task.detached(priority: .userInitiated) { [weak self, buffer, analyzer] in
+            var samples = [Float](repeating: 0, count: Self.fftSize)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(40))
                 guard !Task.isCancelled else { break }
-                guard let samples = buffer.consumeIfReady() else { continue }
+                guard buffer.copyLatest(into: &samples) else { continue }
                 let levels = analyzer.bandLevels(samples: samples, bandCount: Self.bandCount)
                 await MainActor.run { [weak self] in
                     self?.bandLevels = levels
@@ -110,42 +114,51 @@ private enum AudioVisualizerTap {
 /// actor hop 在音频线程不允许。Lock 失败时直接 drop frame (轮询 tick 下一帧
 /// 会取最新数据)。
 private final class SharedSampleBuffer: @unchecked Sendable {
-    private var data: [Float]
+    private let storage: UnsafeMutablePointer<Float>
     private var hasFresh = false
     private var lock = os_unfair_lock_s()
     let capacity: Int
 
     init(capacity: Int) {
         self.capacity = capacity
-        self.data = Array(repeating: 0, count: capacity)
+        self.storage = .allocate(capacity: capacity)
+        self.storage.initialize(repeating: 0, count: capacity)
     }
 
-    /// 音频线程调用。AVAudioPCMBuffer 第 0 声道前 capacity 个样本拷进 data。
+    deinit {
+        storage.deinitialize(count: capacity)
+        storage.deallocate()
+    }
+
+    /// 音频线程调用。AVAudioPCMBuffer 第 0 声道前 capacity 个样本拷进共享缓冲。
     /// 失败 (锁忙 / 格式不对) 直接返回, 不在音频线程做任何复杂的事。
     func fill(from buffer: AVAudioPCMBuffer) {
         guard let ch = buffer.floatChannelData else { return }
         let frames = min(Int(buffer.frameLength), capacity)
         guard frames > 0 else { return }
         guard os_unfair_lock_trylock(&lock) else { return }  // 锁忙就放弃这一帧
-        data.withUnsafeMutableBufferPointer { dst in
-            guard let base = dst.baseAddress else { return }
-            memcpy(base, ch[0], frames * MemoryLayout<Float>.size)
-            if frames < capacity {
-                // 不足 capacity 时把尾部置零, FFT 自然就少高频能量, 视觉上正常
-                memset(base.advanced(by: frames), 0, (capacity - frames) * MemoryLayout<Float>.size)
-            }
+        memcpy(storage, ch[0], frames * MemoryLayout<Float>.size)
+        if frames < capacity {
+            // 不足 capacity 时把尾部置零, FFT 自然就少高频能量, 视觉上正常
+            memset(storage.advanced(by: frames), 0, (capacity - frames) * MemoryLayout<Float>.size)
         }
         hasFresh = true
         os_unfair_lock_unlock(&lock)
     }
 
-    /// 后台 Task 调用。有新数据时返回 snapshot, 否则 nil。
-    func consumeIfReady() -> [Float]? {
+    /// 后台 Task 调用。目标数组由轮询任务一次性预分配，避免每个 FFT tick
+    /// 创建快照；音频线程写入的也是独立裸缓冲，不会触发 Array 写时复制。
+    func copyLatest(into destination: inout [Float]) -> Bool {
+        guard destination.count >= capacity else { return false }
         os_unfair_lock_lock(&lock)
         defer { os_unfair_lock_unlock(&lock) }
-        guard hasFresh else { return nil }
+        guard hasFresh else { return false }
+        destination.withUnsafeMutableBufferPointer { target in
+            guard let base = target.baseAddress else { return }
+            memcpy(base, storage, capacity * MemoryLayout<Float>.size)
+        }
         hasFresh = false
-        return data
+        return true
     }
 }
 
@@ -156,25 +169,43 @@ private final class FFTAnalyzer: @unchecked Sendable {
     private let n: Int
     private var window: [Float]
     private let fft: vDSP.FFT<DSPSplitComplex>?
+    private var windowed: [Float]
+    private var real: [Float]
+    private var imag: [Float]
+    private var magnitudes: [Float]
+    private var roots: [Float]
+    private var bands: [Float]
+    private var spectrallySmoothed: [Float]
+    private var temporallySmoothed: [Float]
 
-    init(log2n: Int) {
+    init(log2n: Int, bandCount: Int) {
         self.log2n = vDSP_Length(log2n)
         self.n = 1 << log2n
         var w = [Float](repeating: 0, count: 1 << log2n)
         vDSP_hann_window(&w, vDSP_Length(1 << log2n), Int32(vDSP_HANN_NORM))
         self.window = w
         self.fft = vDSP.FFT(log2n: vDSP_Length(log2n), radix: .radix2, ofType: DSPSplitComplex.self)
+        self.windowed = Array(repeating: 0, count: 1 << log2n)
+        self.real = Array(repeating: 0, count: (1 << log2n) / 2)
+        self.imag = Array(repeating: 0, count: (1 << log2n) / 2)
+        self.magnitudes = Array(repeating: 0, count: (1 << log2n) / 2)
+        self.roots = Array(repeating: 0, count: (1 << log2n) / 2)
+        self.bands = Array(repeating: 0, count: bandCount)
+        self.spectrallySmoothed = Array(repeating: 0, count: bandCount)
+        self.temporallySmoothed = Array(repeating: 0, count: bandCount)
     }
 
     func bandLevels(samples: [Float], bandCount: Int) -> [Float] {
         guard samples.count >= n, fft != nil else {
             return Array(repeating: 0, count: bandCount)
         }
-        var windowed = [Float](repeating: 0, count: n)
+        if bands.count != bandCount {
+            bands = Array(repeating: 0, count: bandCount)
+            spectrallySmoothed = Array(repeating: 0, count: bandCount)
+            temporallySmoothed = Array(repeating: 0, count: bandCount)
+        }
         vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
 
-        var real = [Float](repeating: 0, count: n / 2)
-        var imag = [Float](repeating: 0, count: n / 2)
         windowed.withUnsafeBytes { ptr in
             ptr.bindMemory(to: DSPComplex.self).baseAddress.map { src in
                 real.withUnsafeMutableBufferPointer { realBuf in
@@ -193,19 +224,30 @@ private final class FFTAnalyzer: @unchecked Sendable {
             }
         }
 
-        var magnitudes = [Float](repeating: 0, count: n / 2)
         real.withUnsafeMutableBufferPointer { realBuf in
             imag.withUnsafeMutableBufferPointer { imagBuf in
                 var split = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
                 vDSP_zvmags(&split, 1, &magnitudes, 1, vDSP_Length(n / 2))
             }
         }
-        var msqrt = [Float](repeating: 0, count: n / 2)
         var count = Int32(n / 2)
-        vvsqrtf(&msqrt, magnitudes, &count)
+        vvsqrtf(&roots, magnitudes, &count)
+        // vDSP 的正向 FFT 不会替我们按 N 归一化。少这一步时大部分音乐内容
+        // 都会超过 0 dB 后被夹成 1，表现成整排音符同时顶满、毫无层次。
+        var fftScale = Float(2) / Float(n)
+        roots.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            vDSP_vsmul(
+                baseAddress,
+                1,
+                &fftScale,
+                baseAddress,
+                1,
+                vDSP_Length(n / 2)
+            )
+        }
 
         let binCount = n / 2
-        var bands = [Float](repeating: 0, count: bandCount)
         let minBin = 2
         let maxBin = binCount - 1
         let logMin = log(Float(minBin))
@@ -216,12 +258,33 @@ private final class FFTAnalyzer: @unchecked Sendable {
             let hi = max(lo + 1, Int(exp(logMin + Float(b + 1) * step)))
             let upper = min(hi, binCount)
             var sum: Float = 0
-            for i in lo..<upper { sum += msqrt[i] }
+            for i in lo..<upper { sum += roots[i] }
             let avg = sum / Float(max(1, upper - lo))
             let db = 20 * log10f(max(1e-7, avg))
-            let clamped = max(-60, min(0, db))
-            bands[b] = (clamped + 60) / 60
+            let normalized = min(max((db + 72) / 64, 0), 1)
+            // 低电平适度展开、底噪直接归零；既保留弱乐器，又避免静音时
+            // 一圈短柱不停颤动。
+            bands[b] = normalized < 0.035 ? 0 : powf(normalized, 0.72)
         }
-        return bands
+
+        if bandCount > 2 {
+            spectrallySmoothed[0] = bands[0]
+            spectrallySmoothed[bandCount - 1] = bands[bandCount - 1]
+            for index in 1..<(bandCount - 1) {
+                spectrallySmoothed[index] = bands[index - 1] * 0.18
+                    + bands[index] * 0.64
+                    + bands[index + 1] * 0.18
+            }
+        } else {
+            for index in 0..<bandCount { spectrallySmoothed[index] = bands[index] }
+        }
+
+        for index in 0..<bandCount {
+            let old = temporallySmoothed[index]
+            let target = spectrallySmoothed[index]
+            let response: Float = target >= old ? 0.72 : 0.18
+            temporallySmoothed[index] = old + (target - old) * response
+        }
+        return temporallySmoothed.withUnsafeBufferPointer { Array($0) }
     }
 }

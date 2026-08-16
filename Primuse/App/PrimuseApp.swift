@@ -310,6 +310,10 @@ extension Notification.Name {
     static let primuseRequestExpandNowPlaying = Notification.Name("primuse.expandNowPlaying")
 }
 
+enum PrimuseNowPlayingExpansion {
+    static let animatedKey = "animated"
+}
+
 private enum MacScreenshotWindowPreset {
     private static let argumentPrefix = "--primuse-screenshot-window="
 
@@ -471,11 +475,21 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         if !window.collectionBehavior.contains(.fullScreenPrimary) {
             window.collectionBehavior.insert(.fullScreenPrimary)
         }
-        plog("🖥 FullScreen toggle window=\(window.title) isFull=\(window.styleMask.contains(.fullScreen)) cb=\(window.collectionBehavior.rawValue)")
-        if !window.styleMask.contains(.fullScreen) {
+        let isFullScreen = window.styleMask.contains(.fullScreen)
+        plog("🖥 FullScreen toggle window=\(window.title) isFull=\(isFullScreen) cb=\(window.collectionBehavior.rawValue)")
+
+        // 先用无动画事务把 Now Playing 安装到窗口中，下一轮主事件循环再交给
+        // AppKit 做原生全屏过渡。避免页面展开动画与窗口缩放同时抢主线程。
+        NotificationCenter.default.post(
+            name: .primuseRequestExpandNowPlaying,
+            object: nil,
+            userInfo: [PrimuseNowPlayingExpansion.animatedKey: false]
+        )
+        guard !isFullScreen else { return }
+        DispatchQueue.main.async { [weak window] in
+            guard let window, !window.styleMask.contains(.fullScreen) else { return }
             window.toggleFullScreen(nil)
         }
-        NotificationCenter.default.post(name: .primuseRequestExpandNowPlaying, object: nil)
     }
 
     @MainActor
