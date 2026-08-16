@@ -1472,53 +1472,55 @@ struct LyricsEditorView: View {
         line: EditableLyricLine,
         syllables: [LyricSyllable]
     ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Array(syllables.enumerated()), id: \.offset) { syllableIndex, syllable in
-                    let isSelected = selectedTextSyllable == SyllableSelection(
+        LyricsWordTimingFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+            ForEach(Array(syllables.enumerated()), id: \.offset) { syllableIndex, syllable in
+                let isSelected = selectedTextSyllable == SyllableSelection(
+                    lineID: line.id,
+                    index: syllableIndex
+                )
+                Button {
+                    selectedTextSyllable = SyllableSelection(
                         lineID: line.id,
                         index: syllableIndex
                     )
-                    Button {
-                        selectedTextSyllable = SyllableSelection(
-                            lineID: line.id,
-                            index: syllableIndex
-                        )
-                        if isLinkedToPlayback {
-                            player.seek(to: syllable.start)
-                        }
-                    } label: {
-                        VStack(spacing: 2) {
-                            Text(visibleSyllableText(syllable.text))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                            Text(timeLabel(syllable.start))
-                                .font(.system(size: 9, design: .monospaced))
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(
-                            isSelected ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08),
-                            in: .rect(cornerRadius: 6)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(
-                                    isSelected ? Color.accentColor.opacity(0.72) : Color.clear,
-                                    lineWidth: 1
-                                )
-                        }
+                    if isLinkedToPlayback {
+                        player.seek(to: syllable.start)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        "\(visibleSyllableText(syllable.text)), \(timeLabel(syllable.start))"
+                } label: {
+                    VStack(spacing: 2) {
+                        Text(visibleSyllableText(syllable.text))
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        Text(timeLabel(syllable.start))
+                            .font(.system(size: 9, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minWidth: 44, maxWidth: 166)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        isSelected ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08),
+                        in: .rect(cornerRadius: 6)
                     )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(
+                                isSelected ? Color.accentColor.opacity(0.72) : Color.clear,
+                                lineWidth: 1
+                            )
+                    }
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    "\(visibleSyllableText(syllable.text)), \(timeLabel(syllable.start))"
+                )
             }
         }
-        .scrollClipDisabled()
+        .frame(maxWidth: .infinity, alignment: .leading)
         .help(String(localized: "lyrics_editor_word_level_hint"))
     }
 
@@ -2463,5 +2465,75 @@ struct LyricsEditorView: View {
             .replacingOccurrences(of: " ", with: "␠")
             .replacingOccurrences(of: "\n", with: "↵")
         return visible.isEmpty ? "…" : visible
+    }
+}
+
+private struct LyricsWordTimingFlowLayout: Layout {
+    let horizontalSpacing: CGFloat
+    let verticalSpacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+
+        let idealWidth = subviews.reduce(CGFloat.zero) { width, subview in
+            width + subview.sizeThatFits(.unspecified).width
+        } + horizontalSpacing * CGFloat(max(0, subviews.count - 1))
+        let availableWidth = max(0, proposal.width ?? idealWidth)
+        let dimensions = dimensions(in: availableWidth, subviews: subviews)
+        return CGSize(width: availableWidth, height: dimensions.height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(size)
+            )
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+
+    private func dimensions(in availableWidth: CGFloat, subviews: Subviews) -> CGSize {
+        var x: CGFloat = 0
+        var height: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widestRow: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > availableWidth {
+                widestRow = max(widestRow, x - horizontalSpacing)
+                height += rowHeight + verticalSpacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        widestRow = max(widestRow, max(0, x - horizontalSpacing))
+        height += rowHeight
+        return CGSize(width: widestRow, height: height)
     }
 }
