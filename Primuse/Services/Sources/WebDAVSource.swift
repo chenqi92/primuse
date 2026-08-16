@@ -388,34 +388,52 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         }
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
         if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
-            let maximumWholeResource = 64 * 1024 * 1024
-            let (data, response) = try await TrustedHTTPTransport.data(
+            let requestedBodyBytes = Int(clamping: max(length, 0))
+            let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
+                ? Int.max
+                : requestedBodyBytes + 64 * 1024
+            let wholeResponsePrefixLimit: Int? = {
+                guard offset >= 0,
+                      let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+                    return nil
+                }
+                return Int(clamping: end)
+            }()
+            let (temporaryURL, response) = try await TrustedHTTPTransport.download(
                 for: request,
                 session: rangeSession,
-                maxBytes: maximumWholeResource
+                maximumRangedBodyBytes: maximumRangedBodyBytes,
+                wholeResponsePrefixLimit: wholeResponsePrefixLimit
             )
+            defer { try? FileManager.default.removeItem(at: temporaryURL) }
             guard let http = response as? HTTPURLResponse else {
                 throw SourceError.connectionFailed("Invalid WebDAV metadata response")
             }
+            let bodyLength = try temporaryResponseBodyLength(at: temporaryURL)
+            let responsePrefix = try boundedMetadataSlice(
+                temporaryURL,
+                offset: 0,
+                length: min(bodyLength, 4 * 1024)
+            )
             switch http.statusCode {
             case 206:
-                try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
+                try rejectNonMediaResponseIfNeeded(http, data: responsePrefix, path: path)
                 guard HTTPByteRangeResponsePolicy.validatedTotalLength(
                     contentRange: http.value(forHTTPHeaderField: "Content-Range"),
                     contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
-                    bodyLength: data.count,
+                    bodyLength: Int(clamping: bodyLength),
                     requestedOffset: offset,
                     requestedLength: length
                 ) != nil else {
                     throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
                 }
-                return data
+                return try boundedMetadataSlice(temporaryURL, offset: 0, length: length)
             case 200:
-                try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
-                let slice = try boundedMetadataSlice(data, offset: offset, length: length)
+                try rejectNonMediaResponseIfNeeded(http, data: responsePrefix, path: path)
+                let slice = try boundedMetadataSlice(temporaryURL, offset: offset, length: length)
                 if !didLogWholeResourceMetadataFallback {
                     didLogWholeResourceMetadataFallback = true
-                    plog("WebDAV metadata fallback: public HTTP server ignored Range; using a bounded in-memory metadata slice")
+                    plog("WebDAV metadata fallback: public HTTP server ignored Range; using a disk-backed metadata slice")
                 }
                 return slice
             default:
@@ -693,20 +711,38 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         return retained.subdata(in: Int(relativeStart)..<Int(relativeEnd))
     }
 
+    private func temporaryResponseBodyLength(at fileURL: URL) throws -> Int64 {
+        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+        guard let fileSize = values.fileSize else {
+            throw SourceError.connectionFailed("WebDAV metadata response size was unavailable")
+        }
+        return Int64(fileSize)
+    }
+
     private func boundedMetadataSlice(
-        _ data: Data,
+        _ fileURL: URL,
         offset: Int64,
         length: Int64
     ) throws -> Data {
         guard length > 0 else { return Data() }
-        let total = Int64(data.count)
+        let total = try temporaryResponseBodyLength(at: fileURL)
+        guard offset != Int64.min else {
+            throw SourceError.connectionFailed("WebDAV metadata response was empty")
+        }
         let start = offset < 0 ? max(0, total + offset) : offset
         guard start < total,
               let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
             throw SourceError.connectionFailed("WebDAV metadata response was empty")
         }
         let end = min(total, requestedEnd)
-        return data.subdata(in: Int(start)..<Int(end))
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(start))
+        let data = try handle.read(upToCount: Int(clamping: end - start)) ?? Data()
+        guard !data.isEmpty else {
+            throw SourceError.connectionFailed("WebDAV metadata response was empty")
+        }
+        return data
     }
 
     private func listFilesUsingTrustedTransport(at path: String) async throws -> [RemoteFileItem] {

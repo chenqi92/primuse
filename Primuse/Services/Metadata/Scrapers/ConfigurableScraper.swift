@@ -936,9 +936,17 @@ enum PlainHTTPClient {
         private var bodyBytes = 0
         private var fileHandle: FileHandle?
         private var returnedFile = false
+        private var intentionallyTruncatedWholeResponse = false
+        private let maximumRangedBodyBytes: Int?
+        private let wholeResponsePrefixLimit: Int?
         let fileURL: URL
 
-        init() throws {
+        init(
+            maximumRangedBodyBytes: Int? = nil,
+            wholeResponsePrefixLimit: Int? = nil
+        ) throws {
+            self.maximumRangedBodyBytes = maximumRangedBodyBytes
+            self.wholeResponsePrefixLimit = wholeResponsePrefixLimit
             fileURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("Primuse-HTTP-\(UUID().uuidString).download")
             guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
@@ -966,9 +974,9 @@ enum PlainHTTPClient {
                 parsedHeader = parsed
                 let initialBody = Data(headerBuffer[headerRange.upperBound...])
                 headerBuffer.removeAll(keepingCapacity: false)
-                try appendBody(initialBody)
+                if try appendBody(initialBody) { return true }
             } else {
-                try appendBody(data)
+                if try appendBody(data) { return true }
             }
 
             guard let parsedHeader, !parsedHeader.isChunked,
@@ -984,7 +992,8 @@ enum PlainHTTPClient {
             }
             if let contentLength = parsedHeader.contentLength,
                !parsedHeader.isChunked,
-               bodyBytes < contentLength {
+               bodyBytes < contentLength,
+               !intentionallyTruncatedWholeResponse {
                 throw ScraperError.networkError("Truncated HTTP response")
             }
 
@@ -1024,10 +1033,41 @@ enum PlainHTTPClient {
             }
         }
 
-        private func appendBody(_ data: Data) throws {
-            guard !data.isEmpty else { return }
+        private func appendBody(_ data: Data) throws -> Bool {
+            guard !data.isEmpty, let parsedHeader else { return false }
+
+            // A metadata head request only needs the requested prefix when a
+            // non-compliant server returns HTTP 200 for Range. Stop the socket
+            // as soon as that prefix is safely on disk instead of downloading
+            // the entire song. Chunked bodies still need complete decoding.
+            if parsedHeader.response.statusCode == 200,
+               !parsedHeader.isChunked,
+               let wholeResponsePrefixLimit {
+                let remaining = max(0, wholeResponsePrefixLimit - bodyBytes)
+                if remaining > 0 {
+                    let accepted = min(remaining, data.count)
+                    try fileHandle?.write(contentsOf: data.prefix(accepted))
+                    bodyBytes += accepted
+                }
+                if bodyBytes >= wholeResponsePrefixLimit {
+                    intentionallyTruncatedWholeResponse = parsedHeader.contentLength.map {
+                        $0 > bodyBytes
+                    } ?? true
+                    return true
+                }
+                return false
+            }
+
+            if let maximumRangedBodyBytes {
+                guard maximumRangedBodyBytes >= 0,
+                      bodyBytes <= maximumRangedBodyBytes,
+                      data.count <= maximumRangedBodyBytes - bodyBytes else {
+                    throw ScraperError.networkError("HTTP response too large")
+                }
+            }
             try fileHandle?.write(contentsOf: data)
             bodyBytes += data.count
+            return false
         }
     }
 
@@ -1084,6 +1124,7 @@ enum PlainHTTPClient {
     }
 
     static func data(for request: URLRequest, maxBytes: Int = defaultMaxBytes) async throws -> (Data, URLResponse) {
+        try Task.checkCancellation()
         guard let url = request.url,
               url.scheme == "http",
               let host = url.host,
@@ -1099,91 +1140,99 @@ enum PlainHTTPClient {
         // 与 ScraperSessionManager 的 URLSession timeoutIntervalForRequest 一致。
         let timeout = request.timeoutInterval > 0 ? request.timeoutInterval : 15
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let stateBox = StateBox()
+        let stateBox = StateBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                @Sendable func finish(_ result: Result<(Data, URLResponse), Error>) {
+                    guard stateBox.markResumed() else { return }
+                    connection.cancel()
+                    continuation.resume(with: result)
+                }
 
-            @Sendable func finish(_ result: Result<(Data, URLResponse), Error>) {
-                guard stateBox.markResumed() else { return }
-                connection.cancel()
-                continuation.resume(with: result)
-            }
+                // 整体超时:连接卡在 .preparing 或服务器接受连接后不回包时,
+                // receiveLoop 永不回调,这里兜底 cancel 连接并 finish,避免 continuation
+                // 永久挂起及 NWConnection 泄漏。finish 幂等,正常完成后此回调是 no-op。
+                queue.asyncAfter(deadline: .now() + timeout) {
+                    finish(.failure(ScraperError.networkError("HTTP request timed out after \(timeout.finiteInt())s")))
+                }
 
-            // 整体超时:连接卡在 .preparing 或服务器接受连接后不回包时,
-            // receiveLoop 永不回调,这里兜底 cancel 连接并 finish,避免 continuation
-            // 永久挂起及 NWConnection 泄漏。finish 幂等,正常完成后此回调是 no-op。
-            queue.asyncAfter(deadline: .now() + timeout) {
-                finish(.failure(ScraperError.networkError("HTTP request timed out after \(timeout.finiteInt())s")))
-            }
-
-            @Sendable func receiveLoop() {
-                connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
-                    if let error {
-                        finish(.failure(error))
-                        return
-                    }
-
-                    if let data, !data.isEmpty {
-                        guard stateBox.append(data, maxBytes: maxBytes) else {
-                            finish(.failure(ScraperError.networkError("HTTP response too large")))
+                @Sendable func receiveLoop() {
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
+                        if let error {
+                            finish(.failure(error))
                             return
                         }
 
-                        let snapshot = stateBox.snapshot()
-                        if let messageLength = HTTPResponseFramingPolicy.completeMessageLength(in: snapshot) {
+                        if let data, !data.isEmpty {
+                            guard stateBox.append(data, maxBytes: maxBytes) else {
+                                finish(.failure(ScraperError.networkError("HTTP response too large")))
+                                return
+                            }
+
+                            let snapshot = stateBox.snapshot()
+                            if let messageLength = HTTPResponseFramingPolicy.completeMessageLength(in: snapshot) {
+                                do {
+                                    let framedResponse = Data(snapshot.prefix(messageLength))
+                                    finish(.success(try parseResponse(framedResponse, for: url)))
+                                } catch {
+                                    finish(.failure(error))
+                                }
+                                return
+                            }
+                        }
+
+                        if isComplete || data?.isEmpty == true {
                             do {
-                                let framedResponse = Data(snapshot.prefix(messageLength))
-                                finish(.success(try parseResponse(framedResponse, for: url)))
+                                let parsed = try parseResponse(stateBox.snapshot(), for: url)
+                                finish(.success(parsed))
                             } catch {
                                 finish(.failure(error))
                             }
-                            return
+                        } else {
+                            receiveLoop()
                         }
                     }
+                }
 
-                    if isComplete || data?.isEmpty == true {
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready:
                         do {
-                            let parsed = try parseResponse(stateBox.snapshot(), for: url)
-                            finish(.success(parsed))
+                            let payload = try buildRequestData(for: request)
+                            connection.send(content: payload, completion: .contentProcessed { error in
+                                if let error {
+                                    finish(.failure(error))
+                                } else {
+                                    receiveLoop()
+                                }
+                            })
                         } catch {
                             finish(.failure(error))
                         }
-                    } else {
-                        receiveLoop()
-                    }
-                }
-            }
-
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    do {
-                        let payload = try buildRequestData(for: request)
-                        connection.send(content: payload, completion: .contentProcessed { error in
-                            if let error {
-                                finish(.failure(error))
-                            } else {
-                                receiveLoop()
-                            }
-                        })
-                    } catch {
+                    case .failed(let error):
                         finish(.failure(error))
+                    case .cancelled:
+                        finish(.failure(CancellationError()))
+                    default:
+                        break
                     }
-                case .failed(let error):
-                    finish(.failure(error))
-                case .cancelled:
-                    finish(.failure(ScraperError.networkError("HTTP connection cancelled")))
-                default:
-                    break
                 }
-            }
 
-            connection.start(queue: queue)
+                connection.start(queue: queue)
+            }
+        } onCancel: {
+            connection.cancel()
         }
     }
 
     /// Disk-backed download for large cleartext responses. The returned file
     /// has the same temporary lifetime contract as URLSession.download(for:).
-    static func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+    static func download(
+        for request: URLRequest,
+        maximumRangedBodyBytes: Int? = nil,
+        wholeResponsePrefixLimit: Int? = nil
+    ) async throws -> (URL, URLResponse) {
+        try Task.checkCancellation()
         guard let url = request.url,
               url.scheme?.lowercased() == "http",
               let host = url.host,
@@ -1195,74 +1244,81 @@ enum PlainHTTPClient {
         let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
         let queue = DispatchQueue(label: "Primuse.PlainHTTPDownload.\(UUID().uuidString)")
         let timeout = request.timeoutInterval > 0 ? request.timeoutInterval : 300
-        let stateBox = try DownloadStateBox()
+        let stateBox = try DownloadStateBox(
+            maximumRangedBodyBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: wholeResponsePrefixLimit
+        )
 
-        return try await withCheckedThrowingContinuation { continuation in
-            @Sendable func finish(_ result: Result<(URL, URLResponse), Error>) {
-                guard stateBox.markResumed() else { return }
-                connection.cancel()
-                if case .failure = result { stateBox.cleanup() }
-                continuation.resume(with: result)
-            }
-
-            queue.asyncAfter(deadline: .now() + timeout) {
-                finish(.failure(ScraperError.networkError("HTTP download timed out after \(timeout.finiteInt())s")))
-            }
-
-            @Sendable func completeDownload() {
-                do {
-                    finish(.success(try stateBox.finalize()))
-                } catch {
-                    finish(.failure(error))
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                @Sendable func finish(_ result: Result<(URL, URLResponse), Error>) {
+                    guard stateBox.markResumed() else { return }
+                    connection.cancel()
+                    if case .failure = result { stateBox.cleanup() }
+                    continuation.resume(with: result)
                 }
-            }
 
-            @Sendable func receiveLoop() {
-                connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { data, _, isComplete, error in
-                    if let error {
-                        finish(.failure(error))
-                        return
-                    }
+                queue.asyncAfter(deadline: .now() + timeout) {
+                    finish(.failure(ScraperError.networkError("HTTP download timed out after \(timeout.finiteInt())s")))
+                }
+
+                @Sendable func completeDownload() {
                     do {
-                        if let data, !data.isEmpty,
-                           try stateBox.consume(data, responseURL: url) {
-                            completeDownload()
+                        finish(.success(try stateBox.finalize()))
+                    } catch {
+                        finish(.failure(error))
+                    }
+                }
+
+                @Sendable func receiveLoop() {
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { data, _, isComplete, error in
+                        if let error {
+                            finish(.failure(error))
                             return
                         }
-                    } catch {
-                        finish(.failure(error))
-                        return
-                    }
+                        do {
+                            if let data, !data.isEmpty,
+                               try stateBox.consume(data, responseURL: url) {
+                                completeDownload()
+                                return
+                            }
+                        } catch {
+                            finish(.failure(error))
+                            return
+                        }
 
-                    if isComplete || data?.isEmpty == true {
-                        completeDownload()
-                    } else {
-                        receiveLoop()
+                        if isComplete || data?.isEmpty == true {
+                            completeDownload()
+                        } else {
+                            receiveLoop()
+                        }
                     }
                 }
-            }
 
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    do {
-                        let payload = try buildRequestData(for: request)
-                        connection.send(content: payload, completion: .contentProcessed { error in
-                            if let error { finish(.failure(error)) } else { receiveLoop() }
-                        })
-                    } catch {
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready:
+                        do {
+                            let payload = try buildRequestData(for: request)
+                            connection.send(content: payload, completion: .contentProcessed { error in
+                                if let error { finish(.failure(error)) } else { receiveLoop() }
+                            })
+                        } catch {
+                            finish(.failure(error))
+                        }
+                    case .failed(let error):
                         finish(.failure(error))
+                    case .cancelled:
+                        finish(.failure(CancellationError()))
+                    default:
+                        break
                     }
-                case .failed(let error):
-                    finish(.failure(error))
-                case .cancelled:
-                    finish(.failure(ScraperError.networkError("HTTP connection cancelled")))
-                default:
-                    break
                 }
-            }
 
-            connection.start(queue: queue)
+                connection.start(queue: queue)
+            }
+        } onCancel: {
+            connection.cancel()
         }
     }
 
