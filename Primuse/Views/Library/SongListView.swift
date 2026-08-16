@@ -449,6 +449,7 @@ struct SongListView: View {
     @State private var macViewMode: MacSongsViewMode = .list
     @State private var macRowDensity: MacSongsRowDensity = .standard
     @State private var visibleColumns: Set<MacSongsColumn> = MacSongsColumn.defaultVisible
+    @State private var macFolderPath: [LibraryFolderNodeID] = []
     /// 当前选中的数据源过滤 (nil = 全部)。设计稿 SourceFilterChips 是可点切换的。
     @State private var selectedSourceID: String? = nil
     @State private var showViewOptions = false
@@ -601,6 +602,7 @@ struct SongListView: View {
         content
             .songBatchActions(
                 selection: selection,
+                context: batchActionContext,
                 orderedIDs: { batchOrderedSongIDs },
                 resolve: { library.unobservedVisibleSong(id: $0) }
             )
@@ -647,6 +649,9 @@ struct SongListView: View {
                 cancelExplicitSortForNavigation()
                 storedBrowseModeRawValue = mode.rawValue
                 selection.deactivate()
+                #if os(macOS)
+                macFolderPath.removeAll()
+                #endif
                 #if os(iOS)
                 scheduleBrowseModeTransition(to: mode)
                 #endif
@@ -667,6 +672,12 @@ struct SongListView: View {
                 browseMode = storedMode
             }
             .onChange(of: searchText) { _, _ in
+                pruneSelection()
+            }
+            .onChange(of: folderCache.revision) { _, _ in
+                #if os(macOS)
+                validateMacFolderPath()
+                #endif
                 pruneSelection()
             }
             .onChange(of: library.songReplacementToken) { _, _ in
@@ -885,6 +896,64 @@ struct SongListView: View {
     #endif
 
     #if os(macOS)
+    private func openMacFolder(_ nodeID: LibraryFolderNodeID) {
+        let path = resolvedMacFolderPath(to: nodeID)
+        guard !path.isEmpty else { return }
+        selection.deactivate()
+        withAnimation(.snappy(duration: 0.22)) {
+            macFolderPath = path
+        }
+    }
+
+    private func navigateMacFolder(to nodeID: LibraryFolderNodeID?) {
+        selection.deactivate()
+        withAnimation(.snappy(duration: 0.22)) {
+            guard let nodeID else {
+                macFolderPath.removeAll()
+                return
+            }
+            if let index = macFolderPath.firstIndex(of: nodeID) {
+                macFolderPath = Array(macFolderPath.prefix(through: index))
+            } else {
+                macFolderPath = resolvedMacFolderPath(to: nodeID)
+            }
+        }
+    }
+
+    private func resolvedMacFolderPath(
+        to nodeID: LibraryFolderNodeID
+    ) -> [LibraryFolderNodeID] {
+        let rootIDs = Set(folderCache.rootNodes(sourceID: folderRootSourceID).map(\.id))
+        guard !rootIDs.isEmpty else { return [] }
+
+        var reversedPath: [LibraryFolderNodeID] = []
+        var visited: Set<LibraryFolderNodeID> = []
+        var cursor: LibraryFolderNodeID? = nodeID
+        var reachedVisibleRoot = false
+
+        while let currentID = cursor,
+              visited.insert(currentID).inserted,
+              let node = folderCache.node(withID: currentID) {
+            reversedPath.append(currentID)
+            if rootIDs.contains(currentID) {
+                reachedVisibleRoot = true
+                break
+            }
+            cursor = node.parentID
+        }
+
+        guard reachedVisibleRoot else { return [] }
+        return Array(reversedPath.reversed())
+    }
+
+    private func validateMacFolderPath() {
+        guard let nodeID = macFolderPath.last else { return }
+        let resolvedPath = resolvedMacFolderPath(to: nodeID)
+        guard resolvedPath != macFolderPath else { return }
+        selection.deactivate()
+        macFolderPath = resolvedPath
+    }
+
     private var macSongList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
@@ -906,13 +975,26 @@ struct SongListView: View {
                     macToolbarRow
 
                     if showsFolderBrowser {
-                        LibraryFolderRootContent(
-                            folderCache: folderCache,
-                            listCache: listCache,
-                            rootSourceID: folderRootSourceID,
-                            selection: selection,
-                            sortOrder: sortOrderBinding
-                        )
+                        if macFolderPath.isEmpty {
+                            LibraryFolderRootContent(
+                                folderCache: folderCache,
+                                listCache: listCache,
+                                rootSourceID: folderRootSourceID,
+                                selection: selection,
+                                sortOrder: sortOrderBinding,
+                                onOpenFolder: openMacFolder
+                            )
+                        } else {
+                            MacLibraryFolderInlineContent(
+                                folderPath: macFolderPath,
+                                folderCache: folderCache,
+                                listCache: listCache,
+                                selection: selection,
+                                sortOrder: sortOrderBinding,
+                                onOpenFolder: openMacFolder,
+                                onNavigate: navigateMacFolder
+                            )
+                        }
                     } else if filteredRows.isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .padding(.top, 48)
@@ -1948,7 +2030,26 @@ struct SongListView: View {
     }
 
     private var batchOrderedSongIDs: [String] {
-        showsFolderBrowser ? listCache.orderedSongIDs : filteredSongIDs
+        #if os(macOS)
+        if showsFolderBrowser, let nodeID = macFolderPath.last {
+            return folderCache.orderedSongIDs(
+                in: nodeID,
+                scope: .action,
+                listCache: listCache
+            )
+        }
+        #endif
+        return showsFolderBrowser ? listCache.orderedSongIDs : filteredSongIDs
+    }
+
+    private var batchActionContext: SongBatchActionContext {
+        #if os(macOS)
+        if showsFolderBrowser,
+           macFolderPath.last?.sourceID == AppleMusicLibraryIdentity.sourceID {
+            return .readOnly
+        }
+        #endif
+        return .library
     }
 
     /// Materialize Song values only for explicit actions (queue, export,
@@ -2722,7 +2823,8 @@ private struct LibraryFolderRootView: View {
                 listCache: listCache,
                 rootSourceID: rootSourceID,
                 selection: selection,
-                sortOrder: $sortOrder
+                sortOrder: $sortOrder,
+                onOpenFolder: nil
             )
             .padding(.horizontal, 12)
             .padding(.bottom, 112)
@@ -2737,6 +2839,7 @@ private struct LibraryFolderRootContent: View {
     let rootSourceID: String?
     let selection: SongSelectionModel
     @Binding var sortOrder: SongListView.SongSortOrder
+    let onOpenFolder: ((LibraryFolderNodeID) -> Void)?
 
     var body: some View {
         let nodes = folderCache.rootNodes(sourceID: rootSourceID)
@@ -2757,7 +2860,8 @@ private struct LibraryFolderRootContent: View {
                         folderCache: folderCache,
                         listCache: listCache,
                         selection: selection,
-                        sortOrder: $sortOrder
+                        sortOrder: $sortOrder,
+                        onOpenFolder: onOpenFolder
                     )
                     .id(node.id)
                 }
@@ -2766,6 +2870,221 @@ private struct LibraryFolderRootContent: View {
     }
 }
 
+#if os(macOS)
+private struct MacLibraryFolderInlineContent: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @Environment(ThemeService.self) private var theme
+
+    let folderPath: [LibraryFolderNodeID]
+    let folderCache: LibraryFolderBrowserCache
+    let listCache: SongListCache
+    let selection: SongSelectionModel
+    @Binding var sortOrder: SongListView.SongSortOrder
+    let onOpenFolder: (LibraryFolderNodeID) -> Void
+    let onNavigate: (LibraryFolderNodeID?) -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if let nodeID = folderPath.last,
+           let node = folderCache.node(withID: nodeID) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                navigationBar(node)
+
+                let children = folderCache.children(of: nodeID)
+                if !children.isEmpty {
+                    sectionHeader("shared_folders")
+                    ForEach(children) { child in
+                        LibraryFolderNodeBranch(
+                            nodeID: child.id,
+                            depth: 0,
+                            folderCache: folderCache,
+                            listCache: listCache,
+                            selection: selection,
+                            sortOrder: $sortOrder,
+                            onOpenFolder: onOpenFolder
+                        )
+                        .id(child.id)
+                    }
+                }
+
+                if !visibleSongIDs.isEmpty {
+                    sectionHeader("tab_songs")
+                    ForEach(visibleSongIDs, id: \.self) { songID in
+                        LibraryFolderSongRow(
+                            songID: songID,
+                            orderedIDs: { visibleSongIDs },
+                            listCache: listCache,
+                            selection: selection,
+                            onPlay: playSong
+                        )
+                        .id(songID)
+                    }
+                }
+
+                if children.isEmpty && visibleSongIDs.isEmpty {
+                    ContentUnavailableView(
+                        "no_songs",
+                        systemImage: "folder",
+                        description: Text("no_songs_desc")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 48)
+                }
+            }
+        } else {
+            ContentUnavailableView(
+                "no_songs",
+                systemImage: "folder.badge.questionmark",
+                description: Text("no_songs_desc")
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.top, 48)
+        }
+    }
+
+    private func navigationBar(_ node: LibraryFolderNode) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                onNavigate(folderPath.dropLast().last)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .background(PMColor.glassBtn, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(PMColor.text)
+            .help(parentTitle)
+            .accessibilityLabel(Text(verbatim: parentTitle))
+
+            Divider()
+                .frame(height: 18)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    Button {
+                        onNavigate(nil)
+                    } label: {
+                        Label("library_browse_folder", systemImage: "folder")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accentColor)
+
+                    ForEach(folderPath.indices, id: \.self) { index in
+                        if let pathNode = folderCache.node(withID: folderPath[index]) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(PMColor.textFaint)
+                                .accessibilityHidden(true)
+
+                            if index == folderPath.count - 1 {
+                                Text(verbatim: LibraryFolderNodePresentation.title(for: pathNode))
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(PMColor.text)
+                            } else {
+                                Button {
+                                    onNavigate(pathNode.id)
+                                } label: {
+                                    Text(verbatim: LibraryFolderNodePresentation.title(for: pathNode))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(theme.accentColor)
+                            }
+                        }
+                    }
+                }
+                .font(.system(size: 12.5, weight: .medium))
+                .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(verbatim: LibraryFolderNodePresentation.songCount(node.descendantSongCount))
+                .font(.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .monospacedDigit()
+                .fixedSize()
+
+            Button(action: playAllSongsInFolder) {
+                Label("play_all", systemImage: "play.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .background(theme.accentColor, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(actionSongIDs.isEmpty || selection.isActive)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 48)
+        .background(PMColor.card, in: .rect(cornerRadius: PMRadius.m))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .padding(.bottom, 4)
+    }
+
+    private var parentTitle: String {
+        guard let parentID = folderPath.dropLast().last,
+              let parent = folderCache.node(withID: parentID) else {
+            return String(localized: "library_browse_folder")
+        }
+        return LibraryFolderNodePresentation.title(for: parent)
+    }
+
+    private var visibleSongIDs: [String] {
+        guard let nodeID = folderPath.last else { return [] }
+        return folderCache.orderedSongIDs(
+            in: nodeID,
+            scope: .visible,
+            listCache: listCache
+        )
+    }
+
+    private var actionSongIDs: [String] {
+        guard let nodeID = folderPath.last else { return [] }
+        return folderCache.orderedSongIDs(
+            in: nodeID,
+            scope: .action,
+            listCache: listCache
+        )
+    }
+
+    private func sectionHeader(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.headline)
+            .foregroundStyle(PMColor.textMuted)
+            .padding(.horizontal, 12)
+            .padding(.top, 20)
+            .padding(.bottom, 8)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func playAllSongsInFolder() {
+        let queue = actionSongIDs
+            .compactMap { library.unobservedVisibleSong(id: $0) }
+            .filteredPlayable()
+        guard let first = queue.first else { return }
+        player.setQueue(queue, startAt: 0)
+        SiriMediaInteractionDonor.donate(song: first)
+        Task { await player.play(song: first) }
+    }
+
+    private func playSong(_ song: Song) {
+        let queue = visibleSongIDs
+            .compactMap { library.unobservedVisibleSong(id: $0) }
+            .filteredPlayable()
+        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(queue, startAt: index)
+        SiriMediaInteractionDonor.donate(song: song)
+        Task { await player.play(song: song) }
+    }
+}
+#endif
+
 private struct LibraryFolderNodeBranch: View {
     let nodeID: LibraryFolderNodeID
     let depth: Int
@@ -2773,6 +3092,7 @@ private struct LibraryFolderNodeBranch: View {
     let listCache: SongListCache
     let selection: SongSelectionModel
     @Binding var sortOrder: SongListView.SongSortOrder
+    let onOpenFolder: ((LibraryFolderNodeID) -> Void)?
 
     @State private var isExpanded = false
 
@@ -2790,7 +3110,9 @@ private struct LibraryFolderNodeBranch: View {
                     }
                     #else
                     HStack(spacing: 0) {
-                        disclosureButton(for: node)
+                        if onOpenFolder == nil {
+                            disclosureButton(for: node)
+                        }
                         rowAction(for: node)
                     }
                     #endif
@@ -2810,7 +3132,8 @@ private struct LibraryFolderNodeBranch: View {
                                 folderCache: folderCache,
                                 listCache: listCache,
                                 selection: selection,
-                                sortOrder: $sortOrder
+                                sortOrder: $sortOrder,
+                                onOpenFolder: onOpenFolder
                             ))
                             .id(child.id)
                         }
@@ -2832,7 +3155,7 @@ private struct LibraryFolderNodeBranch: View {
         #if os(iOS)
         selection.isActive && isExpanded
         #else
-        isExpanded
+        onOpenFolder == nil && isExpanded
         #endif
     }
 
@@ -2875,17 +3198,7 @@ private struct LibraryFolderNodeBranch: View {
                 selection: selection
             )
         } else {
-            NavigationLink {
-                LibraryFolderNodeView(
-                    nodeID: node.id,
-                    folderCache: folderCache,
-                    listCache: listCache,
-                    selection: selection,
-                    sortOrder: $sortOrder
-                )
-            } label: {
-                LibraryFolderNodeLabel(node: node, selectionState: nil)
-            }
+            primaryRowAction(for: node)
             .buttonStyle(.plain)
             .contextMenu {
                 Button {
@@ -2900,6 +3213,37 @@ private struct LibraryFolderNodeBranch: View {
                 selection.activate()
                 selection.selectAll(actionSongIDs())
             }
+        }
+    }
+
+    @ViewBuilder
+    private func primaryRowAction(for node: LibraryFolderNode) -> some View {
+        #if os(macOS)
+        if let onOpenFolder {
+            Button {
+                onOpenFolder(node.id)
+            } label: {
+                LibraryFolderNodeLabel(node: node, selectionState: nil)
+            }
+        } else {
+            folderNavigationLink(for: node)
+        }
+        #else
+        folderNavigationLink(for: node)
+        #endif
+    }
+
+    private func folderNavigationLink(for node: LibraryFolderNode) -> some View {
+        NavigationLink {
+            LibraryFolderNodeView(
+                nodeID: node.id,
+                folderCache: folderCache,
+                listCache: listCache,
+                selection: selection,
+                sortOrder: $sortOrder
+            )
+        } label: {
+            LibraryFolderNodeLabel(node: node, selectionState: nil)
         }
     }
 
@@ -2953,6 +3297,8 @@ private struct LibraryFolderSelectionButton: View {
 }
 
 private struct LibraryFolderNodeLabel: View {
+    @Environment(ThemeService.self) private var theme
+
     let node: LibraryFolderNode
     let selectionState: SongSelectionModel.GroupState?
     let selectionSongCount: Int?
@@ -2972,7 +3318,7 @@ private struct LibraryFolderNodeLabel: View {
             if let selectionState {
                 Image(systemName: selectionIcon(for: selectionState))
                     .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(selectionState == .none ? .secondary : Color.accentColor)
+                    .foregroundStyle(selectionState == .none ? Color.secondary : theme.accentColor)
                     .frame(width: 28, height: 44)
                     .accessibilityHidden(true)
             }
@@ -3016,7 +3362,7 @@ private struct LibraryFolderNodeLabel: View {
         .background {
             if let selectionState, selectionState != .none {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.accentColor.opacity(selectionState == .all ? 0.11 : 0.07))
+                    .fill(theme.accentColor.opacity(selectionState == .all ? 0.11 : 0.07))
                     .padding(.vertical, 2)
             }
         }
@@ -3038,7 +3384,7 @@ private struct LibraryFolderNodeLabel: View {
     }
 
     private var folderTint: Color {
-        node.kind == .other ? Color.secondary : Color.accentColor
+        node.kind == .other ? Color.secondary : theme.accentColor
     }
 
     private var accessibilityValue: String {
@@ -3111,7 +3457,8 @@ private struct LibraryFolderNodeView: View {
                                 folderCache: folderCache,
                                 listCache: listCache,
                                 selection: selection,
-                                sortOrder: $sortOrder
+                                sortOrder: $sortOrder,
+                                onOpenFolder: nil
                             )
                             .id(child.id)
                         }

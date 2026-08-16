@@ -39,6 +39,7 @@ struct AlbumGridView: View {
     @State private var albumSort: AlbumSortOrder = .year
     @State private var albumFilter: String = ""
     @State private var albumViewMode: AlbumViewMode = .grid
+    @State private var selectedAlbumID: String?
 
     private enum AlbumViewMode: String, CaseIterable, Hashable {
         case grid, list
@@ -92,7 +93,25 @@ struct AlbumGridView: View {
 
     /// 设计稿 LIB-02: 不再用带大封面的 hero header (那是全部歌曲/歌单的样式),
     /// 而是左上角 "资料库 / 专辑" 小标题 + 右上排序, 下面五列封面网格。
+    @ViewBuilder
     private var macGrid: some View {
+        if let selectedAlbum {
+            AlbumDetailView(
+                album: selectedAlbum,
+                onMacInlineBack: closeAlbum
+            )
+            .id(selectedAlbum.id)
+        } else {
+            macAlbumOverview
+        }
+    }
+
+    private var selectedAlbum: Album? {
+        guard let selectedAlbumID else { return nil }
+        return library.visibleAlbums.first { $0.id == selectedAlbumID }
+    }
+
+    private var macAlbumOverview: some View {
         let albums = sortedAlbums
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
@@ -109,7 +128,9 @@ struct AlbumGridView: View {
                         spacing: 24
                     ) {
                         ForEach(albums) { album in
-                            NavigationLink(value: album) {
+                            Button {
+                                openAlbum(album)
+                            } label: {
                                 GeometryReader { proxy in
                                     macAlbumTile(album, artworkSize: proxy.size.width)
                                 }
@@ -122,7 +143,9 @@ struct AlbumGridView: View {
                 } else {
                     LazyVStack(spacing: 1) {
                         ForEach(albums) { album in
-                            NavigationLink(value: album) {
+                            Button {
+                                openAlbum(album)
+                            } label: {
                                 macAlbumListRow(album)
                             }
                             .buttonStyle(.plain)
@@ -135,6 +158,18 @@ struct AlbumGridView: View {
             .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
+    }
+
+    private func openAlbum(_ album: Album) {
+        withAnimation(.snappy(duration: 0.22)) {
+            selectedAlbumID = album.id
+        }
+    }
+
+    private func closeAlbum() {
+        withAnimation(.snappy(duration: 0.22)) {
+            selectedAlbumID = nil
+        }
     }
 
     private func albumsHeader(displayedCount: Int) -> some View {
