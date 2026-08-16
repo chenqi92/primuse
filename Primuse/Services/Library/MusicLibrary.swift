@@ -3662,10 +3662,11 @@ final class MusicLibrary {
     /// Walk a batch of identities through the 3-tier resolver, splitting
     /// them into "matched a local song" and "still no match" groups.
     private func resolveIdentitiesPartitioned(_ identities: [SongIdentity]) -> (resolved: [String], unresolved: [SongIdentity]) {
+        let resolutionIndex = makeIdentityResolutionIndex(for: identities)
         var resolved: [String] = []
         var unresolved: [SongIdentity] = []
         for identity in identities {
-            if let songID = resolveIdentity(identity) {
+            if let songID = resolveIdentity(identity, using: resolutionIndex) {
                 resolved.append(songID)
             } else {
                 unresolved.append(identity)
@@ -3674,7 +3675,54 @@ final class MusicLibrary {
         return (resolved, unresolved)
     }
 
-    private func resolveIdentity(_ identity: SongIdentity) -> String? {
+    private struct IdentityCloudPathKey: Hashable {
+        let accountID: String
+        let filePath: String
+    }
+
+    private struct IdentityResolutionIndex {
+        let songIDByCloudPath: [IdentityCloudPathKey: String]
+        let songIndicesByTitle: [String: [Int]]
+    }
+
+    /// Builds only the lookup buckets required by the pending identities.
+    /// A metadata batch can otherwise perform one complete `songs.first` scan
+    /// per pending playlist entry on the main actor.
+    private func makeIdentityResolutionIndex(for identities: [SongIdentity]) -> IdentityResolutionIndex {
+        let requestedTitles = Set(identities.lazy.compactMap { identity in
+            identity.title.isEmpty ? nil : identity.title
+        })
+        let needsCloudPathLookup = identities.contains {
+            $0.cloudAccountID != nil && !$0.filePath.isEmpty
+        }
+
+        var songIDByCloudPath: [IdentityCloudPathKey: String] = [:]
+        var songIndicesByTitle: [String: [Int]] = [:]
+        if needsCloudPathLookup { songIDByCloudPath.reserveCapacity(min(songs.count, identities.count)) }
+        songIndicesByTitle.reserveCapacity(requestedTitles.count)
+
+        for (songIndex, song) in songs.enumerated() {
+            if requestedTitles.contains(song.title) {
+                songIndicesByTitle[song.title, default: []].append(songIndex)
+            }
+            if needsCloudPathLookup,
+               !song.filePath.isEmpty,
+               let accountID = sourceIdentityResolver?(song.sourceID) {
+                let key = IdentityCloudPathKey(accountID: accountID, filePath: song.filePath)
+                if songIDByCloudPath[key] == nil { songIDByCloudPath[key] = song.id }
+            }
+        }
+
+        return IdentityResolutionIndex(
+            songIDByCloudPath: songIDByCloudPath,
+            songIndicesByTitle: songIndicesByTitle
+        )
+    }
+
+    private func resolveIdentity(
+        _ identity: SongIdentity,
+        using resolutionIndex: IdentityResolutionIndex
+    ) -> String? {
         // Tier 1: exact ID — same mount on both devices, or hash collision.
         if songIndexByID[identity.songID] != nil {
             return identity.songID
@@ -3683,21 +3731,20 @@ final class MusicLibrary {
         // returns the `cloudAccountID` for OAuth-typed mounts (which is
         // SHA256(provider:accountUID) — stable across devices).
         if let acc = identity.cloudAccountID, !identity.filePath.isEmpty {
-            if let song = songs.first(where: {
-                sourceIdentityResolver?($0.sourceID) == acc && $0.filePath == identity.filePath
-            }) {
-                return song.id
+            let key = IdentityCloudPathKey(accountID: acc, filePath: identity.filePath)
+            if let songID = resolutionIndex.songIDByCloudPath[key] {
+                return songID
             }
         }
         // Tier 3: fuzzy match — for NAS / FTP / SMB / WebDAV / local
         // sources where there's no cloud account anchor.
         if !identity.title.isEmpty {
-            if let song = songs.first(where: {
-                $0.title == identity.title
-                && abs($0.duration - identity.duration) < 1.0
-                && (identity.artistName == nil || $0.artistName == identity.artistName)
-            }) {
-                return song.id
+            for songIndex in resolutionIndex.songIndicesByTitle[identity.title] ?? [] {
+                let song = songs[songIndex]
+                if abs(song.duration - identity.duration) < 1.0,
+                   (identity.artistName == nil || song.artistName == identity.artistName) {
+                    return song.id
+                }
             }
         }
         return nil
@@ -3752,6 +3799,15 @@ final class MusicLibrary {
 
         let now = Date()
         let cutoff = now.addingTimeInterval(-Self.pendingIdentityTTL)
+        var identitiesToResolve = pendingHistoryIdentities.map(\.identity)
+        identitiesToResolve.reserveCapacity(
+            identitiesToResolve.count
+                + pendingPlaylistIdentities.values.reduce(0) { $0 + $1.count }
+        )
+        for pending in pendingPlaylistIdentities.values {
+            identitiesToResolve.append(contentsOf: pending.lazy.map(\.identity))
+        }
+        let resolutionIndex = makeIdentityResolutionIndex(for: identitiesToResolve)
 
         // Playlists: each pending entry that resolves gets appended to
         // the end of the playlist. Original ordering is unrecoverable
@@ -3763,7 +3819,7 @@ final class MusicLibrary {
             var newlyResolved: [String] = []
             for entry in pending {
                 if entry.firstSeenAt < cutoff { continue }
-                if let songID = resolveIdentity(entry.identity) {
+                if let songID = resolveIdentity(entry.identity, using: resolutionIndex) {
                     newlyResolved.append(songID)
                 } else {
                     stillPending.append(entry)
@@ -3783,7 +3839,7 @@ final class MusicLibrary {
         var resolvedHistory: [String] = []
         for entry in pendingHistoryIdentities {
             if entry.firstSeenAt < cutoff { continue }
-            if let songID = resolveIdentity(entry.identity) {
+            if let songID = resolveIdentity(entry.identity, using: resolutionIndex) {
                 resolvedHistory.append(songID)
             } else {
                 stillPendingHistory.append(entry)

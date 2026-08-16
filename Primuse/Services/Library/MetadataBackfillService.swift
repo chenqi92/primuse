@@ -1113,7 +1113,9 @@ final class MetadataBackfillService {
             for _ in 0..<Self.workerConcurrency {
                 guard let song = nextEligibleSong() else { break }
                 if shouldBlockForCellular() { return }
-                group.addTask { [self] in (song, await self.processOne(song)) }
+                group.addTask(priority: .utility) { [self] in
+                    (song, await self.processOne(song))
+                }
             }
 
             // Drain: 每完成一个就启动下一个, 同时累积 / flush
@@ -1239,7 +1241,9 @@ final class MetadataBackfillService {
 
                 // 派发下一首给空闲 worker。
                 if let next = nextEligibleSong() {
-                    group.addTask { [self] in (next, await self.processOne(next)) }
+                    group.addTask(priority: .utility) { [self] in
+                        (next, await self.processOne(next))
+                    }
                 }
             }
         }
