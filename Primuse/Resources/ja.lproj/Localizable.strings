@@ -1809,6 +1809,7 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "システムブラウザで認証";
+"google_drive_full_access_disclosure" = "Google Drive では、既存の音楽ライブラリの参照、カバーと LRC サイドカーの書き込み、明示的に削除したファイルのゴミ箱への移動のため、Drive 全体へのアクセスを求めます。Primuse は共有権限を変更せず、ゴミ箱を完全には空にしません。";
 "cloud_oauth_checking" = "認証状態を確認中…";
 "cloud_setup_needs_creds_title" = "デベロッパー認証情報が必要です";
 "cloud_setup_needs_creds_desc" = "まず「ソースを編集」で Client ID を入力してから、戻って接続を認証してください。";

@@ -301,6 +301,10 @@ struct CloudDriveConnectionView: View {
                     .padding(.horizontal, 36)
             }
 
+            if source.type == .googleDrive {
+                googleDrivePermissionDisclosure
+            }
+
             Button {
                 startOAuth()
             } label: {
@@ -339,6 +343,10 @@ struct CloudDriveConnectionView: View {
                     .padding(.horizontal, 36)
             }
 
+            if source.type == .googleDrive {
+                googleDrivePermissionDisclosure
+            }
+
             Button {
                 startOAuth()
             } label: {
@@ -360,6 +368,23 @@ struct CloudDriveConnectionView: View {
             Spacer()
         }
         #endif
+    }
+
+    private var googleDrivePermissionDisclosure: some View {
+        Label {
+            Text(String(localized: "google_drive_full_access_disclosure"))
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "externaldrive.fill.badge.checkmark")
+                .foregroundStyle(Color.accentColor)
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 430, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: 12))
+        .padding(.horizontal, 24)
     }
 
     private var cloudIcon: String {
@@ -463,9 +488,24 @@ struct CloudDriveConnectionView: View {
     }
 
     private var oauthCallbackDisplay: String {
-        source.type == .pan123
-            ? Pan123Source.redirectURI
-            : "\(CloudOAuthConfig.callbackScheme)://callback"
+        switch source.type {
+        case .baiduPan:
+            BaiduPanSource.oauthConfig(clientId: "", clientSecret: nil).redirectURI
+        case .aliyunDrive:
+            AliyunDriveSource.oauthConfig(clientId: "", clientSecret: nil).redirectURI
+        case .googleDrive:
+            GoogleDriveSource.oauthConfig(clientId: "").redirectURI
+        case .oneDrive:
+            OneDriveSource.oauthConfig(clientId: "").redirectURI
+        case .dropbox:
+            DropboxSource.oauthConfig(clientId: "", clientSecret: nil).redirectURI
+        case .pan115:
+            U115Source.oauthConfig(clientId: "", clientSecret: nil).redirectURI
+        case .pan123:
+            Pan123Source.redirectURI
+        default:
+            "\(CloudOAuthConfig.callbackScheme)://callback"
+        }
     }
 
     private var oauthBridgeDisplay: String {

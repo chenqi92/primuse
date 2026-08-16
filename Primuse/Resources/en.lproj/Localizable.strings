@@ -1657,6 +1657,7 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "System browser authorization";
+"google_drive_full_access_disclosure" = "Google Drive requests full Drive access to browse your existing music library, write cover and LRC sidecars, and move files you explicitly delete to trash. Primuse does not change sharing permissions or permanently empty trash.";
 "cloud_oauth_checking" = "Checking authorization status…";
 "cloud_setup_needs_creds_title" = "Developer credentials required";
 "cloud_setup_needs_creds_desc" = "Fill in the Client ID under “Edit Source” first, then come back to authorize the connection.";

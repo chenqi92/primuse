@@ -1808,6 +1808,7 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "Autorisierung über Systembrowser";
+"google_drive_full_access_disclosure" = "Google Drive benötigt vollständigen Drive-Zugriff, um deine bestehende Musikbibliothek zu durchsuchen, Cover- und LRC-Sidecars zu schreiben und ausdrücklich gelöschte Dateien in den Papierkorb zu verschieben. Primuse ändert keine Freigaben und leert den Papierkorb nicht endgültig.";
 "cloud_oauth_checking" = "Autorisierungsstatus wird geprüft …";
 "cloud_setup_needs_creds_title" = "Entwickler-Zugangsdaten erforderlich";
 "cloud_setup_needs_creds_desc" = "Gib zuerst unter „Quelle bearbeiten“ die Client-ID ein und kehre dann zurück, um die Verbindung zu autorisieren.";

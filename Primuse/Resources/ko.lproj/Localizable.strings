@@ -1808,6 +1808,7 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "시스템 브라우저 인증";
+"google_drive_full_access_disclosure" = "Google Drive는 기존 음악 보관함 탐색, 커버 및 LRC 사이드카 쓰기, 사용자가 명시적으로 삭제한 파일을 휴지통으로 이동하기 위해 전체 Drive 접근 권한을 요청합니다. Primuse는 공유 권한을 변경하거나 휴지통을 영구적으로 비우지 않습니다.";
 "cloud_oauth_checking" = "인증 상태 확인 중…";
 "cloud_setup_needs_creds_title" = "개발자 자격 증명이 필요합니다";
 "cloud_setup_needs_creds_desc" = "먼저 '소스 편집'에서 Client ID를 입력한 다음 돌아와서 연결을 인증하세요.";

@@ -1912,6 +1912,7 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "系统浏览器授权";
+"google_drive_full_access_disclosure" = "Google Drive 会请求完整云端硬盘权限，用于浏览现有音乐库、回写封面与 LRC，并在你主动删除时把所选文件移入回收站。Primuse 不会修改共享权限或永久清空回收站。";
 "cloud_oauth_checking" = "正在检查授权状态…";
 "cloud_setup_needs_creds_title" = "需要配置开发者凭证";
 "cloud_setup_needs_creds_desc" = "请先在「编辑源」中填写 Client ID，然后再回来授权连接。";

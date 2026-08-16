@@ -1785,6 +1785,7 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "系統瀏覽器授權";
+"google_drive_full_access_disclosure" = "Google Drive 會要求完整雲端硬碟權限，用於瀏覽現有音樂庫、寫回封面與 LRC，並在你主動刪除時把所選檔案移入垃圾桶。Primuse 不會修改共用權限或永久清空垃圾桶。";
 "cloud_oauth_checking" = "正在檢查授權狀態…";
 "cloud_setup_needs_creds_title" = "需要設定開發者憑證";
 "cloud_setup_needs_creds_desc" = "請先在「編輯來源」中填寫 Client ID，然後再回來授權連線。";
