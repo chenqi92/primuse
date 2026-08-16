@@ -152,7 +152,7 @@ struct MacNowPlayingView: View {
             }
         }
         .overlay {
-            if showsNativeFullscreenEffectPicker {
+            if isWindowFullScreen, showsNativeFullscreenEffectPicker {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -221,6 +221,7 @@ struct MacNowPlayingView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === hostWindow else { return }
+            showsNativeFullscreenEffectPicker = false
             isWindowFullScreen = false
             showsImmersiveStage = false
         }
@@ -1050,6 +1051,7 @@ struct MacNowPlayingView: View {
     private func exitFullScreen() {
         let window = fullScreenWindow()
         guard isWindowFullScreen || window?.styleMask.contains(.fullScreen) == true else { return }
+        showsNativeFullscreenEffectPicker = false
         window?.toggleFullScreen(nil)
     }
 

@@ -373,6 +373,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .lineLimit(1)
             singleLyric(fontSize: fontSize * 1.08)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - 6. 动态字幕
@@ -433,6 +434,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 VStack(spacing: metrics.s(28)) {
                     radialArtwork(diameter: diameter)
                     titleBlock(size: metrics.s(43), weight: .semibold)
+                    formatAndLyric(fontSize: metrics.s(12))
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalInset)
@@ -443,10 +445,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     radialArtwork(diameter: diameter)
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 94 : 60), weight: .semibold)
-                        Text(track.format.uppercased())
-                            .font(.system(size: metrics.s(platform == .tvOS ? 23 : 14), weight: .medium, design: .monospaced))
-                            .tracking(metrics.f(2))
-                            .foregroundStyle(ImmersiveStagePalette.text.opacity(0.68))
+                        formatAndLyric(fontSize: metrics.s(platform == .tvOS ? 23 : 14))
                     }
                     .frame(maxWidth: metrics.size.width * 0.38, alignment: .leading)
                 }
@@ -755,6 +754,11 @@ private struct ImmersivePaletteFlowBackdrop: View {
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             GeometryReader { geometry in
                 let side = max(geometry.size.width, geometry.size.height)
+                let breath = isLuminous && isAnimating
+                    ? (sin(time / 8.4 * 2 * .pi) + 1) / 2
+                    : 0.5
+                let primaryScale = isLuminous ? CGFloat(0.92 + breath * 0.16) : 1
+                let secondaryScale = isLuminous ? CGFloat(1.08 - breath * 0.12) : 1
                 ZStack {
                     palette.secondary.opacity(0.88)
                     LinearGradient(
@@ -765,9 +769,10 @@ private struct ImmersivePaletteFlowBackdrop: View {
                     glow(
                         color: palette.primary,
                         radius: side * 0.72,
-                        opacity: (isLuminous ? 0.92 : 0.70) * intensity
+                        opacity: (isLuminous ? 0.58 + breath * 0.38 : 0.70) * intensity
                     )
                     .frame(width: side * 1.45, height: side * 1.45)
+                    .scaleEffect(primaryScale)
                     .position(
                         x: geometry.size.width * 0.30 + wave(time, period: 27, amplitude: side * 0.09),
                         y: geometry.size.height * 0.30 + wave(time, period: 33, amplitude: side * 0.07)
@@ -775,16 +780,22 @@ private struct ImmersivePaletteFlowBackdrop: View {
                     glow(
                         color: palette.secondary,
                         radius: side * 0.64,
-                        opacity: (isLuminous ? 0.86 : 0.56) * intensity
+                        opacity: (isLuminous ? 0.60 + (1 - breath) * 0.30 : 0.56) * intensity
                     )
                     .frame(width: side * 1.35, height: side * 1.35)
+                    .scaleEffect(secondaryScale)
                     .position(
                         x: geometry.size.width * 0.72 - wave(time, period: 35, amplitude: side * 0.08),
                         y: geometry.size.height * 0.68 - wave(time, period: 29, amplitude: side * 0.06)
                     )
                     if isLuminous {
-                        glow(color: .white, radius: side * 0.38, opacity: 0.15 * intensity)
+                        glow(
+                            color: .white,
+                            radius: side * 0.38,
+                            opacity: (0.06 + breath * 0.16) * intensity
+                        )
                             .frame(width: side, height: side)
+                            .scaleEffect(CGFloat(0.82 + breath * 0.30))
                             .position(
                                 x: geometry.size.width * 0.62 + wave(time, period: 21, amplitude: side * 0.05),
                                 y: geometry.size.height * 0.28
@@ -1035,13 +1046,20 @@ private struct ImmersiveKineticTitleField: View {
             GeometryReader { geometry in
                 ZStack {
                     ForEach(0..<6, id: \.self) { index in
-                        let rowSize = fontSize * (0.62 + CGFloat(index) * 0.105)
-                        let speed = 0.09 + Double(index) * 0.018
-                        let phase = time * speed + Double(index) * 0.88
-                        let breathing = 0.92 + CGFloat((sin(phase * 1.7) + 1) * 0.065)
-                        let horizontalDrift = CGFloat(sin(phase)) * geometry.size.width * (0.035 + CGFloat(index) * 0.006)
-                        let verticalDrift = CGFloat(cos(phase * 0.73)) * rowSize * 0.18
+                        let rowSize = fontSize * (0.56 + CGFloat(index) * 0.115)
+                        let duration = 17.0 + Double(index) * 3.4
+                        let phase = time / duration * 2 * .pi + Double(index) * 1.28
+                        let rawReveal = isAnimating ? (sin(phase) + 1) / 2 : (index == 2 ? 0.82 : 0.46)
+                        let reveal = rawReveal * rawReveal * (3 - 2 * rawReveal)
+                        let depthScale = CGFloat(0.70 + reveal * 0.68)
+                        let horizontalDrift = CGFloat(sin(phase * 0.54 + Double(index)))
+                            * geometry.size.width * (0.045 + CGFloat(index) * 0.006)
+                        let verticalDrift = CGFloat(cos(phase * 0.42 - Double(index) * 0.37))
+                            * rowSize * 0.28
                         let baseY = geometry.size.height * (0.14 + CGFloat(index) * 0.145)
+                        let layerOpacity = index == 2
+                            ? 0.12 + reveal * 0.72
+                            : 0.015 + reveal * (0.24 + Double(index % 3) * 0.07)
 
                         ImmersiveTypeWall(
                             title: title,
@@ -1053,16 +1071,16 @@ private struct ImmersiveKineticTitleField: View {
                         )
                         .frame(width: geometry.size.width * 1.18, height: rowSize * 1.18)
                         .scaleEffect(
-                            x: breathing * (index.isMultiple(of: 2) ? 1 : 1.04),
-                            y: breathing,
+                            x: depthScale * (index.isMultiple(of: 2) ? 1 : 1.06),
+                            y: depthScale,
                             anchor: index.isMultiple(of: 2) ? .leading : .trailing
                         )
-                        .rotationEffect(.degrees(sin(phase * 0.56) * (index.isMultiple(of: 2) ? 0.9 : -0.7)))
+                        .rotationEffect(.degrees(sin(phase * 0.38) * (index.isMultiple(of: 2) ? 1.2 : -0.9)))
                         .position(
                             x: geometry.size.width / 2 + horizontalDrift,
                             y: baseY + verticalDrift
                         )
-                        .opacity(index == 2 ? 0.74 : 0.26 + Double(index % 3) * 0.07)
+                        .opacity(layerOpacity)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
