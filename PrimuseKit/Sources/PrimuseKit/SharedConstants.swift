@@ -2998,7 +2998,9 @@ public enum NowPlayingArtworkPublicationPolicy {
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered
-/// custom URL exactly (scheme/host are case-insensitive; path is not). Providers
+/// custom URL exactly (scheme/host are case-insensitive; path is not). An empty
+/// path and `/` are equivalent because OAuth servers may append a trailing slash
+/// to redirect URIs without a path when returning query parameters. Providers
 /// that use an HTTPS relay can only be checked against the custom scheme because
 /// their registered HTTPS URL differs from the deep link emitted by the relay.
 public enum OAuthCallbackURLMatcher {
@@ -3027,10 +3029,17 @@ public enum OAuthCallbackURLMatcher {
             return true
         }
 
+        let registeredPath = registered.percentEncodedPath.isEmpty
+            ? "/"
+            : registered.percentEncodedPath
+        let callbackPath = callback.percentEncodedPath.isEmpty
+            ? "/"
+            : callback.percentEncodedPath
+
         return registeredScheme == actualScheme
             && registered.host?.lowercased() == callback.host?.lowercased()
             && registered.port == callback.port
-            && registered.percentEncodedPath == callback.percentEncodedPath
+            && registeredPath == callbackPath
     }
 }
 

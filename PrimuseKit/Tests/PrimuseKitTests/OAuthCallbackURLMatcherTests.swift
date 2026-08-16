@@ -3,6 +3,7 @@ import Testing
 @testable import PrimuseKit
 
 private let pan123RedirectURI = "primuse://oauth/123pan/callback"
+private let oneDriveRedirectURI = "msauth.com.welape.yuanyin://auth"
 
 @Test func oauthCallbackAcceptsRegisteredPan123URLWithQuery() {
     let callback = URL(string: "\(pan123RedirectURI)?code=test-code&state=test-state")!
@@ -21,6 +22,26 @@ private let pan123RedirectURI = "primuse://oauth/123pan/callback"
         callback,
         registeredRedirectURI: pan123RedirectURI,
         callbackScheme: "primuse"
+    ))
+}
+
+@Test func oauthCallbackAcceptsProviderTrailingSlashForEmptyRegisteredPath() {
+    let callback = URL(string: "\(oneDriveRedirectURI)/?code=test-code&state=test-state")!
+
+    #expect(OAuthCallbackURLMatcher.matches(
+        callback,
+        registeredRedirectURI: oneDriveRedirectURI,
+        callbackScheme: "msauth.com.welape.yuanyin"
+    ))
+}
+
+@Test func oauthCallbackStillRejectsUnexpectedPathAfterEmptyRegisteredPath() {
+    let callback = URL(string: "\(oneDriveRedirectURI)/other?code=test-code&state=test-state")!
+
+    #expect(!OAuthCallbackURLMatcher.matches(
+        callback,
+        registeredRedirectURI: oneDriveRedirectURI,
+        callbackScheme: "msauth.com.welape.yuanyin"
     ))
 }
 
