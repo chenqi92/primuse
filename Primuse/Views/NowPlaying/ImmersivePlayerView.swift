@@ -258,7 +258,7 @@ struct ImmersivePlayerView: View {
         HStack(spacing: 10) {
             dismissChromeButton
             Spacer()
-            effectChromeMenu
+            effectChromeMenu(metrics: metrics)
             queueChromeButton
         }
     }
@@ -292,7 +292,7 @@ struct ImmersivePlayerView: View {
         }
     }
 
-    private var effectChromeMenu: some View {
+    private func effectChromeMenu(metrics: ImmersiveStageMetrics) -> some View {
         Button {
             showsEffectPicker = true
         } label: {
@@ -305,13 +305,34 @@ struct ImmersivePlayerView: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showsEffectPicker, arrowEdge: .top) {
-            ImmersiveEffectPickerPanel(selected: effect) { candidate in
+            ImmersiveEffectPickerPanel(
+                selected: effect,
+                panelWidth: effectPickerWidth(metrics),
+                panelHeight: effectPickerHeight(metrics)
+            ) { candidate in
                 effect = candidate
                 showsEffectPicker = false
             }
             .presentationCompactAdaptation(.popover)
         }
         .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+    }
+
+    private func effectPickerWidth(_ metrics: ImmersiveStageMetrics) -> CGFloat {
+        let safeWidth = metrics.size.width
+            - metrics.safeArea.leading
+            - metrics.safeArea.trailing
+            - 32
+        return min(340, max(280, safeWidth))
+    }
+
+    private func effectPickerHeight(_ metrics: ImmersiveStageMetrics) -> CGFloat {
+        let reservedHeight: CGFloat = metrics.layout == .phoneLandscape ? 92 : 140
+        let safeHeight = metrics.size.height
+            - metrics.safeArea.top
+            - metrics.safeArea.bottom
+            - reservedHeight
+        return min(500, max(190, safeHeight))
     }
 
     private var queueChromeButton: some View {
