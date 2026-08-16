@@ -65,6 +65,17 @@ struct MacImmersivePlayerView: View {
                     entrySurface(metrics: metrics)
                 }
 
+                if showsEffectPicker {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                showsEffectPicker = false
+                            }
+                        }
+                        .accessibilityHidden(true)
+                }
+
                 if showsChrome {
                     chrome(metrics: metrics)
                         .transition(.opacity)
@@ -84,7 +95,15 @@ struct MacImmersivePlayerView: View {
         .onKeyPress(phases: [.down, .repeat]) { press in
             handleKeyPress(press)
         }
-        .onExitCommand(perform: onExitFullScreen)
+        .onExitCommand {
+            if showsEffectPicker {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    showsEffectPicker = false
+                }
+            } else {
+                onExitFullScreen()
+            }
+        }
         .onAppear {
             acceptsKeyInput = true
             FullscreenPlayerEffectSync.shared.install()
@@ -404,7 +423,9 @@ struct MacImmersivePlayerView: View {
     private var effectMenu: some View {
         Button {
             chromeTask?.cancel()
-            showsEffectPicker = true
+            withAnimation(.easeOut(duration: 0.18)) {
+                showsEffectPicker.toggle()
+            }
         } label: {
             HStack(spacing: 7) {
                 Text(verbatim: effect.localizedTitle)
@@ -419,12 +440,17 @@ struct MacImmersivePlayerView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .popover(isPresented: $showsEffectPicker, arrowEdge: .bottom) {
-            ImmersiveEffectPickerPanel(selected: effect) { candidate in
-                showsEffectPicker = false
-                selectEffect(candidate)
+        .overlay(alignment: .topLeading) {
+            if showsEffectPicker {
+                ImmersiveEffectPickerSurface(selected: effect, palette: artworkPalette) { candidate in
+                    showsEffectPicker = false
+                    selectEffect(candidate)
+                }
+                .offset(y: 42)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topLeading)))
             }
         }
+        .zIndex(showsEffectPicker ? 20 : 0)
         .help(Text("fullscreen_effect_settings_title"))
     }
 

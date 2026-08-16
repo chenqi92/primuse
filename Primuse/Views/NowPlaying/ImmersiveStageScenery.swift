@@ -522,10 +522,12 @@ struct ImmersiveGlassActionButton: View {
 /// 面板是否仍在展示，并在此期间暂停浮动控件的自动隐藏计时。
 struct ImmersiveEffectPickerPanel: View {
     var selected: FullscreenPlayerEffect
+    var panelWidth: CGFloat = 340
+    var panelHeight: CGFloat = 500
     var onSelect: (FullscreenPlayerEffect) -> Void
 
     var body: some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 18) {
                 ForEach(FullscreenEffectCollection.allCases) { collection in
                     VStack(alignment: .leading, spacing: 8) {
@@ -587,9 +589,47 @@ struct ImmersiveEffectPickerPanel: View {
             }
             .padding(16)
         }
-        .frame(width: 340)
-        .frame(maxHeight: 500)
+        .frame(width: panelWidth, height: panelHeight)
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// 播放器内部承载效果列表的深色表面，避免 macOS NSPopover 自带的浅色外壳。
+struct ImmersiveEffectPickerSurface: View {
+    var selected: FullscreenPlayerEffect
+    var palette: ImmersiveArtworkPalette = .fallback
+    var panelWidth: CGFloat = 420
+    var panelHeight: CGFloat = 560
+    var onSelect: (FullscreenPlayerEffect) -> Void
+
+    var body: some View {
+        ImmersiveEffectPickerPanel(
+            selected: selected,
+            panelWidth: panelWidth,
+            panelHeight: panelHeight,
+            onSelect: onSelect
+        )
+            .background {
+                ZStack {
+                    ImmersiveStagePalette.obsidian
+                    LinearGradient(
+                        colors: [
+                            palette.secondary.opacity(0.72),
+                            palette.primary.opacity(0.24),
+                            ImmersiveStagePalette.obsidian.opacity(0.96),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(ImmersiveStagePalette.ink.opacity(0.18), lineWidth: 0.8)
+            }
+            .shadow(color: .black.opacity(0.46), radius: 28, y: 14)
+            .environment(\.colorScheme, .dark)
     }
 }
 

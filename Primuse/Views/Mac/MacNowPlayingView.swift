@@ -151,6 +151,18 @@ struct MacNowPlayingView: View {
                 }
             }
         }
+        .overlay {
+            if showsNativeFullscreenEffectPicker {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            showsNativeFullscreenEffectPicker = false
+                        }
+                    }
+                    .accessibilityHidden(true)
+            }
+        }
         .overlay(alignment: .topLeading) {
             if isWindowFullScreen, !isImmersiveStageActive {
                 HStack(spacing: 10) {
@@ -811,7 +823,9 @@ struct MacNowPlayingView: View {
 
     private var nativeFullscreenEffectMenu: some View {
         Button {
-            showsNativeFullscreenEffectPicker = true
+            withAnimation(.easeOut(duration: 0.18)) {
+                showsNativeFullscreenEffectPicker.toggle()
+            }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "viewfinder.rectangular")
@@ -835,12 +849,23 @@ struct MacNowPlayingView: View {
         .buttonStyle(.plain)
         .fixedSize()
         .glassEffect(.regular.interactive(), in: .capsule)
-        .popover(isPresented: $showsNativeFullscreenEffectPicker, arrowEdge: .bottom) {
-            ImmersiveEffectPickerPanel(selected: fullscreenPlayerEffect) { candidate in
-                showsNativeFullscreenEffectPicker = false
-                selectFullscreenEffect(candidate)
+        .overlay(alignment: .topLeading) {
+            if showsNativeFullscreenEffectPicker {
+                ImmersiveEffectPickerSurface(
+                    selected: fullscreenPlayerEffect,
+                    palette: ImmersiveArtworkPalette(
+                        primary: theme.accentColor,
+                        secondary: theme.darkAccent
+                    )
+                ) { candidate in
+                    showsNativeFullscreenEffectPicker = false
+                    selectFullscreenEffect(candidate)
+                }
+                .offset(y: 40)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topLeading)))
             }
         }
+        .zIndex(showsNativeFullscreenEffectPicker ? 20 : 0)
         .help(Text("fullscreen_effect_settings_title"))
         .accessibilityLabel(Text("fullscreen_effect_settings_title"))
     }

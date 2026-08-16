@@ -49,8 +49,19 @@ struct ImmersiveStageView<Artwork: View>: View {
             persistentOverlay
             ImmersiveGrain(opacity: 0.032)
         }
+        .frame(width: metrics.size.width, height: metrics.size.height)
         .background(ImmersiveStagePalette.obsidian)
         .foregroundStyle(ImmersiveStagePalette.ink)
+        .overlay(alignment: .bottom) {
+            ImmersiveHairlinePlaybackProgress(
+                initialElapsed: track.elapsed,
+                duration: track.duration,
+                isPlaying: track.isPlaying,
+                playbackTime: playbackTime,
+                height: max(1, metrics.f(platform == .tvOS ? 4 : 2)),
+                accent: palette.primary
+            )
+        }
         .clipped()
     }
 
@@ -630,7 +641,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     private var persistentOverlay: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             if showsClock {
                 ImmersiveStageClock(
                     showsDate: metrics.isWide,
@@ -640,17 +651,6 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .padding(.top, max(metrics.safeArea.top, metrics.s(platform == .tvOS ? 66 : 24)))
                 .padding(.trailing, max(metrics.safeArea.trailing, metrics.s(platform == .tvOS ? 92 : 28)))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            }
-
-            if style.scene != .liveWaveform {
-                ImmersiveHairlinePlaybackProgress(
-                    initialElapsed: track.elapsed,
-                    duration: track.duration,
-                    isPlaying: track.isPlaying,
-                    playbackTime: playbackTime,
-                    height: max(1, metrics.f(platform == .tvOS ? 4 : 2)),
-                    accent: palette.primary
-                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -705,7 +705,6 @@ private struct ImmersiveWaveformPlaybackPanel: View {
             VStack(spacing: spacing) {
                 ImmersiveLiveWaveform(
                     levels: levels,
-                    progress: ImmersivePlaybackClock.fraction(elapsed: elapsed, duration: duration),
                     active: active,
                     inactive: inactive
                 )
@@ -1076,7 +1075,6 @@ private struct ImmersiveKineticTitleField: View {
 
 private struct ImmersiveLiveWaveform: View {
     let levels: [CGFloat]
-    let progress: Double
     let active: Color
     let inactive: Color
 
@@ -1098,10 +1096,9 @@ private struct ImmersiveLiveWaveform: View {
                     width: width,
                     height: barHeight
                 )
-                let isPlayed = Double(index) / Double(max(count - 1, 1)) <= min(max(progress, 0), 1)
                 canvas.fill(
                     Path(roundedRect: rect, cornerRadius: width / 2),
-                    with: .color(isPlayed ? active.opacity(0.94) : inactive)
+                    with: .color(level > 0.015 ? active.opacity(0.42 + Double(level) * 0.54) : inactive)
                 )
             }
         }
