@@ -559,6 +559,7 @@
 		AFB973435BA9B6C543BC8E6D /* PrimuseWatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C208EEAE5B4BC5D1329D5DCD /* PrimuseWatchWidgetsBundle.swift */; };
 		AFD084D1F26725C1FEABFD5B /* MacMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3CA857E144784647DBFEC6 /* MacMenuBarController.swift */; };
 		AFD5B53A36622430D2016CAE /* PrimuseIntentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA5291A0332EE798C4EB2C5 /* PrimuseIntentBridge.swift */; };
+		B1C2D3E4F5061728394A5B6C /* OperationCancellationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* OperationCancellationPolicy.swift */; };
 		AFE8B1D83B0A404411167743 /* ImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */; };
 		B0AD422F6BA9EDA5B08D6FA0 /* PrimuseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		B20B13F6FF1CCD38D909A3F1 /* MacMiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CFFB7676F782904120A304 /* MacMiniPlayerView.swift */; };
@@ -1424,6 +1425,7 @@
 		F855798DF69A9D2170EF0511 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		F8AA31CCFC7ADFC3CD1CD903 /* LyricTranslationGroupingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricTranslationGroupingPolicy.swift; sourceTree = "<group>"; };
 		F8C714C150FC7495AF3988FB /* CloudAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAccount.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* OperationCancellationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationCancellationPolicy.swift; sourceTree = "<group>"; };
 		F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayStreamResolver.swift; sourceTree = "<group>"; };
 		F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredCoverArtView.swift; sourceTree = "<group>"; };
 		FA44FA865D7C3D6FC4DFCC9E /* TVSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSettingsView.swift; sourceTree = "<group>"; };
@@ -1782,6 +1784,7 @@
 				F8AA31CCFC7ADFC3CD1CD903 /* LyricTranslationGroupingPolicy.swift */,
 				9127CD05C275C062EC2089C9 /* MacKeyboardShortcuts.swift */,
 				0B85029D847CFF25E36188DD /* NetworkEndpointIdentity.swift */,
+				A1B2C3D4E5F60718293A4B5C /* OperationCancellationPolicy.swift */,
 				12AD42B5CE1CE635F570F26F /* NowPlayingPlaybackProjection.swift */,
 				65ACCFD1629CC080B918B6E8 /* OfflinePlaybackPolicy.swift */,
 				4B0DFA16D66837EFF0DB5E43 /* PlaybackSessionSnapshot.swift */,
@@ -2976,6 +2979,7 @@
 				3B8A46458483111466EF9E8D /* NetworkEndpointIdentity.swift in Sources */,
 				4C4AE61F50C0DEE6BFA6B242 /* NowPlayingPlaybackProjection.swift in Sources */,
 				B4302BD1B956F6B517A799E2 /* OfflinePlaybackPolicy.swift in Sources */,
+				B1C2D3E4F5061728394A5B6C /* OperationCancellationPolicy.swift in Sources */,
 				F7AF165E4C4ABC46FAECC7C0 /* PinyinTransformer.swift in Sources */,
 				532B9F831AAAFA2A2AEFE6E3 /* PlaybackSessionSnapshot.swift in Sources */,
 				574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */,

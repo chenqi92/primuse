@@ -258,6 +258,14 @@ final class ScanService {
                     }
                     return
                 }
+                if preflight.wasCancelled {
+                    recordScanInterruption(
+                        sourceID: source.id,
+                        scannedCount: resumeCount,
+                        totalCount: resumeTotal
+                    )
+                    return
+                }
                 if preflight.blockingFailure != nil {
                     recordScanFailure(
                         sourceID: source.id,
@@ -784,15 +792,12 @@ final class ScanService {
                     lastSuccessfulSyncAt: Date()
                 )
             )
-        } catch is CancellationError {
+        } catch let error where OperationCancellationPolicy.isCancellation(error) {
             // Scan was cancelled (e.g. source deleted) — clean up silently.
             // Skip the write if a newer scan already took over this source,
             // otherwise we'd stomp its in-progress state back to idle.
             if isCurrentScan(source.id, generation: generation) {
-                var state = scanStates[source.id] ?? ScanState()
-                state.isScanning = false
-                state.hasPendingWork = checkpoints[source.id] != nil
-                scanStates[source.id] = state
+                recordScanInterruption(sourceID: source.id)
             }
         } catch {
             guard isCurrentScan(source.id, generation: generation) else { return }
@@ -889,12 +894,9 @@ final class ScanService {
                 ) {
                     return
                 }
-            } catch is CancellationError {
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
                 if isCurrentScan(source.id, generation: generation) {
-                    var state = scanStates[source.id] ?? ScanState()
-                    state.isScanning = false
-                    state.hasPendingWork = checkpoints[source.id] != nil
-                    scanStates[source.id] = state
+                    recordScanInterruption(sourceID: source.id)
                 }
                 return
             } catch {
@@ -1077,15 +1079,12 @@ final class ScanService {
                 syncState: candidateState,
                 source: source
             )
-        } catch is CancellationError {
+        } catch let error where OperationCancellationPolicy.isCancellation(error) {
             // Scan was cancelled (e.g. source deleted) — clean up silently.
             // Skip the write if a newer scan already took over this source,
             // otherwise we'd stomp its in-progress state back to idle.
             if isCurrentScan(source.id, generation: generation) {
-                var state = scanStates[source.id] ?? ScanState()
-                state.isScanning = false
-                state.hasPendingWork = checkpoints[source.id] != nil
-                scanStates[source.id] = state
+                recordScanInterruption(sourceID: source.id)
             }
         } catch {
             guard isCurrentScan(source.id, generation: generation) else { return }
@@ -1342,6 +1341,24 @@ final class ScanService {
         var state = scanStates[sourceID] ?? ScanState()
         state.isScanning = false
         state.failureMessage = message
+        state.hasPendingWork = checkpoints[sourceID] != nil
+        if let scannedCount {
+            state.scannedCount = scannedCount
+        }
+        if let totalCount {
+            state.totalCount = totalCount
+        }
+        scanStates[sourceID] = state
+    }
+
+    private func recordScanInterruption(
+        sourceID: String,
+        scannedCount: Int? = nil,
+        totalCount: Int? = nil
+    ) {
+        var state = scanStates[sourceID] ?? ScanState()
+        state.isScanning = false
+        state.failureMessage = nil
         state.hasPendingWork = checkpoints[sourceID] != nil
         if let scannedCount {
             state.scannedCount = scannedCount

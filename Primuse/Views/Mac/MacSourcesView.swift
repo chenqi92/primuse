@@ -19,6 +19,7 @@ struct MacSourcesView: View {
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
+    @State private var diagnosingSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var sourceToDelete: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
@@ -65,6 +66,9 @@ struct MacSourcesView: View {
             connectionSheet(for: source)
                 .frame(minWidth: 880, idealWidth: 940, minHeight: 600, idealHeight: 680)
                 .onAppear { beginDirectorySelectionSession(for: source) }
+        }
+        .sheet(item: $diagnosingSource) { source in
+            SourceDiagnosticsView(source: source)
         }
         .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
             cloudDirectoryNameRefreshID = UUID()
@@ -259,6 +263,14 @@ struct MacSourcesView: View {
                 statusBadge(state)
             }
 
+            if source.connectionConfiguration != nil,
+               source.connectionCandidates.isEmpty == false {
+                SourceConnectionRouteStrip(
+                    source: source,
+                    activeKind: sourceManager.activeConnectionRoutes[source.id]
+                )
+            }
+
             cardBody(source, scanning: scanning, displayedSongCount: displayedSongCount)
                 // 给内容区一个统一最小高度: "扫描中"(三行进度) 和 "已同步"(一行)
                 // 的卡片高度就一致了, 不会某张在扫描时突然变高、其它变矮。
@@ -280,6 +292,9 @@ struct MacSourcesView: View {
             }
             Button { editingSource = source } label: {
                 Label("edit", systemImage: "pencil")
+            }
+            Button { diagnosingSource = source } label: {
+                Label("source_diagnostics", systemImage: "stethoscope")
             }
             if source.type.scansEntireLibrary || !dirs.isEmpty {
                 Button { runDeepScan(source) } label: {
@@ -304,17 +319,33 @@ struct MacSourcesView: View {
     private func cardBody(_ source: MusicSource, scanning: ScanService.ScanState?, displayedSongCount: Int) -> some View {
         if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
-                Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 8) {
+                    Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.bad)
+                    Spacer(minLength: 8)
+                    Button {
+                        diagnosingSource = source
+                    } label: {
+                        Label("source_diagnostics_short", systemImage: "stethoscope")
+                            .font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accentColor)
+                }
                 Text(failureMessage)
                     .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textMuted)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(PMColor.bad)
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PMColor.bad.opacity(0.08), in: .rect(cornerRadius: 9))
+            .background(PMColor.bad.opacity(0.05), in: .rect(cornerRadius: 9))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(PMColor.bad.opacity(0.16), lineWidth: 0.8)
+            }
         } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
         } else {
@@ -530,6 +561,9 @@ struct MacSourcesView: View {
     }
 
     private func hostLine(_ source: MusicSource) -> String {
+        if source.connectionConfiguration != nil {
+            return source.type.displayName
+        }
         if let summary = source.connectionSummary {
             return "\(source.type.displayName) · \(summary)"
         }

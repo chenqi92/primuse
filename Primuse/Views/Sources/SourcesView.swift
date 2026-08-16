@@ -57,6 +57,101 @@ private struct SourceCacheEstimate {
     let remainingSongIDs: Set<String>
 }
 
+/// Presents adaptive routes as distinct, comparable endpoints instead of one
+/// long subtitle. The highlighted segment is device-local runtime state and is
+/// never persisted or synced with the source configuration.
+struct SourceConnectionRouteStrip: View {
+    let source: MusicSource
+    let activeKind: SourceConnectionCandidateKind?
+
+    private var candidates: [SourceConnectionCandidate] {
+        source.connectionCandidates
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(candidates) { candidate in
+                routeSegment(candidate)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func routeSegment(_ candidate: SourceConnectionCandidate) -> some View {
+        let isActive = activeKind == candidate.kind
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Image(systemName: iconName(for: candidate.kind))
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title(for: candidate.kind))
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 3)
+                if isActive {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("current")
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .fixedSize()
+                }
+            }
+            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+
+            Text(address(for: candidate))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .allowsTightening(true)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isActive ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(
+                    isActive ? Color.accentColor.opacity(0.32) : Color.primary.opacity(0.075),
+                    lineWidth: 0.8
+                )
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func title(for kind: SourceConnectionCandidateKind) -> LocalizedStringKey {
+        switch kind {
+        case .localAddress:
+            "source_connection_local"
+        case .publicAddress:
+            "source_connection_public_direct"
+        case .vendorRemote:
+            source.type == .synology
+                ? "synology_connection_quickconnect"
+                : "fnmusic_connection_fnconnect"
+        }
+    }
+
+    private func iconName(for kind: SourceConnectionCandidateKind) -> String {
+        switch kind {
+        case .localAddress: "wifi"
+        case .publicAddress: "globe"
+        case .vendorRemote: "point.3.connected.trianglepath.dotted"
+        }
+    }
+
+    private func address(for candidate: SourceConnectionCandidate) -> String {
+        if let endpoint = candidate.endpoint {
+            return endpoint.displayDescription
+        }
+        return candidate.vendorIdentifier ?? source.type.displayName
+    }
+}
+
 private struct SourceCacheProgressState {
     let handledCount: Int
     let completedCount: Int
@@ -352,7 +447,8 @@ struct SourcesContentView: View {
                     }
                     HStack(spacing: 4) {
                         Text(source.type.displayName).fixedSize()
-                        if let summary = source.connectionSummary {
+                        if source.connectionConfiguration == nil,
+                           let summary = source.connectionSummary {
                             Text("·").fixedSize()
                             Text(summary).truncationMode(.middle)
                         }
@@ -383,6 +479,14 @@ struct SourcesContentView: View {
                 }
             }
 
+            if source.connectionConfiguration != nil,
+               source.connectionCandidates.isEmpty == false {
+                SourceConnectionRouteStrip(
+                    source: source,
+                    activeKind: sourceManager.activeConnectionRoutes[source.id]
+                )
+            }
+
             if !dirs.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -400,17 +504,33 @@ struct SourcesContentView: View {
 
             if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
-                    Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.semibold))
+                    HStack(spacing: 8) {
+                        Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.red)
+                        Spacer(minLength: 8)
+                        Button {
+                            diagnosingSource = source
+                        } label: {
+                            Label("source_diagnostics_short", systemImage: "stethoscope")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
+                    }
                     Text(failureMessage)
                         .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .foregroundStyle(.red)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                .background(Color.red.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.red.opacity(0.14), lineWidth: 0.8)
+                }
             }
 
             if let scan = scanning, scan.isScanning || scan.canResume {
@@ -1600,7 +1720,7 @@ struct SourcesContentView: View {
 
 }
 
-private struct SourceDiagnosticsView: View {
+struct SourceDiagnosticsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
 

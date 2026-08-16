@@ -670,6 +670,21 @@ public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
         return endpoint.host.isEmpty == false && (1...65_535).contains(endpoint.port)
     }
 
+    /// A compact, credential-free label suitable for source cards. Keeping the
+    /// formatting on the endpoint prevents LAN and public addresses from being
+    /// flattened into one ambiguous, heavily-truncated summary string.
+    public var displayDescription: String {
+        let endpoint = normalized
+        let hostPart = endpoint.host.contains(":") && endpoint.host.hasPrefix("[") == false
+            ? "[\(endpoint.host)]"
+            : endpoint.host
+        let path = endpoint.pathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedPath = path.isEmpty || path == "/"
+            ? ""
+            : (path.hasPrefix("/") ? path : "/\(path)")
+        return "\(hostPart):\(endpoint.port)\(normalizedPath)"
+    }
+
     private static func normalizedPath(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               trimmed.isEmpty == false,
@@ -789,40 +804,124 @@ public struct SourceConnectionCandidate: Hashable, Sendable, Identifiable {
 public actor SourceConnectionRuntime {
     public static let shared = SourceConnectionRuntime()
 
+    /// A failed LAN probe should not add a timeout to every file request, but a
+    /// transient failure must not pin the source to its public route forever.
+    public static let localRetryInterval: TimeInterval = 30
+
     private var activeKinds: [String: SourceConnectionCandidateKind] = [:]
+    private var lastLocalAttemptAt: [String: Date] = [:]
     private var generation: UInt64 = 0
 
     public init() {
         _ = SourceConnectionNetworkObserver.shared
     }
 
-    public func orderedCandidates(for source: MusicSource) -> [SourceConnectionCandidate] {
+    public func orderedCandidates(
+        for source: MusicSource,
+        prefersLocalNetwork: Bool = true,
+        now: Date = Date(),
+        localRetryInterval: TimeInterval = SourceConnectionRuntime.localRetryInterval
+    ) -> [SourceConnectionCandidate] {
         let candidates = source.connectionCandidates
-        guard let activeKind = activeKinds[source.id],
-              let activeIndex = candidates.firstIndex(where: { $0.kind == activeKind }),
-              activeIndex > 0 else {
+        guard let preferredKind = preferredKind(
+            for: source.id,
+            availableKinds: candidates.map(\.kind),
+            prefersLocalNetwork: prefersLocalNetwork,
+            now: now,
+            localRetryInterval: localRetryInterval
+        ),
+        let preferredIndex = candidates.firstIndex(where: { $0.kind == preferredKind }),
+        preferredIndex > 0 else {
             return candidates
         }
         var ordered = candidates
-        let active = ordered.remove(at: activeIndex)
-        ordered.insert(active, at: 0)
+        let preferred = ordered.remove(at: preferredIndex)
+        ordered.insert(preferred, at: 0)
         return ordered
+    }
+
+    /// Resolves the route to try next from the current interface and recent LAN
+    /// failures. Wi-Fi/wired paths prefer LAN, while cellular paths start with a
+    /// public/vendor route. A working public fallback is retried against LAN
+    /// after a short cooldown so a sleeping NAS can recover without a network
+    /// toggle or app restart.
+    public func preferredKind(
+        for sourceID: String,
+        availableKinds: [SourceConnectionCandidateKind],
+        prefersLocalNetwork: Bool,
+        now: Date = Date(),
+        localRetryInterval: TimeInterval = SourceConnectionRuntime.localRetryInterval
+    ) -> SourceConnectionCandidateKind? {
+        guard availableKinds.isEmpty == false else { return nil }
+
+        let activeKind = activeKinds[sourceID].flatMap { active in
+            availableKinds.contains(active) ? active : nil
+        }
+        let localKind: SourceConnectionCandidateKind? = availableKinds.contains(.localAddress)
+            ? .localAddress
+            : nil
+        let remoteKind = availableKinds.first { $0 != .localAddress }
+
+        if prefersLocalNetwork, let localKind {
+            if activeKind == localKind { return localKind }
+            if let attemptedAt = lastLocalAttemptAt[sourceID],
+               now.timeIntervalSince(attemptedAt) < max(0, localRetryInterval) {
+                return activeKind ?? remoteKind ?? localKind
+            }
+            return localKind
+        }
+
+        if let remoteKind {
+            return activeKind == remoteKind ? activeKind : remoteKind
+        }
+        return activeKind ?? localKind ?? availableKinds.first
     }
 
     public func activeKind(for sourceID: String) -> SourceConnectionCandidateKind? {
         activeKinds[sourceID]
     }
 
+    public func noteAttempt(
+        _ kind: SourceConnectionCandidateKind,
+        for sourceID: String,
+        at date: Date = Date()
+    ) {
+        if kind == .localAddress {
+            lastLocalAttemptAt[sourceID] = date
+        }
+    }
+
     public func record(_ kind: SourceConnectionCandidateKind, for sourceID: String) {
         activeKinds[sourceID] = kind
+        if kind == .localAddress {
+            lastLocalAttemptAt.removeValue(forKey: sourceID)
+        }
+    }
+
+    /// Retires a route after a transport failure without erasing the LAN retry
+    /// cooldown. Full invalidation is reserved for source edits and real network
+    /// path changes.
+    public func recordFailure(
+        of kind: SourceConnectionCandidateKind,
+        for sourceID: String,
+        at date: Date = Date()
+    ) {
+        if activeKinds[sourceID] == kind {
+            activeKinds.removeValue(forKey: sourceID)
+        }
+        if kind == .localAddress {
+            lastLocalAttemptAt[sourceID] = date
+        }
     }
 
     public func invalidate(sourceID: String) {
         activeKinds.removeValue(forKey: sourceID)
+        lastLocalAttemptAt.removeValue(forKey: sourceID)
     }
 
     public func invalidateAll() {
         activeKinds.removeAll()
+        lastLocalAttemptAt.removeAll()
         generation &+= 1
     }
 
@@ -1175,10 +1274,10 @@ public extension MusicSource {
             switch candidate.kind {
             case .localAddress:
                 guard let endpoint = candidate.endpoint else { return nil }
-                return "\(PMString("source_connection_local")) \(Self.endpointDescription(endpoint))"
+                return "\(PMString("source_connection_local")) \(endpoint.displayDescription)"
             case .publicAddress:
                 guard let endpoint = candidate.endpoint else { return nil }
-                return "\(PMString("source_connection_public_direct")) \(Self.endpointDescription(endpoint))"
+                return "\(PMString("source_connection_public_direct")) \(endpoint.displayDescription)"
             case .vendorRemote:
                 guard let identifier = candidate.vendorIdentifier else { return nil }
                 let label = type == .synology
@@ -1191,27 +1290,7 @@ public extension MusicSource {
     }
 
     private static func endpointDescription(_ endpoint: SourceConnectionEndpoint) -> String {
-        let normalized = endpoint.normalized
-        return endpointDescription(
-            host: normalized.host,
-            port: normalized.port,
-            pathPrefix: normalized.pathPrefix
-        )
-    }
-
-    private static func endpointDescription(
-        host: String,
-        port: Int,
-        pathPrefix: String?
-    ) -> String {
-        let hostPart = host.contains(":") && host.hasPrefix("[") == false
-            ? "[\(host)]"
-            : host
-        let path = pathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalizedPath = path.isEmpty || path == "/"
-            ? ""
-            : (path.hasPrefix("/") ? path : "/\(path)")
-        return "\(hostPart):\(port)\(normalizedPath)"
+        endpoint.displayDescription
     }
 
     private static func addressEmbeddingPath(for endpoint: SourceConnectionEndpoint) -> String {

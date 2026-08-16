@@ -269,14 +269,21 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
     let startedAt: Date
     let finishedAt: Date
     let checks: [SourceDiagnosticCheck]
+    let wasCancelled: Bool
 
-    init(source: MusicSource, startedAt: Date, checks: [SourceDiagnosticCheck]) {
+    init(
+        source: MusicSource,
+        startedAt: Date,
+        checks: [SourceDiagnosticCheck],
+        wasCancelled: Bool = false
+    ) {
         self.id = UUID()
         self.sourceID = source.id
         self.sourceName = source.name
         self.startedAt = startedAt
         self.finishedAt = Date()
         self.checks = checks
+        self.wasCancelled = wasCancelled
     }
 
     var blockingFailure: SourceDiagnosticCheck? {
@@ -307,12 +314,18 @@ private struct RoutedConnectorCandidate: Sendable {
 private actor SourceConnectionRouter {
     private let sourceID: String
     private let candidates: [RoutedConnectorCandidate]
+    private let routeDidChange: @MainActor @Sendable (SourceConnectionCandidateKind?) -> Void
     private var activeIndex: Int?
     private var routeGeneration: UInt64?
 
-    init(sourceID: String, candidates: [RoutedConnectorCandidate]) {
+    init(
+        sourceID: String,
+        candidates: [RoutedConnectorCandidate],
+        routeDidChange: @escaping @MainActor @Sendable (SourceConnectionCandidateKind?) -> Void
+    ) {
         self.sourceID = sourceID
         self.candidates = candidates
+        self.routeDidChange = routeDidChange
     }
 
     func connect() async throws {
@@ -321,6 +334,7 @@ private actor SourceConnectionRouter {
 
     func disconnect() async {
         activeIndex = nil
+        await routeDidChange(nil)
         for candidate in candidates {
             await candidate.connector.disconnect()
         }
@@ -329,14 +343,19 @@ private actor SourceConnectionRouter {
     func withRead<T: Sendable>(
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T
     ) async throws -> T {
+        let routed = try await withReadAndRoute(operation)
+        return routed.value
+    }
+
+    func withReadAndRoute<T: Sendable>(
+        _ operation: @Sendable (any MusicSourceConnector) async throws -> T
+    ) async throws -> (value: T, routeIndex: Int) {
         let initialIndex = try await connectedIndex()
         do {
-            return try await operation(candidates[initialIndex].connector)
+            return (try await operation(candidates[initialIndex].connector), initialIndex)
         } catch {
             guard Self.canFailOver(after: error) else { throw error }
-            await candidates[initialIndex].connector.disconnect()
-            activeIndex = nil
-            await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+            await retireFailedRoute(at: initialIndex)
             return try await attemptRead(
                 operation,
                 excluding: [initialIndex],
@@ -353,9 +372,7 @@ private actor SourceConnectionRouter {
             return try await operation(candidates[index].connector)
         } catch {
             if Self.canFailOver(after: error) {
-                await candidates[index].connector.disconnect()
-                activeIndex = nil
-                await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+                await retireFailedRoute(at: index)
             }
             throw error
         }
@@ -365,56 +382,97 @@ private actor SourceConnectionRouter {
     /// stream has returned, so `withRead` cannot observe them. Never splice a
     /// second endpoint into a partially-consumed byte or scan stream; simply
     /// retire the failed route so the caller's next safe retry uses fallback.
-    func noteDeferredReadFailure(_ error: Error) async {
+    func noteDeferredReadFailure(_ error: Error, routeIndex: Int) async {
         guard Self.canFailOver(after: error) else { return }
-        if let activeIndex {
-            await candidates[activeIndex].connector.disconnect()
-        }
-        activeIndex = nil
-        await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+        guard candidates.indices.contains(routeIndex) else { return }
+        await retireFailedRoute(at: routeIndex)
     }
 
     private func connectedIndex(excluding excluded: Set<Int> = []) async throws -> Int {
         let currentGeneration = await SourceConnectionRuntime.shared.routeGeneration()
         if routeGeneration != currentGeneration {
+            // Do not disconnect a route here. A scanner may still be consuming
+            // an AsyncThrowingStream from it; switching future reads is safe,
+            // cancelling the partially-consumed stream is not.
             activeIndex = nil
             routeGeneration = currentGeneration
-            for candidate in candidates {
-                await candidate.connector.disconnect()
+            await routeDidChange(nil)
+        }
+
+        let prefersLocalNetwork = await MainActor.run {
+            NetworkMonitor.shared.prefersLocalConnections
+        }
+        let preferredKind = await SourceConnectionRuntime.shared.preferredKind(
+            for: sourceID,
+            availableKinds: candidates.map(\.kind),
+            prefersLocalNetwork: prefersLocalNetwork
+        )
+
+        if let currentIndex = activeIndex,
+           excluded.contains(currentIndex) == false {
+            if let preferredKind,
+               candidates[currentIndex].kind != preferredKind,
+               let preferredIndex = candidates.firstIndex(where: { $0.kind == preferredKind }),
+               excluded.contains(preferredIndex) == false {
+                // Probe the newly preferred route while the known-good fallback
+                // stays alive. This makes Wi-Fi fail back to LAN without risking
+                // an active scan or playback stream.
+                await SourceConnectionRuntime.shared.noteAttempt(
+                    preferredKind,
+                    for: sourceID
+                )
+                do {
+                    try await candidates[preferredIndex].connector.connect()
+                    activeIndex = preferredIndex
+                    await SourceConnectionRuntime.shared.record(
+                        preferredKind,
+                        for: sourceID
+                    )
+                    await routeDidChange(preferredKind)
+                    return preferredIndex
+                } catch {
+                    // This is an opportunistic failback. The current route has
+                    // already connected successfully, so preserve it even when
+                    // the preferred probe reports a terminal/authentication error.
+                    await candidates[preferredIndex].connector.disconnect()
+                    await SourceConnectionRuntime.shared.record(
+                        candidates[currentIndex].kind,
+                        for: sourceID
+                    )
+                }
             }
-        }
-        let activeKind = await SourceConnectionRuntime.shared.activeKind(for: sourceID)
-        if let activeIndex,
-           let activeKind,
-           candidates[activeIndex].kind != activeKind {
-            await candidates[activeIndex].connector.disconnect()
-            self.activeIndex = nil
-        }
-        if let activeIndex, excluded.contains(activeIndex) == false {
-            return activeIndex
+            return currentIndex
         }
 
         var lastError: Error?
         let orderedIndices = candidates.indices.sorted { lhs, rhs in
-            if candidates[lhs].kind == activeKind { return true }
-            if candidates[rhs].kind == activeKind { return false }
+            if candidates[lhs].kind == preferredKind { return true }
+            if candidates[rhs].kind == preferredKind { return false }
             return lhs < rhs
         }
         for index in orderedIndices where excluded.contains(index) == false {
+            let kind = candidates[index].kind
+            await SourceConnectionRuntime.shared.noteAttempt(kind, for: sourceID)
             do {
                 try await candidates[index].connector.connect()
                 activeIndex = index
                 await SourceConnectionRuntime.shared.record(
-                    candidates[index].kind,
+                    kind,
                     for: sourceID
                 )
+                await routeDidChange(kind)
                 return index
             } catch {
                 lastError = error
                 guard Self.canFailOver(after: error) else { throw error }
                 await candidates[index].connector.disconnect()
+                await SourceConnectionRuntime.shared.recordFailure(
+                    of: kind,
+                    for: sourceID
+                )
             }
         }
+        await routeDidChange(nil)
         throw lastError ?? SourceError.connectionFailed(
             String(localized: "source_connection_no_route")
         )
@@ -424,7 +482,7 @@ private actor SourceConnectionRouter {
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T,
         excluding initialExcluded: Set<Int>,
         initialError: Error
-    ) async throws -> T {
+    ) async throws -> (value: T, routeIndex: Int) {
         var excluded = initialExcluded
         var lastError = initialError
 
@@ -437,21 +495,32 @@ private actor SourceConnectionRouter {
             }
 
             do {
-                return try await operation(candidates[index].connector)
+                return (try await operation(candidates[index].connector), index)
             } catch {
                 lastError = error
                 guard Self.canFailOver(after: error) else { throw error }
-                await candidates[index].connector.disconnect()
-                activeIndex = nil
-                await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+                await retireFailedRoute(at: index)
                 excluded.insert(index)
             }
         }
         throw lastError
     }
 
+    private func retireFailedRoute(at index: Int) async {
+        let kind = candidates[index].kind
+        await candidates[index].connector.disconnect()
+        if activeIndex == index {
+            activeIndex = nil
+            await routeDidChange(nil)
+        }
+        await SourceConnectionRuntime.shared.recordFailure(
+            of: kind,
+            for: sourceID
+        )
+    }
+
     private static func canFailOver(after error: Error) -> Bool {
-        if error is CancellationError { return false }
+        if OperationCancellationPolicy.isCancellation(error) { return false }
         if error is SourceConnectionTerminalError { return false }
         if let sourceError = error as? SourceError {
             switch sourceError {
@@ -470,8 +539,7 @@ private actor SourceConnectionRouter {
         if nsError.domain == NSURLErrorDomain {
             switch nsError.code {
             case NSURLErrorUserAuthenticationRequired,
-                 NSURLErrorUserCancelledAuthentication,
-                 NSURLErrorCancelled:
+                 NSURLErrorUserCancelledAuthentication:
                 return false
             default:
                 return true
@@ -503,18 +571,18 @@ private extension RoutedConnectorProxy {
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
-        let stream = try await routing.withRead { try await $0.streamData(for: path) }
-        return observingDeferredReadErrors(in: stream)
+        let routed = try await routing.withReadAndRoute { try await $0.streamData(for: path) }
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
-        let stream = try await routing.withRead { try await $0.scanAudioFiles(from: path) }
-        return observingDeferredReadErrors(in: stream)
+        let routed = try await routing.withReadAndRoute { try await $0.scanAudioFiles(from: path) }
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func scanCueSheets(from path: String) async throws -> AsyncThrowingStream<RemoteCueSheetItem, Error> {
-        let stream = try await routing.withRead { try await $0.scanCueSheets(from: path) }
-        return observingDeferredReadErrors(in: stream)
+        let routed = try await routing.withReadAndRoute { try await $0.scanCueSheets(from: path) }
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func streamingURL(for path: String) async throws -> URL? {
@@ -582,7 +650,8 @@ private extension RoutedConnectorProxy {
     }
 
     func observingDeferredReadErrors<Element: Sendable>(
-        in stream: AsyncThrowingStream<Element, Error>
+        in stream: AsyncThrowingStream<Element, Error>,
+        routeIndex: Int
     ) -> AsyncThrowingStream<Element, Error> {
         let routing = routing
         return AsyncThrowingStream { continuation in
@@ -594,7 +663,7 @@ private extension RoutedConnectorProxy {
                     }
                     continuation.finish()
                 } catch {
-                    await routing.noteDeferredReadFailure(error)
+                    await routing.noteDeferredReadFailure(error, routeIndex: routeIndex)
                     continuation.finish(throwing: error)
                 }
             }
@@ -636,13 +705,13 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
-        let stream = try await routing.withRead { connector in
+        let routed = try await routing.withReadAndRoute { connector in
             guard let scanner = connector as? any SongScanningConnector else {
                 throw SourceError.connectionFailed("Song scanner unavailable")
             }
             return try await scanner.scanSongs(from: path)
         }
-        return observingDeferredReadErrors(in: stream)
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func scrobble(songPath: String, submission: Bool) async {
@@ -668,13 +737,13 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
     let routedPreferredDeleteBatchSize: Int
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
-        let stream = try await routing.withRead { connector in
+        let routed = try await routing.withReadAndRoute { connector in
             guard let scanner = connector as? any SongScanningConnector else {
                 throw SourceError.connectionFailed("Song scanner unavailable")
             }
             return try await scanner.scanSongs(from: path)
         }
-        return observingDeferredReadErrors(in: stream)
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func scrobble(songPath: String, submission: Bool) async {
@@ -700,13 +769,13 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
     let routedPreferredDeleteBatchSize: Int
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
-        let stream = try await routing.withRead { connector in
+        let routed = try await routing.withReadAndRoute { connector in
             guard let scanner = connector as? any SongScanningConnector else {
                 throw SourceError.connectionFailed("Song scanner unavailable")
             }
             return try await scanner.scanSongs(from: path)
         }
-        return observingDeferredReadErrors(in: stream)
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func fetchServerLyrics(for path: String) async -> String? {
@@ -736,13 +805,13 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
-        let stream = try await routing.withRead { connector in
+        let routed = try await routing.withReadAndRoute { connector in
             guard let scanner = connector as? any SongScanningConnector else {
                 throw SourceError.connectionFailed("Song scanner unavailable")
             }
             return try await scanner.scanSongs(from: path)
         }
-        return observingDeferredReadErrors(in: stream)
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
     func writeScrapedMetadata(
@@ -817,6 +886,10 @@ final class SourceManager {
     /// Lightweight aggregate used by the source cards. Download progress does
     /// not mutate this set; only entering/leaving the downloading state does.
     private(set) var offlineDownloadingSongIDs: Set<String> = []
+    /// The route that most recently completed a real connection. Kept separate
+    /// from the persisted source so cards can show what is in use without
+    /// syncing device-local network state through iCloud.
+    private(set) var activeConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
@@ -918,7 +991,12 @@ final class SourceManager {
             return unavailable
         }
 
-        let routing = SourceConnectionRouter(sourceID: source.id, candidates: routedCandidates)
+        let routing = SourceConnectionRouter(
+            sourceID: source.id,
+            candidates: routedCandidates
+        ) { [weak self] kind in
+            self?.setActiveConnectionRoute(kind, for: source.id)
+        }
         let supportsSidecarWriting = routedCandidates[0].connector.supportsSidecarWriting
         let preferredDeleteBatchSize = routedCandidates[0].connector.preferredDeleteBatchSize
         let mediaServerLyricsCapabilities: ServerLyricsCapabilities
@@ -1205,6 +1283,19 @@ final class SourceManager {
                 message: String(localized: "source_diag_connection_ok")
             ))
         } catch {
+            if OperationCancellationPolicy.isCancellation(error) {
+                checks.append(diagnosticCheck(
+                    for: error,
+                    source: source,
+                    title: String(localized: "source_diag_connection_title")
+                ))
+                return SourceDiagnosticReport(
+                    source: source,
+                    startedAt: startedAt,
+                    checks: checks,
+                    wasCancelled: true
+                )
+            }
             let recovered = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
             if recovered {
                 do {
@@ -1217,6 +1308,19 @@ final class SourceManager {
                         message: String(localized: "source_diag_connection_ok")
                     ))
                 } catch {
+                    if OperationCancellationPolicy.isCancellation(error) {
+                        checks.append(diagnosticCheck(
+                            for: error,
+                            source: source,
+                            title: String(localized: "source_diag_connection_title")
+                        ))
+                        return SourceDiagnosticReport(
+                            source: source,
+                            startedAt: startedAt,
+                            checks: checks,
+                            wasCancelled: true
+                        )
+                    }
                     await connector.disconnect()
                     checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_connection_title")))
                     return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
@@ -1247,6 +1351,14 @@ final class SourceManager {
                     source: source,
                     title: source.type.displayName
                 ))
+                if OperationCancellationPolicy.isCancellation(error) {
+                    return SourceDiagnosticReport(
+                        source: source,
+                        startedAt: startedAt,
+                        checks: checks,
+                        wasCancelled: true
+                    )
+                }
             }
             return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
         }
@@ -1279,7 +1391,12 @@ final class SourceManager {
                 ))
             } catch {
                 checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_directory_title")))
-                return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
+                return SourceDiagnosticReport(
+                    source: source,
+                    startedAt: startedAt,
+                    checks: checks,
+                    wasCancelled: OperationCancellationPolicy.isCancellation(error)
+                )
             }
         }
 
@@ -4766,6 +4883,7 @@ final class SourceManager {
 
     func refreshConnector(for sourceID: String) async {
         await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+        activeConnectionRoutes.removeValue(forKey: sourceID)
         if let connector = connectors.removeValue(forKey: sourceID) {
             await connector.disconnect()
         }
@@ -4782,21 +4900,14 @@ final class SourceManager {
         await refreshConnector(for: sourceID)
     }
 
-    /// A Wi-Fi/cellular/path transition invalidates only adaptive connectors.
-    /// Other stateful sources keep their sessions and avoid needless reconnects.
+    /// A Wi-Fi/cellular/path transition changes the preference for future
+    /// operations. Existing streams stay alive until they naturally finish;
+    /// forcibly disconnecting them turned NWPath updates into false scan
+    /// failures (`URLError.cancelled`). Each router observes the generation and
+    /// safely selects the new route on its next operation.
     func resetAdaptiveConnectionRoutes() async {
         await SourceConnectionRuntime.shared.invalidateAll()
-        let routedSourceIDs = connectors.compactMap { sourceID, connector in
-            connector is any RoutedConnectorProxy ? sourceID : nil
-        }
-        for sourceID in routedSourceIDs {
-            if let connector = connectors.removeValue(forKey: sourceID) {
-                await connector.disconnect()
-            }
-            if let sidecar = sidecarConnectors.removeValue(forKey: sourceID) {
-                await sidecar.disconnect()
-            }
-        }
+        activeConnectionRoutes.removeAll()
     }
 
     func disconnectAll() async {
@@ -4816,6 +4927,18 @@ final class SourceManager {
             }
         }
         sidecarConnectors.removeAll()
+        activeConnectionRoutes.removeAll()
+    }
+
+    private func setActiveConnectionRoute(
+        _ kind: SourceConnectionCandidateKind?,
+        for sourceID: String
+    ) {
+        if let kind {
+            activeConnectionRoutes[sourceID] = kind
+        } else {
+            activeConnectionRoutes.removeValue(forKey: sourceID)
+        }
     }
 }
 

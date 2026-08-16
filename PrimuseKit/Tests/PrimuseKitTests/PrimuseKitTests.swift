@@ -587,7 +587,7 @@ import Testing
     #expect(MusicSourceType.fnos.supportsAdaptiveConnections == false)
 }
 
-@Test func adaptiveRuntimeRemembersFallbackUntilTheNetworkRouteChanges() async {
+@Test func adaptiveRuntimeUsesInterfacePreferenceAndRetriesLANAfterCooldown() async {
     let source = MusicSource(
         id: "route-memory",
         name: "WebDAV",
@@ -606,15 +606,46 @@ import Testing
         )
     )
     let runtime = SourceConnectionRuntime()
+    let startedAt = Date(timeIntervalSince1970: 1_000)
 
-    #expect(await runtime.orderedCandidates(for: source).map(\.kind)
+    #expect(await runtime.orderedCandidates(
+        for: source,
+        prefersLocalNetwork: true,
+        now: startedAt
+    ).map(\.kind)
             == [.localAddress, .publicAddress])
+
+    // Cellular starts with the route that can actually be reached from outside
+    // the LAN instead of paying a local-address timeout first.
+    #expect(await runtime.orderedCandidates(
+        for: source,
+        prefersLocalNetwork: false,
+        now: startedAt
+    ).map(\.kind) == [.publicAddress, .localAddress])
+
+    await runtime.noteAttempt(.localAddress, for: source.id, at: startedAt)
     await runtime.record(.publicAddress, for: source.id)
-    #expect(await runtime.orderedCandidates(for: source).map(\.kind)
+    #expect(await runtime.orderedCandidates(
+        for: source,
+        prefersLocalNetwork: true,
+        now: startedAt.addingTimeInterval(10)
+    ).map(\.kind)
             == [.publicAddress, .localAddress])
+
+    // A transient LAN miss is not remembered forever on the same Wi-Fi.
+    #expect(await runtime.orderedCandidates(
+        for: source,
+        prefersLocalNetwork: true,
+        now: startedAt.addingTimeInterval(SourceConnectionRuntime.localRetryInterval + 1)
+    ).map(\.kind) == [.localAddress, .publicAddress])
+
     let generation = await runtime.routeGeneration()
     await runtime.invalidateAll()
     #expect(await runtime.routeGeneration() == generation + 1)
-    #expect(await runtime.orderedCandidates(for: source).map(\.kind)
+    #expect(await runtime.orderedCandidates(
+        for: source,
+        prefersLocalNetwork: true,
+        now: startedAt
+    ).map(\.kind)
             == [.localAddress, .publicAddress])
 }
