@@ -152,4 +152,61 @@ struct LyricsTimingSessionTests {
         #expect(document.lines[0].timestamp == 1)
         #expect(document.lines[1].timestamp == 2.1)
     }
+
+    @Test("Word-level stamping advances independently and restores complete lines")
+    func wordLevelStampingIsUndoablePerSyllable() {
+        let original = LyricsEditorDocument(
+            parsing: "[00:01.000]<00:01.000>晚<00:02.000>风<00:03.000>"
+        )
+        var document = original
+        var session = LyricsTimingSession(document: document, preferredIndex: 0)
+
+        session.stampSyllable(
+            document: &document,
+            lineIndex: 0,
+            syllableIndex: 0,
+            time: 4
+        )
+        session.stampSyllable(
+            document: &document,
+            lineIndex: 0,
+            syllableIndex: 1,
+            time: 5.25
+        )
+        #expect(document.lines[0].syllables?.map(\.start) == [4, 5.25])
+
+        #expect(session.undo(document: &document) == 0)
+        #expect(session.affectedSyllableIndex == 1)
+        #expect(document.lines[0].syllables?.map(\.start) == [4, 5])
+
+        #expect(session.undo(document: &document) == 0)
+        #expect(session.affectedSyllableIndex == 0)
+        #expect(document.lines[0].syllables == original.lines[0].syllables)
+    }
+
+    @Test("Word-level fine tuning coalesces with its matching stamp")
+    func wordLevelFineTuningCoalesces() {
+        let original = LyricsEditorDocument(
+            parsing: "[00:01.000]<00:01.000>晚<00:02.000>风<00:03.000>"
+        )
+        var document = original
+        var session = LyricsTimingSession(document: document, preferredIndex: 0)
+
+        session.stampSyllable(
+            document: &document,
+            lineIndex: 0,
+            syllableIndex: 1,
+            time: 2.2
+        )
+        session.nudgeSyllable(
+            document: &document,
+            lineIndex: 0,
+            syllableIndex: 1,
+            by: 0.1
+        )
+        #expect(abs((document.lines[0].syllables?[1].start ?? 0) - 2.3) < 0.000_001)
+
+        session.undo(document: &document)
+        #expect(document.lines[0].syllables == original.lines[0].syllables)
+    }
 }

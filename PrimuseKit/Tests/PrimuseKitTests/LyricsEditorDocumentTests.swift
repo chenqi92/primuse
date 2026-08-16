@@ -220,6 +220,37 @@ struct LyricsEditorDocumentTests {
         #expect(document.serialized() == "[00:12.300]晚风吹过温柔的午后")
     }
 
+    @Test("Stamping one syllable shifts the remaining word-level timeline")
+    func stampingSyllableShiftsSuffix() {
+        var document = LyricsEditorDocument(
+            parsing: "[00:01.000]<00:01.000>晚<00:02.000>风<00:03.000>来<00:04.000>"
+        )
+
+        let applied = document.stampSyllable(at: 0, syllableIndex: 1, time: 2.5)
+        let syllables = document.lines[0].syllables ?? []
+
+        #expect(applied == 2.5)
+        #expect(syllables.map(\.start) == [1, 2.5, 3.5])
+        #expect(syllables.map(\.end) == [2.5, 3.5, 4.5])
+        #expect(document.lines[0].timestamp == 1)
+        #expect(LyricsContentParser.validateEditableText(document.serialized()).isValid)
+    }
+
+    @Test("Syllable fine tuning moves only one boundary and clamps to neighbors")
+    func nudgingSyllableMovesBoundary() {
+        var document = LyricsEditorDocument(
+            parsing: "[00:01.000]<00:01.000>晚<00:02.000>风<00:03.000>来<00:04.000>"
+        )
+
+        #expect(document.nudgeSyllable(at: 0, syllableIndex: 1, by: 0.2) == 2.2)
+        #expect(document.lines[0].syllables?.map(\.start) == [1, 2.2, 3])
+        #expect(document.lines[0].syllables?.map(\.end) == [2.2, 3, 4])
+
+        #expect(document.nudgeSyllable(at: 0, syllableIndex: 1, by: 10) == 3)
+        #expect(document.lines[0].syllables?.map(\.start) == [1, 3, 3])
+        #expect(LyricsContentParser.validateEditableText(document.serialized()).isValid)
+    }
+
     // MARK: - 顺序
 
     @Test("Out-of-order stamps are detected and can be sorted")

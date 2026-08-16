@@ -226,6 +226,75 @@ public struct LyricsEditorDocument: Hashable, Sendable {
         lines[index].timestamp = target
     }
 
+    /// 重新给某个音节打点。被选音节以及它后面的音节整体平移相同距离，既允许
+    /// 用户顺着播放重新逐字打轴，也保留尚未重打部分原有的字间节奏。
+    ///
+    /// 返回实际生效的时间；坏下标或非有限时间返回 nil。
+    @discardableResult
+    public mutating func stampSyllable(
+        at lineIndex: Int,
+        syllableIndex: Int,
+        time: TimeInterval
+    ) -> TimeInterval? {
+        guard lines.indices.contains(lineIndex),
+              time.isFinite,
+              var syllables = lines[lineIndex].syllables,
+              syllables.indices.contains(syllableIndex) else { return nil }
+
+        let lowerBound = syllableIndex > 0 ? syllables[syllableIndex - 1].start : 0
+        let target = max(lowerBound, time)
+        let delta = target - syllables[syllableIndex].start
+
+        if delta != 0 {
+            for index in syllableIndex..<syllables.count {
+                syllables[index].start = max(target, syllables[index].start + delta)
+                syllables[index].end = max(syllables[index].start, syllables[index].end + delta)
+            }
+        }
+
+        if syllableIndex > 0 {
+            syllables[syllableIndex - 1].end = target
+        } else {
+            lines[lineIndex].timestamp = target
+        }
+        lines[lineIndex].syllables = syllables
+        return target
+    }
+
+    /// 只移动某个音节的起点，也就是它和前一音节之间的边界。微调会被相邻
+    /// 音节夹住，避免保存出倒序的 ELRC 时间戳。
+    @discardableResult
+    public mutating func nudgeSyllable(
+        at lineIndex: Int,
+        syllableIndex: Int,
+        by delta: TimeInterval
+    ) -> TimeInterval? {
+        guard lines.indices.contains(lineIndex),
+              delta.isFinite,
+              var syllables = lines[lineIndex].syllables,
+              syllables.indices.contains(syllableIndex) else { return nil }
+
+        let current = syllables[syllableIndex].start
+        let lowerBound = syllableIndex > 0 ? syllables[syllableIndex - 1].start : 0
+        let upperBound = syllableIndex + 1 < syllables.count
+            ? syllables[syllableIndex + 1].start
+            : .greatestFiniteMagnitude
+        let target = min(max(current + delta, lowerBound), upperBound)
+
+        syllables[syllableIndex].start = target
+        if syllableIndex > 0 {
+            syllables[syllableIndex - 1].end = target
+        } else {
+            lines[lineIndex].timestamp = target
+        }
+        if syllableIndex == syllables.indices.last,
+           syllables[syllableIndex].end <= target {
+            syllables[syllableIndex].end = target + 0.4
+        }
+        lines[lineIndex].syllables = syllables
+        return target
+    }
+
     /// 撤销某行的打轴。
     public mutating func clearStamp(at index: Int) {
         guard lines.indices.contains(index) else { return }

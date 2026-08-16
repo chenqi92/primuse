@@ -31,6 +31,11 @@ struct LyricsEditorView: View {
     @State private var showSourceEditor = false
     @State private var playbackTime: TimeInterval = 0
     @State private var timingSession: LyricsTimingSession
+    /// 文本模式中展开微调的逐字单元。用行 UUID 而不是下标，拖动排序后仍指向
+    /// 同一行。
+    @State private var selectedTextSyllable: SyllableSelection?
+    /// 打轴模式在逐字行内的游标；行级歌词保持 nil，继续走原有逐句流程。
+    @State private var timingSyllableIndex: Int?
     /// 打轴页进入时跟随当前播放句；用户手动前后切换或打点后暂停跟随，避免游标
     /// 在手指操作期间被播放进度抢走。
     @State private var timingFollowsPlayback = false
@@ -54,6 +59,25 @@ struct LyricsEditorView: View {
     @FocusState private var liveDraftFocused: Bool
 
     enum Mode { case timing, text }
+
+    private struct SyllableSelection: Hashable {
+        let lineID: UUID
+        let index: Int
+    }
+
+    private struct TimingWordContext {
+        let lineIndex: Int
+        let syllableIndex: Int
+        let syllables: [LyricSyllable]
+
+        var current: LyricSyllable { syllables[syllableIndex] }
+        var previous: LyricSyllable? {
+            syllableIndex > 0 ? syllables[syllableIndex - 1] : nil
+        }
+        var next: LyricSyllable? {
+            syllableIndex + 1 < syllables.count ? syllables[syllableIndex + 1] : nil
+        }
+    }
 
     init(song: Song, text: Binding<String>, onCommit: ((String) -> Void)? = nil) {
         self.song = song
@@ -1171,9 +1195,11 @@ struct LyricsEditorView: View {
                     playbackTime = now
                     if mode == .timing,
                        timingFollowsPlayback,
-                       let index = timingLineIndex(at: now),
-                       timingSession.cursorIndex != index {
-                        _ = timingSession.select(index: index, document: document)
+                       let index = timingLineIndex(at: now) {
+                        if timingSession.cursorIndex != index {
+                            _ = timingSession.select(index: index, document: document)
+                        }
+                        updateTimingSyllableSelection(for: index, at: now)
                     }
                 }
             }
@@ -1235,6 +1261,41 @@ struct LyricsEditorView: View {
         let nextPosition = timingEligibleIndices.index(after: position)
         guard nextPosition < timingEligibleIndices.endIndex else { return nil }
         return timingEligibleIndices[nextPosition]
+    }
+
+    private var timingWordContext: TimingWordContext? {
+        guard let lineIndex = timingSession.cursorIndex,
+              document.lines.indices.contains(lineIndex),
+              let syllables = document.lines[lineIndex].syllables,
+              !syllables.isEmpty else { return nil }
+        let index = min(max(timingSyllableIndex ?? 0, 0), syllables.count - 1)
+        return TimingWordContext(
+            lineIndex: lineIndex,
+            syllableIndex: index,
+            syllables: syllables
+        )
+    }
+
+    private var canSelectPreviousTimingUnit: Bool {
+        if let context = timingWordContext, context.syllableIndex > 0 { return true }
+        return previousTimingIndex != nil
+    }
+
+    private var canSelectNextTimingUnit: Bool {
+        if let context = timingWordContext,
+           context.syllableIndex + 1 < context.syllables.count { return true }
+        return nextTimingIndex != nil
+    }
+
+    private var canFineTuneTimingUnit: Bool {
+        if let context = timingWordContext {
+            return timingSession.canNudgeSyllable(
+                in: document,
+                lineIndex: context.lineIndex,
+                syllableIndex: context.syllableIndex
+            )
+        }
+        return timingSession.canNudge(in: document)
     }
 
     private func isTimingEligibleLine(at index: Int) -> Bool {
@@ -1320,28 +1381,16 @@ struct LyricsEditorView: View {
         return HStack(alignment: .top, spacing: 10) {
             if showTimestamps {
                 timestampChip(line: line, index: index)
+                    .frame(height: 28, alignment: .center)
             }
 
-            TextField(
-                String(localized: "lyrics_editor_line_placeholder"),
-                text: textBinding(for: index),
-                axis: .vertical
-            )
-            .textFieldStyle(.plain)
-            .font(.system(size: 13))
-            .focused($focusedLine, equals: line.id)
-
-            if line.isWordLevel {
-                Image(systemName: "waveform")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "lyrics_editor_word_level_hint"))
-            }
+            lineTextContent(line: line, index: index)
 
             if isTimingInformationLine(at: index) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 28)
                     .help(String(localized: "lyrics_editor_timing_info_line"))
             }
 
@@ -1387,6 +1436,141 @@ struct LyricsEditorView: View {
                 removeLine(at: index)
             }
         }
+    }
+
+    private func lineTextContent(line: EditableLyricLine, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField(
+                String(localized: "lyrics_editor_line_placeholder"),
+                text: textBinding(for: index),
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .frame(minHeight: 28, alignment: .center)
+            .focused($focusedLine, equals: line.id)
+
+            if let syllables = line.syllables, !syllables.isEmpty {
+                wordTimingStrip(line: line, syllables: syllables)
+
+                if let selection = selectedTextSyllable,
+                   selection.lineID == line.id,
+                   syllables.indices.contains(selection.index) {
+                    selectedSyllableAdjustmentRow(
+                        lineIndex: index,
+                        syllableIndex: selection.index,
+                        syllable: syllables[selection.index],
+                        count: syllables.count
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func wordTimingStrip(
+        line: EditableLyricLine,
+        syllables: [LyricSyllable]
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(syllables.enumerated()), id: \.offset) { syllableIndex, syllable in
+                    let isSelected = selectedTextSyllable == SyllableSelection(
+                        lineID: line.id,
+                        index: syllableIndex
+                    )
+                    Button {
+                        selectedTextSyllable = SyllableSelection(
+                            lineID: line.id,
+                            index: syllableIndex
+                        )
+                        if isLinkedToPlayback {
+                            player.seek(to: syllable.start)
+                        }
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text(visibleSyllableText(syllable.text))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                            Text(timeLabel(syllable.start))
+                                .font(.system(size: 9, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(
+                            isSelected ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08),
+                            in: .rect(cornerRadius: 6)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(
+                                    isSelected ? Color.accentColor.opacity(0.72) : Color.clear,
+                                    lineWidth: 1
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        "\(visibleSyllableText(syllable.text)), \(timeLabel(syllable.start))"
+                    )
+                }
+            }
+        }
+        .scrollClipDisabled()
+        .help(String(localized: "lyrics_editor_word_level_hint"))
+    }
+
+    private func selectedSyllableAdjustmentRow(
+        lineIndex: Int,
+        syllableIndex: Int,
+        syllable: LyricSyllable,
+        count: Int
+    ) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "waveform")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            Text("\(syllableIndex + 1)/\(count)")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(timeLabel(syllable.start))
+                .font(.system(size: 10, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+
+            syllableNudgeButton(
+                systemImage: "minus",
+                label: String(localized: "lyrics_editor_nudge_earlier")
+            ) {
+                nudgeTextSyllable(lineIndex: lineIndex, syllableIndex: syllableIndex, by: -0.1)
+            }
+            syllableNudgeButton(
+                systemImage: "plus",
+                label: String(localized: "lyrics_editor_nudge_later")
+            ) {
+                nudgeTextSyllable(lineIndex: lineIndex, syllableIndex: syllableIndex, by: 0.1)
+            }
+        }
+        .frame(height: 26)
+    }
+
+    private func syllableNudgeButton(
+        systemImage: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 30, height: 24)
+                .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func moveLine(withID rawID: String, to targetIndex: Int) -> Bool {
@@ -1457,8 +1641,30 @@ struct LyricsEditorView: View {
             get: {
                 document.lines.indices.contains(index) ? document.lines[index].text : ""
             },
-            set: { document.updateText($0, at: index) }
+            set: { newValue in
+                guard document.lines.indices.contains(index) else { return }
+                if newValue != document.lines[index].text,
+                   selectedTextSyllable?.lineID == document.lines[index].id {
+                    selectedTextSyllable = nil
+                }
+                document.updateText(newValue, at: index)
+            }
         )
+    }
+
+    private func nudgeTextSyllable(
+        lineIndex: Int,
+        syllableIndex: Int,
+        by delta: TimeInterval
+    ) {
+        guard document.nudgeSyllable(
+            at: lineIndex,
+            syllableIndex: syllableIndex,
+            by: delta
+        ) != nil else { return }
+        #if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
 
     // MARK: - 底部工具条
@@ -1553,6 +1759,12 @@ struct LyricsEditorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
+
+                    if let context = timingWordContext {
+                        Text("\(String(localized: "lyrics_word_level_badge")) \(context.syllableIndex + 1)/\(context.syllables.count)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.accentColor)
+                    }
                 }
                 .padding(.top, 18)
 
@@ -1564,16 +1776,20 @@ struct LyricsEditorView: View {
                     timingNavigationButton(
                         systemImage: "chevron.left",
                         label: String(localized: "lyrics_editor_previous_line"),
-                        enabled: previousTimingIndex != nil
-                    ) { selectPreviousTimingLine() }
+                        enabled: canSelectPreviousTimingUnit
+                    ) { selectPreviousTimingUnit() }
 
                     Button {
-                        stampTimingLine()
+                        stampTimingUnit()
                     } label: {
                         VStack(spacing: 5) {
-                            Text(String(localized: "lyrics_editor_mode_timing"))
+                            Text(String(localized: timingWordContext == nil
+                                        ? "lyrics_editor_mode_timing"
+                                        : "lyrics_word_level_badge"))
                                 .font(.system(size: 23, weight: .bold, design: .rounded))
-                            Text(String(localized: "lyrics_editor_timing_hint"))
+                            Text(String(localized: timingWordContext == nil
+                                        ? "lyrics_editor_timing_hint"
+                                        : "lyrics_editor_word_level_hint"))
                                 .font(.caption2)
                                 .fontWeight(.medium)
                         }
@@ -1594,8 +1810,8 @@ struct LyricsEditorView: View {
                     timingNavigationButton(
                         systemImage: "chevron.right",
                         label: String(localized: "lyrics_editor_next_line"),
-                        enabled: nextTimingIndex != nil
-                    ) { selectNextTimingLine() }
+                        enabled: canSelectNextTimingUnit
+                    ) { selectNextTimingUnit() }
                 }
                 .padding(.horizontal, 22)
 
@@ -1637,14 +1853,14 @@ struct LyricsEditorView: View {
                         title: "− 0.1s",
                         accessibilityLabel: String(localized: "lyrics_editor_nudge_earlier")
                     ) {
-                        nudgeTimingLine(by: -0.1)
+                        nudgeTimingUnit(by: -0.1)
                     }
 
                     timingFineTuneButton(
                         title: "+ 0.1s",
                         accessibilityLabel: String(localized: "lyrics_editor_nudge_later")
                     ) {
-                        nudgeTimingLine(by: 0.1)
+                        nudgeTimingUnit(by: 0.1)
                     }
 
                     Button {
@@ -1673,7 +1889,9 @@ struct LyricsEditorView: View {
 
     @ViewBuilder
     private var timingLineContext: some View {
-        if let index = timingSession.cursorIndex, document.lines.indices.contains(index) {
+        if let context = timingWordContext {
+            timingWordContextView(context)
+        } else if let index = timingSession.cursorIndex, document.lines.indices.contains(index) {
             VStack(spacing: 20) {
                 timingContextLine(at: previousTimingIndex, role: .previous)
                 timingContextLine(at: index, role: .current)
@@ -1696,7 +1914,46 @@ struct LyricsEditorView: View {
         }
     }
 
+    private func timingWordContextView(_ context: TimingWordContext) -> some View {
+        VStack(spacing: 13) {
+            Text(document.lines[context.lineIndex].text)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+
+            HStack(alignment: .firstTextBaseline, spacing: 18) {
+                timingWordUnit(context.previous, role: .previous)
+                timingWordUnit(context.current, role: .current)
+                timingWordUnit(context.next, role: .next)
+            }
+            .frame(maxWidth: .infinity, minHeight: 72)
+
+            Text("\(context.syllableIndex + 1)/\(context.syllables.count) · \(timeLabel(context.current.start))")
+                .font(.system(size: 11, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 158)
+        .padding(.horizontal, 28)
+    }
+
     private enum TimingLineRole: Equatable { case previous, current, next }
+
+    private func timingWordUnit(
+        _ syllable: LyricSyllable?,
+        role: TimingLineRole
+    ) -> some View {
+        Text(syllable.map { visibleSyllableText($0.text) } ?? " ")
+            .font(role == .current
+                  ? .system(size: 32, weight: .bold)
+                  : .system(size: 18, weight: .medium))
+            .foregroundStyle(role == .current ? Color.accentColor : Color.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.65)
+            .frame(maxWidth: role == .current ? 180 : 80)
+            .opacity(syllable == nil ? 0 : 1)
+    }
 
     @ViewBuilder
     private func timingContextLine(at index: Int?, role: TimingLineRole) -> some View {
@@ -1767,8 +2024,8 @@ struct LyricsEditorView: View {
                 .background(Color.secondary.opacity(0.10), in: .rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
-        .disabled(!timingSession.canNudge(in: document))
-        .opacity(timingSession.canNudge(in: document) ? 1 : 0.4)
+        .disabled(!canFineTuneTimingUnit)
+        .opacity(canFineTuneTimingUnit ? 1 : 0.4)
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -1844,6 +2101,7 @@ struct LyricsEditorView: View {
             return
         }
         document = LyricsEditorDocument(parsing: sourceText)
+        selectedTextSyllable = nil
         prepareTimingSession()
         showSourceEditor = false
     }
@@ -1955,33 +2213,62 @@ struct LyricsEditorView: View {
         if preferredIndex == nil {
             _ = timingSession.select(index: nil, document: document)
         }
+        updateTimingSyllableSelection(
+            for: preferredIndex,
+            at: playbackIndex == preferredIndex ? liveTime : nil
+        )
         timingFollowsPlayback = playbackIndex != nil
     }
 
-    private func stampTimingLine() {
+    private func stampTimingUnit() {
         guard isLinkedToPlayback else { return }
-        guard let stampedIndex = timingSession.stamp(
-            document: &document,
-            time: player.interpolatedTime()
-        ) else { return }
-        timingFollowsPlayback = false
-        let next = timingEligibleIndices.first(where: { $0 > stampedIndex })
-        _ = timingSession.select(index: next, document: document)
+        let now = player.interpolatedTime()
+
+        if let context = timingWordContext {
+            guard timingSession.stampSyllable(
+                document: &document,
+                lineIndex: context.lineIndex,
+                syllableIndex: context.syllableIndex,
+                time: now
+            ) != nil else { return }
+            timingFollowsPlayback = false
+            selectNextTimingUnit()
+        } else {
+            guard let stampedIndex = timingSession.stamp(
+                document: &document,
+                time: now
+            ) else { return }
+            timingFollowsPlayback = false
+            let next = timingEligibleIndices.first(where: { $0 > stampedIndex })
+            _ = timingSession.select(index: next, document: document)
+            updateTimingSyllableSelection(for: next)
+        }
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         #endif
     }
 
-    private func selectPreviousTimingLine() {
-        guard let previousTimingIndex else { return }
+    private func selectPreviousTimingUnit() {
         timingFollowsPlayback = false
+        if let context = timingWordContext, context.syllableIndex > 0 {
+            timingSyllableIndex = context.syllableIndex - 1
+            return
+        }
+        guard let previousTimingIndex else { return }
         _ = timingSession.select(index: previousTimingIndex, document: document)
+        updateTimingSyllableSelection(for: previousTimingIndex, preferLast: true)
     }
 
-    private func selectNextTimingLine() {
-        guard let nextTimingIndex else { return }
+    private func selectNextTimingUnit() {
         timingFollowsPlayback = false
+        if let context = timingWordContext,
+           context.syllableIndex + 1 < context.syllables.count {
+            timingSyllableIndex = context.syllableIndex + 1
+            return
+        }
+        guard let nextTimingIndex else { return }
         _ = timingSession.select(index: nextTimingIndex, document: document)
+        updateTimingSyllableSelection(for: nextTimingIndex)
     }
 
     private func followPlaybackLine() {
@@ -1989,25 +2276,68 @@ struct LyricsEditorView: View {
         guard let playbackTimingIndex = timingLineIndex(at: liveTime) else { return }
         timingFollowsPlayback = true
         _ = timingSession.select(index: playbackTimingIndex, document: document)
+        updateTimingSyllableSelection(for: playbackTimingIndex, at: liveTime)
     }
 
     private func undoTimingChange() {
         timingFollowsPlayback = false
-        _ = timingSession.undo(document: &document)
+        guard let restoredLine = timingSession.undo(document: &document) else { return }
+        if let syllableIndex = timingSession.affectedSyllableIndex {
+            timingSyllableIndex = syllableIndex
+        } else {
+            updateTimingSyllableSelection(for: restoredLine)
+        }
     }
 
     private func redoTimingChange() {
         timingFollowsPlayback = false
         guard let redone = timingSession.redo(document: &document) else { return }
-        let next = timingEligibleIndices.first(where: { $0 > redone })
-        _ = timingSession.select(index: next, document: document)
+        if let syllableIndex = timingSession.affectedSyllableIndex {
+            timingSyllableIndex = syllableIndex
+        } else {
+            let next = timingEligibleIndices.first(where: { $0 > redone })
+            _ = timingSession.select(index: next, document: document)
+            updateTimingSyllableSelection(for: next)
+        }
     }
 
-    private func nudgeTimingLine(by delta: TimeInterval) {
-        guard timingSession.nudge(document: &document, by: delta) != nil else { return }
+    private func nudgeTimingUnit(by delta: TimeInterval) {
+        timingFollowsPlayback = false
+        let didNudge: Bool
+        if let context = timingWordContext {
+            didNudge = timingSession.nudgeSyllable(
+                document: &document,
+                lineIndex: context.lineIndex,
+                syllableIndex: context.syllableIndex,
+                by: delta
+            ) != nil
+        } else {
+            didNudge = timingSession.nudge(document: &document, by: delta) != nil
+        }
+        guard didNudge else { return }
         #if os(iOS)
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
+    }
+
+    private func updateTimingSyllableSelection(
+        for lineIndex: Int?,
+        at time: TimeInterval? = nil,
+        preferLast: Bool = false
+    ) {
+        guard let lineIndex,
+              document.lines.indices.contains(lineIndex),
+              let syllables = document.lines[lineIndex].syllables,
+              !syllables.isEmpty else {
+            timingSyllableIndex = nil
+            return
+        }
+
+        if let time {
+            timingSyllableIndex = syllables.lastIndex(where: { $0.start <= time }) ?? 0
+        } else {
+            timingSyllableIndex = preferLast ? syllables.count - 1 : 0
+        }
     }
 
     private func nudge(_ index: Int, by delta: TimeInterval) {
@@ -2047,6 +2377,7 @@ struct LyricsEditorView: View {
 
         document.removeLines(at: IndexSet(integer: index))
         if focusedLine == removedID { focusedLine = nil }
+        if selectedTextSyllable?.lineID == removedID { selectedTextSyllable = nil }
 
         let preferredID = selectedID == removedID ? fallbackID : selectedID
         let preferredIndex = preferredID.flatMap { id in
@@ -2125,5 +2456,12 @@ struct LyricsEditorView: View {
             (centiseconds % 6_000) / 100,
             centiseconds % 100
         )
+    }
+
+    private func visibleSyllableText(_ text: String) -> String {
+        let visible = text
+            .replacingOccurrences(of: " ", with: "␠")
+            .replacingOccurrences(of: "\n", with: "↵")
+        return visible.isEmpty ? "…" : visible
     }
 }
