@@ -2509,15 +2509,26 @@ final class MusicLibrary {
         // 给每首新歌就近填 albumID/artistID。这样后台 rebuildIndex 不需要回头
         // mutate songs 数组, 1w+ 首库扫描时 main actor 不会被全表 ID 重赋值
         // 卡到。计算成本 = SHA256(string) × 2 per song, 1w 首约 5ms 总。
-        var filteredNewSongs: [Song] = []
-        filteredNewSongs.reserveCapacity(newSongs.count)
-        for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
-            var prepared = song
-            MusicLibrary.fillDerivedIDs(&prepared)
-            filteredNewSongs.append(prepared)
+        // Keep only compact identity sets during the first pass. Retaining a
+        // second full `[Song]` snapshot here doubled the peak of every remote
+        // incremental flush, even though preparation can be done lazily below.
+        var incomingIDs: Set<String> = []
+        var sourceIDs = explicitAffectedSourceIDs ?? []
+        var appendedIDs: Set<String> = []
+        if pruneMissingSongs {
+            incomingIDs.reserveCapacity(newSongs.count)
         }
-        let incomingIDs = Set(filteredNewSongs.map(\.id))
-        let sourceIDs = explicitAffectedSourceIDs ?? Set(filteredNewSongs.map(\.sourceID))
+        for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
+            if pruneMissingSongs {
+                incomingIDs.insert(song.id)
+                if explicitAffectedSourceIDs == nil {
+                    sourceIDs.insert(song.sourceID)
+                }
+            }
+            if songIndexByID[song.id] == nil {
+                appendedIDs.insert(song.id)
+            }
+        }
 
         // A degraded/partial provider response is not an authoritative source
         // snapshot. Keep existing rows (and, critically, their persistent
@@ -2528,12 +2539,12 @@ final class MusicLibrary {
                 && sourceIDs.contains(song.sourceID)
                 && !incomingIDs.contains(song.id)
         }
-        let removalCount = existingSongs.reduce(into: 0) { count, song in
-            if shouldRemove(song) { count += 1 }
-        }
-        let appendedSongCount = incomingIDs.reduce(into: 0) { count, id in
-            if songIndexByID[id] == nil { count += 1 }
-        }
+        let removalCount = pruneMissingSongs
+            ? existingSongs.reduce(into: 0) { count, song in
+                if shouldRemove(song) { count += 1 }
+            }
+            : 0
+        let appendedSongCount = appendedIDs.count
 
         // Build the final buffer once. `var mergedSongs = songs` followed by
         // `removeAll` forces Array CoW to allocate another full-library buffer
@@ -2544,14 +2555,23 @@ final class MusicLibrary {
         var removedSongs: [Song] = []
         removedSongs.reserveCapacity(removalCount)
 
-        var existingIndexByID: [String: Int] = [:]
-        existingIndexByID.reserveCapacity(existingSongs.count - removalCount + appendedSongCount)
-        for song in existingSongs {
-            if shouldRemove(song) {
-                removedSongs.append(song)
-            } else {
-                existingIndexByID[song.id] = mergedSongs.count
-                mergedSongs.append(song)
+        var existingIndexByID: [String: Int]
+        if removalCount == 0 {
+            // Share the existing index buffer until a genuinely new ID is
+            // appended. An all-existing refresh then avoids another full hash
+            // table allocation.
+            mergedSongs.append(contentsOf: existingSongs)
+            existingIndexByID = songIndexByID
+        } else {
+            existingIndexByID = [:]
+            existingIndexByID.reserveCapacity(existingSongs.count - removalCount + appendedSongCount)
+            for song in existingSongs {
+                if shouldRemove(song) {
+                    removedSongs.append(song)
+                } else {
+                    existingIndexByID[song.id] = mergedSongs.count
+                    mergedSongs.append(song)
+                }
             }
         }
 
@@ -2563,7 +2583,9 @@ final class MusicLibrary {
             persistedSongIDs.insert(song.id)
         }
 
-        for newSong in filteredNewSongs {
+        for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
+            var newSong = song
+            MusicLibrary.fillDerivedIDs(&newSong)
             if let idx = existingIndexByID[newSong.id] {
                 let existing = mergedSongs[idx]
                 // Detect remote replacement: same path/ID but different
@@ -2623,16 +2645,16 @@ final class MusicLibrary {
                     if let cover = newSong.coverArtFileName { merged.coverArtFileName = cover }
                     if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
                     if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
-                    mergedSongs[idx] = merged
                     if merged != existing {
+                        mergedSongs[idx] = merged
                         recordPersistence(merged)
                     }
                     if Self.songPresentationChanged(from: existing, to: merged) {
                         replacementIDs.insert(newSong.id)
                     }
                 } else {
-                    mergedSongs[idx] = newSong
                     if newSong != existing {
+                        mergedSongs[idx] = newSong
                         recordPersistence(newSong)
                     }
                     if Self.songPresentationChanged(from: existing, to: newSong) {
