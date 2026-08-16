@@ -718,6 +718,79 @@ private struct NetworkPathChangeObserver: View {
     }
 }
 
+private struct SourceAuthenticationAlert: Identifiable {
+    let source: MusicSource
+    let message: String
+
+    var id: String { source.id }
+}
+
+private struct SourceAuthenticationPresentationModifier: ViewModifier {
+    @Binding var alerts: [String: SourceAuthenticationAlert]
+    @Binding var reauthSource: MusicSource?
+
+    let sourcesStore: SourcesStore
+    let scanService: ScanService
+    let sourceManager: SourceManager
+
+    func body(content: Content) -> some View {
+        let activeAlert: Binding<SourceAuthenticationAlert?> = Binding(
+            get: {
+                guard case .sourceAuthentication(let id) = AppAlertCoordinator.shared.activeRequest else {
+                    return nil
+                }
+                return alerts[id]
+            },
+            set: { _, _ in }
+        )
+
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .primuseSourceAuthFailed)) { note in
+                guard let id = note.userInfo?["sourceID"] as? String,
+                      let source = sourcesStore.source(id: id) else { return }
+                alerts[id] = SourceAuthenticationAlert(
+                    source: source,
+                    message: note.userInfo?["message"] as? String ?? ""
+                )
+                AppAlertCoordinator.shared.enqueue(.sourceAuthentication(id))
+            }
+            .alert(item: activeAlert) { prompt in
+                let detail = prompt.message.isEmpty
+                    ? String(localized: "source_auth_failed_message_generic")
+                    : prompt.message
+                return Alert(
+                    title: Text("source_auth_failed_title"),
+                    message: Text("\(prompt.source.name) — \(detail)"),
+                    primaryButton: .default(Text("source_auth_failed_re_enter")) {
+                        let source = prompt.source
+                        alerts[prompt.id] = nil
+                        AppAlertCoordinator.shared.finish(
+                            .sourceAuthentication(prompt.id),
+                            suspendAfterDismiss: true
+                        ) {
+                            reauthSource = source
+                        }
+                    },
+                    secondaryButton: .cancel(Text("later")) {
+                        alerts[prompt.id] = nil
+                        AppAlertCoordinator.shared.finish(.sourceAuthentication(prompt.id))
+                    }
+                )
+            }
+            .sheet(
+                item: $reauthSource,
+                onDismiss: { AppAlertCoordinator.shared.resumeAfterModal() }
+            ) { source in
+                AddSourceView(sourceType: source.type, editingSource: source) { updated in
+                    sourcesStore.update(updated.id) { $0 = updated }
+                    scanService.removeSynologyAPI(for: updated.id)
+                    Task { await sourceManager.refreshConnector(for: updated.id) }
+                    SourceAuthAlert.clear(sourceID: updated.id)
+                }
+            }
+    }
+}
+
 @main
 struct PrimuseApp: App {
     #if os(iOS)
@@ -753,8 +826,7 @@ struct PrimuseApp: App {
 
     /// 后台 connect() 失败时弹的 "登录失败" 提示。点 "重新输入" 后会把 source
     /// 存到 reauthSource 触发 AddSourceView sheet。
-    @State private var authAlertSource: MusicSource?
-    @State private var authAlertMessage: String = ""
+    @State private var sourceAuthenticationAlerts: [String: SourceAuthenticationAlert] = [:]
     @State private var reauthSource: MusicSource?
     /// Apple TV 上的二维码扫码后(primuse://add-source)触发的"添加音乐源" sheet。
     @State private var deepLinkAddSource = false
@@ -1171,41 +1243,13 @@ struct PrimuseApp: App {
                         scanService: scanService
                     )
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .primuseSourceAuthFailed)) { note in
-                    guard let id = note.userInfo?["sourceID"] as? String,
-                          let src = sourcesStore.source(id: id) else { return }
-                    authAlertMessage = note.userInfo?["message"] as? String ?? ""
-                    authAlertSource = src
-                }
-                .alert(
-                    String(localized: "source_auth_failed_title"),
-                    isPresented: Binding(
-                        get: { authAlertSource != nil },
-                        set: { if !$0 { authAlertSource = nil } }
-                    ),
-                    presenting: authAlertSource
-                ) { source in
-                    Button(String(localized: "source_auth_failed_re_enter")) {
-                        reauthSource = source
-                        authAlertSource = nil
-                    }
-                    Button(String(localized: "later"), role: .cancel) {
-                        authAlertSource = nil
-                    }
-                } message: { source in
-                    let detail = authAlertMessage.isEmpty
-                        ? String(localized: "source_auth_failed_message_generic")
-                        : authAlertMessage
-                    Text("\(source.name) — \(detail)")
-                }
-                .sheet(item: $reauthSource) { source in
-                    AddSourceView(sourceType: source.type, editingSource: source) { updated in
-                        sourcesStore.update(updated.id) { $0 = updated }
-                        scanService.removeSynologyAPI(for: updated.id)
-                        Task { await sourceManager.refreshConnector(for: updated.id) }
-                        SourceAuthAlert.clear(sourceID: updated.id)
-                    }
-                }
+                .modifier(SourceAuthenticationPresentationModifier(
+                    alerts: $sourceAuthenticationAlerts,
+                    reauthSource: $reauthSource,
+                    sourcesStore: sourcesStore,
+                    scanService: scanService,
+                    sourceManager: sourceManager
+                ))
                 .sheet(isPresented: $deepLinkAddSource) {
                     SendToTVSheet()
                         .environment(musicLibrary)

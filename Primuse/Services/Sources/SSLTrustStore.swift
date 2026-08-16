@@ -4,6 +4,116 @@ import PrimuseKit
 import Security
 import SwiftUI
 
+/// Serializes the app-wide alert classes that can be raised by background
+/// networking. UIKit cannot safely attach two alert controllers to the same
+/// presentation hierarchy while one of them is still dismissing.
+@MainActor
+@Observable
+final class AppAlertCoordinator {
+    enum Request: Hashable {
+        case transport(UUID)
+        case sourceAuthentication(String)
+        case sourceOperation(String)
+        case cellularBackfill
+    }
+
+    static let shared = AppAlertCoordinator()
+
+    private(set) var activeRequest: Request?
+    private var waitingRequests: [Request] = []
+    private var isTransitioning = false
+    private var isSuspendedForModal = false
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+
+    private var transportPresenterStack: [UUID] = []
+    private(set) var activeTransportPresenterID: UUID?
+
+    private init() {}
+
+    func enqueue(_ request: Request) {
+        guard activeRequest != request, !waitingRequests.contains(request) else { return }
+        if activeRequest == nil, !isTransitioning, !isSuspendedForModal {
+            activeRequest = request
+        } else {
+            waitingRequests.append(request)
+        }
+    }
+
+    func finish(
+        _ request: Request,
+        suspendAfterDismiss: Bool = false,
+        afterDismiss: (@MainActor () -> Void)? = nil
+    ) {
+        guard activeRequest == request else {
+            waitingRequests.removeAll { $0 == request }
+            return
+        }
+
+        activeRequest = nil
+        isTransitioning = true
+        transitionTask?.cancel()
+        transitionTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.isTransitioning = false
+            if case .transport = request {
+                self.activeTransportPresenterID = self.transportPresenterStack.last
+            }
+            if suspendAfterDismiss {
+                self.isSuspendedForModal = true
+            } else {
+                self.promoteNextIfPossible()
+            }
+            afterDismiss?()
+        }
+    }
+
+    func cancel(_ request: Request) {
+        if activeRequest == request {
+            finish(request)
+        } else {
+            waitingRequests.removeAll { $0 == request }
+        }
+    }
+
+    func resumeAfterModal() {
+        isSuspendedForModal = false
+        promoteNextIfPossible()
+    }
+
+    func registerTransportPresenter(_ id: UUID) {
+        transportPresenterStack.removeAll { $0 == id }
+        transportPresenterStack.append(id)
+        if activeTransportPresenterID == nil || !isPresentingTransportAlert {
+            activeTransportPresenterID = id
+        }
+    }
+
+    func unregisterTransportPresenter(_ id: UUID) {
+        transportPresenterStack.removeAll { $0 == id }
+        activeTransportPresenterID = transportPresenterStack.last
+    }
+
+    private func promoteNextIfPossible() {
+        guard activeRequest == nil,
+              !isTransitioning,
+              !isSuspendedForModal,
+              !waitingRequests.isEmpty else {
+            return
+        }
+        activeRequest = waitingRequests.removeFirst()
+    }
+
+    private var isPresentingTransportAlert: Bool {
+        if case .transport = activeRequest { return true }
+        return false
+    }
+}
+
 /// Manages a set of trusted domains whose SSL certificate errors should be ignored.
 /// Persisted to UserDefaults so trust decisions survive app restarts.
 @MainActor
@@ -45,6 +155,17 @@ final class SSLTrustStore {
         let id = UUID()
         let endpoint: String
         var continuations: [CheckedContinuation<Bool, Never>]
+    }
+
+    enum TransportPrompt: Identifiable {
+        case certificate(id: UUID, domain: String)
+        case insecureHTTP(id: UUID, endpoint: String)
+
+        var id: UUID {
+            switch self {
+            case .certificate(let id, _), .insecureHTTP(let id, _): id
+            }
+        }
     }
 
     /// 当前正在向用户征询的请求 (UI 的 `.sslTrustAlert` 绑定它)。
@@ -204,6 +325,7 @@ final class SSLTrustStore {
             )
             if pendingInsecureHTTPTrustRequest == nil {
                 pendingInsecureHTTPTrustRequest = request
+                AppAlertCoordinator.shared.enqueue(.transport(request.id))
             } else {
                 waitingInsecureHTTPTrustRequests.append(request)
             }
@@ -215,9 +337,14 @@ final class SSLTrustStore {
         if approved {
             allowInsecureHTTP(domain: request.endpoint)
         }
-        pendingInsecureHTTPTrustRequest = waitingInsecureHTTPTrustRequests.isEmpty
+        let nextRequest = waitingInsecureHTTPTrustRequests.isEmpty
             ? nil
             : waitingInsecureHTTPTrustRequests.removeFirst()
+        pendingInsecureHTTPTrustRequest = nextRequest
+        AppAlertCoordinator.shared.finish(.transport(request.id))
+        if let nextRequest {
+            AppAlertCoordinator.shared.enqueue(.transport(nextRequest.id))
+        }
         for continuation in request.continuations {
             continuation.resume(returning: approved)
         }
@@ -294,6 +421,7 @@ final class SSLTrustStore {
             if pendingTrustRequest == nil {
                 // 没有正在征询的请求,直接展示。
                 pendingTrustRequest = request
+                AppAlertCoordinator.shared.enqueue(.transport(request.id))
             } else {
                 // 已有不同 domain 在征询,排队等待,不覆盖。
                 waitingTrustRequests.append(request)
@@ -343,6 +471,7 @@ final class SSLTrustStore {
             )
             if pendingTrustRequest == nil {
                 pendingTrustRequest = request
+                AppAlertCoordinator.shared.enqueue(.transport(request.id))
             } else {
                 waitingTrustRequests.append(request)
             }
@@ -355,10 +484,32 @@ final class SSLTrustStore {
         if approved {
             trust(domain: request.domain, certificateInfo: request.certificateInfo)
         }
-        // 先弹出下一个排队请求作为当前请求 (可能为 nil),再 resume 旧的所有 continuation。
-        pendingTrustRequest = waitingTrustRequests.isEmpty ? nil : waitingTrustRequests.removeFirst()
+        let nextRequest = waitingTrustRequests.isEmpty ? nil : waitingTrustRequests.removeFirst()
+        pendingTrustRequest = nextRequest
+        AppAlertCoordinator.shared.finish(.transport(request.id))
+        if let nextRequest {
+            AppAlertCoordinator.shared.enqueue(.transport(nextRequest.id))
+        }
         for continuation in request.continuations {
             continuation.resume(returning: approved)
+        }
+    }
+
+    func transportPrompt(id: UUID) -> TransportPrompt? {
+        if let request = pendingTrustRequest, request.id == id {
+            return .certificate(id: request.id, domain: request.domain)
+        }
+        if let request = pendingInsecureHTTPTrustRequest, request.id == id {
+            return .insecureHTTP(id: request.id, endpoint: request.endpoint)
+        }
+        return nil
+    }
+
+    func resolveTransportPrompt(id: UUID, approved: Bool) {
+        if pendingTrustRequest?.id == id {
+            resolveTrustRequest(approved: approved)
+        } else if pendingInsecureHTTPTrustRequest?.id == id {
+            resolveInsecureHTTPTrustRequest(approved: approved)
         }
     }
 
@@ -774,44 +925,64 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 private struct TransportTrustAlertsModifier: ViewModifier {
+    @State private var presenterID = UUID()
+
     func body(content: Content) -> some View {
+        let store = SSLTrustStore.shared
+        let coordinator = AppAlertCoordinator.shared
+        let activePrompt: Binding<SSLTrustStore.TransportPrompt?> = Binding(
+            get: {
+                guard coordinator.activeTransportPresenterID == presenterID,
+                      case .transport(let requestID) = coordinator.activeRequest else {
+                    return nil
+                }
+                return store.transportPrompt(id: requestID)
+            },
+            // Alerts are modal and all actions below resolve the exact
+            // request ID. Ignoring SwiftUI's nil write prevents a late
+            // dismissal from rejecting the next queued endpoint.
+            set: { _, _ in }
+        )
+
         content
-            .alert(
-                String(localized: "ssl_trust_title"),
-                isPresented: Binding(
-                    get: { SSLTrustStore.shared.pendingTrustRequest != nil },
-                    set: { _ in }
-                )
-            ) {
-                Button(String(localized: "trust_domain"), role: .destructive) {
-                    SSLTrustStore.shared.resolveTrustRequest(approved: true)
-                }
-                Button(String(localized: "dont_trust"), role: .cancel) {
-                    SSLTrustStore.shared.resolveTrustRequest(approved: false)
-                }
-            } message: {
-                if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
-                    Text("ssl_trust_message \(domain)")
-                }
+            .onAppear {
+                coordinator.registerTransportPresenter(presenterID)
             }
-            .alert(
-                String(localized: "insecure_http_warning_title"),
-                isPresented: Binding(
-                    get: { SSLTrustStore.shared.pendingInsecureHTTPTrustRequest != nil },
-                    set: { _ in }
-                )
-            ) {
-                Button(String(localized: "insecure_http_continue"), role: .destructive) {
-                    SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: true)
+            .onDisappear {
+                if coordinator.activeTransportPresenterID == presenterID,
+                   case .transport(let requestID) = coordinator.activeRequest {
+                    store.resolveTransportPrompt(id: requestID, approved: false)
                 }
-                Button(String(localized: "cancel"), role: .cancel) {
-                    SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: false)
+                coordinator.unregisterTransportPresenter(presenterID)
+            }
+            .alert(item: activePrompt) { prompt in
+                switch prompt {
+                case .certificate(let id, let domain):
+                    return Alert(
+                        title: Text("ssl_trust_title"),
+                        message: Text("ssl_trust_message \(domain)"),
+                        primaryButton: .destructive(Text("trust_domain")) {
+                            store.resolveTransportPrompt(id: id, approved: true)
+                        },
+                        secondaryButton: .cancel(Text("dont_trust")) {
+                            store.resolveTransportPrompt(id: id, approved: false)
+                        }
+                    )
+                case .insecureHTTP(let id, let endpoint):
+                    return Alert(
+                        title: Text("insecure_http_warning_title"),
+                        message: Text(String(
+                            format: String(localized: "insecure_http_warning_message %@"),
+                            endpoint
+                        )),
+                        primaryButton: .destructive(Text("insecure_http_continue")) {
+                            store.resolveTransportPrompt(id: id, approved: true)
+                        },
+                        secondaryButton: .cancel(Text("cancel")) {
+                            store.resolveTransportPrompt(id: id, approved: false)
+                        }
+                    )
                 }
-            } message: {
-                Text(String(
-                    format: String(localized: "insecure_http_warning_message %@"),
-                    SSLTrustStore.shared.pendingInsecureHTTPTrustRequest?.endpoint ?? ""
-                ))
             }
     }
 }

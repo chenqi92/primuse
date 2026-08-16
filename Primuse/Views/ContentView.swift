@@ -336,52 +336,18 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             showNowPlaying = true
         }
-        // SSL trust prompt
-        .alert(
-            String(localized: "ssl_trust_title"),
-            isPresented: Binding(
-                get: { SSLTrustStore.shared.pendingTrustRequest != nil },
-                set: { _ in }
-            )
-        ) {
-            Button(String(localized: "trust_domain"), role: .destructive) {
-                SSLTrustStore.shared.resolveTrustRequest(approved: true)
-            }
-            Button(String(localized: "dont_trust"), role: .cancel) {
-                SSLTrustStore.shared.resolveTrustRequest(approved: false)
-            }
-        } message: {
-            if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
-                Text("ssl_trust_message \(domain)")
-            }
-        }
-        .alert(
-            String(localized: "insecure_http_warning_title"),
-            isPresented: Binding(
-                get: { SSLTrustStore.shared.pendingInsecureHTTPTrustRequest != nil },
-                // Buttons resolve the current request. Resolving from this
-                // setter as well can accidentally reject the next queued
-                // endpoint when SwiftUI dismisses the current alert.
-                set: { _ in }
-            )
-        ) {
-            Button(String(localized: "insecure_http_continue"), role: .destructive) {
-                SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: true)
-            }
-            Button(String(localized: "cancel"), role: .cancel) {
-                SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: false)
-            }
-        } message: {
-            Text(String(
-                format: String(localized: "insecure_http_warning_message %@"),
-                SSLTrustStore.shared.pendingInsecureHTTPTrustRequest?.endpoint ?? ""
-            ))
-        }
+        // One active presenter owns the app-wide transport trust queue. Sheets
+        // register a nearer presenter while visible, so the same request can
+        // never create alert controllers in both hierarchies.
+        .transportTrustAlerts()
         // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
         .alert(
             String(localized: "cellular_backfill_title"),
             isPresented: Binding(
-                get: { backfill.pausedForCellular },
+                get: {
+                    backfill.pausedForCellular
+                        && AppAlertCoordinator.shared.activeRequest == .cellularBackfill
+                },
                 set: { if !$0 { backfill.dismissCellularPrompt() } }
             )
         ) {

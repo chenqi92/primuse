@@ -47,6 +47,17 @@ public struct ID3TextMetadata: Equatable, Sendable {
 }
 
 public enum ID3TextMetadataParser {
+    /// Parses independently fetched file head/tail ranges without ever
+    /// materializing them as one contiguous `Data`. ID3v2 from the head stays
+    /// authoritative; a trailing ID3v1 tag only fills fields that are absent.
+    public static func parse(head: Data, tail: Data?) -> ID3TextMetadata? {
+        var result = parse(head) ?? ID3TextMetadata()
+        if let tail, !tail.isEmpty, let trailing = parseID3v1(tail) {
+            fillMissing(in: &result, from: trailing)
+        }
+        return result.isEmpty ? nil : result
+    }
+
     public static func parse(_ data: Data) -> ID3TextMetadata? {
         let trailingMetadata = parseID3v1(data)
         guard data.count >= 10,

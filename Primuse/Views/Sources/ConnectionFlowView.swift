@@ -27,10 +27,6 @@ struct ConnectionFlowView: View {
     @State private var rootItems: [SynologyAPI.FileItem] = []
     @FocusState private var otpFocused: Bool
     @FocusState private var passwordFocused: Bool
-    @State private var sslTrustDomain: String?
-    @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
-    @State private var insecureHTTPTrustHost: String?
-    @State private var insecureHTTPTrustContinuation: CheckedContinuation<Bool, Never>?
 
     enum FlowStep { case connecting, otp, password, browsing, failed }
 
@@ -50,42 +46,6 @@ struct ConnectionFlowView: View {
         }
         .interactiveDismissDisabled(step == .connecting)
         .onAppear { startConnection() }
-        .alert(
-            String(localized: "ssl_trust_title"),
-            isPresented: Binding(
-                get: { sslTrustDomain != nil },
-                set: { if !$0 { resolveSSLTrust(approved: false) } }
-            )
-        ) {
-            Button(String(localized: "trust_domain"), role: .destructive) {
-                resolveSSLTrust(approved: true)
-            }
-            Button(String(localized: "dont_trust"), role: .cancel) {
-                resolveSSLTrust(approved: false)
-            }
-        } message: {
-            if let domain = sslTrustDomain {
-                Text("ssl_trust_message \(domain)")
-            }
-        }
-        .alert(
-            String(localized: "insecure_http_trust_title"),
-            isPresented: Binding(
-                get: { insecureHTTPTrustHost != nil },
-                set: { if !$0 { resolveInsecureHTTPTrust(approved: false) } }
-            )
-        ) {
-            Button(String(localized: "allow_insecure_http"), role: .destructive) {
-                resolveInsecureHTTPTrust(approved: true)
-            }
-            Button(String(localized: "cancel"), role: .cancel) {
-                resolveInsecureHTTPTrust(approved: false)
-            }
-        } message: {
-            if let host = insecureHTTPTrustHost {
-                Text("insecure_http_trust_message \(host)")
-            }
-        }
         .transportTrustAlerts()
     }
 
@@ -161,41 +121,12 @@ struct ConnectionFlowView: View {
     }
     #endif
 
-    private func resolveSSLTrust(approved: Bool) {
-        if approved, let domain = sslTrustDomain {
-            SSLTrustStore.shared.trust(domain: domain)
-        }
-        let continuation = sslTrustContinuation
-        sslTrustDomain = nil
-        sslTrustContinuation = nil
-        continuation?.resume(returning: approved)
-    }
-
     private func promptSSLTrust(domain: String) async -> Bool {
-        // Already trusted
-        if SSLTrustStore.shared.isTrusted(domain: domain) { return true }
-        return await withCheckedContinuation { continuation in
-            sslTrustDomain = domain
-            sslTrustContinuation = continuation
-        }
-    }
-
-    private func resolveInsecureHTTPTrust(approved: Bool) {
-        if approved, let host = insecureHTTPTrustHost {
-            SSLTrustStore.shared.allowInsecureHTTP(domain: host)
-        }
-        let continuation = insecureHTTPTrustContinuation
-        insecureHTTPTrustHost = nil
-        insecureHTTPTrustContinuation = nil
-        continuation?.resume(returning: approved)
+        await SSLTrustStore.shared.requestTrust(domain: domain)
     }
 
     private func promptInsecureHTTPTrust(host: String) async -> Bool {
-        if SSLTrustStore.shared.allowsInsecureHTTP(domain: host) { return true }
-        return await withCheckedContinuation { continuation in
-            insecureHTTPTrustHost = host
-            insecureHTTPTrustContinuation = continuation
-        }
+        await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: host)
     }
 
     private var stepTitle: String {

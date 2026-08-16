@@ -475,7 +475,7 @@ struct NowPlayingView: View {
             }
         }
         .sheet(isPresented: $showQueue) {
-            QueueView()
+            QueueView(player: player)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }

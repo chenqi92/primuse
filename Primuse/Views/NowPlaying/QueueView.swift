@@ -2,7 +2,7 @@ import SwiftUI
 import PrimuseKit
 
 struct QueueView: View {
-    @Environment(AudioPlayerService.self) private var player
+    let player: AudioPlayerService
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {

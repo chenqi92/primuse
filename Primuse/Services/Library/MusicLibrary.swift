@@ -2509,42 +2509,58 @@ final class MusicLibrary {
         // 给每首新歌就近填 albumID/artistID。这样后台 rebuildIndex 不需要回头
         // mutate songs 数组, 1w+ 首库扫描时 main actor 不会被全表 ID 重赋值
         // 卡到。计算成本 = SHA256(string) × 2 per song, 1w 首约 5ms 总。
-        let filteredNewSongs = newSongs
-            .filter { !deletedSongIdentities.contains(identityKey(for: $0)) }
-            .map { song -> Song in
-                var s = song
-                MusicLibrary.fillDerivedIDs(&s)
-                return s
-            }
+        var filteredNewSongs: [Song] = []
+        filteredNewSongs.reserveCapacity(newSongs.count)
+        for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
+            var prepared = song
+            MusicLibrary.fillDerivedIDs(&prepared)
+            filteredNewSongs.append(prepared)
+        }
         let incomingIDs = Set(filteredNewSongs.map(\.id))
         let sourceIDs = explicitAffectedSourceIDs ?? Set(filteredNewSongs.map(\.sourceID))
 
         // A degraded/partial provider response is not an authoritative source
         // snapshot. Keep existing rows (and, critically, their persistent
         // metadata caches) until a complete scan succeeds.
-        let removedSongs = pruneMissingSongs
-            ? songs.filter { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
-            : []
-        // Mutate a local copy and publish the observable array once. Mutating
-        // `songs` for every row caused SwiftUI to repeatedly invalidate large
-        // library views during an incremental scan.
-        var mergedSongs = songs
-        if pruneMissingSongs {
-            mergedSongs.removeAll { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
+        let existingSongs = songs
+        let shouldRemove: (Song) -> Bool = { song in
+            pruneMissingSongs
+                && sourceIDs.contains(song.sourceID)
+                && !incomingIDs.contains(song.id)
+        }
+        let removalCount = existingSongs.reduce(into: 0) { count, song in
+            if shouldRemove(song) { count += 1 }
+        }
+        let appendedSongCount = incomingIDs.reduce(into: 0) { count, id in
+            if songIndexByID[id] == nil { count += 1 }
         }
 
+        // Build the final buffer once. `var mergedSongs = songs` followed by
+        // `removeAll` forces Array CoW to allocate another full-library buffer
+        // at the worst point of an incremental scan and was the allocation
+        // failure reported by Organizer.
+        var mergedSongs: [Song] = []
+        mergedSongs.reserveCapacity(existingSongs.count - removalCount + appendedSongCount)
+        var removedSongs: [Song] = []
+        removedSongs.reserveCapacity(removalCount)
+
         var existingIndexByID: [String: Int] = [:]
-        existingIndexByID.reserveCapacity(mergedSongs.count)
-        for (i, s) in mergedSongs.enumerated() { existingIndexByID[s.id] = i }
+        existingIndexByID.reserveCapacity(existingSongs.count - removalCount + appendedSongCount)
+        for song in existingSongs {
+            if shouldRemove(song) {
+                removedSongs.append(song)
+            } else {
+                existingIndexByID[song.id] = mergedSongs.count
+                mergedSongs.append(song)
+            }
+        }
 
         var contentChanged: [Song] = []
         var replacementIDs: Set<String> = []
-        var persistedSongIDs: [String] = []
-        var persistedSongIDSet: Set<String> = []
+        var persistedSongIDs: Set<String> = []
 
-        func recordPersistence(_ id: String) {
-            guard persistedSongIDSet.insert(id).inserted else { return }
-            persistedSongIDs.append(id)
+        func recordPersistence(_ song: Song) {
+            persistedSongIDs.insert(song.id)
         }
 
         for newSong in filteredNewSongs {
@@ -2573,7 +2589,7 @@ final class MusicLibrary {
                     mergedSongs[idx] = newSong
                     contentChanged.append(newSong)
                     replacementIDs.insert(newSong.id)
-                    recordPersistence(newSong.id)
+                    recordPersistence(newSong)
                     continue
                 }
                 // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
@@ -2609,7 +2625,7 @@ final class MusicLibrary {
                     if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
                     mergedSongs[idx] = merged
                     if merged != existing {
-                        recordPersistence(newSong.id)
+                        recordPersistence(merged)
                     }
                     if Self.songPresentationChanged(from: existing, to: merged) {
                         replacementIDs.insert(newSong.id)
@@ -2617,7 +2633,7 @@ final class MusicLibrary {
                 } else {
                     mergedSongs[idx] = newSong
                     if newSong != existing {
-                        recordPersistence(newSong.id)
+                        recordPersistence(newSong)
                     }
                     if Self.songPresentationChanged(from: existing, to: newSong) {
                         replacementIDs.insert(newSong.id)
@@ -2626,12 +2642,12 @@ final class MusicLibrary {
             } else {
                 mergedSongs.append(newSong)
                 existingIndexByID[newSong.id] = mergedSongs.count - 1
-                recordPersistence(newSong.id)
+                recordPersistence(newSong)
             }
         }
 
         songs = mergedSongs
-        songIndexByID = Self.makeSongIndex(mergedSongs)
+        songIndexByID = existingIndexByID
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Newly-added songs may resolve identities that were stashed when

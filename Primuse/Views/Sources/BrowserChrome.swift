@@ -515,8 +515,6 @@ struct MacDirTreeBrowser: View {
     @State private var rootLoaded = false
     @State private var rootLoading = false
     @State private var errorMessage: String?
-    @State private var sslTrustDomain: String?
-    @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -548,25 +546,7 @@ struct MacDirTreeBrowser: View {
             rootLoaded = true
             Task { await loadRoot() }
         }
-        .onDisappear {
-            // 用户在 SSL 弹窗未处理时直接按 Esc 关窗,
-            // 必须 resume 未决 continuation,否则挂起的加载 Task 与 connector 引用永久泄漏。
-            let cont = sslTrustContinuation
-            sslTrustDomain = nil; sslTrustContinuation = nil
-            cont?.resume(returning: false)
-        }
-        .alert(
-            String(localized: "ssl_trust_title"),
-            isPresented: Binding(
-                get: { sslTrustDomain != nil },
-                set: { if !$0 { resolveSSLTrust(approved: false) } }
-            )
-        ) {
-            Button(String(localized: "trust_domain"), role: .destructive) { resolveSSLTrust(approved: true) }
-            Button(String(localized: "dont_trust"), role: .cancel) { resolveSSLTrust(approved: false) }
-        } message: {
-            if let domain = sslTrustDomain { Text("ssl_trust_message \(domain)") }
-        }
+        .transportTrustAlerts()
     }
 
     // MARK: 顶栏 / 底栏
@@ -880,22 +860,9 @@ struct MacDirTreeBrowser: View {
 
     // MARK: SSL 信任
 
-    private func resolveSSLTrust(approved: Bool) {
-        if approved, let domain = sslTrustDomain { SSLTrustStore.shared.trust(domain: domain) }
-        let cont = sslTrustContinuation
-        sslTrustDomain = nil; sslTrustContinuation = nil
-        cont?.resume(returning: approved)
-    }
-
     private func promptSSLTrust(for error: Error) async -> Bool {
         guard let domain = SSLTrustStore.sslErrorDomain(from: error) else { return false }
-        if SSLTrustStore.shared.isTrusted(domain: domain) { return true }
-        return await withCheckedContinuation { continuation in
-            // 并发失败时(toggleExpand 与 focus 同时报错)可能已有一个未决的
-            // continuation 在等 alert,直接覆盖会让它永不恢复 —— 先把旧的放掉。
-            sslTrustContinuation?.resume(returning: false)
-            sslTrustDomain = domain; sslTrustContinuation = continuation
-        }
+        return await SSLTrustStore.shared.requestTrust(domain: domain)
     }
 }
 #endif

@@ -167,7 +167,8 @@ final class ScanService {
             library.addSongs(
                 resumeSongs + knownExisting,
                 affectedSourceIDs: Set([source.id]),
-                notifyRemovals: false
+                notifyRemovals: false,
+                pruneMissingSongs: false
             )
             let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
             sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
@@ -741,7 +742,12 @@ final class ScanService {
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
                     // 缓存被反复清空。
-                    library.addSongs(lastSongs, affectedSourceIDs: Set([source.id]), notifyRemovals: false)
+                    library.addSongs(
+                        lastSongs,
+                        affectedSourceIDs: Set([source.id]),
+                        notifyRemovals: false,
+                        pruneMissingSongs: false
+                    )
                     let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
                     sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
                     if update.resumeState == nil {
@@ -1021,7 +1027,12 @@ final class ScanService {
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
                     // 缓存被反复清空。
-                    library.addSongs(lastSongs, affectedSourceIDs: Set([source.id]), notifyRemovals: false)
+                    library.addSongs(
+                        lastSongs,
+                        affectedSourceIDs: Set([source.id]),
+                        notifyRemovals: false,
+                        pruneMissingSongs: false
+                    )
                     let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
                     sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
                     if update.resumeState == nil {

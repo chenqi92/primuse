@@ -101,6 +101,11 @@ final class MetadataBackfillService {
     private func setCellularPromptPresented(_ presented: Bool) {
         guard pausedForCellular != presented else { return }
         pausedForCellular = presented
+        if presented {
+            AppAlertCoordinator.shared.enqueue(.cellularBackfill)
+        } else {
+            AppAlertCoordinator.shared.cancel(.cellularBackfill)
+        }
     }
 
     private let library: MusicLibrary
@@ -1601,13 +1606,18 @@ final class MetadataBackfillService {
                     )
                     if !metadataLooksMissing(metadata) { break }
                 }
-            } else if let tailData = try? await sourceManager.fetchMetadataRange(
+            } else if ext == "mp3",
+                      let tailData = try? await sourceManager.fetchMetadataRange(
                 for: song,
                 offset: -Self.fallbackTailBytes,
                 length: Self.fallbackTailBytes
             ) {
-                let combined = metadataInputData + tailData
-                metadata = await extractMetadata(from: combined, song: song, cacheKey: song.id)
+                metadata = await extractMetadata(
+                    from: metadataInputData,
+                    id3TailData: tailData,
+                    song: song,
+                    cacheKey: song.id
+                )
             }
         }
 
@@ -1733,6 +1743,7 @@ final class MetadataBackfillService {
     private func extractMetadata(
         from data: Data,
         containerTailData: Data? = nil,
+        id3TailData: Data? = nil,
         song: Song,
         cacheKey: String
     ) async -> MetadataService.SongMetadata {
@@ -1745,6 +1756,7 @@ final class MetadataBackfillService {
         return await metadataService.loadEmbeddedMetadata(
             from: data,
             containerTailData: containerTailData,
+            id3TailData: id3TailData,
             fileExtension: ext,
             cacheKey: cacheKey,
             fallbackTitle: fallbackTitle

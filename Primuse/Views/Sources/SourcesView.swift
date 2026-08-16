@@ -4,7 +4,6 @@ import PrimuseKit
 private enum SourceAlert: Identifiable {
     case confirm(SourceCacheRequest)
     case completed(SourceCacheCompletion)
-    case insecureHTTP(SourceInsecureHTTPPrompt)
     #if os(iOS)
     case localImport(SourceLocalImportAlert)
     #endif
@@ -13,23 +12,11 @@ private enum SourceAlert: Identifiable {
         switch self {
         case .confirm(let request): "confirm-\(request.id.uuidString)"
         case .completed(let completion): "completed-\(completion.id.uuidString)"
-        case .insecureHTTP(let prompt): "insecure-http-\(prompt.id.uuidString)"
         #if os(iOS)
         case .localImport(let alert): "local-import-\(alert.id.uuidString)"
         #endif
         }
     }
-}
-
-private enum SourceNetworkAction {
-    case cache(source: MusicSource, songs: [Song])
-    case scan(source: MusicSource, mode: SourceSyncMode)
-}
-
-private struct SourceInsecureHTTPPrompt: Identifiable {
-    let id = UUID()
-    let trustTarget: String
-    let action: SourceNetworkAction
 }
 
 #if os(iOS)
@@ -162,6 +149,18 @@ struct SourcesContentView: View {
                 cachePreparationTask?.cancel()
                 cachePreparationTask = nil
                 preparingCacheSourceID = nil
+                if let id = sourceAlert?.id {
+                    AppAlertCoordinator.shared.cancel(.sourceOperation(id))
+                    sourceAlert = nil
+                }
+            }
+            .onChange(of: sourceAlert?.id, initial: true) { previousID, currentID in
+                if let previousID, previousID != currentID {
+                    AppAlertCoordinator.shared.cancel(.sourceOperation(previousID))
+                }
+                if let currentID, previousID != currentID {
+                    AppAlertCoordinator.shared.enqueue(.sourceOperation(currentID))
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -205,7 +204,7 @@ struct SourcesContentView: View {
                 }
             }
             #endif
-            .alert(item: $sourceAlert) { alert in
+            .alert(item: coordinatedSourceAlert) { alert in
                 switch alert {
                 case .confirm(let request):
                     return Alert(
@@ -221,18 +220,6 @@ struct SourcesContentView: View {
                         title: Text(cacheCompletionTitle(for: completion)),
                         message: Text(cacheCompletionMessage(for: completion)),
                         dismissButton: .default(Text("done"))
-                    )
-                case .insecureHTTP(let prompt):
-                    return Alert(
-                        title: Text("insecure_http_warning_title"),
-                        message: Text(String(
-                            format: String(localized: "insecure_http_warning_message %@"),
-                            prompt.trustTarget
-                        )),
-                        primaryButton: .destructive(Text("insecure_http_continue")) {
-                            approveInsecureHTTP(prompt)
-                        },
-                        secondaryButton: .cancel(Text("cancel"))
                     )
                 #if os(iOS)
                 case .localImport(let alert):
@@ -250,6 +237,28 @@ struct SourcesContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
                 cloudDirectoryNameRefreshID = UUID()
             }
+    }
+
+    private var coordinatedSourceAlert: Binding<SourceAlert?> {
+        Binding(
+            get: {
+                guard let alert = sourceAlert,
+                      AppAlertCoordinator.shared.activeRequest == .sourceOperation(alert.id) else {
+                    return nil
+                }
+                return alert
+            },
+            set: { newValue, _ in
+                guard newValue == nil,
+                      case .sourceOperation(let id) = AppAlertCoordinator.shared.activeRequest else {
+                    return
+                }
+                if sourceAlert?.id == id {
+                    sourceAlert = nil
+                }
+                AppAlertCoordinator.shared.finish(.sourceOperation(id))
+            }
+        )
     }
 
     private var emptyView: some View {
@@ -983,10 +992,12 @@ struct SourcesContentView: View {
     private func presentCacheConfirmation(for source: MusicSource, songs: [Song]) {
         if let trustTarget = explicitHTTPTrustTarget(for: source),
            !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) {
-            sourceAlert = .insecureHTTP(SourceInsecureHTTPPrompt(
-                trustTarget: trustTarget,
-                action: .cache(source: source, songs: songs)
-            ))
+            Task { @MainActor in
+                guard await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: trustTarget) else {
+                    return
+                }
+                presentCacheConfirmation(for: source, songs: songs)
+            }
             return
         }
         cachePreparationTask?.cancel()
@@ -1010,10 +1021,12 @@ struct SourcesContentView: View {
     ) {
         if let trustTarget = explicitHTTPTrustTarget(for: source),
            !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) {
-            sourceAlert = .insecureHTTP(SourceInsecureHTTPPrompt(
-                trustTarget: trustTarget,
-                action: .scan(source: source, mode: mode)
-            ))
+            Task { @MainActor in
+                guard await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: trustTarget) else {
+                    return
+                }
+                startSourceScan(source, mode: mode)
+            }
             return
         }
         scanService.scanSource(
@@ -1024,16 +1037,6 @@ struct SourcesContentView: View {
             sourceStore: sourceStore,
             scraperService: scraperService
         )
-    }
-
-    private func approveInsecureHTTP(_ prompt: SourceInsecureHTTPPrompt) {
-        SSLTrustStore.shared.allowInsecureHTTP(domain: prompt.trustTarget)
-        switch prompt.action {
-        case .cache(let source, let songs):
-            presentCacheConfirmation(for: source, songs: songs)
-        case .scan(let source, let mode):
-            startSourceScan(source, mode: mode)
-        }
     }
 
     private func explicitHTTPTrustTarget(for source: MusicSource) -> String? {

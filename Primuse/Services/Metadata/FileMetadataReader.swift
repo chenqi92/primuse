@@ -83,7 +83,11 @@ enum FileMetadataReader {
     /// the same random-access view without generating whole-library disk I/O.
     /// `Data` is copy-on-write, so the loader borrows the caller's storage;
     /// only individual AVFoundation byte-range responses are materialized.
-    static func read(from data: Data, fileExtension: String) async -> Metadata {
+    static func read(
+        from data: Data,
+        fileExtension: String,
+        id3TailData: Data? = nil
+    ) async -> Metadata {
         guard !data.isEmpty else { return Metadata() }
 
         let loader = InMemoryAudioAssetLoader(
@@ -93,7 +97,7 @@ enum FileMetadataReader {
         let asset = loader.makeAsset(fileExtension: fileExtension)
         var metadata = await read(from: asset)
 
-        applyID3Fallback(to: &metadata, data: data)
+        applyID3Fallback(to: &metadata, data: data, tailData: id3TailData)
         applyFLACFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyWAVEFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyMPEGFrameFallback(to: &metadata, data: data, fileExtension: fileExtension)
@@ -262,8 +266,12 @@ enum FileMetadataReader {
         metadata.bitDepth = info.bitDepth
     }
 
-    private static func applyID3Fallback(to metadata: inout Metadata, data tagData: Data) {
-        let text = ID3TextMetadataParser.parse(tagData)
+    private static func applyID3Fallback(
+        to metadata: inout Metadata,
+        data tagData: Data,
+        tailData: Data? = nil
+    ) {
+        let text = ID3TextMetadataParser.parse(head: tagData, tail: tailData)
         let artwork = parseID3Metadata(from: tagData)
         guard text != nil || artwork != nil else { return }
 

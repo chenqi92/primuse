@@ -97,6 +97,42 @@ import Testing
     #expect(metadata?.artist == "尾部艺术家")
 }
 
+@Test func mergesIndependentHeadAndTailWithoutConcatenatingTheirStorage() {
+    let head = makeID3v23Tag([
+        textFrame("TIT2", "头部标题"),
+        textFrame("TALB", "头部专辑"),
+    ]) + Data(repeating: 0xAA, count: 4 * 1024 * 1024)
+    let tail = Data(repeating: 0xBB, count: 256 * 1024 - 128) + makeID3v1Tag(
+        title: Array("尾部旧标题".utf8),
+        artist: Array("尾部艺术家".utf8),
+        year: Array("2008".utf8),
+        track: 9
+    )
+
+    let metadata = ID3TextMetadataParser.parse(head: head, tail: tail)
+
+    #expect(metadata?.title == "头部标题")
+    #expect(metadata?.albumTitle == "头部专辑")
+    #expect(metadata?.artist == "尾部艺术家")
+    #expect(metadata?.year == 2008)
+    #expect(metadata?.trackNumber == 9)
+}
+
+@Test func damagedIndependentTailDoesNotReplaceHeadMetadata() {
+    let head = makeID3v23Tag([
+        textFrame("TIT2", "保留标题"),
+        textFrame("TPE1", "保留艺术家"),
+    ])
+
+    let metadata = ID3TextMetadataParser.parse(
+        head: head,
+        tail: Data(repeating: 0xFF, count: 256 * 1024)
+    )
+
+    #expect(metadata?.title == "保留标题")
+    #expect(metadata?.artist == "保留艺术家")
+}
+
 private func textFrame(_ id: String, _ value: String) -> Data {
     var payload = Data([0x03]) // UTF-8
     payload.append(Data(value.utf8))

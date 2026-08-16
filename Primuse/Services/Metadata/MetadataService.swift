@@ -168,13 +168,15 @@ actor MetadataService {
     func loadEmbeddedMetadata(
         from data: Data,
         containerTailData: Data? = nil,
+        id3TailData: Data? = nil,
         fileExtension: String,
         cacheKey: String? = nil,
         fallbackTitle: String
     ) async -> SongMetadata {
         var embedded = await FileMetadataReader.read(
             from: data,
-            fileExtension: fileExtension
+            fileExtension: fileExtension,
+            id3TailData: id3TailData
         )
         if let containerTailData,
            let tailMetadata = await FileMetadataReader.readISOBaseMediaMetadata(
