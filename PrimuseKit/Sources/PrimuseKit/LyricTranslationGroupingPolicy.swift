@@ -30,14 +30,18 @@ public struct LyricTranslationGroup: Equatable, Sendable {
 
 /// Produces one Translation batch per source language. Apple Translation
 /// requires every request in a batch to use the same source language, while a
-/// line whose language cannot be identified safely gets its own auto-detected
-/// session instead of being mixed with unrelated text.
+/// line whose language cannot be identified safely follows the language of the
+/// surrounding lyrics when one is available. Remaining unknown lines share one
+/// auto-detected session so they cannot trigger a separate system prompt per
+/// short line.
 public enum LyricTranslationGroupingPolicy {
     public static func groups(
         candidates: [LyricTranslationCandidate],
-        targetLanguageCode: String
+        targetLanguageCode: String,
+        fallbackSourceLanguageCode: String? = nil
     ) -> [LyricTranslationGroup] {
         let targetIdentity = languageIdentity(targetLanguageCode)
+        let fallbackSourceIdentity = fallbackSourceLanguageCode.map(languageIdentity)
         var orderedKeys: [String] = []
         var groupsByKey: [String: [LyricTranslationCandidate]] = [:]
         var sourceByKey: [String: String?] = [:]
@@ -47,13 +51,12 @@ public enum LyricTranslationGroupingPolicy {
             guard !text.isEmpty else { continue }
 
             let normalizedSource = candidate.sourceLanguageCode.map(languageIdentity)
+                ?? fallbackSourceIdentity
             if let normalizedSource, normalizedSource == targetIdentity {
                 continue
             }
 
-            // Unknown short lines must not share an automatic session: two
-            // adjacent lines can legitimately use different languages.
-            let key = normalizedSource ?? "auto:\(candidate.id)"
+            let key = normalizedSource ?? "auto"
             if groupsByKey[key] == nil {
                 orderedKeys.append(key)
                 sourceByKey[key] = normalizedSource
@@ -77,6 +80,22 @@ public enum LyricTranslationGroupingPolicy {
                 candidates: groupedCandidates
             )
         }
+    }
+
+    /// Automatic playback may translate every already-installed language pair,
+    /// but it should request at most one new language download at a time. A
+    /// noisy per-line language classification must never fan out into a series
+    /// of system sheets. Prefer the downloadable group covering the most lines.
+    public static func automaticSessionGroups(
+        installed: [LyricTranslationGroup],
+        downloadable: [LyricTranslationGroup]
+    ) -> [LyricTranslationGroup] {
+        guard var primaryDownload = downloadable.first else { return installed }
+        for group in downloadable.dropFirst()
+            where group.candidates.count > primaryDownload.candidates.count {
+            primaryDownload = group
+        }
+        return installed + [primaryDownload]
     }
 
     public static func languageIdentity(_ raw: String) -> String {

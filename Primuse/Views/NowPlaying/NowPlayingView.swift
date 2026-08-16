@@ -4258,6 +4258,9 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 
         guard identity.isEnabled, !lyrics.isEmpty else { return }
 
+        let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLanguageCode(
+            for: lyrics.map(\.text).joined(separator: "\n")
+        )
         let candidates = lyrics.map { line in
             LyricTranslationCandidate(
                 id: line.id,
@@ -4269,7 +4272,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
         let groups = LyricTranslationGroupingPolicy.groups(
             candidates: candidates,
-            targetLanguageCode: identity.targetLanguageCode
+            targetLanguageCode: identity.targetLanguageCode,
+            fallbackSourceLanguageCode: fallbackSourceLanguageCode
         )
         guard !groups.isEmpty else { return }
 
@@ -4301,7 +4305,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         let target = Locale.Language(identifier: identity.targetLanguageCode)
-        var availableGroups: [LyricTranslationGroup] = []
+        var installedGroups: [LyricTranslationGroup] = []
+        var downloadableGroups: [LyricTranslationGroup] = []
         for group in uncachedGroups {
             guard !Task.isCancelled else { return }
             do {
@@ -4313,8 +4318,10 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 )
 
                 switch status {
-                case .installed, .supported:
-                    availableGroups.append(group)
+                case .installed:
+                    installedGroups.append(group)
+                case .supported:
+                    downloadableGroups.append(group)
                 case .unsupported:
                     plog(
                         "Lyrics translation pair unsupported: "
@@ -4331,6 +4338,10 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
         translatedTextByLineID = hits
+        let availableGroups = LyricTranslationGroupingPolicy.automaticSessionGroups(
+            installed: installedGroups,
+            downloadable: downloadableGroups
+        )
         guard !availableGroups.isEmpty else { return }
 
         preparedGroups = availableGroups
@@ -4358,8 +4369,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         return try await availability.status(for: sampleText, to: target)
     }
 
-    /// 为下一组建立 session。连续的未知语言行会得到相同的 nil source，必须
-    /// invalidate 配置版本，才能让 SwiftUI 为下一行重新运行 translationTask。
+    /// 为下一组建立 session。同一语言配置再次启用时必须 invalidate 配置版本，
+    /// 才能让 SwiftUI 重新运行 translationTask。
     private func activateGroup(at index: Int, identity: TranslationTaskIdentity) {
         guard preparedIdentity == identity, preparedGroups.indices.contains(index) else {
             translationConfig = nil
@@ -4400,6 +4411,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 
         var newCachePairs: [(source: String, sourceLang: String?, translated: String)] = []
         var newStateUpdates: [String: String] = [:]
+        var translationFailed = false
         do {
             for try await response in session.translate(batch: requests) {
                 guard !Task.isCancelled else { return }
@@ -4418,6 +4430,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             }
         } catch {
             guard !Task.isCancelled else { return }
+            translationFailed = true
             plog("Lyrics translation failed: \(error.localizedDescription)")
         }
 
@@ -4435,6 +4448,13 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 
         if !newStateUpdates.isEmpty {
             translatedTextByLineID.merge(newStateUpdates) { _, new in new }
+        }
+
+        guard !translationFailed else {
+            translationConfig = nil
+            preparedGroups = []
+            preparedIdentity = nil
+            return
         }
 
         let nextIndex = groupIndex + 1
