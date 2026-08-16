@@ -93,7 +93,6 @@ struct LyricsEditorView: View {
     var body: some View {
         content
             .task(id: song.id) { await trackPlaybackTime() }
-            .onAppear { refreshClipboardPreview() }
     }
 
     // MARK: - 容器
@@ -371,18 +370,12 @@ struct LyricsEditorView: View {
             Spacer(minLength: 20)
 
             VStack(spacing: 10) {
-                if let clipboardPreview {
-                    emptyOption(
-                        icon: "doc.on.clipboard.fill",
-                        title: String(
-                            format: String(localized: "lyrics_editor_empty_paste %lld"),
-                            clipboardPreview.lines.count
-                        ),
-                        subtitle: String(localized: "lyrics_editor_empty_paste_detail"),
-                        prominent: true
-                    ) {
-                        pasteDraft = clipboardPreview
-                    }
+                emptyOption(
+                    icon: "doc.on.clipboard.fill",
+                    title: String(localized: "lyrics_editor_paste_replace"),
+                    subtitle: String(localized: "lyrics_editor_empty_paste_detail")
+                ) {
+                    pasteReplace()
                 }
 
                 emptyOption(
@@ -408,27 +401,25 @@ struct LyricsEditorView: View {
         }
     }
 
-    /// 剪贴板里像歌词的一段文字。iOS 16 起读剪贴板会弹系统「已粘贴」横幅，
-    /// 所以只在进入编辑器时探一次，绝不能放在 body 里每帧求值。
+    /// 剪贴板里像歌词的一段文字。只在用户明确点「粘贴」后读取，
+    /// 避免进入编辑器时触发系统剪贴板权限提示。
     @State private var clipboardPreview: LyricsTextTools.SplitResult?
 
-    private func refreshClipboardPreview() {
+    private func readClipboardPreview() -> LyricsTextTools.SplitResult? {
         #if os(iOS)
         guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string else {
-            clipboardPreview = nil
-            return
+            return nil
         }
         #elseif os(macOS)
         guard let text = NSPasteboard.general.string(forType: .string) else {
-            clipboardPreview = nil
-            return
+            return nil
         }
         #else
         let text = ""
         #endif
         let result = LyricsTextTools.splitIntoLines(text)
         // 一两行的剪贴板内容多半不是歌词(复制的歌名/链接)，别误导用户。
-        clipboardPreview = result.lines.count >= 3 ? result : nil
+        return result.lines.count >= 3 ? result : nil
     }
 
     private func emptyOption(
@@ -844,8 +835,7 @@ struct LyricsEditorView: View {
             HStack(spacing: PMSpace.s8) {
                 textToolButton(
                     titleKey: "lyrics_editor_paste_replace",
-                    systemImage: "doc.on.clipboard",
-                    enabled: clipboardPreview != nil
+                    systemImage: "doc.on.clipboard"
                 ) { pasteReplace() }
                 textToolButton(
                     titleKey: "lyrics_editor_resplit",
@@ -880,8 +870,7 @@ struct LyricsEditorView: View {
         HStack(spacing: 8) {
             textToolButton(
                 titleKey: "lyrics_editor_paste_replace",
-                systemImage: "doc.on.clipboard",
-                enabled: clipboardPreview != nil
+                systemImage: "doc.on.clipboard"
             ) { pasteReplace() }
             textToolButton(
                 titleKey: "lyrics_editor_resplit",
@@ -924,8 +913,7 @@ struct LyricsEditorView: View {
             HStack(spacing: 8) {
                 textToolButton(
                     titleKey: "lyrics_editor_paste_replace",
-                    systemImage: "doc.on.clipboard",
-                    enabled: clipboardPreview != nil
+                    systemImage: "doc.on.clipboard"
                 ) {
                     pasteReplace()
                 }
@@ -1000,7 +988,11 @@ struct LyricsEditorView: View {
 
     /// 用剪贴板整段替换。走跟空状态同一个预览，替换前用户还能反悔。
     private func pasteReplace() {
-        guard let preview = clipboardPreview else { return }
+        guard let preview = readClipboardPreview() else {
+            clipboardPreview = nil
+            return
+        }
+        clipboardPreview = preview
         pasteDraft = preview
     }
 

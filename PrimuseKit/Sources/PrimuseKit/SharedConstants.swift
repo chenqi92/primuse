@@ -2406,6 +2406,37 @@ public enum GoogleDriveHTTPErrorPolicy {
     }
 }
 
+public struct GoogleDriveSidecarReference: Equatable, Sendable {
+    public let sourceFileID: String
+    public let suffix: String
+
+    public init(sourceFileID: String, suffix: String) {
+        self.sourceFileID = sourceFileID
+        self.suffix = suffix
+    }
+}
+
+public enum GoogleDriveSidecarPolicy {
+    public static func reference(from virtualPath: String) -> GoogleDriveSidecarReference? {
+        let suffix: String
+        if virtualPath.hasSuffix("-cover.jpg") {
+            suffix = "-cover.jpg"
+        } else if virtualPath.hasSuffix(".lrc") {
+            suffix = ".lrc"
+        } else {
+            return nil
+        }
+
+        let sourceFileID = String(virtualPath.dropLast(suffix.count))
+        guard !sourceFileID.isEmpty else { return nil }
+        return GoogleDriveSidecarReference(sourceFileID: sourceFileID, suffix: suffix)
+    }
+
+    public static func targetName(sourceFileName: String, suffix: String) -> String {
+        (sourceFileName as NSString).deletingPathExtension + suffix
+    }
+}
+
 /// Pagination must make globally monotonic progress within a request. This
 /// rejects empty tokens and cycles such as A -> B -> A, not just a token that
 /// repeats on two adjacent pages.

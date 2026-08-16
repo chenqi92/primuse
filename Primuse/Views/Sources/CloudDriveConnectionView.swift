@@ -609,12 +609,11 @@ struct CloudDriveConnectionView: View {
             // Resolve credentials with a preference for built-in credentials unless
             // the source explicitly stores a custom client_id in the model.
             do {
-                if let creds = try await resolvedCredentials(using: tokenManager) {
-                    guard await tokenManager.saveAppCredentials(creds) else {
-                        errorMessage = String(localized: "credential_save_failed_message")
-                        withAnimation { step = .failed }
-                        return
-                    }
+                if try await resolvedCredentials(using: tokenManager) != nil {
+                    // Status checks are read-only. Persist credentials only after
+                    // the user explicitly starts authorization; otherwise opening
+                    // this screen can show a misleading save failure before any
+                    // save action has occurred.
                     withAnimation { step = .readyToAuth }
                 } else {
                     // No credentials at all — need manual setup

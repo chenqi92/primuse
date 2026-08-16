@@ -14,45 +14,67 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     /// 写 sidecar 到 Google Drive。filePath 是 file ID,SidecarWriteService 拼的 `to`
     /// 形如 "{fileID}-cover.jpg" / "{fileID}.lrc"。反解出源 file → 查名+父目录 → multipart 上传。
     func writeFile(data: Data, to path: String) async throws {
-        let suffix: String
-        if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
-        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
-        else { throw CloudDriveError.invalidResponse }
-        let fileID = String(path.dropLast(suffix.count))
-        guard !fileID.isEmpty else { throw CloudDriveError.invalidResponse }
+        guard let reference = GoogleDriveSidecarPolicy.reference(from: path) else {
+            throw CloudDriveError.invalidResponse
+        }
+
+        let context = try await sidecarContext(for: reference)
+        let existingID = try await sidecarItemID(named: context.name, parentID: context.parentID)
 
         let token = try await getToken()
         // Wrap both the metadata lookup and the upload so a server-side early
         // token revocation (401) triggers one force-refresh + retry of the
         // whole sidecar write rather than failing until local expiry.
-        let sidecarName: String = try await helper.withTokenRetry(
+        let sidecarID: String = try await helper.withTokenRetry(
             initialToken: token,
             refresh: refreshToken
         ) { @Sendable tok in
-            let (meta, http0) = try await self.helper.makeAuthorizedRequest(
-                url: URL(string: "\(Self.apiBase)/files/\(fileID)?fields=name,parents")!, accessToken: tok)
-            guard http0.statusCode == 200 else { throw CloudDriveError.apiError(http0.statusCode, "file lookup") }
-            let json = (try? JSONSerialization.jsonObject(with: meta)) as? [String: Any] ?? [:]
-            guard let name = json["name"] as? String,
-                  let parentID = (json["parents"] as? [String])?.first else { throw CloudDriveError.invalidResponse }
-            let sidecarName = (name as NSString).deletingPathExtension + suffix
-            let mime = suffix == ".lrc" ? "text/plain" : "image/jpeg"
+            let mime = reference.suffix == ".lrc" ? "text/plain; charset=utf-8" : "image/jpeg"
+            let request: URLRequest
 
-            // multipart/related:元数据(name+parents) + 内容。
-            let metaJSON = try SafeJSONSerialization.data(withJSONObject: ["name": sidecarName, "parents": [parentID]])
-            let boundary = "primuse\(UUID().uuidString)"
-            var body = Data()
-            body.append("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".data(using: .utf8)!)
-            body.append(metaJSON)
-            body.append("\r\n--\(boundary)\r\nContent-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
-            body.append(data)
-            body.append("\r\n--\(boundary)--".data(using: .utf8)!)
+            if let existingID {
+                var components = URLComponents(string: "\(Self.uploadBase)/files/\(existingID)")!
+                components.queryItems = [
+                    .init(name: "uploadType", value: "media"),
+                    .init(name: "supportsAllDrives", value: "true"),
+                    .init(name: "fields", value: "id"),
+                ]
+                var update = URLRequest(url: components.url!)
+                update.httpMethod = "PATCH"
+                update.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+                update.setValue(mime, forHTTPHeaderField: "Content-Type")
+                request = update
+            } else {
+                let metaJSON = try SafeJSONSerialization.data(withJSONObject: [
+                    "name": context.name,
+                    "parents": [context.parentID],
+                ])
+                let boundary = "primuse\(UUID().uuidString)"
+                var body = Data()
+                body.append("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".data(using: .utf8)!)
+                body.append(metaJSON)
+                body.append("\r\n--\(boundary)\r\nContent-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+                body.append(data)
+                body.append("\r\n--\(boundary)--".data(using: .utf8)!)
 
-            var req = URLRequest(url: URL(string: "\(Self.uploadBase)/files?uploadType=multipart")!)
-            req.httpMethod = "POST"
-            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
-            req.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            let (_, resp) = try await URLSession.shared.upload(for: req, from: body)
+                var components = URLComponents(string: "\(Self.uploadBase)/files")!
+                components.queryItems = [
+                    .init(name: "uploadType", value: "multipart"),
+                    .init(name: "supportsAllDrives", value: "true"),
+                    .init(name: "fields", value: "id"),
+                ]
+                var create = URLRequest(url: components.url!)
+                create.httpMethod = "POST"
+                create.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+                create.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                create.httpBody = body
+                request = create
+            }
+
+            let uploadBody = request.httpBody ?? data
+            var uploadRequest = request
+            uploadRequest.httpBody = nil
+            let (responseData, resp) = try await URLSession.shared.upload(for: uploadRequest, from: uploadBody)
             guard let http = resp as? HTTPURLResponse else {
                 throw CloudDriveError.invalidResponse
             }
@@ -60,9 +82,76 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             guard (200...299).contains(http.statusCode) else {
                 throw CloudDriveError.apiError(http.statusCode, "Google Drive sidecar upload failed")
             }
-            return sidecarName
+            let responseJSON = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] ?? [:]
+            guard let uploadedID = responseJSON["id"] as? String, !uploadedID.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            return uploadedID
         }
-        plog("📁 Google Drive sidecar uploaded: \(sidecarName)")
+
+        let readback = try await fetchRange(
+            path: sidecarID,
+            offset: 0,
+            length: Int64(data.count)
+        )
+        guard readback == data else { throw CloudDriveError.invalidResponse }
+        plog("📁 Google Drive sidecar uploaded and verified: \(context.name)")
+    }
+
+    private struct SidecarContext: Sendable {
+        let name: String
+        let parentID: String
+    }
+
+    private func sidecarContext(
+        for reference: GoogleDriveSidecarReference
+    ) async throws -> SidecarContext {
+        let token = try await getToken()
+        var components = URLComponents(string: "\(Self.apiBase)/files/\(reference.sourceFileID)")!
+        components.queryItems = [.init(name: "fields", value: "name,parents,trashed")]
+        let requestURL = components.url!
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: requestURL, accessToken: tok)
+        }
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, "Google Drive source file lookup failed")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard json["trashed"] as? Bool != true,
+              let sourceName = json["name"] as? String,
+              let parentID = (json["parents"] as? [String])?.first else {
+            throw CloudDriveError.invalidResponse
+        }
+        return SidecarContext(
+            name: GoogleDriveSidecarPolicy.targetName(
+                sourceFileName: sourceName,
+                suffix: reference.suffix
+            ),
+            parentID: parentID
+        )
+    }
+
+    private func sidecarItemID(named name: String, parentID: String) async throws -> String? {
+        let matches = try await listFiles(at: parentID).filter {
+            !$0.isDirectory && $0.name.caseInsensitiveCompare(name) == .orderedSame
+        }
+        return matches.max {
+            ($0.modifiedDate ?? .distantPast) < ($1.modifiedDate ?? .distantPast)
+        }?.path
+    }
+
+    private func resolvedDownloadPath(for path: String) async throws -> String {
+        guard let reference = GoogleDriveSidecarPolicy.reference(from: path) else {
+            return path
+        }
+        let context = try await sidecarContext(for: reference)
+        guard let sidecarID = try await sidecarItemID(named: context.name, parentID: context.parentID) else {
+            throw CloudDriveError.fileNotFound(context.name)
+        }
+        return sidecarID
     }
 
     private static func parseISO8601(_ s: String) -> Date? {
@@ -435,8 +524,9 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let resolvedPath = try await resolvedDownloadPath(for: path)
         let token = try await getToken()
-        var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!
+        var components = URLComponents(string: "\(Self.apiBase)/files/\(resolvedPath)")!
         // `acknowledgeAbuse=true` is required for files Google's automated
         // scanner flagged as "potentially malicious" — without it, large
         // audio files occasionally come back as an HTML warning page
