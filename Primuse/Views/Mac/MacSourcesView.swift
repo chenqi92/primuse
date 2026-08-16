@@ -14,6 +14,7 @@ struct MacSourcesView: View {
     @Environment(ScanService.self) private var scanService
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(ThemeService.self) private var theme
 
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
@@ -117,7 +118,7 @@ struct MacSourcesView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
-                        .background(PMColor.brand, in: .rect(cornerRadius: 8))
+                        .background(theme.accentColor, in: .rect(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
@@ -136,19 +137,11 @@ struct MacSourcesView: View {
     @ViewBuilder
     private var content: some View {
         if sources.isEmpty {
-            ContentUnavailableView {
-                Label("no_sources", systemImage: "externaldrive.badge.plus")
-            } description: {
-                Text("no_sources_desc").font(.callout)
-            } actions: {
-                Button {
-                    showAddSource = true
-                } label: {
-                    Label("add_source", systemImage: "plus.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            }
+            ContentUnavailableView(
+                "no_sources",
+                systemImage: "externaldrive.badge.plus",
+                description: Text("no_sources_desc").font(.callout)
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
@@ -239,7 +232,7 @@ struct MacSourcesView: View {
                     .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(source.isEnabled ? Color.accentColor.gradient : Color.gray.gradient,
+                    .background(source.isEnabled ? theme.accentColor.gradient : Color.gray.gradient,
                                 in: .rect(cornerRadius: 9))
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -376,7 +369,7 @@ struct MacSourcesView: View {
                     .truncationMode(.middle)
             }
             if scan.totalCount > 0 {
-                ProgressView(value: min(scan.progress, 1.0)).tint(PMColor.brand)
+                ProgressView(value: min(scan.progress, 1.0)).tint(theme.accentColor)
             } else {
                 ProgressView().controlSize(.small)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -421,7 +414,7 @@ struct MacSourcesView: View {
                 scanPill(source, scanning: scanning)
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {
-                pill("connect_select_dirs", systemImage: "link", tint: PMColor.brand) { connectingSource = source }
+                pill("connect_select_dirs", systemImage: "link", tint: theme.accentColor) { connectingSource = source }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else {
                 scanPill(source, scanning: scanning)

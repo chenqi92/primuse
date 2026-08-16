@@ -16,6 +16,7 @@ enum SourceFormField: Hashable {
 
 struct AddSourceView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeService.self) private var theme
     let sourceType: MusicSourceType
     var editingSource: MusicSource?
     var prefillDevice: DiscoveredDevice?
@@ -331,7 +332,7 @@ struct AddSourceView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(height: 28)
-                    .background((canSave ? PMColor.brand : PMColor.textFaint), in: .rect(cornerRadius: 6))
+                    .background((canSave ? theme.accentColor : PMColor.textFaint), in: .rect(cornerRadius: 6))
             }
             .padding(.horizontal, 24)
             .frame(height: 64)
@@ -343,6 +344,7 @@ struct AddSourceView: View {
         .frame(minWidth: 560, idealWidth: 620, minHeight: 500, idealHeight: 660)
         .background(PMColor.bg.ignoresSafeArea())
         .foregroundStyle(PMColor.text)
+        .tint(theme.accentColor)
         .onAppear { initializeFields() }
     }
 
@@ -430,7 +432,7 @@ struct AddSourceView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 260)
+                        .frame(maxWidth: 260, alignment: .trailing)
                     }
                 }
 
@@ -730,8 +732,10 @@ struct AddSourceView: View {
             VStack(spacing: 0) {
                 content()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .pmCard(cornerRadius: 10)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func macTextRow(_ title: LocalizedStringKey,
@@ -779,7 +783,7 @@ struct AddSourceView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(minHeight: 42)
+        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
         .overlay(alignment: .top) {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
         }

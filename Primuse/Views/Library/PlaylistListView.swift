@@ -310,89 +310,84 @@ struct PlaylistListView: View {
     #if os(macOS)
     @ViewBuilder
     private var macBody: some View {
-        Group {
-            if playlists.isEmpty && smartPlaylists.isEmpty {
-                ContentUnavailableView {
-                    Label("no_playlists", systemImage: "music.note.list")
-                } description: {
-                    Text("no_playlists_desc")
-                } actions: {
-                    Button("new_playlist") {
-                        showNewPlaylist = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        macPlaylistsHeader
-                        playlistOverview
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                macPlaylistsHeader
 
-                        if !smartPlaylists.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                macSubsectionTitle("smart_playlists_section")
-                                LazyVStack(spacing: 10) {
-                                    ForEach(smartPlaylists) { smart in
-                                        NavigationLink(value: smart) {
-                                            smartPlaylistCard(smart)
+                if playlists.isEmpty && smartPlaylists.isEmpty {
+                    ContentUnavailableView(
+                        "no_playlists",
+                        systemImage: "music.note.list",
+                        description: Text("no_playlists_desc")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 320)
+                } else {
+                    playlistOverview
+
+                    if !smartPlaylists.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            macSubsectionTitle("smart_playlists_section")
+                            LazyVStack(spacing: 10) {
+                                ForEach(smartPlaylists) { smart in
+                                    NavigationLink(value: smart) {
+                                        smartPlaylistCard(smart)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    if !playlists.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if !smartPlaylists.isEmpty {
+                                macSubsectionTitle("playlists_section")
+                            }
+
+                            LazyVStack(spacing: 10) {
+                                ForEach(playlists) { playlist in
+                                    if isManagingPlaylists {
+                                        playlistCard(playlist)
+                                            .opacity(isSystemPlaylist(playlist.id) ? 0.45 : 1)
+                                            .overlay(alignment: .topTrailing) {
+                                                if !isSystemPlaylist(playlist.id) {
+                                                    SongSelectionCheckmark(
+                                                        isSelected: playlistSelection.contains(playlist.id)
+                                                    )
+                                                    .padding(10)
+                                                }
+                                            }
+                                            .contentShape(Rectangle())
+                                            .onTapGesture {
+                                                guard !isSystemPlaylist(playlist.id) else { return }
+                                                if playlistSelection.contains(playlist.id) {
+                                                    playlistSelection.remove(playlist.id)
+                                                } else {
+                                                    playlistSelection.insert(playlist.id)
+                                                }
+                                            }
+                                    } else {
+                                        NavigationLink(value: playlist) {
+                                            playlistCard(playlist)
                                         }
                                         .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !playlists.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                if !smartPlaylists.isEmpty {
-                                    macSubsectionTitle("playlists_section")
-                                }
-
-                                LazyVStack(spacing: 10) {
-                                    ForEach(playlists) { playlist in
-                                        if isManagingPlaylists {
-                                            playlistCard(playlist)
-                                                .opacity(isSystemPlaylist(playlist.id) ? 0.45 : 1)
-                                                .overlay(alignment: .topTrailing) {
-                                                    if !isSystemPlaylist(playlist.id) {
-                                                        SongSelectionCheckmark(
-                                                            isSelected: playlistSelection.contains(playlist.id)
-                                                        )
-                                                        .padding(10)
-                                                    }
-                                                }
-                                                .contentShape(Rectangle())
-                                                .onTapGesture {
-                                                    guard !isSystemPlaylist(playlist.id) else { return }
-                                                    if playlistSelection.contains(playlist.id) {
-                                                        playlistSelection.remove(playlist.id)
-                                                    } else {
-                                                        playlistSelection.insert(playlist.id)
-                                                    }
-                                                }
-                                        } else {
-                                            NavigationLink(value: playlist) {
-                                                playlistCard(playlist)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .contextMenu {
-                                                playlistContextMenu(for: playlist)
-                                            }
+                                        .contextMenu {
+                                            playlistContextMenu(for: playlist)
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, 36)
-                    .padding(.top, 32)
-                    .padding(.bottom, 112)
-                    .frame(maxWidth: 980, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .background(PMColor.bg.ignoresSafeArea())
             }
+            .padding(.horizontal, 36)
+            .padding(.top, 32)
+            .padding(.bottom, 112)
+            .frame(maxWidth: 980, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .background(PMColor.bg.ignoresSafeArea())
         .navigationDestination(for: SmartPlaylist.self) { smart in
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
         }

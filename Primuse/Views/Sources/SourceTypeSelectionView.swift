@@ -7,6 +7,7 @@ import UIKit
 
 struct SourceTypeSelectionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeService.self) private var theme
     var onAdd: (MusicSource) -> Void
 
     /// 选类型 / 选发现到的设备都只是弹同一个 AddSourceView。合并成单一 item 驱动
@@ -116,6 +117,7 @@ struct SourceTypeSelectionView: View {
         .frame(minWidth: 560, idealWidth: 620, minHeight: 560, idealHeight: 680)
         .background(PMColor.bg.ignoresSafeArea())
         .foregroundStyle(PMColor.text)
+        .tint(theme.accentColor)
     }
 
     private var macSheetChrome: some View {
@@ -197,9 +199,9 @@ struct SourceTypeSelectionView: View {
             HStack(spacing: 10) {
                 Text(String(type.rawValue.prefix(2)).uppercased())
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(PMColor.brand)
+                    .foregroundStyle(theme.accentColor)
                     .frame(width: 28, height: 28)
-                    .background(PMColor.brand.opacity(0.16), in: .rect(cornerRadius: 6))
+                    .background(theme.accentColor.opacity(0.16), in: .rect(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(type.displayName)
@@ -234,7 +236,7 @@ struct SourceTypeSelectionView: View {
             .background(tileBackground(selected: pendingType == type), in: .rect(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(pendingType == type ? PMColor.brand.opacity(0.55) : PMColor.cardBorder, lineWidth: 0.5)
+                    .strokeBorder(pendingType == type ? theme.accentColor.opacity(0.55) : PMColor.cardBorder, lineWidth: 0.5)
             }
         }
         .buttonStyle(.plain)
@@ -315,7 +317,7 @@ struct SourceTypeSelectionView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(height: 28)
-                    .background((pendingType == nil || pendingType?.isAwaitingPublicAPI == true ? PMColor.textFaint : PMColor.brand), in: .rect(cornerRadius: 6))
+                    .background((pendingType == nil || pendingType?.isAwaitingPublicAPI == true ? PMColor.textFaint : theme.accentColor), in: .rect(cornerRadius: 6))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
@@ -346,7 +348,7 @@ struct SourceTypeSelectionView: View {
     }
 
     private func tileBackground(selected: Bool) -> Color {
-        selected ? PMColor.brand.opacity(0.14) : PMColor.card
+        selected ? theme.accentColor.opacity(0.14) : PMColor.card
     }
 
     /// Legacy grouped form kept as a reference for iOS parity; macOS now uses
