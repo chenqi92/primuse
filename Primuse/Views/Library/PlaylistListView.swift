@@ -327,7 +327,11 @@ struct PlaylistListView: View {
                     if !smartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("smart_playlists_section")
-                            LazyVStack(spacing: 10) {
+                            LazyVGrid(
+                                columns: macPlaylistGridColumns,
+                                alignment: .leading,
+                                spacing: 12
+                            ) {
                                 ForEach(smartPlaylists) { smart in
                                     NavigationLink(value: smart) {
                                         smartPlaylistCard(smart)
@@ -344,7 +348,11 @@ struct PlaylistListView: View {
                                 macSubsectionTitle("playlists_section")
                             }
 
-                            LazyVStack(spacing: 10) {
+                            LazyVGrid(
+                                columns: macPlaylistGridColumns,
+                                alignment: .leading,
+                                spacing: 12
+                            ) {
                                 ForEach(playlists) { playlist in
                                     if isManagingPlaylists {
                                         playlistCard(playlist)
@@ -384,7 +392,6 @@ struct PlaylistListView: View {
             .padding(.horizontal, 36)
             .padding(.top, 32)
             .padding(.bottom, 112)
-            .frame(maxWidth: 980, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(PMColor.bg.ignoresSafeArea())
@@ -411,6 +418,12 @@ struct PlaylistListView: View {
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
+    }
+
+    /// 窄窗口保持单列；正文变宽后自动增加列数，避免列表固定在左侧而让右侧闲置。
+    /// 380pt 仍足以容纳封面、两行信息和尾部操作，同时在常见宽屏下形成 2–3 列。
+    private var macPlaylistGridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 380), spacing: 12, alignment: .top)]
     }
 
     private var macPlaylistsHeader: some View {
