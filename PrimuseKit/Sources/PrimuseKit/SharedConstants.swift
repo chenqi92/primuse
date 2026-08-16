@@ -1916,6 +1916,36 @@ public enum AppleMusicSystemQueuePolicy {
     }
 }
 
+/// Recovery rules for MusicKit queue startup. `MPMusicPlayerControllerErrorDomain`
+/// is intentionally treated as an opaque system-player failure because Apple does
+/// not publish stable meanings for its numeric codes. A multi-item queue can still
+/// contain an unresolved entry even when the selected song is playable, so retry
+/// that selected song alone once. Network, authorization and subscription failures
+/// stay on their original error path instead of being duplicated.
+public enum AppleMusicQueueRecoveryPolicy {
+    public static let musicPlayerErrorDomain = "MPMusicPlayerControllerErrorDomain"
+
+    public static func shouldRetryWithStartingItemOnly(
+        errorDomain: String,
+        queueItemCount: Int
+    ) -> Bool {
+        errorDomain == musicPlayerErrorDomain && queueItemCount > 1
+    }
+
+    /// Error 2 is a known MusicKit quirk only when `play()` itself reports it.
+    /// A failure from `prepareToPlay()` means the queue never became ready and
+    /// must not be projected as successful playback.
+    public static func shouldTreatAsStarted(
+        errorDomain: String,
+        errorCode: Int,
+        failedWhilePlaying: Bool
+    ) -> Bool {
+        errorDomain == musicPlayerErrorDomain
+            && errorCode == 2
+            && failedWhilePlaying
+    }
+}
+
 /// Pure policy for recognizing the end of a MusicKit track.
 ///
 /// `ApplicationMusicPlayer` does not consistently settle on `.stopped`: some

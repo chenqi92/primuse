@@ -258,6 +258,158 @@ final class AppleMusicService {
         }
     }
 
+    private enum QueueStartFailure: Error {
+        case preparing(any Error)
+        case playing(any Error)
+
+        var underlyingError: any Error {
+            switch self {
+            case .preparing(let error), .playing(let error): error
+            }
+        }
+
+        var failedWhilePlaying: Bool {
+            if case .playing = self { return true }
+            return false
+        }
+
+        var stage: String {
+            failedWhilePlaying ? "play" : "prepare"
+        }
+    }
+
+    private func startPreparedQueue(
+        songs: [MusicKit.Song],
+        startingAt starting: MusicKit.Song,
+        commandGeneration: UInt64,
+        requestID: UUID
+    ) async throws {
+        ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
+            for: songs,
+            startingAt: starting
+        )
+        do {
+            // Apple documents this as the step that resolves and buffers the
+            // starting entry. Calling play() directly leaves macOS with an
+            // unresolved queue and surfaces an opaque MP error instead.
+            // Reacquire `shared` at each suspension point: MusicKit's player
+            // is not Sendable, so retaining it across await would violate
+            // Swift 6 actor isolation even though this service is MainActor.
+            try await ApplicationMusicPlayer.shared.prepareToPlay()
+        } catch {
+            throw QueueStartFailure.preparing(error)
+        }
+
+        guard isPlaybackRequestPending(requestID),
+              playbackCommandGeneration == commandGeneration,
+              !wasPausedByUser,
+              !Task.isCancelled else {
+            throw CancellationError()
+        }
+
+        do {
+            try await ApplicationMusicPlayer.shared.play()
+        } catch {
+            throw QueueStartFailure.playing(error)
+        }
+    }
+
+    /// Starts the exact Primuse queue first, then retries only the selected song
+    /// when MusicKit rejects a multi-item system queue. This preserves normal
+    /// next/previous behavior whenever the queue is valid without letting one
+    /// stale library entry make the selected playable song silent.
+    private func startPreparedQueueWithSingleItemFallback(
+        songs: [MusicKit.Song],
+        startingAt starting: MusicKit.Song,
+        commandGeneration: UInt64,
+        requestID: UUID
+    ) async throws {
+        do {
+            try await startPreparedQueue(
+                songs: songs,
+                startingAt: starting,
+                commandGeneration: commandGeneration,
+                requestID: requestID
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let failure as QueueStartFailure {
+            let nsError = failure.underlyingError as NSError
+            if AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+                errorDomain: nsError.domain,
+                errorCode: nsError.code,
+                failedWhilePlaying: failure.failedWhilePlaying
+            ) {
+                plog("Apple Music play reported MP error 2 after play(); keeping the active playback projection")
+                return
+            }
+
+            guard AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+                errorDomain: nsError.domain,
+                queueItemCount: songs.count
+            ) else {
+                throw failure
+            }
+            guard isPlaybackRequestPending(requestID),
+                  playbackCommandGeneration == commandGeneration,
+                  !wasPausedByUser,
+                  !Task.isCancelled else {
+                throw CancellationError()
+            }
+
+            plog(
+                "Apple Music \(failure.stage) failed for \(songs.count)-item queue "
+                    + "(domain=\(nsError.domain), code=\(nsError.code)); retrying selected item only"
+            )
+            ApplicationMusicPlayer.shared.stop()
+            do {
+                try await startPreparedQueue(
+                    songs: [starting],
+                    startingAt: starting,
+                    commandGeneration: commandGeneration,
+                    requestID: requestID
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let retryFailure as QueueStartFailure {
+                let retryError = retryFailure.underlyingError as NSError
+                if AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+                    errorDomain: retryError.domain,
+                    errorCode: retryError.code,
+                    failedWhilePlaying: retryFailure.failedWhilePlaying
+                ) {
+                    plog("Apple Music single-item play reported MP error 2 after play(); keeping playback")
+                    return
+                }
+                throw retryFailure
+            }
+        }
+    }
+
+    private func userFacingPlaybackError(_ error: any Error) -> String {
+        let underlying: any Error
+        if let failure = error as? QueueStartFailure {
+            underlying = failure.underlyingError
+        } else {
+            underlying = error
+        }
+        let nsError = underlying as NSError
+        if nsError.domain == AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain {
+            return String(localized: "playback_error_apple_music_generic")
+        }
+        return underlying.localizedDescription
+    }
+
+    private func logQueueStartFailure(_ error: any Error, context: String) {
+        let failure = error as? QueueStartFailure
+        let underlying = failure?.underlyingError ?? error
+        let nsError = underlying as NSError
+        plog(
+            "⚠️Apple Music \(context) failed at \(failure?.stage ?? "unknown") "
+                + "(domain=\(nsError.domain), code=\(nsError.code)): \(nsError.localizedDescription)"
+        )
+    }
+
      /// 把整段 queue 推给 ApplicationMusicPlayer ── 让用户点资料库里某首歌时
      /// 自动把后续歌曲串成播放上下文, 支持 mini player / 大播放器的下一首/上一首
      /// 按钮; 否则单首 queue 下 skipToNext 实际等同 stop, 体验是"控件没反应"。
@@ -316,10 +468,12 @@ final class AppleMusicService {
          resetPlaybackEndObservation()
          observePlaybackStatusIfNeeded(requestID: requestID)
          do {
-             player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: starting)
-             guard playbackCommandGeneration == commandGeneration,
-                   !wasPausedByUser else { return }
-             try await player.play()
+             try await startPreparedQueueWithSingleItemFallback(
+                songs: songs,
+                startingAt: starting,
+                commandGeneration: commandGeneration,
+                requestID: requestID
+             )
              guard isPlaybackRequestPending(requestID),
                    playbackCommandGeneration == commandGeneration,
                    !wasPausedByUser,
@@ -338,6 +492,8 @@ final class AppleMusicService {
                  return
              }
              markPlaybackStarted(requestID)
+         } catch is CancellationError {
+             quiesceStalePlaybackIfNeeded(requestID: requestID)
          } catch {
              guard isPlaybackRequestPending(requestID),
                    playbackCommandGeneration == commandGeneration,
@@ -356,17 +512,10 @@ final class AppleMusicService {
                  resetPlaybackEndObservation()
                  return
              }
-             let ns = error as NSError
-             let isSpuriousMPError2 = ns.domain == "MPMusicPlayerControllerErrorDomain" && ns.code == 2
-             if isSpuriousMPError2 {
-                 plog("Apple Music play threw spurious MPError 2, ignoring (audio likely playing)")
-                 markPlaybackStarted(requestID)
-             } else {
-                 plog("⚠️Apple Music play(queue) failed: \(error.localizedDescription)")
-                 failPlaybackRequest(requestID, message: error.localizedDescription)
-                 isAppleMusicPlaying = false
-                 resetPlaybackEndObservation()
-             }
+             logQueueStartFailure(error, context: "library queue")
+             failPlaybackRequest(requestID, message: userFacingPlaybackError(error))
+             isAppleMusicPlaying = false
+             resetPlaybackEndObservation()
          }
      }
 
@@ -449,10 +598,12 @@ final class AppleMusicService {
         resetPlaybackEndObservation()
         observePlaybackStatusIfNeeded(requestID: requestID)
         do {
-            player.queue = ApplicationMusicPlayer.Queue(for: [song])
-            guard playbackCommandGeneration == commandGeneration,
-                  !wasPausedByUser else { return }
-            try await player.play()
+            try await startPreparedQueueWithSingleItemFallback(
+                songs: [song],
+                startingAt: song,
+                commandGeneration: commandGeneration,
+                requestID: requestID
+            )
             guard isPlaybackRequestPending(requestID),
                   playbackCommandGeneration == commandGeneration,
                   !wasPausedByUser,
@@ -461,6 +612,8 @@ final class AppleMusicService {
                 return
             }
             markPlaybackStarted(requestID)
+        } catch is CancellationError {
+            quiesceStalePlaybackIfNeeded(requestID: requestID)
         } catch {
             guard isPlaybackRequestPending(requestID),
                   playbackCommandGeneration == commandGeneration,
@@ -469,23 +622,13 @@ final class AppleMusicService {
                 quiesceStalePlaybackIfNeeded(requestID: requestID)
                 return
             }
-            // MusicKit 已知 quirk: error 2 (`MPMusicPlayerControllerErrorDomain
-            // error 2`) 经常在播放实际成功的情况下被抛, 不当 failure 处理。
-            // 其他 error 才暴露给 UI。
-            let ns = error as NSError
-            let isSpuriousMPError2 = ns.domain == "MPMusicPlayerControllerErrorDomain" && ns.code == 2
-            if isSpuriousMPError2 {
-                plog("Apple Music play threw spurious MPError 2, ignoring (audio likely playing)")
-                markPlaybackStarted(requestID)
-            } else {
-                plog("⚠️Apple Music play failed: \(error.localizedDescription)")
-                failPlaybackRequest(requestID, message: error.localizedDescription)
-                // 不清 nowPlayingSong — 让 mini player 保留, 用户能看到自己点了
-                // 哪首歌, 并通过 lastPlaybackError UI 看到错误原因。否则用户
-                // 体验是 "点了没反应" + 没 mini player + 看不到任何错误。
-                isAppleMusicPlaying = false
-                resetPlaybackEndObservation()
-            }
+            logQueueStartFailure(error, context: "catalog item")
+            failPlaybackRequest(requestID, message: userFacingPlaybackError(error))
+            // 不清 nowPlayingSong — 让 mini player 保留, 用户能看到自己点了
+            // 哪首歌, 并通过 lastPlaybackError UI 看到错误原因。否则用户
+            // 体验是 "点了没反应" + 没 mini player + 看不到任何错误。
+            isAppleMusicPlaying = false
+            resetPlaybackEndObservation()
         }
     }
 

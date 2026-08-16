@@ -200,6 +200,44 @@ struct AppleMusicSystemQueuePolicyTests {
     }
 }
 
+@Suite("Apple Music queue recovery policy")
+struct AppleMusicQueueRecoveryPolicyTests {
+    @Test("System-player failures retry only multi-item queues")
+    func retriesOnlyMultiItemSystemQueues() {
+        #expect(AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+            queueItemCount: 61
+        ))
+        #expect(!AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+            queueItemCount: 1
+        ))
+        #expect(!AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+            errorDomain: "NSURLErrorDomain",
+            queueItemCount: 61
+        ))
+    }
+
+    @Test("Error 2 is accepted only after the play command")
+    func acceptsSpuriousErrorOnlyWhilePlaying() {
+        #expect(AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+            errorCode: 2,
+            failedWhilePlaying: true
+        ))
+        #expect(!AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+            errorCode: 2,
+            failedWhilePlaying: false
+        ))
+        #expect(!AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+            errorCode: 6,
+            failedWhilePlaying: true
+        ))
+    }
+}
+
 @Suite("Apple Music playback source resolver")
 struct AppleMusicPlaybackSourceResolverTests {
     @Test("A non-library identifier is a catalog result")
