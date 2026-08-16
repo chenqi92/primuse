@@ -600,6 +600,9 @@
 "cloud_scan_wifi_only" = "Cloud-Details nur über WLAN";
 "cloud_scan_wifi_only_footer" = "Beim Scannen von Cloud-Speichern werden zunächst nur Dateinamen erfasst. Titeldetails (Künstler, Album, Cover, Dauer) werden im Hintergrund geladen – etwa 256 KB pro Titel. Ist diese Option aktiviert, pausiert das Laden im Mobilfunknetz und wird fortgesetzt, sobald du wieder mit dem WLAN verbunden bist.";
 "backfill_in_progress" = "Tags werden gelesen…";
+"backfill_retry_in_progress" = "Unvollständige Tags werden erneut gelesen…";
+"backfill_retry_pending" = "Unvollständige Tags warten auf einen neuen Versuch";
+"backfill_retry_pending_hint" = "Der Fortschritt wurde gespeichert. Die Verarbeitung wird bei wiederhergestelltem Netzwerk oder beim nächsten Start fortgesetzt.";
 "backfill_waiting_for_wifi" = "Warten auf WLAN";
 "new_songs_added" = "%d neue Titel";
 "no_new_songs" = "Keine neuen Titel";
@@ -1334,6 +1337,7 @@
 "more" = "Mehr";
 "new" = "Neu";
 "current" = "Aktuell";
+"source_connection_last_used" = "Zuletzt verwendet";
 "export" = "Exportieren";
 "connect" = "Verbinden";
 "min" = "Min.";

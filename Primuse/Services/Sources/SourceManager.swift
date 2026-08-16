@@ -396,7 +396,6 @@ private actor SourceConnectionRouter {
             // cancelling the partially-consumed stream is not.
             activeIndex = nil
             routeGeneration = currentGeneration
-            await routeDidChange(nil)
         }
 
         let prefersLocalNetwork = await MainActor.run {
@@ -472,7 +471,6 @@ private actor SourceConnectionRouter {
                 )
             }
         }
-        await routeDidChange(nil)
         throw lastError ?? SourceError.connectionFailed(
             String(localized: "source_connection_no_route")
         )
@@ -511,7 +509,6 @@ private actor SourceConnectionRouter {
         await candidates[index].connector.disconnect()
         if activeIndex == index {
             activeIndex = nil
-            await routeDidChange(nil)
         }
         await SourceConnectionRuntime.shared.recordFailure(
             of: kind,
@@ -890,6 +887,11 @@ final class SourceManager {
     /// from the persisted source so cards can show what is in use without
     /// syncing device-local network state through iCloud.
     private(set) var activeConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
+    /// Retains the most recently confirmed route after a transient read
+    /// failure or network-path refresh. Cards can keep the endpoint selected
+    /// as "last used" until a replacement route actually connects, avoiding a
+    /// misleading selected/unselected flash during automatic retries.
+    private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
@@ -4884,6 +4886,7 @@ final class SourceManager {
     func refreshConnector(for sourceID: String) async {
         await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
         activeConnectionRoutes.removeValue(forKey: sourceID)
+        lastSuccessfulConnectionRoutes.removeValue(forKey: sourceID)
         if let connector = connectors.removeValue(forKey: sourceID) {
             await connector.disconnect()
         }
@@ -4907,7 +4910,6 @@ final class SourceManager {
     /// safely selects the new route on its next operation.
     func resetAdaptiveConnectionRoutes() async {
         await SourceConnectionRuntime.shared.invalidateAll()
-        activeConnectionRoutes.removeAll()
     }
 
     func disconnectAll() async {
@@ -4928,6 +4930,7 @@ final class SourceManager {
         }
         sidecarConnectors.removeAll()
         activeConnectionRoutes.removeAll()
+        lastSuccessfulConnectionRoutes.removeAll()
     }
 
     private func setActiveConnectionRoute(
@@ -4936,6 +4939,7 @@ final class SourceManager {
     ) {
         if let kind {
             activeConnectionRoutes[sourceID] = kind
+            lastSuccessfulConnectionRoutes[sourceID] = kind
         } else {
             activeConnectionRoutes.removeValue(forKey: sourceID)
         }

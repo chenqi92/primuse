@@ -79,6 +79,13 @@ final class MetadataBackfillService {
     /// launch starts it fresh when the source is healthy again.
     private var sessionGivenUpIDs: Set<String> = []
 
+    /// Persisted marker for songs that still need another attempt after a
+    /// transient transport failure. Unlike `sessionGivenUpIDs`, this set does
+    /// not suppress queueing: it survives relaunch only so the UI can explain
+    /// that these requests are retries rather than a new scan. A successful or
+    /// terminal inspection removes the marker.
+    private var deferredRetrySongIDs: Set<String> = []
+
     /// UserDefaults key for "only run backfill on Wi-Fi". Default true.
     /// User-facing toggle lives in CloudSyncSettingsView.
     static let wifiOnlyDefaultsKey = "primuse.cloudScanWifiOnly"
@@ -117,6 +124,7 @@ final class MetadataBackfillService {
     private let sourceIssueURL: URL
     private let artworkGivenUpURL: URL
     private let titleCheckedURL: URL
+    private let deferredRetryURL: URL
 
     /// Songs currently being processed (for UI / cancellation).
     private(set) var pendingCount: Int = 0
@@ -132,6 +140,10 @@ final class MetadataBackfillService {
     private(set) var cachedRemainingCount: Int = 0
     private(set) var cachedFailedCount: Int = 0
     private(set) var remainingCountBySourceID: [String: Int] = [:]
+    private(set) var cachedDeferredRetryCount: Int = 0
+    private(set) var deferredRetryCountBySourceID: [String: Int] = [:]
+    private(set) var cachedStatusCount: Int = 0
+    private(set) var statusCountBySourceID: [String: Int] = [:]
     private var lastRemainingCountRefreshAt = Date.distantPast
     private static let remainingCountRefreshInterval: TimeInterval = 5
 
@@ -145,7 +157,7 @@ final class MetadataBackfillService {
     /// Exact session progress, kept non-observable so one completed network
     /// request doesn't invalidate every view that observes this service.
     private var processedTotal: Int = 0
-    /// Debounced writer for the three persisted ID sets. Encoding and atomic
+    /// Debounced writer for the persisted metadata-state ID sets. Encoding and atomic
     /// file replacement run off the main actor.
     private var statePersistenceTask: Task<Void, Never>?
     /// Bumped on every `start()` / `stop()`. The worker captures its own
@@ -180,11 +192,13 @@ final class MetadataBackfillService {
         self.sourceIssueURL = directory.appendingPathComponent("backfill-source-issues.json")
         self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
         self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
+        self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
         loadFailed()
         loadIncomplete()
         loadSourceIssues()
         loadArtworkGivenUp()
         loadTitleChecked()
+        loadDeferredRetries()
 
         // One-time migration. Earlier builds had an overly-aggressive
         // partial-merge rule that marked any song as failed when head
@@ -796,9 +810,11 @@ final class MetadataBackfillService {
         incompleteSongIDs.subtract(songIDs)
         sourceIssueSongIDs.subtract(songIDs)
         sessionGivenUpIDs.subtract(songIDs)
+        deferredRetrySongIDs.subtract(songIDs)
         titleCheckedIDs.subtract(songIDs)
         for id in songIDs { transientFailureCounts[id] = nil }
         saveFailed()
+        saveDeferredRetries()
         saveTitleChecked()
     }
 
@@ -861,7 +877,17 @@ final class MetadataBackfillService {
         .resolve(
             hasPendingWork: hasPendingWork,
             isRunning: isRunning,
-            isWaitingForWiFi: isWaitingForWiFi
+            isWaitingForWiFi: isWaitingForWiFi,
+            hasDeferredRetryWork: hasDeferredRetryWork
+        )
+    }
+
+    func activityState(forSource sourceID: String) -> MetadataBackfillActivityState {
+        .resolve(
+            hasPendingWork: remainingCount(forSource: sourceID) > 0,
+            isRunning: isRunning,
+            isWaitingForWiFi: isWaitingForWiFi,
+            hasDeferredRetryWork: deferredRetryCount(forSource: sourceID) > 0
         )
     }
 
@@ -871,6 +897,17 @@ final class MetadataBackfillService {
     /// after Phase A added more bare songs mid-backfill.
     var remainingCount: Int {
         cachedRemainingCount
+    }
+
+    /// Persisted transient retries overlap with the active queue after a
+    /// relaunch. `statusCount` avoids double-counting that overlap while still
+    /// keeping a parked retry visible after the current worker gives up.
+    var statusCount: Int {
+        cachedStatusCount
+    }
+
+    var hasDeferredRetryWork: Bool {
+        cachedDeferredRetryCount > 0
     }
 
     func detailsState(for song: Song, isLocalSource: Bool) -> SongDetailsState {
@@ -904,6 +941,20 @@ final class MetadataBackfillService {
         return remainingCountBySourceID[sourceID] ?? 0
     }
 
+    func deferredRetryCount(forSource sourceID: String?) -> Int {
+        guard let sourceID else { return cachedDeferredRetryCount }
+        return deferredRetryCountBySourceID[sourceID] ?? 0
+    }
+
+    func statusCount(forSource sourceID: String?) -> Int {
+        guard let sourceID else { return cachedStatusCount }
+        return statusCountBySourceID[sourceID] ?? 0
+    }
+
+    func isDeferredRetry(songID: String) -> Bool {
+        deferredRetrySongIDs.contains(songID)
+    }
+
     private func refreshRemainingCounts(force: Bool = false) {
         let now = Date()
         guard force
@@ -918,26 +969,48 @@ final class MetadataBackfillService {
         let sessionGivenUpSnapshot = sessionGivenUpIDs
         let artworkGivenUpSnapshot = artworkGivenUpIDs
         let titleCheckedSnapshot = titleCheckedIDs
+        let deferredRetrySnapshot = deferredRetrySongIDs
         var bySource: [String: Int] = [:]
+        var deferredBySource: [String: Int] = [:]
+        var statusBySource: [String: Int] = [:]
         bySource.reserveCapacity(sourceIDs.count)
+        deferredBySource.reserveCapacity(sourceIDs.count)
+        statusBySource.reserveCapacity(sourceIDs.count)
         var total = 0
+        var deferredTotal = 0
+        var statusTotal = 0
         var failedTotal = 0
         for song in songs {
             guard sourceIDs.contains(song.sourceID) else { continue }
 
-            let hasFailed = failedIDs.contains(song.id)
-                || sourceIssueIDs.contains(song.id)
-                || sessionGivenUpSnapshot.contains(song.id)
-            if hasFailed {
-                if Self.isBareSong(song) { failedTotal += 1 }
-                continue
-            }
-            guard Self.needsBackfill(
+            let stillNeedsDetails = Self.needsBackfill(
                 song,
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
                 titleCheckedIDs: titleCheckedSnapshot,
                 incompleteSongIDs: incompleteIDs
-            ) else { continue }
+            )
+            let hasTerminalOrSourceFailure = failedIDs.contains(song.id)
+                || sourceIssueIDs.contains(song.id)
+            let isDeferredRetry = deferredRetrySnapshot.contains(song.id)
+                && !hasTerminalOrSourceFailure
+                && stillNeedsDetails
+            if isDeferredRetry {
+                deferredBySource[song.sourceID, default: 0] += 1
+                deferredTotal += 1
+            }
+
+            let hasFailed = hasTerminalOrSourceFailure
+                || sessionGivenUpSnapshot.contains(song.id)
+            let isImmediatelyEligible = !hasFailed && stillNeedsDetails
+            if isImmediatelyEligible || isDeferredRetry {
+                statusBySource[song.sourceID, default: 0] += 1
+                statusTotal += 1
+            }
+            if hasFailed {
+                if Self.isBareSong(song) { failedTotal += 1 }
+                continue
+            }
+            guard stillNeedsDetails else { continue }
             bySource[song.sourceID, default: 0] += 1
             total += 1
         }
@@ -946,6 +1019,18 @@ final class MetadataBackfillService {
         }
         if cachedRemainingCount != total {
             cachedRemainingCount = total
+        }
+        if deferredRetryCountBySourceID != deferredBySource {
+            deferredRetryCountBySourceID = deferredBySource
+        }
+        if cachedDeferredRetryCount != deferredTotal {
+            cachedDeferredRetryCount = deferredTotal
+        }
+        if statusCountBySourceID != statusBySource {
+            statusCountBySourceID = statusBySource
+        }
+        if cachedStatusCount != statusTotal {
+            cachedStatusCount = statusTotal
         }
         if cachedFailedCount != failedTotal {
             cachedFailedCount = failedTotal
@@ -976,9 +1061,11 @@ final class MetadataBackfillService {
         incompleteSongIDs.subtract(bareIDs)
         sourceIssueSongIDs.subtract(bareIDs)
         sessionGivenUpIDs.subtract(bareIDs)
+        deferredRetrySongIDs.formUnion(bareIDs)
         titleCheckedIDs.subtract(bareIDs)
         for id in bareIDs { transientFailureCounts[id] = nil }
         saveFailed()
+        saveDeferredRetries()
         saveTitleChecked()
         plog("📥 Backfill: retryFailed cleared \(bareIDs.count) bare-song marks, restarting")
         start()
@@ -990,10 +1077,12 @@ final class MetadataBackfillService {
         incompleteSongIDs.remove(songID)
         sourceIssueSongIDs.remove(songID)
         sessionGivenUpIDs.remove(songID)
+        deferredRetrySongIDs.insert(songID)
         artworkGivenUpIDs.remove(songID)
         titleCheckedIDs.remove(songID)
         transientFailureCounts[songID] = nil
         saveFailed()
+        saveDeferredRetries()
         saveTitleChecked()
         refreshRemainingCounts(force: true)
         start()
@@ -1063,9 +1152,11 @@ final class MetadataBackfillService {
                 hasTransientAttemptsBelowLimit: hasTransientAttemptsBelowLimit
             ) {
                 sessionGivenUpIDs.formUnion(snapIDs)
+                deferredRetrySongIDs.formUnion(snapIDs)
                 for parkedID in snapIDs {
                     transientFailureCounts[parkedID] = nil
                 }
+                saveDeferredRetries()
                 refreshRemainingCounts(force: true)
                 plog("⚠️ Backfill: pickNextBatch returned the same \(snapIDs.count) IDs after a full round — parked for this session")
                 break
@@ -1140,8 +1231,9 @@ final class MetadataBackfillService {
                     // One bad credential applies to the connector, not merely
                     // to this file. Park every pending song from that source
                     // for this session so a 10k-song library does not create a
-                    // retry storm. Nothing is persisted: after the user fixes
-                    // credentials (or on next launch), normal retry resumes.
+                    // retry storm. Only the explanatory retry marker persists;
+                    // after the user fixes credentials (or on next launch),
+                    // normal queue eligibility resumes.
                     let sourceSongIDs = Set(
                         snapshot.lazy
                             .filter { $0.sourceID == result.song.sourceID }
@@ -1149,6 +1241,8 @@ final class MetadataBackfillService {
                     )
                     let wasAlreadyParked = sourceSongIDs.isSubset(of: sessionGivenUpIDs)
                     sessionGivenUpIDs.formUnion(sourceSongIDs)
+                    deferredRetrySongIDs.formUnion(sourceSongIDs)
+                    saveDeferredRetries()
                     for parkedID in sourceSongIDs {
                         transientFailureCounts[parkedID] = nil
                     }
@@ -1160,19 +1254,25 @@ final class MetadataBackfillService {
                     failedSongIDs.insert(songID)
                     incompleteSongIDs.remove(songID)
                     sourceIssueSongIDs.remove(songID)
+                    deferredRetrySongIDs.remove(songID)
                     saveFailed()
+                    saveDeferredRetries()
                 }
                 if result.outcome.detailsIncomplete, canRecordOutcome {
                     incompleteSongIDs.insert(songID)
                     failedSongIDs.remove(songID)
                     sourceIssueSongIDs.remove(songID)
+                    deferredRetrySongIDs.remove(songID)
                     saveFailed()
+                    saveDeferredRetries()
                 }
                 if result.outcome.sourceIssue, canRecordOutcome {
                     sourceIssueSongIDs.insert(songID)
                     failedSongIDs.remove(songID)
                     incompleteSongIDs.remove(songID)
+                    deferredRetrySongIDs.remove(songID)
                     saveFailed()
+                    saveDeferredRetries()
                 }
                 if result.outcome.transientFailure,
                    MetadataBackfillRetryPolicy.shouldCountTransientFailure(
@@ -1180,6 +1280,8 @@ final class MetadataBackfillService {
                     isTransient: result.outcome.transientFailure
                    ),
                    canRecordOutcome {
+                    deferredRetrySongIDs.insert(songID)
+                    saveDeferredRetries()
                     // Cap consecutive transient failures so a chronically
                     // throttled file (timeout every pass) can't loop forever —
                     // park it for the session instead, which stops the row
@@ -1231,6 +1333,7 @@ final class MetadataBackfillService {
                     lastFlushAt = Date()
                     if !batch.isEmpty {
                         library.replaceSongs(batch)
+                        clearDeferredRetries(in: batch)
                         markTitlesChecked(in: batch)
                         refreshRemainingCounts()
                         plog("📥 flushed \(batch.count) songs to library")
@@ -1259,6 +1362,7 @@ final class MetadataBackfillService {
             pendingFlush.removeAll()
             if !batch.isEmpty {
                 library.replaceSongs(batch)
+                clearDeferredRetries(in: batch)
                 markTitlesChecked(in: batch)
                 refreshRemainingCounts()
                 plog("📥 final flush: \(batch.count) songs to library")
@@ -2026,12 +2130,30 @@ final class MetadataBackfillService {
         titleCheckedIDs = Set(decoded)
     }
 
+    private func loadDeferredRetries() {
+        guard let data = try? Data(contentsOf: deferredRetryURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
+        deferredRetrySongIDs = Set(decoded)
+    }
+
     private func saveArtworkGivenUp() {
         scheduleStatePersistence()
     }
 
     private func saveTitleChecked() {
         scheduleStatePersistence()
+    }
+
+    private func saveDeferredRetries() {
+        scheduleStatePersistence()
+    }
+
+    private func clearDeferredRetries(in songs: [Song]) {
+        let previousCount = deferredRetrySongIDs.count
+        deferredRetrySongIDs.subtract(songs.map(\.id))
+        if deferredRetrySongIDs.count != previousCount {
+            saveDeferredRetries()
+        }
     }
 
     private func markTitlesChecked(in songs: [Song]) {
@@ -2055,11 +2177,13 @@ final class MetadataBackfillService {
         let sourceIssues = sourceIssueSongIDs
         let artworkGivenUp = artworkGivenUpIDs
         let titleChecked = titleCheckedIDs
+        let deferredRetries = deferredRetrySongIDs
         let failedURL = failedURL
         let incompleteURL = incompleteURL
         let sourceIssueURL = sourceIssueURL
         let artworkURL = artworkGivenUpURL
         let titleURL = titleCheckedURL
+        let deferredRetryURL = deferredRetryURL
 
         statePersistenceTask?.cancel()
         statePersistenceTask = Task.detached(priority: .utility) {
@@ -2070,6 +2194,7 @@ final class MetadataBackfillService {
             Self.writeIDSet(sourceIssues, to: sourceIssueURL)
             Self.writeIDSet(artworkGivenUp, to: artworkURL)
             Self.writeIDSet(titleChecked, to: titleURL)
+            Self.writeIDSet(deferredRetries, to: deferredRetryURL)
         }
     }
 

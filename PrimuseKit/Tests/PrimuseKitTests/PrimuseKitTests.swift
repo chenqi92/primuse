@@ -587,6 +587,24 @@ import Testing
     #expect(MusicSourceType.fnos.supportsAdaptiveConnections == false)
 }
 
+@Test func adaptiveRoutePresentationKeepsTheLastConfirmedEndpointVisible() {
+    #expect(SourceConnectionRoutePresentationState.resolve(
+        candidate: .publicAddress,
+        active: .publicAddress,
+        lastSuccessful: .publicAddress
+    ) == .active)
+    #expect(SourceConnectionRoutePresentationState.resolve(
+        candidate: .publicAddress,
+        active: nil,
+        lastSuccessful: .publicAddress
+    ) == .recent)
+    #expect(SourceConnectionRoutePresentationState.resolve(
+        candidate: .localAddress,
+        active: nil,
+        lastSuccessful: .publicAddress
+    ) == .idle)
+}
+
 @Test func adaptiveRuntimeUsesInterfacePreferenceAndRetriesLANAfterCooldown() async {
     let source = MusicSource(
         id: "route-memory",

@@ -2291,16 +2291,23 @@ public enum ServerCatalogMetadataInspectionPolicy {
 public enum MetadataBackfillActivityState: Equatable, Sendable {
     case idle
     case running
+    case retrying
     case waitingForWiFi
     case pending
+    case retryPending
 
     public static func resolve(
         hasPendingWork: Bool,
         isRunning: Bool,
-        isWaitingForWiFi: Bool
+        isWaitingForWiFi: Bool,
+        hasDeferredRetryWork: Bool = false
     ) -> Self {
-        if isRunning { return .running }
-        guard hasPendingWork else { return .idle }
+        if isRunning, hasPendingWork {
+            return hasDeferredRetryWork ? .retrying : .running
+        }
+        guard hasPendingWork || hasDeferredRetryWork else { return .idle }
+        if hasPendingWork, isWaitingForWiFi { return .waitingForWiFi }
+        if hasDeferredRetryWork { return .retryPending }
         return isWaitingForWiFi ? .waitingForWiFi : .pending
     }
 }

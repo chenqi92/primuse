@@ -1356,20 +1356,29 @@ struct StorageManagementView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                if backfill.hasPendingWork {
+                if backfill.hasPendingWork || backfill.hasDeferredRetryWork {
                     HStack {
                         switch backfill.activityState {
                         case .running:
                             Text("backfill_in_progress")
+                        case .retrying:
+                            Text("backfill_retry_in_progress")
                         case .waitingForWiFi:
                             Label("backfill_waiting_for_wifi", systemImage: "wifi.exclamationmark")
+                        case .retryPending:
+                            Label("backfill_retry_pending", systemImage: "arrow.clockwise.circle")
                         case .pending, .idle:
                             Text("home_pending_details")
                         }
                         Spacer()
-                        Text(String(format: String(localized: "backfill_remaining"), backfill.remainingCount))
+                        Text(String(format: String(localized: "backfill_remaining"), backfill.statusCount))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
+                    }
+                    if backfill.activityState == .retryPending {
+                        Text("backfill_retry_pending_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 if backfill.failedCount > 0 {

@@ -1381,20 +1381,23 @@ private struct MacHomeSourceStatusCard: View {
                 progress: entry.state.totalCount > 0 ? min(entry.state.progress, 1) : 0,
                 indeterminate: entry.state.totalCount == 0
             )
-        } else if backfill.isRunning || backfill.hasPendingWork {
+        } else if backfill.isRunning || backfill.hasPendingWork || backfill.hasDeferredRetryWork {
             let processed = backfill.processedCount
-            let total = processed + backfill.remainingCount
+            let total = processed + backfill.statusCount
             let phase = switch backfill.activityState {
             case .running: Lz("Reading tags")
+            case .retrying: String(localized: "backfill_retry_in_progress")
             case .waitingForWiFi: String(localized: "backfill_waiting_for_wifi")
+            case .retryPending: String(localized: "backfill_retry_pending")
             case .pending, .idle: String(localized: "home_pending_details")
             }
             taskBox(
                 title: Lz("Metadata backfill"),
                 phase: phase,
-                detail: String(format: String(localized: "backfill_remaining"), backfill.remainingCount),
+                detail: String(format: String(localized: "backfill_remaining"), backfill.statusCount),
                 progress: total > 0 ? Double(processed) / Double(total) : 0,
-                indeterminate: backfill.activityState == .running && total == 0
+                indeterminate: (backfill.activityState == .running || backfill.activityState == .retrying)
+                    && total == 0
             )
         } else if scraperService.isScraping {
             taskBox(

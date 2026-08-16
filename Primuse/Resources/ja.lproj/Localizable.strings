@@ -601,6 +601,9 @@
 "cloud_scan_wifi_only" = "クラウドの詳細は Wi-Fi のみ";
 "cloud_scan_wifi_only_footer" = "クラウドのスキャンでは最初にファイル名のみを取得します。曲の詳細（アーティスト、アルバム、カバー、再生時間）はバックグラウンドで読み込まれ、1 曲あたり約 256KB です。これをオンにすると、モバイルデータ通信中は読み込みが一時停止し、Wi-Fi に再接続すると再開します。";
 "backfill_in_progress" = "タグを読み込み中…";
+"backfill_retry_in_progress" = "未完了のタグを再試行中…";
+"backfill_retry_pending" = "未完了のタグは再試行待ちです";
+"backfill_retry_pending_hint" = "進捗は保存済みです。ネットワーク復旧時または次回起動時に続行します。";
 "backfill_waiting_for_wifi" = "Wi-Fi 接続待ち";
 "new_songs_added" = "新着 %d 曲";
 "no_new_songs" = "新しい曲はありません";
@@ -1335,6 +1338,7 @@
 "more" = "もっと見る";
 "new" = "新規";
 "current" = "現在";
+"source_connection_last_used" = "前回使用";
 "export" = "書き出す";
 "connect" = "接続";
 "min" = "最小";

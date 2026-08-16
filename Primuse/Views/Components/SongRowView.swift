@@ -114,7 +114,11 @@ struct SongRowView: View {
                             ProgressView()
                                 .scaleEffect(0.55)
                                 .frame(width: 12, height: 12)
-                            Text("backfill_in_progress")
+                            if backfill.isDeferredRetry(songID: song.id) {
+                                Text("backfill_retry_in_progress")
+                            } else {
+                                Text("backfill_in_progress")
+                            }
                         case .waitingForSource:
                             Image(systemName: "wifi.exclamationmark")
                                 .font(.caption2)

@@ -779,6 +779,25 @@ public enum SourceConnectionCandidateKind: String, Codable, Hashable, Sendable {
     case vendorRemote
 }
 
+/// Presentation state for one route card. A transient disconnect falls back
+/// to the last confirmed route instead of making the selected endpoint flash
+/// off while the router is attempting the same or another route.
+public enum SourceConnectionRoutePresentationState: Equatable, Sendable {
+    case idle
+    case active
+    case recent
+
+    public static func resolve(
+        candidate: SourceConnectionCandidateKind,
+        active: SourceConnectionCandidateKind?,
+        lastSuccessful: SourceConnectionCandidateKind?
+    ) -> Self {
+        if candidate == active { return .active }
+        if active == nil, candidate == lastSuccessful { return .recent }
+        return .idle
+    }
+}
+
 /// Runtime-only candidate produced from a persisted configuration.
 public struct SourceConnectionCandidate: Hashable, Sendable, Identifiable {
     public let kind: SourceConnectionCandidateKind

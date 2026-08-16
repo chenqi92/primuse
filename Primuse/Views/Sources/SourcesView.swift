@@ -63,6 +63,7 @@ private struct SourceCacheEstimate {
 struct SourceConnectionRouteStrip: View {
     let source: MusicSource
     let activeKind: SourceConnectionCandidateKind?
+    let lastSuccessfulKind: SourceConnectionCandidateKind?
 
     private var candidates: [SourceConnectionCandidate] {
         source.connectionCandidates
@@ -78,7 +79,14 @@ struct SourceConnectionRouteStrip: View {
     }
 
     private func routeSegment(_ candidate: SourceConnectionCandidate) -> some View {
-        let isActive = activeKind == candidate.kind
+        let presentation = SourceConnectionRoutePresentationState.resolve(
+            candidate: candidate.kind,
+            active: activeKind,
+            lastSuccessful: lastSuccessfulKind
+        )
+        let isActive = presentation == .active
+        let isRecent = presentation == .recent
+        let isHighlighted = isActive || isRecent
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 Image(systemName: iconName(for: candidate.kind))
@@ -95,6 +103,14 @@ struct SourceConnectionRouteStrip: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
                     .fixedSize()
+                } else if isRecent {
+                    HStack(spacing: 3) {
+                        Image(systemName: "clock.arrow.circlepath")
+                        Text("source_connection_last_used")
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
                 }
             }
             .foregroundStyle(isActive ? Color.accentColor : Color.primary)
@@ -110,13 +126,13 @@ struct SourceConnectionRouteStrip: View {
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isActive ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.045),
+            isHighlighted ? Color.accentColor.opacity(isActive ? 0.11 : 0.065) : Color.primary.opacity(0.045),
             in: RoundedRectangle(cornerRadius: 10, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    isActive ? Color.accentColor.opacity(0.32) : Color.primary.opacity(0.075),
+                    isHighlighted ? Color.accentColor.opacity(isActive ? 0.32 : 0.18) : Color.primary.opacity(0.075),
                     lineWidth: 0.8
                 )
         }
@@ -483,7 +499,8 @@ struct SourcesContentView: View {
                source.connectionCandidates.isEmpty == false {
                 SourceConnectionRouteStrip(
                     source: source,
-                    activeKind: sourceManager.activeConnectionRoutes[source.id]
+                    activeKind: sourceManager.activeConnectionRoutes[source.id],
+                    lastSuccessfulKind: sourceManager.lastSuccessfulConnectionRoutes[source.id]
                 )
             }
 
@@ -570,31 +587,41 @@ struct SourcesContentView: View {
                 // stuck or "interrupted". Filter matches `MetadataBackfillService`
                 // exactly (excludes already-failed songs) so this number agrees
                 // with the global "remaining" in StorageManagementView.
-                let bare = backfill.remainingCount(forSource: source.id)
-                if bare > 0 {
-                    let activityState = backfill.activityState
+                let outstanding = backfill.statusCount(forSource: source.id)
+                if outstanding > 0 {
+                    let activityState = backfill.activityState(forSource: source.id)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             switch activityState {
                             case .running:
                                 ProgressView().scaleEffect(0.7).tint(.secondary)
                                 Text("backfill_in_progress").font(.caption2)
+                            case .retrying:
+                                ProgressView().scaleEffect(0.7).tint(.secondary)
+                                Text("backfill_retry_in_progress").font(.caption2)
                             case .waitingForWiFi:
                                 Image(systemName: "wifi.exclamationmark")
                                 Text("backfill_waiting_for_wifi").font(.caption2)
+                            case .retryPending:
+                                Image(systemName: "arrow.clockwise.circle")
+                                Text("backfill_retry_pending").font(.caption2)
                             case .pending, .idle:
                                 Image(systemName: "clock")
                                 Text("home_pending_details").font(.caption2)
                             }
                             Spacer()
-                            Text(String(format: String(localized: "backfill_remaining"), bare))
+                            Text(String(format: String(localized: "backfill_remaining"), outstanding))
                                 .font(.caption2).monospacedDigit()
                         }
-                        if activityState == .running {
+                        if activityState == .running || activityState == .retrying {
                             Text("backfill_runs_in_background_hint")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                             Text("backfill_keep_app_alive_hint")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        } else if activityState == .retryPending {
+                            Text("backfill_retry_pending_hint")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }

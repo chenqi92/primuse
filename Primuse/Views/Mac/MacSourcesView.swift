@@ -267,7 +267,8 @@ struct MacSourcesView: View {
                source.connectionCandidates.isEmpty == false {
                 SourceConnectionRouteStrip(
                     source: source,
-                    activeKind: sourceManager.activeConnectionRoutes[source.id]
+                    activeKind: sourceManager.activeConnectionRoutes[source.id],
+                    lastSuccessfulKind: sourceManager.lastSuccessfulConnectionRoutes[source.id]
                 )
             }
 
@@ -349,25 +350,37 @@ struct MacSourcesView: View {
         } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
         } else {
-            let bare = backfill.remainingCount(forSource: source.id)
-            if bare > 0 {
-                let activityState = backfill.activityState
-                HStack(spacing: 8) {
-                    switch activityState {
-                    case .running:
-                        ProgressView().controlSize(.small).scaleEffect(0.8)
-                        Text("backfill_in_progress").font(.system(size: 11))
-                    case .waitingForWiFi:
-                        Image(systemName: "wifi.exclamationmark")
-                        Text("backfill_waiting_for_wifi").font(.system(size: 11))
-                    case .pending, .idle:
-                        Image(systemName: "clock")
-                        Text("home_pending_details").font(.system(size: 11))
+            let outstanding = backfill.statusCount(forSource: source.id)
+            if outstanding > 0 {
+                let activityState = backfill.activityState(forSource: source.id)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        switch activityState {
+                        case .running:
+                            ProgressView().controlSize(.small).scaleEffect(0.8)
+                            Text("backfill_in_progress").font(.system(size: 11))
+                        case .retrying:
+                            ProgressView().controlSize(.small).scaleEffect(0.8)
+                            Text("backfill_retry_in_progress").font(.system(size: 11))
+                        case .waitingForWiFi:
+                            Image(systemName: "wifi.exclamationmark")
+                            Text("backfill_waiting_for_wifi").font(.system(size: 11))
+                        case .retryPending:
+                            Image(systemName: "arrow.clockwise.circle")
+                            Text("backfill_retry_pending").font(.system(size: 11))
+                        case .pending, .idle:
+                            Image(systemName: "clock")
+                            Text("home_pending_details").font(.system(size: 11))
+                        }
+                        Text(verbatim: "·").font(.system(size: 11))
+                        Text(String(format: String(localized: "backfill_remaining"), outstanding))
+                            .font(.system(size: 11)).monospacedDigit()
+                        Spacer()
                     }
-                    Text(verbatim: "·").font(.system(size: 11))
-                    Text(String(format: String(localized: "backfill_remaining"), bare))
-                        .font(.system(size: 11)).monospacedDigit()
-                    Spacer()
+                    if activityState == .retryPending {
+                        Text("backfill_retry_pending_hint")
+                            .font(.system(size: 10.5))
+                    }
                 }
                 .foregroundStyle(PMColor.textMuted)
                 .padding(10)

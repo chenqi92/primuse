@@ -241,7 +241,7 @@ struct MetadataBackfillActivityStateTests {
         #expect(afterCellularOptIn == .running)
     }
 
-    @Test("Cancellation and retryable failure leave a static pending state")
+    @Test("Cancellation stays pending while transient failures are labelled for retry")
     func interruptedWorkStaysPending() {
         let afterCancellation = MetadataBackfillActivityState.resolve(
             hasPendingWork: true,
@@ -251,11 +251,29 @@ struct MetadataBackfillActivityStateTests {
         let afterRetryableFailure = MetadataBackfillActivityState.resolve(
             hasPendingWork: true,
             isRunning: false,
-            isWaitingForWiFi: false
+            isWaitingForWiFi: false,
+            hasDeferredRetryWork: true
         )
 
         #expect(afterCancellation == .pending)
-        #expect(afterRetryableFailure == .pending)
+        #expect(afterRetryableFailure == .retryPending)
+    }
+
+    @Test("A relaunched transient request is identified as a retry")
+    func carriedRetryIsVisible() {
+        #expect(MetadataBackfillActivityState.resolve(
+            hasPendingWork: true,
+            isRunning: true,
+            isWaitingForWiFi: false,
+            hasDeferredRetryWork: true
+        ) == .retrying)
+
+        #expect(MetadataBackfillActivityState.resolve(
+            hasPendingWork: false,
+            isRunning: false,
+            isWaitingForWiFi: false,
+            hasDeferredRetryWork: true
+        ) == .retryPending)
     }
 
     @Test("Completed or failed-only queues become idle")
