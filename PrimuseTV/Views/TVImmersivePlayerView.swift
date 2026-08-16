@@ -24,6 +24,7 @@ struct TVImmersivePlayerView: View {
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [TVSong] = []
+    @State private var titleWallTitles: [String] = []
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @Namespace private var chromeFocus
@@ -120,9 +121,11 @@ struct TVImmersivePlayerView: View {
                 showsChrome = false
                 showsModePicker = true
                 refreshGallerySongs()
+                refreshTitleWallTitles()
                 return
             }
             refreshGallerySongs()
+            refreshTitleWallTitles()
             scheduleChromeHide()
         }
         .task(id: lyricObservationIdentity) {
@@ -149,6 +152,10 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
+            refreshTitleWallTitles()
+        }
+        .onChange(of: store.queueSongIDs) { _, _ in
+            refreshTitleWallTitles()
         }
         .background {
             TVImmersiveLibraryCountObserver {
@@ -196,6 +203,7 @@ struct TVImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
+            titleWallTitles: titleWallTitles,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -547,6 +555,16 @@ struct TVImmersivePlayerView: View {
         gallerySongs = selected
     }
 
+    private func refreshTitleWallTitles() {
+        let current = meaningful(store.nowPlaying.title, fallback: ImmersiveDemoContent.title)
+        let queueTitles = store.queueSongIDs.compactMap { id -> String? in
+            guard let title = store.song(id)?.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else { return nil }
+            return title
+        }
+        titleWallTitles = queueTitles.isEmpty ? [current] : queueTitles
+    }
+
     private func meaningful(_ value: String, fallback: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed.lowercased()
@@ -575,15 +593,16 @@ struct TVImmersivePlayerView: View {
     }
 
     private var lyricWindow: [ImmersiveStageLyric] {
-        guard hasSynchronizedLyrics,
-              let index = activeLyricIndex,
+        guard let index = activeLyricIndex,
               store.lyrics.indices.contains(index) else { return [] }
         let lower = max(0, index - 1)
         let upper = min(store.lyrics.count, index + 4)
-        return (lower..<upper).map { position in
-            ImmersiveStageLyric(
+        return (lower..<upper).compactMap { position in
+            let text = store.lyrics[position].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return ImmersiveStageLyric(
                 id: position,
-                text: store.lyrics[position].text,
+                text: text,
                 isActive: position == index,
                 offset: position - index
             )

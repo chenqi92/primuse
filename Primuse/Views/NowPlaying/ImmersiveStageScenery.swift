@@ -973,12 +973,14 @@ struct ImmersiveSpectrumRing: View {
 struct ImmersiveTypeWall: View {
     var title: String
     var fontSize: CGFloat
-    /// 墙的行数:手机横屏 3 行、大屏 5 行
+    /// 墙的行数，由场景按当前画布高度决定。
     var rowCount: Int
     /// 实心那一行在墙里的下标
     var solidRow: Int
     var lineWidth: CGFloat = 1
     var tint: Color = ImmersiveStagePalette.accent200
+    var outlineOpacity: Double?
+    var fillsSolidRow = false
 
     @State private var glyphs: ImmersiveGlyphLine?
 
@@ -1008,7 +1010,7 @@ struct ImmersiveTypeWall: View {
         let isSolid = index == solidRow
         // 相邻行左右错开,免得整面墙对得太齐显得死板(设计稿是 -120 / -60px)。
         let offset = Self.rowOffsetRatios[index % Self.rowOffsetRatios.count] * fontSize
-        let opacity = Self.rowOpacities[index % Self.rowOpacities.count]
+        let opacity = outlineOpacity ?? Self.rowOpacities[index % Self.rowOpacities.count]
 
         if let glyphs, glyphs.advance > 1 {
             let repeats = max(1, Int((available / glyphs.advance).rounded(.up)) + 1)
@@ -1016,6 +1018,7 @@ struct ImmersiveTypeWall: View {
                 line: glyphs,
                 repeats: repeats,
                 isSolid: isSolid,
+                fillsSolidRow: fillsSolidRow,
                 lineWidth: lineWidth,
                 strokeOpacity: opacity,
                 tint: tint
@@ -1104,11 +1107,12 @@ struct ImmersiveGlyphLine: Equatable {
     }
 }
 
-/// 把一行轮廓横向重复铺满:实心行首个副本填充,其余一律描边。
+/// 把一行轮廓横向重复铺满；实心行可只填首个副本，也可填满整行。
 private struct ImmersiveGlyphRow: View {
     let line: ImmersiveGlyphLine
     let repeats: Int
     let isSolid: Bool
+    let fillsSolidRow: Bool
     let lineWidth: CGFloat
     let strokeOpacity: Double
     let tint: Color
@@ -1119,7 +1123,7 @@ private struct ImmersiveGlyphRow: View {
                 let shifted = line.path.applying(
                     CGAffineTransform(translationX: CGFloat(index) * line.advance, y: 0)
                 )
-                if isSolid, index == 0 {
+                if isSolid, fillsSolidRow || index == 0 {
                     canvas.fill(shifted, with: .color(ImmersiveStagePalette.ink))
                 } else {
                     canvas.stroke(

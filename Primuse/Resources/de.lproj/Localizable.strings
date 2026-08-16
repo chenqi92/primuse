@@ -1428,9 +1428,9 @@
 "fullscreen_effect_light_rhythm" = "Lichtrhythmus";
 "fullscreen_effect_light_rhythm_subtitle" = "Coverfarbenes Licht atmet hinter der aktuellen Textzeile";
 "fullscreen_effect_light_rhythm_motion" = "Coverlicht in Ebenen · Ruhiges Atmen";
-"fullscreen_effect_kinetic_title" = "Kinetische Schrift";
-"fullscreen_effect_kinetic_title_subtitle" = "Titelkonturen verändern Position und Größe im Hintergrund";
-"fullscreen_effect_kinetic_title_motion" = "Animierte Titelgröße, Position und Kontur";
+"fullscreen_effect_kinetic_title" = "Titelwand";
+"fullscreen_effect_kinetic_title_subtitle" = "Titel der Warteschlange bilden eine Konturwand; der aktuelle Titel ist gefüllt, während der Liedtext durch das Bild läuft";
+"fullscreen_effect_kinetic_title_motion" = "Langsam versetzte Titelbewegung · horizontaler Liedtextlauf";
 "fullscreen_effect_radial_pulse" = "Radialer Puls";
 "fullscreen_effect_radial_pulse_subtitle" = "Der Ring der rotierenden Platte reagiert auf das echte Audio";
 "fullscreen_effect_radial_pulse_motion" = "Live-Spektrum · Rotierende Platte";
@@ -1444,8 +1444,8 @@
 "lyrics_exit_full_screen" = "Vollbild-Songtext schließen";
 "immersive_lock_controls" = "Bedienelemente sperren";
 "immersive_unlock_controls" = "Bedienelemente entsperren";
-"immersive_lyrics_motion_title" = "Liedtext-Übergänge";
-"immersive_lyrics_motion_subtitle" = "Zeilen heben sich sanft an und blenden ein; deaktiviert bleiben sie ruhig.";
+"immersive_lyrics_motion_title" = "Immersive Textbewegung";
+"immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
 "exit_landscape_video" = "Querformatvideo beenden";
 "show_lyrics_background" = "Liedtexthintergrund anzeigen";
 "hide_lyrics_background" = "Liedtexthintergrund ausblenden";

@@ -121,9 +121,9 @@ struct TVFullscreenEffectPicker: View {
                             lyricsMotionEnabled.toggle()
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Label("歌词逐字动效", systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle")
+                                Label("沉浸文字动效", systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 19, weight: .semibold))
-                                Text("换句时轻柔上移并淡入；关闭后歌词保持静态")
+                                Text("控制曲名墙的缓慢漂移和歌词横向巡游；关闭后文字保持静态")
                                     .font(.system(size: 13))
                                     .foregroundStyle(.white.opacity(0.58))
                             }

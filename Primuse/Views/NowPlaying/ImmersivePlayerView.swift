@@ -31,6 +31,7 @@ struct ImmersivePlayerView: View {
     @State private var hasResolvedArtwork = true
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
+    @State private var titleWallTitles: [String] = []
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
@@ -113,6 +114,9 @@ struct ImmersivePlayerView: View {
             refreshArtworkInputs()
             updateVisualizer(for: presentationEffect)
         }
+        .onChange(of: titleWallQueueIdentity) { _, _ in
+            refreshTitleWallTitles()
+        }
         .background {
             ImmersiveLibraryCountObserver {
                 refreshGallerySongs()
@@ -193,6 +197,7 @@ struct ImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
+            titleWallTitles: titleWallTitles,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -682,6 +687,27 @@ struct ImmersivePlayerView: View {
             coverTintProvider.prepare([song])
         }
         refreshGallerySongs()
+        refreshTitleWallTitles()
+    }
+
+    private var titleWallQueueIdentity: String {
+        let count = player.queueCount
+        guard count > 0 else { return "0|\(player.currentSong?.id ?? "")" }
+        let indices = Set([0, max(player.currentIndex - 1, 0), player.currentIndex, min(player.currentIndex + 1, count - 1), count - 1])
+        let sampledIDs = indices.sorted().compactMap { player.queuedSong(at: $0)?.id }
+        return "\(count)|\(sampledIDs.joined(separator: "|"))"
+    }
+
+    private func refreshTitleWallTitles() {
+        var titles: [String] = []
+        titles.reserveCapacity(player.queueCount)
+        for index in 0..<player.queueCount {
+            guard let value = player.queuedSong(at: index)?.title
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value) else { continue }
+            titles.append(value)
+        }
+        titleWallTitles = titles.isEmpty ? [songTitle] : titles
     }
 
     /// 每次切歌只取一次稳定样本，避免实时频谱刷新时反复扫描整个资料库。
@@ -758,10 +784,12 @@ struct ImmersivePlayerView: View {
               lyrics.indices.contains(index) else { return [] }
         let lower = max(0, index - 1)
         let upper = min(lyrics.count, index + 4)
-        return (lower..<upper).map { position in
-            ImmersiveStageLyric(
+        return (lower..<upper).compactMap { position in
+            let text = lyrics[position].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return ImmersiveStageLyric(
                 id: position,
-                text: lyrics[position].text,
+                text: text,
                 isActive: position == index,
                 offset: position - index
             )

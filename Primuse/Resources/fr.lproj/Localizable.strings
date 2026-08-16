@@ -1428,9 +1428,9 @@
 "fullscreen_effect_light_rhythm" = "Rythme lumineux";
 "fullscreen_effect_light_rhythm_subtitle" = "Une lumière aux couleurs de la pochette respire derrière la parole";
 "fullscreen_effect_light_rhythm_motion" = "Lumière en couches · Respiration lente";
-"fullscreen_effect_kinetic_title" = "Typographie cinétique";
-"fullscreen_effect_kinetic_title_subtitle" = "Les contours du titre changent de position et de taille";
-"fullscreen_effect_kinetic_title_motion" = "Taille, position et contours du titre animés";
+"fullscreen_effect_kinetic_title" = "Mur de titres";
+"fullscreen_effect_kinetic_title_subtitle" = "Les titres de la file forment un mur de contours ; le morceau actuel est plein et les paroles traversent l’écran";
+"fullscreen_effect_kinetic_title_motion" = "Dérive lente des titres décalés · bandeau horizontal de paroles";
 "fullscreen_effect_radial_pulse" = "Pulsation radiale";
 "fullscreen_effect_radial_pulse_subtitle" = "L’anneau du disque tourne et réagit au son réel";
 "fullscreen_effect_radial_pulse_motion" = "Spectre en direct · Disque rotatif";
@@ -1444,8 +1444,8 @@
 "lyrics_exit_full_screen" = "Quitter les paroles en plein écran";
 "immersive_lock_controls" = "Verrouiller les commandes";
 "immersive_unlock_controls" = "Déverrouiller les commandes";
-"immersive_lyrics_motion_title" = "Transitions des paroles";
-"immersive_lyrics_motion_subtitle" = "Les lignes montent et apparaissent doucement ; désactivez pour les garder fixes.";
+"immersive_lyrics_motion_title" = "Mouvement typographique immersif";
+"immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
 "exit_landscape_video" = "Quitter la vidéo en paysage";
 "show_lyrics_background" = "Afficher l'arrière-plan des paroles";
 "hide_lyrics_background" = "Masquer l'arrière-plan des paroles";

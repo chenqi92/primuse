@@ -1429,9 +1429,9 @@
 "fullscreen_effect_light_rhythm" = "ライトリズム";
 "fullscreen_effect_light_rhythm_subtitle" = "アートワーク色の光と現在の歌詞がゆっくり呼吸します";
 "fullscreen_effect_light_rhythm_motion" = "重なるカバー色の光 · ゆっくり呼吸";
-"fullscreen_effect_kinetic_title" = "キネティックタイプ";
-"fullscreen_effect_kinetic_title_subtitle" = "背景の曲名アウトラインが位置と大きさを変えます";
-"fullscreen_effect_kinetic_title_motion" = "曲名のサイズ、位置、輪郭をアニメーション";
+"fullscreen_effect_kinetic_title" = "曲名ウォール";
+"fullscreen_effect_kinetic_title_subtitle" = "再生キューの曲名がアウトラインの壁を作り、現在の曲は塗りで表示され、歌詞が画面を横切ります";
+"fullscreen_effect_kinetic_title_motion" = "曲名の緩やかなずれ · 横方向の歌詞マーキー";
 "fullscreen_effect_radial_pulse" = "ラジアルパルス";
 "fullscreen_effect_radial_pulse_subtitle" = "回転するレコードの外周が実際の音声に反応します";
 "fullscreen_effect_radial_pulse_motion" = "ライブスペクトラム · 回転するレコード";
@@ -1445,8 +1445,8 @@
 "lyrics_exit_full_screen" = "全画面歌詞を終了";
 "immersive_lock_controls" = "没入モードの操作をロック";
 "immersive_unlock_controls" = "没入モードの操作をロック解除";
-"immersive_lyrics_motion_title" = "歌詞のトランジション";
-"immersive_lyrics_motion_subtitle" = "行が変わるときにやさしく上がってフェードインします。オフでは静止します。";
+"immersive_lyrics_motion_title" = "イマーシブ文字モーション";
+"immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
 "exit_landscape_video" = "横向き動画を終了";
 "show_lyrics_background" = "歌詞の背景を表示";
 "hide_lyrics_background" = "歌詞の背景を非表示";

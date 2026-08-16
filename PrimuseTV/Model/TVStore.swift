@@ -252,6 +252,7 @@ final class TVStore {
 
     /// 当前正在播放的真实 Song id(队列当前位)。
     var currentSongID: String? { queue.indices.contains(queueIndex) ? queue[queueIndex] : nil }
+    var queueSongIDs: [String] { queue }
 
     /// 播放状态镜像自引擎(@Observable 组合,视图读取即订阅引擎变化)。
     var isPlaying: Bool { engine.isPlaying }

@@ -1368,9 +1368,9 @@
 "fullscreen_effect_light_rhythm" = "光影音律";
 "fullscreen_effect_light_rhythm_subtitle" = "封面色光影緩慢律動，規格下顯示目前歌詞";
 "fullscreen_effect_light_rhythm_motion" = "多層封面色光影 · 低頻呼吸";
-"fullscreen_effect_kinetic_title" = "動態字幕";
-"fullscreen_effect_kinetic_title_subtitle" = "曲名輪廓在背景改變位置與大小";
-"fullscreen_effect_kinetic_title_motion" = "曲名尺寸、位置與描邊持續變化";
+"fullscreen_effect_kinetic_title" = "曲名展牆";
+"fullscreen_effect_kinetic_title_subtitle" = "播放佇列曲名以空心字堆疊，目前曲目實心顯示，歌詞橫越畫面";
+"fullscreen_effect_kinetic_title_motion" = "多行曲名緩慢錯位 · 目前歌詞橫向巡遊";
 "fullscreen_effect_radial_pulse" = "環形聲譜";
 "fullscreen_effect_radial_pulse_subtitle" = "旋轉唱片外圈跟隨實際聲音起伏";
 "fullscreen_effect_radial_pulse_motion" = "即時頻譜驅動 · 唱片隨播放旋轉";
@@ -1384,8 +1384,8 @@
 "lyrics_exit_full_screen" = "退出全螢幕歌詞";
 "immersive_lock_controls" = "鎖定沉浸式控制";
 "immersive_unlock_controls" = "解鎖沉浸式控制";
-"immersive_lyrics_motion_title" = "歌詞轉場";
-"immersive_lyrics_motion_subtitle" = "換句時輕柔上移並淡入；關閉後歌詞保持靜態。";
+"immersive_lyrics_motion_title" = "沉浸文字動效";
+"immersive_lyrics_motion_subtitle" = "控制曲名牆的緩慢漂移和歌詞橫向巡遊；關閉後文字保持靜態。";
 "exit_landscape_video" = "退出橫向影片";
 "show_lyrics_background" = "顯示歌詞背板";
 "hide_lyrics_background" = "隱藏歌詞背板";

@@ -180,7 +180,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .starryNight: "星夜 Starry Night"
         case .flowingLines: "流动声纹 Flowing Lines"
         case .lightRhythm: "光影呼吸 Light Rhythm"
-        case .kineticTitle: "动态字幕 Kinetic Type"
+        case .kineticTitle: "曲名展墙 Title Wall"
         case .radialPulse: "环形声谱 Radial Pulse"
         case .liveWaveform: "实时波形 Live Waveform"
         }
@@ -198,7 +198,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .starryNight: "封面色星空持续漂移，只显示最新一句歌词"
         case .flowingLines: "动态线条围绕封面变化，右上展示前后歌词"
         case .lightRhythm: "封面色光影缓慢韵动，规格下展示当前歌词"
-        case .kineticTitle: "曲名轮廓在背景改变位置与大小"
+        case .kineticTitle: "播放队列曲名以空心字堆叠，当前曲目实心显示，歌词横穿画面"
         case .radialPulse: "旋转唱片外圈跟随实际声音起伏"
         case .liveWaveform: "横向频谱按实际播放音频实时变化"
         }
@@ -217,7 +217,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .starryNight: fallback = "星点生成、漂移与闪烁 · 封面色渲染"
         case .flowingLines: fallback = "线条轨迹持续演化 · 三句歌词"
         case .lightRhythm: fallback = "多层封面色光影 · 低频呼吸"
-        case .kineticTitle: fallback = "曲名尺寸、位置与描边持续变化"
+        case .kineticTitle: fallback = "多行曲名缓慢错位 · 当前歌词横向巡游"
         case .radialPulse: fallback = "实时频谱驱动 · 唱片随播放旋转"
         case .liveWaveform: fallback = "实时频谱驱动 · 无音频时保持静止"
         }

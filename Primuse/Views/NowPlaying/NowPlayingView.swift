@@ -3537,7 +3537,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
             Section {
                 Toggle(isOn: $lyricsMotionEnabled) {
-                    Label("歌词逐字动效", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    Label("沉浸文字动效", systemImage: "text.line.first.and.arrowtriangle.forward")
                 }
 
                 Button(action: onShowSleepTimer) {

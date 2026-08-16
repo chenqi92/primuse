@@ -1482,9 +1482,9 @@
 "fullscreen_effect_light_rhythm" = "Light Rhythm";
 "fullscreen_effect_light_rhythm_subtitle" = "Artwork-colored light breathes behind one current lyric";
 "fullscreen_effect_light_rhythm_motion" = "Layered artwork light · Slow breathing";
-"fullscreen_effect_kinetic_title" = "Kinetic Type";
-"fullscreen_effect_kinetic_title_subtitle" = "Track-title outlines shift position and scale in the background";
-"fullscreen_effect_kinetic_title_motion" = "Animated title scale, position, and outlines";
+"fullscreen_effect_kinetic_title" = "Title Wall";
+"fullscreen_effect_kinetic_title_subtitle" = "Queue titles form an outlined wall; the current track is solid while lyrics travel across the screen";
+"fullscreen_effect_kinetic_title_motion" = "Slow staggered title drift · horizontal lyric marquee";
 "fullscreen_effect_radial_pulse" = "Radial Pulse";
 "fullscreen_effect_radial_pulse_subtitle" = "A rotating record ring responds to the actual audio";
 "fullscreen_effect_radial_pulse_motion" = "Live spectrum driven · Rotating record";
@@ -1498,8 +1498,8 @@
 "lyrics_exit_full_screen" = "Exit Full-Screen Lyrics";
 "immersive_lock_controls" = "Lock immersive controls";
 "immersive_unlock_controls" = "Unlock immersive controls";
-"immersive_lyrics_motion_title" = "Lyric transitions";
-"immersive_lyrics_motion_subtitle" = "Gently lifts and fades between lines; turn off to keep lyrics still.";
+"immersive_lyrics_motion_title" = "Immersive type motion";
+"immersive_lyrics_motion_subtitle" = "Controls the title wall drift and horizontal lyric marquee; turn off to keep type still.";
 "exit_landscape_video" = "Exit landscape video";
 "show_lyrics_background" = "Show lyrics background";
 "hide_lyrics_background" = "Hide lyrics background";

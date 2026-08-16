@@ -8,7 +8,13 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     let offset: Int
     let fillProgress: Double?
 
-    init(id: Int, text: String, isActive: Bool, offset: Int, fillProgress: Double? = nil) {
+    init(
+        id: Int,
+        text: String,
+        isActive: Bool,
+        offset: Int,
+        fillProgress: Double? = nil
+    ) {
         self.id = id
         self.text = text
         self.isActive = isActive
@@ -33,6 +39,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     var levels: [CGFloat] = []
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
+    var titleWallTitles: [String] = []
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     var lyricInterlude = false
@@ -79,7 +86,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         case .lightRhythm:
             lightRhythmScene
         case .kineticTitle:
-            kineticTitleScene
+            kineticTitleWallScene
         case .radialPulse:
             radialPulseScene
         case .liveWaveform:
@@ -376,41 +383,58 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - 6. 动态字幕
+    // MARK: - 6. 曲名展墙
 
-    private var kineticTitleScene: some View {
-        ZStack {
+    private var kineticTitleWallScene: some View {
+        let lyric = resolvedCurrentLyric.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wallFontSize = metrics.s(
+            platform == .tvOS
+                ? 116
+                : (metrics.isPortrait ? 64 : (metrics.layout == .phoneLandscape ? 72 : 104))
+        )
+        let minimumRows = metrics.isPortrait ? 11 : (metrics.layout == .phoneLandscape ? 8 : 10)
+
+        return ZStack {
             ImmersiveStagePalette.obsidian
-            ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, intensity: 0.32)
-            ImmersiveKineticTitleField(
-                title: track.title,
-                palette: palette,
-                isAnimating: sceneIsAnimating,
-                fontSize: metrics.s(platform == .tvOS ? 150 : (metrics.isPortrait ? 82 : 112))
+            ImmersiveTypographyMotion(isAnimating: sceneIsAnimating && lyricsMotionEnabled)
+                .opacity(0.52)
+            RadialGradient(
+                colors: [palette.primary.opacity(0.16), .clear],
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: max(metrics.size.width, metrics.size.height) * 0.72
             )
+
+            ImmersivePlaylistTitleWall(
+                titles: titleWallTitles,
+                currentTitle: track.title,
+                tint: palette.primary,
+                isAnimating: sceneIsAnimating && lyricsMotionEnabled,
+                baseFontSize: wallFontSize,
+                minimumRows: minimumRows
+            )
+
             LinearGradient(
-                colors: [.clear, ImmersiveStagePalette.obsidian.opacity(0.76)],
+                colors: [
+                    ImmersiveStagePalette.obsidian.opacity(0.58),
+                    .clear,
+                    .clear,
+                    ImmersiveStagePalette.obsidian.opacity(0.70),
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
 
-            VStack(alignment: .leading, spacing: 0) {
-                compactHeader(artSide: metrics.s(platform == .tvOS ? 92 : 58))
-                Spacer()
-                Text(track.title)
-                    .font(.system(
-                        size: metrics.s(platform == .tvOS ? 126 : (metrics.isPortrait ? 62 : 82)),
-                        weight: .semibold
-                    ))
-                    .tracking(metrics.f(-2.3))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.45)
-                singleLyric(fontSize: metrics.s(platform == .tvOS ? 30 : 18))
-                    .padding(.top, metrics.s(28))
+            if !lyric.isEmpty {
+                ImmersiveCrossingLyricRibbon(
+                    text: lyric,
+                    fontSize: metrics.s(platform == .tvOS ? 48 : (metrics.isPortrait ? 27 : 30)),
+                    tint: palette.primary,
+                    isAnimating: sceneIsAnimating && lyricsMotionEnabled
+                )
+                .frame(height: metrics.s(platform == .tvOS ? 104 : (metrics.isPortrait ? 60 : 64)))
+                .offset(y: metrics.size.height * (metrics.isPortrait ? 0.19 : 0.17))
             }
-            .padding(.horizontal, horizontalInset)
-            .padding(.top, topInset)
-            .padding(.bottom, bottomInset + metrics.s(12))
         }
     }
 
@@ -1035,54 +1059,62 @@ private struct ImmersiveFlowingContourField: View {
     }
 }
 
-private struct ImmersiveKineticTitleField: View {
-    let title: String
-    let palette: ImmersiveArtworkPalette
+private struct ImmersivePlaylistTitleWall: View {
+    let titles: [String]
+    let currentTitle: String
+    let tint: Color
     let isAnimating: Bool
-    let fontSize: CGFloat
+    let baseFontSize: CGFloat
+    let minimumRows: Int
+
+    private let sizePattern: [CGFloat] = [0.82, 0.96, 1.08, 0.88, 1.00, 0.78, 1.12]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+        let source = preparedTitles
+        let activeTitle = normalized(currentTitle).isEmpty ? ImmersiveDemoContent.title : normalized(currentTitle)
+        let activeKey = activeTitle.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let activeIndex = source.firstIndex {
+            $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == activeKey
+        } ?? 0
+        TimelineView(.animation(minimumInterval: 1 / 12, paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-
             GeometryReader { geometry in
+                let rowCount = visibleRowCount(for: geometry.size.height)
+                let solidRow = min(max(Int(Double(rowCount) * 0.46), 2), max(rowCount - 3, 2))
+
                 ZStack {
-                    ForEach(0..<6, id: \.self) { index in
-                        let rowSize = fontSize * (0.56 + CGFloat(index) * 0.115)
-                        let duration = 17.0 + Double(index) * 3.4
-                        let phase = time / duration * 2 * .pi + Double(index) * 1.28
-                        let rawReveal = isAnimating ? (sin(phase) + 1) / 2 : (index == 2 ? 0.82 : 0.46)
-                        let reveal = rawReveal * rawReveal * (3 - 2 * rawReveal)
-                        let depthScale = CGFloat(0.70 + reveal * 0.68)
-                        let horizontalDrift = CGFloat(sin(phase * 0.54 + Double(index)))
-                            * geometry.size.width * (0.045 + CGFloat(index) * 0.006)
-                        let verticalDrift = CGFloat(cos(phase * 0.42 - Double(index) * 0.37))
-                            * rowSize * 0.28
-                        let baseY = geometry.size.height * (0.14 + CGFloat(index) * 0.145)
-                        let layerOpacity = index == 2
-                            ? 0.12 + reveal * 0.72
-                            : 0.015 + reveal * (0.24 + Double(index % 3) * 0.07)
+                    ForEach(0..<rowCount, id: \.self) { index in
+                        let isCurrent = index == solidRow
+                        let rowFont = baseFontSize * (isCurrent ? 1.08 : sizePattern[index % sizePattern.count])
+                        let phase = time / (26 + Double(index % 5) * 4.2) * 2 * .pi + Double(index) * 0.83
+                        let direction: CGFloat = index.isMultiple(of: 2) ? 1 : -1
+                        let drift = isCurrent
+                            ? CGFloat(sin(phase * 0.42)) * geometry.size.width * 0.012
+                            : direction * geometry.size.width * 0.025
+                                + CGFloat(sin(phase)) * geometry.size.width * 0.035
+                        let scale = isCurrent ? 1.0 : 0.985 + CGFloat(sin(phase * 0.58)) * 0.018
+                        let y = geometry.size.height * (CGFloat(index) + 0.5) / CGFloat(rowCount)
 
                         ImmersiveTypeWall(
-                            title: title,
-                            fontSize: rowSize,
+                            title: title(
+                                for: index,
+                                solidRow: solidRow,
+                                source: source,
+                                activeTitle: activeTitle,
+                                activeIndex: activeIndex
+                            ),
+                            fontSize: rowFont,
                             rowCount: 1,
-                            solidRow: index == 2 ? 0 : -1,
-                            lineWidth: max(0.8, rowSize * 0.011),
-                            tint: index.isMultiple(of: 2) ? palette.primary : ImmersiveStagePalette.accent200
+                            solidRow: isCurrent ? 0 : -1,
+                            lineWidth: max(0.75, rowFont * 0.012),
+                            tint: index.isMultiple(of: 3) ? tint : ImmersiveStagePalette.accent200,
+                            outlineOpacity: 0.25 + Double(index % 4) * 0.035,
+                            fillsSolidRow: isCurrent
                         )
-                        .frame(width: geometry.size.width * 1.18, height: rowSize * 1.18)
-                        .scaleEffect(
-                            x: depthScale * (index.isMultiple(of: 2) ? 1 : 1.06),
-                            y: depthScale,
-                            anchor: index.isMultiple(of: 2) ? .leading : .trailing
-                        )
-                        .rotationEffect(.degrees(sin(phase * 0.38) * (index.isMultiple(of: 2) ? 1.2 : -0.9)))
-                        .position(
-                            x: geometry.size.width / 2 + horizontalDrift,
-                            y: baseY + verticalDrift
-                        )
-                        .opacity(layerOpacity)
+                        .frame(width: geometry.size.width * 1.18, height: rowFont * 1.08)
+                        .scaleEffect(scale)
+                        .position(x: geometry.size.width / 2 + drift, y: y)
+                        .opacity(isCurrent ? 0.98 : 0.76)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -1090,6 +1122,100 @@ private struct ImmersiveKineticTitleField: View {
             }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var preparedTitles: [String] {
+        let fallback = normalized(currentTitle).isEmpty ? ImmersiveDemoContent.title : normalized(currentTitle)
+        var seen: Set<String> = []
+        var result: [String] = []
+
+        for value in titles + [fallback] {
+            let title = normalized(value)
+            guard !title.isEmpty else { continue }
+            let key = title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if seen.insert(key).inserted { result.append(title) }
+        }
+        return result.isEmpty ? [fallback] : result
+    }
+
+    private func visibleRowCount(for height: CGFloat) -> Int {
+        let rowHeight = max(baseFontSize * 0.90, 30)
+        return max(minimumRows, Int(ceil(height / rowHeight)) + 2)
+    }
+
+    private func title(
+        for row: Int,
+        solidRow: Int,
+        source: [String],
+        activeTitle: String,
+        activeIndex: Int
+    ) -> String {
+        guard row != solidRow, !source.isEmpty else { return activeTitle }
+        let rawIndex = activeIndex + row - solidRow
+        let wrapped = (rawIndex % source.count + source.count) % source.count
+        return source[wrapped]
+    }
+
+    private func normalized(_ value: String) -> String {
+        value
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct ImmersiveCrossingLyricRibbon: View {
+    let text: String
+    let fontSize: CGFloat
+    let tint: Color
+    let isAnimating: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
+            ZStack {
+                ImmersiveStagePalette.obsidian.opacity(0.82)
+                Canvas(rendersAsynchronously: true) { canvas, size in
+                    let content = Text(verbatim: "\(text)   ·   ")
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .tracking(fontSize * 0.018)
+                        .foregroundStyle(ImmersiveStagePalette.ink)
+                    let resolved = canvas.resolve(content)
+                    let measured = resolved.measure(in: CGSize(width: 100_000, height: size.height))
+                    let cycle = max(measured.width, fontSize * 4)
+                    let centerY = size.height / 2
+
+                    if isAnimating {
+                        let distance = CGFloat(context.date.timeIntervalSinceReferenceDate) * fontSize * 0.46
+                        var x = -(distance.truncatingRemainder(dividingBy: cycle)) - cycle
+                        while x < size.width + cycle {
+                            canvas.draw(resolved, at: CGPoint(x: x, y: centerY), anchor: .leading)
+                            x += cycle
+                        }
+                    } else {
+                        let x = max(fontSize, (size.width - measured.width) / 2)
+                        canvas.draw(resolved, at: CGPoint(x: x, y: centerY), anchor: .leading)
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(LinearGradient(
+                        colors: [.clear, tint.opacity(0.72), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ))
+                    .frame(height: 1)
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(ImmersiveStagePalette.text.opacity(0.12))
+                    .frame(height: 1)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(text))
     }
 }
 
