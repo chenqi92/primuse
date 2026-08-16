@@ -701,9 +701,11 @@ private struct ImmersiveWaveformPlaybackPanel: View {
                 playbackTime?() ?? initialElapsed,
                 duration: duration
             )
+            let progress = ImmersivePlaybackClock.fraction(elapsed: elapsed, duration: duration)
             VStack(spacing: spacing) {
                 ImmersiveLiveWaveform(
                     levels: levels,
+                    progress: progress,
                     active: active,
                     inactive: inactive
                 )
@@ -1093,48 +1095,122 @@ private struct ImmersiveKineticTitleField: View {
 
 private struct ImmersiveLiveWaveform: View {
     let levels: [CGFloat]
+    let progress: Double
     let active: Color
     let inactive: Color
 
     var body: some View {
         Canvas(rendersAsynchronously: true) { canvas, size in
-            let count = 52
-            let spacing = max(size.width * 0.006, 2)
-            let width = max((size.width - spacing * CGFloat(count - 1)) / CGFloat(count), 2)
+            let preferredWidth = max(size.height * 0.045, 3)
+            let preferredSpacing = max(preferredWidth * 0.82, 2.2)
+            let availableCount = Int((size.width + preferredSpacing) / (preferredWidth + preferredSpacing))
+            let count = min(max(availableCount, 38), 68)
+            let spacing = max(min(preferredSpacing, size.width * 0.012), 2)
+            let width = max((size.width - spacing * CGFloat(count - 1)) / CGFloat(count), 2.4)
             let centerY = size.height / 2
+            let playedWidth = size.width * CGFloat(min(max(progress, 0), 1))
+            let baselineHeight = max(0.8, width * 0.18)
+
+            let baseline = CGRect(
+                x: 0,
+                y: centerY - baselineHeight / 2,
+                width: size.width,
+                height: baselineHeight
+            )
+            canvas.fill(
+                Path(roundedRect: baseline, cornerRadius: baselineHeight / 2),
+                with: .color(inactive.opacity(0.48))
+            )
+
+            var playedBars = Path()
+            var upcomingBars = Path()
+            var currentBar: CGRect?
 
             for index in 0..<count {
                 let level = levels.isEmpty
                     ? 0
-                    : mirroredLevel(at: index, outputCount: count, source: levels)
-                let barHeight = max(3, size.height * (0.06 + level * 0.88))
+                    : displayedLevel(at: index, outputCount: count, source: levels)
+                let barHeight = max(width, size.height * (0.075 + level * 0.82))
                 let rect = CGRect(
                     x: CGFloat(index) * (width + spacing),
                     y: centerY - barHeight / 2,
                     width: width,
                     height: barHeight
                 )
+                let path = Path(roundedRect: rect, cornerRadius: width / 2)
+                if rect.midX <= playedWidth {
+                    playedBars.addPath(path)
+                    currentBar = rect
+                } else {
+                    upcomingBars.addPath(path)
+                }
+            }
+
+            canvas.fill(upcomingBars, with: .color(inactive.opacity(0.88)))
+
+            canvas.drawLayer { glow in
+                glow.addFilter(.blur(radius: max(2, width * 1.2)))
+                glow.fill(playedBars, with: .color(active.opacity(0.34)))
+            }
+            canvas.fill(
+                playedBars,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        active.opacity(0.72),
+                        ImmersiveStagePalette.ink.opacity(0.92),
+                        active.opacity(0.78),
+                    ]),
+                    startPoint: CGPoint(x: 0, y: 0),
+                    endPoint: CGPoint(x: 0, y: size.height)
+                )
+            )
+
+            if let currentBar {
+                let marker = currentBar.insetBy(dx: -max(0.6, width * 0.12), dy: -max(1.2, width * 0.28))
                 canvas.fill(
-                    Path(roundedRect: rect, cornerRadius: width / 2),
-                    with: .color(level > 0.015 ? active.opacity(0.42 + Double(level) * 0.54) : inactive)
+                    Path(roundedRect: marker, cornerRadius: marker.width / 2),
+                    with: .color(ImmersiveStagePalette.ink.opacity(0.92))
                 )
             }
         }
         .allowsHitTesting(false)
     }
 
-    /// 横向声谱以中心为低频、两侧为高频做镜像，避免真实音乐普遍较强的
-    /// 低频全部挤在左侧，形成截图里那种从左到右单调塌下的错误形态。
-    private func mirroredLevel(at index: Int, outputCount: Int, source: [CGFloat]) -> CGFloat {
+    /// 低频落在略偏左的视觉重心，两侧分别用不同频率曲线展开。它保留真实
+    /// FFT 的起伏，但不会形成机械的左右镜像或从左到右单调塌下的柱状图。
+    private func displayedLevel(at index: Int, outputCount: Int, source: [CGFloat]) -> CGFloat {
         guard !source.isEmpty, outputCount > 1 else { return 0 }
         guard source.count > 1 else { return min(max(source[0], 0), 1) }
-        let center = Double(outputCount - 1) / 2
-        let distance = abs(Double(index) - center) / max(center, 1)
-        let position = distance * Double(source.count - 1)
-        let lower = min(Int(floor(position)), source.count - 1)
+
+        let x = CGFloat(index) / CGFloat(outputCount - 1)
+        let center: CGFloat = 0.43
+        let distance: CGFloat
+        let exponent: CGFloat
+        if x < center {
+            distance = (center - x) / center
+            exponent = 0.86
+        } else {
+            distance = (x - center) / (1 - center)
+            exponent = 1.14
+        }
+
+        let primaryPosition = pow(min(max(distance, 0), 1), exponent)
+        let companionPosition = x < center
+            ? min(primaryPosition * 0.58 + 0.12, 1)
+            : min(primaryPosition * 0.72 + 0.18, 1)
+        let primaryWeight: CGFloat = x < center ? 0.80 : 0.72
+        let spectralValue = interpolatedLevel(at: primaryPosition, source: source) * primaryWeight
+            + interpolatedLevel(at: companionPosition, source: source) * (1 - primaryWeight)
+        let highFrequencyLift = 0.92 + primaryPosition * 0.34
+        let compressed = pow(min(max(spectralValue * highFrequencyLift, 0), 1), 0.62)
+        return min(max(compressed, 0), 1)
+    }
+
+    private func interpolatedLevel(at position: CGFloat, source: [CGFloat]) -> CGFloat {
+        let scaled = min(max(position, 0), 1) * CGFloat(source.count - 1)
+        let lower = min(Int(floor(scaled)), source.count - 1)
         let upper = min(lower + 1, source.count - 1)
-        let fraction = CGFloat(position - floor(position))
-        let value = source[lower] + (source[upper] - source[lower]) * fraction
-        return min(max(value, 0), 1)
+        let fraction = scaled - CGFloat(lower)
+        return source[lower] + (source[upper] - source[lower]) * fraction
     }
 }
