@@ -75,13 +75,12 @@ struct CloudDriveConnectionView: View {
     }
 
     #if os(macOS)
-    /// 云盘 OAuth 授权页的设计稿外壳 —— closeOnly traffic-light 窗头
+    /// 云盘 OAuth 授权页的设计稿外壳 —— 标题区
     /// (「百度网盘 · OAuth」+ 授权说明) + 步骤内容 + 取消底栏, 跟其它源弹框统一,
     /// 不再用 NavigationStack 的原生标题栏 (那个跟整套自定义弹框对不上)。
     private var macAuthChrome: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                PMWindowTrafficLights(closeOnly: true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: "\(source.type.displayName) · \(source.type == .drime ? "API" : "OAuth")")
                         .font(.system(size: 13, weight: .semibold))

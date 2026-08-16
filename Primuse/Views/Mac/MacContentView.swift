@@ -5,7 +5,7 @@ import PrimuseKit
 
 /// 1.6 重设计后的 macOS 根布局: 自定义 TitleBar + Sidebar + Detail + BottomBar 四件套,
 /// 不再依赖 NavigationSplitView。窗口设了 `.windowStyle(.hiddenTitleBar)`,
-/// 顶部导航、搜索和窗口控制点都由 `PMTitleBar` 按设计稿绘制。
+/// 顶部导航和搜索由 `PMTitleBar` 绘制,窗口控制保留 AppKit 原生实现。
 struct MacContentView: View {
     @State private var selection: MacRoute = .home
     @State private var sidebarCollapsed: Bool = false

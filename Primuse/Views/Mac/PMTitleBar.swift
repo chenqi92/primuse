@@ -4,7 +4,7 @@ import AppKit
 import PrimuseKit
 
 /// 主窗口顶部 44pt 自定义 title bar — 跟设计稿里的 TitleBar 对齐:
-/// 三色窗口控制点、左右导航、居中搜索、右侧工具按钮。
+/// 原生窗口按钮、左右导航、居中搜索、右侧工具按钮。
 struct PMTitleBar: View {
     @Binding var searchText: String
     @Binding var sidebarCollapsed: Bool
@@ -28,7 +28,7 @@ struct PMTitleBar: View {
             // Keep the chrome in the base layer and pin search to the title
             // bar's geometric center.
             HStack(spacing: 8) {
-                PMWindowTrafficLights()
+                PMStandardWindowButtonArea()
                 windowDragSpacer
                 trailingControls
             }

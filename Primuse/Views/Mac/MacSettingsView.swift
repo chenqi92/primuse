@@ -119,7 +119,7 @@ struct MacSettingsView: View {
 
     private var settingsTitleBar: some View {
         HStack(spacing: 0) {
-            PMWindowTrafficLights()
+            PMStandardWindowButtonArea()
 
             Text(verbatim: tab.title)
                 .font(.system(size: 13, weight: .semibold))

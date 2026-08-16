@@ -494,7 +494,7 @@ struct MacDirTreeRow: Identifiable, Equatable {
     var isLoading: Bool
 }
 
-/// 设计稿的 macOS 目录浏览器外壳: traffic-light 自定义窗头 + 懒加载树形目录
+/// 设计稿的 macOS 目录浏览器外壳: 自定义标题区 + 懒加载树形目录
 /// (多选勾选) + 「已选择」预览面板 + 返回/完成 底栏。SMB / WebDAV / FTP /
 /// SFTP / NFS / UPnP / 云盘 / Synology 共用 —— 各自只提供一个 `load(path)`
 /// 闭包返回该目录下的条目 (子目录 + 文件)。SSL 信任弹窗由本组件统一处理。
@@ -549,7 +549,7 @@ struct MacDirTreeBrowser: View {
             Task { await loadRoot() }
         }
         .onDisappear {
-            // 用户在 SSL 弹窗未处理时直接关窗(traffic-light / Esc),
+            // 用户在 SSL 弹窗未处理时直接按 Esc 关窗,
             // 必须 resume 未决 continuation,否则挂起的加载 Task 与 connector 引用永久泄漏。
             let cont = sslTrustContinuation
             sslTrustDomain = nil; sslTrustContinuation = nil
@@ -573,7 +573,6 @@ struct MacDirTreeBrowser: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            PMWindowTrafficLights(closeOnly: true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: title)
                     .font(.system(size: 13, weight: .semibold))

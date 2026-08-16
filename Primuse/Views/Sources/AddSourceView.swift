@@ -350,7 +350,6 @@ struct AddSourceView: View {
 
     private var macSheetChrome: some View {
         HStack(spacing: 12) {
-            PMWindowTrafficLights(closeOnly: true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(isEditing ? String(localized: "edit_source") : sourceType.displayName)
                     .font(.system(size: 13.5, weight: .semibold))

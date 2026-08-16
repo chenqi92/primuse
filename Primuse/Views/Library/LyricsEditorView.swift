@@ -191,7 +191,6 @@ struct LyricsEditorView: View {
 
     private var macTitleBar: some View {
         HStack(spacing: PMSpace.m) {
-            PMWindowTrafficLights(closeOnly: true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(localized: "lyrics_editor_title"))
                     .font(.system(size: 14, weight: .semibold))

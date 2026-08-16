@@ -122,7 +122,6 @@ struct SourceTypeSelectionView: View {
 
     private var macSheetChrome: some View {
         HStack(spacing: 12) {
-            PMWindowTrafficLights(closeOnly: true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("add_source")
                     .font(.system(size: 13.5, weight: .semibold))

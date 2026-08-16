@@ -506,11 +506,9 @@ extension View {
 // MARK: - Window chrome
 
 /// Small AppKit bridge for windows where SwiftUI's hidden title bar still
-/// leaves a top safe-area gutter. SwiftUI owns the layout; this only adjusts
-/// the NSWindow chrome to let our custom title bars occupy the real top edge.
+/// leaves a top safe-area gutter. SwiftUI owns the layout; this adjusts the
+/// chrome while leaving AppKit's standard window controls in charge.
 struct PMWindowChromeConfigurator: NSViewRepresentable {
-    var hidesStandardButtons: Bool = true
-
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async { configure(window: view.window) }
@@ -530,13 +528,12 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         window.toolbar = nil
         window.backgroundColor = .clear
 
-        guard hidesStandardButtons else { return }
         [
             NSWindow.ButtonType.closeButton,
             .miniaturizeButton,
             .zoomButton,
         ].forEach { type in
-            window.standardWindowButton(type)?.isHidden = true
+            window.standardWindowButton(type)?.isHidden = false
         }
     }
 }
@@ -868,65 +865,16 @@ private struct PMHorizontalDragScroll: NSViewRepresentable {
     }
 }
 
-struct PMWindowTrafficLights: View {
-    private enum WindowAction {
-        case close
-        case minimize
-        case zoom
-    }
-
-    /// 只保留关闭按钮 —— 弹框 / 设置这类窗口里最小化、缩放没意义, 留一个红色
-    /// 关闭灯即可。主窗口标题栏仍用默认的三色灯。
-    var closeOnly: Bool = false
-
-    @State private var hostWindow: NSWindow?
-
+/// Reserves the native title-bar button area in custom SwiftUI chrome. The
+/// actual controls stay in AppKit's title-bar hierarchy so hover menus,
+/// modifier-key actions, accessibility, enabled states, and full screen all
+/// retain the system behavior.
+struct PMStandardWindowButtonArea: View {
     var body: some View {
-        HStack(spacing: 8) {
-            trafficButton(color: Color(red: 1.0, green: 0.372, blue: 0.341), action: .close)
-                .accessibilityLabel(Text("Close"))
-            if !closeOnly {
-                trafficButton(color: Color(red: 1.0, green: 0.741, blue: 0.180), action: .minimize)
-                    .accessibilityLabel(Text("Minimize"))
-                trafficButton(color: Color(red: 0.157, green: 0.788, blue: 0.255), action: .zoom)
-                    .accessibilityLabel(Text("Zoom"))
-            }
-        }
-        .frame(width: closeOnly ? PMSize.trafficLight : 52, height: 26,
-               alignment: closeOnly ? .leading : .center)
-        .background {
-            PMWindowResolver { window in
-                hostWindow = window
-            }
-        }
-    }
-
-    private func trafficButton(color: Color, action: WindowAction) -> some View {
-        Button {
-            perform(action)
-        } label: {
-            Circle()
-                .fill(color)
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color.black.opacity(0.16), lineWidth: 0.5)
-                }
-                .frame(width: PMSize.trafficLight, height: PMSize.trafficLight)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func perform(_ action: WindowAction) {
-        guard let window = hostWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        switch action {
-        case .close:
-            window.performClose(nil)
-        case .minimize:
-            window.miniaturize(nil)
-        case .zoom:
-            PMWindowZoomController.toggle(window)
-        }
+        Color.clear
+            .frame(width: 52, height: 26)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

@@ -37,8 +37,8 @@ struct ConnectionFlowView: View {
     var body: some View {
         Group {
             #if os(macOS)
-            // macOS 浏览步骤换成设计稿的树形浏览器 (自带 traffic-light 窗头 +
-            // 返回/完成 底栏), 不再套 NavigationStack —— 否则会和它的窗头叠两层。
+            // macOS 浏览步骤换成设计稿的树形浏览器 (自带标题区 + 返回/完成
+            // 底栏), 不再套 NavigationStack —— 否则会和它的窗头叠两层。
             if step == .browsing {
                 synologyMacBrowser
             } else {

@@ -96,7 +96,6 @@ struct MacRadioBatchAddView: View {
 
     private var titleBar: some View {
         HStack(spacing: PMSpace.m) {
-            PMWindowTrafficLights(closeOnly: true)
             Text("radio_batch_add_title")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PMColor.text)

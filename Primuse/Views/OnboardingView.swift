@@ -139,7 +139,6 @@ struct OnboardingView: View {
 
     private var macTitleBar: some View {
         HStack(spacing: 14) {
-            PMWindowTrafficLights(closeOnly: true)
             Spacer()
             Text(String(format: String(localized: "onboarding_mac_step_format"), pageIndex + 1))
                 .font(.system(size: 11, weight: .medium))

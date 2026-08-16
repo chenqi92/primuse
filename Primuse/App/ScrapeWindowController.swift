@@ -42,13 +42,6 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
         // 兜底最小尺寸, 防止 autosave 还原出一个过窄的窗口把三栏挤裂
         // (三栏硬最小宽 ≈ 906, 取 920 留点余量)。
         win.minSize = NSSize(width: 920, height: 560)
-        [
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ].forEach { type in
-            win.standardWindowButton(type)?.isHidden = true
-        }
         win.center()
         win.setFrameAutosaveName("PrimuseScrapeOptions")
         // isReleasedWhenClosed=false + delegate.windowShouldClose 让窗口
@@ -88,9 +81,8 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
 /// 设置窗口 —— 用独立 NSWindow 而不是 SwiftUI `Settings {}` scene。
 ///
 /// SwiftUI 的 `Settings` scene 会强制一个原生标题栏 (`.windowStyle(.hiddenTitleBar)`
-/// 对它无效), 把我们按设计稿自绘的标题栏 (三色灯 / ‹ › / 居中标题) 顶到原生白条
-/// 下面盖住。改用 fullSizeContentView + 透明标题栏 + 隐藏系统按钮的自定义窗口,
-/// 跟主窗口、刮削窗口同一套 chrome, 自绘标题栏才能铺到窗口最顶。
+/// 对它无效), 把自定义内容标题栏顶到原生白条下面。改用 fullSizeContentView +
+/// 透明标题栏,让内容铺到窗口最顶,同时保留系统原生窗口按钮。
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
@@ -122,11 +114,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.toolbar = nil
         win.backgroundColor = .clear
         win.minSize = NSSize(width: 940, height: 680)
-        [
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ].forEach { win.standardWindowButton($0)?.isHidden = true }
         win.center()
         win.setFrameAutosaveName("PrimuseSettings")
         win.isReleasedWhenClosed = false

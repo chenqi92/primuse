@@ -209,7 +209,7 @@ struct ScrapeOptionsView: View {
 
     private var macChrome: some View {
         HStack(spacing: 14) {
-            PMWindowTrafficLights(closeOnly: true)
+            PMStandardWindowButtonArea()
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: String(
                     format: String(localized: "scrape_window_title_format"),

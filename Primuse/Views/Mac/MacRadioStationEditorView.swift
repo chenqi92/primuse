@@ -91,7 +91,6 @@ struct MacRadioStationEditorView: View {
 
     private var titleBar: some View {
         HStack(spacing: PMSpace.m) {
-            PMWindowTrafficLights(closeOnly: true)
             Text(station == nil ? "radio_add" : "radio_edit")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PMColor.text)

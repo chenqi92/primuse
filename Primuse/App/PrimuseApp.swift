@@ -1212,8 +1212,8 @@ struct PrimuseApp: App {
                 }
         }
         #if os(macOS)
-        // 1.6 重设计: 隐藏系统 title bar, 内容延伸到顶部, 自定义 PMTitleBar
-        // 负责窗口控制点 / 导航 / 搜索 / 工具按钮。
+        // 1.6 重设计: 隐藏 title bar 背景, 内容延伸到顶部, 自定义 PMTitleBar
+        // 负责导航 / 搜索 / 工具按钮,窗口控制继续使用 AppKit 原生实现。
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 820)
         .windowResizability(.contentMinSize)

@@ -202,13 +202,10 @@ struct SmartPlaylistEditorView: View {
 
     private var macHeader: some View {
         HStack(spacing: 12) {
-            PMWindowTrafficLights(closeOnly: true)
-
             Text(String(format: String(localized: "smart_mac_header_format"),
                         name.isEmpty ? String(localized: "smart_mac_header_new") : name))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
-                .padding(.leading, 6)
 
             Spacer()
         }
