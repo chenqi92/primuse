@@ -505,35 +505,107 @@ extension View {
 
 // MARK: - Window chrome
 
-/// Small AppKit bridge for windows where SwiftUI's hidden title bar still
-/// leaves a top safe-area gutter. SwiftUI owns the layout; this adjusts the
-/// chrome while leaving AppKit's standard window controls in charge.
+/// Small AppKit bridge that makes the title bar transparent and extends content
+/// through it while leaving AppKit's standard window controls in charge.
 struct PMWindowChromeConfigurator: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        DispatchQueue.main.async { configure(window: view.window) }
+        let coordinator = context.coordinator
+        DispatchQueue.main.async {
+            Self.configure(window: view.window, coordinator: coordinator)
+        }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { configure(window: nsView.window) }
+        let coordinator = context.coordinator
+        DispatchQueue.main.async {
+            Self.configure(window: nsView.window, coordinator: coordinator)
+        }
     }
 
-    private func configure(window: NSWindow?) {
+    private static func configure(window: NSWindow?, coordinator: Coordinator) {
         guard let window else { return }
+        window.styleMask.formUnion([
+            .titled,
+            .closable,
+            .miniaturizable,
+            .resizable,
+            .fullSizeContentView,
+        ])
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = false
         window.toolbar = nil
         window.backgroundColor = .clear
+
+        coordinator.observe(window: window)
+        revealStandardWindowButtonContainer(in: window)
+        // AppKit applies the hidden-title layout after these properties change.
+        // Run once more on the next main-loop turn so SwiftUI cannot leave the
+        // title-bar container present but fully transparent.
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            revealStandardWindowButtonContainer(in: window)
+        }
+    }
+
+    private static func revealStandardWindowButtonContainer(in window: NSWindow) {
+        guard !window.styleMask.contains(.fullScreen),
+              let frameView = window.contentView?.superview,
+              let closeButton = window.standardWindowButton(.closeButton)
+        else { return }
 
         [
             NSWindow.ButtonType.closeButton,
             .miniaturizeButton,
             .zoomButton,
         ].forEach { type in
-            window.standardWindowButton(type)?.isHidden = false
+            guard let button = window.standardWindowButton(type), button.isHidden else {
+                return
+            }
+            button.isHidden = false
+        }
+
+        var ancestor = closeButton.superview
+        while let view = ancestor, view !== frameView {
+            if view.isHidden {
+                view.isHidden = false
+            }
+            if view.alphaValue == 0 {
+                view.alphaValue = 1
+            }
+            ancestor = view.superview
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        private weak var window: NSWindow?
+
+        func observe(window: NSWindow) {
+            guard self.window !== window else { return }
+            NotificationCenter.default.removeObserver(self)
+            self.window = window
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidUpdate(_:)),
+                name: NSWindow.didUpdateNotification,
+                object: window
+            )
+        }
+
+        @objc private func windowDidUpdate(_ notification: Notification) {
+            guard let window else { return }
+            PMWindowChromeConfigurator.revealStandardWindowButtonContainer(in: window)
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
     }
 }

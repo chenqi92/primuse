@@ -1212,9 +1212,8 @@ struct PrimuseApp: App {
                 }
         }
         #if os(macOS)
-        // 1.6 重设计: 隐藏 title bar 背景, 内容延伸到顶部, 自定义 PMTitleBar
-        // 负责导航 / 搜索 / 工具按钮,窗口控制继续使用 AppKit 原生实现。
-        .windowStyle(.hiddenTitleBar)
+        // 标题栏背景和标题由 PMWindowChromeConfigurator 隐藏。这里保留 SwiftUI
+        // 默认窗口样式,避免 `.hiddenTitleBar` 连同原生窗口按钮容器一起隐藏。
         .defaultSize(width: 1280, height: 820)
         .windowResizability(.contentMinSize)
         .commands {
