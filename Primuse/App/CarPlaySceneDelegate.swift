@@ -114,6 +114,7 @@ final class CarPlaySceneDelegate: UIResponder {
     private var interfaceController: CPInterfaceController?
 
     private var recentTemplate: CPListTemplate?
+    private var radioTemplate: CPListTemplate?
     private var playlistsTemplate: CPListTemplate?
     private var albumsTemplate: CPListTemplate?
     private var artistsTemplate: CPListTemplate?
@@ -149,6 +150,14 @@ final class CarPlaySceneDelegate: UIResponder {
     /// a scan burst can't stack hundreds of live setImage tasks on the main
     /// actor (the CarPlay stutter root cause).
     private var artworkTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// Only the newest row selection may finish the asynchronous playback wait
+    /// and present the shared Now Playing template. Without this ownership, a
+    /// delayed older request can push the template again just after the user
+    /// taps Back, making the system button appear unresponsive.
+    private var nowPlayingPresentationTask: Task<Void, Never>?
+    private var nowPlayingPresentationRequestID: UUID?
+    private var isNowPlayingTransitionInFlight = false
 }
 
 // MARK: - Scene lifecycle
@@ -165,6 +174,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             carplayLog.notice("📱 CarPlay scene didConnect — beginning template setup")
             NotificationCenter.default.post(name: .primuseCarPlaySceneDidConnect, object: nil)
             self.interfaceController = interfaceController
+            interfaceController.delegate = self
             let root = self.makeRootTabBar()
             carplayLog.notice("📱 root tab bar built, setting as root template")
             interfaceController.setRootTemplate(root, animated: false, completion: nil)
@@ -185,8 +195,10 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             carplayLog.notice("📱 CarPlay scene didDisconnect")
             NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
             CPNowPlayingTemplate.shared.remove(self)
+            interfaceController.delegate = nil
             self.interfaceController = nil
             self.recentTemplate = nil
+            self.radioTemplate = nil
             self.playlistsTemplate = nil
             self.albumsTemplate = nil
             self.artistsTemplate = nil
@@ -195,8 +207,53 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.staleRootTemplates.removeAll()
             self.libraryRefreshTask?.cancel()
             self.libraryRefreshTask = nil
+            self.nowPlayingPresentationTask?.cancel()
+            self.nowPlayingPresentationTask = nil
+            self.nowPlayingPresentationRequestID = nil
+            self.isNowPlayingTransitionInFlight = false
             self.openQueueTemplate = nil
             self.cancelArtworkTasks()
+        }
+    }
+}
+
+// MARK: - Navigation lifecycle
+
+extension CarPlaySceneDelegate: CPInterfaceControllerDelegate {
+    nonisolated func templateDidAppear(_ aTemplate: CPTemplate, animated: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if aTemplate === CPNowPlayingTemplate.shared {
+                self.isNowPlayingTransitionInFlight = false
+                // Nothing behind the full-screen player is visible. Stop hidden
+                // rows from delivering a large batch of setImage calls on the
+                // same main actor that must process the system Back button.
+                self.cancelArtworkTasks()
+                self.markRootTemplatesStale()
+                return
+            }
+            self.refreshVisibleRootTemplateIfStale(aTemplate)
+        }
+    }
+
+    nonisolated func templateDidDisappear(_ aTemplate: CPTemplate, animated: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self, aTemplate === CPNowPlayingTemplate.shared else { return }
+            let remainsInStack = self.interfaceController?.templates.contains {
+                $0 === CPNowPlayingTemplate.shared
+            } ?? false
+            guard !remainsInStack else { return }
+
+            // A real pop means the user chose to leave full screen. Invalidate
+            // any delayed row-selection waiter so it cannot immediately re-push
+            // the shared singleton and visually undo the Back action.
+            self.nowPlayingPresentationTask?.cancel()
+            self.nowPlayingPresentationTask = nil
+            self.nowPlayingPresentationRequestID = nil
+            self.isNowPlayingTransitionInFlight = false
+            if let visible = self.tabBarTemplate?.selectedTemplate {
+                self.refreshVisibleRootTemplateIfStale(visible)
+            }
         }
     }
 }
@@ -236,15 +293,7 @@ extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
 extension CarPlaySceneDelegate: CPTabBarTemplateDelegate {
     nonisolated func tabBarTemplate(_ tabBarTemplate: CPTabBarTemplate, didSelect selectedTemplate: CPTemplate) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            // A library change while a different tab was on screen only rebuilds
-            // the then-visible tab and marks the rest stale. When the user lands
-            // on a stale tab, rebuild it now (and only it).
-            guard let list = selectedTemplate as? CPListTemplate else { return }
-            let key = ObjectIdentifier(list)
-            guard self.staleRootTemplates.contains(key) else { return }
-            self.rebuildRootTemplate(list)
-            self.staleRootTemplates.remove(key)
+            self?.refreshVisibleRootTemplateIfStale(selectedTemplate)
         }
     }
 }
@@ -253,27 +302,36 @@ extension CarPlaySceneDelegate: CPTabBarTemplateDelegate {
 
 extension CarPlaySceneDelegate {
     private func makeRootTabBar() -> CPTabBarTemplate {
-        let recent = makeRecentTemplate()
-        let playlists = makePlaylistsTemplate()
-        let albums = makeAlbumsTemplate()
-        let artists = makeArtistsTemplate()
-        let songs = makeSongsTemplate()
-        recentTemplate = recent
-        playlistsTemplate = playlists
-        albumsTemplate = albums
-        artistsTemplate = artists
-        songsTemplate = songs
         // Audio-category CarPlay apps may only navigate among the template
         // classes granted by their entitlement. Search therefore uses nested
         // CPListTemplate screens rather than CPSearchTemplate, which is present
         // in the SDK but rejected at runtime for this app category.
         // tab 上限随系统/车机而变 (maximumTabCount 可能是 4 而非 5), 超出会在
-        // init 抛 NSException — 按车里使用频率排序后截断: 最近 / 歌单 / 专辑 /
-        // 艺术家 / 歌曲
-        let orderedTabs = [recent, playlists, albums, artists, songs]
-        let tabBar = CPTabBarTemplate(
-            templates: Array(orderedTabs.prefix(CPTabBarTemplate.maximumTabCount))
-        )
+        // init 抛 NSException。只构建真正能显示的页签，避免为被截断的大列表创建
+        // 数百个 CPListItem 和封面任务。电台是根目录，不再附属于“最近”。
+        let maximumTabCount = CPTabBarTemplate.maximumTabCount
+        var orderedTabs: [CPListTemplate] = []
+
+        func appendIfVisible(
+            _ makeTemplate: () -> CPListTemplate,
+            assign: (CPListTemplate) -> Void
+        ) {
+            guard orderedTabs.count < maximumTabCount else { return }
+            let template = makeTemplate()
+            assign(template)
+            orderedTabs.append(template)
+        }
+
+        appendIfVisible(makeRecentTemplate) { recentTemplate = $0 }
+        appendIfVisible(makeRadioTemplate) { radioTemplate = $0 }
+        appendIfVisible(makePlaylistsTemplate) { playlistsTemplate = $0 }
+        appendIfVisible(makeAlbumsTemplate) { albumsTemplate = $0 }
+        // Keep direct song browsing on five-tab systems; artist lookup remains
+        // available through Search and album drill-downs on constrained units.
+        appendIfVisible(makeSongsTemplate) { songsTemplate = $0 }
+        appendIfVisible(makeArtistsTemplate) { artistsTemplate = $0 }
+
+        let tabBar = CPTabBarTemplate(templates: orderedTabs)
         tabBar.delegate = self
         tabBarTemplate = tabBar
         return tabBar
@@ -374,6 +432,18 @@ extension CarPlaySceneDelegate {
         return template
     }
 
+    private func makeRadioTemplate() -> CPListTemplate {
+        let template = CPListTemplate(
+            title: String(localized: "radio_title"),
+            sections: [radioStationsSection()]
+        )
+        template.tabTitle = String(localized: "radio_title")
+        template.tabImage = UIImage(systemName: "radio.fill")
+        template.emptyViewTitleVariants = [String(localized: "radio_empty_title")]
+        template.emptyViewSubtitleVariants = [String(localized: "radio_empty_description")]
+        return template
+    }
+
     private func makeAlbumsTemplate() -> CPListTemplate {
         let template = CPListTemplate(
             title: String(localized: "carplay_albums_title"),
@@ -452,24 +522,7 @@ extension CarPlaySceneDelegate {
         let items = recent.enumerated().map { idx, song in
             songItem(song, queueProvider: { (recent, idx) })
         }
-        return [searchSection(), radioEntrySection(), CPListSection(items: items)]
-    }
-
-    private func radioEntrySection() -> CPListSection {
-        let stations = AppServices.shared.radioStationsStore.stations
-        let detail = "\(stations.count) \(String(localized: "radio_stations_count"))"
-        let item = CPListItem(
-            text: String(localized: "radio_title"),
-            detailText: detail,
-            image: Self.symbolImage("radio.fill")
-        )
-        item.handler = { [weak self] _, completion in
-            Task { @MainActor in
-                self?.pushRadioTemplate()
-                completion()
-            }
-        }
-        return CPListSection(items: [item])
+        return [searchSection(), CPListSection(items: items)]
     }
 
     private func albumsSections() -> [CPListSection] {
@@ -621,18 +674,6 @@ extension CarPlaySceneDelegate {
         case album(String)   // album.id
         case artist(String)  // artist.id
         case playlist(String) // playlist.id
-        case radio
-    }
-
-    private func pushRadioTemplate() {
-        let template = CPListTemplate(
-            title: String(localized: "radio_title"),
-            sections: [radioStationsSection()]
-        )
-        template.userInfo = DetailContext.radio
-        template.emptyViewTitleVariants = [String(localized: "radio_empty_title")]
-        template.emptyViewSubtitleVariants = [String(localized: "radio_empty_description")]
-        safePush(template, label: "Radio")
     }
 
     private func radioStationsSection() -> CPListSection {
@@ -729,8 +770,6 @@ extension CarPlaySceneDelegate {
                 listTemplate.updateSections([artistDetailSection(artistID: id)])
             case .playlist(let id):
                 listTemplate.updateSections([playlistDetailSection(playlistID: id)])
-            case .radio:
-                listTemplate.updateSections([radioStationsSection()])
             }
         }
     }
@@ -781,7 +820,10 @@ extension CarPlaySceneDelegate {
         let player = AppServices.shared.playerService
         player.setQueue(filtered, startAt: newIndex)
         let song = filtered[newIndex]
-        Task { @MainActor [weak self] in
+        let requestID = UUID()
+        nowPlayingPresentationTask?.cancel()
+        nowPlayingPresentationRequestID = requestID
+        nowPlayingPresentationTask = Task { @MainActor [weak self] in
             await player.play(song: song)
             // play() returns once setup is kicked off, but actual playback
             // (esp. for cloud sources) may take a few seconds. Poll briefly
@@ -790,32 +832,49 @@ extension CarPlaySceneDelegate {
             // leaves the user staring at a blank Now Playing screen.
             let deadline = Date().addingTimeInterval(5)
             while Date() < deadline {
+                guard !Task.isCancelled else { return }
                 if player.isPlaying || player.isLoading { break }
                 try? await Task.sleep(for: .milliseconds(150))
             }
-            guard let self else { return }
+            guard let self,
+                  !Task.isCancelled,
+                  self.nowPlayingPresentationRequestID == requestID else { return }
             if player.isPlaying || player.isLoading {
                 self.pushNowPlayingIfNeeded()
             } else {
                 self.presentPlayFailureAlert(songTitle: song.title)
+            }
+            if self.nowPlayingPresentationRequestID == requestID {
+                self.nowPlayingPresentationTask = nil
+                self.nowPlayingPresentationRequestID = nil
             }
         }
     }
 
     private func play(station: RadioStation, within stations: [RadioStation]) {
         let player = AppServices.shared.playerService
-        Task { @MainActor [weak self] in
+        let requestID = UUID()
+        nowPlayingPresentationTask?.cancel()
+        nowPlayingPresentationRequestID = requestID
+        nowPlayingPresentationTask = Task { @MainActor [weak self] in
             await player.play(station: station, within: stations)
             let deadline = Date().addingTimeInterval(5)
             while Date() < deadline {
+                guard !Task.isCancelled else { return }
                 if player.isPlaying || player.isLoading { break }
                 try? await Task.sleep(for: .milliseconds(150))
             }
-            guard let self else { return }
+            guard let self,
+                  !Task.isCancelled,
+                  self.nowPlayingPresentationRequestID == requestID else { return }
             if player.isPlaying || player.isLoading {
                 self.pushNowPlayingIfNeeded()
             } else {
                 self.presentPlayFailureAlert(songTitle: station.name)
+            }
+            if self.nowPlayingPresentationRequestID == requestID {
+                self.nowPlayingPresentationTask = nil
+                self.nowPlayingPresentationRequestID = nil
             }
         }
     }
@@ -829,20 +888,32 @@ extension CarPlaySceneDelegate {
         guard let ic = interfaceController else { return }
         let nowPlaying = CPNowPlayingTemplate.shared
         if ic.topTemplate === nowPlaying {
+            isNowPlayingTransitionInFlight = false
             carplayLog.notice("📱 NowPlaying already on top, skipping push")
             return
         }
+        guard !isNowPlayingTransitionInFlight else {
+            carplayLog.notice("📱 NowPlaying transition already in flight, skipping duplicate")
+            return
+        }
+        isNowPlayingTransitionInFlight = true
         if ic.templates.contains(where: { $0 === nowPlaying }) {
-            ic.pop(to: nowPlaying, animated: true) { success, error in
-                if let error {
-                    carplayLog.error("📱 popToTemplate(NowPlaying) failed: \(error.localizedDescription, privacy: .public)")
+            ic.pop(to: nowPlaying, animated: true) { [weak self] success, error in
+                Task { @MainActor in
+                    self?.isNowPlayingTransitionInFlight = false
+                    if let error {
+                        carplayLog.error("📱 popToTemplate(NowPlaying) failed: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             }
             return
         }
-        ic.pushTemplate(nowPlaying, animated: true) { success, error in
-            if let error {
-                carplayLog.error("📱 pushTemplate(NowPlaying) failed: \(error.localizedDescription, privacy: .public)")
+        ic.pushTemplate(nowPlaying, animated: true) { [weak self] success, error in
+            Task { @MainActor in
+                self?.isNowPlayingTransitionInFlight = false
+                if let error {
+                    carplayLog.error("📱 pushTemplate(NowPlaying) failed: \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
     }
@@ -1164,6 +1235,14 @@ extension CarPlaySceneDelegate {
                 self.refreshNowPlayingButtons()
                 self.refreshOpenQueueTemplate()
                 self.refreshDrillDownTemplates()
+                if let radio = self.radioTemplate,
+                   self.interfaceController?.templates.count == 1,
+                   self.tabBarTemplate?.selectedTemplate === radio {
+                    self.rebuildRootTemplate(radio)
+                    self.staleRootTemplates.remove(ObjectIdentifier(radio))
+                } else if let radio = self.radioTemplate {
+                    self.staleRootTemplates.insert(ObjectIdentifier(radio))
+                }
                 self.observePlayerState()
             }
         }
@@ -1180,14 +1259,15 @@ extension CarPlaySceneDelegate {
         // scan firing a refresh every cycle leaves hundreds of orphaned
         // setImage tasks stacked on the main actor (the stutter root cause).
         cancelArtworkTasks()
-        let roots = [recentTemplate, playlistsTemplate, albumsTemplate, artistsTemplate, songsTemplate]
+        let roots = [recentTemplate, radioTemplate, playlistsTemplate, albumsTemplate, artistsTemplate, songsTemplate]
         // Identify which tab is on screen. If we can't tell (no tab bar yet),
         // treat "recent" as visible — it's the default first tab — so we
         // always rebuild at least one tab now; the rest refresh lazily on
         // selection via the tab-bar delegate.
         let selected = (tabBarTemplate?.selectedTemplate as? CPListTemplate) ?? recentTemplate
+        let rootIsVisible = interfaceController?.templates.count == 1
         for case let template? in roots {
-            if template === selected {
+            if rootIsVisible, template === selected {
                 rebuildRootTemplate(template)
                 staleRootTemplates.remove(ObjectIdentifier(template))
             } else {
@@ -1197,10 +1277,36 @@ extension CarPlaySceneDelegate {
         refreshDrillDownTemplates()
     }
 
+    private func markRootTemplatesStale() {
+        let roots = [recentTemplate, radioTemplate, playlistsTemplate, albumsTemplate, artistsTemplate, songsTemplate]
+        for case let template? in roots {
+            staleRootTemplates.insert(ObjectIdentifier(template))
+        }
+    }
+
+    /// Refreshes a stale selected tab only after it is actually visible again.
+    /// A tab-bar root is represented by the selected child on some head units
+    /// and by the tab-bar template itself on others, so accept either callback.
+    private func refreshVisibleRootTemplateIfStale(_ appearedTemplate: CPTemplate) {
+        let list: CPListTemplate?
+        if appearedTemplate === tabBarTemplate {
+            list = tabBarTemplate?.selectedTemplate as? CPListTemplate
+        } else {
+            list = appearedTemplate as? CPListTemplate
+        }
+        guard let list else { return }
+        let key = ObjectIdentifier(list)
+        guard staleRootTemplates.contains(key) else { return }
+        rebuildRootTemplate(list)
+        staleRootTemplates.remove(key)
+    }
+
     /// Re-renders one root tab's sections from the latest library state.
     private func rebuildRootTemplate(_ template: CPListTemplate) {
         if template === recentTemplate {
             template.updateSections(recentSections())
+        } else if template === radioTemplate {
+            template.updateSections([radioStationsSection()])
         } else if template === playlistsTemplate {
             template.updateSections(playlistsSections())
         } else if template === albumsTemplate {

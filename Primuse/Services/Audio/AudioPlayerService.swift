@@ -4967,6 +4967,7 @@ final class AudioPlayerService {
             stopRadioTransport(clearSelection: false)
             updateNowPlayingInfo()
             updatePlaybackState()
+            AudioSessionManager.shared.deactivate()
             return
         }
         let appleMusic = AppServices.shared.appleMusic
@@ -4976,6 +4977,7 @@ final class AudioPlayerService {
             isPlaying = false
             updateNowPlayingInfo()
             updatePlaybackState()
+            AudioSessionManager.shared.deactivate()
             return
         }
         if isCastingMode {
@@ -4994,6 +4996,7 @@ final class AudioPlayerService {
             isPlaying = false
             updateNowPlayingInfo()
             updatePlaybackState()
+            AudioSessionManager.shared.deactivate()
             return
         }
         // Align the engine's primary node with currentSong before capturing
@@ -5007,6 +5010,7 @@ final class AudioPlayerService {
         stopTimeUpdater()
         updateNowPlayingInfo()
         updatePlaybackState()
+        AudioSessionManager.shared.deactivate()
     }
 
     func resume() {
@@ -5576,6 +5580,7 @@ final class AudioPlayerService {
             queueEntries = []
             clearNowPlayingInfo()
             updatePlaybackState()
+            AudioSessionManager.shared.deactivate()
             return
         }
         let stopOwnerID = UUID()
@@ -5606,6 +5611,7 @@ final class AudioPlayerService {
             queueEntries = []
             clearNowPlayingInfo()
             updatePlaybackState()
+            AudioSessionManager.shared.deactivate()
             return
         }
         // 主动结束当前 streaming session (切走 / 用户点停止时), 让 .partial
@@ -5634,6 +5640,7 @@ final class AudioPlayerService {
         // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
         clearNowPlayingInfo()
         updatePlaybackState()
+        AudioSessionManager.shared.deactivate()
     }
 
     /// 跟 stop() 的差别: 保留 currentSong / queue / currentIndex / duration,
@@ -5683,6 +5690,7 @@ final class AudioPlayerService {
         // 这样用户从锁屏点 play 也能直接重放当前曲。
         updateNowPlayingInfo()
         updatePlaybackState()
+        AudioSessionManager.shared.deactivate()
         plog("⏹️ stopAtTrackEnd() currentSong preserved=\(currentSong?.title ?? "nil")")
     }
 
@@ -8399,9 +8407,11 @@ final class AudioPlayerService {
         }
 
         nowPlayingCenter.nowPlayingInfo = info
-        #if os(macOS)
-        nowPlayingCenter.playbackState = isPlaybackActuallyActive && !isLoading ? .playing : .paused
-        #endif
+        // Keep the explicit system state in lockstep with playbackRate and the
+        // remote-command projection. CarPlay on iOS 26 can otherwise retain its
+        // previous central Pause glyph after an AVAudioPlayerNode pause even
+        // though elapsed time and the phone UI have already stopped.
+        nowPlayingCenter.playbackState = projection.pauseCommandEnabled ? .playing : .paused
     }
 
     private func clearNowPlayingInfo() {
@@ -8409,9 +8419,7 @@ final class AudioPlayerService {
         publishedArtworkSongID = nil
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         nowPlayingCenter.nowPlayingInfo = nil
-        #if os(macOS)
         nowPlayingCenter.playbackState = .stopped
-        #endif
     }
 
     private func synchronizeRemoteCommandAvailability(
