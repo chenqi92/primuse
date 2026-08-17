@@ -28,6 +28,7 @@ This release consolidates changes made after 1.7.0 that had not yet been documen
 
 ### Fixed
 
+- **Apple Music subscription gate** — limits the subscription requirement to streaming-only Apple Music tracks so owned and on-device system-library tracks play directly instead of surfacing the "needs Apple Music subscription" error
 - **Baidu smart duplicate cleanup** — validates every per-file batch result so partial failures are not reported as success or written as false local deletions
 - **Baidu large-directory scans** — retries transient read failures and rate limits with backoff instead of abandoning the selected directory
 - **Search-result playback crash** — keeps the tab and bottom-player view structure stable while the system search controller is dismissed
