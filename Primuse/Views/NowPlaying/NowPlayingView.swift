@@ -271,6 +271,23 @@ struct NowPlayingView: View {
         }
     }
 
+    private func dismissFullscreenPlayer() {
+        guard isFullscreenPlayerPresented else { return }
+        withAnimation(.easeInOut(duration: 0.24)) {
+            isFullscreenPlayerPresented = false
+        }
+    }
+
+    private func minimizeFullscreenPlayer() {
+        guard isFullscreenPlayerPresented else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isFullscreenPlayerPresented = false
+        }
+        onMinimize?()
+    }
+
     private func dismissImmersiveLyrics() {
         immersiveControlsAutoHideTask?.cancel()
         withAnimation(.easeInOut(duration: 0.3)) {
@@ -450,18 +467,18 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
                         lyrics: lyrics,
-                        onDismiss: {
-                            withAnimation(.easeInOut(duration: 0.24)) {
-                                isFullscreenPlayerPresented = false
-                            }
-                        },
-                        onMinimize: {
-                            isFullscreenPlayerPresented = false
-                            onMinimize?()
-                        },
+                        onDismiss: dismissFullscreenPlayer,
+                        onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true }
                     )
-                    .transition(.opacity.combined(with: .scale(scale: 1.015)))
+                    // Rotation can interrupt a removal transition and leave its
+                    // full-screen hit-test surface above the portrait controls.
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 1.015)),
+                            removal: .identity
+                        )
+                    )
                     .zIndex(100)
                 }
                 #endif
@@ -559,10 +576,12 @@ struct NowPlayingView: View {
                 .presentationDragIndicator(.visible)
         }
         #if os(iOS)
-        .fullScreenCover(isPresented: $showMusicVideoFullScreen) {
+        .fullScreenCover(
+            isPresented: $showMusicVideoFullScreen,
+            onDismiss: finishMusicVideoFullScreenDismissal
+        ) {
             if let videoPlayer = fullScreenMusicVideoPlayer ?? player.musicVideoPlayer {
                 MusicVideoFullScreenView(player: videoPlayer) {
-                    fullScreenMusicVideoPlayer = nil
                     showMusicVideoFullScreen = false
                 }
             } else {
@@ -1729,8 +1748,23 @@ struct NowPlayingView: View {
     }
 
     private func dismissMusicVideoFullScreen() {
-        fullScreenMusicVideoPlayer = nil
+        guard showMusicVideoFullScreen else {
+            fullScreenMusicVideoPlayer = nil
+            return
+        }
+        // Keep the AVPlayer-backed cover stable until UIKit has actually
+        // removed its presentation host. Clearing its content while the cover
+        // and the window scene are rotating can leave an invisible modal view
+        // above the portrait UI that consumes every tap.
         showMusicVideoFullScreen = false
+    }
+
+    private func finishMusicVideoFullScreenDismissal() {
+        fullScreenMusicVideoPlayer = nil
+        // fullScreenCover's onDismiss runs after the modal presentation has
+        // been removed. Restore orientation here rather than from the close
+        // button/onDisappear so geometry changes cannot race cover teardown.
+        MusicVideoOrientationController.restorePreviousOrientation()
     }
     #endif
 
@@ -2481,9 +2515,6 @@ struct MusicVideoFullScreenView: View {
                 .ignoresSafeArea()
 
             Button {
-                #if os(iOS)
-                MusicVideoOrientationController.restorePreviousOrientation()
-                #endif
                 onDismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -2505,9 +2536,6 @@ struct MusicVideoFullScreenView: View {
         .statusBarHidden(true)
         .onAppear {
             MusicVideoOrientationController.enterLandscape()
-        }
-        .onDisappear {
-            MusicVideoOrientationController.restorePreviousOrientation()
         }
         #endif
     }
@@ -2546,17 +2574,25 @@ private enum MusicVideoOrientationController {
     }
 
     static func restorePreviousOrientation() {
-        guard let restoreMask else { return }
-        self.restoreMask = nil
-        guard UIDevice.current.userInterfaceIdiom == .phone,
+        guard let restoreMask,
+              UIDevice.current.userInterfaceIdiom == .phone,
               let scene = foregroundWindowScene else { return }
+        self.restoreMask = nil
         request(restoreMask, in: scene)
     }
 
     private static var foregroundWindowScene: UIWindowScene? {
-        UIApplication.shared.connectedScenes
+        let applicationScenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
+            .filter {
+                $0.activationState == .foregroundActive
+                    && $0.session.role == .windowApplication
+            }
+        // CarPlay and external-display scenes can be foreground-active at the
+        // same time as the phone. Only the main application scene may receive
+        // phone orientation requests; prefer its key window when available.
+        return applicationScenes.first { $0.keyWindow != nil }
+            ?? applicationScenes.first
     }
 
     private static func mask(for orientation: UIInterfaceOrientation) -> UIInterfaceOrientationMask {

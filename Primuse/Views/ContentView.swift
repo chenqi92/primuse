@@ -548,6 +548,7 @@ struct PlayerOverlay: View {
     @State private var isEdgeDismissDragActive = false
     @State private var topSafeAreaInset: CGFloat = 0
     @State private var dismissalState = PlayerOverlayDismissalState()
+    @State private var dismissalFallbackTask: Task<Void, Never>?
 
     private var isDismissing: Bool {
         dismissalState.isDismissing
@@ -604,10 +605,6 @@ struct PlayerOverlay: View {
             .opacity(isDismissing ? dismissOpacity : 1)
             .offset(y: entered ? dragOffset : screenHeight + 100)
             .offset(x: edgeDragOffset)
-            // Never let a transparent overlay trap taps above the mini player
-            // if SwiftUI pauses a dismissal animation while Control Center or
-            // screen recording makes the scene inactive.
-            .allowsHitTesting(!isDismissing)
             .ignoresSafeArea()
             // Only a downward drag that starts in the top chrome may dismiss
             // the player. The previous full-screen exclusive gesture competed
@@ -672,6 +669,9 @@ struct PlayerOverlay: View {
                         }
                     }
             )
+            // Keep this outside the gesture modifiers so an invisible player
+            // cannot retain a gesture surface after rotation interrupts exit.
+            .allowsHitTesting(!isDismissing)
             .animation(.spring(response: 0.45, dampingFraction: 0.92), value: entered)
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dragOffset)
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: edgeDragOffset)
@@ -683,6 +683,9 @@ struct PlayerOverlay: View {
             .onChange(of: scenePhase) { _, phase in
                 guard phase != .active else { return }
                 cancelTransientDismissalForSystemInterruption()
+            }
+            .onDisappear {
+                dismissalFallbackTask?.cancel()
             }
     }
 
@@ -699,16 +702,37 @@ struct PlayerOverlay: View {
             dismissOpacity = 0
             dragOffset = screenHeight * 0.6
         } completion: {
-            var completedState = dismissalState
-            guard completedState.complete(generation: generation) else { return }
-            dismissalState = completedState
-            isPresented = false
+            finishDismissal(generation: generation)
         }
+        // Geometry changes can cancel an animation without invoking its
+        // completion. Always unmount the invisible overlay after the visual
+        // exit has had enough time to finish.
+        dismissalFallbackTask?.cancel()
+        dismissalFallbackTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(700))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            finishDismissal(generation: generation)
+        }
+    }
+
+    private func finishDismissal(generation: UInt64) {
+        var completedState = dismissalState
+        guard completedState.complete(generation: generation) else { return }
+        dismissalState = completedState
+        dismissalFallbackTask?.cancel()
+        dismissalFallbackTask = nil
+        isPresented = false
     }
 
     private func cancelTransientDismissalForSystemInterruption() {
         isDismissDragActive = false
         isEdgeDismissDragActive = false
+        dismissalFallbackTask?.cancel()
+        dismissalFallbackTask = nil
 
         // Invalidate the completion attached to an animation that the system
         // just interrupted. Otherwise it may fire after returning from
