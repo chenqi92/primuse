@@ -584,6 +584,11 @@ final class AudioEngine {
     func pause() {
         playerNode?.pause()
         crossfadePlayerNode?.pause()
+        // Pausing every player node leaves AVAudioEngine and the audio hardware
+        // running. Stop that render activity without releasing the prepared
+        // graph so system Now Playing can observe a real paused transport and
+        // resume() can restart the same scheduled buffers.
+        engine?.pause()
         isPlaying = false
     }
 

@@ -933,6 +933,7 @@ final class AudioPlayerService {
     private var configurationRecoveryPendingSongID: String?
     private var bluetoothHFPResumeWatchdogTask: Task<Void, Never>?
     private var lastPublishedPlaybackWasActive = false
+    @ObservationIgnored private var nowPlayingTransportRepublishGeneration: UInt64 = 0
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
     /// 其他 app 的录音会话把蓝牙切到 HFP 时挂起的曲目。此刻
@@ -4967,7 +4968,6 @@ final class AudioPlayerService {
             stopRadioTransport(clearSelection: false)
             updateNowPlayingInfo()
             updatePlaybackState()
-            AudioSessionManager.shared.deactivate()
             return
         }
         let appleMusic = AppServices.shared.appleMusic
@@ -4977,7 +4977,6 @@ final class AudioPlayerService {
             isPlaying = false
             updateNowPlayingInfo()
             updatePlaybackState()
-            AudioSessionManager.shared.deactivate()
             return
         }
         if isCastingMode {
@@ -4996,7 +4995,6 @@ final class AudioPlayerService {
             isPlaying = false
             updateNowPlayingInfo()
             updatePlaybackState()
-            AudioSessionManager.shared.deactivate()
             return
         }
         // Align the engine's primary node with currentSong before capturing
@@ -5010,7 +5008,6 @@ final class AudioPlayerService {
         stopTimeUpdater()
         updateNowPlayingInfo()
         updatePlaybackState()
-        AudioSessionManager.shared.deactivate()
     }
 
     func resume() {
@@ -8407,11 +8404,9 @@ final class AudioPlayerService {
         }
 
         nowPlayingCenter.nowPlayingInfo = info
-        // Keep the explicit system state in lockstep with playbackRate and the
-        // remote-command projection. CarPlay on iOS 26 can otherwise retain its
-        // previous central Pause glyph after an AVAudioPlayerNode pause even
-        // though elapsed time and the phone UI have already stopped.
-        nowPlayingCenter.playbackState = projection.pauseCommandEnabled ? .playing : .paused
+        #if os(macOS)
+        nowPlayingCenter.playbackState = actualPlaybackIsActive && !isLoading ? .playing : .paused
+        #endif
     }
 
     private func clearNowPlayingInfo() {
@@ -8419,7 +8414,9 @@ final class AudioPlayerService {
         publishedArtworkSongID = nil
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         nowPlayingCenter.nowPlayingInfo = nil
+        #if os(macOS)
         nowPlayingCenter.playbackState = .stopped
+        #endif
     }
 
     private func synchronizeRemoteCommandAvailability(
@@ -8727,13 +8724,22 @@ final class AudioPlayerService {
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
-            self?.handleRemotePlayCommand() ?? .noActionableNowPlayingItem
+            guard let self else { return .noActionableNowPlayingItem }
+            let status = self.handleRemotePlayCommand()
+            self.scheduleNowPlayingTransportRepublish(command: "play", status: status)
+            return status
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            self?.handleRemotePauseCommand() ?? .noActionableNowPlayingItem
+            guard let self else { return .noActionableNowPlayingItem }
+            let status = self.handleRemotePauseCommand()
+            self.scheduleNowPlayingTransportRepublish(command: "pause", status: status)
+            return status
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.handleRemoteToggleCommand() ?? .noActionableNowPlayingItem
+            guard let self else { return .noActionableNowPlayingItem }
+            let status = self.handleRemoteToggleCommand()
+            self.scheduleNowPlayingTransportRepublish(command: "toggle", status: status)
+            return status
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
             plog("🎛️ MediaRemote nextTrackCommand fired")
@@ -8749,6 +8755,39 @@ final class AudioPlayerService {
             self?.seek(to: event.positionTime); return .success
         }
         updateNowPlayingInfo()
+    }
+
+    /// MediaRemote may finish dispatching the originating command after the
+    /// first synchronous Now Playing assignment. Re-publish the latest complete
+    /// snapshot on the next main-actor turn, while a generation and item ID
+    /// prevent a late command from restoring stale transport metadata.
+    private func scheduleNowPlayingTransportRepublish(
+        command: String,
+        status: MPRemoteCommandHandlerStatus
+    ) {
+        let statusDescription = String(describing: status)
+        guard let songID = currentSong?.id else {
+            plog("MediaRemote \(command) completed status=\(statusDescription) item=nil")
+            return
+        }
+        nowPlayingTransportRepublishGeneration &+= 1
+        let generation = nowPlayingTransportRepublishGeneration
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self,
+                  self.nowPlayingTransportRepublishGeneration == generation,
+                  self.currentSong?.id == songID else { return }
+            self.updateNowPlayingInfo()
+            let publishedRate = (
+                MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate]
+                    as? NSNumber
+            )?.doubleValue
+            plog(
+                "MediaRemote \(command) completed status=\(statusDescription) "
+                    + "active=\(self.isPlaybackActuallyActive) "
+                    + "publishedRate=\(publishedRate.map { String($0) } ?? "nil")"
+            )
+        }
     }
 
     private func handleRemotePlayCommand() -> MPRemoteCommandHandlerStatus {

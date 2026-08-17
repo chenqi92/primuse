@@ -3,7 +3,7 @@ import Testing
 
 @Suite("Now Playing playback projection")
 struct NowPlayingPlaybackProjectionTests {
-    @Test("Playing exposes the selected rate and only Pause")
+    @Test("Playing exposes the selected rate and both transport commands")
     func projectsPlayingState() {
         let projection = NowPlayingPlaybackProjectionPolicy.projection(
             hasCurrentItem: true,
@@ -12,11 +12,11 @@ struct NowPlayingPlaybackProjectionTests {
         )
 
         #expect(projection.playbackRate == 1.5)
-        #expect(!projection.playCommandEnabled)
+        #expect(projection.playCommandEnabled)
         #expect(projection.pauseCommandEnabled)
     }
 
-    @Test("Paused exposes a zero rate and only Play")
+    @Test("Paused exposes a zero rate and both transport commands")
     func projectsPausedState() {
         let projection = NowPlayingPlaybackProjectionPolicy.projection(
             hasCurrentItem: true,
@@ -26,7 +26,7 @@ struct NowPlayingPlaybackProjectionTests {
 
         #expect(projection.playbackRate == 0)
         #expect(projection.playCommandEnabled)
-        #expect(!projection.pauseCommandEnabled)
+        #expect(projection.pauseCommandEnabled)
     }
 
     @Test("No current item disables both commands")
@@ -42,7 +42,7 @@ struct NowPlayingPlaybackProjectionTests {
         #expect(!projection.pauseCommandEnabled)
     }
 
-    @Test("Loading with a current item keeps Play recoverable")
+    @Test("Loading with a current item keeps transport commands recoverable")
     func projectsLoadingState() {
         let projection = NowPlayingPlaybackProjectionPolicy.projection(
             hasCurrentItem: true,
@@ -53,7 +53,7 @@ struct NowPlayingPlaybackProjectionTests {
 
         #expect(projection.playbackRate == 0)
         #expect(projection.playCommandEnabled)
-        #expect(!projection.pauseCommandEnabled)
+        #expect(projection.pauseCommandEnabled)
     }
 
     @Test("An invalid playing rate falls back to normal speed")

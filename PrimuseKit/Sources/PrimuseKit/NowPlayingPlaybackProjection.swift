@@ -166,7 +166,7 @@ public enum WatchQueuedCommandPolicy {
 
 /// Keeps the system play/pause affordance derived from the same state as the
 /// in-app controls. A zero playback rate is the portable paused signal used by
-/// iOS, while command availability prevents stale, non-idempotent actions.
+/// iOS, while command availability represents transport capabilities.
 public enum NowPlayingPlaybackProjectionPolicy {
     public static func projection(
         hasCurrentItem: Bool,
@@ -187,8 +187,8 @@ public enum NowPlayingPlaybackProjectionPolicy {
             : 1
         return NowPlayingPlaybackProjection(
             playbackRate: isPlaying ? safeRate : 0,
-            playCommandEnabled: !isPlaying,
-            pauseCommandEnabled: isPlaying
+            playCommandEnabled: true,
+            pauseCommandEnabled: true
         )
     }
 }
