@@ -102,6 +102,7 @@ struct ContentView: View {
     @State private var sidebarSelection: SidebarItem = .home
     @State private var searchText = ""
     @State private var showNowPlaying = false
+    @State private var nowPlayingPresentationID = UUID()
     @State private var batchSelectionActive = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
@@ -162,7 +163,7 @@ struct ContentView: View {
                 // minimize when Now Playing can occupy that compact space.
                 .tabBarMinimizeBehavior(miniPlayerVisible ? .onScrollDown : .never)
                 .tabViewBottomAccessory(isEnabled: miniPlayerVisible) {
-                    NowPlayingAccessory(onTap: { showNowPlaying = true })
+                    NowPlayingAccessory(onTap: presentNowPlaying)
                 }
         } else if #available(iOS 26.0, *) {
             // 26.0 has no `isEnabled:` overload and an empty system accessory
@@ -269,14 +270,14 @@ struct ContentView: View {
                     // iPad split view 没有底部 tab bar, 直接钉一个紧凑的
                     // mini player 到 detail pane 底部。padding 给 16 留出
                     // 跟系统 home indicator 的呼吸空间。
-                    LegacyNowPlayingAccessory(onTap: { showNowPlaying = true })
+                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
                         .padding(.bottom, 16)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
                 } else if #available(iOS 26.1, *) {
                     EmptyView()
                 } else {
-                    LegacyNowPlayingAccessory(onTap: { showNowPlaying = true })
+                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
                         .padding(.bottom, legacyTabBarClearance)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
@@ -301,6 +302,7 @@ struct ContentView: View {
                         openLibraryDeepLink(.artist(artist))
                     }
                 )
+                    .id(nowPlayingPresentationID)
                     .zIndex(2)
             }
         }
@@ -351,7 +353,7 @@ struct ContentView: View {
             handleHandoffActivity(activity)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
-            showNowPlaying = true
+            presentNowPlaying()
         }
         // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
         .alert(
@@ -386,6 +388,16 @@ struct ContentView: View {
         selectedTab = 3
         sidebarSelection = .settings
         scraperSettingsRoute.requestMetadataScraping()
+    }
+
+    /// Always advance the presentation identity before opening. A system UI
+    /// interruption can suspend SwiftUI while the previous overlay is fading
+    /// out, leaving its binding true even though the view is transparent. A
+    /// fresh identity remounts the overlay instead of turning `true` into a
+    /// no-op, so the mini player remains a reliable recovery entry point.
+    private func presentNowPlaying() {
+        nowPlayingPresentationID = UUID()
+        showNowPlaying = true
     }
 
     /// 当前播放的歌已不在可见库里 (被删 / 源停用 / 重扫描时换了 ID) 时,
@@ -519,6 +531,7 @@ struct PlayerOverlay: View {
     @Binding var isPresented: Bool
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
+    @Environment(\.scenePhase) private var scenePhase
     /// Drives the entrance animation. Starts `false` on mount so the first
     /// frame renders off-screen (offset = screenHeight + 100); `onAppear`
     /// flips it inside a `withAnimation` so SwiftUI animates the offset to 0.
@@ -528,12 +541,17 @@ struct PlayerOverlay: View {
     @State private var entered = false
     @State private var dragOffset: CGFloat = 0
     @State private var edgeDragOffset: CGFloat = 0
-    @State private var isDismissing = false
     @State private var dismissScale: CGFloat = 1
     @State private var dismissOpacity: CGFloat = 1
     @State private var screenHeight: CGFloat = UIScreen.main.bounds.height
     @State private var isDismissDragActive = false
     @State private var isEdgeDismissDragActive = false
+    @State private var topSafeAreaInset: CGFloat = 0
+    @State private var dismissalState = PlayerOverlayDismissalState()
+
+    private var isDismissing: Bool {
+        dismissalState.isDismissing
+    }
 
     /// Device screen corner radius (matches physical display)
     private let deviceCornerRadius: CGFloat = 55
@@ -561,7 +579,14 @@ struct PlayerOverlay: View {
         )
             .background {
                 GeometryReader { geo in
-                    Color.clear.onAppear { screenHeight = geo.size.height }
+                    Color.clear
+                        .onAppear {
+                            screenHeight = geo.size.height
+                            topSafeAreaInset = geo.safeAreaInsets.top
+                        }
+                        .onChange(of: geo.safeAreaInsets.top) { _, newValue in
+                            topSafeAreaInset = newValue
+                        }
                 }
             }
             .clipShape(
@@ -579,6 +604,10 @@ struct PlayerOverlay: View {
             .opacity(isDismissing ? dismissOpacity : 1)
             .offset(y: entered ? dragOffset : screenHeight + 100)
             .offset(x: edgeDragOffset)
+            // Never let a transparent overlay trap taps above the mini player
+            // if SwiftUI pauses a dismissal animation while Control Center or
+            // screen recording makes the scene inactive.
+            .allowsHitTesting(!isDismissing)
             .ignoresSafeArea()
             // Only a downward drag that starts in the top chrome may dismiss
             // the player. The previous full-screen exclusive gesture competed
@@ -593,7 +622,13 @@ struct PlayerOverlay: View {
                         guard !isDismissing, entered else { return }
                         if !isDismissDragActive {
                             let isVertical = abs(value.translation.height) > abs(value.translation.width)
-                            guard value.startLocation.y <= 96,
+                            // The system status-bar band is reserved for
+                            // Control Center and screen-recording gestures.
+                            // Start player dismissal only in the app chrome
+                            // immediately below that band.
+                            let lowerBound = max(44, topSafeAreaInset + 4)
+                            guard value.startLocation.y >= lowerBound,
+                                  value.startLocation.y <= lowerBound + 72,
                                   isVertical,
                                   value.translation.height > 0 else { return }
                             isDismissDragActive = true
@@ -645,10 +680,17 @@ struct PlayerOverlay: View {
                     entered = true
                 }
             }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase != .active else { return }
+                cancelTransientDismissalForSystemInterruption()
+            }
     }
 
     private func dismissPlayer() {
-        isDismissing = true
+        guard !isDismissing else { return }
+        var nextState = dismissalState
+        let generation = nextState.begin()
+        dismissalState = nextState
         // Shrink toward the mini player at the bottom; on completion, drop
         // `isPresented` so the parent unmounts the overlay entirely. State
         // reset is unnecessary — the next presentation gets fresh @State.
@@ -657,7 +699,30 @@ struct PlayerOverlay: View {
             dismissOpacity = 0
             dragOffset = screenHeight * 0.6
         } completion: {
+            var completedState = dismissalState
+            guard completedState.complete(generation: generation) else { return }
+            dismissalState = completedState
             isPresented = false
+        }
+    }
+
+    private func cancelTransientDismissalForSystemInterruption() {
+        isDismissDragActive = false
+        isEdgeDismissDragActive = false
+
+        // Invalidate the completion attached to an animation that the system
+        // just interrupted. Otherwise it may fire after returning from
+        // Control Center and unexpectedly unmount the player.
+        var recoveredState = dismissalState
+        recoveredState.cancelForSystemInterruption()
+        dismissalState = recoveredState
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            dismissScale = 1
+            dismissOpacity = 1
+            dragOffset = 0
+            edgeDragOffset = 0
         }
     }
 }
