@@ -92,6 +92,23 @@ final class AudioSessionManager {
         }
     }
 
+    /// 当前输出是否为蓝牙 HFP(通话档)。其他 app 抢占麦克风(微信长按说话、
+    /// 语音备忘录等)时系统会把蓝牙从 A2DP 切到 HFP; 此时激活本 app 的
+    /// 非混音播放会话会把对方刚开始的录音打断。
+    var outputRouteIsBluetoothHFP: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs
+            .contains { $0.portType == .bluetoothHFP }
+    }
+
+    /// 当前输出是否仍在蓝牙设备上(任意 profile)。
+    var outputRouteIsBluetooth: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains {
+            $0.portType == .bluetoothA2DP
+                || $0.portType == .bluetoothHFP
+                || $0.portType == .bluetoothLE
+        }
+    }
+
     // MARK: - Interruption Handling
 
     @objc private nonisolated func handleInterruption(_ notification: Notification) {
@@ -150,5 +167,7 @@ final class AudioSessionManager {
     func activatePlaybackSession() -> Bool { true }
     func prepareForPlayback() {}
     func deactivate() {}
+    var outputRouteIsBluetoothHFP: Bool { false }
+    var outputRouteIsBluetooth: Bool { false }
 #endif
 }

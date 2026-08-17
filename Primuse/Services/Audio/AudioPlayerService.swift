@@ -1,6 +1,7 @@
 import AVFoundation
 import CryptoKit
 import Foundation
+import ImageIO
 import MediaPlayer
 import PrimuseKit
 import SFBAudioEngine
@@ -9,7 +10,6 @@ import UIKit
 import WidgetKit
 #elseif os(macOS)
 import AppKit
-import ImageIO
 import UniformTypeIdentifiers
 import WidgetKit
 #endif
@@ -929,6 +929,10 @@ final class AudioPlayerService {
     private var lastPublishedPlaybackWasActive = false
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
+    /// 其他 app 的录音会话把蓝牙切到 HFP 时挂起的自动恢复票据。此刻
+    /// startPlaying 会 setActive 抢回会话、打断对方录音, 只能等路由
+    /// 离开 HFP 后由 attemptBluetoothHFPDeferredResume 消费。
+    private var bluetoothHFPSuspendedPlayback = false
 
     /// 最近一段时间 gapless boundary 触发的时间戳, 用于侦测 partial-cache
     /// 引起的死循环 (boundary 反复在几秒内连续触发, 队列里 1-2 首坏歌
@@ -1438,6 +1442,21 @@ final class AudioPlayerService {
             // A configuration-change notification commonly accompanies an
             // interruption. It may prepare recovery, but cannot grant resume.
             guard !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
+            // 其他 app 抢占麦克风(微信长按说话等)会把蓝牙从 A2DP 切到
+            // HFP, 引擎随之上报配置变更, 而且该通知常先于(甚至不伴随)
+            // 系统中断通知到达。此刻自动恢复会 setActive 抢回会话, 把
+            // 对方刚开始的录音立即打断。挂起恢复票据, 等路由离开 HFP
+            // 再续播。
+            if AudioSessionManager.shared.outputRouteIsBluetoothHFP {
+                if shouldAutoResume {
+                    plog("🎧 Bluetooth switched to HFP by another app's recording — deferring resume")
+                    self.bluetoothHFPSuspendedPlayback = true
+                    self.updateNowPlayingInfo()
+                    self.updatePlaybackState()
+                }
+                return
+            }
+            if self.attemptBluetoothHFPDeferredResume() { return }
             guard shouldAutoResume else { return }
             // A configuration rebuild may have flushed every scheduled buffer.
             // Recreate the same song at the captured position so no empty node
@@ -1494,6 +1513,9 @@ final class AudioPlayerService {
                     self.handleOutputDeviceDisappeared()
                     return
                 }
+                // HFP → A2DP 的切回不保证再发一次引擎配置变更(挂起时引擎
+                // 已停), 但一定伴随 route change。在这里消费挂起的恢复票据。
+                self.attemptBluetoothHFPDeferredResume()
                 self.forceAudioOnlyIfNeeded()
             }
         }
@@ -1537,6 +1559,35 @@ final class AudioPlayerService {
     private func clearPendingPlaybackRecovery() {
         needsPlaybackRecovery = false
         pendingRecoveryTime = 0
+        bluetoothHFPSuspendedPlayback = false
+    }
+
+    /// HFP 抢占结束(对方录音结束, 蓝牙回到 A2DP)后续播挂起的播放。
+    /// 挂起票据一次性消费; 恢复只在用户播放意图未变、没有待决系统中断、
+    /// 且输出仍在蓝牙上时发生 —— 蓝牙在挂起期间断开的话, 票据作废,
+    /// 绝不落到扬声器外放。返回 true 表示本次通知已被恢复动作消费。
+    @discardableResult
+    private func attemptBluetoothHFPDeferredResume() -> Bool {
+        guard bluetoothHFPSuspendedPlayback else { return false }
+        bluetoothHFPSuspendedPlayback = false
+        guard interruptionResumePolicy.playbackIsIntended,
+              !interruptionResumePolicy.isAwaitingInterruptionEnd,
+              !isPlaybackActuallyActive,
+              currentSong != nil,
+              !isAppleMusicMode,
+              !isLiveRadio,
+              !isCastingMode,
+              !isMusicVideoPlaybackActive,
+              !AudioSessionManager.shared.outputRouteIsBluetoothHFP,
+              AudioSessionManager.shared.outputRouteIsBluetooth else { return false }
+        plog("🎧 Bluetooth HFP preemption ended — resuming at \(pendingRecoveryTime)")
+        seek(
+            to: pendingRecoveryTime,
+            startPlaying: true,
+            isRecovery: true,
+            isConfigurationRecovery: true
+        )
+        return true
     }
 
     private func registerPlayIntent() {
@@ -8117,6 +8168,19 @@ final class AudioPlayerService {
     /// that image forward.
     private var publishedArtworkSongID: String?
 
+    /// 解码并降采样后的系统封面内存缓存(songID → artwork)。蓝牙 AVRCP
+    /// 车机只在曲目元数据变化的那一刻采样一次封面, 异步补发的图不会被
+    /// 重新拉取; 只有切歌后的第一份 nowPlayingInfo 快照就带上新歌封面,
+    /// 车机才能显示。命中该缓存即可同步做到, 冷路径仍走异步加载回填。
+    private let nowPlayingArtworkCache: NSCache<NSString, MPMediaItemArtwork> = {
+        let cache = NSCache<NSString, MPMediaItemArtwork>()
+        cache.countLimit = 8
+        return cache
+    }()
+
+    /// 正在预取封面的 songID, 防止对同一首歌重复启动预取任务。
+    @ObservationIgnored private var prefetchingArtworkSongID: String?
+
     /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
     /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
     /// 触发 reload, @State image 卡在旧 UIImage。CachedArtworkView 监听这个
@@ -8186,6 +8250,12 @@ final class AudioPlayerService {
             for: currentSong?.id
         ), let existingArtwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
             info[MPMediaItemPropertyArtwork] = existingArtwork
+        } else if let songID = currentSong?.id,
+                  let cachedArtwork = nowPlayingArtworkCache.object(forKey: songID as NSString) {
+            // 切歌后的第一份快照必须已带新歌封面: 蓝牙 AVRCP 车机只在这
+            // 一刻采样封面, 之后同曲目的补发不会被重新拉取。
+            info[MPMediaItemPropertyArtwork] = cachedArtwork
+            publishedArtworkSongID = songID
         }
 
         nowPlayingCenter.nowPlayingInfo = info
@@ -8223,6 +8293,16 @@ final class AudioPlayerService {
         lastArtworkSongID = songID
         publishedArtworkSongID = nil
 
+        // 内存缓存命中: 立即随完整快照发布新歌封面, 不经过"无封面"的
+        // 中间态 —— 蓝牙车机只会采样切歌那一刻的快照。
+        if let songID,
+           let cachedArtwork = nowPlayingArtworkCache.object(forKey: songID as NSString) {
+            publishedArtworkSongID = songID
+            updateNowPlayingInfo(artwork: cachedArtwork, artworkSongID: songID)
+            prefetchUpcomingNowPlayingArtwork()
+            return
+        }
+
         // Immediately clear stale artwork from previous song so Dynamic Island
         // doesn't keep showing the old cover while loading the new one.
         var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
@@ -8238,107 +8318,199 @@ final class AudioPlayerService {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard self != nil else { return }
-            let store = MetadataAssetStore.shared
+            let loadedImage = await Self.loadSystemArtworkImage(
+                songID: songID,
+                coverRef: coverRef,
+                sourceID: capturedSourceID,
+                filePath: capturedFilePath,
+                fileFormat: capturedFileFormat,
+                sourceManager: capturedSourceManager
+            )
 
-            // Tier 1: songID-based cache (透明处理 content-addressed redirect)
-            var loadedImage: PlatformImage?
-            let hashedName = store.expectedCoverFileName(for: songID)
-            if let data = store.readCoverData(named: hashedName) {
-                loadedImage = PlatformImage(data: data)
-            }
-
-            // Tier 2: legacy filename (local hashed filename, no "/" or "://")
-            if loadedImage == nil, let coverRef, !coverRef.isEmpty,
-               !coverRef.contains("/"), !coverRef.contains("://") {
-                if let data = store.readCoverData(named: coverRef) {
-                    loadedImage = PlatformImage(data: data)
-                }
-            }
-
-            // Tier 3: source fetch — URL reference or sidecar path
-            if loadedImage == nil, let coverRef, !coverRef.isEmpty {
-                var fetchedData: Data?
-                // Full URL (media server API)
-                if coverRef.contains("://"), let url = URL(string: coverRef) {
-                    let config = URLSessionConfiguration.default
-                    config.timeoutIntervalForRequest = 10
-                    let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-                    defer { session.finishTasksAndInvalidate() }
-                    fetchedData = try? await session.data(from: url).0
-                }
-                // Source-side path or opaque cloud reference.
-                else if let sourceID = capturedSourceID,
-                        let sourceManager = capturedSourceManager {
-                    if let imageURL = await sourceManager.imageURL(for: coverRef, sourceID: sourceID) {
-                        let config = URLSessionConfiguration.default
-                        config.timeoutIntervalForRequest = 10
-                        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-                        defer { session.finishTasksAndInvalidate() }
-                        fetchedData = try? await session.data(from: imageURL).0
-                    }
-                }
-
-                if let data = fetchedData, let image = PlatformImage(data: data) {
-                    await store.cacheCover(data, forSongID: songID)
-                    loadedImage = image
-                }
-
-                // Baidu Pan, SMB and other authenticated sources may not expose
-                // a direct image URL. Mirror CachedArtworkView's connector
-                // fallback so system Now Playing receives the same sidecar art
-                // that is already visible inside the app.
-                if NowPlayingArtworkFallbackPolicy.shouldFetchFromConnector(
-                    reference: coverRef,
-                    directImageLoaded: loadedImage != nil
-                ), let sourceID = capturedSourceID,
-                   let sourceManager = capturedSourceManager,
-                   let data = await sourceManager.sidecarData(
-                    for: coverRef,
-                    sourceID: sourceID,
-                    maximumBytes: 8 * 1024 * 1024
-                   ), let image = PlatformImage(data: data) {
-                    await store.cacheCover(data, forSongID: songID)
-                    loadedImage = image
-                }
-            }
-
-            // Tier 4: embedded cover extraction from locally cached audio file
-            if loadedImage == nil, let sourceID = capturedSourceID, let filePath = capturedFilePath,
-               let sourceManager = capturedSourceManager {
-                let inferredFormat = capturedFileFormat
-                    ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
-                    ?? .mp3
-                let dummySong = Song(id: "", title: "", fileFormat: inferredFormat, filePath: filePath,
-                                     sourceID: sourceID, fileSize: 0, dateAdded: Date())
-                if let cachedURL = await sourceManager.cachedURL(for: dummySong) {
-                    let metadata = await FileMetadataReader.read(from: cachedURL)
-                    if let coverData = metadata.coverArtData {
-                        await store.cacheCover(coverData, forSongID: songID)
-                        loadedImage = PlatformImage(data: coverData)
-                    }
-                }
-            }
-
-            // Guard: make sure we're still on the same song before updating NowPlaying
             await MainActor.run { [weak self] in
-                guard let self, self.currentSong?.id == songID else { return }
+                guard let self else { return }
                 if let image = loadedImage {
-                    self.publishedArtworkSongID = songID
-                    self.updateNowPlayingInfo(
-                        artwork: Self.makeArtwork(from: image),
-                        artworkSongID: songID
+                    // 歌已切走也照样入缓存: 切回来 / 之后再播到这首时,
+                    // 第一份快照就能同步带图。
+                    self.nowPlayingArtworkCache.setObject(
+                        Self.makeArtwork(from: image),
+                        forKey: songID as NSString
                     )
+                }
+                guard self.currentSong?.id == songID else { return }
+                if let artwork = self.nowPlayingArtworkCache.object(forKey: songID as NSString) {
+                    self.publishedArtworkSongID = songID
+                    self.updateNowPlayingInfo(artwork: artwork, artworkSongID: songID)
                 } else {
                     self.publishedArtworkSongID = nil
                     self.updateNowPlayingInfo()
+                }
+                self.prefetchUpcomingNowPlayingArtwork()
+            }
+        }
+    }
+
+    /// 预载队列下一首的封面进内存缓存。前进到该曲目时, 切歌后的第一份
+    /// 系统快照就能同步带上封面(蓝牙车机唯一的采样时机)。shuffle 的
+    /// 下一首由 nextSongInQueue 与真实前进路径保持一致。
+    private func prefetchUpcomingNowPlayingArtwork() {
+        guard !isLiveRadio, !isCastingMode else { return }
+        guard let next = nextSongInQueue(),
+              !next.id.isEmpty,
+              next.id != currentSong?.id else { return }
+        guard nowPlayingArtworkCache.object(forKey: next.id as NSString) == nil else { return }
+        guard prefetchingArtworkSongID != next.id else { return }
+        prefetchingArtworkSongID = next.id
+
+        let songID = next.id
+        let coverRef = next.coverArtFileName
+        let sourceID = next.sourceID
+        let filePath = next.filePath
+        let fileFormat = next.fileFormat
+        let capturedSourceManager = sourceManager
+        Task.detached(priority: .utility) { [weak self] in
+            guard self != nil else { return }
+            let image = await Self.loadSystemArtworkImage(
+                songID: songID,
+                coverRef: coverRef,
+                sourceID: sourceID,
+                filePath: filePath,
+                fileFormat: fileFormat,
+                sourceManager: capturedSourceManager
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if self.prefetchingArtworkSongID == songID {
+                    self.prefetchingArtworkSongID = nil
+                }
+                if let image {
+                    self.nowPlayingArtworkCache.setObject(
+                        Self.makeArtwork(from: image),
+                        forKey: songID as NSString
+                    )
                 }
             }
         }
     }
 
+    /// Tier 1-4 逐级解析系统封面。命中网络/内嵌数据时把原图写入磁盘缓存,
+    /// 返回值统一走降采样解码。detached 上下文执行。
+    nonisolated private static func loadSystemArtworkImage(
+        songID: String,
+        coverRef: String?,
+        sourceID: String?,
+        filePath: String?,
+        fileFormat: AudioFormat?,
+        sourceManager: SourceManager?
+    ) async -> PlatformImage? {
+        let store = MetadataAssetStore.shared
+
+        // Tier 1: songID-based cache (透明处理 content-addressed redirect)
+        let hashedName = store.expectedCoverFileName(for: songID)
+        if let data = store.readCoverData(named: hashedName),
+           let image = decodeArtworkImage(from: data) {
+            return image
+        }
+
+        // Tier 2: legacy filename (local hashed filename, no "/" or "://")
+        if let coverRef, !coverRef.isEmpty,
+           !coverRef.contains("/"), !coverRef.contains("://"),
+           let data = store.readCoverData(named: coverRef),
+           let image = decodeArtworkImage(from: data) {
+            return image
+        }
+
+        // Tier 3: source fetch — URL reference or sidecar path
+        if let coverRef, !coverRef.isEmpty {
+            var fetchedData: Data?
+            // Full URL (media server API)
+            if coverRef.contains("://"), let url = URL(string: coverRef) {
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 10
+                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                defer { session.finishTasksAndInvalidate() }
+                fetchedData = try? await session.data(from: url).0
+            }
+            // Source-side path or opaque cloud reference.
+            else if let sourceID, let sourceManager {
+                if let imageURL = await sourceManager.imageURL(for: coverRef, sourceID: sourceID) {
+                    let config = URLSessionConfiguration.default
+                    config.timeoutIntervalForRequest = 10
+                    let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                    defer { session.finishTasksAndInvalidate() }
+                    fetchedData = try? await session.data(from: imageURL).0
+                }
+            }
+
+            if let data = fetchedData, let image = decodeArtworkImage(from: data) {
+                await store.cacheCover(data, forSongID: songID)
+                return image
+            }
+
+            // Baidu Pan, SMB and other authenticated sources may not expose
+            // a direct image URL. Mirror CachedArtworkView's connector
+            // fallback so system Now Playing receives the same sidecar art
+            // that is already visible inside the app.
+            if NowPlayingArtworkFallbackPolicy.shouldFetchFromConnector(
+                reference: coverRef,
+                directImageLoaded: false
+            ), let sourceID, let sourceManager,
+               let data = await sourceManager.sidecarData(
+                for: coverRef,
+                sourceID: sourceID,
+                maximumBytes: 8 * 1024 * 1024
+               ), let image = decodeArtworkImage(from: data) {
+                await store.cacheCover(data, forSongID: songID)
+                return image
+            }
+        }
+
+        // Tier 4: embedded cover extraction from locally cached audio file
+        if let sourceID, let filePath, let sourceManager {
+            let inferredFormat = fileFormat
+                ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
+                ?? .mp3
+            let dummySong = Song(id: "", title: "", fileFormat: inferredFormat, filePath: filePath,
+                                 sourceID: sourceID, fileSize: 0, dateAdded: Date())
+            if let cachedURL = await sourceManager.cachedURL(for: dummySong) {
+                let metadata = await FileMetadataReader.read(from: cachedURL)
+                if let coverData = metadata.coverArtData {
+                    await store.cacheCover(coverData, forSongID: songID)
+                    return decodeArtworkImage(from: coverData)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 从原始图片数据解码封面, 统一降采样到 ≤1024px 并强制立即解码。
+    /// 锁屏/车机的显示尺寸远小于原图; 蓝牙 AVRCP 封面走 OBEX 慢速通道,
+    /// 超大位图会显著拖慢传输甚至失败, 懒解码则会把解码开销转嫁给
+    /// MPMediaItemArtwork 的系统回调队列。
+    nonisolated private static func decodeArtworkImage(from data: Data) -> PlatformImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1024,
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return PlatformImage(data: data)
+        }
+        #if os(iOS)
+        return UIImage(cgImage: cgImage)
+        #else
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        #endif
+    }
+
     /// Force refresh NowPlaying artwork (e.g. after scraping updated the cover file).
     /// Resets the last artwork song ID so the guard check passes.
     func forceRefreshNowPlayingArtwork() {
+        if let songID = currentSong?.id {
+            nowPlayingArtworkCache.removeObject(forKey: songID as NSString)
+        }
         lastArtworkSongID = nil
         bumpCoverRevision()
         updateNowPlayingArtworkIfNeeded()
@@ -8349,6 +8521,7 @@ final class AudioPlayerService {
     /// cache becomes available without treating it as an explicit replacement.
     func retryNowPlayingArtwork(afterCachingSongID songID: String) {
         guard currentSong?.id == songID else { return }
+        nowPlayingArtworkCache.removeObject(forKey: songID as NSString)
         lastArtworkSongID = nil
         updateNowPlayingArtworkIfNeeded()
     }
@@ -8357,8 +8530,10 @@ final class AudioPlayerService {
         guard let songID = currentSong?.id else { return }
         lastArtworkSongID = songID
         publishedArtworkSongID = songID
+        let artwork = Self.makeArtwork(from: image)
+        nowPlayingArtworkCache.setObject(artwork, forKey: songID as NSString)
         updateNowPlayingInfo(
-            artwork: Self.makeArtwork(from: image),
+            artwork: artwork,
             artworkSongID: songID
         )
     }
