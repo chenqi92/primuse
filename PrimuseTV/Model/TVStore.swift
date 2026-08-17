@@ -95,6 +95,7 @@ struct TVLyricLine: Identifiable, Hashable {
     let isSynchronized: Bool
     let syllables: [TVSyllable]
     let translation: String
+    let writingDirection: LyricWritingDirection
 
     init(
         id: String = UUID().uuidString,
@@ -102,7 +103,8 @@ struct TVLyricLine: Identifiable, Hashable {
         text: String,
         isSynchronized: Bool = true,
         syllables: [TVSyllable] = [],
-        translation: String = ""
+        translation: String = "",
+        writingDirection: LyricWritingDirection = .natural
     ) {
         self.id = id
         self.time = time
@@ -110,6 +112,7 @@ struct TVLyricLine: Identifiable, Hashable {
         self.isSynchronized = isSynchronized
         self.syllables = syllables
         self.translation = translation
+        self.writingDirection = writingDirection
     }
 }
 

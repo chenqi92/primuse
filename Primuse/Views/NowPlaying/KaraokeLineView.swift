@@ -6,8 +6,8 @@ import PrimuseKit
 ///
 /// 字级动效细节:
 /// - **字内 mask 扫光**: 每个 syllable 由两层 Text 叠加 — 底层 inactive 色,
-///   顶层 active 色 + LinearGradient mask, mask 的「可见区」随 progress 从
-///   左扫到右。单字内部能看到「左半亮右半暗」的过渡边一路扫过, 不再是
+///   顶层 active 色 + LinearGradient mask, mask 的「可见区」随 progress 沿
+///   书写方向扫过。单字内部能看到柔和的明暗过渡, 不再是
 ///   整字一起亮。
 /// - **字级 bounce**: 当前唱的字 scale 1.0 → 1.04 → 1.0 走 sin 曲线, 像被
 ///   节奏「点」起来一下。anchor=.bottom 让字向上抬, 不影响行高。
@@ -20,6 +20,10 @@ struct KaraokeLineView: View {
     let weight: Font.Weight
     let activeColor: Color
     let inactiveColor: Color
+    /// Presentation direction resolved from the document's `[la:...]` header.
+    /// This only mirrors the lyric subtree; syllable storage and timestamps
+    /// remain in their original order.
+    let writingDirection: LyricWritingDirection
     /// 把 `TimelineView` 的 `context.date` 翻译为外推后的播放秒数。
     let timeAt: (Date) -> TimeInterval
     /// 外层已经有 TimelineView 时传入固定时间，避免嵌套 60Hz 刷新。
@@ -38,6 +42,7 @@ struct KaraokeLineView: View {
         weight: Font.Weight,
         activeColor: Color,
         inactiveColor: Color,
+        writingDirection: LyricWritingDirection = .natural,
         timeAt: @escaping (Date) -> TimeInterval,
         fixedTime: TimeInterval? = nil,
         isAnimationEnabled: Bool = true,
@@ -48,6 +53,7 @@ struct KaraokeLineView: View {
         self.weight = weight
         self.activeColor = activeColor
         self.inactiveColor = inactiveColor
+        self.writingDirection = writingDirection
         self.timeAt = timeAt
         self.fixedTime = fixedTime
         self.isAnimationEnabled = isAnimationEnabled
@@ -67,24 +73,40 @@ struct KaraokeLineView: View {
     /// 0.12 在汉字宽度上看着像一道柔光从左扫到右。
     private static let maskEdgeWidth: Double = 0.12
 
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch writingDirection {
+        case .natural:
+            inheritedLayoutDirection
+        case .leftToRight:
+            .leftToRight
+        case .rightToLeft:
+            .rightToLeft
+        }
+    }
+
     var body: some View {
-        if let fixedTime {
-            if isAnimationEnabled {
-                renderLineRespectingDeactivation(at: fixedTime)
-            } else {
-                renderInactiveLine()
-            }
-        } else {
-            TimelineView(
-                .animation(minimumInterval: 1.0 / 60.0, paused: !isAnimationEnabled)
-            ) { ctx in
+        Group {
+            if let fixedTime {
                 if isAnimationEnabled {
-                    renderLineRespectingDeactivation(at: timeAt(ctx.date))
+                    renderLineRespectingDeactivation(at: fixedTime)
                 } else {
                     renderInactiveLine()
                 }
+            } else {
+                TimelineView(
+                    .animation(minimumInterval: 1.0 / 60.0, paused: !isAnimationEnabled)
+                ) { ctx in
+                    if isAnimationEnabled {
+                        renderLineRespectingDeactivation(at: timeAt(ctx.date))
+                    } else {
+                        renderInactiveLine()
+                    }
+                }
             }
         }
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     @ViewBuilder
@@ -99,11 +121,18 @@ struct KaraokeLineView: View {
     @ViewBuilder
     private func renderLine(at now: TimeInterval) -> some View {
         if let syllables = line.syllables, !syllables.isEmpty {
-            LyricsFlowLayout(measurementKey: fontSize) {
+            LyricsFlowLayout(
+                measurementKey: fontSize,
+                layoutDirection: lyricLayoutDirection
+            ) {
                 ForEach(syllables.indices, id: \.self) { i in
                     syllableView(syllables[i], at: now)
+                        .environment(\.layoutDirection, lyricLayoutDirection)
                 }
             }
+            // Keep the custom layout's coordinate space physical. Individual
+            // lyric views still receive the document direction for shaping.
+            .environment(\.layoutDirection, .leftToRight)
         } else {
             Text(line.text)
                 .font(.system(size: fontSize, weight: weight))
@@ -116,14 +145,19 @@ struct KaraokeLineView: View {
     @ViewBuilder
     private func renderInactiveLine() -> some View {
         if let syllables = line.syllables, !syllables.isEmpty {
-            LyricsFlowLayout(measurementKey: fontSize) {
+            LyricsFlowLayout(
+                measurementKey: fontSize,
+                layoutDirection: lyricLayoutDirection
+            ) {
                 ForEach(syllables.indices, id: \.self) { i in
                     Text(syllables[i].text)
                         .font(.system(size: fontSize, weight: weight))
                         .foregroundStyle(inactiveColor)
                         .fixedSize()
+                        .environment(\.layoutDirection, lyricLayoutDirection)
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
         } else {
             Text(line.text)
                 .font(.system(size: fontSize, weight: weight))
@@ -154,13 +188,18 @@ struct KaraokeLineView: View {
         .fixedSize()
     }
 
-    /// 「扫光」mask: LinearGradient 从左到右, 在 progress 位置左侧实色 (露出
-    /// active 色), 右侧透明 (露出底层 inactive 色)。中间 maskEdgeWidth
-    /// 渐变成柔边, 像光头在字内左到右扫过。
+    /// 「扫光」mask: 沿文档书写方向推进；只改变字内的视觉填充方向，
+    /// syllable 的存储顺序与时间轴保持不变。
     private func sweepMask(progress: Double) -> some View {
         let half = Self.maskEdgeWidth / 2
         let leftEnd = max(0, progress - half)
         let rightStart = min(1, progress + half)
+        let startPoint = lyricLayoutDirection == .rightToLeft
+            ? UnitPoint.trailing
+            : UnitPoint.leading
+        let endPoint = lyricLayoutDirection == .rightToLeft
+            ? UnitPoint.leading
+            : UnitPoint.trailing
         return LinearGradient(
             stops: [
                 .init(color: .black, location: 0),
@@ -168,8 +207,8 @@ struct KaraokeLineView: View {
                 .init(color: .clear, location: rightStart),
                 .init(color: .clear, location: 1),
             ],
-            startPoint: .leading,
-            endPoint: .trailing
+            startPoint: startPoint,
+            endPoint: endPoint
         )
     }
 
@@ -209,7 +248,7 @@ struct KaraokeLineView: View {
 
 // MARK: - Custom flow layout
 
-/// 字级歌词专用的 flow layout: 子 view 按顺序左到右排, 一行排不下就换行。
+/// 字级歌词专用的 flow layout: 子 view 按逻辑顺序沿书写方向排布，一行排不下就换行。
 /// SwiftUI 没有内置的 wrapping HStack, 自己用 Layout protocol 实现。
 ///
 /// 注意: 子 view 的 scaleEffect 不影响占位 (scaleEffect 只是渲染层缩放),
@@ -217,6 +256,7 @@ struct KaraokeLineView: View {
 struct LyricsFlowLayout: Layout {
     var spacing: CGFloat = 0
     var measurementKey: CGFloat = 0
+    var layoutDirection: LayoutDirection = .leftToRight
 
     struct Cache {
         var sizes: [CGSize] = []
@@ -256,26 +296,27 @@ struct LyricsFlowLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         ensureMeasurements(in: &cache, subviews: subviews)
-        let maxWidth = bounds.width
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var lineHeight: CGFloat = 0
+        let placements = LyricFlowPlacementPolicy.placements(
+            itemSizes: cache.sizes.map {
+                LyricFlowItemSize(width: Double($0.width), height: Double($0.height))
+            },
+            containerWidth: Double(bounds.width),
+            spacing: Double(spacing),
+            isRightToLeft: layoutDirection == .rightToLeft
+        )
 
-        for index in subviews.indices {
+        for placement in placements {
+            let index = subviews.index(subviews.startIndex, offsetBy: placement.itemIndex)
             let view = subviews[index]
-            let size = cache.sizes[index]
-            if x + size.width > maxWidth, x > 0 {
-                y += lineHeight
-                lineHeight = 0
-                x = 0
-            }
+            let size = cache.sizes[placement.itemIndex]
             view.place(
-                at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
-                anchor: .topLeading,
+                at: CGPoint(
+                    x: bounds.minX + CGFloat(placement.x),
+                    y: bounds.minY + CGFloat(placement.y)
+                ),
+                anchor: UnitPoint(x: 0, y: 0),
                 proposal: ProposedViewSize(size)
             )
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
         }
     }
 

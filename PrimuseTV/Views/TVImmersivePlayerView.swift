@@ -185,6 +185,7 @@ struct TVImmersivePlayerView: View {
             lyricWindow: lyricWindow,
             currentLyric: currentLyric,
             nextLyric: nextLyric,
+            lyricsWritingDirection: store.lyrics.first?.writingDirection ?? .natural,
             levels: presentationEffect.usesRealtimeSpectrum
                 ? store.engine.spectrumLevels.map { min(max(CGFloat($0), 0), 1) }
                 : [],

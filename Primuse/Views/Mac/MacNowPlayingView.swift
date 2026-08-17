@@ -28,6 +28,7 @@ struct MacNowPlayingView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
@@ -81,6 +82,18 @@ struct MacNowPlayingView: View {
     /// takes control of the scroll position again. Three seconds was shorter
     /// than a typical reading pause and made the pane appear locked.
     private static let manualLyricsScrollGracePeriod: TimeInterval = 6
+
+    private var lyricsWritingDirection: LyricWritingDirection {
+        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+    }
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch lyricsWritingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
+    }
 
     private var isCurrentLiked: Bool {
         guard let songID = player.currentSong?.id else { return false }
@@ -710,6 +723,7 @@ struct MacNowPlayingView: View {
                     weight: weight,
                     activeColor: playerPrimaryColor,
                     inactiveColor: playerSecondaryColor,
+                    writingDirection: lyricsWritingDirection,
                     timeAt: { date in player.interpolatedTime(at: date) }
                 )
                 .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
@@ -718,6 +732,7 @@ struct MacNowPlayingView: View {
                     .font(.system(size: scaledSize, weight: weight))
                     .foregroundStyle(playerPrimaryColor)
                     .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -728,6 +743,8 @@ struct MacNowPlayingView: View {
             .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
             value: currentIndex
         )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     private func lyricVisualScale(isActive: Bool) -> CGFloat {

@@ -179,6 +179,9 @@ struct MacImmersivePlayerView: View {
             lyricWindow: lyricWindow,
             currentLyric: currentLyric,
             nextLyric: nextLyric,
+            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(
+                metadataLines: lyrics.first?.metadataLines ?? []
+            ),
             levels: spectrumLevels,
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in

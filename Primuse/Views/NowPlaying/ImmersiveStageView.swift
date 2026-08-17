@@ -37,6 +37,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     var lyricWindow: [ImmersiveStageLyric] = []
     var currentLyric: String?
     var nextLyric: String?
+    var lyricsWritingDirection: LyricWritingDirection = .natural
     var levels: [CGFloat] = []
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
@@ -50,6 +51,16 @@ struct ImmersiveStageView<Artwork: View>: View {
     var showsClock = false
     var chromeBlurRadius: CGFloat = 52
     @ViewBuilder var artwork: (CGFloat) -> Artwork
+
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch lyricsWritingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -438,7 +449,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     text: lyric,
                     fontSize: metrics.s(platform == .tvOS ? 48 : (metrics.isPortrait ? 27 : 30)),
                     tint: palette.primary,
-                    isAnimating: sceneIsAnimating && lyricsMotionEnabled
+                    isAnimating: sceneIsAnimating && lyricsMotionEnabled,
+                    writingDirection: lyricsWritingDirection
                 )
                 .frame(height: metrics.s(platform == .tvOS ? 104 : (metrics.isPortrait ? 60 : 64)))
                 .offset(y: metrics.size.height * (metrics.isPortrait ? 0.19 : 0.17))
@@ -625,17 +637,23 @@ struct ImmersiveStageView<Artwork: View>: View {
             Text(text)
                 .font(.system(size: fontSize, weight: .medium))
                 .foregroundStyle(ImmersiveStagePalette.ink.opacity(0.90))
+                .multilineTextAlignment(.leading)
                 .lineLimit(2)
                 .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .id(lyricsMotionEnabled ? text : "static-lyric")
                 .transition(lyricsMotionEnabled ? .opacity.combined(with: .offset(y: 8)) : .identity)
                 .animation(.easeOut(duration: 0.26), value: text)
+                .environment(\.layoutDirection, lyricLayoutDirection)
         }
     }
 
     private func threeLineLyrics(alignment: TextAlignment, fontSize: CGFloat) -> some View {
         let lines = resolvedThreeLyrics
-        return VStack(alignment: alignment == .trailing ? .trailing : .leading, spacing: fontSize * 0.72) {
+        let resolvedAlignment: TextAlignment = lyricsWritingDirection == .rightToLeft
+            ? .leading
+            : alignment
+        return VStack(alignment: resolvedAlignment == .trailing ? .trailing : .leading, spacing: fontSize * 0.72) {
             ForEach(lines) { line in
                 Text(line.text)
                     .font(.system(size: line.isActive ? fontSize * 1.16 : fontSize, weight: line.isActive ? .semibold : .regular))
@@ -644,10 +662,15 @@ struct ImmersiveStageView<Artwork: View>: View {
                             ? ImmersiveStagePalette.ink.opacity(0.94)
                             : ImmersiveStagePalette.text.opacity(0.38)
                     )
-                    .multilineTextAlignment(alignment)
+                    .multilineTextAlignment(resolvedAlignment)
                     .lineLimit(2)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: resolvedAlignment == .trailing ? .trailing : .leading
+                    )
             }
         }
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     private var resolvedCurrentLyric: String {
@@ -1178,13 +1201,25 @@ private struct ImmersiveCrossingLyricRibbon: View {
     let fontSize: CGFloat
     let tint: Color
     let isAnimating: Bool
+    let writingDirection: LyricWritingDirection
+
+    private var directionallyIsolatedText: String {
+        switch writingDirection {
+        case .natural:
+            text
+        case .leftToRight:
+            "\u{2066}\(text)\u{2069}"
+        case .rightToLeft:
+            "\u{2067}\(text)\u{2069}"
+        }
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
             ZStack {
                 ImmersiveStagePalette.obsidian.opacity(0.82)
                 Canvas(rendersAsynchronously: true) { canvas, size in
-                    let content = Text(verbatim: "\(text)   ·   ")
+                    let content = Text(verbatim: "\(directionallyIsolatedText)   ·   ")
                         .font(.system(size: fontSize, weight: .semibold))
                         .tracking(fontSize * 0.018)
                         .foregroundStyle(ImmersiveStagePalette.ink)

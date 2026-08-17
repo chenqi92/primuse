@@ -23,6 +23,7 @@ struct DesktopLyricsView: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
     @State private var lyricsLoadRevision: UInt = 0
@@ -50,6 +51,18 @@ struct DesktopLyricsView: View {
 
     private var lyricsColor: Color {
         Color.fromHexString(colorHex) ?? .white
+    }
+
+    private var lyricsWritingDirection: LyricWritingDirection {
+        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+    }
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch lyricsWritingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
     }
 
     /// 各布局下的最小允许尺寸 —— width 至少 260pt 才能装下顶部工具栏的
@@ -230,6 +243,7 @@ struct DesktopLyricsView: View {
                         .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
                         .lineLimit(1)
                         .multilineTextAlignment(.center)
+                        .environment(\.layoutDirection, lyricLayoutDirection)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -271,23 +285,27 @@ struct DesktopLyricsView: View {
 
     @ViewBuilder
     private func desktopLyricLine(_ line: LyricLine, size: CGFloat, color: Color) -> some View {
-        if line.isWordLevel {
-            KaraokeLineView(
-                line: line,
-                fontSize: size,
-                weight: .semibold,
-                activeColor: color,
-                inactiveColor: .white.opacity(0.35),
-                timeAt: { date in player.interpolatedTime(at: date) }
-            )
-            .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
-        } else {
-            Text(line.text)
-                .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(color)
+        Group {
+            if line.isWordLevel {
+                KaraokeLineView(
+                    line: line,
+                    fontSize: size,
+                    weight: .semibold,
+                    activeColor: color,
+                    inactiveColor: .white.opacity(0.35),
+                    writingDirection: lyricsWritingDirection,
+                    timeAt: { date in player.interpolatedTime(at: date) }
+                )
                 .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
-                .lineLimit(2)
+            } else {
+                Text(line.text)
+                    .font(.system(size: size, weight: .semibold))
+                    .foregroundStyle(color)
+                    .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
+                    .lineLimit(2)
+            }
         }
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     /// 算出能塞进 size.height 的字号:可用高度 / (字符数 × 行高系数),

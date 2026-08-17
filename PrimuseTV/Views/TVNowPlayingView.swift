@@ -10,6 +10,7 @@ struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     var isTabContent = false
     var focusRequest: TVContentFocusRequest?
@@ -38,6 +39,16 @@ struct TVNowPlayingView: View {
     private func presentImmersivePlayer() {
         immersiveStartsWithEffectPicker = fullscreenPlayerEffect == .native
         showImmersive = true
+    }
+
+    private func lyricLayoutDirection(
+        for writingDirection: LyricWritingDirection
+    ) -> LayoutDirection {
+        switch writingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
     }
 
     var body: some View {
@@ -522,12 +533,14 @@ struct TVNowPlayingView: View {
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
                 TVKaraokeLine(syllables: ln.syllables, progress: store.currentLyricProgress,
-                              size: size, tint: store.nowPlaying.tint)
+                              size: size, tint: store.nowPlaying.tint,
+                              writingDirection: ln.writingDirection)
             } else {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
                 Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
                     .foregroundStyle(TVColor.text)
                     .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
+                    .multilineTextAlignment(.leading)
             }
             if !ln.translation.isEmpty {
                 Text(ln.translation).font(.system(size: 22)).italic()
@@ -537,10 +550,12 @@ struct TVNowPlayingView: View {
         .scaleEffect(scale, anchor: .leading)
         .opacity(opacity)
         .animation(.smooth(duration: 0.5, extraBounce: 0), value: cur)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(ln.text))
         .accessibilityValue(Text(isCur ? PMString("playback") : ""))
         .accessibilityAddTraits(isCur ? [.isSelected] : [])
+        .environment(\.layoutDirection, lyricLayoutDirection(for: ln.writingDirection))
     }
 }
 
@@ -551,6 +566,17 @@ struct TVKaraokeLine: View {
     let progress: Double
     let size: CGFloat
     let tint: Color
+    let writingDirection: LyricWritingDirection
+
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch writingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
+    }
 
     var body: some View {
         let (highlightIdx, charT) = sweep()
@@ -566,10 +592,18 @@ struct TVKaraokeLine: View {
                         Text(s.w)
                             .foregroundStyle(TVColor.text)
                             .shadow(color: tint.opacity(0.8), radius: 12)
-                            .mask(alignment: .leading) {
+                            .mask {
                                 GeometryReader { g in
-                                    Rectangle().frame(width: g.size.width * fillT)
+                                    Rectangle()
+                                        .frame(width: g.size.width * fillT)
+                                        .frame(
+                                            width: g.size.width,
+                                            alignment: lyricLayoutDirection == .rightToLeft
+                                                ? .trailing
+                                                : .leading
+                                        )
                                 }
+                                .environment(\.layoutDirection, .leftToRight)
                             }
                     }
                     .scaleEffect(scale, anchor: .bottom)
@@ -577,6 +611,7 @@ struct TVKaraokeLine: View {
         }
         .font(.system(size: size, weight: .bold))
         .shadow(color: tint.opacity(0.4), radius: 16, y: 2)
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     /// 返回(正在唱的字下标, 该字内进度 0...1)。

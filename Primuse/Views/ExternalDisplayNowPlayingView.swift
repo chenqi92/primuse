@@ -22,9 +22,22 @@ struct ExternalDisplayNowPlayingView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentLyricIndex = 0
+
+    private var lyricsWritingDirection: LyricWritingDirection {
+        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+    }
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch lyricsWritingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -162,10 +175,13 @@ struct ExternalDisplayNowPlayingView: View {
                     .font(.system(size: current ? 42 : 28, weight: current ? .bold : .semibold))
                     .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
                     .lineLimit(2)
+                    .multilineTextAlignment(.leading)
                     .minimumScaleFactor(0.74)
                     .shadow(color: current ? theme.accentColor.opacity(0.42) : .clear, radius: 18)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     private func updateLyricIndex(for time: TimeInterval) {

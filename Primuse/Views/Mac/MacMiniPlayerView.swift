@@ -17,6 +17,7 @@ struct MacMiniPlayerView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
     @State private var lyricsLoadRevision: UInt = 0
@@ -24,6 +25,18 @@ struct MacMiniPlayerView: View {
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
     @State private var airPlayShown = false
+
+    private var lyricsWritingDirection: LyricWritingDirection {
+        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+    }
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch lyricsWritingDirection {
+        case .natural: inheritedLayoutDirection
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
+    }
 
     /// 下半部分内容模式 —— 跟 Apple Music 一样,Lyrics / Queue 是互斥的
     /// 内容面板,工具条上的按钮高亮的就是当前激活模式。默认折叠 (.none)
@@ -701,6 +714,7 @@ struct MacMiniPlayerView: View {
                 weight: weight,
                 activeColor: .primary.opacity(isActive ? 1 : 0.72),
                 inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
+                writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) }
             )
         } else {
@@ -709,6 +723,7 @@ struct MacMiniPlayerView: View {
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .opacity(isActive ? 1 : 0.55)
                 .multilineTextAlignment(.center)
+                .environment(\.layoutDirection, lyricLayoutDirection)
         }
     }
 

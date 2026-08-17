@@ -3679,6 +3679,7 @@ struct LyricsScrollView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @State private var lyricsPinchScale: CGFloat = 1.0
@@ -3726,6 +3727,21 @@ struct LyricsScrollView: View {
 
     private var hasSynchronizedLyrics: Bool {
         lyrics.contains { $0.isSynchronized }
+    }
+
+    private var lyricsWritingDirection: LyricWritingDirection {
+        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+    }
+
+    private var lyricLayoutDirection: LayoutDirection {
+        switch lyricsWritingDirection {
+        case .natural:
+            return inheritedLayoutDirection
+        case .leftToRight:
+            return .leftToRight
+        case .rightToLeft:
+            return .rightToLeft
+        }
     }
 
     var body: some View {
@@ -4181,6 +4197,7 @@ struct LyricsScrollView: View {
         // 导致卡死的根因)。anchor 跟行对齐方向一致, 让行从锚定边「长出来」,
         // 左对齐行的左边缘 / 右对齐行的右边缘保持不动。
         .scaleEffect(visualScale, anchor: line.voice == .secondary ? .trailing : .leading)
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     private func seekToLyricLine(_ line: LyricLine) {
@@ -4224,6 +4241,7 @@ struct LyricsScrollView: View {
                 weight: weight,
                 activeColor: appearance.primary.opacity(activeOpacity),
                 inactiveColor: appearance.primary.opacity(inactiveOpacity),
+                writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
                 fixedTime: timelineTime,
                 isAnimationEnabled: animatesWords,
@@ -4240,6 +4258,7 @@ struct LyricsScrollView: View {
                             ? appearance.primary.opacity(appearance.pastLyricOpacity)
                             : appearance.primary.opacity(appearance.futureLyricOpacity)
                 )
+                .multilineTextAlignment(.leading)
                 // 长歌词在窄屏 / 放大字号下需要 wrap 多行。不加 fixedSize 时 SwiftUI
                 // 在某些 layout 约束下会单行 + 省略号; 而靠近当前行时切到 KaraokeLineView
                 // (它有 fixedSize) 会展开多行 → 视觉上"省略号展开收起"的跳动。

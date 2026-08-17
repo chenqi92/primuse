@@ -720,14 +720,16 @@ final class TVPlaybackCoordinator {
         _ lines: [LyricLine],
         duration _: TimeInterval
     ) -> [TVLyricLine] {
-        lines.map { line in
+        let writingDirection = LyricWritingDirectionPolicy.resolve(in: lines)
+        return lines.map { line in
             TVLyricLine(id: line.id,
                         time: line.timestamp,
                         text: line.text,
                         isSynchronized: line.isSynchronized,
                         // start/end 是相对歌曲起点的绝对时间戳;卡拉OK扫词需要每字时长。
                         syllables: (line.syllables ?? []).map { TVSyllable(w: $0.text, d: max(0.001, $0.end - $0.start)) },
-                        translation: "")
+                        translation: "",
+                        writingDirection: writingDirection)
         }
     }
 

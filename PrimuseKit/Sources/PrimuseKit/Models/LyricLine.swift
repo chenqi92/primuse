@@ -15,6 +15,212 @@ public struct LyricSyllable: Codable, Hashable, Sendable {
     }
 }
 
+/// The base writing direction of one lyrics document. `natural` deliberately
+/// leaves mixed-language and untagged lyrics to the platform's Unicode bidi
+/// handling instead of guessing from a single line.
+public enum LyricWritingDirection: String, Codable, Hashable, Sendable {
+    case natural
+    case leftToRight
+    case rightToLeft
+
+    public var isRightToLeft: Bool { self == .rightToLeft }
+}
+
+/// Resolves the LRC/ELRC `[la:...]` header into a presentation-only writing
+/// direction. The result never changes lyric storage order or timing data.
+public enum LyricWritingDirectionPolicy {
+    /// Script identifiers Foundation can actually resolve on this OS. This
+    /// prevents an arbitrary four-letter subtag from being mistaken for a
+    /// left-to-right script while still allowing the platform to expand its
+    /// supported script set without a library update.
+    private static let availableScripts: Set<String> = Set(
+        Locale.availableIdentifiers.compactMap {
+            Locale.Language(identifier: $0).script?.identifier.lowercased()
+        }
+    )
+
+    /// Language subtags known to the installed Foundation locale database.
+    /// Without this guard Foundation may assign a default Latin script to an
+    /// arbitrary but syntactically valid primary subtag.
+    private static let availableLanguages: Set<String> = Set(
+        Locale.availableIdentifiers.compactMap {
+            Locale.Language(identifier: $0).languageCode?.identifier.lowercased()
+        }
+    )
+
+    /// Scripts whose horizontal character order is right-to-left. Script
+    /// subtags take precedence over a language's usual script, so tags such as
+    /// `az-Arab` and `fa-Latn` are handled correctly.
+    private static let rightToLeftScripts: Set<String> = [
+        "adlm", "arab", "aran", "hebr", "mand", "mani", "mend", "merc",
+        "mero", "nkoo", "orkh", "phli", "phlp", "phnx", "rohg", "samr",
+        "sarb", "sogd", "sogo", "syrc", "thaa", "yezi"
+    ]
+
+    /// Legacy/common language identifiers that Foundation can recognize even
+    /// when it cannot infer a script on a particular OS release.
+    private static let rightToLeftLanguages: Set<String> = [
+        "ar", "arc", "ckb", "dv", "fa", "he", "iw", "ji", "ks", "ku",
+        "nqo", "ps", "sd", "syr", "ug", "ur", "yi"
+    ]
+
+    public static func resolve(in lines: [LyricLine]) -> LyricWritingDirection {
+        for line in lines {
+            guard let metadataLines = line.metadataLines,
+                  let direction = resolveMetadata(metadataLines) else { continue }
+            return direction
+        }
+        return .natural
+    }
+
+    public static func resolve(metadataLines: [String]) -> LyricWritingDirection {
+        resolveMetadata(metadataLines) ?? .natural
+    }
+
+    public static func resolve(languageTag: String?) -> LyricWritingDirection {
+        guard let normalized = normalizedLanguageTag(languageTag) else { return .natural }
+
+        let subtags = normalized.split(separator: "-").map(String.init)
+        let primaryLanguage = subtags[0]
+        if let explicitScript = subtags.dropFirst().first(where: {
+            $0.count == 4 && $0.unicodeScalars.allSatisfy(CharacterSet.letters.contains)
+        })?.lowercased() {
+            if rightToLeftScripts.contains(explicitScript) { return .rightToLeft }
+            guard availableScripts.contains(explicitScript) else { return .natural }
+            return direction(
+                from: Locale.Language(identifier: "und-\(explicitScript)").characterDirection
+            )
+        }
+
+        guard availableLanguages.contains(primaryLanguage)
+                || rightToLeftLanguages.contains(primaryLanguage) else {
+            return .natural
+        }
+        let language = Locale.Language(identifier: normalized)
+        if language.script != nil {
+            let resolved = direction(from: language.characterDirection)
+            if resolved != .natural { return resolved }
+        }
+        return rightToLeftLanguages.contains(primaryLanguage) ? .rightToLeft : .natural
+    }
+
+    private static func resolveMetadata(
+        _ metadataLines: [String]
+    ) -> LyricWritingDirection? {
+        for metadataLine in metadataLines {
+            let trimmed = metadataLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("["), trimmed.hasSuffix("]") else { continue }
+
+            let body = trimmed.dropFirst().dropLast()
+            guard let separator = body.firstIndex(of: ":") else { continue }
+            let key = body[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard key.caseInsensitiveCompare("la") == .orderedSame else { continue }
+
+            let value = body[body.index(after: separator)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let direction = resolve(languageTag: value)
+            if direction != .natural { return direction }
+        }
+        return nil
+    }
+
+    private static func normalizedLanguageTag(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "-")
+            .lowercased()
+        guard !normalized.isEmpty else { return nil }
+
+        let subtags = normalized.split(separator: "-", omittingEmptySubsequences: false)
+        guard let primary = subtags.first,
+              (2...8).contains(primary.count),
+              primary.unicodeScalars.allSatisfy(CharacterSet.letters.contains),
+              subtags.dropFirst().allSatisfy({ subtag in
+                  (1...8).contains(subtag.count)
+                      && subtag.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains)
+              }) else { return nil }
+        return normalized
+    }
+
+    private static func direction(
+        from languageDirection: Locale.LanguageDirection
+    ) -> LyricWritingDirection {
+        switch languageDirection {
+        case .rightToLeft:
+            return .rightToLeft
+        case .leftToRight:
+            return .leftToRight
+        case .unknown, .topToBottom, .bottomToTop:
+            return .natural
+        @unknown default:
+            return .natural
+        }
+    }
+}
+
+public struct LyricFlowItemSize: Equatable, Sendable {
+    public let width: Double
+    public let height: Double
+
+    public init(width: Double, height: Double) {
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct LyricFlowItemPlacement: Equatable, Sendable {
+    public let itemIndex: Int
+    public let x: Double
+    public let y: Double
+
+    public init(itemIndex: Int, x: Double, y: Double) {
+        self.itemIndex = itemIndex
+        self.x = x
+        self.y = y
+    }
+}
+
+/// Computes physical glyph positions without changing the logical syllable
+/// sequence. RTL starts each visual line at the right edge, while timestamps
+/// continue to address the same original item indexes.
+public enum LyricFlowPlacementPolicy {
+    public static func placements(
+        itemSizes: [LyricFlowItemSize],
+        containerWidth: Double,
+        spacing: Double = 0,
+        isRightToLeft: Bool
+    ) -> [LyricFlowItemPlacement] {
+        guard !itemSizes.isEmpty else { return [] }
+
+        let availableWidth = max(0, containerWidth)
+        let itemSpacing = max(0, spacing)
+        var usedWidth = 0.0
+        var y = 0.0
+        var lineHeight = 0.0
+        var result: [LyricFlowItemPlacement] = []
+        result.reserveCapacity(itemSizes.count)
+
+        for (index, itemSize) in itemSizes.enumerated() {
+            let width = max(0, itemSize.width)
+            let height = max(0, itemSize.height)
+            if usedWidth + width > availableWidth, usedWidth > 0 {
+                y += lineHeight
+                usedWidth = 0
+                lineHeight = 0
+            }
+
+            let x = isRightToLeft
+                ? availableWidth - usedWidth - width
+                : usedWidth
+            result.append(LyricFlowItemPlacement(itemIndex: index, x: x, y: y))
+            usedWidth += width + itemSpacing
+            lineHeight = max(lineHeight, height)
+        }
+        return result
+    }
+}
+
 /// 行所属声部。LRC/A2 没有该信息，预留给 TTML（Apple Music 对唱）等格式。
 public enum LyricVoice: String, Codable, Sendable, CaseIterable {
     case primary    // 主声部 / 默认演唱者，左对齐
