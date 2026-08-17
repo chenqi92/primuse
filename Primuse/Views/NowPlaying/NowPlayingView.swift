@@ -273,18 +273,16 @@ struct NowPlayingView: View {
 
     private func dismissFullscreenPlayer() {
         guard isFullscreenPlayerPresented else { return }
-        withAnimation(.easeInOut(duration: 0.24)) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
             isFullscreenPlayerPresented = false
         }
     }
 
     private func minimizeFullscreenPlayer() {
         guard isFullscreenPlayerPresented else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            isFullscreenPlayerPresented = false
-        }
+        dismissFullscreenPlayer()
         onMinimize?()
     }
 
@@ -387,11 +385,22 @@ struct NowPlayingView: View {
     }
 
 
+    #if os(iOS)
+    private var foregroundApplicationWindowScene: UIWindowScene? {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter {
+                $0.activationState == .foregroundActive
+                    && $0.session.role == .windowApplication
+            }
+        return scenes.first { $0.keyWindow != nil } ?? scenes.first
+    }
+    #endif
+
     /// Top safe area height (dynamic island / status bar)
     private var topSafeArea: CGFloat {
         #if os(iOS)
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
-            .keyWindow?.safeAreaInsets.top ?? 59
+        foregroundApplicationWindowScene?.keyWindow?.safeAreaInsets.top ?? 59
         #else
         // macOS 没有 dynamic island / 状态栏 safe area, 标题栏由窗口 chrome
         // 负责, NowPlayingView 内容直接顶到窗口客户区上沿即可。
@@ -401,8 +410,7 @@ struct NowPlayingView: View {
 
     private var bottomSafeArea: CGFloat {
         #if os(iOS)
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
-            .keyWindow?.safeAreaInsets.bottom ?? 0
+        foregroundApplicationWindowScene?.keyWindow?.safeAreaInsets.bottom ?? 0
         #else
         0
         #endif
@@ -413,6 +421,32 @@ struct NowPlayingView: View {
     /// 上下结构,showLyrics 切歌词 / 封面模式。
     private func shouldUseWideLayout(geo: GeometryProxy) -> Bool {
         sizeClass == .regular && geo.size.width > geo.size.height
+    }
+
+    private var playerMinimizeDragGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onEnded { value in
+                guard NowPlayingDismissGesturePolicy.shouldDismissFromTop(
+                    startY: Double(value.startLocation.y),
+                    translationX: Double(value.translation.width),
+                    translationY: Double(value.translation.height),
+                    predictedEndTranslationY: Double(value.predictedEndTranslation.height)
+                ) else { return }
+                onMinimize?()
+            }
+    }
+
+    private var playerEdgeMinimizeDragGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onEnded { value in
+                guard NowPlayingDismissGesturePolicy.shouldDismissFromLeadingEdge(
+                    startX: Double(value.startLocation.x),
+                    translationX: Double(value.translation.width),
+                    translationY: Double(value.translation.height),
+                    predictedEndTranslationX: Double(value.predictedEndTranslation.width)
+                ) else { return }
+                onMinimize?()
+            }
     }
 
     var body: some View {
@@ -428,7 +462,7 @@ struct NowPlayingView: View {
 
             ZStack {
                 if !isFullscreenPlayerPresented {
-                    Group {
+                    ZStack {
                         // Opaque base — prevents content bleeding through
                         appearance.backgroundBase.ignoresSafeArea()
                         // Dynamic background from cover colors — fully opaque
@@ -459,6 +493,9 @@ struct NowPlayingView: View {
                             }
                         }
                     }
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(playerMinimizeDragGesture)
+                    .simultaneousGesture(playerEdgeMinimizeDragGesture)
                     .transition(.opacity)
                 }
 
@@ -470,14 +507,6 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true }
-                    )
-                    // Rotation can interrupt a removal transition and leave its
-                    // full-screen hit-test surface above the portrait controls.
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 1.015)),
-                            removal: .identity
-                        )
                     )
                     .zIndex(100)
                 }
@@ -582,7 +611,7 @@ struct NowPlayingView: View {
         ) {
             if let videoPlayer = fullScreenMusicVideoPlayer ?? player.musicVideoPlayer {
                 MusicVideoFullScreenView(player: videoPlayer) {
-                    showMusicVideoFullScreen = false
+                    dismissMusicVideoFullScreen()
                 }
             } else {
                 Color.black
@@ -1749,7 +1778,7 @@ struct NowPlayingView: View {
 
     private func dismissMusicVideoFullScreen() {
         guard showMusicVideoFullScreen else {
-            fullScreenMusicVideoPlayer = nil
+            finishMusicVideoFullScreenDismissal()
             return
         }
         // Keep the AVPlayer-backed cover stable until UIKit has actually

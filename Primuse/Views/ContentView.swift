@@ -525,13 +525,12 @@ private struct CurrentSongLibraryObserver: View {
     }
 }
 
-// MARK: - Player Overlay (handles position, drag, rounded corners)
+// MARK: - Player Overlay
 
 struct PlayerOverlay: View {
     @Binding var isPresented: Bool
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
-    @Environment(\.scenePhase) private var scenePhase
     /// Drives the entrance animation. Starts `false` on mount so the first
     /// frame renders off-screen (offset = screenHeight + 100); `onAppear`
     /// flips it inside a `withAnimation` so SwiftUI animates the offset to 0.
@@ -539,38 +538,7 @@ struct PlayerOverlay: View {
     /// slide-in because `if showNowPlaying` mounts the view *during*
     /// presentation, not before.
     @State private var entered = false
-    @State private var dragOffset: CGFloat = 0
-    @State private var edgeDragOffset: CGFloat = 0
-    @State private var dismissScale: CGFloat = 1
-    @State private var dismissOpacity: CGFloat = 1
     @State private var screenHeight: CGFloat = UIScreen.main.bounds.height
-    @State private var isDismissDragActive = false
-    @State private var isEdgeDismissDragActive = false
-    @State private var topSafeAreaInset: CGFloat = 0
-    @State private var dismissalState = PlayerOverlayDismissalState()
-    @State private var dismissalFallbackTask: Task<Void, Never>?
-
-    private var isDismissing: Bool {
-        dismissalState.isDismissing
-    }
-
-    /// Device screen corner radius (matches physical display)
-    private let deviceCornerRadius: CGFloat = 55
-
-    private var dismissProgress: CGFloat {
-        min(1, max(0, dragOffset / 400))
-    }
-
-    /// Corner radius ramps up to device screen corner radius as user drags down
-    private var topCornerRadius: CGFloat {
-        if isDismissing { return deviceCornerRadius }
-        return dragOffset > 5 ? min(deviceCornerRadius, dragOffset * 1.5) : 0
-    }
-
-    /// Bottom corner radius during dismiss (all corners round as it shrinks)
-    private var bottomCornerRadius: CGFloat {
-        isDismissing ? deviceCornerRadius : 0
-    }
 
     var body: some View {
         NowPlayingView(
@@ -583,170 +551,28 @@ struct PlayerOverlay: View {
                     Color.clear
                         .onAppear {
                             screenHeight = geo.size.height
-                            topSafeAreaInset = geo.safeAreaInsets.top
                         }
-                        .onChange(of: geo.safeAreaInsets.top) { _, newValue in
-                            topSafeAreaInset = newValue
+                        .onChange(of: geo.size.height) { _, newValue in
+                            screenHeight = newValue
                         }
                 }
             }
-            .clipShape(
-                UnevenRoundedRectangle(
-                    topLeadingRadius: topCornerRadius,
-                    bottomLeadingRadius: bottomCornerRadius,
-                    bottomTrailingRadius: bottomCornerRadius,
-                    topTrailingRadius: topCornerRadius
-                )
-            )
-            .scaleEffect(
-                isDismissing ? dismissScale : (1 - dismissProgress * 0.04),
-                anchor: .bottom
-            )
-            .opacity(isDismissing ? dismissOpacity : 1)
-            .offset(y: entered ? dragOffset : screenHeight + 100)
-            .offset(x: edgeDragOffset)
+            .offset(y: entered ? 0 : screenHeight + 100)
             .ignoresSafeArea()
-            // Only a downward drag that starts in the top chrome may dismiss
-            // the player. The previous full-screen exclusive gesture competed
-            // with the lyrics ScrollView: scrolling lyrics translated the
-            // whole player (and its More button), making controls move away
-            // from the finger. Simultaneous recognition preserves child
-            // scrolling while the start-location gate keeps dismissal on the
-            // grabber/header affordance.
-            .simultaneousGesture(
-                DragGesture()
-                    .onChanged { value in
-                        guard !isDismissing, entered else { return }
-                        if !isDismissDragActive {
-                            let isVertical = abs(value.translation.height) > abs(value.translation.width)
-                            // The system status-bar band is reserved for
-                            // Control Center and screen-recording gestures.
-                            // Start player dismissal only in the app chrome
-                            // immediately below that band.
-                            let lowerBound = max(44, topSafeAreaInset + 4)
-                            guard value.startLocation.y >= lowerBound,
-                                  value.startLocation.y <= lowerBound + 72,
-                                  isVertical,
-                                  value.translation.height > 0 else { return }
-                            isDismissDragActive = true
-                        }
-                        dragOffset = max(0, value.translation.height)
-                    }
-                    .onEnded { value in
-                        guard !isDismissing, entered, isDismissDragActive else { return }
-                        isDismissDragActive = false
-                        if dragOffset > 150 || value.predictedEndTranslation.height > 500 {
-                            dismissPlayer()
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                                dragOffset = 0
-                            }
-                        }
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture()
-                    .onChanged { value in
-                        guard !isDismissing, entered else { return }
-                        if !isEdgeDismissDragActive {
-                            let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
-                            guard value.startLocation.x <= 24,
-                                  isHorizontal,
-                                  value.translation.width > 0 else { return }
-                            isEdgeDismissDragActive = true
-                        }
-                        edgeDragOffset = max(0, value.translation.width)
-                    }
-                    .onEnded { value in
-                        guard !isDismissing, entered, isEdgeDismissDragActive else { return }
-                        isEdgeDismissDragActive = false
-                        if edgeDragOffset > 110 || value.predictedEndTranslation.width > 400 {
-                            dismissPlayer()
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                                edgeDragOffset = 0
-                            }
-                        }
-                    }
-            )
-            // Keep this outside the gesture modifiers so an invisible player
-            // cannot retain a gesture surface after rotation interrupts exit.
-            .allowsHitTesting(!isDismissing)
             .animation(.spring(response: 0.45, dampingFraction: 0.92), value: entered)
-            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dragOffset)
-            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: edgeDragOffset)
             .onAppear {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
                     entered = true
                 }
             }
-            .onChange(of: scenePhase) { _, phase in
-                guard phase != .active else { return }
-                cancelTransientDismissalForSystemInterruption()
-            }
-            .onDisappear {
-                dismissalFallbackTask?.cancel()
-            }
     }
 
     private func dismissPlayer() {
-        guard !isDismissing else { return }
-        var nextState = dismissalState
-        let generation = nextState.begin()
-        dismissalState = nextState
-        // Shrink toward the mini player at the bottom; on completion, drop
-        // `isPresented` so the parent unmounts the overlay entirely. State
-        // reset is unnecessary — the next presentation gets fresh @State.
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-            dismissScale = 0.12
-            dismissOpacity = 0
-            dragOffset = screenHeight * 0.6
-        } completion: {
-            finishDismissal(generation: generation)
-        }
-        // Geometry changes can cancel an animation without invoking its
-        // completion. Always unmount the invisible overlay after the visual
-        // exit has had enough time to finish.
-        dismissalFallbackTask?.cancel()
-        dismissalFallbackTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: .milliseconds(700))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            finishDismissal(generation: generation)
-        }
-    }
-
-    private func finishDismissal(generation: UInt64) {
-        var completedState = dismissalState
-        guard completedState.complete(generation: generation) else { return }
-        dismissalState = completedState
-        dismissalFallbackTask?.cancel()
-        dismissalFallbackTask = nil
-        isPresented = false
-    }
-
-    private func cancelTransientDismissalForSystemInterruption() {
-        isDismissDragActive = false
-        isEdgeDismissDragActive = false
-        dismissalFallbackTask?.cancel()
-        dismissalFallbackTask = nil
-
-        // Invalidate the completion attached to an animation that the system
-        // just interrupted. Otherwise it may fire after returning from
-        // Control Center and unexpectedly unmount the player.
-        var recoveredState = dismissalState
-        recoveredState.cancelForSystemInterruption()
-        dismissalState = recoveredState
+        guard isPresented else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            dismissScale = 1
-            dismissOpacity = 1
-            dragOffset = 0
-            edgeDragOffset = 0
+            isPresented = false
         }
     }
 }
