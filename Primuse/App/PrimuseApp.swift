@@ -1136,7 +1136,7 @@ struct PrimuseApp: App {
                         // resumed below after the background scene has settled;
                         // background scraping itself remains enabled.
                         LifecycleSnapshotUploadCoordinator.shared.sceneWillResignActive()
-                        AppServices.shared.spotlightIndex.cancelPendingReindex()
+                        AppServices.shared.spotlightIndex.cancelPendingSynchronization()
                         musicLibrary.beginSceneTransitionQuiescence()
                         scraperService.pauseForSceneTransition()
                         scanService.cancelAllActiveScans()
@@ -1205,7 +1205,9 @@ struct PrimuseApp: App {
                             library: musicLibrary
                         )
                         playerService.handleAppDidBecomeActive()
-                        AppServices.shared.spotlightIndex.reindex(library: musicLibrary)
+                        AppServices.shared.spotlightIndex.resumePendingSynchronization(
+                            library: musicLibrary
+                        )
                         Task { await updateChecker.checkForUpdate() }
                         // Auto-resume any scan that was interrupted (app killed,
                         // backgrounded past the begin/endBackgroundTask window, or

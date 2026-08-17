@@ -202,7 +202,7 @@ final class AppServices {
         observeSourceLifecycle()
 
         wireIntentBridge()
-        observeSpotlightReindex()
+        observeSpotlightSynchronization()
         let startupFinishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
             format: "🚀 launch services total=%.0fms keychain=%.0f sources=%.0f library=%.0f core=%.0f auxiliary=%.0f wiring=%.0f observers=%.0f",
@@ -621,18 +621,17 @@ final class AppServices {
         sourcesStore.reconcileLocalSongCounts(counts)
     }
 
-    /// Spotlight 重建索引 ── 启动时跑一次, 之后只要 library 的
-    /// songReplacementToken 翻动 (新增/删除/批量替换) 就重新拉一次。
+    /// 启动时核对一次 Spotlight manifest；之后 library token 翻动只提交
+    /// 新增、修改和删除的条目。高频 backfill 变化由服务内部合并。
     /// Observation 自动 re-arm,跟 MacMenuBarController 的 observePlayerState
     /// 是同一个模式。
-    private func observeSpotlightReindex() {
+    private func observeSpotlightSynchronization() {
         let library = self.musicLibrary
         let index = self.spotlightIndex
-        // 启动 reindex 延 1s,等 CloudKit 同步先拉一拨远端歌单 / 设置,避免
-        // 反复重建。
+        // 等 CloudKit 先拉一拨远端歌单 / 设置，服务自身还会再做一次去抖。
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            index.reindex(library: library)
+            index.scheduleSynchronization(library: library)
         }
 
         observeLibraryToken(library: library, index: index)
@@ -646,7 +645,7 @@ final class AppServices {
         } onChange: { [weak library, weak index] in
             Task { @MainActor [weak self] in
                 guard let library, let index else { return }
-                index.reindex(library: library)
+                index.scheduleSynchronization(library: library)
                 self?.reconcileSourceSongCounts()
                 self?.observeLibraryToken(library: library, index: index)
             }

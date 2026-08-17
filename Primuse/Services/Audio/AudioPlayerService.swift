@@ -926,13 +926,20 @@ final class AudioPlayerService {
     @ObservationIgnored private var playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
     @ObservationIgnored private var localPipelineAdvanceTicket: PlaybackAdvanceTicket?
     private var configurationRecoveryOwnerPlayID: UUID?
+    private var configurationRecoveryTask: Task<Void, Never>?
+    /// A hardware-configuration candidate that may recover only after a short
+    /// settle window. An actual interruption cancels it and owns all resume
+    /// authorization through PlaybackInterruptionResumePolicy instead.
+    private var configurationRecoveryPendingSongID: String?
+    private var bluetoothHFPResumeWatchdogTask: Task<Void, Never>?
     private var lastPublishedPlaybackWasActive = false
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
-    /// 其他 app 的录音会话把蓝牙切到 HFP 时挂起的自动恢复票据。此刻
+    /// 其他 app 的录音会话把蓝牙切到 HFP 时挂起的曲目。此刻
     /// startPlaying 会 setActive 抢回会话、打断对方录音, 只能等路由
-    /// 离开 HFP 后由 attemptBluetoothHFPDeferredResume 消费。
-    private var bluetoothHFPSuspendedPlayback = false
+    /// 离开 HFP 后由 attemptBluetoothHFPDeferredResume 消费。绑定曲目 ID
+    /// 可防止挂起期间切歌后恢复到错误的播放 generation。
+    private var bluetoothHFPSuspendedSongID: String?
 
     /// 最近一段时间 gapless boundary 触发的时间戳, 用于侦测 partial-cache
     /// 引起的死循环 (boundary 反复在几秒内连续触发, 队列里 1-2 首坏歌
@@ -1331,6 +1338,10 @@ final class AudioPlayerService {
             if hasAppleMusicRequest {
                 appleMusic.markPlaybackInterrupted()
             }
+            // A configuration notification can precede the interruption. Cancel
+            // its speculative recovery before reading/publishing any paused state;
+            // only the interruption lifecycle may authorize a resume now.
+            self.cancelPendingConfigurationRecovery()
             // A cold catalog request may not have mirrored currentSong yet.
             // It was never actually playing, so the interruption only cancels
             // its pending start; it must not create an automatic resume ticket.
@@ -1404,6 +1415,17 @@ final class AudioPlayerService {
                 self.updatePlaybackState()
                 return
             }
+            // The interruption may end before the recording app releases HFP.
+            // Reactivating our nonmixable playback session here would interrupt
+            // that app again. Keep the one-shot resume bound to this item until
+            // a later route change confirms that Bluetooth is back on A2DP.
+            if AudioSessionManager.shared.outputRouteIsBluetoothHFP {
+                self.bluetoothHFPSuspendedSongID = self.currentSong?.id
+                self.scheduleBluetoothHFPResumeWatchdog()
+                self.updateNowPlayingInfo()
+                self.updatePlaybackState()
+                return
+            }
             self.resumeCurrentPlayback(registeringUserIntent: false)
         }
 
@@ -1429,6 +1451,7 @@ final class AudioPlayerService {
             }
             let shouldAutoResume = (self.isPlaying || self.isLoading)
                 && self.interruptionResumePolicy.playbackIsIntended
+            let interruptedActivityWasPublished = self.lastPublishedPlaybackWasActive
             self.invalidateAutomaticAdvance(reason: "engine-configuration-change")
             self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
             self.syncPlaybackProgressFromEngine()
@@ -1439,35 +1462,66 @@ final class AudioPlayerService {
             self.isPlaying = false
             self.stopTimeUpdater()
 
-            // A configuration-change notification commonly accompanies an
-            // interruption. It may prepare recovery, but cannot grant resume.
-            guard !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
-            // 其他 app 抢占麦克风(微信长按说话等)会把蓝牙从 A2DP 切到
-            // HFP, 引擎随之上报配置变更, 而且该通知常先于(甚至不伴随)
-            // 系统中断通知到达。此刻自动恢复会 setActive 抢回会话, 把
-            // 对方刚开始的录音立即打断。挂起恢复票据, 等路由离开 HFP
-            // 再续播。
-            if AudioSessionManager.shared.outputRouteIsBluetoothHFP {
-                if shouldAutoResume {
-                    plog("🎧 Bluetooth switched to HFP by another app's recording — deferring resume")
-                    self.bluetoothHFPSuspendedPlayback = true
-                    self.updateNowPlayingInfo()
-                    self.updatePlaybackState()
-                }
+            guard shouldAutoResume, let songID = self.currentSong?.id else { return }
+            // Configuration and interruption notifications use different queues;
+            // Apple does not guarantee their order. Do not reactivate the
+            // nonmixable playback session from this callback. Preserve the last
+            // published active snapshot for a possible interruption-began ticket,
+            // then allow a short settle window. A real interruption cancels this
+            // candidate and becomes the sole resume authority.
+            self.lastPublishedPlaybackWasActive = interruptedActivityWasPublished
+            self.scheduleConfigurationRecovery(for: songID)
+        }
+    }
+
+    private func scheduleConfigurationRecovery(for songID: String, attempt: Int = 0) {
+        configurationRecoveryTask?.cancel()
+        configurationRecoveryPendingSongID = songID
+        configurationRecoveryTask = Task { @MainActor [weak self] in
+            do {
+                // Give interruptionNotification (main queue) or a route-loss
+                // notification time to overtake the engine's internal callback.
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
                 return
             }
-            if self.attemptBluetoothHFPDeferredResume() { return }
-            guard shouldAutoResume else { return }
-            // A configuration rebuild may have flushed every scheduled buffer.
-            // Recreate the same song at the captured position so no empty node
-            // or old completion can masquerade as a natural track ending.
-            self.seek(
-                to: self.pendingRecoveryTime,
-                startPlaying: true,
-                isRecovery: true,
-                isConfigurationRecovery: true
-            )
+            guard let self,
+                  self.configurationRecoveryPendingSongID == songID else { return }
+            self.configurationRecoveryTask = nil
+            if self.attemptPendingConfigurationRecovery() { return }
+            // Still blocked (typically HFP is not released yet). A route change
+            // normally wakes this candidate, but iOS does not guarantee one, so
+            // re-arm a bounded number of times instead of hanging forever.
+            guard self.configurationRecoveryPendingSongID == songID,
+                  attempt < 8 else {
+                self.cancelPendingConfigurationRecovery()
+                return
+            }
+            self.scheduleConfigurationRecovery(for: songID, attempt: attempt + 1)
         }
+    }
+
+    @discardableResult
+    private func attemptPendingConfigurationRecovery() -> Bool {
+        guard let songID = configurationRecoveryPendingSongID else { return false }
+        guard interruptionResumePolicy.playbackIsIntended,
+              currentSong?.id == songID else {
+            cancelPendingConfigurationRecovery()
+            return false
+        }
+        guard !interruptionResumePolicy.isAwaitingInterruptionEnd,
+              !isPlaybackActuallyActive,
+              !AudioSessionManager.shared.outputRouteIsBluetoothHFP else {
+            return false
+        }
+        cancelPendingConfigurationRecovery()
+        seek(
+            to: pendingRecoveryTime,
+            startPlaying: true,
+            isRecovery: true,
+            isConfigurationRecovery: true
+        )
+        return true
     }
 
     #if os(iOS)
@@ -1502,20 +1556,46 @@ final class AudioPlayerService {
             object: AVAudioSession.sharedInstance(),
             queue: .main
         ) { [weak self] note in
-            // userInfo 不是 Sendable, 在 hop 出去之前先取出原始值。
+            // userInfo 不是 Sendable, 在 hop 出去之前先取出原始值和旧路由
+            // 的 Sendable port-type 快照。当前路由在主 actor 上现取, 避免把
+            // AVAudioSessionRouteDescription 捕获进 Task。
             let reasonValue = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let previousRouteWasBluetooth = (
+                note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey]
+                    as? AVAudioSessionRouteDescription
+            )?.outputs.contains {
+                $0.portType == .bluetoothA2DP
+                    || $0.portType == .bluetoothHFP
+                    || $0.portType == .bluetoothLE
+            } ?? false
+            let currentRouteIsBluetooth = AVAudioSession.sharedInstance()
+                .currentRoute.outputs.contains {
+                    $0.portType == .bluetoothA2DP
+                        || $0.portType == .bluetoothHFP
+                        || $0.portType == .bluetoothLE
+                }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let reason = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
                 plog("🔀 Audio route changed reason=\(String(describing: reason)) raw=\(reasonValue.map(String.init) ?? "nil")")
-                if let reasonValue,
-                   AVAudioSession.RouteChangeReason(rawValue: reasonValue) == .oldDeviceUnavailable {
+                let reasonIsOldDeviceUnavailable = reason == .oldDeviceUnavailable
+                if BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(
+                    reasonIsOldDeviceUnavailable: reasonIsOldDeviceUnavailable,
+                    previousRouteWasBluetooth: previousRouteWasBluetooth,
+                    currentRouteIsBluetooth: currentRouteIsBluetooth
+                ) {
+                    // `oldDeviceUnavailable` also fires for A2DP → HFP. Pause
+                    // only when the device really left Bluetooth; a profile
+                    // switch keeps the same physical accessory connected.
                     self.handleOutputDeviceDisappeared()
                     return
                 }
                 // HFP → A2DP 的切回不保证再发一次引擎配置变更(挂起时引擎
-                // 已停), 但一定伴随 route change。在这里消费挂起的恢复票据。
-                self.attemptBluetoothHFPDeferredResume()
+                // 已停), route change 同时唤醒“已获系统授权”和“纯配置
+                // 变化”两类候选; 前者优先, 且二者互不冒充恢复授权。
+                if !self.attemptBluetoothHFPDeferredResume() {
+                    self.attemptPendingConfigurationRecovery()
+                }
                 self.forceAudioOnlyIfNeeded()
             }
         }
@@ -1530,6 +1610,8 @@ final class AudioPlayerService {
     /// 用 `pause()` 而不是 `stop()` —— 保留曲目和进度, 重新插上耳机 / 上车后
     /// 用户按播放就能接着听。
     private func handleOutputDeviceDisappeared() {
+        cancelPendingConfigurationRecovery()
+        clearBluetoothHFPDeferredResume()
         // A local AVAudioSession route change does not describe the renderer
         // that owns a cast session, so it must not pause remote playback.
         guard !isCastingMode else {
@@ -1559,7 +1641,7 @@ final class AudioPlayerService {
     private func clearPendingPlaybackRecovery() {
         needsPlaybackRecovery = false
         pendingRecoveryTime = 0
-        bluetoothHFPSuspendedPlayback = false
+        clearBluetoothHFPDeferredResume()
     }
 
     /// HFP 抢占结束(对方录音结束, 蓝牙回到 A2DP)后续播挂起的播放。
@@ -1568,34 +1650,87 @@ final class AudioPlayerService {
     /// 绝不落到扬声器外放。返回 true 表示本次通知已被恢复动作消费。
     @discardableResult
     private func attemptBluetoothHFPDeferredResume() -> Bool {
-        guard bluetoothHFPSuspendedPlayback else { return false }
-        bluetoothHFPSuspendedPlayback = false
-        guard interruptionResumePolicy.playbackIsIntended,
-              !interruptionResumePolicy.isAwaitingInterruptionEnd,
-              !isPlaybackActuallyActive,
-              currentSong != nil,
-              !isAppleMusicMode,
-              !isLiveRadio,
-              !isCastingMode,
-              !isMusicVideoPlaybackActive,
-              !AudioSessionManager.shared.outputRouteIsBluetoothHFP,
-              AudioSessionManager.shared.outputRouteIsBluetooth else { return false }
-        plog("🎧 Bluetooth HFP preemption ended — resuming at \(pendingRecoveryTime)")
-        seek(
-            to: pendingRecoveryTime,
-            startPlaying: true,
-            isRecovery: true,
-            isConfigurationRecovery: true
+        let decision = BluetoothPlaybackRecoveryPolicy.deferredResumeDecision(
+            hasTicket: bluetoothHFPSuspendedSongID != nil,
+            currentRouteIsBluetoothHFP: AudioSessionManager.shared.outputRouteIsBluetoothHFP,
+            currentRouteIsBluetooth: AudioSessionManager.shared.outputRouteIsBluetooth,
+            playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
+            isAwaitingInterruptionEnd: interruptionResumePolicy.isAwaitingInterruptionEnd,
+            isPlaybackActuallyActive: isPlaybackActuallyActive,
+            suspendedItemMatchesCurrent: bluetoothHFPSuspendedSongID == currentSong?.id,
+            supportsAutomaticRecovery: !isCastingMode
         )
-        return true
+        switch decision {
+        case .wait:
+            return false
+        case .discard:
+            clearBluetoothHFPDeferredResume()
+            return false
+        case .resume:
+            clearBluetoothHFPDeferredResume()
+            plog("🎧 Bluetooth HFP preemption ended — resuming authorized playback")
+            if !isAppleMusicMode,
+               !isLiveRadio,
+               !isMusicVideoPlaybackActive {
+                seek(
+                    to: pendingRecoveryTime,
+                    startPlaying: true,
+                    isRecovery: true,
+                    isConfigurationRecovery: true
+                )
+            } else {
+                resumeCurrentPlayback(registeringUserIntent: false)
+            }
+            return true
+        }
+    }
+
+    /// A route change normally wakes the authorized HFP ticket, but iOS does not
+    /// guarantee one after the recording app releases the profile. Poll a bounded
+    /// number of times so an authorized resume cannot hang indefinitely.
+    private func scheduleBluetoothHFPResumeWatchdog(attempt: Int = 0) {
+        bluetoothHFPResumeWatchdogTask?.cancel()
+        guard let songID = bluetoothHFPSuspendedSongID, attempt < 20 else {
+            bluetoothHFPResumeWatchdogTask = nil
+            return
+        }
+        bluetoothHFPResumeWatchdogTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.bluetoothHFPSuspendedSongID == songID else { return }
+            self.bluetoothHFPResumeWatchdogTask = nil
+            if self.attemptBluetoothHFPDeferredResume() { return }
+            guard self.bluetoothHFPSuspendedSongID == songID else { return }
+            self.scheduleBluetoothHFPResumeWatchdog(attempt: attempt + 1)
+        }
+    }
+
+    private func clearBluetoothHFPDeferredResume() {
+        bluetoothHFPSuspendedSongID = nil
+        bluetoothHFPResumeWatchdogTask?.cancel()
+        bluetoothHFPResumeWatchdogTask = nil
+    }
+
+    private func cancelPendingConfigurationRecovery() {
+        configurationRecoveryTask?.cancel()
+        configurationRecoveryTask = nil
+        configurationRecoveryPendingSongID = nil
     }
 
     private func registerPlayIntent() {
+        cancelPendingConfigurationRecovery()
+        clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPlayIntent()
         castingCommandGeneration &+= 1
     }
 
     private func registerPauseOrStopIntent() {
+        cancelPendingConfigurationRecovery()
+        clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPauseOrStopIntent()
         castingCommandGeneration &+= 1
         invalidateAutomaticAdvance(reason: "pause-or-stop")
@@ -8181,6 +8316,11 @@ final class AudioPlayerService {
     /// 正在预取封面的 songID, 防止对同一首歌重复启动预取任务。
     @ObservationIgnored private var prefetchingArtworkSongID: String?
 
+    /// 每首歌当前有效的系统封面加载票据。同曲重新刮削可能与先前的远程封面
+    /// 请求重叠;只有最后一次请求可以回写内存缓存和 Now Playing,避免旧任务
+    /// 在新封面发布后又把车机显示回滚。
+    @ObservationIgnored private var nowPlayingArtworkLoadTokens: [String: UUID] = [:]
+
     /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
     /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
     /// 触发 reload, @State image 卡在旧 UIImage。CachedArtworkView 监听这个
@@ -8286,12 +8426,22 @@ final class AudioPlayerService {
         center.previousTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
     }
 
-    /// Call ONLY when song changes — loads cover art and sets MPMediaItemPropertyArtwork
-    private func updateNowPlayingArtworkIfNeeded() {
+    /// Loads cover art for a track transition or an explicit same-track refresh.
+    private func updateNowPlayingArtworkIfNeeded(
+        forceReload: Bool = false,
+        preservingCurrentArtworkWhileLoading: Bool = false
+    ) {
         let songID = currentSong?.id
-        guard songID != lastArtworkSongID else { return }
+        guard forceReload || songID != lastArtworkSongID else { return }
         lastArtworkSongID = songID
-        publishedArtworkSongID = nil
+
+        let shouldClearArtwork = NowPlayingArtworkPublicationPolicy
+            .shouldClearArtworkBeforeLoading(
+                isSameItemRefresh: preservingCurrentArtworkWhileLoading
+            )
+        if shouldClearArtwork {
+            publishedArtworkSongID = nil
+        }
 
         // 内存缓存命中: 立即随完整快照发布新歌封面, 不经过"无封面"的
         // 中间态 —— 蓝牙车机只会采样切歌那一刻的快照。
@@ -8303,13 +8453,21 @@ final class AudioPlayerService {
             return
         }
 
-        // Immediately clear stale artwork from previous song so Dynamic Island
-        // doesn't keep showing the old cover while loading the new one.
-        var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        nowInfo[MPMediaItemPropertyArtwork] = nil
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
+        // A track transition must drop the previous song's image immediately.
+        // A same-track refresh does the opposite: keep the current complete
+        // snapshot until the replacement has decoded, then publish the new
+        // MPMediaItemArtwork in one assignment. Bluetooth AVRCP head units may
+        // otherwise sample the temporary nil and ignore the later same-track
+        // artwork update.
+        if shouldClearArtwork {
+            var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            nowInfo[MPMediaItemPropertyArtwork] = nil
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
+        }
 
         guard let songID else { return }
+        let loadToken = UUID()
+        nowPlayingArtworkLoadTokens[songID] = loadToken
         let coverRef = currentSong?.coverArtFileName
         let capturedSourceID = currentSong?.sourceID
         let capturedFilePath = currentSong?.filePath
@@ -8329,6 +8487,8 @@ final class AudioPlayerService {
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
+                guard self.nowPlayingArtworkLoadTokens[songID] == loadToken else { return }
+                self.nowPlayingArtworkLoadTokens[songID] = nil
                 if let image = loadedImage {
                     // 歌已切走也照样入缓存: 切回来 / 之后再播到这首时,
                     // 第一份快照就能同步带图。
@@ -8341,8 +8501,12 @@ final class AudioPlayerService {
                 if let artwork = self.nowPlayingArtworkCache.object(forKey: songID as NSString) {
                     self.publishedArtworkSongID = songID
                     self.updateNowPlayingInfo(artwork: artwork, artworkSongID: songID)
-                } else {
+                } else if shouldClearArtwork {
                     self.publishedArtworkSongID = nil
+                    self.updateNowPlayingInfo()
+                } else {
+                    // Reload failure is not permission to discard the artwork
+                    // already published for this same item.
                     self.updateNowPlayingInfo()
                 }
                 self.prefetchUpcomingNowPlayingArtwork()
@@ -8505,15 +8669,17 @@ final class AudioPlayerService {
         #endif
     }
 
-    /// Force refresh NowPlaying artwork (e.g. after scraping updated the cover file).
-    /// Resets the last artwork song ID so the guard check passes.
+    /// Force-refreshes Now Playing artwork after an in-place cover replacement.
+    /// The old published image remains visible until the new image is ready.
     func forceRefreshNowPlayingArtwork() {
         if let songID = currentSong?.id {
             nowPlayingArtworkCache.removeObject(forKey: songID as NSString)
         }
-        lastArtworkSongID = nil
         bumpCoverRevision()
-        updateNowPlayingArtworkIfNeeded()
+        updateNowPlayingArtworkIfNeeded(
+            forceReload: true,
+            preservingCurrentArtworkWhileLoading: true
+        )
     }
 
     /// Artwork extraction can finish after playback has already attempted its
@@ -8522,8 +8688,10 @@ final class AudioPlayerService {
     func retryNowPlayingArtwork(afterCachingSongID songID: String) {
         guard currentSong?.id == songID else { return }
         nowPlayingArtworkCache.removeObject(forKey: songID as NSString)
-        lastArtworkSongID = nil
-        updateNowPlayingArtworkIfNeeded()
+        updateNowPlayingArtworkIfNeeded(
+            forceReload: true,
+            preservingCurrentArtworkWhileLoading: true
+        )
     }
 
     func updateNowPlayingArtwork(_ image: PlatformImage) {

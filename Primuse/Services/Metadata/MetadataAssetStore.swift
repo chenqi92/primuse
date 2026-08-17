@@ -131,6 +131,37 @@ actor MetadataAssetStore {
         readContentAddressed(refURL: artworkDirectoryURL.appendingPathComponent(filename))
     }
 
+    /// Returns a cheap, stable identity for a cover without decoding or loading
+    /// the image into memory. Content-addressed redirects expose their SHA
+    /// directly; legacy raw files fall back to size + modification time so an
+    /// in-place artwork replacement still invalidates derived thumbnails.
+    nonisolated func coverContentIdentifier(named filename: String) -> String? {
+        guard !filename.isEmpty else { return nil }
+        let refURL = artworkDirectoryURL.appendingPathComponent(filename)
+        guard let handle = try? FileHandle(forReadingFrom: refURL) else { return nil }
+        defer { try? handle.close() }
+
+        let header: Data
+        do {
+            header = try handle.read(upToCount: Self.redirectPrefixData.count + 64) ?? Data()
+        } catch {
+            return nil
+        }
+        if header.starts(with: Self.redirectPrefixData) {
+            let hashData = header.dropFirst(Self.redirectPrefixData.count)
+            if let hash = String(data: hashData, encoding: .utf8), !hash.isEmpty {
+                return "sha256:\(hash)"
+            }
+        }
+
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: refURL.path),
+              let size = (attributes[.size] as? NSNumber)?.uint64Value,
+              let modified = attributes[.modificationDate] as? Date else {
+            return nil
+        }
+        return "legacy:\(size):\(modified.timeIntervalSinceReferenceDate.bitPattern)"
+    }
+
     // MARK: - Cover (per-song key)
 
     func storeCover(_ data: Data, for key: String) -> String? {

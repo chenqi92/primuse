@@ -280,6 +280,52 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
     }
 }
 
+public enum BluetoothDeferredResumeDecision: Equatable, Sendable {
+    case wait
+    case discard
+    case resume
+}
+
+/// Keeps a Bluetooth microphone preemption separate from a physical route loss.
+/// A2DP/HFP profile switches can report `.oldDeviceUnavailable`, but playback
+/// should pause only when the resulting route really falls back to the device.
+/// Deferred resume stays one-shot and cannot cross an item or user-intent change.
+public enum BluetoothPlaybackRecoveryPolicy {
+    public static func shouldPauseForRouteLoss(
+        reasonIsOldDeviceUnavailable: Bool,
+        previousRouteWasBluetooth: Bool,
+        currentRouteIsBluetooth: Bool
+    ) -> Bool {
+        reasonIsOldDeviceUnavailable
+            && !(previousRouteWasBluetooth && currentRouteIsBluetooth)
+    }
+
+    public static func deferredResumeDecision(
+        hasTicket: Bool,
+        currentRouteIsBluetoothHFP: Bool,
+        currentRouteIsBluetooth: Bool,
+        playbackIsIntended: Bool,
+        isAwaitingInterruptionEnd: Bool,
+        isPlaybackActuallyActive: Bool,
+        suspendedItemMatchesCurrent: Bool,
+        supportsAutomaticRecovery: Bool
+    ) -> BluetoothDeferredResumeDecision {
+        guard hasTicket else { return .discard }
+        guard !currentRouteIsBluetoothHFP,
+              currentRouteIsBluetooth,
+              !isAwaitingInterruptionEnd else {
+            return .wait
+        }
+        guard playbackIsIntended,
+              !isPlaybackActuallyActive,
+              suspendedItemMatchesCurrent,
+              supportsAutomaticRecovery else {
+            return .discard
+        }
+        return .resume
+    }
+}
+
 public enum RemotePlayCommandAction: Equatable, Sendable {
     case noActionableItem
     case alreadyPlaying

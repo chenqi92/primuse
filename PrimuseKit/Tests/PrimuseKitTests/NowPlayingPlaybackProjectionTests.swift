@@ -141,6 +141,88 @@ struct PlaybackInterruptionResumePolicyTests {
     }
 }
 
+@Suite("Bluetooth playback recovery policy")
+struct BluetoothPlaybackRecoveryPolicyTests {
+    @Test("Only a Bluetooth profile switch bypasses disconnect pause")
+    func profileSwitchDoesNotPause() {
+        #expect(!BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(
+            reasonIsOldDeviceUnavailable: true,
+            previousRouteWasBluetooth: true,
+            currentRouteIsBluetooth: true
+        ))
+        #expect(BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(
+            reasonIsOldDeviceUnavailable: true,
+            previousRouteWasBluetooth: true,
+            currentRouteIsBluetooth: false
+        ))
+        #expect(BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(
+            reasonIsOldDeviceUnavailable: true,
+            previousRouteWasBluetooth: false,
+            currentRouteIsBluetooth: true
+        ))
+        #expect(!BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(
+            reasonIsOldDeviceUnavailable: false,
+            previousRouteWasBluetooth: false,
+            currentRouteIsBluetooth: false
+        ))
+    }
+
+    @Test("Repeated notifications while HFP is active preserve the ticket")
+    func hfpKeepsWaiting() {
+        #expect(decision(isHFP: true) == .wait)
+        #expect(decision(isHFP: false, isBluetooth: true) == .resume)
+    }
+
+    @Test("A pending system interruption keeps waiting after A2DP returns")
+    func interruptionEndStillRequired() {
+        #expect(decision(
+            isHFP: false,
+            isBluetooth: true,
+            awaitingInterruptionEnd: true
+        ) == .wait)
+    }
+
+    @Test("Route loss waits instead of consuming the ticket")
+    func routeLossKeepsTicketUntilDisconnectHandlerCancelsIt() {
+        #expect(decision(isHFP: false, isBluetooth: false) == .wait)
+    }
+
+    @Test("User intent, item identity and local ownership gate resume")
+    func staleStateIsDiscarded() {
+        #expect(decision(playbackIsIntended: false) == .discard)
+        #expect(decision(itemMatches: false) == .discard)
+        #expect(decision(supportsAutomaticRecovery: false) == .discard)
+        #expect(decision(isPlaybackActuallyActive: true) == .discard)
+    }
+
+    @Test("No ticket has nothing to recover")
+    func noTicketIsDiscarded() {
+        #expect(decision(hasTicket: false) == .discard)
+    }
+
+    private func decision(
+        hasTicket: Bool = true,
+        isHFP: Bool = false,
+        isBluetooth: Bool = true,
+        playbackIsIntended: Bool = true,
+        awaitingInterruptionEnd: Bool = false,
+        isPlaybackActuallyActive: Bool = false,
+        itemMatches: Bool = true,
+        supportsAutomaticRecovery: Bool = true
+    ) -> BluetoothDeferredResumeDecision {
+        BluetoothPlaybackRecoveryPolicy.deferredResumeDecision(
+            hasTicket: hasTicket,
+            currentRouteIsBluetoothHFP: isHFP,
+            currentRouteIsBluetooth: isBluetooth,
+            playbackIsIntended: playbackIsIntended,
+            isAwaitingInterruptionEnd: awaitingInterruptionEnd,
+            isPlaybackActuallyActive: isPlaybackActuallyActive,
+            suspendedItemMatchesCurrent: itemMatches,
+            supportsAutomaticRecovery: supportsAutomaticRecovery
+        )
+    }
+}
+
 @Suite("Remote Play command policy")
 struct RemotePlayCommandPolicyTests {
     @Test("A repeated Play command accepts one in-flight playback request")

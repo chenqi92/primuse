@@ -46,6 +46,20 @@ struct NowPlayingArtworkFallbackPolicyTests {
 
 @Suite("Now Playing artwork publication policy")
 struct NowPlayingArtworkPublicationPolicyTests {
+    @Test("Same-track artwork refresh avoids an empty intermediate snapshot")
+    func sameTrackRefreshKeepsPublishedArtworkWhileLoading() {
+        #expect(!NowPlayingArtworkPublicationPolicy.shouldClearArtworkBeforeLoading(
+            isSameItemRefresh: true
+        ))
+    }
+
+    @Test("Track changes clear artwork owned by the previous item")
+    func trackChangeClearsPublishedArtworkWhileLoading() {
+        #expect(NowPlayingArtworkPublicationPolicy.shouldClearArtworkBeforeLoading(
+            isSameItemRefresh: false
+        ))
+    }
+
     @Test("Artwork is retained for updates to the same track")
     func sameTrackRetainsArtwork() {
         #expect(NowPlayingArtworkPublicationPolicy.shouldReuseArtwork(
