@@ -66,7 +66,7 @@ actor ScraperManager {
         if isCancellation(error) { return }
         if let scraperError = error as? ScraperError {
             switch scraperError {
-            case .notFound, .rateLimited, .noEnabledSource:
+            case .notFound, .rateLimited, .noEnabledSource, .busy:
                 return
             case .networkError, .parseError:
                 break

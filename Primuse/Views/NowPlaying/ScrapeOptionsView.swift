@@ -53,7 +53,7 @@ struct ScrapeOptionsView: View {
     @State private var scrapeMetadata = true
     @State private var scrapeCover = true
     @State private var scrapeLyrics = true
-    @State private var isScraping = false
+    @State private var isLocalScraping = false
     @State private var previewResult: ScrapePreview?
     @State private var searchResults: [SearchResultItem] = []
     @State private var isSearching = false
@@ -91,6 +91,17 @@ struct ScrapeOptionsView: View {
 
     private var hasEnabledScrapeOption: Bool {
         isAppleMusicSong ? scrapeLyrics : (scrapeMetadata || scrapeCover || scrapeLyrics)
+    }
+
+    private var isScraping: Bool {
+        isLocalScraping || scraperService.isSingleScrapeActive(
+            songID: song.id,
+            purposes: [.metadataPreview, .lyricsPreview]
+        )
+    }
+
+    private var isScrapeActionUnavailable: Bool {
+        isLocalScraping || scraperService.isSingleScraping || scraperService.isScraping
     }
 
     #if os(macOS)
@@ -178,6 +189,10 @@ struct ScrapeOptionsView: View {
                     Button("cancel") { closeView() }
                 }
             }
+        }
+        .onAppear { consumeAutomaticPreviewCompletion() }
+        .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
+            consumeAutomaticPreviewCompletion()
         }
         #endif
     }
@@ -400,7 +415,7 @@ struct ScrapeOptionsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isScraping)
+        .disabled(isScrapeActionUnavailable)
     }
 
     private func macCandidateSubtitle(_ item: SearchResultItem) -> String {
@@ -909,7 +924,7 @@ struct ScrapeOptionsView: View {
             Section {
                 // Auto scrape (preview before apply)
                 Button {
-                    Task { await autoScrape() }
+                    startAutomaticPreview()
                 } label: {
                     HStack {
                         Label("auto_scrape", systemImage: "wand.and.stars")
@@ -918,7 +933,7 @@ struct ScrapeOptionsView: View {
                         if isScraping { ProgressView() }
                     }
                 }
-                .disabled(isScraping || !hasEnabledScrapeOption)
+                .disabled(isScrapeActionUnavailable || !hasEnabledScrapeOption)
 
                 // Manual search
                 Button {
@@ -930,7 +945,7 @@ struct ScrapeOptionsView: View {
                         if isSearching { ProgressView() }
                     }
                 }
-                .disabled(isSearching)
+                .disabled(isSearching || isScrapeActionUnavailable)
 
                 // 手动搜索每个源返回上限 — 持久化到 AppStorage
                 Picker(selection: $searchLimit) {
@@ -1211,7 +1226,7 @@ struct ScrapeOptionsView: View {
                         }
                         .padding(.vertical, 2)
                     }
-                    .disabled(isScraping)
+                    .disabled(isScrapeActionUnavailable)
                 }
             }
         }
@@ -1240,70 +1255,69 @@ struct ScrapeOptionsView: View {
 
     // MARK: - Logic
 
-    private func autoScrape() async {
-        isScraping = true
+    private func startAutomaticPreview() {
         errorMessage = nil
 
-        do {
-            let updated: Song
-            let coverData: Data?
-            let lyricsLines: [LyricLine]?
-            if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                // A MusicKit library item has no readable source URL. Preview
-                // the supported online-lyrics result without persisting it;
-                // only the explicit Apply action below is allowed to replace
-                // the song's cached lyrics.
-                updated = song
-                coverData = nil
-                lyricsLines = await scraperService.fetchOnlineLyrics(
-                    title: song.title,
-                    artist: song.artistName,
-                    album: song.albumTitle,
-                    duration: song.duration > 0 ? song.duration : nil
-                )
-            } else {
-                (updated, coverData, lyricsLines) = try await scraperService.scrapeSingle(
-                    song: song,
-                    in: library,
-                    dryRun: true
-                )
-            }
-            isScraping = false
-
-            let lyricsCount = lyricsLines?.count ?? 0
-            let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
-
-            previewResult = ScrapePreview(
-                updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
-                lyricsLines: lyricsLines,
-                scrapedTitle: updated.title,
-                scrapedArtist: updated.artistName,
-                scrapedAlbum: updated.albumTitle,
-                scrapedYear: updated.year,
-                scrapedTrackNumber: updated.trackNumber,
-                scrapedGenre: updated.genre,
-                hasCover: coverData != nil,
-                hasLyrics: lyricsLines != nil && !lyricsLines!.isEmpty,
-                coverPixelWidth: coverPx?.0,
-                coverPixelHeight: coverPx?.1
-            )
-
-            // 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
-            applyTitle = !isAppleMusicSong && updated.title != song.title
-            applyArtist = !isAppleMusicSong && updated.artistName != song.artistName
-            applyAlbum = !isAppleMusicSong && updated.albumTitle != song.albumTitle
-            applyYear = !isAppleMusicSong && updated.year != song.year && updated.year != nil
-            applyTrack = !isAppleMusicSong && updated.trackNumber != song.trackNumber && updated.trackNumber != nil
-            applyGenre = !isAppleMusicSong && updated.genre != song.genre && updated.genre != nil
-            applyCover = !isAppleMusicSong && coverData != nil
-            applyLyrics = lyricsLines != nil && !lyricsLines!.isEmpty
-
-            previewSource = .options
-            mode = .preview
-        } catch {
-            isScraping = false
-            errorMessage = error.localizedDescription
+        let startResult = isAppleMusicSong
+            ? scraperService.startOnlineLyricsOnlyScrape(song: song, in: library, dryRun: true)
+            : scraperService.startSingleScrape(song: song, in: library, dryRun: true)
+        switch startResult {
+        case .started, .joined:
+            break
+        case .busy:
+            errorMessage = String(localized: "intent_scrape_busy")
+        case .noScraperSource:
+            errorMessage = String(localized: "scraper_no_source_message")
         }
+    }
+
+    private func consumeAutomaticPreviewCompletion() {
+        guard let completion = scraperService.consumeSingleScrapeCompletion(
+            songID: song.id,
+            purposes: [.metadataPreview, .lyricsPreview]
+        ) else { return }
+
+        guard let result = completion.result else {
+            errorMessage = completion.errorMessage ?? String(localized: "scrape_song_failed")
+            return
+        }
+        applyAutomaticPreview(result)
+    }
+
+    private func applyAutomaticPreview(_ result: MusicScraperService.SingleScrapeResult) {
+        let updated = result.song
+        let coverData = result.coverData
+        let lyricsLines = result.lyrics
+        let lyricsCount = lyricsLines?.count ?? 0
+        let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
+
+        previewResult = ScrapePreview(
+            updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
+            lyricsLines: lyricsLines,
+            scrapedTitle: updated.title,
+            scrapedArtist: updated.artistName,
+            scrapedAlbum: updated.albumTitle,
+            scrapedYear: updated.year,
+            scrapedTrackNumber: updated.trackNumber,
+            scrapedGenre: updated.genre,
+            hasCover: coverData != nil,
+            hasLyrics: lyricsLines?.isEmpty == false,
+            coverPixelWidth: coverPx?.0,
+            coverPixelHeight: coverPx?.1
+        )
+
+        // 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
+        applyTitle = !isAppleMusicSong && updated.title != song.title
+        applyArtist = !isAppleMusicSong && updated.artistName != song.artistName
+        applyAlbum = !isAppleMusicSong && updated.albumTitle != song.albumTitle
+        applyYear = !isAppleMusicSong && updated.year != song.year && updated.year != nil
+        applyTrack = !isAppleMusicSong && updated.trackNumber != song.trackNumber && updated.trackNumber != nil
+        applyGenre = !isAppleMusicSong && updated.genre != song.genre && updated.genre != nil
+        applyCover = !isAppleMusicSong && coverData != nil
+        applyLyrics = lyricsLines?.isEmpty == false
+
+        previewSource = .options
+        mode = .preview
     }
 
     private func manualSearch() async {
@@ -1401,7 +1415,7 @@ struct ScrapeOptionsView: View {
     }
 
     private func selectManualResult(_ item: SearchResultItem) async {
-        isScraping = true
+        isLocalScraping = true
         loadingItemID = item.id
         defer { loadingItemID = nil }
 
@@ -1463,7 +1477,7 @@ struct ScrapeOptionsView: View {
             let lyricsCount = lyricsLines?.count ?? 0
             plog("👉 Dedicated lyrics scrape returned: hasLyrics=\(hasLyrics) lines=\(lyricsCount)")
 
-            isScraping = false
+            isLocalScraping = false
             let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
 
             previewResult = ScrapePreview(
@@ -1492,7 +1506,7 @@ struct ScrapeOptionsView: View {
             previewSource = .manual
             mode = .preview
         } catch {
-            isScraping = false
+            isLocalScraping = false
             errorMessage = error.localizedDescription
         }
     }

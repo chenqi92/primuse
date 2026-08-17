@@ -885,16 +885,30 @@ final class AppServices {
                     )
                 }
             }
-            Task { @MainActor [scraperService, musicLibrary, playerService] in
-                let updated = await scraperService.scrapeOnlineLyricsOnly(
-                    song: song,
-                    in: musicLibrary
-                ).song
-                if playerService.currentSong?.id == updated.id {
-                    playerService.syncSongMetadata(updated)
-                    playerService.forceRefreshNowPlayingArtwork()
+            let startResult = scraperService.startOnlineLyricsOnlyScrape(
+                song: song,
+                in: musicLibrary
+            )
+            let runID: UUID
+            switch startResult {
+            case .started(let id), .joined(let id):
+                runID = id
+            case .busy:
+                return String(localized: "intent_scrape_busy")
+            case .noScraperSource:
+                return String(localized: "intent_scrape_no_source")
+            }
+            Task { @MainActor [scraperService, playerService] in
+                do {
+                    let updated = try await scraperService.awaitSingleScrape(runID: runID).song
+                    if playerService.currentSong?.id == updated.id {
+                        playerService.syncSongMetadata(updated)
+                        playerService.forceRefreshNowPlayingArtwork()
+                    }
+                    plog("🎙️ AppIntent lyrics scrape completed song=\(updated.id.prefix(12))")
+                } catch {
+                    plog("⚠️ AppIntent lyrics scrape failed: \(error.localizedDescription)")
                 }
-                plog("🎙️ AppIntent lyrics scrape completed song=\(updated.id.prefix(12))")
             }
             return String(
                 format: String(localized: "intent_scrape_started_lyrics_format"),

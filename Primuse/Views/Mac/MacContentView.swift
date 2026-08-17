@@ -299,7 +299,7 @@ struct MacContentView: View {
                 let updatedSong: Song
                 let scrapedLyrics: [LyricLine]?
                 if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                    let result = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
+                    let result = try await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
                     updatedSong = result.song
                     scrapedLyrics = result.lyrics
                 } else {

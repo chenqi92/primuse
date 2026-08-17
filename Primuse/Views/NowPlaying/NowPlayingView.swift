@@ -124,7 +124,7 @@ struct NowPlayingView: View {
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsRevision: UInt = 0
     @State private var lyricsLoadRevision: UInt = 0
-    @State private var isScrapingCurrentSong = false
+    @State private var isResolvingScrapeTarget = false
     @State private var scrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
@@ -148,6 +148,18 @@ struct NowPlayingView: View {
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
+
+    private var isScrapingCurrentSong: Bool {
+        guard let songID = player.currentSong?.id else { return isResolvingScrapeTarget }
+        return isResolvingScrapeTarget || scraperService.isSingleScrapeActive(
+            songID: songID,
+            purposes: [.metadataApply, .lyricsApply]
+        )
+    }
+
+    private var isScrapeActionUnavailable: Bool {
+        isResolvingScrapeTarget || scraperService.isScraping || scraperService.isSingleScraping
     }
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
@@ -468,11 +480,16 @@ struct NowPlayingView: View {
             applyFullscreenEffectPresentation(effect)
         }
         .task(id: player.currentSong?.id) {
+            consumeAutomaticScrapeCompletion()
             if player.isLiveRadio {
                 lyrics = []
             } else {
                 await loadLyrics()
             }
+            consumeAutomaticScrapeCompletion()
+        }
+        .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
+            consumeAutomaticScrapeCompletion()
         }
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
@@ -1760,7 +1777,7 @@ struct NowPlayingView: View {
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
-            isScrapingCurrentSong: isScrapingCurrentSong,
+            isScrapingCurrentSong: isScrapeActionUnavailable,
             isAppleMusicMode: player.isAppleMusicMode,
             canDeleteSourceFile: player.currentSong.map {
                 SourceFileDeletionPolicy.shouldShowDeleteAction(
@@ -1895,6 +1912,7 @@ struct NowPlayingView: View {
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
+            isScrapeActionUnavailable: isScrapeActionUnavailable,
             onAutomaticScrape: { startAutomaticLyricsScrape() },
             onBackgroundTap: {
                 if isLyricsImmersive {
@@ -2255,7 +2273,7 @@ struct NowPlayingView: View {
     /// choose a different provider result on every tap.
     private func openScrapeForCurrentSong() {
         guard let displayedSong = player.currentSong else { return }
-        guard !isScrapingCurrentSong else { return }
+        guard !isScrapeActionUnavailable else { return }
 
         scraperSettings.performSingleSongScrapeAction(
             from: .nowPlayingOptions,
@@ -2273,9 +2291,9 @@ struct NowPlayingView: View {
         // Resolve the transient MusicKit catalog identity before presenting
         // the sheet. Await alias preservation first so an older cached lyric
         // cannot race with the user's later Apply action.
-        isScrapingCurrentSong = true
+        isResolvingScrapeTarget = true
         Task { @MainActor in
-            defer { isScrapingCurrentSong = false }
+            defer { isResolvingScrapeTarget = false }
             let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
             if canonical.id != displayedSong.id {
                 _ = await MetadataAssetStore.shared.preserveLyricsAlias(
@@ -2297,7 +2315,7 @@ struct NowPlayingView: View {
     /// automatic/manual candidate sheet.
     private func startAutomaticLyricsScrape() {
         guard let displayedSong = player.currentSong,
-              !isScrapingCurrentSong else { return }
+              !isScrapeActionUnavailable else { return }
 
         scraperSettings.performSingleSongScrapeAction(
             from: .nowPlayingAutomaticLyrics,
@@ -2311,68 +2329,82 @@ struct NowPlayingView: View {
         // scraper starts. Otherwise that older request can finish after the
         // freshly scraped cache write and replace the new lyrics.
         lyricsLoadRevision &+= 1
-        isScrapingCurrentSong = true
+
+        guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
+            handleAutomaticScrapeStart(
+                scraperService.startSingleScrape(song: displayedSong, in: library)
+            )
+            return
+        }
+
+        isResolvingScrapeTarget = true
         Task { @MainActor in
-            defer { isScrapingCurrentSong = false }
-
-            do {
-                let song: Song
-                if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
-                    song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
-                    if song.id != displayedSong.id {
-                        _ = await MetadataAssetStore.shared.preserveLyricsAlias(
-                            fromSongID: displayedSong.id,
-                            toSongID: song.id
-                        )
-                        if player.currentSong?.id == displayedSong.id
-                            || player.currentSong?.id == song.id {
-                            player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
-                        }
-                    }
-                } else {
-                    song = displayedSong
-                }
-
-                let updatedSong: Song
-                let scrapedCoverData: Data?
-                let scrapedLyrics: [LyricLine]?
-                if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                    let result = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
-                    updatedSong = result.song
-                    scrapedCoverData = nil
-                    scrapedLyrics = result.lyrics
-                } else {
-                    let result = try await scraperService.scrapeSingle(song: song, in: library)
-                    updatedSong = result.0
-                    scrapedCoverData = result.1
-                    scrapedLyrics = result.2
-                }
-
-                CachedArtworkView.invalidateCache(for: updatedSong.id)
-                if let oldRef = song.coverArtFileName {
-                    CachedArtworkView.invalidateCache(for: oldRef)
-                }
-                player.syncSongMetadata(updatedSong)
-                player.forceRefreshNowPlayingArtwork()
-
-                if player.currentSong?.id == updatedSong.id {
-                    if let scrapedLyrics, !scrapedLyrics.isEmpty {
-                        setLyrics(scrapedLyrics)
-                    } else {
-                        await loadLyrics()
-                    }
-                }
-                scrapeAlertMessage = automaticScrapeSummary(
-                    original: song,
-                    updated: updatedSong,
-                    coverFound: scrapedCoverData != nil,
-                    lyricsFound: scrapedLyrics?.isEmpty == false,
-                    lyricsOnly: song.sourceID == AppleMusicLibraryIdentity.sourceID
+            defer { isResolvingScrapeTarget = false }
+            let song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+            if song.id != displayedSong.id {
+                _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                    fromSongID: displayedSong.id,
+                    toSongID: song.id
                 )
-            } catch {
-                scrapeAlertMessage = String(localized: "scrape_song_failed")
+                if player.currentSong?.id == displayedSong.id
+                    || player.currentSong?.id == song.id {
+                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                }
+            }
+            handleAutomaticScrapeStart(
+                scraperService.startOnlineLyricsOnlyScrape(song: song, in: library)
+            )
+        }
+    }
+
+    private func handleAutomaticScrapeStart(
+        _ result: MusicScraperService.SingleScrapeStartResult
+    ) {
+        switch result {
+        case .started, .joined:
+            break
+        case .busy:
+            scrapeAlertMessage = String(localized: "intent_scrape_busy")
+        case .noScraperSource:
+            showNoScraperSourceAlert = true
+        }
+    }
+
+    private func consumeAutomaticScrapeCompletion() {
+        guard let songID = player.currentSong?.id,
+              let completion = scraperService.consumeSingleScrapeCompletion(
+                songID: songID,
+                purposes: [.metadataApply, .lyricsApply]
+              ) else { return }
+
+        guard let result = completion.result else {
+            scrapeAlertMessage = String(localized: "scrape_song_failed")
+            return
+        }
+
+        let updatedSong = result.song
+        CachedArtworkView.invalidateCache(for: updatedSong.id)
+        if let oldRef = result.originalSong.coverArtFileName {
+            CachedArtworkView.invalidateCache(for: oldRef)
+        }
+        player.syncSongMetadata(updatedSong)
+        player.forceRefreshNowPlayingArtwork()
+
+        if player.currentSong?.id == updatedSong.id {
+            if let scrapedLyrics = result.lyrics, !scrapedLyrics.isEmpty {
+                lyricsLoadRevision &+= 1
+                setLyrics(scrapedLyrics)
+            } else {
+                Task { await loadLyrics() }
             }
         }
+        scrapeAlertMessage = automaticScrapeSummary(
+            original: result.originalSong,
+            updated: updatedSong,
+            coverFound: result.coverData != nil,
+            lyricsFound: result.lyrics?.isEmpty == false,
+            lyricsOnly: completion.activity.key.purpose == .lyricsApply
+        )
     }
 
     /// The empty-lyrics button applies results immediately, so its completion
@@ -3674,6 +3706,7 @@ struct LyricsScrollView: View {
     let player: AudioPlayerService
     let songID: String?
     let isScrapingCurrentSong: Bool
+    let isScrapeActionUnavailable: Bool
     let onAutomaticScrape: () -> Void
     let onBackgroundTap: () -> Void
 
@@ -3828,7 +3861,7 @@ struct LyricsScrollView: View {
             }
             .buttonStyle(.bordered)
             .tint(appearance.primary)
-            .disabled(isScrapingCurrentSong)
+            .disabled(isScrapeActionUnavailable)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

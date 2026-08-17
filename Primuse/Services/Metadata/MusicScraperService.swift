@@ -107,6 +107,26 @@ final class MusicScraperService {
         }
     }
 
+    enum SingleScrapeStartResult: Equatable {
+        case started(runID: UUID)
+        case joined(runID: UUID)
+        case busy
+        case noScraperSource
+    }
+
+    struct SingleScrapeResult: Sendable {
+        let originalSong: Song
+        let song: Song
+        let coverData: Data?
+        let lyrics: [LyricLine]?
+    }
+
+    struct SingleScrapeCompletion: Sendable {
+        let activity: SingleSongScrapeActivity
+        let result: SingleScrapeResult?
+        let errorMessage: String?
+    }
+
     nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
     nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
     nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
@@ -118,7 +138,11 @@ final class MusicScraperService {
     private var backgroundEnrichmentTask: Task<Void, Never>?
     private var sidecarWriteTasks: [UUID: Task<Void, Never>] = [:]
     private let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
-    private var isSingleScraping = false
+    private var singleScrapeTask: Task<SingleScrapeResult, Error>?
+    private var pendingSingleScrapeCompletions: [SingleSongScrapeKey: SingleScrapeCompletion] = [:]
+    private var singleScrapeCompletionOrder: [SingleSongScrapeKey] = []
+    private var recentSingleScrapeCompletions: [UUID: SingleScrapeCompletion] = [:]
+    private var singleScrapeRunOrder: [UUID] = []
     private var pendingEnrichmentSongIDs: [String] = []
     private var pendingEnrichmentSongIDSet: Set<String> = []
     private var isPausedForSceneTransition = false
@@ -166,6 +190,8 @@ final class MusicScraperService {
     private(set) var completionRevision: UInt = 0
     private(set) var activeRunID: UUID?
     private(set) var activeOriginPlaylistID: String?
+    private(set) var activeSingleScrape: SingleSongScrapeActivity?
+    private(set) var singleScrapeCompletionRevision: UInt = 0
     private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
     private var artworkTargetIDs: [String] = []
 
@@ -184,6 +210,10 @@ final class MusicScraperService {
     /// or from the registered BGProcessingTask.
     var hasPendingScrape: Bool {
         scrapeCheckpoint?.songIDs.isEmpty == false
+    }
+
+    var isSingleScraping: Bool {
+        activeSingleScrape != nil
     }
 
     var progress: Double {
@@ -250,25 +280,188 @@ final class MusicScraperService {
         startScraping(in: library, forceRescrape: true)
     }
 
-    /// Scrape single song — never overwrites existing cover/lyrics with nil
-    /// dryRun: if true, returns updated song without writing to library
-    func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> (Song, Data?, [LyricLine]?) {
-        guard !isScraping, !isSingleScraping else {
-            throw ScraperError.networkError(String(localized: "scrape_song_failed"))
+    @discardableResult
+    func startSingleScrape(
+        song: Song,
+        in library: MusicLibrary,
+        dryRun: Bool = false
+    ) -> SingleScrapeStartResult {
+        let purpose: SingleSongScrapePurpose = dryRun ? .metadataPreview : .metadataApply
+        let key = SingleSongScrapeKey(songID: song.id, purpose: purpose)
+        return startManagedSingleScrape(key: key, in: library) { [self] in
+            try await performSingleScrape(song: song, in: library, dryRun: dryRun)
         }
+    }
+
+    @discardableResult
+    func startOnlineLyricsOnlyScrape(
+        song: Song,
+        in library: MusicLibrary,
+        dryRun: Bool = false
+    ) -> SingleScrapeStartResult {
+        let purpose: SingleSongScrapePurpose = dryRun ? .lyricsPreview : .lyricsApply
+        let key = SingleSongScrapeKey(songID: song.id, purpose: purpose)
+        return startManagedSingleScrape(key: key, in: library) { [self] in
+            await performOnlineLyricsOnlyScrape(song: song, in: library, dryRun: dryRun)
+        }
+    }
+
+    func isSingleScrapeActive(
+        songID: String,
+        purposes: [SingleSongScrapePurpose]
+    ) -> Bool {
+        guard let key = activeSingleScrape?.key else { return false }
+        return key.songID == songID && purposes.contains(key.purpose)
+    }
+
+    func consumeSingleScrapeCompletion(
+        songID: String,
+        purposes: [SingleSongScrapePurpose]
+    ) -> SingleScrapeCompletion? {
+        for purpose in purposes {
+            let key = SingleSongScrapeKey(songID: songID, purpose: purpose)
+            guard let completion = pendingSingleScrapeCompletions.removeValue(forKey: key) else {
+                continue
+            }
+            singleScrapeCompletionOrder.removeAll { $0 == key }
+            return completion
+        }
+        return nil
+    }
+
+    private func startManagedSingleScrape(
+        key: SingleSongScrapeKey,
+        in library: MusicLibrary,
+        operation: @escaping @MainActor @Sendable () async throws -> SingleScrapeResult
+    ) -> SingleScrapeStartResult {
+        guard !isScraping else {
+            plog("MusicScraperService: rejected single scrape while batch scrape is active")
+            return .busy
+        }
+
+        switch SingleSongScrapeSessionPolicy.admission(
+            active: activeSingleScrape,
+            request: key
+        ) {
+        case .join(let runID):
+            plog("MusicScraperService: joined single scrape run=\(runID) song=\(key.songID.prefix(12))")
+            return .joined(runID: runID)
+        case .busy(let active):
+            plog("MusicScraperService: rejected overlapping single scrape; active=\(active.runID)")
+            return .busy
+        case .start:
+            break
+        }
+
         guard ScraperAvailability.hasEnabledSource else {
             plog("MusicScraperService: no enabled scraper source, single scrape aborted")
+            return .noScraperSource
+        }
+
+        let activity = SingleSongScrapeActivity(runID: UUID(), key: key)
+        pendingSingleScrapeCompletions[key] = nil
+        singleScrapeCompletionOrder.removeAll { $0 == key }
+        activeSingleScrape = activity
+
+        let task = Task { @MainActor [weak self] () throws -> SingleScrapeResult in
+            guard let self else { throw CancellationError() }
+            do {
+                let result = try await operation()
+                finishSingleScrape(activity: activity, result: result, error: nil, in: library)
+                return result
+            } catch {
+                finishSingleScrape(activity: activity, result: nil, error: error, in: library)
+                throw error
+            }
+        }
+        singleScrapeTask = task
+        return .started(runID: activity.runID)
+    }
+
+    private func finishSingleScrape(
+        activity: SingleSongScrapeActivity,
+        result: SingleScrapeResult?,
+        error: Error?,
+        in library: MusicLibrary
+    ) {
+        guard activeSingleScrape?.runID == activity.runID else { return }
+
+        let completion = SingleScrapeCompletion(
+            activity: activity,
+            result: result,
+            errorMessage: error?.localizedDescription
+        )
+        pendingSingleScrapeCompletions[activity.key] = completion
+        singleScrapeCompletionOrder.removeAll { $0 == activity.key }
+        singleScrapeCompletionOrder.append(activity.key)
+        while singleScrapeCompletionOrder.count > 8 {
+            let expiredKey = singleScrapeCompletionOrder.removeFirst()
+            pendingSingleScrapeCompletions[expiredKey] = nil
+        }
+        recentSingleScrapeCompletions[activity.runID] = completion
+        singleScrapeRunOrder.removeAll { $0 == activity.runID }
+        singleScrapeRunOrder.append(activity.runID)
+        while singleScrapeRunOrder.count > 8 {
+            let expiredRunID = singleScrapeRunOrder.removeFirst()
+            recentSingleScrapeCompletions[expiredRunID] = nil
+        }
+
+        activeSingleScrape = nil
+        singleScrapeTask = nil
+        singleScrapeCompletionRevision &+= 1
+        startBackgroundEnrichmentIfNeeded(in: library)
+    }
+
+    func awaitSingleScrape(runID: UUID) async throws -> SingleScrapeResult {
+        if activeSingleScrape?.runID == runID, let singleScrapeTask {
+            return try await singleScrapeTask.value
+        }
+        if let completion = recentSingleScrapeCompletions[runID] {
+            if let result = completion.result {
+                return result
+            }
+            throw ScraperError.networkError(
+                completion.errorMessage ?? String(localized: "scrape_song_failed")
+            )
+        }
+        throw ScraperError.busy
+    }
+
+    /// Scrape single song — never overwrites existing cover/lyrics with nil
+    /// dryRun: if true, returns updated song without writing to library
+    func scrapeSingle(
+        song: Song,
+        in library: MusicLibrary,
+        dryRun: Bool = false
+    ) async throws -> (Song, Data?, [LyricLine]?) {
+        let startResult = startSingleScrape(song: song, in: library, dryRun: dryRun)
+        let runID: UUID
+        switch startResult {
+        case .started(let id), .joined(let id):
+            runID = id
+        case .busy:
+            throw ScraperError.busy
+        case .noScraperSource:
             throw ScraperError.noEnabledSource
         }
-        isSingleScraping = true
-        defer {
-            isSingleScraping = false
-            startBackgroundEnrichmentIfNeeded(in: library)
-        }
+        let result = try await awaitSingleScrape(runID: runID)
+        return (result.song, result.coverData, result.lyrics)
+    }
+
+    private func performSingleScrape(
+        song: Song,
+        in library: MusicLibrary,
+        dryRun: Bool
+    ) async throws -> SingleScrapeResult {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
 
         guard let result = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun) else {
-            return (song, nil, nil)
+            return SingleScrapeResult(
+                originalSong: song,
+                song: song,
+                coverData: nil,
+                lyrics: nil
+            )
         }
         var updatedSong = result.song
 
@@ -397,7 +590,12 @@ final class MusicScraperService {
                 lyricsLines: result.lyricsLines
             )
         }
-        return (updatedSong, result.coverData, result.lyricsLines)
+        return SingleScrapeResult(
+            originalSong: song,
+            song: updatedSong,
+            coverData: result.coverData,
+            lyrics: result.lyricsLines
+        )
     }
 
     func suggestedScrapeTitle(for song: Song) async -> String {
@@ -452,11 +650,26 @@ final class MusicScraperService {
     func scrapeOnlineLyricsOnly(
         song: Song,
         in library: MusicLibrary
-    ) async -> (song: Song, lyrics: [LyricLine]?) {
-        guard ScraperAvailability.hasEnabledSource else {
-            plog("MusicScraperService: no enabled scraper source, lyrics-only scrape aborted")
-            return (song, nil)
+    ) async throws -> (song: Song, lyrics: [LyricLine]?) {
+        let startResult = startOnlineLyricsOnlyScrape(song: song, in: library)
+        let runID: UUID
+        switch startResult {
+        case .started(let id), .joined(let id):
+            runID = id
+        case .busy:
+            throw ScraperError.busy
+        case .noScraperSource:
+            throw ScraperError.noEnabledSource
         }
+        let result = try await awaitSingleScrape(runID: runID)
+        return (result.song, result.lyrics)
+    }
+
+    private func performOnlineLyricsOnlyScrape(
+        song: Song,
+        in library: MusicLibrary,
+        dryRun: Bool
+    ) async -> SingleScrapeResult {
         let fetched = await fetchOnlineLyrics(
             title: song.title,
             artist: song.artistName,
@@ -464,14 +677,33 @@ final class MusicScraperService {
             duration: song.duration > 0 ? song.duration : nil
         )
         guard let lyrics = fetched, !lyrics.isEmpty else {
-            return (song, nil)
+            return SingleScrapeResult(
+                originalSong: song,
+                song: song,
+                coverData: nil,
+                lyrics: nil
+            )
+        }
+
+        guard !dryRun else {
+            return SingleScrapeResult(
+                originalSong: song,
+                song: song,
+                coverData: nil,
+                lyrics: lyrics
+            )
         }
 
         await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: true)
         var updated = song
         updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
         library.replaceSong(updated)
-        return (updated, lyrics)
+        return SingleScrapeResult(
+            originalSong: song,
+            song: updated,
+            coverData: nil,
+            lyrics: lyrics
+        )
     }
 
     nonisolated static func searchQuery(title: String, artist: String?) -> String {
