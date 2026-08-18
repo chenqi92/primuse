@@ -303,6 +303,14 @@ final class SongSelectionModel {
         anchorID = songID
     }
 
+    /// Desktop lists use a plain click to replace the current selection, while
+    /// Command-click toggles and Shift-click extends a range.
+    func selectOnly(_ songID: String) {
+        isActive = true
+        replaceSelection(with: [songID])
+        anchorID = songID
+    }
+
     private func add<S: Sequence>(_ songIDs: S) where S.Element == String {
         var changedSongIDs = Set<String>()
         for songID in songIDs where selectedIDsStorage.insert(songID).inserted {

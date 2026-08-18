@@ -387,7 +387,8 @@ struct AlbumDetailView: View {
                         .songSelectable(
                             songID: song.id,
                             selection: selection,
-                            orderedIDs: { orderedSongIDs }
+                            orderedIDs: { orderedSongIDs },
+                            defaultAction: { playSong(song) }
                         )
                 }
             }

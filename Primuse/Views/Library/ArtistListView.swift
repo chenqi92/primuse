@@ -11,6 +11,11 @@ struct ArtistListView: View {
         return artists.filter { $0.name.localizedCaseInsensitiveContains(q) }
     }
 
+    private func displayName(for artist: Artist) -> String {
+        let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? String(localized: "unknown_artist") : name
+    }
+
     var body: some View {
         #if os(macOS)
         macBody
@@ -41,7 +46,7 @@ struct ArtistListView: View {
                                           size: 44, cornerRadius: 22)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(artist.name)
+                            Text(displayName(for: artist))
                                 .font(.body)
 
                             Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
@@ -161,7 +166,7 @@ struct ArtistListView: View {
                 CachedArtworkView(artistID: artist.id, artistName: artist.name,
                                   size: 36, cornerRadius: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(artist.name)
+                    Text(displayName(for: artist))
                         .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)

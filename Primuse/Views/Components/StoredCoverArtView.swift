@@ -422,6 +422,9 @@ struct LibraryArtworkEditorSheet: View {
     @State private var selectedPhoto: PhotosPickerItem?
     #else
     @State private var isFileImporterPresented = false
+    @State private var macDraftChoice: MacArtworkChoice?
+    @State private var macPendingUploadData: Data?
+    @State private var macUploadedPreview: PlatformImage?
     #endif
 
     private var resolution: LibraryArtworkOverrideResolution {
@@ -429,6 +432,15 @@ struct LibraryArtworkEditorSheet: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        macEditor
+        #else
+        iosEditor
+        #endif
+    }
+
+    #if os(iOS)
+    private var iosEditor: some View {
         NavigationStack {
             List {
                 Section {
@@ -492,30 +504,7 @@ struct LibraryArtworkEditorSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-            #if os(macOS)
-            .fileImporter(
-                isPresented: $isFileImporterPresented,
-                allowedContentTypes: [.image],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else { return }
-                    let accessed = url.startAccessingSecurityScopedResource()
-                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                    guard let data = try? Data(contentsOf: url) else {
-                        errorMessage = String(localized: "artwork_invalid_image")
-                        return
-                    }
-                    processUpload(data)
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                }
-            }
-            .frame(minWidth: 480, minHeight: 560)
-            #endif
         }
-        #if os(iOS)
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
             Task {
@@ -530,8 +519,408 @@ struct LibraryArtworkEditorSheet: View {
                 }
             }
         }
-        #endif
     }
+    #endif
+
+    #if os(macOS)
+    private enum MacArtworkChoice: Equatable {
+        case automatic
+        case selectedSong(String)
+        case uploaded(String)
+        case pendingUpload
+    }
+
+    private var resolvedMacChoice: MacArtworkChoice {
+        switch resolution {
+        case .automatic:
+            return .automatic
+        case .selectedSong(let songID):
+            return .selectedSong(songID)
+        case .uploaded(let contentID):
+            return .uploaded(contentID)
+        }
+    }
+
+    private var macChoice: MacArtworkChoice {
+        macDraftChoice ?? resolvedMacChoice
+    }
+
+    private var macHasChanges: Bool {
+        macChoice != resolvedMacChoice
+    }
+
+    private var macEditor: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(verbatim: title)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text("artwork_storage_hint")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 16)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 24, height: 24)
+                        .background(PMColor.glassBtn, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("cancel"))
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 18)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 14) {
+                    macArtworkPreview
+                        .frame(width: 176, height: 176)
+                        .background(PMColor.bgDeep, in: .rect(cornerRadius: PMRadius.l))
+                        .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                        .shadow(color: .black.opacity(0.18), radius: 16, y: 7)
+
+                    VStack(spacing: 8) {
+                        macChoiceButton(
+                            titleKey: "artwork_mode_automatic",
+                            systemImage: "wand.and.stars",
+                            choice: .automatic
+                        )
+
+                        Button {
+                            isFileImporterPresented = true
+                        } label: {
+                            macChoiceLabel(
+                                titleKey: "artwork_upload",
+                                systemImage: "photo.badge.plus",
+                                isSelected: {
+                                    switch macChoice {
+                                    case .uploaded, .pendingUpload: true
+                                    default: false
+                                    }
+                                }()
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(width: 176)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("artwork_choose_song")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                        Text(verbatim: songs.count.formatted())
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+
+                    if songs.isEmpty {
+                        ContentUnavailableView(
+                            String(localized: "artwork_no_songs"),
+                            systemImage: "photo.on.rectangle.angled"
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView(.vertical) {
+                            LazyVGrid(
+                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
+                                alignment: .leading,
+                                spacing: 14
+                            ) {
+                                ForEach(songs) { song in
+                                    macSongChoice(song)
+                                }
+                            }
+                            .padding(1)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .padding(24)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack(spacing: 10) {
+                if isProcessing {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("artwork_processing")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                Spacer()
+                Button("cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("save") { applyMacChoice() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(PMColor.brand)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!macHasChanges || isProcessing)
+            }
+            .controlSize(.regular)
+            .padding(.horizontal, 24)
+            .frame(height: 58)
+        }
+        .frame(width: 700, height: 540)
+        .background(PMColor.bg)
+        .disabled(isProcessing)
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false,
+            onCompletion: handleMacImport
+        )
+        .alert(
+            String(localized: "artwork_upload_failed"),
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .onAppear {
+            macDraftChoice = resolvedMacChoice
+            if case .uploaded(let contentID) = resolvedMacChoice,
+               let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID) {
+                macUploadedPreview = PlatformImage(data: data)
+            }
+        }
+    }
+
+    private func macChoiceButton(
+        titleKey: LocalizedStringKey,
+        systemImage: String,
+        choice: MacArtworkChoice
+    ) -> some View {
+        Button {
+            macDraftChoice = choice
+        } label: {
+            macChoiceLabel(
+                titleKey: titleKey,
+                systemImage: systemImage,
+                isSelected: macChoice == choice
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macChoiceLabel(
+        titleKey: LocalizedStringKey,
+        systemImage: String,
+        isSelected: Bool
+    ) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isSelected ? PMColor.brand : PMColor.textMuted)
+                .frame(width: 16)
+            Text(titleKey)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(PMColor.text)
+            Spacer(minLength: 6)
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 13))
+                .foregroundStyle(isSelected ? PMColor.brand : PMColor.textFaint)
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 36)
+        .background(isSelected ? PMColor.brand.opacity(0.12) : PMColor.bgElev,
+                    in: .rect(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSelected ? PMColor.brand.opacity(0.5) : PMColor.cardBorder,
+                              lineWidth: 0.5)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var macArtworkPreview: some View {
+        Group {
+            switch macChoice {
+            case .automatic:
+                macAutomaticPreview
+            case .selectedSong(let songID):
+                if let song = songs.first(where: { $0.id == songID }) {
+                    macArtwork(for: song, size: 176)
+                } else {
+                    macPreviewPlaceholder
+                }
+            case .uploaded(let contentID):
+                if let image = macUploadedPreview
+                    ?? MetadataAssetStore.shared.customArtworkData(contentID: contentID).flatMap(PlatformImage.init(data:)) {
+                    Image(platformImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    macPreviewPlaceholder
+                }
+            case .pendingUpload:
+                if let image = macUploadedPreview {
+                    Image(platformImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    macPreviewPlaceholder
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var macAutomaticPreview: some View {
+        switch owner.kind {
+        case .album:
+            if let album = library.visibleAlbums.first(where: { $0.id == owner.id }) {
+                CachedArtworkView(
+                    albumID: album.id,
+                    albumTitle: album.title,
+                    artistName: album.artistName,
+                    size: 176,
+                    cornerRadius: 0
+                )
+            } else if let song = songs.first {
+                macArtwork(for: song, size: 176)
+            } else {
+                macPreviewPlaceholder
+            }
+        case .playlist:
+            if resolution == .automatic, let playlist = library.playlist(id: owner.id) {
+                PlaylistArtworkView(playlist: playlist, size: 176, cornerRadius: 0)
+            } else if let song = songs.first {
+                macArtwork(for: song, size: 176)
+            } else {
+                macPreviewPlaceholder
+            }
+        }
+    }
+
+    private var macPreviewPlaceholder: some View {
+        ZStack {
+            PMColor.bgDeep
+            Image(systemName: "photo")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(PMColor.textFaint)
+        }
+    }
+
+    private func macSongChoice(_ song: PrimuseKit.Song) -> some View {
+        let isSelected: Bool = {
+            guard case .selectedSong(let songID) = macChoice else { return false }
+            return songID == song.id
+        }()
+        let isAvailable = artworkAvailability[song.id] == true
+        return Button {
+            macDraftChoice = .selectedSong(song.id)
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                ZStack(alignment: .topTrailing) {
+                    macArtwork(for: song, size: 86)
+                        .frame(width: 86, height: 86)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 17))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, PMColor.brand)
+                            .padding(6)
+                    }
+                }
+                Text(song.title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(song.artistName ?? String(localized: "unknown_artist"))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? PMColor.brand.opacity(0.12) : .clear,
+                        in: .rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? PMColor.brand.opacity(0.55) : PMColor.cardBorder,
+                                  lineWidth: 0.5)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isAvailable)
+        .opacity(isAvailable ? 1 : 0.45)
+    }
+
+    private func macArtwork(for song: PrimuseKit.Song, size: CGFloat) -> some View {
+        CachedArtworkView(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: size,
+            cornerRadius: 0,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat,
+            onResolutionChange: { available in
+                artworkAvailability[song.id] = available
+            }
+        )
+    }
+
+    private func handleMacImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                errorMessage = String(localized: "artwork_invalid_image")
+                return
+            }
+            processUpload(data)
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func applyMacChoice() {
+        switch macChoice {
+        case .automatic:
+            if library.setAutomaticArtwork(for: owner) { dismiss() }
+        case .selectedSong(let songID):
+            guard let song = songs.first(where: { $0.id == songID }) else { return }
+            if library.setArtwork(for: owner, to: song) { dismiss() }
+        case .uploaded(let contentID):
+            if library.setUploadedArtwork(contentID: contentID, for: owner) { dismiss() }
+        case .pendingUpload:
+            guard let data = macPendingUploadData else { return }
+            isProcessing = true
+            Task {
+                guard let contentID = await MetadataAssetStore.shared.storeCustomArtwork(data),
+                      library.setUploadedArtwork(contentID: contentID, for: owner) else {
+                    isProcessing = false
+                    errorMessage = String(localized: "artwork_invalid_image")
+                    return
+                }
+                isProcessing = false
+                dismiss()
+            }
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var uploadControl: some View {
@@ -641,15 +1030,27 @@ struct LibraryArtworkEditorSheet: View {
             let processed = await Task.detached(priority: .userInitiated) {
                 LibraryArtworkImageProcessor.process(data)
             }.value
-            guard let processed,
-                  let contentID = await MetadataAssetStore.shared.storeCustomArtwork(processed),
+            guard let processed else {
+                isProcessing = false
+                errorMessage = String(localized: "artwork_invalid_image")
+                return
+            }
+            #if os(macOS)
+            macPendingUploadData = processed
+            macUploadedPreview = PlatformImage(data: processed)
+            macDraftChoice = .pendingUpload
+            #else
+            guard let contentID = await MetadataAssetStore.shared.storeCustomArtwork(processed),
                   library.setUploadedArtwork(contentID: contentID, for: owner) else {
                 isProcessing = false
                 errorMessage = String(localized: "artwork_invalid_image")
                 return
             }
+            #endif
             isProcessing = false
+            #if os(iOS)
             dismiss()
+            #endif
         }
     }
 }

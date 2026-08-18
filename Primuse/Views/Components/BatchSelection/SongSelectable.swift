@@ -66,6 +66,40 @@ private struct SongSelectableModifier: ViewModifier {
     }
 
     private func activeContent(_ content: Content, isSelected: Bool) -> some View {
+        #if os(macOS)
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? PMColor.brand.opacity(0.16) : .clear)
+            }
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Capsule()
+                        .fill(PMColor.brand)
+                        .frame(width: 3)
+                        .padding(.vertical, 5)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        defaultAction?()
+                    }
+                    .onTapGesture {
+                        handleTap()
+                    }
+            }
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(
+                isSelected ? [.isButton, .isSelected] : .isButton
+            )
+            .accessibilityAction(named: Text("batch_select")) {
+                handleTap()
+            }
+        #else
         content
             .overlay(alignment: overlayAlignment) {
                 SongSelectionCheckmark(isSelected: isSelected)
@@ -88,6 +122,7 @@ private struct SongSelectableModifier: ViewModifier {
             .accessibilityAction(named: Text("batch_select")) {
                 handleTap()
             }
+        #endif
     }
 
     #if os(iOS)
@@ -115,8 +150,14 @@ private struct SongSelectableModifier: ViewModifier {
             selection.selectRange(to: songID, in: orderedIDs())
             return
         }
-        #endif
+        if NSEvent.modifierFlags.contains(.command) {
+            selection.toggle(songID)
+            return
+        }
+        selection.selectOnly(songID)
+        #else
         selection.toggle(songID)
+        #endif
     }
 }
 

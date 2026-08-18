@@ -508,14 +508,20 @@ struct SearchView: View {
                             .songSelectable(
                                 songID: result.song.id,
                                 selection: selection,
-                                orderedIDs: { selectableSongIDs }
+                                orderedIDs: { selectableSongIDs },
+                                defaultAction: {
+                                    playSong(result.song, lyricsHint: snippet, matchKind: result.matchKind)
+                                }
                             )
                     } else {
                         macSongResultRow(result)
                             .songSelectable(
                                 songID: result.song.id,
                                 selection: selection,
-                                orderedIDs: { selectableSongIDs }
+                                orderedIDs: { selectableSongIDs },
+                                defaultAction: {
+                                    playSong(result.song, matchKind: result.matchKind)
+                                }
                             )
                     }
                 }

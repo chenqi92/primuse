@@ -67,7 +67,7 @@ private struct SongBatchActionBarPresentation<Bar: View>: View {
         Group {
             if selection.isActive {
                 bar()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(true)
             }
         }
@@ -266,9 +266,14 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
         #else
         content
-            .overlay(alignment: .bottom) {
+            .safeAreaInset(edge: .top, spacing: 0) {
                 SongBatchActionBarPresentation(selection: selection) {
                     macActionBar
+                }
+            }
+            .onExitCommand {
+                if selection.isActive {
+                    selection.deactivate()
                 }
             }
         #endif
@@ -276,14 +281,14 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     #if os(macOS)
     private var macActionBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Button {
                 selection.deactivate()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 26, height: 26)
-                    .background(.quaternary, in: .circle)
+                    .frame(width: 24, height: 24)
+                    .background(PMColor.glassBtn, in: .circle)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -297,62 +302,84 @@ private struct SongBatchActionsModifier: ViewModifier {
             .monospacedDigit()
             .lineLimit(1)
 
-            Spacer(minLength: 4)
-
             Button("batch_select_all") {
                 selection.selectAll(orderedIDs())
             }
-            .font(.subheadline)
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            if !selection.isEmpty {
+                Button("batch_deselect_all") {
+                    selection.clear()
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+
+            Divider()
+                .frame(height: 20)
 
             Button {
                 showAddToPlaylist = true
             } label: {
-                Image(systemName: "text.badge.plus")
-                    .font(.title3)
+                Label("add_to_playlist", systemImage: "text.badge.plus")
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(selection.isEmpty)
-            .accessibilityLabel(Text("add_to_playlist"))
-
-            Button {
-                appendSelectionToQueue()
-            } label: {
-                Image(systemName: "text.line.last.and.arrowtriangle.forward")
-                    .font(.title3)
-            }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .disabled(selection.isEmpty)
-            .accessibilityLabel(Text("add_to_queue"))
+            .accessibilityIdentifier("batchAction.addToPlaylist")
 
             Button {
                 insertSelectionNext()
             } label: {
-                Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                    .font(.title3)
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(selection.isEmpty)
-            .accessibilityLabel(Text("insert_next"))
+            .accessibilityIdentifier("batchAction.insertNext")
+
+            Button {
+                appendSelectionToQueue()
+            } label: {
+                Label {
+                    queueFeedback.map { Text(verbatim: $0) } ?? Text("add_to_queue")
+                } icon: {
+                    Image(systemName: queueFeedback == nil
+                          ? "text.line.last.and.arrowtriangle.forward"
+                          : "checkmark")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(selection.isEmpty)
+            .accessibilityIdentifier("batchAction.addToQueue")
 
             Menu {
                 moreActions(includesAddToQueue: true)
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title3)
+                Label("more", systemImage: "ellipsis")
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            // Mac 上系统 Menu 默认自带箭头和一大片按钮底，跟这条自绘的条子
-            // 不搭；iOS 的默认样式本来就是干净的图标按钮。
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .menuStyle(.button)
+            .controlSize(.small)
             .disabled(selection.isEmpty)
             .accessibilityLabel(Text("a11y_more_actions"))
+
+            Spacer(minLength: 0)
+
+            Text("Esc")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(PMColor.textFaint)
+                .padding(.horizontal, 6)
+                .frame(height: 20)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 4))
+                .accessibilityHidden(true)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .top) {
+        .font(.system(size: 12, weight: .medium))
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
             Divider()
         }
     }

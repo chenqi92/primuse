@@ -643,7 +643,8 @@ struct PlaylistDetailView: View {
                         .songSelectable(
                             songID: song.id,
                             selection: selection,
-                            orderedIDs: { songs.map(\.id) }
+                            orderedIDs: { songs.map(\.id) },
+                            defaultAction: { playSong(song) }
                         )
                 }
             }

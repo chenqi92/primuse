@@ -1243,7 +1243,8 @@ struct SongListView: View {
                             .songSelectable(
                                 songID: row.id,
                                 selection: selection,
-                                orderedIDs: { filteredSongIDs }
+                                orderedIDs: { filteredSongIDs },
+                                defaultAction: { playSong(song) }
                             )
                     }
                 }
@@ -1483,7 +1484,8 @@ struct SongListView: View {
                         .songSelectable(
                             songID: row.id,
                             selection: selection,
-                            orderedIDs: { filteredSongIDs }
+                            orderedIDs: { filteredSongIDs },
+                            defaultAction: { playSong(song) }
                         )
                 }
             }
@@ -1567,7 +1569,8 @@ struct SongListView: View {
                             songID: row.id,
                             selection: selection,
                             style: .overlay,
-                            orderedIDs: { filteredSongIDs }
+                            orderedIDs: { filteredSongIDs },
+                            defaultAction: { playSong(song) }
                         )
                 }
             }

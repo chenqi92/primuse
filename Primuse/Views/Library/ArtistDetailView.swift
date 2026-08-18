@@ -32,6 +32,11 @@ struct ArtistDetailView: View {
         songs.count
     }
 
+    private var displayArtistName: String {
+        let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? String(localized: "unknown_artist") : name
+    }
+
     private var monthlyListenCount: Int {
         let target = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return 0 }
@@ -107,7 +112,6 @@ struct ArtistDetailView: View {
                         .padding(.top, 48)
                     } else {
                         if !songs.isEmpty {
-                            macActionRow
                             macTopSongs
                         }
 
@@ -126,46 +130,18 @@ struct ArtistDetailView: View {
     }
 
     private var macHero: some View {
-        ZStack(alignment: .bottomLeading) {
-            AmbientBackdrop(
-                accent: Color(red: 0.78, green: 0.43, blue: 0.34),
-                darkAccent: Color(red: 0.18, green: 0.13, blue: 0.20),
-                strength: 0.82
-            )
-
-            HStack(alignment: .bottom, spacing: 22) {
-                CachedArtworkView(
-                    artistID: artist.id,
-                    artistName: artist.name,
-                    size: 138,
-                    cornerRadius: 69
-                )
-                .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("artist_label")
-                        .font(.system(size: 11, weight: .semibold))
-                        .textCase(.uppercase)
-                        .foregroundStyle(Color.white.opacity(0.72))
-
-                    Text(artist.name)
-                        .font(.system(size: 56, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.72)
-
-                    Text(verbatim: "\(visibleSongCount) \(String(localized: "songs_count")) · \(albums.count) \(String(localized: "albums_count")) · \(monthlyListenText)")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.white.opacity(0.74))
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 36)
-            .padding(.vertical, 32)
-        }
-        .frame(height: 260)
-        .clipped()
+        MacLibraryHeader(
+            eyebrow: "artist_label",
+            title: displayArtistName,
+            subtitle: "\(visibleSongCount) \(String(localized: "songs_count")) · \(albums.count) \(String(localized: "albums_count")) · \(monthlyListenText)",
+            iconSystemName: "music.mic",
+            coverArtist: artist,
+            accent: Color(red: 0.78, green: 0.43, blue: 0.34),
+            darkAccent: Color(red: 0.18, green: 0.13, blue: 0.20),
+            onPlay: { playAll() },
+            onShuffle: shuffleAll,
+            showsMoreButton: false
+        )
     }
 
     private func inlineNavigationBar(onBack: @escaping () -> Void) -> some View {
@@ -189,7 +165,7 @@ struct ArtistDetailView: View {
                 .foregroundStyle(PMColor.textFaint)
                 .accessibilityHidden(true)
 
-            Text(artist.name)
+            Text(displayArtistName)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
@@ -205,35 +181,6 @@ struct ArtistDetailView: View {
         }
     }
 
-    private var macActionRow: some View {
-        HStack(spacing: 8) {
-            Button(action: { playAll() }) {
-                Label("play_all", systemImage: "play.fill")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .padding(.horizontal, 18)
-                    .frame(height: 32)
-                    .background(PMColor.brand, in: .rect(cornerRadius: 8))
-                    .foregroundStyle(.white)
-            }
-            .buttonStyle(.plain)
-            .disabled(playableSongs.isEmpty)
-
-            Button(action: shuffleAll) {
-                Label("shuffle", systemImage: "shuffle")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .padding(.horizontal, 14)
-                    .frame(height: 32)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                    .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
-                    .foregroundStyle(PMColor.text)
-            }
-            .buttonStyle(.plain)
-            .disabled(playableSongs.count < 2)
-
-            Spacer()
-        }
-    }
-
     private var macTopSongs: some View {
         let playCounts = playCountsBySongID
         return VStack(alignment: .leading, spacing: 10) {
@@ -245,7 +192,8 @@ struct ArtistDetailView: View {
                         .songSelectable(
                             songID: song.id,
                             selection: selection,
-                            orderedIDs: { selectableSongIDs }
+                            orderedIDs: { selectableSongIDs },
+                            defaultAction: { playSong(song) }
                         )
                 }
             }
@@ -483,7 +431,7 @@ struct ArtistDetailView: View {
             )
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(artist.name)
+                Text(displayArtistName)
                     .font(.title)
                     .fontWeight(.bold)
                     .lineLimit(2)
@@ -505,7 +453,7 @@ struct ArtistDetailView: View {
             CachedArtworkView(artistID: artist.id, artistName: artist.name,
                               size: 120, cornerRadius: 60)
 
-            Text(artist.name)
+            Text(displayArtistName)
                 .font(.title)
                 .fontWeight(.bold)
 
