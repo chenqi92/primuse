@@ -255,7 +255,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             return SourceConnectionURLRewriter.rebasedURL(
                 for: original,
                 onto: baseURL,
-                pathMarkers: ["/library/"],
+                pathMarkers: ["/library/", "/playlists/", "/photo/"],
                 removingQueryItemsNamed: ["X-Plex-Token"],
                 addingQueryItems: [URLQueryItem(name: "X-Plex-Token", value: accessToken)]
             )
@@ -747,7 +747,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             baseQueryItems: [
                 URLQueryItem(name: "IncludeItemTypes", value: "Playlist"),
                 URLQueryItem(name: "Recursive", value: "true"),
-                URLQueryItem(name: "Fields", value: "ChildCount")
+                URLQueryItem(name: "Fields", value: "ChildCount,ImageTags")
             ],
             maximumCount: Self.maximumPlaylistCount,
             deduplicatesItems: true
@@ -772,6 +772,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 result.append(ServerPlaylist(
                     id: summary.id,
                     name: summary.name.isEmpty ? summary.id : summary.name,
+                    coverArtReference: playlistCoverArtReference(for: summary),
                     trackIDs: itemsResponse.items.map(\.id),
                     reportedTrackCount: itemsResponse.totalCount
                 ))
@@ -809,6 +810,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 result.append(ServerPlaylist(
                     id: summary.ratingKey,
                     name: summary.title.isEmpty ? summary.ratingKey : summary.title,
+                    coverArtReference: playlistCoverArtReference(for: summary),
                     trackIDs: itemsResponse.items.map(\.ratingKey),
                     reportedTrackCount: itemsResponse.totalCount ?? summary.leafCount
                 ))
@@ -1647,6 +1649,25 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return nil
     }
 
+    /// Persist only a route-rewritable, credential-free URL. `imageURL(for:)`
+    /// adds the current token after choosing the active LAN/public endpoint.
+    private func playlistCoverArtReference(for item: AudioItem) -> String? {
+        guard let tag = item.imageTags?["Primary"] else { return nil }
+        return buildURL(
+            path: "/Items/\(item.id)/Images/Primary",
+            queryItems: [
+                URLQueryItem(name: "maxWidth", value: "480"),
+                URLQueryItem(name: "format", value: "png"),
+                URLQueryItem(name: "tag", value: tag),
+            ]
+        ).absoluteString
+    }
+
+    private func playlistCoverArtReference(for item: PlexPlaylistSummary) -> String? {
+        guard let thumb = item.thumb, !thumb.isEmpty else { return nil }
+        return buildURL(path: thumb).absoluteString
+    }
+
     private func coverArtURL(for item: PlexAudioItem) -> URL? {
         guard let thumb = item.thumb, let accessToken else { return nil }
         return buildURL(
@@ -2345,12 +2366,14 @@ private struct PlexPlaylistSummary: Decodable {
     let title: String
     let playlistType: String
     let leafCount: Int?
+    let thumb: String?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case title
         case playlistType
         case leafCount
+        case thumb
     }
 }
 

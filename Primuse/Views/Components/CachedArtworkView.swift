@@ -440,6 +440,50 @@ struct CachedArtworkView: View {
 
     // MARK: - Load + Decode (off-main)
 
+    /// Shared app-layer image resolver used by playlist artwork. It intentionally
+    /// goes through the same memory cache, MetadataAssetStore mirror, connector
+    /// routing, bounded remote fetch, embedded extraction, and decode validation
+    /// as an ordinary `CachedArtworkView`.
+    static func resolveImage(
+        coverRef: String?,
+        songID: String?,
+        size: CGFloat,
+        sourceID: String?,
+        filePath: String?,
+        fileFormat: AudioFormat?,
+        sourceManager: SourceManager,
+        cacheDiscriminator: String = ""
+    ) async -> PlatformImage? {
+        let bucket: Bucket = size <= 96 ? .thumb : .full
+        let identityComponents = [
+            songID ?? "",
+            coverRef ?? "",
+            sourceID ?? "",
+            filePath ?? "",
+            fileFormat?.rawValue ?? "",
+        ]
+        guard identityComponents.contains(where: { !$0.isEmpty }) else { return nil }
+        let identity = identityComponents.joined(separator: "\u{1F}")
+        let key = identity + "@playlist-\(bucket.rawValue)#\(cacheDiscriminator)"
+        if let cached = memoryCache.object(forKey: key as NSString) {
+            return cached
+        }
+        return await loadAndDecode(
+            cacheKey: key,
+            bucket: bucket,
+            ref: coverRef,
+            songID: songID,
+            albumID: nil,
+            albumTitle: nil,
+            artistID: nil,
+            artistName: nil,
+            sourceID: sourceID,
+            filePath: filePath,
+            fileFormat: fileFormat,
+            sourceManager: sourceManager
+        )
+    }
+
     /// Top-level loader: tries memory cache, disk cache, then falls back to
     /// the source. Decodes via ImageIO, writes both layers of cache, returns
     /// the decoded PlatformImage. Runs on the cooperative pool.
@@ -500,8 +544,14 @@ struct CachedArtworkView: View {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
-        let fetchKey = songID ?? effectiveRef ?? ""
-        guard !fetchKey.isEmpty else { return nil }
+        let fetchKey: String
+        if let songID, !songID.isEmpty {
+            fetchKey = songID
+        } else {
+            let sourceIdentity = [sourceID ?? "", effectiveRef ?? "", filePath ?? ""]
+            guard sourceIdentity.contains(where: { !$0.isEmpty }) else { return nil }
+            fetchKey = sourceIdentity.joined(separator: "\u{1F}")
+        }
         let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
             await loadFromSource(
                 ref: effectiveRef,

@@ -250,7 +250,7 @@ struct BatchAddToPlaylistSheet: View {
             newPlaylistName = ""
         } label: {
             HStack(spacing: 10) {
-                StoredCoverArtView(fileName: playlist.coverArtPath, size: 34, cornerRadius: 6)
+                PlaylistArtworkView(playlist: playlist, size: 34, cornerRadius: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: playlist.name)
                         .font(.system(size: 12.5, weight: .semibold))

@@ -7,6 +7,11 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
     public var coverArtPath: String?
+    /// `coverArtPath` is an upstream or user-provided playlist image rather
+    /// than the legacy automatic copy of a member song's cover reference.
+    /// Older snapshots decode this as `false`, so stale first-song artwork is
+    /// never mistaken for a dedicated playlist cover after upgrading.
+    public var hasDedicatedCoverArt: Bool
     /// Soft-delete flag. When true, the playlist is hidden from the regular UI
     /// but kept on disk + in CloudKit so other devices can converge before the
     /// 30-day prune sweeps it for good.
@@ -35,6 +40,7 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         coverArtPath: String? = nil,
+        hasDedicatedCoverArt: Bool = false,
         isDeleted: Bool = false,
         deletedAt: Date? = nil,
         syncRevision: Int64 = 0,
@@ -49,6 +55,7 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.coverArtPath = coverArtPath
+        self.hasDedicatedCoverArt = hasDedicatedCoverArt
         self.isDeleted = isDeleted
         self.deletedAt = deletedAt
         self.syncRevision = syncRevision
@@ -66,6 +73,10 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = try c.decode(Date.self, forKey: .createdAt)
         self.updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         self.coverArtPath = try c.decodeIfPresent(String.self, forKey: .coverArtPath)
+        self.hasDedicatedCoverArt = try c.decodeIfPresent(
+            Bool.self,
+            forKey: .hasDedicatedCoverArt
+        ) ?? false
         self.isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
         self.deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
         self.syncRevision = try c.decodeIfPresent(Int64.self, forKey: .syncRevision) ?? 0
@@ -95,6 +106,153 @@ public struct PlaylistSong: Codable, Sendable {
 
 extension PlaylistSong: FetchableRecord, PersistableRecord {
     public static var databaseTableName: String { "playlistSongs" }
+}
+
+/// A platform-neutral artwork candidate for a playlist. The policy intentionally
+/// describes *what* should be tried without claiming that a non-empty reference
+/// is displayable. App targets still have to resolve the candidate through their
+/// real cache, source connector, or MusicKit loader.
+public struct PlaylistArtworkCandidate: Hashable, Sendable, Identifiable {
+    public enum Kind: String, Hashable, Sendable {
+        case dedicated
+        case song
+    }
+
+    public let kind: Kind
+    public let id: String
+    public let songID: String?
+    public let artworkReference: String?
+
+    public init(
+        kind: Kind,
+        id: String,
+        songID: String? = nil,
+        artworkReference: String? = nil
+    ) {
+        self.kind = kind
+        self.id = id
+        self.songID = songID
+        self.artworkReference = artworkReference
+    }
+}
+
+public struct PlaylistArtworkResolutionPlan: Equatable, Sendable {
+    /// Changes when the playlist ID, dedicated artwork, membership, or any
+    /// member's artwork-loading identity changes. It is deterministic across
+    /// launches and Apple platforms (unlike Swift's randomized `Hasher`).
+    public let signature: String
+    public let candidates: [PlaylistArtworkCandidate]
+
+    public init(signature: String, candidates: [PlaylistArtworkCandidate]) {
+        self.signature = signature
+        self.candidates = candidates
+    }
+}
+
+public struct PlaylistArtworkResolution<Value> {
+    public let candidate: PlaylistArtworkCandidate
+    public let value: Value
+
+    public init(candidate: PlaylistArtworkCandidate, value: Value) {
+        self.candidate = candidate
+        self.value = value
+    }
+}
+
+/// Shared ordering policy used by iPhone, iPad, macOS, and tvOS playlist art.
+///
+/// A dedicated playlist/source image is always attempted first. Song candidates
+/// are then arranged with a stable pseudo-random rank derived from the playlist
+/// ID and the complete member/artwork set. Input order therefore cannot silently
+/// turn the first track into the cover, while membership or artwork changes are
+/// allowed to produce a new deterministic choice.
+public enum PlaylistArtworkResolutionPolicy {
+    public static func makePlan(playlist: Playlist, songs: [Song]) -> PlaylistArtworkResolutionPlan {
+        var seenSongIDs = Set<String>()
+        let songCandidates = songs.compactMap { song -> PlaylistArtworkCandidate? in
+            guard !song.id.isEmpty, seenSongIDs.insert(song.id).inserted else { return nil }
+            let reference = cleaned(song.coverArtFileName)
+            let identity = [
+                "song",
+                song.id,
+                reference ?? "",
+                song.sourceID,
+                song.filePath,
+                song.fileFormat.rawValue,
+            ].joined(separator: "\u{1F}")
+            return PlaylistArtworkCandidate(
+                kind: .song,
+                id: identity,
+                songID: song.id,
+                artworkReference: reference
+            )
+        }
+
+        let dedicatedReference = playlist.hasDedicatedCoverArt
+            ? cleaned(playlist.coverArtPath)
+            : nil
+
+        let memberSet = songCandidates.map(\.id).sorted()
+        let seedMaterial = ([playlist.id, dedicatedReference ?? ""] + memberSet)
+            .joined(separator: "\u{0}")
+        let rankedSongs = songCandidates.sorted { lhs, rhs in
+            let lhsRank = stableHash(seedMaterial + "\u{0}" + lhs.id)
+            let rhsRank = stableHash(seedMaterial + "\u{0}" + rhs.id)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.id < rhs.id
+        }
+
+        var candidates: [PlaylistArtworkCandidate] = []
+        if let dedicatedReference {
+            candidates.append(PlaylistArtworkCandidate(
+                kind: .dedicated,
+                id: "dedicated\u{1F}\(dedicatedReference)",
+                artworkReference: dedicatedReference
+            ))
+        }
+        candidates.append(contentsOf: rankedSongs)
+
+        let signatureMaterial = ([playlist.id] + candidates.map(\.id)).joined(separator: "\u{0}")
+        let signature = String(stableHash(signatureMaterial), radix: 16)
+        return PlaylistArtworkResolutionPlan(signature: signature, candidates: candidates)
+    }
+
+    private static func cleaned(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// FNV-1a has deliberately fixed constants and byte order, so its result is
+    /// identical across processes and platforms. It is a selection hash, not a
+    /// security primitive.
+    private static func stableHash(_ value: String) -> UInt64 {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return hash
+    }
+}
+
+/// Shared fallback runner. Each platform supplies its actual resource loader;
+/// failed dedicated or song artwork automatically advances to the next stable
+/// candidate instead of leaving a transparent result.
+public enum PlaylistArtworkResolver {
+    public static func resolve<Value>(
+        plan: PlaylistArtworkResolutionPlan,
+        isolation: isolated (any Actor)? = #isolation,
+        using load: (PlaylistArtworkCandidate) async -> Value?
+    ) async -> PlaylistArtworkResolution<Value>? {
+        for candidate in plan.candidates {
+            if Task.isCancelled { return nil }
+            if let value = await load(candidate) {
+                return PlaylistArtworkResolution(candidate: candidate, value: value)
+            }
+        }
+        return nil
+    }
 }
 
 public enum PlaylistConflictWinner: Sendable, Equatable {
@@ -197,6 +355,11 @@ public enum PlaylistDatabaseMigration {
             }
             if !names.contains("isPurged") {
                 table.add(column: "isPurged", .boolean).notNull().defaults(to: false)
+            }
+            if !names.contains("hasDedicatedCoverArt") {
+                table.add(column: "hasDedicatedCoverArt", .boolean)
+                    .notNull()
+                    .defaults(to: false)
             }
         }
     }

@@ -628,6 +628,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             result.append(ServerPlaylist(
                 id: summary.id.value,
                 name: name,
+                coverArtReference: (playlist.coverArt ?? summary.coverArt)
+                    .flatMap { coverArtURLString(for: $0) },
                 trackIDs: trackIDs,
                 reportedTrackCount: playlist.songCount ?? summary.songCount
             ))
@@ -1036,6 +1038,7 @@ private struct PlaylistSummary: Decodable {
     let id: FlexibleID
     let name: String?
     let songCount: Int?
+    let coverArt: String?
 }
 
 private struct PlaylistContainer: SubsonicResponseContainer {
@@ -1048,6 +1051,7 @@ private struct PlaylistContainer: SubsonicResponseContainer {
 private struct PlaylistWithEntries: Decodable {
     let name: String?
     let songCount: Int?
+    let coverArt: String?
     let entry: [SubsonicChild]?
 }
 

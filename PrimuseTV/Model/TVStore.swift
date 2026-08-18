@@ -46,14 +46,21 @@ struct TVArtist: Identifiable, Hashable {
 
 enum TVPlaylistKind { case normal, smart, liked }
 
+struct TVPlaylistArtworkCandidate: Identifiable, Hashable {
+    let id: String
+    let kind: PlaylistArtworkCandidate.Kind
+    let songID: String
+    let coverRef: String?
+    let sourceID: String?
+}
+
 struct TVPlaylist: Identifiable, Hashable {
     let id: String
     let name: String
     let kind: TVPlaylistKind
     let count: Int
-    let coverAlbumID: String
-    let coverSongID: String
-    let coverRef: String?
+    let artworkSignature: String
+    let artworkCandidates: [TVPlaylistArtworkCandidate]
     static func == (l: TVPlaylist, r: TVPlaylist) -> Bool { l.id == r.id }
     func hash(into h: inout Hasher) { h.combine(id) }
 }
@@ -433,14 +440,46 @@ final class TVStore {
                         glyph: Self.glyph(a.name), songCount: a.songCount)
     }
     private func mapPlaylist(_ p: Playlist, kind: TVPlaylistKind) -> TVPlaylist {
-        let s = library.songs(forPlaylist: p.id)
-        return TVPlaylist(id: p.id, name: p.name, kind: kind,
-                          count: s.count, coverAlbumID: s.first?.albumID ?? "",
-                          coverSongID: s.first?.id ?? "", coverRef: s.first?.coverArtFileName)
+        let songs = library.songs(forPlaylist: p.id)
+        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let plan = PlaylistArtworkResolutionPolicy.makePlan(playlist: p, songs: songs)
+        let dedicatedSourceID = MirrorPlaylistSuppressionPolicy
+            .key(forPlaylistID: p.id)?
+            .sourceID
+        let candidates = plan.candidates.compactMap { candidate -> TVPlaylistArtworkCandidate? in
+            switch candidate.kind {
+            case .dedicated:
+                return TVPlaylistArtworkCandidate(
+                    id: candidate.id,
+                    kind: .dedicated,
+                    songID: "playlist:\(p.id)",
+                    coverRef: candidate.artworkReference,
+                    sourceID: dedicatedSourceID
+                )
+            case .song:
+                guard let songID = candidate.songID,
+                      let song = songsByID[songID] else { return nil }
+                return TVPlaylistArtworkCandidate(
+                    id: candidate.id,
+                    kind: .song,
+                    songID: song.id,
+                    coverRef: candidate.artworkReference,
+                    sourceID: song.sourceID
+                )
+            }
+        }
+        return TVPlaylist(
+            id: p.id,
+            name: p.name,
+            kind: kind,
+            count: songs.count,
+            artworkSignature: plan.signature,
+            artworkCandidates: candidates
+        )
     }
     private func mapSmart(_ sp: SmartPlaylist) -> TVPlaylist {
         TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: 0,
-                   coverAlbumID: "", coverSongID: "", coverRef: nil)
+                   artworkSignature: "smart:\(sp.id)", artworkCandidates: [])
     }
     private func map(_ s: MusicSource) -> TVSource {
         let cnt = hasRealLibrary ? (visibleSongCountsBySource[s.id] ?? 0) : s.songCount

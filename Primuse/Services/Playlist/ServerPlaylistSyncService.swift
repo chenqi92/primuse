@@ -60,6 +60,12 @@ enum ServerPlaylistSyncService {
             if let reportedTrackCount = serverPlaylist.reportedTrackCount,
                reportedTrackCount > serverPlaylist.trackIDs.count {
                 result.unresolvedPlaylistCount += 1
+                if library.playlist(id: localID) != nil {
+                    library.updateMirrorPlaylistArtwork(
+                        playlistID: localID,
+                        coverArtPath: serverPlaylist.coverArtReference
+                    )
+                }
                 plog("⚠️ Server playlist '\(serverPlaylist.name)' returned only \(serverPlaylist.trackIDs.count)/\(reportedTrackCount) track IDs — keeping the existing mirror")
                 continue
             }
@@ -73,6 +79,10 @@ enum ServerPlaylistSyncService {
                 if library.playlist(id: localID) != nil {
                     // 保住它, 别让 prune 当作"服务端已删"清掉。
                     keepIDs.insert(localID)
+                    library.updateMirrorPlaylistArtwork(
+                        playlistID: localID,
+                        coverArtPath: serverPlaylist.coverArtReference
+                    )
                 }
                 plog("""
                     ⚠️ Server playlist '\(serverPlaylist.name)' has \
@@ -83,7 +93,11 @@ enum ServerPlaylistSyncService {
             }
 
             library.ensurePlaylist(id: localID, name: serverPlaylist.name)
-            library.replaceMirrorPlaylistSongs(playlistID: localID, songIDs: songIDs)
+            library.replaceMirrorPlaylistSongs(
+                playlistID: localID,
+                songIDs: songIDs,
+                coverArtPath: serverPlaylist.coverArtReference
+            )
             keepIDs.insert(localID)
             result.syncedPlaylistCount += 1
             result.matchedTrackCount += songIDs.count

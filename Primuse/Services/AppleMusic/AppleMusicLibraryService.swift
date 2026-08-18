@@ -50,17 +50,23 @@ final class AppleMusicLibraryService {
         let id: String
         let name: String
         let songIDs: [String]
+        let coverArtReference: String?
     }
 
     private enum UserPlaylistFetchResult: Sendable {
         case mirror(UserPlaylistMirror)
-        case empty(id: String, name: String)
+        case empty(id: String, name: String, coverArtReference: String?)
         /// Apple Music 报告有曲目但本地一首都没匹配上 (全是视频 / 下架曲目 /
         /// canonicalization 失败)。保留已有镜像原样, 也不新建空歌单 —— 这是
         /// "取不到", 不是"歌单空了"。直接当 empty 会让一次不完整的 fetch 把整个
         /// 歌单清光。
-        case unresolved(id: String, name: String, reportedTrackCount: Int)
-        case failed(id: String, name: String, error: String)
+        case unresolved(
+            id: String,
+            name: String,
+            reportedTrackCount: Int,
+            coverArtReference: String?
+        )
+        case failed(id: String, name: String, coverArtReference: String?, error: String)
     }
 
     /// macOS 会优先读云端资料库；云端权限不可用时仍保留 Music.app 的本机歌曲，
@@ -106,6 +112,10 @@ final class AppleMusicLibraryService {
     /// for identity resolution can accidentally prefer the transient catalog
     /// object over its stable `i.*` library counterpart.
     private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
+    /// MusicKit artwork objects cannot be reconstructed from their persisted
+    /// `musicKit://` URL. Keep the official playlist artwork beside the song
+    /// cache so the shared playlist resolver can render it with ArtworkImage.
+    private var playlistArtworkCache: [String: MusicKit.Artwork] = [:]
     /// Music.app rows that the platform media library independently resolves
     /// to readable, non-cloud, non-DRM assets. MusicKit may identify these rows
     /// with a library ID, signed decimal persistent ID, or hexadecimal ID.
@@ -371,6 +381,10 @@ final class AppleMusicLibraryService {
     /// 触发 play(primuseSong:) 后 cache 会被填上。
     func cachedMusicKitSong(amID: String) -> MusicKit.Song? {
         songCache[amID]
+    }
+
+    func cachedMusicKitPlaylistArtwork(playlistID: String) -> MusicKit.Artwork? {
+        playlistArtworkCache[playlistID]
     }
 
     /// Resolves one MusicKit item without waiting for a full-library sync.
@@ -749,7 +763,8 @@ final class AppleMusicLibraryService {
             if fetchResult.syncMode.shouldReplaceMirrorPlaylist {
                 library.replaceMirrorPlaylistSongs(
                     playlistID: Self.systemPlaylistID,
-                    songIDs: songs.map(\.id)
+                    songIDs: songs.map(\.id),
+                    coverArtPath: nil
                 )
             } else {
                 var mergedIDs = library.rawSongIDs(forPlaylist: Self.systemPlaylistID)
@@ -757,7 +772,8 @@ final class AppleMusicLibraryService {
                 mergedIDs.append(contentsOf: songs.map(\.id).filter { seenIDs.insert($0).inserted })
                 library.replaceMirrorPlaylistSongs(
                     playlistID: Self.systemPlaylistID,
-                    songIDs: mergedIDs
+                    songIDs: mergedIDs,
+                    coverArtPath: nil
                 )
             }
 
@@ -1055,24 +1071,37 @@ final class AppleMusicLibraryService {
                 switch result {
                 case .mirror(let mirror):
                     fetchedMirrors.append(mirror)
-                case .empty(let id, let name):
+                case .empty(let id, let name, let coverArtReference):
                     fetchedMirrors.append(UserPlaylistMirror(
                         id: id,
                         name: Self.safePlaylistName(name),
-                        songIDs: []
+                        songIDs: [],
+                        coverArtReference: coverArtReference
                     ))
                     plog("🎵 AM playlist '\(name)' is empty, preserving local mirror \(id)")
-                case .unresolved(let id, let name, let count):
+                case .unresolved(let id, let name, let count, let coverArtReference):
                     // 保住已有镜像 (如果存在), 别让 prune 当作"服务端已删"清掉。
                     if library.playlist(id: id) != nil {
                         failedIDs.insert(id)
+                        library.updateMirrorPlaylistArtwork(
+                            playlistID: id,
+                            coverArtPath: coverArtReference,
+                            forceRefresh: coverArtReference != nil
+                        )
                     }
                     plog("""
                         ⚠️ AM playlist '\(name)' has \(count) track(s) on Apple Music but none \
                         resolved locally — keeping the existing mirror
                         """)
-                case .failed(let id, let name, let error):
+                case .failed(let id, let name, let coverArtReference, let error):
                     failedIDs.insert(id)
+                    if library.playlist(id: id) != nil, let coverArtReference {
+                        library.updateMirrorPlaylistArtwork(
+                            playlistID: id,
+                            coverArtPath: coverArtReference,
+                            forceRefresh: true
+                        )
+                    }
                     plog("⚠️AM playlist '\(name)' fetch tracks failed: \(error)")
                 }
             }
@@ -1080,11 +1109,16 @@ final class AppleMusicLibraryService {
             let mirrorsToKeep = Self.resolveUserPlaylistMirrors(fetchedMirrors)
             for mirror in mirrorsToKeep {
                 library.ensurePlaylist(id: mirror.id, name: mirror.name)
-                library.replaceMirrorPlaylistSongs(playlistID: mirror.id, songIDs: mirror.songIDs)
+                library.replaceMirrorPlaylistSongs(
+                    playlistID: mirror.id,
+                    songIDs: mirror.songIDs,
+                    coverArtPath: mirror.coverArtReference
+                )
                 plog("🎵 AM playlist '\(mirror.name)' → \(mirror.songIDs.count) songs")
             }
 
             let keepIDs = Set(mirrorsToKeep.map(\.id)).union(failedIDs)
+            playlistArtworkCache = playlistArtworkCache.filter { keepIDs.contains($0.key) }
             library.prunePlaylists(
                 withIDPrefix: Self.userPlaylistIDPrefix,
                 keepingIDs: keepIDs
@@ -1123,8 +1157,25 @@ final class AppleMusicLibraryService {
     private func fetchUserPlaylistMirror(_ amPlaylist: MusicKit.Playlist) async -> UserPlaylistFetchResult {
         let pid = "\(Self.userPlaylistIDPrefix)\(amPlaylist.id.rawValue)"
         let displayName = Self.safePlaylistName(amPlaylist.name)
+        let summaryArtwork = amPlaylist.artwork
+        if let summaryArtwork {
+            playlistArtworkCache[pid] = summaryArtwork
+        } else {
+            playlistArtworkCache[pid] = nil
+        }
+        let summaryCoverReference = summaryArtwork?
+            .url(width: 1024, height: 1024)?
+            .absoluteString
         do {
             let detailed = try await amPlaylist.with([.tracks])
+            let detailedArtwork = detailed.artwork ?? summaryArtwork
+            if let detailedArtwork {
+                playlistArtworkCache[pid] = detailedArtwork
+            }
+            let coverArtReference = detailedArtwork?
+                .url(width: 1024, height: 1024)?
+                .absoluteString
+                ?? summaryCoverReference
             var currentBatch = detailed.tracks ?? []
             var tracks = Array(currentBatch)
             while currentBatch.hasNextBatch {
@@ -1153,18 +1204,33 @@ final class AppleMusicLibraryService {
             // Apple Music 报告有曲目但本地一首都没匹配上 —— 可能全是视频、下架曲目、
             // 或 canonicalization 失败。这是"取不到", 不是"歌单空了", 保留已有镜像。
             if songIDs.isEmpty, tracks.isEmpty == false {
-                return .unresolved(id: pid, name: displayName, reportedTrackCount: tracks.count)
+                return .unresolved(
+                    id: pid,
+                    name: displayName,
+                    reportedTrackCount: tracks.count,
+                    coverArtReference: coverArtReference
+                )
             }
             if songIDs.isEmpty {
-                return .empty(id: pid, name: displayName)
+                return .empty(
+                    id: pid,
+                    name: displayName,
+                    coverArtReference: coverArtReference
+                )
             }
             return .mirror(UserPlaylistMirror(
                 id: pid,
                 name: displayName,
-                songIDs: songIDs
+                songIDs: songIDs,
+                coverArtReference: coverArtReference
             ))
         } catch {
-            return .failed(id: pid, name: displayName, error: error.localizedDescription)
+            return .failed(
+                id: pid,
+                name: displayName,
+                coverArtReference: summaryCoverReference,
+                error: error.localizedDescription
+            )
         }
     }
 

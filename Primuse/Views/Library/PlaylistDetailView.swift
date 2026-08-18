@@ -39,14 +39,6 @@ struct PlaylistDetailView: View {
         library.songs(forPlaylist: playlist.id)
     }
 
-    /// 歌单封面取自首歌 ── 跟 PlaylistListView 行封面同源, coverArtPath 字段不再
-    /// 读 (老 path 常跟实际歌曲不同步、Liked 系统歌单更是经常为空)。优先挑有
-    /// coverArtFileName 的歌, 没有就退回第一首 (CachedArtworkView 仍能按
-    /// sourceID/filePath 在线解析封面)。
-    private var coverSong: Song? {
-        songs.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? songs.first
-    }
-
     /// 空态占位图标 ── Liked 用 heart, 其它歌单用列表图标。
     private var coverPlaceholderIcon: String {
         playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list"
@@ -120,14 +112,10 @@ struct PlaylistDetailView: View {
             VStack(spacing: 20) {
                 // Playlist header
                 VStack(spacing: 8) {
-                    CachedArtworkView(
-                        coverRef: coverSong?.coverArtFileName,
-                        songID: coverSong?.id,
+                    PlaylistArtworkView(
+                        playlist: currentPlaylist ?? playlist,
                         size: 180,
                         cornerRadius: 14,
-                        sourceID: coverSong?.sourceID,
-                        filePath: coverSong?.filePath,
-                        fileFormat: coverSong?.fileFormat,
                         placeholderIcon: coverPlaceholderIcon
                     )
 
@@ -431,7 +419,7 @@ struct PlaylistDetailView: View {
                     title: currentPlaylist?.name ?? playlist.name,
                     subtitle: playlistSubtitle,
                     iconSystemName: coverPlaceholderIcon,
-                    coverSong: coverSong,
+                    coverPlaylist: currentPlaylist ?? playlist,
                     onPlay: { playAll() },
                     onShuffle: {
                         playAll(shuffled: true)

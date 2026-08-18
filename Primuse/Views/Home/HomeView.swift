@@ -388,7 +388,6 @@ struct HomeView: View {
 
     private struct HomePlaylistTile: Identifiable {
         let playlist: Playlist
-        let artworkSong: Song?
         let songCount: Int
 
         var id: String { playlist.id }
@@ -1465,7 +1464,6 @@ struct HomeView: View {
         let songs = library.songs(forPlaylist: playlist.id)
         return HomePlaylistTile(
             playlist: playlist,
-            artworkSong: songs.first,
             songCount: songs.count
         )
     }
@@ -2043,23 +2041,11 @@ struct HomeView: View {
         size: CGFloat,
         cornerRadius: CGFloat
     ) -> some View {
-        if let song = tile.artworkSong {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: size,
-                cornerRadius: cornerRadius,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-        } else {
-            StoredCoverArtView(
-                fileName: tile.playlist.coverArtPath,
-                size: size,
-                cornerRadius: cornerRadius
-            )
-        }
+        PlaylistArtworkView(
+            playlist: tile.playlist,
+            size: size,
+            cornerRadius: cornerRadius
+        )
     }
 
     private func playlistListRow(_ tile: HomePlaylistTile) -> some View {

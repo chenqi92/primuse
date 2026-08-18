@@ -106,6 +106,7 @@ struct PlaylistSynchronizationTests {
         let migrated = try decoder.decode(Playlist.self, from: legacy)
         #expect(!migrated.isDeleted)
         #expect(migrated.syncRevision == 0)
+        #expect(!migrated.hasDedicatedCoverArt)
 
         let tombstone = makePlaylist(
             deleted: true,
@@ -143,6 +144,7 @@ struct PlaylistSynchronizationTests {
             let legacy = try Playlist.fetchOne(db, key: "legacy")
             #expect(legacy?.isDeleted == false)
             #expect(legacy?.syncRevision == 0)
+            #expect(legacy?.hasDedicatedCoverArt == false)
 
             let tombstone = makePlaylist(
                 id: "deleted",

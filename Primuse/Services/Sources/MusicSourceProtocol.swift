@@ -643,6 +643,9 @@ struct ServerPlaylist: Sendable {
     /// 服务端歌单 ID, 用来派生稳定的本地镜像歌单 ID。
     let id: String
     let name: String
+    /// Source-owned playlist image reference. It remains source-relative or
+    /// connector-rewritable so credentials and routes can be refreshed later.
+    let coverArtReference: String?
     /// 服务端返回的曲目顺序, 保持原样。
     let trackIDs: [String]
     /// 服务端自报的曲目数(Subsonic `songCount`)。与 `trackIDs.count` 不一致
@@ -650,9 +653,16 @@ struct ServerPlaylist: Sendable {
     /// 后者不能清空已有镜像。
     let reportedTrackCount: Int?
 
-    init(id: String, name: String, trackIDs: [String], reportedTrackCount: Int? = nil) {
+    init(
+        id: String,
+        name: String,
+        coverArtReference: String? = nil,
+        trackIDs: [String],
+        reportedTrackCount: Int? = nil
+    ) {
         self.id = id
         self.name = name
+        self.coverArtReference = coverArtReference
         self.trackIDs = trackIDs
         self.reportedTrackCount = reportedTrackCount
     }

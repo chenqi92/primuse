@@ -3370,7 +3370,7 @@ struct AddToPlaylistSheet: View {
             }
         } label: {
             HStack(spacing: 10) {
-                StoredCoverArtView(fileName: playlist.coverArtPath, size: 32, cornerRadius: 4)
+                PlaylistArtworkView(playlist: playlist, size: 32, cornerRadius: 4)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.name)
@@ -3411,7 +3411,7 @@ struct AddToPlaylistSheet: View {
             }
         } label: {
             HStack {
-                StoredCoverArtView(fileName: playlist.coverArtPath, size: 40, cornerRadius: 6)
+                PlaylistArtworkView(playlist: playlist, size: 40, cornerRadius: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.name).font(.body)
                     let count = library.songs(forPlaylist: playlist.id).count

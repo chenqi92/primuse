@@ -619,19 +619,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func playlistArtwork(_ playlist: Playlist, size: CGFloat, cornerRadius: CGFloat) -> some View {
-        if let song = library.songs(forPlaylist: playlist.id).first {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: size,
-                cornerRadius: cornerRadius,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-        } else {
-            StoredCoverArtView(fileName: playlist.coverArtPath, size: size, cornerRadius: cornerRadius)
-        }
+        PlaylistArtworkView(playlist: playlist, size: size, cornerRadius: cornerRadius)
     }
 
     private func categoryCountText(_ section: LibrarySection) -> String {
@@ -1027,18 +1015,8 @@ private struct LibraryQuickAccessEditor: View {
     private func editorPlaylistArtwork(_ playlist: Playlist) -> some View {
         if playlist.id == MusicLibrary.likedSongsPlaylistID {
             likedEditorArtwork
-        } else if let song = library.songs(forPlaylist: playlist.id).first {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: 42,
-                cornerRadius: 7,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
         } else {
-            StoredCoverArtView(fileName: playlist.coverArtPath, size: 42, cornerRadius: 7)
+            PlaylistArtworkView(playlist: playlist, size: 42, cornerRadius: 7)
         }
     }
 

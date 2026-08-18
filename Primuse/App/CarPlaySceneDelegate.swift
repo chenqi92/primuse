@@ -600,6 +600,7 @@ extension CarPlaySceneDelegate {
                     completion()
                 }
             }
+            loadArtwork(for: playlist, songs: songs, into: item)
             return item
         }
         return [searchSection(), CPListSection(items: items)]
@@ -983,6 +984,31 @@ extension CarPlaySceneDelegate {
         let library = AppServices.shared.musicLibrary
         guard let firstSong = library.songs(forAlbum: albumID).first else { return }
         loadArtwork(for: firstSong, into: item)
+    }
+
+    private func loadArtwork(for playlist: Playlist, songs: [Song], into item: CPListItem) {
+        let id = UUID()
+        let task = Task { [weak self, weak item] in
+            defer { self?.artworkTasks[id] = nil }
+            let plan = PlaylistArtworkResolutionPolicy.makePlan(
+                playlist: playlist,
+                songs: songs
+            )
+            let result = await PlaylistArtworkResourceResolver.resolve(
+                playlist: playlist,
+                plan: plan,
+                songs: songs,
+                size: 44,
+                sourceManager: AppServices.shared.sourceManager,
+                allowsMusicKitArtwork: false,
+                cacheDiscriminator: "carplay:\(playlist.updatedAt.timeIntervalSinceReferenceDate)"
+            )
+            guard !Task.isCancelled,
+                  let item,
+                  case .image(let image) = result?.value else { return }
+            item.setImage(image)
+        }
+        artworkTasks[id] = task
     }
 
     private func loadArtwork(for station: RadioStation, into item: CPListItem) {

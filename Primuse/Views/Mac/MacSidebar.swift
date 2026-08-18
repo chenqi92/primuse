@@ -152,9 +152,7 @@ struct MacSidebar: View {
             }
 
             ForEach(sidebarPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { playlist in
-                item(route: .playlist(playlist), icon: "music.note.list",
-                     title: LocalizedStringKey(playlist.name),
-                     trailing: countLabel(library.songs(forPlaylist: playlist.id).count))
+                playlistItem(playlist)
                 .contextMenu {
                     playlistContextMenu(for: playlist)
                 }
@@ -331,6 +329,39 @@ struct MacSidebar: View {
                 Spacer(minLength: 4)
 
                 if let trailing { trailing }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .pmRowBackground(selected: selected)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func playlistItem(_ playlist: Playlist) -> some View {
+        let route = MacRoute.playlist(playlist)
+        let selected = isSelected(route)
+        return Button {
+            select(route)
+        } label: {
+            HStack(spacing: 9) {
+                PlaylistArtworkView(
+                    playlist: playlist,
+                    size: 18,
+                    cornerRadius: 4
+                )
+
+                Text(verbatim: playlist.name)
+                    .font(selected ? .system(size: 13, weight: .medium) : .system(size: 13))
+                    .foregroundStyle(selected ? PMColor.text : PMColor.text.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 4)
+
+                if let trailing = countLabel(library.songCount(forPlaylist: playlist.id)) {
+                    trailing
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

@@ -10,6 +10,7 @@ struct MacLibraryHeader: View {
     var subtitle: String
     var iconSystemName: String = "music.note"
     var coverSong: Song? = nil
+    var coverPlaylist: Playlist? = nil
     var accent: Color = PMColor.brand
     var darkAccent: Color = PMColor.brand.opacity(0.6)
     var onPlay: () -> Void = {}
@@ -114,7 +115,15 @@ struct MacLibraryHeader: View {
 
     @ViewBuilder
     private var coverArt: some View {
-        if let song = coverSong {
+        if let playlist = coverPlaylist {
+            PlaylistArtworkView(
+                playlist: playlist,
+                size: 160,
+                cornerRadius: PMRadius.l,
+                placeholderIcon: iconSystemName
+            )
+            .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        } else if let song = coverSong {
             CachedArtworkView(
                 coverRef: song.coverArtFileName, songID: song.id,
                 size: 160,

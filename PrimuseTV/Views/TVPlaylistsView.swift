@@ -45,20 +45,12 @@ struct TVPlaylistCard: View {
     var action: () -> Void = {}
 
     var body: some View {
-        let cover = store.album(playlist.coverAlbumID)
-        let coverSong = store.song(playlist.coverSongID)
         let h = width * 0.8
         TVFocusButton(radius: TVRadius.card, scale: 1.08, lift: 12,
                       action: { playTapped() }) { _ in
             VStack(alignment: .leading, spacing: 0) {
                 ZStack {
-                    TVArtworkView(coverKey: cover?.id ?? "", artist: cover?.artist ?? "",
-                                  album: cover?.title ?? "", songID: coverSong?.id ?? playlist.coverSongID,
-                                  coverRef: coverSong?.coverRef ?? playlist.coverRef,
-                                  tint: cover?.tint ?? TVColor.brand,
-                                  tint2: cover?.tint2 ?? .black, glyph: cover?.glyph ?? "♪",
-                                  placeholderKind: .playlist,
-                                  size: width, height: h)
+                    TVPlaylistArtworkView(playlist: playlist, size: width, height: h)
                     if playlist.kind == .smart {
                         VStack {
                             HStack {
@@ -103,6 +95,108 @@ struct TVPlaylistCard: View {
         //(不退化为播专辑、不打开空播放页),续播队列即该歌单全部曲目。
         guard store.play(playlist: playlist) else { return }
         action()
+    }
+}
+
+/// tvOS consumes the same deterministic PrimuseKit plan as the phone and Mac,
+/// but resolves each entry with its target-specific cache/client loader.
+private struct TVPlaylistArtworkView: View {
+    @Environment(TVStore.self) private var store
+    let playlist: TVPlaylist
+    let size: CGFloat
+    let height: CGFloat
+
+    @State private var image: UIImage?
+    @State private var reloadRevision = 0
+
+    private var loadIdentity: String {
+        "\(playlist.artworkSignature)#\(reloadRevision)"
+    }
+
+    var body: some View {
+        ZStack {
+            TVMusicPlaceholder(
+                tint: TVColor.brand,
+                tint2: .black,
+                kind: .playlist,
+                size: size,
+                height: height
+            )
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: height)
+                    .clipped()
+            }
+        }
+        .frame(width: size, height: height)
+        .task(id: loadIdentity) {
+            let identity = loadIdentity
+            image = nil
+            let corePlan = PlaylistArtworkResolutionPlan(
+                signature: playlist.artworkSignature,
+                candidates: playlist.artworkCandidates.map {
+                    PlaylistArtworkCandidate(
+                        kind: $0.kind,
+                        id: $0.id,
+                        songID: $0.songID,
+                        artworkReference: $0.coverRef
+                    )
+                }
+            )
+            let resolved: PlaylistArtworkResolution<UIImage>? = await PlaylistArtworkResolver
+                .resolve(plan: corePlan) { candidate -> UIImage? in
+                guard let songID = candidate.songID else { return nil }
+                let sourceID = playlist.artworkCandidates
+                    .first(where: { $0.id == candidate.id })?
+                    .sourceID
+                let client = sourceID.flatMap { store.fnMusicClient(for: $0) }
+                guard let data = await TVArtworkLoader.shared.songCover(
+                    songID: songID,
+                    coverRef: candidate.artworkReference,
+                    fnMusicSourceID: sourceID,
+                    fnMusicClient: client
+                ) else { return nil }
+                return UIImage(data: data)
+            }
+            guard !Task.isCancelled, loadIdentity == identity else { return }
+            image = resolved?.value
+            if image == nil {
+                try? await Task.sleep(
+                    nanoseconds: UInt64(TVArtworkLoader.negativeCacheTTL * 1_000_000_000)
+                )
+                guard !Task.isCancelled, loadIdentity == identity, image == nil else { return }
+                reloadRevision &+= 1
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+            guard notificationAffectsPlaylist(note) else { return }
+            reloadRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+            guard notificationAffectsPlaylist(note) else { return }
+            reloadRevision &+= 1
+        }
+    }
+
+    private func notificationAffectsPlaylist(_ note: Notification) -> Bool {
+        if note.userInfo?["all"] as? Bool == true { return true }
+        let songIDs = Set(playlist.artworkCandidates.map(\.songID))
+        if let songID = note.object as? String, songIDs.contains(songID) { return true }
+        if let songID = note.userInfo?["songID"] as? String, songIDs.contains(songID) {
+            return true
+        }
+        if let changed = note.userInfo?["songIDs"] as? [String],
+           changed.contains(where: songIDs.contains) {
+            return true
+        }
+        let references = Set(playlist.artworkCandidates.compactMap(\.coverRef))
+        if let tokens = note.userInfo?["tokens"] as? [String],
+           tokens.contains(where: references.contains) {
+            return true
+        }
+        return false
     }
 }
 #endif

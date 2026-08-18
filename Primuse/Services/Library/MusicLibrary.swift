@@ -3089,10 +3089,6 @@ final class MusicLibrary {
         let entries = validUniqueSongIDs(songIDs)
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = entries
-        if let firstID = entries.first,
-           let songIndex = songIndexByID[firstID] {
-            allPlaylists[allPlaylists.count - 1].coverArtPath = songs[songIndex].coverArtFileName
-        }
         sortPlaylists()
         persistPlaylistDurabilityLedger()
         persistSnapshot()
@@ -3149,18 +3145,35 @@ final class MusicLibrary {
 
     /// 用外部源的权威快照覆盖镜像歌单。不存在的 songID 会被静默忽略，避免
     /// 同步结果比歌曲写库稍晚时留下悬空引用。
-    func replaceMirrorPlaylistSongs(playlistID: String, songIDs: [String]) {
+    func replaceMirrorPlaylistSongs(
+        playlistID: String,
+        songIDs: [String],
+        coverArtPath: String?
+    ) {
         guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return }
-        replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
+        replacePlaylistSongsUnchecked(
+            playlistID: playlistID,
+            songIDs: songIDs,
+            mirrorCoverArtPath: coverArtPath,
+            replacesCoverArtPath: true
+        )
     }
 
-    private func replacePlaylistSongsUnchecked(playlistID: String, songIDs: [String]) {
+    private func replacePlaylistSongsUnchecked(
+        playlistID: String,
+        songIDs: [String],
+        mirrorCoverArtPath: String? = nil,
+        replacesCoverArtPath: Bool = false
+    ) {
         guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
         let kept = songIDs.filter { songIndexByID[$0] != nil }
         playlistSongIDs[playlistID] = kept
         allPlaylists[idx].updatedAt = Date()
-        allPlaylists[idx].coverArtPath = kept.first
-            .flatMap { id in songIndexByID[id].flatMap { songs[$0].coverArtFileName } }
+        if replacesCoverArtPath {
+            let normalized = normalizedArtworkReference(mirrorCoverArtPath)
+            allPlaylists[idx].coverArtPath = normalized
+            allPlaylists[idx].hasDedicatedCoverArt = normalized != nil
+        }
         if !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) {
             allPlaylists[idx] = stampedPlaylist(allPlaylists[idx])
             persistPlaylistDurabilityLedger()
@@ -3168,6 +3181,36 @@ final class MusicLibrary {
         sortPlaylists()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
+    }
+
+    /// Refresh a source-owned mirror cover without replacing its membership.
+    /// Used when a remote playlist's artwork arrives even though its tracks are
+    /// temporarily unresolved on this device.
+    func updateMirrorPlaylistArtwork(
+        playlistID: String,
+        coverArtPath: String?,
+        forceRefresh: Bool = false
+    ) {
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              let index = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let normalized = normalizedArtworkReference(coverArtPath)
+        guard allPlaylists[index].coverArtPath != normalized
+                || allPlaylists[index].hasDedicatedCoverArt != (normalized != nil) else {
+            if forceRefresh { notifyPlaylistsChanged([playlistID]) }
+            return
+        }
+        allPlaylists[index].coverArtPath = normalized
+        allPlaylists[index].hasDedicatedCoverArt = normalized != nil
+        allPlaylists[index].updatedAt = Date()
+        sortPlaylists()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+    }
+
+    private func normalizedArtworkReference(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Soft-delete: mark `isDeleted = true`, propagated to other devices as
@@ -3374,8 +3417,6 @@ final class MusicLibrary {
         guard changed else { return }
         playlistSongIDs[playlistID] = entries
 
-        allPlaylists[existingIndex].coverArtPath = entries.first
-            .flatMap { songIndexByID[$0].flatMap { songs[$0].coverArtFileName } }
         allPlaylists[existingIndex] = stampedPlaylist(allPlaylists[existingIndex])
         sortPlaylists()
         persistPlaylistDurabilityLedger()
@@ -3443,8 +3484,6 @@ final class MusicLibrary {
         guard entries.count != originalCount else { return }
         playlistSongIDs[playlistID] = entries
 
-        allPlaylists[existingIndex].coverArtPath = entries.first
-            .flatMap { songIndexByID[$0].flatMap { songs[$0].coverArtFileName } }
         allPlaylists[existingIndex] = stampedPlaylist(allPlaylists[existingIndex])
         sortPlaylists()
         persistPlaylistDurabilityLedger()
@@ -3994,7 +4033,6 @@ final class MusicLibrary {
         // Backfill may have just filled in title/artist/duration that lets
         // a stale pending identity finally match.
         flushPendingIdentities()
-        refreshPlaylistArtworkReferences()
         persistSongChanges(upserts: [s])
     }
 
@@ -4057,7 +4095,6 @@ final class MusicLibrary {
         // Batch backfill may have surfaced enough metadata for a chunk of
         // pending identities to resolve at once.
         flushPendingIdentities()
-        refreshPlaylistArtworkReferences()
         persistSongChanges(
             upserts: appliedIDs.compactMap { idToIndex[$0].map { nextSongs[$0] } }
         )
@@ -4847,14 +4884,6 @@ final class MusicLibrary {
 
     private func sortPlaylists() {
         allPlaylists.sort { $0.updatedAt > $1.updatedAt }
-    }
-
-    private func refreshPlaylistArtworkReferences() {
-        for index in allPlaylists.indices {
-            let firstSongID = playlistSongIDs[allPlaylists[index].id]?.first
-            allPlaylists[index].coverArtPath = firstSongID.flatMap { song(id: $0) }?.coverArtFileName
-        }
-        sortPlaylists()
     }
 
     private func cleanPlaylistEntries() {

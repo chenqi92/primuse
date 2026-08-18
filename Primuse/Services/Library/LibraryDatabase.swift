@@ -250,6 +250,10 @@ actor LibraryDatabase {
             try PlaylistDatabaseMigration.migrate(db)
         }
 
+        migrator.registerMigration("v10_playlist_dedicated_artwork") { db in
+            try PlaylistDatabaseMigration.migrate(db)
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.
