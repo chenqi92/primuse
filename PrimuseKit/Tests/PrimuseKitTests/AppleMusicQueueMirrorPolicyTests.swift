@@ -295,14 +295,14 @@ struct AppleMusicPlaybackSourceResolverTests {
         ))
     }
 
-    @Test("An imported row carrying only its library identifier is independent")
-    func resolvesImportedLibraryItem() {
+    @Test("A decoded library identifier without local provenance fails closed")
+    func rejectsUnprovenLibraryItem() {
         #expect(AppleMusicPlaybackSourceResolver.resolve(
             itemID: "i.imported-song",
             explicitCatalogIDs: [],
             genericPlayParameterIDs: ["i.imported-song"],
             confirmedLibraryIDs: ["i.imported-song"]
-        ) == .subscriptionIndependentUserLibrary)
+        ) == .unverifiedUserLibrary)
     }
 
     @Test("Signed decimal Music.app IDs require trusted local-file provenance")
@@ -326,6 +326,17 @@ struct AppleMusicPlaybackSourceResolverTests {
         }
     }
 
+    @Test("A trusted persistent ID is not mistaken for a catalog ID")
+    func resolvesLibraryIDWithLocalPersistentAlias() {
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.imported-song",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: ["i.imported-song", "6867642289211602051"],
+            confirmedLibraryIDs: ["i.imported-song"],
+            confirmedLocalFileIDs: ["6867642289211602051"]
+        ) == .subscriptionIndependentUserLibrary)
+    }
+
     @Test("Catalog identity takes priority over local-file provenance")
     func keepsCatalogGateForCatalogBackedLocalRows() {
         #expect(AppleMusicPlaybackSourceResolver.resolve(
@@ -345,6 +356,12 @@ struct AppleMusicPlaybackSourceResolverTests {
         #expect(AppleMusicLocalFileIdentity.playbackIdentifiers(
             forPersistentID: 0xFB24_11D6_0916_F0E2
         ).contains("-350135260054884126"))
+        #expect(AppleMusicLocalFileIdentity.playbackIdentifiers(
+            forPersistentID: 0xFB24_11D6_0916_F0E2
+        ).contains("fb2411d60916f0e2"))
+        #expect(AppleMusicLocalFileIdentity.playbackIdentifiers(
+            forPersistentID: 0x123
+        ).contains("0000000000000123"))
     }
 
     @Test("Cold lookup uses the library only for confirmed library identities")
@@ -363,41 +380,80 @@ struct AppleMusicPlaybackSourceResolverTests {
         ))
     }
 
-    @Test("Local-file provenance requires a complete matching library-song payload")
+    @Test("Local-file provenance requires a stable matching identifier")
     func validatesLocalFileProvenance() {
         let itemID = "6867642289211602051"
         #expect(AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
             itemID: itemID,
             playParameterIDs: [itemID],
             persistentIDs: [itemID],
-            declaresLibraryItem: true,
-            mediaKinds: ["song"],
+            confirmedLibraryIDs: [],
             confirmedLocalFileIDs: [itemID]
         ))
 
         #expect(!AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
             itemID: itemID,
             playParameterIDs: [itemID],
-            persistentIDs: [itemID],
-            declaresLibraryItem: false,
-            mediaKinds: ["song"],
-            confirmedLocalFileIDs: [itemID]
-        ))
-        #expect(!AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
-            itemID: itemID,
-            playParameterIDs: [itemID],
             persistentIDs: ["different"],
-            declaresLibraryItem: true,
-            mediaKinds: ["song"],
+            confirmedLibraryIDs: [],
             confirmedLocalFileIDs: [itemID]
         ))
         #expect(!AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
             itemID: itemID,
             playParameterIDs: [itemID],
+            persistentIDs: [],
+            confirmedLibraryIDs: [],
+            confirmedLocalFileIDs: ["different"]
+        ))
+
+        #expect(AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: "i.imported-song",
+            playParameterIDs: ["i.imported-song"],
             persistentIDs: [itemID],
-            declaresLibraryItem: true,
-            mediaKinds: ["album"],
+            confirmedLibraryIDs: ["i.imported-song"],
             confirmedLocalFileIDs: [itemID]
+        ))
+
+        #expect(AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: itemID,
+            playParameterIDs: [],
+            persistentIDs: [],
+            confirmedLibraryIDs: [],
+            confirmedLocalFileIDs: [itemID]
+        ))
+    }
+
+    @Test("Only local non-DRM device music is subscription independent")
+    func validatesLocalMediaEligibility() {
+        #expect(AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
+            mediaTypeContainsMusic: true,
+            hasAssetURL: true,
+            isCloudItem: false,
+            hasProtectedAsset: false
+        ))
+        #expect(!AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
+            mediaTypeContainsMusic: true,
+            hasAssetURL: true,
+            isCloudItem: true,
+            hasProtectedAsset: false
+        ))
+        #expect(!AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
+            mediaTypeContainsMusic: true,
+            hasAssetURL: true,
+            isCloudItem: false,
+            hasProtectedAsset: true
+        ))
+        #expect(!AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
+            mediaTypeContainsMusic: true,
+            hasAssetURL: false,
+            isCloudItem: false,
+            hasProtectedAsset: false
+        ))
+        #expect(!AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
+            mediaTypeContainsMusic: false,
+            hasAssetURL: true,
+            isCloudItem: false,
+            hasProtectedAsset: false
         ))
     }
 }

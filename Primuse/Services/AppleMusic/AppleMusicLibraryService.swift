@@ -2,6 +2,9 @@ import Foundation
 import CryptoKit
 import MusicKit
 import PrimuseKit
+#if os(iOS)
+import MediaPlayer
+#endif
 #if os(macOS)
 import iTunesLibrary
 #endif
@@ -103,10 +106,14 @@ final class AppleMusicLibraryService {
     /// for identity resolution can accidentally prefer the transient catalog
     /// object over its stable `i.*` library counterpart.
     private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
-    /// Music.app rows that iTunesLibrary independently resolves to readable,
-    /// non-DRM files on this Mac. MusicKit may identify these rows with signed
-    /// decimal persistent IDs rather than `i.*` IDs.
+    /// Music.app rows that the platform media library independently resolves
+    /// to readable, non-cloud, non-DRM assets. MusicKit may identify these rows
+    /// with a library ID, signed decimal persistent ID, or hexadecimal ID.
     private var subscriptionIndependentLocalFileIDs: Set<String> = []
+    /// Direct single-song playback can resolve a MusicKit row before the first
+    /// full sync. Load device provenance separately so that cold playback does
+    /// not classify an imported item with an empty trust set.
+    private var hasLoadedLocalFileProvenance = false
 
     init(library: MusicLibrary, appleMusic: AppleMusicService) {
         self.library = library
@@ -216,6 +223,11 @@ final class AppleMusicLibraryService {
         queueContext: [PrimuseKit.Song]? = nil,
         requestID: UUID
     ) async {
+        await ensureLocalFileProvenanceLoaded()
+        guard playbackRequestCanContinue(requestID) else {
+            failUnavailablePlaybackRequestIfCurrent(requestID)
+            return
+        }
         let appleMusicQueueContext = queueContext?.filter {
             $0.sourceID == Self.systemSourceID
         }
@@ -492,28 +504,52 @@ final class AppleMusicLibraryService {
     }
 
     /// MusicKit exposes `PlayParameters` only as Codable. A library row with a
-    /// catalog/global ID is still subscription-backed; only a row whose decoded
-    /// payload confirms its `i.` library ID without a catalog identity may play
-    /// without `canPlayCatalogContent`.
+    /// catalog/global ID is still subscription-backed; only a row whose stable
+    /// identifiers also match a readable, non-cloud, non-DRM platform media
+    /// item may play without `canPlayCatalogContent`.
     private func playbackSource(
         for song: MusicKit.Song
     ) -> AppleMusicPlaybackSource {
         let identifiers = Self.musicItemIdentifiers(for: song)
+        let matchedLocalFileIDs = identifiers.all.intersection(
+            subscriptionIndependentLocalFileIDs
+        )
         let hasConfirmedLocalFile = AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
             itemID: song.id.rawValue,
             playParameterIDs: identifiers.genericPlayParameterIDs,
             persistentIDs: identifiers.persistentIDs,
-            declaresLibraryItem: identifiers.declaresLibraryItem,
-            mediaKinds: identifiers.mediaKinds,
-            confirmedLocalFileIDs: subscriptionIndependentLocalFileIDs
+            confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
+            confirmedLocalFileIDs: matchedLocalFileIDs
         )
-        return AppleMusicPlaybackSourceResolver.resolve(
+        let source = AppleMusicPlaybackSourceResolver.resolve(
             itemID: song.id.rawValue,
             explicitCatalogIDs: identifiers.explicitCatalogIDs,
             genericPlayParameterIDs: identifiers.genericPlayParameterIDs,
             confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
-            confirmedLocalFileIDs: hasConfirmedLocalFile ? [song.id.rawValue] : []
+            confirmedLocalFileIDs: hasConfirmedLocalFile ? matchedLocalFileIDs : []
         )
+        let libraryFlag = identifiers.declaresLibraryItem.map(String.init) ?? "missing"
+        let hasSongKind = identifiers.mediaKinds.contains {
+            $0.caseInsensitiveCompare("song") == .orderedSame
+        }
+        plog(
+            "🎵 Apple Music route: idType=\(Self.diagnosticIDType(song.id.rawValue)) "
+                + "playParameters=\(song.playParameters != nil) "
+                + "catalogID=\(!identifiers.explicitCatalogIDs.isEmpty) "
+                + "persistentID=\(!identifiers.persistentIDs.isEmpty) "
+                + "localPersistentMatch=\(!matchedLocalFileIDs.isEmpty) "
+                + "libraryFlag=\(libraryFlag) "
+                + "kindSong=\(hasSongKind) "
+                + "source=\(source)"
+        )
+        return source
+    }
+
+    private nonisolated static func diagnosticIDType(_ value: String) -> String {
+        if value.hasPrefix("i.") { return "library" }
+        if Int64(value) != nil || UInt64(value) != nil { return "decimal" }
+        if !value.isEmpty, value.count <= 16, value.allSatisfy(\.isHexDigit) { return "hex" }
+        return "opaque"
     }
 
     private nonisolated static func trackIdentity(_ song: PrimuseKit.Song) -> AppleMusicTrackIdentity {
@@ -541,7 +577,7 @@ final class AppleMusicLibraryService {
         var genericPlayParameterIDs: Set<String> = []
         var persistentIDs: Set<String> = []
         var mediaKinds: Set<String> = []
-        var declaresLibraryItem = false
+        var declaresLibraryItem: Bool?
         /// Library identities observed in successfully decoded PlayParameters.
         /// The raw Song.id is deliberately not inserted here: it is the value
         /// being verified, not independent evidence that playback is local.
@@ -577,17 +613,15 @@ final class AppleMusicLibraryService {
             for (key, value) in dictionary {
                 let normalizedKey = key.lowercased().filter(\.isLetter)
                 if normalizedKey == "islibrary", let isLibrary = value as? Bool {
-                    result.declaresLibraryItem = result.declaresLibraryItem || isLibrary
+                    result.declaresLibraryItem = (result.declaresLibraryItem ?? true) && isLibrary
                 } else if normalizedKey == "kind", let kind = value as? String {
                     result.mediaKinds.insert(kind)
                 } else if normalizedKey == "musickitpersistentid",
-                          let persistentID = value as? String,
-                          !persistentID.isEmpty {
+                          let persistentID = identifierString(from: value) {
                     result.all.insert(persistentID)
                     result.persistentIDs.insert(persistentID)
                 } else if ["id", "catalogid", "globalid", "libraryid"].contains(normalizedKey),
-                   let id = value as? String,
-                   !id.isEmpty {
+                          let id = identifierString(from: value) {
                     result.all.insert(id)
                     if normalizedKey == "catalogid" || normalizedKey == "globalid" {
                         result.explicitCatalogIDs.insert(id)
@@ -606,6 +640,13 @@ final class AppleMusicLibraryService {
         } else if let array = object as? [Any] {
             for value in array { collectMusicItemIDs(from: value, into: &result) }
         }
+    }
+
+    private nonisolated static func identifierString(from value: Any) -> String? {
+        if let value = value as? String, !value.isEmpty { return value }
+        if value is Bool { return nil }
+        if let value = value as? NSNumber { return value.stringValue }
+        return nil
     }
 
     /// 标记同步又往前走了一步 (拉到一页 / 处理完一个歌单) ── 给看门狗续期。
@@ -756,8 +797,23 @@ final class AppleMusicLibraryService {
     /// Refreshes trusted local-file provenance before every MusicKit snapshot.
     /// Failure is intentionally fail-closed: no row may bypass the catalog
     /// preflight unless the current process can re-confirm its local file.
+    private func ensureLocalFileProvenanceLoaded() async {
+        guard !hasLoadedLocalFileProvenance else { return }
+        await refreshSubscriptionIndependentLocalFileIDs()
+    }
+
     private func refreshSubscriptionIndependentLocalFileIDs() async {
-        #if os(macOS)
+        #if os(iOS)
+        let result = Self.loadSubscriptionIndependentLocalFileIDs()
+        subscriptionIndependentLocalFileIDs = result.ids
+        hasLoadedLocalFileProvenance = result.isAuthorized
+        plog(
+            "🎵 Apple Music local-file provenance: total=\(result.totalCount) "
+                + "eligible=\(result.eligibleCount) cloud=\(result.cloudCount) "
+                + "protected=\(result.protectedCount) noAsset=\(result.noAssetCount) "
+                + "authorization=\(result.authorization)"
+        )
+        #elseif os(macOS)
         let result = await Task.detached(priority: .utility) {
             Self.loadSubscriptionIndependentLocalFileIDs()
         }.value
@@ -768,10 +824,67 @@ final class AppleMusicLibraryService {
             subscriptionIndependentLocalFileIDs = result.ids
             plog("🎵 Apple Music local-file provenance: \(result.itemCount) readable non-DRM songs")
         }
+        hasLoadedLocalFileProvenance = true
         #else
         subscriptionIndependentLocalFileIDs.removeAll()
+        hasLoadedLocalFileProvenance = true
         #endif
     }
+
+    #if os(iOS)
+    private nonisolated static func loadSubscriptionIndependentLocalFileIDs() -> (
+        ids: Set<String>,
+        totalCount: Int,
+        eligibleCount: Int,
+        cloudCount: Int,
+        protectedCount: Int,
+        noAssetCount: Int,
+        authorization: String,
+        isAuthorized: Bool
+    ) {
+        let authorizationStatus = MPMediaLibrary.authorizationStatus()
+        guard authorizationStatus == .authorized else {
+            return ([], 0, 0, 0, 0, 0, String(describing: authorizationStatus), false)
+        }
+
+        let items = MPMediaQuery.songs().items ?? []
+        var confirmedIDs = Set<String>()
+        var eligibleCount = 0
+        var cloudCount = 0
+        var protectedCount = 0
+        var noAssetCount = 0
+        for item in items {
+            let hasAssetURL = item.assetURL != nil
+            if item.isCloudItem { cloudCount += 1 }
+            if item.hasProtectedAsset { protectedCount += 1 }
+            if !hasAssetURL { noAssetCount += 1 }
+            guard AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
+                mediaTypeContainsMusic: item.mediaType.contains(.music),
+                hasAssetURL: hasAssetURL,
+                isCloudItem: item.isCloudItem,
+                hasProtectedAsset: item.hasProtectedAsset
+            ) else {
+                continue
+            }
+            eligibleCount += 1
+            confirmedIDs.formUnion(
+                AppleMusicLocalFileIdentity.playbackIdentifiers(
+                    forPersistentID: item.persistentID
+                )
+            )
+        }
+        return (
+            confirmedIDs,
+            items.count,
+            eligibleCount,
+            cloudCount,
+            protectedCount,
+            noAssetCount,
+            String(describing: authorizationStatus),
+            true
+        )
+    }
+    #endif
 
     #if os(macOS)
     private nonisolated static func loadSubscriptionIndependentLocalFileIDs() -> (

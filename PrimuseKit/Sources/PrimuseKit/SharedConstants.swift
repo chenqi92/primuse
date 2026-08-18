@@ -1752,9 +1752,10 @@ public enum AppleMusicPlaybackSource: Sendable, Equatable {
 }
 
 /// Resolves the opaque identifiers MusicKit supplies for a `Song` into the
-/// narrowest safe playback source. Library IDs use the `i.` namespace; an
-/// additional catalog/global ID means the row still represents catalog
-/// content and must retain the no-subscription crash guard.
+/// narrowest safe playback source. An `i.` library ID is only an address in
+/// the user's library, not proof of a subscription-independent file. The
+/// bypass requires separate platform-media-library provenance; catalog/global
+/// identity always retains the no-subscription crash guard.
 public enum AppleMusicPlaybackSourceResolver {
     public static func resolve(
         itemID: String,
@@ -1763,23 +1764,24 @@ public enum AppleMusicPlaybackSourceResolver {
         confirmedLibraryIDs: Set<String>,
         confirmedLocalFileIDs: Set<String> = []
     ) -> AppleMusicPlaybackSource {
-        let observedLibraryIDs = genericPlayParameterIDs
-            .union(confirmedLibraryIDs)
-            .union([itemID])
-        let hasConfirmedLocalFile = !observedLibraryIDs.isDisjoint(with: confirmedLocalFileIDs)
+        let hasConfirmedLocalFile = !confirmedLocalFileIDs.isEmpty
+        let hasLibraryAddress = itemID.hasPrefix("i.") || confirmedLibraryIDs.contains(itemID)
 
-        // MusicKit on macOS can expose an imported Music.app row using its
-        // signed decimal persistent ID rather than the `i.*` namespace. Such
-        // an ID is library-only only when iTunesLibrary independently confirms
-        // that the row points at a readable, non-DRM local file.
-        guard itemID.hasPrefix("i.") || hasConfirmedLocalFile else { return .catalog }
+        // MusicKit can expose an imported Music.app row using its persistent
+        // ID rather than the `i.*` namespace. Such an ID is library-only only
+        // when the platform media library independently confirms that the row
+        // points at a readable, non-cloud, non-DRM local asset.
+        guard hasLibraryAddress || hasConfirmedLocalFile else { return .catalog }
 
         if explicitCatalogIDs.contains(where: { !$0.isEmpty }) {
             return .catalogBackedUserLibrary
         }
 
         let hasAlternateCatalogID = genericPlayParameterIDs.contains { candidate in
-            !candidate.isEmpty && candidate != itemID && !candidate.hasPrefix("i.")
+            !candidate.isEmpty
+                && candidate != itemID
+                && !candidate.hasPrefix("i.")
+                && !confirmedLocalFileIDs.contains(candidate)
         }
         if hasAlternateCatalogID {
             return .catalogBackedUserLibrary
@@ -1789,51 +1791,71 @@ public enum AppleMusicPlaybackSourceResolver {
             return .subscriptionIndependentUserLibrary
         }
 
-        // `i.*` alone only identifies a row in the user's library. It does not
-        // prove that the row is a locally imported, subscription-independent
-        // item. Require the successfully decoded PlayParameters payload to
-        // repeat that library identity; absent or malformed metadata must keep
-        // the subscription preflight so MusicKit cannot hit its no-subscription
-        // assertion path.
-        guard confirmedLibraryIDs.contains(itemID) else {
-            return .unverifiedUserLibrary
-        }
-        return .subscriptionIndependentUserLibrary
+        // Successfully decoding an `i.*` identity still does not prove that
+        // the row is a local file. Without independent local-asset provenance,
+        // fail closed so MusicKit cannot hit its no-subscription assertion path.
+        return .unverifiedUserLibrary
     }
 }
 
-/// Converts the bit pattern exposed by `ITMediaItem.persistentID` into every
-/// decimal representation MusicKit has been observed to use. IDs above
-/// `Int64.max` appear as negative decimal strings in `MusicLibraryRequest`.
+/// Converts the bit pattern exposed by `ITMediaItem.persistentID` or
+/// `MPMediaItem.persistentID` into the representations MusicKit has been
+/// observed to use. IDs above `Int64.max` may appear as negative decimal
+/// strings, while older device-library payloads may use hexadecimal.
 public enum AppleMusicLocalFileIdentity {
     public static func playbackIdentifiers(forPersistentID persistentID: UInt64) -> Set<String> {
         [
             String(persistentID),
             String(Int64(bitPattern: persistentID)),
+            String(persistentID, radix: 16),
+            String(persistentID, radix: 16, uppercase: true),
+            String(format: "%016llx", persistentID),
+            String(format: "%016llX", persistentID),
         ]
     }
 }
 
-/// Requires MusicKit and iTunesLibrary to agree on the same local library row.
-/// A persistent-ID collision, a partial PlayParameters payload, or a non-song
-/// item must not weaken the catalog subscription preflight.
+/// Requires MusicKit and the platform media library to agree on the same local
+/// row through a stable identifier. Opaque `isLibrary` and `kind` values are
+/// deliberately not authoritative because their shape varies across releases;
+/// an explicit persistent-ID mismatch still fails closed.
 public enum AppleMusicLocalFileProvenancePolicy {
     public static func confirmsLibrarySong(
         itemID: String,
         playParameterIDs: Set<String>,
         persistentIDs: Set<String>,
-        declaresLibraryItem: Bool,
-        mediaKinds: Set<String>,
+        confirmedLibraryIDs: Set<String>,
         confirmedLocalFileIDs: Set<String>
     ) -> Bool {
-        guard declaresLibraryItem,
-              mediaKinds.contains(where: { $0.caseInsensitiveCompare("song") == .orderedSame }),
-              playParameterIDs.contains(itemID),
-              persistentIDs.contains(itemID),
-              confirmedLocalFileIDs.contains(itemID) else {
+        let observedIDs = playParameterIDs
+            .union(persistentIDs)
+            .union(confirmedLibraryIDs)
+            .union([itemID])
+        let persistentIDsContradictLocalAsset = !persistentIDs.isEmpty
+            && persistentIDs.isDisjoint(with: confirmedLocalFileIDs)
+        guard !persistentIDsContradictLocalAsset,
+              !observedIDs.isDisjoint(with: confirmedLocalFileIDs) else {
             return false
         }
         return true
+    }
+}
+
+/// Accepts only device-library audio that the OS independently identifies as
+/// a readable, non-cloud, non-DRM asset. This is provenance for subscription
+/// routing only; Primuse never opens or treats the system asset URL as one of
+/// its own local files.
+public enum AppleMusicLocalMediaEligibility {
+    public static func isSubscriptionIndependent(
+        mediaTypeContainsMusic: Bool,
+        hasAssetURL: Bool,
+        isCloudItem: Bool,
+        hasProtectedAsset: Bool
+    ) -> Bool {
+        mediaTypeContainsMusic
+            && hasAssetURL
+            && !isCloudItem
+            && !hasProtectedAsset
     }
 }
 
