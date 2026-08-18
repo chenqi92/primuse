@@ -74,6 +74,60 @@ struct PlaybackSessionSnapshotTests {
         ) == nil)
     }
 
+    @Test("Launch empty state cannot delete the snapshot before restoration")
+    func preservesSnapshotUntilRestoreCompletes() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-playback-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        let snapshot = makeSnapshot()
+        var lifecycle = PlaybackSessionRestoreLifecycle()
+        try store.save(snapshot)
+
+        if lifecycle.permitsEmptySessionClear { try store.clear() }
+        #expect(try store.load() == snapshot)
+
+        let restoreToken = lifecycle.begin()
+        let token = try #require(restoreToken)
+        if lifecycle.permitsEmptySessionClear { try store.clear() }
+        #expect(try store.load() == snapshot)
+
+        lifecycle.complete(token: token)
+        if lifecycle.permitsEmptySessionClear { try store.clear() }
+        #expect(try store.load() == nil)
+    }
+
+    @Test("A new playback intent invalidates an in-flight restore without discarding its fallback")
+    func newPlaybackSupersedesRestore() throws {
+        var lifecycle = PlaybackSessionRestoreLifecycle()
+        let restoreToken = lifecycle.begin()
+        let token = try #require(restoreToken)
+
+        lifecycle.supersedeForPlaybackIntent()
+
+        #expect(!lifecycle.permitsApply(token: token))
+        #expect(!lifecycle.permitsEmptySessionClear)
+        lifecycle.complete(token: token)
+        #expect(lifecycle.phase == .superseded)
+
+        lifecycle.didPersistCurrentSession()
+        #expect(lifecycle.phase == .completed)
+        #expect(lifecycle.permitsEmptySessionClear)
+    }
+
+    @Test("An explicit stop cancels restoration and permits clearing")
+    func explicitStopCancelsRestore() throws {
+        var lifecycle = PlaybackSessionRestoreLifecycle()
+        let restoreToken = lifecycle.begin()
+        let token = try #require(restoreToken)
+
+        lifecycle.completeForPauseOrStopIntent()
+
+        #expect(!lifecycle.permitsApply(token: token))
+        #expect(lifecycle.phase == .completed)
+        #expect(lifecycle.permitsEmptySessionClear)
+    }
+
     @Test("Invalid shuffle bookkeeping falls back to the selected occurrence")
     func repairsInvalidShuffleOrder() throws {
         var snapshot = makeSnapshot()

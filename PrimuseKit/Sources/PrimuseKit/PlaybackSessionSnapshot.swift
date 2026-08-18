@@ -54,6 +54,72 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/// Coordinates the one-time launch restore with transport actions that may
+/// arrive while its file/queue work is still in flight. An empty player is not
+/// proof that the user stopped playback until the initial restore has either
+/// completed or been explicitly superseded.
+public struct PlaybackSessionRestoreLifecycle: Equatable, Sendable {
+    public enum Phase: Equatable, Sendable {
+        case pending
+        case restoring
+        case superseded
+        case completed
+    }
+
+    public private(set) var phase: Phase = .pending
+    private var generation: UInt64 = 0
+
+    public init() {}
+
+    /// Empty-state publications (for example the first scene-active callback)
+    /// may clear durable state only after launch restoration has settled.
+    public var permitsEmptySessionClear: Bool {
+        phase == .completed
+    }
+
+    /// Starts the single launch restore and returns a token that must still be
+    /// current before applying its asynchronously prepared queue.
+    public mutating func begin() -> UInt64? {
+        guard phase == .pending else { return nil }
+        generation &+= 1
+        phase = .restoring
+        return generation
+    }
+
+    public func permitsApply(token: UInt64) -> Bool {
+        phase == .restoring && generation == token
+    }
+
+    /// Finishes a restore attempt. A stale completion cannot undo a newer user
+    /// intent that superseded the restore while it was awaiting I/O.
+    public mutating func complete(token: UInt64) {
+        guard permitsApply(token: token) else { return }
+        phase = .completed
+    }
+
+    /// A new Play request owns the live session, but the previous snapshot is
+    /// retained until the replacement has actually been persisted. If the new
+    /// transport fails early, the next launch can still recover the old state.
+    public mutating func supersedeForPlaybackIntent() {
+        guard phase == .pending || phase == .restoring else { return }
+        generation &+= 1
+        phase = .superseded
+    }
+
+    /// Successful persistence of a current item makes subsequent empty state a
+    /// meaningful stop rather than a transient launch condition.
+    public mutating func didPersistCurrentSession() {
+        phase = .completed
+    }
+
+    /// Pause/stop is explicit user intent. It invalidates an in-flight restore
+    /// and allows the caller to remove the stored snapshot when no item exists.
+    public mutating func completeForPauseOrStopIntent() {
+        generation &+= 1
+        phase = .completed
+    }
+}
+
 /// A validated, library-aware playback session. Missing queue items are
 /// removed while the current occurrence and the played/up-next shuffle split
 /// remain stable.

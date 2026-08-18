@@ -592,7 +592,7 @@ final class AudioPlayerService {
     private let sourceManager: SourceManager?
     private let library: MusicLibrary?
     private let playbackSessionStore: PlaybackSessionStore
-    private var hasAttemptedPlaybackSessionRestore = false
+    private var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
     private var isRestoringPlaybackSession = false
 
     private(set) var currentSong: Song?
@@ -1723,6 +1723,7 @@ final class AudioPlayerService {
     }
 
     private func registerPlayIntent() {
+        playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
         cancelPendingConfigurationRecovery()
         clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPlayIntent()
@@ -1730,6 +1731,7 @@ final class AudioPlayerService {
     }
 
     private func registerPauseOrStopIntent() {
+        playbackSessionRestoreLifecycle.completeForPauseOrStopIntent()
         cancelPendingConfigurationRecovery()
         clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPauseOrStopIntent()
@@ -8874,10 +8876,11 @@ final class AudioPlayerService {
     /// on its own; a later Play command rebuilds the decoder at the saved time.
     func restorePlaybackSessionIfAvailable() async {
         let restoreStartedAt = ProcessInfo.processInfo.systemUptime
-        guard !hasAttemptedPlaybackSessionRestore else { return }
-        hasAttemptedPlaybackSessionRestore = true
+        guard let restoreToken = playbackSessionRestoreLifecycle.begin() else { return }
+        defer { playbackSessionRestoreLifecycle.complete(token: restoreToken) }
         guard let library else { return }
         let initialQueueGeneration = queueGeneration
+        let initialAdvanceGeneration = playbackAdvancePolicy.generation
         let visibleSongs = library.visibleSongs
         let store = playbackSessionStore
         let preparationTask = Task<PreparedPlaybackSessionRestore?, Never>.detached(priority: .userInitiated) {
@@ -8923,7 +8926,9 @@ final class AudioPlayerService {
 
         // The user may have started a new queue while the old session was being
         // decoded off-main. Never let delayed restoration replace live intent.
-        guard queueGeneration == initialQueueGeneration,
+        guard playbackSessionRestoreLifecycle.permitsApply(token: restoreToken),
+              queueGeneration == initialQueueGeneration,
+              playbackAdvancePolicy.generation == initialAdvanceGeneration,
               currentSong == nil,
               queueEntries.isEmpty else { return }
         let plan = prepared.plan
@@ -9000,6 +9005,12 @@ final class AudioPlayerService {
         guard !isLiveRadio else { return }
         guard let song = currentSong else {
             guard clearWhenEmpty else { return }
+            guard playbackSessionRestoreLifecycle.permitsEmptySessionClear else {
+                // During launch, scene activation publishes an empty player
+                // before deferred restoration has loaded its snapshot. That is
+                // transient UI state, not an explicit Stop request.
+                return
+            }
             do {
                 try playbackSessionStore.clear()
             } catch {
@@ -9047,6 +9058,7 @@ final class AudioPlayerService {
         )
         do {
             try playbackSessionStore.save(snapshot)
+            playbackSessionRestoreLifecycle.didPersistCurrentSession()
         } catch {
             plog("⚠️ Playback session save failed: \(error.localizedDescription)")
         }
