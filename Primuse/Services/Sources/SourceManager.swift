@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Network
 import PrimuseKit
 
 struct SongFileDeletionResult: Sendable {
@@ -305,7 +306,77 @@ private struct SourceDiagnosticAdvice: Sendable {
 
 private struct RoutedConnectorCandidate: Sendable {
     let kind: SourceConnectionCandidateKind
+    let endpoint: SourceConnectionEndpoint?
     let connector: any MusicSourceConnector
+}
+
+/// Completes a bounded TCP preflight exactly once. The preflight never sends
+/// credentials or application bytes; a successful source-specific `connect()`
+/// remains the service-identity proof before a route becomes active.
+private final class SourceConnectionPreflightCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private let connection: NWConnection
+
+    init(connection: NWConnection, continuation: CheckedContinuation<Bool, Never>) {
+        self.connection = connection
+        self.continuation = continuation
+    }
+
+    func finish(_ result: Bool) {
+        lock.lock()
+        guard let continuation else {
+            lock.unlock()
+            return
+        }
+        self.continuation = nil
+        lock.unlock()
+        connection.cancel()
+        continuation.resume(returning: result)
+    }
+}
+
+private enum SourceConnectionPreflight {
+    /// A private address on the correct WLAN normally completes ARP + TCP in a
+    /// few milliseconds. One second leaves ample wake-up margin while keeping a
+    /// colliding RFC1918 address from blocking the cover-art queue.
+    static let timeout: TimeInterval = 1
+
+    static func reaches(_ rawEndpoint: SourceConnectionEndpoint) async -> Bool {
+        let endpoint = rawEndpoint.normalized
+        guard endpoint.isUsable,
+              let port = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
+            return false
+        }
+
+        return await withCheckedContinuation { continuation in
+            let connection = NWConnection(
+                host: NWEndpoint.Host(endpoint.host),
+                port: port,
+                using: .tcp
+            )
+            let completion = SourceConnectionPreflightCompletion(
+                connection: connection,
+                continuation: continuation
+            )
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    completion.finish(true)
+                case .failed, .cancelled:
+                    completion.finish(false)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: DispatchQueue.global(qos: .userInitiated))
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + timeout
+            ) {
+                completion.finish(false)
+            }
+        }
+    }
 }
 
 /// Owns route selection for one source. Read operations may move to the next
@@ -354,7 +425,7 @@ private actor SourceConnectionRouter {
         do {
             return (try await operation(candidates[initialIndex].connector), initialIndex)
         } catch {
-            guard Self.canFailOver(after: error) else { throw error }
+            guard canFailOver(after: error, from: initialIndex) else { throw error }
             await retireFailedRoute(at: initialIndex)
             return try await attemptRead(
                 operation,
@@ -371,7 +442,7 @@ private actor SourceConnectionRouter {
         do {
             return try await operation(candidates[index].connector)
         } catch {
-            if Self.canFailOver(after: error) {
+            if canFailOver(after: error, from: index) {
                 await retireFailedRoute(at: index)
             }
             throw error
@@ -383,8 +454,8 @@ private actor SourceConnectionRouter {
     /// second endpoint into a partially-consumed byte or scan stream; simply
     /// retire the failed route so the caller's next safe retry uses fallback.
     func noteDeferredReadFailure(_ error: Error, routeIndex: Int) async {
-        guard Self.canFailOver(after: error) else { return }
         guard candidates.indices.contains(routeIndex) else { return }
+        guard canFailOver(after: error, from: routeIndex) else { return }
         await retireFailedRoute(at: routeIndex)
     }
 
@@ -398,13 +469,9 @@ private actor SourceConnectionRouter {
             routeGeneration = currentGeneration
         }
 
-        let prefersLocalNetwork = await MainActor.run {
-            NetworkMonitor.shared.prefersLocalConnections
-        }
         let preferredKind = await SourceConnectionRuntime.shared.preferredKind(
             for: sourceID,
-            availableKinds: candidates.map(\.kind),
-            prefersLocalNetwork: prefersLocalNetwork
+            availableKinds: candidates.map(\.kind)
         )
 
         if let currentIndex = activeIndex,
@@ -416,12 +483,8 @@ private actor SourceConnectionRouter {
                 // Probe the newly preferred route while the known-good fallback
                 // stays alive. This makes Wi-Fi fail back to LAN without risking
                 // an active scan or playback stream.
-                await SourceConnectionRuntime.shared.noteAttempt(
-                    preferredKind,
-                    for: sourceID
-                )
                 do {
-                    try await candidates[preferredIndex].connector.connect()
+                    try await connectCandidate(at: preferredIndex)
                     activeIndex = preferredIndex
                     await SourceConnectionRuntime.shared.record(
                         preferredKind,
@@ -434,6 +497,10 @@ private actor SourceConnectionRouter {
                     // already connected successfully, so preserve it even when
                     // the preferred probe reports a terminal/authentication error.
                     await candidates[preferredIndex].connector.disconnect()
+                    await SourceConnectionRuntime.shared.recordFailure(
+                        of: preferredKind,
+                        for: sourceID
+                    )
                     await SourceConnectionRuntime.shared.record(
                         candidates[currentIndex].kind,
                         for: sourceID
@@ -451,9 +518,8 @@ private actor SourceConnectionRouter {
         }
         for index in orderedIndices where excluded.contains(index) == false {
             let kind = candidates[index].kind
-            await SourceConnectionRuntime.shared.noteAttempt(kind, for: sourceID)
             do {
-                try await candidates[index].connector.connect()
+                try await connectCandidate(at: index)
                 activeIndex = index
                 await SourceConnectionRuntime.shared.record(
                     kind,
@@ -463,7 +529,7 @@ private actor SourceConnectionRouter {
                 return index
             } catch {
                 lastError = error
-                guard Self.canFailOver(after: error) else { throw error }
+                guard canFailOver(after: error, from: index) else { throw error }
                 await candidates[index].connector.disconnect()
                 await SourceConnectionRuntime.shared.recordFailure(
                     of: kind,
@@ -474,6 +540,19 @@ private actor SourceConnectionRouter {
         throw lastError ?? SourceError.connectionFailed(
             String(localized: "source_connection_no_route")
         )
+    }
+
+    private func connectCandidate(at index: Int) async throws {
+        let candidate = candidates[index]
+        if candidate.kind == .localAddress,
+           let endpoint = candidate.endpoint,
+           await SourceConnectionPreflight.reaches(endpoint) == false {
+            throw URLError(.cannotConnectToHost)
+        }
+        // TCP reachability is deliberately not treated as success. Each
+        // connector must still complete its authenticated, protocol-specific
+        // handshake before the route is recorded or shown as active.
+        try await candidate.connector.connect()
     }
 
     private func attemptRead<T: Sendable>(
@@ -496,7 +575,7 @@ private actor SourceConnectionRouter {
                 return (try await operation(candidates[index].connector), index)
             } catch {
                 lastError = error
-                guard Self.canFailOver(after: error) else { throw error }
+                guard canFailOver(after: error, from: index) else { throw error }
                 await retireFailedRoute(at: index)
                 excluded.insert(index)
             }
@@ -544,6 +623,22 @@ private actor SourceConnectionRouter {
         }
         return true
     }
+
+    /// Authentication is normally terminal, but not when it came from the LAN
+    /// candidate of a multi-route source. The same private address can belong
+    /// to an unrelated NAS on another Wi-Fi; treating that device's 401/login
+    /// response as proof that the user's saved credentials are wrong would
+    /// suppress a healthy public route. Mutations are still never replayed —
+    /// this decision only retires the candidate so the next safe read can use
+    /// the remote endpoint.
+    private func canFailOver(after error: Error, from index: Int) -> Bool {
+        if Self.canFailOver(after: error) { return true }
+        guard candidates.indices.contains(index),
+              candidates[index].kind == .localAddress else {
+            return false
+        }
+        return candidates.contains { $0.kind != .localAddress }
+    }
 }
 
 private protocol RoutedConnectorProxy: MusicSourceConnector {
@@ -588,6 +683,15 @@ private extension RoutedConnectorProxy {
 
     func imageURL(for path: String) async throws -> URL? {
         try await routing.withRead { try await $0.imageURL(for: path) }
+    }
+
+    func fetchArtworkData(for reference: String, maximumBytes: Int) async throws -> Data? {
+        try await routing.withRead {
+            try await $0.fetchArtworkData(
+                for: reference,
+                maximumBytes: maximumBytes
+            )
+        }
     }
 
     func writeFile(data: Data, to path: String) async throws {
@@ -981,6 +1085,7 @@ final class SourceManager {
         let routedCandidates = configuredCandidates.map { candidate in
             RoutedConnectorCandidate(
                 kind: candidate.kind,
+                endpoint: candidate.endpoint,
                 connector: directConnector(for: source.applyingConnectionCandidate(candidate))
             )
         }
@@ -4843,23 +4948,14 @@ final class SourceManager {
     }
 
 
-    /// Get a direct HTTP URL for an image file on the source (for cover art display).
-    /// Uses the shared connector — lightweight, just builds a URL without downloading.
-    func imageURL(for path: String, sourceID: String) async -> URL? {
-        guard let sources = try? await sourcesProvider(),
-              let source = sources.first(where: { $0.id == sourceID }) else { return nil }
-        let conn = connector(for: source)
-        return try? await conn.imageURL(for: path)
-    }
-
-    /// Download a small source-side artwork/lyrics object without entering the
-    /// playback lane. SMB maps `.background` to its independent libsmb2
-    /// context; stateless HTTP/cloud connectors preserve their normal request
-    /// implementation through the protocol default.
-    func sidecarData(
-        for path: String,
+    /// Downloads artwork inside the connector's routed read operation. A local
+    /// URL that becomes stale during a Wi-Fi handoff can therefore retire that
+    /// route and retry through the configured public endpoint in the same view
+    /// load, rather than poisoning the five-minute failed-artwork cache.
+    func artworkData(
+        for reference: String,
         sourceID: String,
-        maximumBytes: Int64
+        maximumBytes: Int
     ) async -> Data? {
         guard maximumBytes > 0,
               let sources = try? await sourcesProvider(),
@@ -4868,16 +4964,10 @@ final class SourceManager {
         }
         let conn = connector(for: source)
         do {
-            if !(conn is SMBSource) {
-                try await conn.connect()
-            }
-            let data = try await conn.fetchRange(
-                path: path,
-                offset: 0,
-                length: maximumBytes,
-                priority: .background
+            return try await conn.fetchArtworkData(
+                for: reference,
+                maximumBytes: maximumBytes
             )
-            return data.isEmpty ? nil : data
         } catch {
             return nil
         }
@@ -4901,15 +4991,6 @@ final class SourceManager {
 
     func removeConnector(for sourceID: String) async {
         await refreshConnector(for: sourceID)
-    }
-
-    /// A Wi-Fi/cellular/path transition changes the preference for future
-    /// operations. Existing streams stay alive until they naturally finish;
-    /// forcibly disconnecting them turned NWPath updates into false scan
-    /// failures (`URLError.cancelled`). Each router observes the generation and
-    /// safely selects the new route on its next operation.
-    func resetAdaptiveConnectionRoutes() async {
-        await SourceConnectionRuntime.shared.invalidateAll()
     }
 
     func disconnectAll() async {

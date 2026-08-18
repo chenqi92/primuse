@@ -709,7 +709,25 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 ]
             )
         }
-        // 老快照里持久化的完整封面 URL: 仍是合法 http(s), 直接用。
+        // 老快照里持久化的完整 getCoverArt URL 可能带着扫描时的 LAN
+        // 主机和旧 token。提取稳定 cover id，再用当前路线与凭据重签。
+        if let legacyURL = URL(string: path),
+           legacyURL.scheme != nil,
+           legacyURL.path.lowercased().contains("/rest/getcoverart"),
+           let coverArtID = URLComponents(
+            url: legacyURL,
+            resolvingAgainstBaseURL: false
+           )?.queryItems?.first(where: { $0.name.caseInsensitiveCompare("id") == .orderedSame })?.value,
+           coverArtID.isEmpty == false {
+            try await connect()
+            return buildRESTURL(
+                method: "getCoverArt",
+                query: [
+                    URLQueryItem(name: "id", value: coverArtID),
+                    URLQueryItem(name: "size", value: "480")
+                ]
+            )
+        }
         if path.contains("://") { return URL(string: path) }
         return nil
     }

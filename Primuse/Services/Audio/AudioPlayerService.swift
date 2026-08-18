@@ -8592,43 +8592,32 @@ final class AudioPlayerService {
         // Tier 3: source fetch — URL reference or sidecar path
         if let coverRef, !coverRef.isEmpty {
             var fetchedData: Data?
-            // Full URL (media server API)
-            if coverRef.contains("://"), let url = URL(string: coverRef) {
+            // A source-owned absolute URL may contain the LAN endpoint used by
+            // yesterday's scan. Download through the adaptive connector so the
+            // Now Playing/full-screen path gets the same route validation and
+            // failover as in-app artwork views.
+            if let sourceID, let sourceManager {
+                fetchedData = await sourceManager.artworkData(
+                    for: coverRef,
+                    sourceID: sourceID,
+                    maximumBytes: 8 * 1024 * 1024
+                )
+            } else if coverRef.contains("://"), let url = URL(string: coverRef) {
                 let config = URLSessionConfiguration.default
                 config.timeoutIntervalForRequest = 10
                 let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
                 defer { session.finishTasksAndInvalidate() }
-                fetchedData = try? await session.data(from: url).0
-            }
-            // Source-side path or opaque cloud reference.
-            else if let sourceID, let sourceManager {
-                if let imageURL = await sourceManager.imageURL(for: coverRef, sourceID: sourceID) {
-                    let config = URLSessionConfiguration.default
-                    config.timeoutIntervalForRequest = 10
-                    let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-                    defer { session.finishTasksAndInvalidate() }
-                    fetchedData = try? await session.data(from: imageURL).0
+                if let result = try? await TrustedHTTPTransport.data(
+                    from: url,
+                    session: session,
+                    maxBytes: 8 * 1024 * 1024
+                ), let http = result.1 as? HTTPURLResponse,
+                   (200...299).contains(http.statusCode) {
+                    fetchedData = result.0
                 }
             }
 
             if let data = fetchedData, let image = decodeArtworkImage(from: data) {
-                await store.cacheCover(data, forSongID: songID)
-                return image
-            }
-
-            // Baidu Pan, SMB and other authenticated sources may not expose
-            // a direct image URL. Mirror CachedArtworkView's connector
-            // fallback so system Now Playing receives the same sidecar art
-            // that is already visible inside the app.
-            if NowPlayingArtworkFallbackPolicy.shouldFetchFromConnector(
-                reference: coverRef,
-                directImageLoaded: false
-            ), let sourceID, let sourceManager,
-               let data = await sourceManager.sidecarData(
-                for: coverRef,
-                sourceID: sourceID,
-                maximumBytes: 8 * 1024 * 1024
-               ), let image = decodeArtworkImage(from: data) {
                 await store.cacheCover(data, forSongID: songID)
                 return image
             }

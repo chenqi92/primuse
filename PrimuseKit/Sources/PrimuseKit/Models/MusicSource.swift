@@ -695,6 +695,68 @@ public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
     }
 }
 
+/// Rebuilds a source-owned absolute resource URL on the endpoint selected at
+/// request time. Catalogues often persist artwork URLs containing the LAN host;
+/// carrying only the service-relative suffix across routes prevents those URLs
+/// from becoming stale after Wi-Fi changes.
+public enum SourceConnectionURLRewriter {
+    public static func rebasedURL(
+        for reference: URL,
+        onto baseURL: URL,
+        pathMarkers: [String],
+        removingQueryItemsNamed namesToRemove: Set<String> = [],
+        addingQueryItems: [URLQueryItem] = []
+    ) -> URL? {
+        guard let referenceScheme = reference.scheme?.lowercased(),
+              referenceScheme == "http" || referenceScheme == "https",
+              let baseScheme = baseURL.scheme?.lowercased(),
+              baseScheme == "http" || baseScheme == "https",
+              let referenceComponents = URLComponents(
+                url: reference,
+                resolvingAgainstBaseURL: false
+              ),
+              var destination = URLComponents(
+                url: baseURL,
+                resolvingAgainstBaseURL: false
+              ) else {
+            return nil
+        }
+
+        let sourcePath = referenceComponents.percentEncodedPath
+        guard let suffix = pathMarkers.lazy.compactMap({ rawMarker -> String? in
+            let marker = rawMarker.hasPrefix("/") ? rawMarker : "/\(rawMarker)"
+            guard let range = sourcePath.range(
+                of: marker,
+                options: [.caseInsensitive]
+            ) else {
+                return nil
+            }
+            return String(sourcePath[range.lowerBound...])
+        }).first else {
+            return nil
+        }
+
+        var prefix = destination.percentEncodedPath
+        while prefix.count > 1, prefix.hasSuffix("/") {
+            prefix.removeLast()
+        }
+        if prefix == "/" { prefix = "" }
+        destination.percentEncodedPath = prefix + suffix
+
+        let replacedNames = Set(
+            namesToRemove.map { $0.lowercased() }
+                + addingQueryItems.map { $0.name.lowercased() }
+        )
+        var queryItems = (referenceComponents.queryItems ?? []).filter {
+            !replacedNames.contains($0.name.lowercased())
+        }
+        queryItems.append(contentsOf: addingQueryItems)
+        destination.queryItems = queryItems.isEmpty ? nil : queryItems
+        destination.fragment = nil
+        return destination.url
+    }
+}
+
 /// Persisted multi-route configuration. A filled endpoint is a usable route, and
 /// filling both lets the router pick. Empty inactive fields are retained so
 /// switching between a public URL and QuickConnect/FN Connect is lossless.
@@ -823,12 +885,14 @@ public struct SourceConnectionCandidate: Hashable, Sendable, Identifiable {
 public actor SourceConnectionRuntime {
     public static let shared = SourceConnectionRuntime()
 
-    /// A failed LAN probe should not add a timeout to every file request, but a
-    /// transient failure must not pin the source to its public route forever.
-    public static let localRetryInterval: TimeInterval = 30
-
     private var activeKinds: [String: SourceConnectionCandidateKind] = [:]
-    private var lastLocalAttemptAt: [String: Date] = [:]
+    /// A private address is meaningful only on the network where it was
+    /// verified. Once its service/protocol handshake fails, keep it out of the
+    /// preferred slot until Network.framework reports a path transition. This
+    /// prevents a common company-Wi-Fi collision (for example another
+    /// 192.168.0.50) from adding a timeout to every artwork or range request.
+    private var rejectedLocalSources: Set<String> = []
+    private var observedPrefersLocalNetwork: Bool?
     private var generation: UInt64 = 0
 
     public init() {
@@ -837,17 +901,13 @@ public actor SourceConnectionRuntime {
 
     public func orderedCandidates(
         for source: MusicSource,
-        prefersLocalNetwork: Bool = true,
-        now: Date = Date(),
-        localRetryInterval: TimeInterval = SourceConnectionRuntime.localRetryInterval
+        prefersLocalNetwork: Bool? = nil
     ) -> [SourceConnectionCandidate] {
         let candidates = source.connectionCandidates
         guard let preferredKind = preferredKind(
             for: source.id,
             availableKinds: candidates.map(\.kind),
-            prefersLocalNetwork: prefersLocalNetwork,
-            now: now,
-            localRetryInterval: localRetryInterval
+            prefersLocalNetwork: prefersLocalNetwork
         ),
         let preferredIndex = candidates.firstIndex(where: { $0.kind == preferredKind }),
         preferredIndex > 0 else {
@@ -859,20 +919,20 @@ public actor SourceConnectionRuntime {
         return ordered
     }
 
-    /// Resolves the route to try next from the current interface and recent LAN
-    /// failures. Wi-Fi/wired paths prefer LAN, while cellular paths start with a
-    /// public/vendor route. A working public fallback is retried against LAN
-    /// after a short cooldown so a sleeping NAS can recover without a network
-    /// toggle or app restart.
+    /// Resolves the route to try next from the current interface and the LAN
+    /// verdict for this exact network path. Wi-Fi/wired paths try an unknown LAN
+    /// once; a rejected LAN stays behind the working remote route until the path
+    /// changes. Cellular paths start with the public/vendor route.
     public func preferredKind(
         for sourceID: String,
         availableKinds: [SourceConnectionCandidateKind],
-        prefersLocalNetwork: Bool,
-        now: Date = Date(),
-        localRetryInterval: TimeInterval = SourceConnectionRuntime.localRetryInterval
+        prefersLocalNetwork: Bool? = nil
     ) -> SourceConnectionCandidateKind? {
         guard availableKinds.isEmpty == false else { return nil }
 
+        let prefersLocalNetwork = prefersLocalNetwork
+            ?? observedPrefersLocalNetwork
+            ?? true
         let activeKind = activeKinds[sourceID].flatMap { active in
             availableKinds.contains(active) ? active : nil
         }
@@ -883,8 +943,7 @@ public actor SourceConnectionRuntime {
 
         if prefersLocalNetwork, let localKind {
             if activeKind == localKind { return localKind }
-            if let attemptedAt = lastLocalAttemptAt[sourceID],
-               now.timeIntervalSince(attemptedAt) < max(0, localRetryInterval) {
+            if rejectedLocalSources.contains(sourceID) {
                 return activeKind ?? remoteKind ?? localKind
             }
             return localKind
@@ -900,47 +959,50 @@ public actor SourceConnectionRuntime {
         activeKinds[sourceID]
     }
 
-    public func noteAttempt(
-        _ kind: SourceConnectionCandidateKind,
-        for sourceID: String,
-        at date: Date = Date()
-    ) {
-        if kind == .localAddress {
-            lastLocalAttemptAt[sourceID] = date
-        }
-    }
-
     public func record(_ kind: SourceConnectionCandidateKind, for sourceID: String) {
         activeKinds[sourceID] = kind
         if kind == .localAddress {
-            lastLocalAttemptAt.removeValue(forKey: sourceID)
+            rejectedLocalSources.remove(sourceID)
         }
     }
 
-    /// Retires a route after a transport failure without erasing the LAN retry
-    /// cooldown. Full invalidation is reserved for source edits and real network
-    /// path changes.
+    /// Retires a route after a transport failure. A failed private endpoint is
+    /// quarantined for this network path; a source with no remote alternative
+    /// can still select its only LAN candidate as a last resort.
     public func recordFailure(
         of kind: SourceConnectionCandidateKind,
-        for sourceID: String,
-        at date: Date = Date()
+        for sourceID: String
     ) {
         if activeKinds[sourceID] == kind {
             activeKinds.removeValue(forKey: sourceID)
         }
         if kind == .localAddress {
-            lastLocalAttemptAt[sourceID] = date
+            rejectedLocalSources.insert(sourceID)
         }
+    }
+
+    /// Receives the interface preference from the same NWPath that invalidates
+    /// route memory, so route ordering cannot briefly use a stale Wi-Fi/cellular
+    /// value from a second monitor.
+    public func observeNetworkPath(
+        prefersLocalNetwork: Bool,
+        pathChanged: Bool
+    ) {
+        observedPrefersLocalNetwork = prefersLocalNetwork
+        guard pathChanged else { return }
+        activeKinds.removeAll()
+        rejectedLocalSources.removeAll()
+        generation &+= 1
     }
 
     public func invalidate(sourceID: String) {
         activeKinds.removeValue(forKey: sourceID)
-        lastLocalAttemptAt.removeValue(forKey: sourceID)
+        rejectedLocalSources.remove(sourceID)
     }
 
     public func invalidateAll() {
         activeKinds.removeAll()
-        lastLocalAttemptAt.removeAll()
+        rejectedLocalSources.removeAll()
         generation &+= 1
     }
 
@@ -964,17 +1026,24 @@ private final class SourceConnectionNetworkObserver: @unchecked Sendable {
         monitor.start(queue: queue)
     }
 
-    private func handle(_: NWPath) {
+    private func handle(_ path: NWPath) {
         lock.lock()
-        let shouldInvalidate = receivedInitialPath
+        let pathChanged = receivedInitialPath
         receivedInitialPath = true
         lock.unlock()
 
-        // NWPathMonitor invokes this handler for path changes. Do not collapse
-        // two Wi-Fi paths merely because both are unmetered IPv4: moving from
-        // one WLAN to another must make the next operation probe LAN first.
-        guard shouldInvalidate else { return }
-        Task { await SourceConnectionRuntime.shared.invalidateAll() }
+        let prefersLocalNetwork = path.status == .satisfied
+            && (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet))
+            && !path.isExpensive
+        // Do not collapse two Wi-Fi paths merely because both are unmetered
+        // IPv4: moving from one WLAN to another must make the next operation
+        // prove the LAN service again.
+        Task {
+            await SourceConnectionRuntime.shared.observeNetworkPath(
+                prefersLocalNetwork: prefersLocalNetwork,
+                pathChanged: pathChanged
+            )
+        }
     }
 }
 

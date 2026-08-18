@@ -231,6 +231,37 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return requiresConnectorBackedTransport(for: url) ? nil : url
     }
 
+    /// Catalogue rows persist an absolute artwork URL produced by whichever
+    /// route performed the scan. Rebuild that service-owned path on this
+    /// connector's current endpoint so a LAN scan remains usable on the
+    /// Internet (and vice versa), while refreshing the route's auth token.
+    func imageURL(for reference: String) async throws -> URL? {
+        guard let original = URL(string: reference), original.scheme != nil else {
+            return nil
+        }
+        try await connect()
+        guard let accessToken else { throw SourceError.authenticationFailed }
+
+        switch kind {
+        case .jellyfin, .emby:
+            return SourceConnectionURLRewriter.rebasedURL(
+                for: original,
+                onto: baseURL,
+                pathMarkers: ["/Items/"],
+                removingQueryItemsNamed: ["api_key", "X-Emby-Token"],
+                addingQueryItems: [URLQueryItem(name: "api_key", value: accessToken)]
+            )
+        case .plex:
+            return SourceConnectionURLRewriter.rebasedURL(
+                for: original,
+                onto: baseURL,
+                pathMarkers: ["/library/"],
+                removingQueryItemsNamed: ["X-Plex-Token"],
+                addingQueryItems: [URLQueryItem(name: "X-Plex-Token", value: accessToken)]
+            )
+        }
+    }
+
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         try await fetchRange(path: path, offset: offset, length: length, allowReauthentication: true)
     }

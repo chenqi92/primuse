@@ -605,7 +605,7 @@ import Testing
     ) == .idle)
 }
 
-@Test func adaptiveRuntimeUsesInterfacePreferenceAndRetriesLANAfterCooldown() async {
+@Test func adaptiveRuntimeQuarantinesFailedLANUntilTheNetworkChanges() async {
     let source = MusicSource(
         id: "route-memory",
         name: "WebDAV",
@@ -624,12 +624,10 @@ import Testing
         )
     )
     let runtime = SourceConnectionRuntime()
-    let startedAt = Date(timeIntervalSince1970: 1_000)
 
     #expect(await runtime.orderedCandidates(
         for: source,
-        prefersLocalNetwork: true,
-        now: startedAt
+        prefersLocalNetwork: true
     ).map(\.kind)
             == [.localAddress, .publicAddress])
 
@@ -637,33 +635,52 @@ import Testing
     // the LAN instead of paying a local-address timeout first.
     #expect(await runtime.orderedCandidates(
         for: source,
-        prefersLocalNetwork: false,
-        now: startedAt
+        prefersLocalNetwork: false
     ).map(\.kind) == [.publicAddress, .localAddress])
 
-    await runtime.noteAttempt(.localAddress, for: source.id, at: startedAt)
+    await runtime.recordFailure(of: .localAddress, for: source.id)
     await runtime.record(.publicAddress, for: source.id)
     #expect(await runtime.orderedCandidates(
         for: source,
-        prefersLocalNetwork: true,
-        now: startedAt.addingTimeInterval(10)
+        prefersLocalNetwork: true
     ).map(\.kind)
             == [.publicAddress, .localAddress])
 
-    // A transient LAN miss is not remembered forever on the same Wi-Fi.
+    // Time alone must not make a company-Wi-Fi collision interrupt the
+    // working public route again.
     #expect(await runtime.orderedCandidates(
         for: source,
-        prefersLocalNetwork: true,
-        now: startedAt.addingTimeInterval(SourceConnectionRuntime.localRetryInterval + 1)
-    ).map(\.kind) == [.localAddress, .publicAddress])
+        prefersLocalNetwork: true
+    ).map(\.kind) == [.publicAddress, .localAddress])
 
     let generation = await runtime.routeGeneration()
-    await runtime.invalidateAll()
+    await runtime.observeNetworkPath(
+        prefersLocalNetwork: true,
+        pathChanged: true
+    )
     #expect(await runtime.routeGeneration() == generation + 1)
     #expect(await runtime.orderedCandidates(
-        for: source,
-        prefersLocalNetwork: true,
-        now: startedAt
+        for: source
     ).map(\.kind)
             == [.localAddress, .publicAddress])
+
+    // A source with no public route still gets its only candidate after a
+    // failure, allowing an explicit retry when the NAS wakes up.
+    let localOnly = MusicSource(
+        id: "route-memory-local-only",
+        name: "LAN only",
+        type: .webdav,
+        connectionConfiguration: SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.1.21",
+                port: 8080,
+                useSsl: false
+            )
+        )
+    )
+    await runtime.recordFailure(of: .localAddress, for: localOnly.id)
+    #expect(await runtime.orderedCandidates(
+        for: localOnly,
+        prefersLocalNetwork: true
+    ).map(\.kind) == [.localAddress])
 }

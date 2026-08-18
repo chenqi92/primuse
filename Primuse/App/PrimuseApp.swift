@@ -696,7 +696,6 @@ private final class LifecycleSnapshotUploadCoordinator {
 @MainActor
 private struct NetworkPathChangeObserver: View {
     let metadataBackfill: MetadataBackfillService
-    let sourceManager: SourceManager
     let sourcesStore: SourcesStore
     let scanService: ScanService
 
@@ -709,7 +708,6 @@ private struct NetworkPathChangeObserver: View {
             }
             .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
                 Task {
-                    await sourceManager.resetAdaptiveConnectionRoutes()
                     for source in sourcesStore.sources where source.type == .synology {
                         scanService.removeSynologyAPI(for: source.id)
                     }
@@ -1244,7 +1242,6 @@ struct PrimuseApp: App {
                 .background {
                     NetworkPathChangeObserver(
                         metadataBackfill: metadataBackfill,
-                        sourceManager: sourceManager,
                         sourcesStore: sourcesStore,
                         scanService: scanService
                     )

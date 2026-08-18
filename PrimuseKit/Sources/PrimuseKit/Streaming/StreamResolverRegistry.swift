@@ -169,6 +169,10 @@ public actor StreamResolverRegistry {
                candidate.kind != .vendorRemote,
                await tcpReachable(routedSource) == false {
                 lastError = URLError(.cannotConnectToHost)
+                await SourceConnectionRuntime.shared.recordFailure(
+                    of: candidate.kind,
+                    for: source.id
+                )
                 continue
             }
 
@@ -188,10 +192,17 @@ public actor StreamResolverRegistry {
                 return result
             } catch {
                 lastError = error
-                guard Self.canFailOver(after: error) else { throw error }
+                guard Self.canFailOver(
+                    after: error,
+                    from: candidate,
+                    among: candidates
+                ) else { throw error }
                 await resolver.invalidateSession(sourceID: source.id)
                 routedResolverStates[source.id] = nil
-                await SourceConnectionRuntime.shared.invalidate(sourceID: source.id)
+                await SourceConnectionRuntime.shared.recordFailure(
+                    of: candidate.kind,
+                    for: source.id
+                )
             }
         }
         throw lastError
@@ -246,9 +257,20 @@ public actor StreamResolverRegistry {
         }
     }
 
+    private static func canFailOver(
+        after error: Error,
+        from candidate: SourceConnectionCandidate,
+        among candidates: [SourceConnectionCandidate]
+    ) -> Bool {
+        if canFailOver(after: error) { return true }
+        return candidate.kind == .localAddress
+            && candidates.contains { $0.kind != .localAddress }
+    }
+
     private static func requiresReachabilityProbe(_ type: MusicSourceType) -> Bool {
         switch type {
-        case .webdav, .s3, .jellyfin, .emby, .plex,
+        case .synology, .qnap, .ugreen, .fnMusic, .daoliyu,
+             .webdav, .s3, .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic:
             return true
         default:

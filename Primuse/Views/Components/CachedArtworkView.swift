@@ -207,6 +207,13 @@ struct CachedArtworkView: View {
             Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
             cacheInvalidationRevision &+= 1
         }
+        .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
+            // A failed LAN URL belongs to the previous network context. Let
+            // visible covers retry immediately through the newly selected route
+            // instead of honoring the normal five-minute failure suppression.
+            Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
+            cacheInvalidationRevision &+= 1
+        }
     }
 
     /// body 拆出来 ── 直接写 if/else 链 SwiftUI ResultBuilder 类型推断超时,
@@ -574,25 +581,38 @@ struct CachedArtworkView: View {
         fileFormat: AudioFormat?,
         sourceManager: SourceManager
     ) async -> Data? {
-        // Case 1: URL reference (media server API — already a full URL)
-        if let ref, ref.contains("://"), let url = URL(string: ref) {
-            return try? await sharedArtworkSession.data(from: url).0
-        }
+        let maximumArtworkBytes = 8 * 1024 * 1024
 
-        // Case 2: Sidecar reference on source — get a streaming URL (no file download needed).
-        // Cloud drives may store opaque file IDs here, not just slashy paths.
+        // Case 1: Any source-owned reference, including a historical absolute
+        // LAN URL, stays inside the connector operation until its bytes arrive.
+        // This lets adaptive routing observe the actual image failure and retry
+        // the complete request through the alternate endpoint.
         if let ref, !ref.isEmpty, let sourceID {
-            if let imageURL = await sourceManager.imageURL(for: ref, sourceID: sourceID) {
-                return try? await sharedArtworkSession.data(from: imageURL).0
-            }
-            // SMB has no direct image URL. Fetch the small sidecar through its
-            // background libsmb2 lane so cover loading cannot block decoder
-            // range reads on the foreground playback connection.
-            if let data = await sourceManager.sidecarData(
+            if let data = await sourceManager.artworkData(
                 for: ref,
                 sourceID: sourceID,
-                maximumBytes: 8 * 1024 * 1024
+                maximumBytes: maximumArtworkBytes
             ) {
+                return data
+            }
+        }
+
+        // Case 2: A URL without source ownership (for example a scraper CDN)
+        // cannot be rebased, but it is still bounded and response-validated.
+        if sourceID == nil,
+           let ref,
+           ref.contains("://"),
+           let url = URL(string: ref) {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+            if let (data, response) = try? await TrustedHTTPTransport.data(
+                for: request,
+                session: sharedArtworkSession,
+                maxBytes: maximumArtworkBytes
+            ),
+               let http = response as? HTTPURLResponse,
+               (200...299).contains(http.statusCode),
+               data.isEmpty == false {
                 return data
             }
         }

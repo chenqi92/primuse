@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import PrimuseKit
 
 struct RemoteFileItem: Sendable {
@@ -259,6 +260,12 @@ protocol MusicSourceConnector: Sendable {
     /// Used by CachedArtworkView to load covers without downloading to local cache.
     func imageURL(for path: String) async throws -> URL?
 
+    /// Resolves and downloads one bounded artwork object inside the connector
+    /// operation. Adaptive wrappers can therefore observe a failed image request
+    /// and retry it on the alternate route instead of returning a stale LAN URL
+    /// that fails later outside the router.
+    func fetchArtworkData(for reference: String, maximumBytes: Int) async throws -> Data?
+
     /// Write data to a remote path. Used by sidecar file writing (cover art, lyrics).
     func writeFile(data: Data, to path: String) async throws
     func writeFile(
@@ -328,6 +335,62 @@ extension MusicSourceConnector {
     func imageURL(for path: String) async throws -> URL? {
         // Default: use streamingURL as fallback (works for any file)
         try await streamingURL(for: path)
+    }
+
+    func fetchArtworkData(for reference: String, maximumBytes: Int) async throws -> Data? {
+        guard maximumBytes > 0 else { return nil }
+
+        let data: Data
+        if let url = try await imageURL(for: reference) {
+            if url.isFileURL {
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard values.isRegularFile == true,
+                      let size = values.fileSize,
+                      size > 0,
+                      size <= maximumBytes else {
+                    throw SourceError.connectionFailed("Artwork file is empty or too large")
+                }
+                data = try Data(contentsOf: url, options: .mappedIfSafe)
+            } else {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 10
+                request.setValue("image/*", forHTTPHeaderField: "Accept")
+                let result = try await TrustedHTTPTransport.data(
+                    for: request,
+                    session: SourceArtworkDataTransport.session,
+                    maxBytes: maximumBytes
+                )
+                guard let http = result.1 as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode),
+                      result.0.isEmpty == false else {
+                    throw SourceError.connectionFailed("Artwork request returned an invalid response")
+                }
+                if let mimeType = http.mimeType?.lowercased(),
+                   mimeType.hasPrefix("text/")
+                    || mimeType.contains("json")
+                    || mimeType.contains("xml") {
+                    throw SourceError.connectionFailed("Artwork endpoint returned non-image data")
+                }
+                data = result.0
+            }
+        } else {
+            // SMB/NFS and opaque cloud references do not expose a direct URL.
+            // Keep this byte read inside the routed operation as well, otherwise
+            // successful connection setup could hide a wrong same-address NAS.
+            data = try await fetchRange(
+                path: reference,
+                offset: 0,
+                length: Int64(maximumBytes),
+                priority: .background
+            )
+        }
+
+        guard data.isEmpty == false,
+              data.count <= maximumBytes,
+              SourceArtworkDataValidator.isRecognizedImage(data) else {
+            throw SourceError.connectionFailed("Artwork endpoint returned invalid image data")
+        }
+        return data
     }
 
     func countAudioFiles(in path: String) async throws -> Int {
@@ -451,6 +514,31 @@ extension MusicSourceConnector {
         )
         let data = try await fetchMetadataRange(path: path, offset: 0, length: requestedLength)
         return try STRMDescriptorParser.parse(data)
+    }
+}
+
+private enum SourceArtworkDataTransport {
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 20
+        configuration.httpMaximumConnectionsPerHost = 4
+        return URLSession(
+            configuration: configuration,
+            delegate: SmartSSLDelegate(redirectPolicy: .media),
+            delegateQueue: nil
+        )
+    }()
+}
+
+private enum SourceArtworkDataValidator {
+    static func isRecognizedImage(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              CGImageSourceGetType(source) != nil else {
+            return false
+        }
+        return CGImageSourceGetStatus(source) != .statusInvalidData
     }
 }
 

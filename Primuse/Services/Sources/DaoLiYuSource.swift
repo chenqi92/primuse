@@ -268,7 +268,17 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
     }
 
     func imageURL(for path: String) async throws -> URL? {
-        if let url = URL(string: path), url.scheme != nil { return url }
+        if let url = URL(string: path), url.scheme != nil {
+            if let serverBaseURL,
+               let rebased = SourceConnectionURLRewriter.rebasedURL(
+                for: url,
+                onto: serverBaseURL,
+                pathMarkers: ["/api/"]
+               ) {
+                return rebased
+            }
+            return url
+        }
         return serverBaseURL.flatMap {
             DaoLiYuAPIProtocol.coverURL(serverBaseURL: $0, reference: path)
         }
