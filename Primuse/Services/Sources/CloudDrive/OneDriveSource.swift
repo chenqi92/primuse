@@ -108,7 +108,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                     modifiedDate: (item["lastModifiedDateTime"] as? String)
                         .flatMap(Self.parseISO8601),
                     revision: revision,
-                    providerID: id,
+                    providerID: "onedrive:\(id)",
                     // Delta events always report the real driveItem id for the
                     // root parent, not the `/root` URL alias.
                     parentPath: parentID ?? (path.isEmpty || path == "/" ? "root" : path)
@@ -174,15 +174,18 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                 }
                 for item in json["value"] as? [[String: Any]] ?? [] {
                     guard let id = item["id"] as? String else { continue }
-                    let existing = index[id]
+                    // The sync index is keyed by `RemoteFileItem.providerID`,
+                    // which listFiles emits namespaced. Use the same key here.
+                    let stableKey = "onedrive:\(id)"
+                    let existing = index[stableKey]
                     let parent = (item["parentReference"] as? [String: Any])?["id"] as? String
                     if item["deleted"] != nil {
-                        if existing != nil { deletedKeys.insert(id) }
+                        if existing != nil { deletedKeys.insert(stableKey) }
                         if let oldParent = existing?.parentPath { changedParents.insert(oldParent) }
                         continue
                     }
-                    deletedKeys.remove(id)
-                    liveStableKeys.insert(id)
+                    deletedKeys.remove(stableKey)
+                    liveStableKeys.insert(stableKey)
                     if let oldParent = existing?.parentPath { changedParents.insert(oldParent) }
                     if item["folder"] != nil {
                         requiresDeep = true

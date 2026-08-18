@@ -185,6 +185,27 @@ struct SourceSyncStateTests {
         #expect(!stale.isUsable)
     }
 
+    @Test("Version-1 snapshots are rejected because index keys changed")
+    func legacySchemaVersionForcesRebuild() throws {
+        // A v1 state keyed Google Drive items by the bare provider id and Baidu
+        // items by "path:<lowercased path>". Both are keyed differently now, so
+        // reusing a v1 index would diff every file against a key that no longer
+        // exists and report the whole source as deleted-and-re-added.
+        var legacy = SourceSyncState(
+            sourceID: "source",
+            scopeFingerprint: "scope",
+            cursors: ["account": "cursor"]
+        )
+        legacy.schemaVersion = 1
+        #expect(!legacy.isUsable(sourceID: "source", scopeFingerprint: "scope"))
+        #expect(SourceSyncState.currentSchemaVersion == 2)
+
+        var legacyResume = SourceScanResumeState(pendingDirectories: ["/music"])
+        legacyResume.schemaVersion = 1
+        #expect(!legacyResume.isUsable)
+        #expect(SourceScanResumeState.currentSchemaVersion == 2)
+    }
+
     @Test("Periodic sync requires a committed native cursor")
     func periodicSyncRequiresCursor() {
         let now = Date(timeIntervalSince1970: 2_000_000)

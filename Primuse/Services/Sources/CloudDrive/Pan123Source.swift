@@ -83,7 +83,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
                     size: isDir ? 0 : size,
                     modifiedDate: nil,
                     revision: etag,
-                    providerID: fileID,
+                    providerID: "pan123:\(fileID)",
                     parentPath: parent
                 ))
             }

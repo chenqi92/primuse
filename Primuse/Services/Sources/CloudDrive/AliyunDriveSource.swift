@@ -185,7 +185,7 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                     size: item["size"] as? Int64 ?? 0,
                     modifiedDate: nil,
                     revision: hash,
-                    providerID: fileId,
+                    providerID: "aliyun:\(fileId)",
                     parentPath: parentFileId
                 )
             })

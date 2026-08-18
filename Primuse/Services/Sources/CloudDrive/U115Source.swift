@@ -112,7 +112,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
                         size: 0,
                         modifiedDate: nil,
                         revision: nil,
-                        providerID: dirID,
+                        providerID: "u115:\(dirID)",
                         parentPath: cid
                     ))
                 } else {
@@ -129,7 +129,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
                         size: size,
                         modifiedDate: nil,
                         revision: sha1,
-                        providerID: fileID,
+                        providerID: fileID.map { "u115:\($0)" },
                         parentPath: cid
                     ))
                 }

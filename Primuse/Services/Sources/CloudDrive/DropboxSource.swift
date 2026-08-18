@@ -184,7 +184,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                 size: entry["size"] as? Int64 ?? 0,
                 modifiedDate: nil,
                 revision: revision,
-                providerID: entry["id"] as? String,
+                providerID: (entry["id"] as? String).map { "dropbox:\($0)" },
                 parentPath: resolvedParent.isEmpty ? (parentPath ?? "") : resolvedParent
             )
         }
@@ -272,16 +272,19 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                         continue
                     }
                     guard tag == "file", let displayPath else { continue }
-                    if let providerID = entry["id"] as? String {
+                    // The sync index is keyed by `RemoteFileItem.providerID`,
+                    // which listFiles emits namespaced. Use the same key here.
+                    let stableKey = (entry["id"] as? String).map { "dropbox:\($0)" }
+                    if let stableKey {
                         // A move can be represented as old-path deletion plus
                         // the same stable id at a new path in one cursor page.
-                        deletedKeys.remove(providerID)
-                        liveStableKeys.insert(providerID)
+                        deletedKeys.remove(stableKey)
+                        liveStableKeys.insert(stableKey)
                     }
                     let parent = (displayPath as NSString).deletingLastPathComponent
                     changedParents.insert(parent)
-                    if let providerID = entry["id"] as? String,
-                       let old = index[providerID],
+                    if let stableKey,
+                       let old = index[stableKey],
                        let oldParent = old.parentPath,
                        oldParent != parent {
                         changedParents.insert(oldParent)

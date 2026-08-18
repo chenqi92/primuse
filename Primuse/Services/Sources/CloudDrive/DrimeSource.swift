@@ -746,7 +746,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             size: entry.fileSize,
             modifiedDate: entry.modifiedDate,
             revision: entry.revision,
-            providerID: entry.id,
+            providerID: "drime:\(entry.id)",
             parentPath: parentPath
         )
     }

@@ -249,7 +249,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                     size: Int64(item["size"] as? String ?? "0") ?? 0,
                     modifiedDate: mtime,
                     revision: revision,
-                    providerID: id,
+                    providerID: "gdrive:\(id)",
                     // `root` is only an API alias. Changes API returns the
                     // actual root folder id, so persist that same identity to
                     // avoid reconciling the top-level directory twice.
@@ -372,19 +372,22 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             let entries = json["changes"] as? [[String: Any]] ?? []
             for change in entries {
                 guard let fileID = change["fileId"] as? String else { continue }
-                let existing = index[fileID]
+                // The sync index is keyed by `RemoteFileItem.providerID`, which
+                // listFiles emits namespaced. Look up the same key here.
+                let stableKey = "gdrive:\(fileID)"
+                let existing = index[stableKey]
                 let file = change["file"] as? [String: Any]
                 let removed = change["removed"] as? Bool == true || file?["trashed"] as? Bool == true
                 if removed {
                     if let existing {
-                        deletedKeys.insert(fileID)
+                        deletedKeys.insert(stableKey)
                         if let parent = existing.parentPath { changedParents.insert(parent) }
                     }
                     continue
                 }
                 guard let file else { continue }
-                deletedKeys.remove(fileID)
-                liveStableKeys.insert(fileID)
+                deletedKeys.remove(stableKey)
+                liveStableKeys.insert(stableKey)
                 let parents = file["parents"] as? [String] ?? []
                 let parent = parents.first
                 let inScope: Bool

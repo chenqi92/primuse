@@ -9,7 +9,12 @@ public enum SourceSyncMode: String, Codable, Sendable, CaseIterable {
 /// Device-local discovery state. Provider cursors are deliberately kept out of
 /// MusicSource/CloudKit because they describe one device's committed snapshot.
 public struct SourceSyncState: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+    /// 2: `index` keys changed. `RemoteFileItem.providerID` is now namespaced
+    /// per provider (`"gdrive:<id>"`, `"baidu:<fs_id>"`, …), and Baidu items
+    /// carry a `providerID` at all — they used to fall back to `"path:<path>"`.
+    /// Version-1 snapshots key the same files differently, so they are dropped
+    /// and rebuilt by one full walk instead of being diffed against.
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var sourceID: String
@@ -124,7 +129,8 @@ public enum SourceSyncFolderTopologyPolicy {
 /// failed walk must never advance provider cursors or become authoritative for
 /// deletion, but it can safely resume from the remaining directory queue.
 public struct SourceScanResumeState: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+    /// 2: `index` keys changed alongside `SourceSyncState.currentSchemaVersion`.
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var pendingDirectories: [String]

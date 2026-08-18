@@ -397,7 +397,22 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             // content fingerprint so re-scan can detect overwrites with
             // the same size (modifiedDate isn't surfaced here either).
             let md5 = item["md5"] as? String
-            return RemoteFileItem(name: name, path: p, isDirectory: isDir, size: size, modifiedDate: nil, revision: md5)
+            // fs_id is the stable file system identifier. It stays the same
+            // when a file is moved/renamed, so we use it as providerID to
+            // preserve user metadata (play history, cache, ratings) across moves.
+            let fsId = item["fs_id"] as? Int64
+            let providerID = fsId.map { "baidu:\($0)" }
+            return RemoteFileItem(
+                name: name,
+                path: p,
+                isDirectory: isDir,
+                size: size,
+                modifiedDate: nil,
+                sidecarHints: nil,
+                revision: md5,
+                providerID: providerID,
+                parentPath: dir
+            )
         }
     }
 
