@@ -257,6 +257,12 @@ final class CloudKitSyncService {
         attachLocalChangeObservers()
         attachAccountChangeObserver()
 
+        migratePendingSourceDeletesToTombstoneSaves(in: engine)
+        // Deletion evidence must be re-seeded on every start, independently of
+        // the once-per-install initial-upload flag. A delete can be created
+        // while sync or the sources channel is disabled.
+        sourcesChanged(ids: sourcesStore.sourceDeletionIDs)
+
         // Push existing local state once after install so the engine has a
         // baseline. After that CKSyncEngine's persisted state tracks per-record
         // sync status — re-uploading on every cold launch just burns quota.
@@ -568,7 +574,7 @@ final class CloudKitSyncService {
             playlistsChanged(ids: library.allPlaylists.map(\.id))
             smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         case .sources:
-            sourcesChanged(ids: sourcesStore.allSources.map(\.id))
+            sourcesChanged(ids: sourceIDsForCatchUp())
         case .playbackHistory:
             enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
         case .listeningStats:
@@ -834,10 +840,9 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.sourceDeleted(id: id) }
         })
-        // Soft-delete is a different signal than permanent delete: the
-        // local row stays for recycle-bin recovery, but the upstream
-        // CloudKit record must be removed (otherwise fetchChanges would
-        // resurrect it on every sync).
+        // Soft and permanent delete both publish the same durable tombstone
+        // payload. The independent deletion ledger keeps it available even
+        // after the user-facing row is pruned.
         observerTokens.append(nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.sourceDeleted(id: id) }
@@ -914,12 +919,24 @@ final class CloudKitSyncService {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
         let resolved = resolveSourceIDsForSync(ids)
         enqueueSaves(recordType: RecordType.musicSource, ids: resolved.active)
-        enqueueDeletes(recordType: RecordType.musicSource, ids: resolved.deleted)
+        // A source deletion is a durable tombstone payload, not a record
+        // removal. Keeping that payload on the server lets a reset cursor or a
+        // newly installed device distinguish deletion from local absence.
+        enqueueSaves(recordType: RecordType.musicSource, ids: resolved.deleted)
     }
 
     func sourceDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
-        enqueueDeletes(recordType: RecordType.musicSource, ids: [id])
+        enqueueSaves(recordType: RecordType.musicSource, ids: [id])
+    }
+
+    @discardableResult
+    func enqueueSourceTombstoneForCleanup(id: String) -> Bool {
+        guard isStarted,
+              CloudSyncChannel.isEnabled(.sources),
+              sourcesStore.sourceDeletionRecord(id: id)?.tombstone != nil else { return false }
+        enqueueSaves(recordType: RecordType.musicSource, ids: [id])
+        return true
     }
 
     func cloudAccountsChanged(ids: [String]) {
@@ -1011,14 +1028,21 @@ final class CloudKitSyncService {
         var active: [String] = []
         var deleted: [String] = []
         for id in ids where seen.insert(id).inserted {
-            guard let source = sourcesStore.allSources.first(where: { $0.id == id }) else { continue }
-            if source.isDeleted {
+            if let source = sourcesStore.allSources.first(where: { $0.id == id }) {
+                if source.isDeleted {
+                    deleted.append(id)
+                } else {
+                    active.append(id)
+                }
+            } else if sourcesStore.sourceDeletionRecord(id: id)?.tombstone != nil {
                 deleted.append(id)
-            } else {
-                active.append(id)
             }
         }
         return (active, deleted)
+    }
+
+    private func sourceIDsForCatchUp() -> [String] {
+        Array(Set(sourcesStore.allSources.map(\.id) + sourcesStore.sourceDeletionIDs))
     }
 
     private func resolveCloudAccountIDsForSync(_ ids: [String]) -> SyncIDResolution {
@@ -1172,6 +1196,23 @@ final class CloudKitSyncService {
         }
     }
 
+    private func migratePendingSourceDeletesToTombstoneSaves(in syncEngine: CKSyncEngine) {
+        let legacyDeletes = syncEngine.state.pendingRecordZoneChanges.filter { change in
+            guard case .deleteRecord(let recordID) = change,
+                  let metadata = recordMetadata(for: recordID),
+                  metadata.recordType == RecordType.musicSource else { return false }
+            return sourcesStore.sourceDeletionRecord(id: metadata.localID)?.tombstone != nil
+        }
+        guard !legacyDeletes.isEmpty else { return }
+        syncEngine.state.remove(pendingRecordZoneChanges: legacyDeletes)
+        let saves = legacyDeletes.compactMap { change -> CKSyncEngine.PendingRecordZoneChange? in
+            guard case .deleteRecord(let recordID) = change else { return nil }
+            return .saveRecord(recordID)
+        }
+        syncEngine.state.add(pendingRecordZoneChanges: saves)
+        plog("CloudKitSync: migrated \(saves.count) pending source delete(s) to durable tombstone saves")
+    }
+
     private func dropPendingRecordZoneChanges(for recordID: CKRecord.ID, syncEngine: CKSyncEngine) {
         syncEngine.state.remove(pendingRecordZoneChanges: [
             .saveRecord(recordID),
@@ -1212,13 +1253,13 @@ final class CloudKitSyncService {
         return kept
     }
 
-    /// On first start, push everything we have locally. Soft-deleted sources /
-    /// cloud accounts are enqueued as CloudKit deletes, not payload saves, so
-    /// stale server rows cannot resurrect them after a reinstall.
+    /// On first start, push everything we have locally. Source tombstones are
+    /// saved as durable payloads; CloudAccount keeps its legacy deleteRecord
+    /// behavior because account IDs are deterministic and not user-facing.
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
-        sourcesChanged(ids: sourcesStore.allSources.map(\.id))
+        sourcesChanged(ids: sourceIDsForCatchUp())
         cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
         radioStationsChanged(ids: radioStationsStore.allStations.map(\.id))
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
@@ -1462,6 +1503,14 @@ final class CloudKitSyncService {
     /// edit. Merge the set-like record types while their save is pending.
     @MainActor
     fileprivate func applyFetchedRecord(_ record: CKRecord, syncEngine: CKSyncEngine) {
+        if CloudSyncChannel.isEnabled(.sources), shouldReassertSourceTombstone(for: record) {
+            // Preserve the fetched change tag, then overwrite this stale active
+            // payload with the durable local tombstone in the same sync cycle.
+            storeSystemFields(record)
+            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: syncEngine)
+            return
+        }
+
         let hasPendingSave = syncEngine.state.pendingRecordZoneChanges.contains { change in
             guard case .saveRecord(let recordID) = change else { return false }
             return Self.sameRecordID(recordID, record.recordID)
@@ -1500,6 +1549,11 @@ final class CloudKitSyncService {
             mergePlaybackHistoryRecord(local: local, server: record)
         case RecordType.listeningStats:
             mergeListeningStatsRecord(local: local, server: record)
+        case RecordType.musicSource:
+            if sourceWinner(local: local, remote: record) == .remote {
+                applyRemoteRecord(record)
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+            }
         default:
             // Atomic records keep their existing last-writer-wins behavior.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
@@ -1695,8 +1749,14 @@ final class CloudKitSyncService {
     // MARK: - Music source mapping
 
     private func populateSourceRecord(_ record: CKRecord, sourceID: String) -> Bool {
-        guard let source = sourcesStore.allSources.first(where: { $0.id == sourceID }),
-              !source.isDeleted else { return false }
+        let storedSource = sourcesStore.allSources.first(where: { $0.id == sourceID })
+        let ledgerTombstone = sourcesStore.sourceDeletionRecord(id: sourceID)?.tombstone
+        let source = if storedSource?.isDeleted != false, let ledgerTombstone {
+            ledgerTombstone
+        } else {
+            storedSource
+        }
+        guard let source else { return false }
         do {
             let data = try JSONEncoder().encode(SyncableSource(source: source))
             record["payload"] = data
@@ -1709,13 +1769,28 @@ final class CloudKitSyncService {
     }
 
     private func applySourceRecord(_ record: CKRecord) {
-        guard let data = record["payload"] as? Data,
-              let syncable = try? JSONDecoder().decode(SyncableSource.self, from: data) else { return }
-        var source = syncable.source
+        guard var source = decodedSource(from: record) else { return }
         // Older records may still contain a Synology trusted-device token.
         // Never import it onto a different physical device.
         source.deviceId = nil
         sourcesStore.upsertFromRemote(source)
+    }
+
+    private func decodedSource(from record: CKRecord) -> MusicSource? {
+        guard let data = record["payload"] as? Data,
+              let syncable = try? JSONDecoder().decode(SyncableSource.self, from: data) else {
+            return nil
+        }
+        return syncable.source
+    }
+
+    private func shouldReassertSourceTombstone(for record: CKRecord) -> Bool {
+        guard record.recordType == RecordType.musicSource,
+              let source = decodedSource(from: record),
+              !source.isDeleted,
+              let deletion = sourcesStore.sourceDeletionRecord(id: source.id),
+              deletion.tombstone != nil else { return false }
+        return MusicSourceLifecyclePolicy.shouldSuppress(active: source, with: deletion)
     }
 
     // MARK: - Cloud account mapping
@@ -1951,7 +2026,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
         case .sentRecordZoneChanges(let event):
             for saved in event.savedRecords {
-                await MainActor.run { self.storeSystemFields(saved) }
+                await MainActor.run {
+                    self.storeSystemFields(saved)
+                    self.acknowledgeSavedSourceTombstone(saved)
+                }
             }
             for deletedID in event.deletedRecordIDs {
                 await MainActor.run { self.removeSystemFields(for: deletedID) }
@@ -1980,6 +2058,17 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
             plog("CloudKitSync: unhandled engine event \(description)")
         }
+    }
+
+    private func acknowledgeSavedSourceTombstone(_ record: CKRecord) {
+        guard record.recordType == RecordType.musicSource,
+              let source = decodedSource(from: record),
+              source.isDeleted else { return }
+        NotificationCenter.default.post(
+            name: .primuseSourceTombstoneDidSync,
+            object: nil,
+            userInfo: ["id": source.id]
+        )
     }
 
     nonisolated func nextRecordZoneChangeBatch(
@@ -2077,8 +2166,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     /// - **Playlists**: union both sides' `songIDs` so neither device's recent
     ///   add is lost; pick name/coverArt from the larger `updatedAt`.
     /// - **PlaybackHistory**: union+dedup, capped at 100, local entries first.
-    /// - **MusicSource / ScraperConfig** (payload-based atomic types):
-    ///   straight last-writer-wins on `updatedAt`.
+    /// - **MusicSource**: durable deletion wins unless the active payload carries
+    ///   a later explicit restore marker.
+    /// - **ScraperConfig**: straight last-writer-wins on `updatedAt`.
     ///
     /// Always applies the merged record locally, then re-enqueues a save —
     /// CKSyncEngine carries the server's new changeTag forward so the next
@@ -2106,8 +2196,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             mergePlaybackHistoryRecord(local: local, server: server)
         case RecordType.listeningStats:
             mergeListeningStatsRecord(local: local, server: server)
+        case RecordType.musicSource:
+            if sourceWinner(local: local, remote: server) == .remote {
+                applyRemoteRecord(server)
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
+                return
+            }
         default:
-            // MusicSource / ScraperConfig: payload is atomic, LWW on updatedAt.
+            // Remaining payload-based atomic types use LWW on updatedAt.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
             let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
             if serverUpdated >= localUpdated {
@@ -2121,6 +2217,15 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         // Re-enqueue so engine picks up the merged local state with server's
         // changeTag.
         addCoalescedRecordZoneChanges([.saveRecord(local.recordID)], to: syncEngine)
+    }
+
+    private func sourceWinner(
+        local: CKRecord,
+        remote: CKRecord
+    ) -> MusicSourceLifecyclePolicy.Winner? {
+        guard let localSource = decodedSource(from: local),
+              let remoteSource = decodedSource(from: remote) else { return nil }
+        return MusicSourceLifecyclePolicy.winner(local: localSource, remote: remoteSource)
     }
 
     @MainActor

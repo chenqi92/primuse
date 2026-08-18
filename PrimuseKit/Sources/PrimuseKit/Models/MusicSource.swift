@@ -356,6 +356,18 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         category == .cloudDrive
     }
 
+    /// Providers whose directory selection value is an opaque item identifier
+    /// rather than a user-facing path. UI must never render these values as a
+    /// fallback label when the provider name is unavailable.
+    public var usesOpaqueDirectoryIdentifiers: Bool {
+        switch self {
+        case .aliyunDrive, .googleDrive, .oneDrive, .drime, .pan115, .pan123:
+            return true
+        default:
+            return false
+        }
+    }
+
     public var supportsRangeStreaming: Bool {
         category == .cloudDrive
             || isMediaServer
@@ -1082,6 +1094,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     public var isEnabled: Bool
     public var songCount: Int
     public var extraConfig: String? // JSON for type-specific config
+    /// User-facing names for selected scan roots keyed by the stable value in
+    /// `scannedDirectories`. Unlike the legacy UserDefaults cache, this travels
+    /// with the source through CloudKit and snapshot synchronization.
+    public var scannedDirectoryDisplayNames: [String: String]
     /// Wall-clock time of the most recent user edit to this source. Drives
     /// CloudKit conflict resolution: the side with the larger `modifiedAt`
     /// wins on a conflicting save.
@@ -1090,6 +1106,9 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// 30-day prune can clear it for good once all devices have converged.
     public var isDeleted: Bool
     public var deletedAt: Date?
+    /// Set only by an explicit recycle-bin restore. Ordinary edits to an active
+    /// source must not be mistaken for a restore that can supersede a deletion.
+    public var restoredAt: Date?
     /// Links this mount to its owning `CloudAccount` for OAuth-typed
     /// sources. nil for local / NAS / protocol-typed sources whose
     /// identity is already rooted in host+credentials. Populated by the
@@ -1120,9 +1139,11 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         isEnabled: Bool = true,
         songCount: Int = 0,
         extraConfig: String? = nil,
+        scannedDirectoryDisplayNames: [String: String] = [:],
         modifiedAt: Date = Date(),
         isDeleted: Bool = false,
         deletedAt: Date? = nil,
+        restoredAt: Date? = nil,
         cloudAccountID: String? = nil
     ) {
         self.id = id
@@ -1149,9 +1170,11 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.isEnabled = isEnabled
         self.songCount = songCount
         self.extraConfig = extraConfig
+        self.scannedDirectoryDisplayNames = scannedDirectoryDisplayNames
         self.modifiedAt = modifiedAt
         self.isDeleted = isDeleted
         self.deletedAt = deletedAt
+        self.restoredAt = restoredAt
         self.cloudAccountID = cloudAccountID
     }
 
@@ -1193,15 +1216,132 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
         self.songCount = try c.decode(Int.self, forKey: .songCount)
         self.extraConfig = try c.decodeIfPresent(String.self, forKey: .extraConfig)
+        self.scannedDirectoryDisplayNames = try c.decodeIfPresent(
+            [String: String].self,
+            forKey: .scannedDirectoryDisplayNames
+        ) ?? [:]
         // Default to .distantPast so any subsequent edit on this device wins
         // over the migration default — but loses to a fresh remote write.
         self.modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? .distantPast
         self.isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
         self.deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
+        self.restoredAt = try c.decodeIfPresent(Date.self, forKey: .restoredAt)
         // decodeIfPresent so old JSON snapshots (pre-CloudAccount) decode
         // cleanly with cloudAccountID = nil. The migration in stage 4
         // will populate this for existing OAuth sources.
         self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
+    }
+}
+
+/// Durable evidence that a source identifier was deleted. The optional full
+/// tombstone lets CloudKit and snapshot sync continue publishing the deletion
+/// after the user-facing row has been permanently removed.
+public struct MusicSourceDeletionRecord: Codable, Identifiable, Equatable, Sendable {
+    public static let fileName = "source-deletions.json"
+
+    public var id: String
+    public var deletedAt: Date
+    public var tombstone: MusicSource?
+
+    public init(id: String, deletedAt: Date, tombstone: MusicSource? = nil) {
+        self.id = id
+        self.deletedAt = deletedAt
+        self.tombstone = tombstone
+    }
+
+    public init(tombstone: MusicSource) {
+        self.id = tombstone.id
+        self.deletedAt = tombstone.deletedAt ?? tombstone.modifiedAt
+        self.tombstone = tombstone
+    }
+}
+
+/// Pure lifecycle ordering shared by the local store, CloudKit conflict
+/// resolution and snapshot merging.
+public enum MusicSourceLifecyclePolicy {
+    public enum Winner: Equatable, Sendable {
+        case local
+        case remote
+    }
+
+    public static func coalescing(
+        current: MusicSourceDeletionRecord?,
+        incoming: MusicSourceDeletionRecord
+    ) -> MusicSourceDeletionRecord {
+        guard let current else { return incoming }
+        guard current.id == incoming.id else { return incoming }
+        let deletedAt = max(current.deletedAt, incoming.deletedAt)
+        var tombstone: MusicSource?
+        if incoming.deletedAt >= current.deletedAt {
+            tombstone = incoming.tombstone ?? current.tombstone
+        } else {
+            tombstone = current.tombstone ?? incoming.tombstone
+        }
+        if var normalized = tombstone {
+            normalized.isDeleted = true
+            normalized.deletedAt = deletedAt
+            normalized.modifiedAt = max(normalized.modifiedAt, deletedAt)
+            tombstone = normalized
+        }
+        return MusicSourceDeletionRecord(
+            id: current.id,
+            deletedAt: deletedAt,
+            tombstone: tombstone
+        )
+    }
+
+    /// An active row can supersede a deletion only when a user explicitly
+    /// restored that exact source ID after the delete event.
+    public static func isExplicitRestore(
+        _ active: MusicSource,
+        after deletion: MusicSourceDeletionRecord
+    ) -> Bool {
+        guard active.id == deletion.id,
+              !active.isDeleted,
+              let restoredAt = active.restoredAt else { return false }
+        return restoredAt > deletion.deletedAt
+    }
+
+    public static func shouldSuppress(
+        active: MusicSource,
+        with deletion: MusicSourceDeletionRecord
+    ) -> Bool {
+        guard active.id == deletion.id else { return false }
+        return !isExplicitRestore(active, after: deletion)
+    }
+
+    public static func winner(local: MusicSource, remote: MusicSource) -> Winner {
+        if local.isDeleted != remote.isDeleted {
+            let deleted = local.isDeleted ? local : remote
+            let active = local.isDeleted ? remote : local
+            let deletion = MusicSourceDeletionRecord(tombstone: deleted)
+            let activeWins = isExplicitRestore(active, after: deletion)
+            if activeWins {
+                return local.isDeleted ? .remote : .local
+            }
+            return local.isDeleted ? .local : .remote
+        }
+
+        let localClock = lifecycleClock(local)
+        let remoteClock = lifecycleClock(remote)
+        return localClock > remoteClock ? .local : .remote
+    }
+
+    public static func lifecycleClock(_ source: MusicSource) -> Date {
+        max(
+            source.modifiedAt,
+            max(source.deletedAt ?? .distantPast, source.restoredAt ?? .distantPast)
+        )
+    }
+}
+
+public enum SourceDirectoryLabelPolicy {
+    /// Returns a readable path-derived fallback, or nil when the provider uses
+    /// opaque identifiers that must never be exposed as labels.
+    public static func readableFallback(path: String, sourceType: MusicSourceType) -> String? {
+        guard !sourceType.usesOpaqueDirectoryIdentifiers else { return nil }
+        let component = (path as NSString).lastPathComponent
+        return component.isEmpty ? (path.isEmpty ? nil : path) : component
     }
 }
 

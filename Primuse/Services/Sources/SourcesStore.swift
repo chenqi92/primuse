@@ -8,6 +8,7 @@ final class SourcesStore {
         case deleted
         case sourceNotFound
         case credentialCleanupFailed
+        case deletionLedgerPersistFailed
     }
 
     /// Backing storage including soft-deleted entries. `sources` filters this
@@ -16,6 +17,12 @@ final class SourcesStore {
 
     /// Live (non-deleted) sources for normal UI use.
     var sources: [MusicSource] { allSources.filter { !$0.isDeleted } }
+
+    /// Deletion evidence lives independently from user-facing source rows so a
+    /// permanent prune cannot make an old CloudKit record eligible to restore.
+    private(set) var sourceDeletionRecords: [MusicSourceDeletionRecord]
+
+    var sourceDeletionIDs: [String] { sourceDeletionRecords.map(\.id) }
 
     /// Soft-deleted sources, newest deletion first.
     var recentlyDeletedSources: [MusicSource] {
@@ -41,6 +48,7 @@ final class SourcesStore {
 
     private let storeURL: URL
     private let accountsURL: URL
+    private let sourceDeletionsURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -56,14 +64,19 @@ final class SourcesStore {
 
         self.storeURL = directory.appendingPathComponent("sources.json")
         self.accountsURL = directory.appendingPathComponent("cloudAccounts.json")
+        self.sourceDeletionsURL = directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
         self.allSources = []
         self.allAccounts = []
+        self.sourceDeletionRecords = []
 
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
 
         load()
+        loadSourceDeletions()
+        migrateSourceTombstonesIntoDeletionLedger()
+        reconcileSourcesWithDeletionLedger()
         loadAccounts()
     }
 
@@ -72,7 +85,30 @@ final class SourcesStore {
     }
 
     /// tvOS 下载到新 sources.json 后重新从磁盘加载。
-    func reloadFromDisk() { load(); loadAccounts() }
+    func reloadFromDisk() {
+        load()
+        loadSourceDeletions()
+        migrateSourceTombstonesIntoDeletionLedger()
+        reconcileSourcesWithDeletionLedger()
+        loadAccounts()
+    }
+
+    func sourceDeletionRecord(id: String) -> MusicSourceDeletionRecord? {
+        sourceDeletionRecords.first(where: { $0.id == id })
+    }
+
+    func registerDeletionTombstone(_ tombstone: MusicSource) {
+        guard tombstone.isDeleted else { return }
+        let deletion = MusicSourceDeletionRecord(tombstone: tombstone)
+        if let active = allSources.first(where: { $0.id == tombstone.id && !$0.isDeleted }),
+           MusicSourceLifecyclePolicy.isExplicitRestore(active, after: deletion) {
+            return
+        }
+        recordSourceDeletion(tombstone: tombstone)
+        if reconcileSourcesWithDeletionLedger().contains(tombstone.id) {
+            notifyChanged([tombstone.id])
+        }
+    }
 
     func add(_ source: MusicSource) {
         upsert(source)
@@ -80,7 +116,20 @@ final class SourcesStore {
 
     func upsert(_ source: MusicSource) {
         var stamped = source
-        stamped.modifiedAt = Date()
+        let selectedDirectories = Set(stamped.scannedDirectories)
+        stamped.scannedDirectoryDisplayNames = stamped.scannedDirectoryDisplayNames.filter {
+            selectedDirectories.contains($0.key)
+        }
+        let now = Date()
+        stamped.modifiedAt = now
+        if !stamped.isDeleted,
+           let deletion = sourceDeletionRecord(id: stamped.id),
+           !MusicSourceLifecyclePolicy.isExplicitRestore(stamped, after: deletion) {
+            stamped.restoredAt = now
+        }
+        if !stamped.isDeleted {
+            removeSourceDeletionRecord(id: stamped.id)
+        }
         if let index = allSources.firstIndex(where: { $0.id == stamped.id }) {
             allSources[index] = stamped
         } else {
@@ -95,6 +144,9 @@ final class SourcesStore {
     func update(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
         guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return }
         mutate(&allSources[index])
+        let selectedDirectories = Set(allSources[index].scannedDirectories)
+        allSources[index].scannedDirectoryDisplayNames = allSources[index]
+            .scannedDirectoryDisplayNames.filter { selectedDirectories.contains($0.key) }
         allSources[index].modifiedAt = Date()
         persist()
         notifyChanged([sourceID])
@@ -107,6 +159,27 @@ final class SourcesStore {
         guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return }
         mutate(&allSources[index])
         persist()
+    }
+
+    /// Merge provider-supplied directory labels into the source payload so the
+    /// mapping survives a new device, reinstall, or source resurrection.
+    func mergeDirectoryDisplayNames(_ names: [String: String], sourceID: String) {
+        guard !names.isEmpty,
+              let index = allSources.firstIndex(where: { $0.id == sourceID }),
+              !allSources[index].isDeleted else { return }
+        let selectedDirectories = Set(allSources[index].scannedDirectories)
+        var changed = false
+        for (path, rawName) in names {
+            let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard selectedDirectories.contains(path), !name.isEmpty,
+                  allSources[index].scannedDirectoryDisplayNames[path] != name else { continue }
+            allSources[index].scannedDirectoryDisplayNames[path] = name
+            changed = true
+        }
+        guard changed else { return }
+        allSources[index].modifiedAt = Date()
+        persist()
+        notifyChanged([sourceID])
     }
 
     /// Reconcile the per-source counter with the songs that are actually
@@ -141,24 +214,23 @@ final class SourcesStore {
         if changed { persist() }
     }
 
-    /// Source delete: hide from UI, keep the row on disk for recycle-bin
-    /// recovery — but push a REAL deleteRecord to CloudKit so the
-    /// upstream record clears. The previous "save with isDeleted=true"
-    /// strategy left server records lingering, which then resurrected
-    /// the source on every fetch (this is the root of the duplicate
-    /// Baidu sources mess). This is not used by the enable/disable toggle.
+    /// Source delete: hide from UI, keep the row for recycle-bin recovery,
+    /// and persist the tombstone independently so CloudKit cursor resets and
+    /// snapshot replay cannot reinterpret a missing row as a restore. This is
+    /// not used by the enable/disable toggle.
     func remove(id: String) {
         guard let index = allSources.firstIndex(where: { $0.id == id }) else { return }
         permanentDeletionFailureIDs.remove(id)
         allSources[index].isDeleted = true
-        allSources[index].deletedAt = Date()
-        allSources[index].modifiedAt = Date()
+        let deletedAt = Date()
+        allSources[index].deletedAt = deletedAt
+        allSources[index].modifiedAt = deletedAt
         let tombstone = allSources[index]
+        recordSourceDeletion(tombstone: tombstone)
         persist()
-        // notifyChanged drives UI refresh + recycle-bin sync; the
-        // dedicated soft-delete notification tells CloudKit to enqueue
-        // a deleteRecord (the saveRecord path would re-push the
-        // soft-deleted record, which is what we used to do wrong).
+        // notifyChanged drives UI refresh; the dedicated signal lets the
+        // durable cleanup journal track CloudKit tombstone acknowledgement,
+        // snapshot propagation and credential removal independently.
         notifyChanged([id])
         NotificationCenter.default.post(
             name: .primuseSourceDidSoftDelete,
@@ -171,9 +243,12 @@ final class SourcesStore {
     func restore(id: String) {
         guard let index = allSources.firstIndex(where: { $0.id == id }) else { return }
         permanentDeletionFailureIDs.remove(id)
+        let restoredAt = Date()
         allSources[index].isDeleted = false
         allSources[index].deletedAt = nil
-        allSources[index].modifiedAt = Date()
+        allSources[index].restoredAt = restoredAt
+        allSources[index].modifiedAt = restoredAt
+        removeSourceDeletionRecord(id: id)
         persist()
         notifyChanged([id])
     }
@@ -185,6 +260,13 @@ final class SourcesStore {
             permanentDeletionFailureIDs.remove(id)
             return .sourceNotFound
         }
+        let tombstone = allSources[index]
+        guard recordSourceDeletion(tombstone: tombstone) else {
+            permanentDeletionFailureIDs.insert(id)
+            plog("⛔ Source permanent delete deferred: deletion ledger persist failed id=\(id.prefix(8))…")
+            return .deletionLedgerPersistFailed
+        }
+
         // Irreversible credential / token cleanup belongs here, not on a view
         // observer: both the manual "delete forever" action and the launch-time
         // 30-day prune funnel through permanentlyDelete, whereas the
@@ -204,7 +286,6 @@ final class SourcesStore {
             return .credentialCleanupFailed
         }
 
-        let tombstone = allSources[index]
         permanentDeletionFailureIDs.remove(id)
         allSources.remove(at: index)
         persist()
@@ -273,13 +354,19 @@ final class SourcesStore {
     /// `sources.json`; without the tombstone there is no evidence that the
     /// source was deleted, so the stale active row can come back.
     func markDeletedFromRemote(id: String, at deletedAt: Date = Date()) {
-        guard let index = allSources.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = allSources.firstIndex(where: { $0.id == id }) else {
+            recordSourceDeletion(id: id, deletedAt: deletedAt)
+            return
+        }
         if allSources[index].isDeleted {
             if (allSources[index].deletedAt ?? .distantPast) < deletedAt {
                 allSources[index].deletedAt = deletedAt
                 allSources[index].modifiedAt = max(allSources[index].modifiedAt, deletedAt)
+                recordSourceDeletion(tombstone: allSources[index])
                 persist()
                 notifyChanged([id])
+            } else {
+                recordSourceDeletion(tombstone: allSources[index])
             }
             return
         }
@@ -287,6 +374,7 @@ final class SourcesStore {
         allSources[index].deletedAt = deletedAt
         allSources[index].modifiedAt = max(allSources[index].modifiedAt, deletedAt)
         let tombstone = allSources[index]
+        recordSourceDeletion(tombstone: tombstone)
         persist()
         notifyChanged([id])
         NotificationCenter.default.post(
@@ -308,23 +396,59 @@ final class SourcesStore {
     /// The push path already does LWW (see `resolveServerRecordChanged`
     /// on the conflict path); the fetch path was the missing half.
     func upsertFromRemote(_ remote: MusicSource) {
+        if remote.isDeleted {
+            let incomingDeletion = MusicSourceDeletionRecord(tombstone: remote)
+            if let existing = allSources.first(where: { $0.id == remote.id }),
+               !existing.isDeleted,
+               MusicSourceLifecyclePolicy.isExplicitRestore(existing, after: incomingDeletion) {
+                return
+            }
+
+            recordSourceDeletion(tombstone: remote)
+            guard let index = allSources.firstIndex(where: { $0.id == remote.id }) else {
+                return
+            }
+            if allSources[index].isDeleted,
+               MusicSourceLifecyclePolicy.winner(
+                   local: allSources[index],
+                   remote: remote
+               ) == .local {
+                return
+            }
+            let wasActive = !allSources[index].isDeleted
+            var merged = remote
+            merged.lastScannedAt = allSources[index].lastScannedAt
+            merged.songCount = allSources[index].songCount
+            merged.deviceId = allSources[index].deviceId
+            allSources[index] = merged
+            persist()
+            notifyChanged([remote.id])
+            if wasActive {
+                NotificationCenter.default.post(
+                    name: .primuseSourceDidSoftDelete,
+                    object: nil,
+                    userInfo: ["id": remote.id, "source": merged]
+                )
+            }
+            return
+        }
+
+        let restoresRecordedDeletion: Bool
+        if let deletion = sourceDeletionRecord(id: remote.id) {
+            guard MusicSourceLifecyclePolicy.isExplicitRestore(remote, after: deletion) else {
+                return
+            }
+            restoresRecordedDeletion = true
+        } else {
+            restoresRecordedDeletion = false
+        }
+
         if let existing = allSources.first(where: { $0.id == remote.id }) {
             if existing.isDeleted && !remote.isDeleted {
-                if Self.sourceClock(existing) >= Self.sourceClock(remote) {
+                let deletion = MusicSourceDeletionRecord(tombstone: existing)
+                if !MusicSourceLifecyclePolicy.isExplicitRestore(remote, after: deletion) {
                     return
                 }
-                // A later active payload is an explicit restore/edit from
-                // another device, so let it revive this source.
-            }
-            // 远端也是墓碑 → 用更新的那个时间戳合并 deletedAt,确保
-            // 7 天窗口在所有设备上一致。
-            if existing.isDeleted && remote.isDeleted {
-                if Self.sourceClock(remote) > Self.sourceClock(existing),
-                   let index = allSources.firstIndex(where: { $0.id == remote.id }) {
-                    allSources[index] = remote
-                    persist()
-                }
-                return
             }
             if Self.sourceClock(existing) > Self.sourceClock(remote) {
                 // Local has unsent edits that are newer — keep them.
@@ -352,6 +476,9 @@ final class SourcesStore {
             allSources.append(sanitized)
             allSources.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
+        if restoresRecordedDeletion {
+            removeSourceDeletionRecord(id: remote.id)
+        }
         persist()
         notifyChanged([remote.id])
     }
@@ -365,7 +492,141 @@ final class SourcesStore {
     }
 
     private static func sourceClock(_ source: MusicSource) -> Date {
-        max(source.modifiedAt, source.deletedAt ?? .distantPast)
+        MusicSourceLifecyclePolicy.lifecycleClock(source)
+    }
+
+    @discardableResult
+    private func recordSourceDeletion(tombstone: MusicSource) -> Bool {
+        recordSourceDeletion(MusicSourceDeletionRecord(tombstone: tombstone))
+    }
+
+    @discardableResult
+    private func recordSourceDeletion(id: String, deletedAt: Date) -> Bool {
+        recordSourceDeletion(MusicSourceDeletionRecord(id: id, deletedAt: deletedAt))
+    }
+
+    @discardableResult
+    private func recordSourceDeletion(_ incoming: MusicSourceDeletionRecord) -> Bool {
+        if let index = sourceDeletionRecords.firstIndex(where: { $0.id == incoming.id }) {
+            sourceDeletionRecords[index] = MusicSourceLifecyclePolicy.coalescing(
+                current: sourceDeletionRecords[index],
+                incoming: incoming
+            )
+        } else {
+            sourceDeletionRecords.append(incoming)
+            sourceDeletionRecords.sort { $0.id < $1.id }
+        }
+        return persistSourceDeletions()
+    }
+
+    private func removeSourceDeletionRecord(id: String) {
+        guard sourceDeletionRecords.contains(where: { $0.id == id }) else { return }
+        sourceDeletionRecords.removeAll { $0.id == id }
+        persistSourceDeletions()
+    }
+
+    private func loadSourceDeletions() {
+        guard let data = try? Data(contentsOf: sourceDeletionsURL) else {
+            sourceDeletionRecords = []
+            return
+        }
+        do {
+            let decoded = try decoder.decode([MusicSourceDeletionRecord].self, from: data)
+            var merged: [String: MusicSourceDeletionRecord] = [:]
+            for record in decoded {
+                merged[record.id] = MusicSourceLifecyclePolicy.coalescing(
+                    current: merged[record.id],
+                    incoming: record
+                )
+            }
+            sourceDeletionRecords = merged.values.sorted { $0.id < $1.id }
+        } catch {
+            backupCorruptStore(at: sourceDeletionsURL, data: data, error: error)
+            sourceDeletionRecords = []
+        }
+    }
+
+    private func migrateSourceTombstonesIntoDeletionLedger() {
+        var changed = false
+        for source in allSources where source.isDeleted {
+            let incoming = MusicSourceDeletionRecord(tombstone: source)
+            if let index = sourceDeletionRecords.firstIndex(where: { $0.id == source.id }) {
+                let merged = MusicSourceLifecyclePolicy.coalescing(
+                    current: sourceDeletionRecords[index],
+                    incoming: incoming
+                )
+                if merged != sourceDeletionRecords[index] {
+                    sourceDeletionRecords[index] = merged
+                    changed = true
+                }
+            } else {
+                sourceDeletionRecords.append(incoming)
+                changed = true
+            }
+        }
+        guard changed else { return }
+        sourceDeletionRecords.sort { $0.id < $1.id }
+        persistSourceDeletions()
+    }
+
+    @discardableResult
+    private func reconcileSourcesWithDeletionLedger() -> [String] {
+        var changedSourceIDs: [String] = []
+        var restoredIDs = Set<String>()
+        var refreshedDeletions: [MusicSourceDeletionRecord] = []
+
+        for index in allSources.indices {
+            let source = allSources[index]
+            guard !source.isDeleted,
+                  let deletion = sourceDeletionRecord(id: source.id) else { continue }
+            if MusicSourceLifecyclePolicy.isExplicitRestore(source, after: deletion) {
+                restoredIDs.insert(source.id)
+                continue
+            }
+
+            var tombstone = deletion.tombstone ?? source
+            tombstone.isDeleted = true
+            tombstone.deletedAt = deletion.deletedAt
+            tombstone.modifiedAt = max(tombstone.modifiedAt, deletion.deletedAt)
+            tombstone.lastScannedAt = source.lastScannedAt
+            tombstone.songCount = source.songCount
+            tombstone.deviceId = source.deviceId
+            allSources[index] = tombstone
+            refreshedDeletions.append(MusicSourceDeletionRecord(tombstone: tombstone))
+            changedSourceIDs.append(source.id)
+        }
+
+        if !restoredIDs.isEmpty {
+            sourceDeletionRecords.removeAll { restoredIDs.contains($0.id) }
+        }
+        for incoming in refreshedDeletions {
+            if let index = sourceDeletionRecords.firstIndex(where: { $0.id == incoming.id }) {
+                sourceDeletionRecords[index] = MusicSourceLifecyclePolicy.coalescing(
+                    current: sourceDeletionRecords[index],
+                    incoming: incoming
+                )
+            }
+        }
+        if !restoredIDs.isEmpty || !refreshedDeletions.isEmpty {
+            sourceDeletionRecords.sort { $0.id < $1.id }
+            persistSourceDeletions()
+        }
+        if !changedSourceIDs.isEmpty {
+            persist()
+        }
+        return changedSourceIDs
+    }
+
+    @discardableResult
+    private func persistSourceDeletions() -> Bool {
+        do {
+            let data = try encoder.encode(sourceDeletionRecords)
+            try data.write(to: sourceDeletionsURL, options: .atomic)
+            return true
+        } catch {
+            plog("⛔ Source deletion ledger persist failed — \(error.localizedDescription)")
+            return false
+        }
     }
 
     private func load() {

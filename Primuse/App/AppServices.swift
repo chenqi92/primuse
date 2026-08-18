@@ -247,14 +247,14 @@ final class AppServices {
         await playbackRestore
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        let pruneThreshold = Date(timeIntervalSinceNow: -7 * 24 * 60 * 60)
+        let pruneThreshold = Date(timeIntervalSinceNow: -30 * 24 * 60 * 60)
         musicLibrary.prunePlaylists(deletedBefore: pruneThreshold)
         let sourcePruneResults = sourcesStore.pruneSources(deletedBefore: pruneThreshold)
         let sourcePruneFailures = sourcePruneResults.filter {
-            $0.value == .credentialCleanupFailed
+            $0.value == .credentialCleanupFailed || $0.value == .deletionLedgerPersistFailed
         }
         if !sourcePruneFailures.isEmpty {
-            plog("⏳ Source prune retained \(sourcePruneFailures.count) tombstone(s) for credential cleanup retry")
+            plog("⏳ Source prune retained \(sourcePruneFailures.count) tombstone(s) for durable cleanup retry")
         }
         ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
 
@@ -272,6 +272,7 @@ final class AppServices {
             }
         }
         sourcesStore.reconcileLocalSongCounts(reconciliation.sourceSongCounts)
+        migrateSourceDirectoryDisplayNames()
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
@@ -292,6 +293,27 @@ final class AppServices {
             (restoreFinishedAt - startedAt) * 1_000,
             (finishedAt - restoreFinishedAt) * 1_000
         ))
+    }
+
+    private func migrateSourceDirectoryDisplayNames() {
+        #if os(iOS) || os(macOS)
+        for source in sourcesStore.sources where source.type.isCloudDrive {
+            let selected = Set(source.scannedDirectories)
+            guard !selected.isEmpty else { continue }
+            var names = source.scannedDirectoryDisplayNames.filter { selected.contains($0.key) }
+            for (path, name) in CloudDirectoryNameStore.displayNames(for: source.id)
+                where selected.contains(path) && !name.isEmpty {
+                names[path] = name
+            }
+            for item in scanService.libraryFolderSyncIndex(for: source.id).values
+                where selected.contains(item.path) {
+                if let name = item.displayName, !name.isEmpty {
+                    names[item.path] = name
+                }
+            }
+            sourcesStore.mergeDirectoryDisplayNames(names, sourceID: source.id)
+        }
+        #endif
     }
 
     private func rescanLocalImportIfNeeded() {
@@ -360,9 +382,19 @@ final class AppServices {
                 }
             }
         )
+
+        sourceLifecycleObserverTokens.append(
+            nc.addObserver(forName: .primuseSourceTombstoneDidSync, object: nil, queue: .main) { [weak self] note in
+                guard let self, let id = note.userInfo?["id"] as? String else { return }
+                Task { @MainActor in
+                    self.acknowledgeSourceTombstoneUpload(sourceID: id)
+                }
+            }
+        )
     }
 
     private func enqueueSourceCloudCleanup(_ tombstone: MusicSource) {
+        sourcesStore.registerDeletionTombstone(tombstone)
         guard let intent = SourceCloudCleanupPolicy.coalescing(
             current: pendingSourceCloudCleanups[tombstone.id],
             tombstone: tombstone
@@ -381,6 +413,7 @@ final class AppServices {
             return
         }
         for intent in intents where intent.tombstone.isDeleted {
+            sourcesStore.registerDeletionTombstone(intent.tombstone)
             if let current = pendingSourceCloudCleanups[intent.tombstone.id] {
                 let currentClock = max(
                     current.tombstone.modifiedAt,
@@ -391,6 +424,8 @@ final class AppServices {
                     intent.tombstone.deletedAt ?? .distantPast
                 )
                 var merged = incomingClock >= currentClock ? intent : current
+                merged.needsMusicSourceTombstoneUpload = current.needsMusicSourceTombstoneUpload
+                    || intent.needsMusicSourceTombstoneUpload
                 merged.needsSourceSnapshotUpload = current.needsSourceSnapshotUpload
                     || intent.needsSourceSnapshotUpload
                 merged.needsCredentialRemoval = current.needsCredentialRemoval
@@ -443,6 +478,17 @@ final class AppServices {
         }
     }
 
+    private func acknowledgeSourceTombstoneUpload(sourceID: String) {
+        guard let current = pendingSourceCloudCleanups[sourceID] else { return }
+        pendingSourceCloudCleanups[sourceID] = SourceCloudCleanupPolicy.applying(
+            musicSourceTombstoneUploaded: true,
+            sourceSnapshotUploaded: false,
+            credentialRemoved: false,
+            to: current
+        )
+        persistPendingSourceCloudCleanups()
+    }
+
     private func propagatePendingSourceCloudCleanups() async {
         let snapshot = pendingSourceCloudCleanups.values.sorted {
             $0.tombstone.id < $1.tombstone.id
@@ -456,6 +502,10 @@ final class AppServices {
                 pendingSourceCloudCleanups.removeValue(forKey: sourceID)
                 persistPendingSourceCloudCleanups()
                 continue
+            }
+
+            if intent.needsMusicSourceTombstoneUpload {
+                _ = cloudSync.enqueueSourceTombstoneForCleanup(id: sourceID)
             }
 
             let sourceSnapshotUploaded: Bool
@@ -488,6 +538,7 @@ final class AppServices {
             guard let current = pendingSourceCloudCleanups[sourceID] else { continue }
             let sameTombstone = current.tombstone == intent.tombstone
             let updated = SourceCloudCleanupPolicy.applying(
+                musicSourceTombstoneUploaded: false,
                 sourceSnapshotUploaded: sameTombstone && sourceSnapshotUploaded,
                 credentialRemoved: credentialRemoved,
                 to: current

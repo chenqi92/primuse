@@ -114,6 +114,9 @@ final class LibrarySnapshotSync: Sendable {
     }
     private var libraryCacheURL: URL { directory.appendingPathComponent("library-cache.json") }
     private var sourcesURL: URL { directory.appendingPathComponent("sources.json") }
+    private var sourceDeletionsURL: URL {
+        directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
+    }
     private var radioStationsURL: URL { directory.appendingPathComponent("radio-stations.json") }
 
     private func validatedLibrarySnapshotData() -> Result<Data, AppleTVTransferFailure> {
@@ -218,8 +221,13 @@ final class LibrarySnapshotSync: Sendable {
         }
         let libInfo = libraryAttachment.info
         var srcInfo = "sources=skip"
-        if fm.fileExists(atPath: sourcesURL.path) {
-            srcInfo = attachSourcesSnapshot(record, gzKey: "sourcesGz", assetKey: "sources")
+        if let sourcesData = localSourcesData(including: []) {
+            srcInfo = attachSourcesSnapshot(
+                record,
+                rawData: sourcesData,
+                gzKey: "sourcesGz",
+                assetKey: "sources"
+            )
         }
         var radioAttachment: SnapshotAttachment?
         if let data = validRadioStationsData(at: radioStationsURL) {
@@ -295,7 +303,9 @@ final class LibrarySnapshotSync: Sendable {
             return false
         }
         let fm = FileManager.default
-        guard fm.fileExists(atPath: sourcesURL.path) || !tombstones.isEmpty else {
+        guard fm.fileExists(atPath: sourcesURL.path)
+                || fm.fileExists(atPath: sourceDeletionsURL.path)
+                || !tombstones.isEmpty else {
             plog("LibrarySnapshotSync: no local sources.json, skip sources-only upload")
             return false
         }
@@ -387,17 +397,11 @@ final class LibrarySnapshotSync: Sendable {
         if let incoming = sourcesSnapshotData(from: record, fm: fm),
            let merged = Self.mergeSourcesJSON(localData: localData, incomingData: incoming) {
             payload = merged.data
-            do {
-                // A retry-only tombstone may outlive its locally purged source
-                // row. Do not write that row back into the user-facing store;
-                // the durable cleanup journal owns it until propagation wins.
-                if tombstones.isEmpty {
-                    try merged.data.write(to: sourcesURL, options: .atomic)
-                }
-                plog("LibrarySnapshotSync: merged sources before upload local=\(merged.localCount) remote=\(merged.incomingCount) total=\(merged.totalCount)")
-            } catch {
-                plog("LibrarySnapshotSync: merged sources write failed — \(error)")
-            }
+            // Upload reconciliation must never mutate the user-facing local
+            // store. The previous write-back path could inject unknown remote
+            // rows into sources.json before SourcesStore had applied its
+            // deletion policy.
+            plog("LibrarySnapshotSync: merged sources before upload local=\(merged.localCount) remote=\(merged.incomingCount) total=\(merged.totalCount)")
         } else {
             payload = localData
         }
@@ -418,12 +422,29 @@ final class LibrarySnapshotSync: Sendable {
     /// supersede an older queued delete.
     private func localSourcesData(including tombstones: [MusicSource]) -> Data? {
         let local = try? Data(contentsOf: sourcesURL)
-        guard !tombstones.isEmpty else { return local }
+        return augmentedSourcesData(local, including: tombstones)
+    }
+
+    private func augmentedSourcesData(
+        _ local: Data?,
+        including tombstones: [MusicSource]
+    ) -> Data? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let persistedRecords: [MusicSourceDeletionRecord]
+        if let data = try? Data(contentsOf: sourceDeletionsURL),
+           let decoded = try? decoder.decode([MusicSourceDeletionRecord].self, from: data) {
+            persistedRecords = decoded
+        } else {
+            persistedRecords = []
+        }
+        let allTombstones = persistedRecords.compactMap(\.tombstone) + tombstones
+        guard !allTombstones.isEmpty else { return local }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        guard let tombstoneData = try? encoder.encode(tombstones),
+        guard let tombstoneData = try? encoder.encode(allTombstones),
               let emptyData = try? encoder.encode([MusicSource]()) else {
             return nil
         }
@@ -431,6 +452,16 @@ final class LibrarySnapshotSync: Sendable {
             localData: tombstoneData,
             incomingData: local ?? emptyData
         )?.data
+    }
+
+    private func mergeSourcesJSON(
+        localData: Data?,
+        incomingData: Data
+    ) -> SourcesMergeResult? {
+        Self.mergeSourcesJSON(
+            localData: augmentedSourcesData(localData, including: []),
+            incomingData: incomingData
+        )
     }
 
     private func saveChangedRecord(
@@ -897,7 +928,7 @@ final class LibrarySnapshotSync: Sendable {
     private func extractSourcesSnapshot(_ record: CKRecord, to dest: URL, fm: FileManager) -> Bool {
         guard let incoming = sourcesSnapshotData(from: record, fm: fm) else { return false }
         let local = try? Data(contentsOf: dest)
-        guard let merged = Self.mergeSourcesJSON(localData: local, incomingData: incoming) else {
+        guard let merged = mergeSourcesJSON(localData: local, incomingData: incoming) else {
             plog("LibrarySnapshotSync: sources merge failed; keeping local sources.json")
             return false
         }
@@ -940,7 +971,7 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private func mergeSourcesForUpload(with record: CKRecord, fm: FileManager) -> SourcesMergeResult? {
-        guard let local = try? Data(contentsOf: sourcesURL),
+        guard let local = localSourcesData(including: []),
               let incoming = sourcesSnapshotData(from: record, fm: fm) else {
             return nil
         }
@@ -1028,18 +1059,9 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private static func mergeSource(local: MusicSource, incoming: MusicSource) -> MusicSource {
-        let localClock = sourceClock(local)
-        let incomingClock = sourceClock(incoming)
-        var winner: MusicSource
-        if localClock > incomingClock {
-            winner = local
-        } else if incomingClock > localClock {
-            winner = incoming
-        } else if local.isDeleted != incoming.isDeleted {
-            winner = local.isDeleted ? local : incoming
-        } else {
-            winner = incoming
-        }
+        var winner = MusicSourceLifecyclePolicy.winner(local: local, remote: incoming) == .local
+            ? local
+            : incoming
 
         if !winner.isDeleted {
             // Device-local authentication state always comes from the local
@@ -1053,10 +1075,6 @@ final class LibrarySnapshotSync: Sendable {
             }
         }
         return winner
-    }
-
-    private static func sourceClock(_ source: MusicSource) -> Date {
-        max(source.modifiedAt, source.deletedAt ?? .distantPast)
     }
 
     // MARK: 凭据(CloudKit encryptedValues 端到端加密;密钥由系统 iCloud 钥匙串托管)
@@ -1571,7 +1589,7 @@ final class LibrarySnapshotSync: Sendable {
         }
         if let gz = payload.sourcesGz,
            let incoming = Self.gunzip(gz, maxOutputBytes: Self.maxSourcesRawBytes),
-           let merged = Self.mergeSourcesJSON(localData: try? Data(contentsOf: sourcesURL), incomingData: incoming) {
+           let merged = mergeSourcesJSON(localData: try? Data(contentsOf: sourcesURL), incomingData: incoming) {
             try? fm.createDirectory(at: sourcesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? merged.data.write(to: sourcesURL, options: .atomic)
             plog("LibrarySnapshotSync: merged LAN sources local=\(merged.localCount) incoming=\(merged.incomingCount) total=\(merged.totalCount)")

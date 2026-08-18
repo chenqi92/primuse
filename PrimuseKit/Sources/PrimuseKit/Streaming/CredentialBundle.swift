@@ -184,21 +184,44 @@ public enum CredentialBundlePolicy {
 
 /// Durable intent captured when a source becomes a tombstone. The source row
 /// may be removed locally before the delayed cleanup runs, so the intent keeps
-/// the complete tombstone needed by snapshot synchronization as well as the two
+/// the complete tombstone needed by snapshot synchronization as well as the three
 /// independently retryable remote operations.
 public struct SourceCloudCleanupIntent: Codable, Equatable, Sendable {
     public var tombstone: MusicSource
+    public var needsMusicSourceTombstoneUpload: Bool
     public var needsSourceSnapshotUpload: Bool
     public var needsCredentialRemoval: Bool
 
     public init(
         tombstone: MusicSource,
+        needsMusicSourceTombstoneUpload: Bool = true,
         needsSourceSnapshotUpload: Bool = true,
         needsCredentialRemoval: Bool = true
     ) {
         self.tombstone = tombstone
+        self.needsMusicSourceTombstoneUpload = needsMusicSourceTombstoneUpload
         self.needsSourceSnapshotUpload = needsSourceSnapshotUpload
         self.needsCredentialRemoval = needsCredentialRemoval
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tombstone
+        case needsMusicSourceTombstoneUpload
+        case needsSourceSnapshotUpload
+        case needsCredentialRemoval
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tombstone = try container.decode(MusicSource.self, forKey: .tombstone)
+        // Journals written by older builds never confirmed the individual
+        // MusicSource record, so migrate them to a pending tombstone upload.
+        needsMusicSourceTombstoneUpload = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .needsMusicSourceTombstoneUpload
+        ) ?? true
+        needsSourceSnapshotUpload = try container.decode(Bool.self, forKey: .needsSourceSnapshotUpload)
+        needsCredentialRemoval = try container.decode(Bool.self, forKey: .needsCredentialRemoval)
     }
 }
 
@@ -219,6 +242,7 @@ public enum SourceCloudCleanupPolicy {
         if sourceClock(tombstone) >= sourceClock(current.tombstone) {
             result.tombstone = tombstone
         }
+        result.needsMusicSourceTombstoneUpload = true
         result.needsSourceSnapshotUpload = true
         result.needsCredentialRemoval = true
         return result
@@ -231,29 +255,38 @@ public enum SourceCloudCleanupPolicy {
         by currentSource: MusicSource?
     ) -> Bool {
         guard let currentSource, !currentSource.isDeleted else { return false }
-        return sourceClock(currentSource) > sourceClock(intent.tombstone)
+        return MusicSourceLifecyclePolicy.isExplicitRestore(
+            currentSource,
+            after: MusicSourceDeletionRecord(tombstone: intent.tombstone)
+        )
     }
 
-    /// Applies independently observed remote results. Returning nil means both
+    /// Applies independently observed remote results. Returning nil means all
     /// durable operations completed and the journal row may be removed.
     public static func applying(
+        musicSourceTombstoneUploaded: Bool,
         sourceSnapshotUploaded: Bool,
         credentialRemoved: Bool,
         to intent: SourceCloudCleanupIntent
     ) -> SourceCloudCleanupIntent? {
         var result = intent
+        if musicSourceTombstoneUploaded {
+            result.needsMusicSourceTombstoneUpload = false
+        }
         if sourceSnapshotUploaded {
             result.needsSourceSnapshotUpload = false
         }
         if credentialRemoved {
             result.needsCredentialRemoval = false
         }
-        return result.needsSourceSnapshotUpload || result.needsCredentialRemoval
+        return result.needsMusicSourceTombstoneUpload
+            || result.needsSourceSnapshotUpload
+            || result.needsCredentialRemoval
             ? result
             : nil
     }
 
     private static func sourceClock(_ source: MusicSource) -> Date {
-        max(source.modifiedAt, source.deletedAt ?? .distantPast)
+        MusicSourceLifecyclePolicy.lifecycleClock(source)
     }
 }

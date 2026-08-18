@@ -18,9 +18,8 @@ import PrimuseKit
 ///    `lastScannedAt` as the keeper, repoint every other group
 ///    member's songs to the keeper's id, then soft-delete the
 ///    redundant rows via `SourcesStore.remove()`. That fires
-///    `primuseSourceDidSoftDelete`, which CloudKitSyncService
-///    translates to a real `deleteRecord` push — clearing the
-///    upstream "5 baidu sources" garbage.
+///    `primuseSourceDidSoftDelete`, which CloudKitSyncService persists as a
+///    durable tombstone so historical mounts cannot return after cursor reset.
 ///
 /// Idempotent. The `migrationKey` UserDefaults flag guards against a
 /// repeat run; clearing the flag forces a re-migration on next launch
@@ -141,8 +140,13 @@ enum CloudAccountMigrationService {
             )
             sourcesStore.upsertAccount(account)
 
-            // Wire the keeper to the account.
-            sourcesStore.update(keeper.id) { $0.cloudAccountID = account.id }
+            // Wire the keeper to the account and retain any directory labels
+            // learned by duplicate mounts before those rows become tombstones.
+            let directoryNames = mergedDirectoryDisplayNames(from: members)
+            sourcesStore.update(keeper.id) {
+                $0.cloudAccountID = account.id
+                $0.scannedDirectoryDisplayNames.merge(directoryNames) { current, _ in current }
+            }
             stats.linked += 1
 
             // Single-mount group → done; nothing to merge.
@@ -169,8 +173,7 @@ enum CloudAccountMigrationService {
 
             // Soft-delete the redundant mounts. This triggers
             // `primuseSourceDidSoftDelete`, which CloudKitSyncService
-            // translates into a real `deleteRecord` push, clearing the
-            // server-side garbage that's been accumulating.
+            // translates into a durable tombstone payload.
             for source in toMerge {
                 sourcesStore.remove(id: source.id)
                 stats.merged += 1
@@ -198,6 +201,10 @@ enum CloudAccountMigrationService {
         for (_, dupes) in bySignature where dupes.count > 1 {
             let keeper = dupes.max { ($0.lastScannedAt ?? .distantPast) < ($1.lastScannedAt ?? .distantPast) } ?? dupes[0]
             let toMerge = dupes.filter { $0.id != keeper.id }
+            let directoryNames = mergedDirectoryDisplayNames(from: dupes)
+            sourcesStore.update(keeper.id) {
+                $0.scannedDirectoryDisplayNames.merge(directoryNames) { current, _ in current }
+            }
             plog("☁️ Migration: phase 1.5 config-dedup — \(toMerge.count) exact-duplicate \(keeper.type.rawValue) mount(s) → keeper=\(keeper.id)")
             let redundantIDs = Set(toMerge.map(\.id))
             let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
@@ -216,6 +223,20 @@ enum CloudAccountMigrationService {
             }
         }
         return stats
+    }
+
+    private static func mergedDirectoryDisplayNames(
+        from sources: [MusicSource]
+    ) -> [String: String] {
+        sources.reduce(into: [String: String]()) { result, source in
+            let selected = Set(source.scannedDirectories)
+            result.merge(source.scannedDirectoryDisplayNames.filter { selected.contains($0.key) }) {
+                current, _ in current
+            }
+            result.merge(CloudDirectoryNameStore.displayNames(for: source.id).filter {
+                selected.contains($0.key)
+            }) { current, _ in current }
+        }
     }
 
     /// True only when the error means the source's credentials are

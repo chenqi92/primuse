@@ -1728,10 +1728,20 @@ struct SourcesContentView: View {
             return source.basePath ?? String(localized: "shared_folders")
         }
 
-        if source.type.isCloudDrive,
-           let displayName = CloudDirectoryNameStore.displayName(for: path, sourceID: source.id),
-           !displayName.isEmpty {
-            return displayName
+        if source.type.isCloudDrive {
+            if let displayName = source.scannedDirectoryDisplayNames[path],
+               !displayName.isEmpty {
+                return displayName
+            }
+            if let displayName = CloudDirectoryNameStore.displayName(for: path, sourceID: source.id),
+               !displayName.isEmpty {
+                return displayName
+            }
+            if let displayName = scanService.libraryFolderSyncIndex(for: source.id)
+                .values.first(where: { $0.path == path })?.displayName,
+               !displayName.isEmpty {
+                return displayName
+            }
         }
 
         if path == "/" {
@@ -1741,8 +1751,13 @@ struct SourcesContentView: View {
             return String(localized: "shared_folders")
         }
 
-        let lastComponent = (path as NSString).lastPathComponent
-        return lastComponent.isEmpty ? path : lastComponent
+        if let readable = SourceDirectoryLabelPolicy.readableFallback(
+            path: path,
+            sourceType: source.type
+        ) {
+            return readable
+        }
+        return "\(source.type.displayName) · \(String(localized: "current_directory"))"
     }
 
 }

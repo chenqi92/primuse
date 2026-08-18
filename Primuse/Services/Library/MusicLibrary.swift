@@ -5167,11 +5167,12 @@ extension Notification.Name {
     /// is the removed `[Song]`; listeners drop audio/artwork/lyrics caches.
     static let primuseSongsRemoved = Notification.Name("primuse.songsRemoved")
     /// Posted in addition to `primuseSourcesDidChange` when a source is
-    /// soft-deleted locally. CloudKitSyncService listens to this and
-    /// enqueues a real `deleteRecord` instead of pushing the soft-delete
-    /// flag as a `saveRecord` (the latter caused server-side records to
-    /// linger and resurrect on every fetch).
+    /// soft-deleted locally. CloudKitSyncService persists a tombstone payload
+    /// so a reset cursor or fresh device cannot interpret absence as restore.
     static let primuseSourceDidSoftDelete = Notification.Name("primuse.sourceDidSoftDelete")
+    /// Posted after CloudKit confirms a MusicSource tombstone payload save.
+    /// AppServices uses it to retire the corresponding durable cleanup step.
+    static let primuseSourceTombstoneDidSync = Notification.Name("primuse.sourceTombstoneDidSync")
     /// CloudAccount upsert (insert / edit / soft-delete bumping
     /// modifiedAt). Mirror of `primuseSourcesDidChange` for the new
     /// account record type.

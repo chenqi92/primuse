@@ -12,6 +12,7 @@ struct ConnectorDirectoryBrowserView: View {
     @Binding var selectedDirectories: [String]
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(SourcesStore.self) private var sourcesStore
     @State private var currentPath = "/"
     @State private var pathStack: [BreadcrumbSegment] = [
         .init(path: "/", title: String(localized: "shared_folders"))
@@ -37,7 +38,11 @@ struct ConnectorDirectoryBrowserView: View {
                 load: { path in
                     try await ensureInsecureHTTPAccess()
                     try await connector.connect()
-                    return try await connector.listFiles(at: path)
+                    let loaded = try await connector.listFiles(at: path)
+                    await MainActor.run {
+                        persistDirectoryNames(from: loaded)
+                    }
+                    return loaded
                 },
                 rootPath: SourceDirectorySelectionPolicy.connectorPath(
                     for: source.type,
@@ -315,10 +320,12 @@ struct ConnectorDirectoryBrowserView: View {
         Binding(
             get: { selectedDirectories },
             set: {
-                selectedDirectories = SourceDirectorySelectionPolicy.normalizedSelections(
+                let normalized = SourceDirectorySelectionPolicy.normalizedSelections(
                     $0,
                     for: source.type
                 )
+                selectedDirectories = normalized
+                persistSelectedDirectoryNames(normalized)
             }
         )
     }
@@ -326,10 +333,28 @@ struct ConnectorDirectoryBrowserView: View {
     private func applyLoadedItems(_ loaded: [RemoteFileItem]) {
         items = loaded
         if source.type.isCloudDrive {
-            CloudDirectoryNameStore.save(items, for: source.id)
+            persistDirectoryNames(from: loaded)
             if let current = pathStack.last {
                 CloudDirectoryNameStore.saveName(current.title, for: current.path, sourceID: source.id)
+                persistSelectedDirectoryNames(selectedDirectories)
             }
         }
+    }
+
+    private func persistDirectoryNames(from loaded: [RemoteFileItem]) {
+        guard source.type.isCloudDrive else { return }
+        CloudDirectoryNameStore.save(loaded, for: source.id)
+        persistSelectedDirectoryNames(selectedDirectories)
+    }
+
+    private func persistSelectedDirectoryNames(_ selections: [String]) {
+        guard source.type.isCloudDrive, !selections.isEmpty else { return }
+        let localNames = CloudDirectoryNameStore.displayNames(for: source.id)
+        let names = selections.reduce(into: [String: String]()) { result, path in
+            if let name = localNames[path], !name.isEmpty {
+                result[path] = name
+            }
+        }
+        sourcesStore.mergeDirectoryDisplayNames(names, sourceID: source.id)
     }
 }

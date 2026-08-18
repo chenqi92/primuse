@@ -1413,8 +1413,10 @@ struct AddSourceView: View {
             isEnabled: editingSource?.isEnabled ?? true,
             songCount: editingSource?.songCount ?? 0,
             extraConfig: extraConfig,
+            scannedDirectoryDisplayNames: editingSource?.scannedDirectoryDisplayNames ?? [:],
             isDeleted: editingSource?.isDeleted ?? false,
             deletedAt: editingSource?.deletedAt,
+            restoredAt: editingSource?.restoredAt,
             cloudAccountID: editingSource?.cloudAccountID
         )
         if supportsAdaptiveConnections {
