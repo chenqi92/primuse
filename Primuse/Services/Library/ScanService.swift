@@ -28,6 +28,9 @@ final class ScanService {
         var addedCount: Int = 0
         var totalCount: Int = 0
         var failureMessage: String?
+        /// A safe first-pass snapshot retained unmatched rows. The next
+        /// foreground scan is the explicit confirmation required before prune.
+        var reconciliationMessage: String?
         /// A checkpoint may contain only an unfinished directory queue, before
         /// the scanner has discovered its first song.
         var hasPendingWork: Bool = false
@@ -105,6 +108,7 @@ final class ScanService {
     func scanSource(
         _ source: MusicSource,
         mode: SourceSyncMode = .automatic,
+        snapshotExecutionContext: BaiduSnapshotExecutionContext = .userInitiatedForeground,
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -131,6 +135,10 @@ final class ScanService {
         }
 
         let normalizedDirs = normalizedDirectories(dirs)
+        let checkpointScopeFingerprint = Self.scopeFingerprint(
+            for: source,
+            directories: normalizedDirs
+        )
         if mode == .deep {
             // “Deep Scan” is an explicit fresh reconciliation. The ordinary
             // scan action resumes a checkpoint; carrying that partial queue
@@ -147,7 +155,11 @@ final class ScanService {
         }
         let checkpoint = requiresAtomicCatalogCommit || mode == .deep
             ? nil
-            : resumeCheckpoint(for: source.id, directories: normalizedDirs)
+            : resumeCheckpoint(
+                for: source.id,
+                directories: normalizedDirs,
+                scopeFingerprint: checkpointScopeFingerprint
+            )
         let resumeSongs = checkpoint?.songs ?? []
         let resumeCount = checkpoint?.songs.count ?? 0
         let resumeTotal = checkpoint?.totalCount ?? 0
@@ -193,7 +205,8 @@ final class ScanService {
             checkpoints[source.id] = ScanCheckpointPreparationPolicy.preparingCheckpoint(
                 existing: checkpoint,
                 directories: normalizedDirs,
-                mode: mode
+                mode: mode,
+                scopeFingerprint: checkpointScopeFingerprint
             )
             initialCheckpointWrite = persistCheckpoints(force: true)
         }
@@ -304,6 +317,7 @@ final class ScanService {
                     sourceStore: sourceStore,
                     scraperService: scraperService,
                     mode: mode,
+                    snapshotExecutionContext: snapshotExecutionContext,
                     checkpoint: checkpoints[source.id] ?? checkpoint
                 )
             } else {
@@ -375,6 +389,7 @@ final class ScanService {
     /// unfinished progress) and is not already running. Idempotent — safe to
     /// call on every app foreground or background-task wake.
     func resumePendingScans(
+        context: BaiduSnapshotExecutionContext = .foregroundResume,
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -402,8 +417,21 @@ final class ScanService {
             // 的全量枚举,没有"接着上次扫到一半的位置"这种增量语义,checkpoint
             // 没意义。所以启动时不主动恢复,等用户在源列表里手动点扫描再触发。
             if source.type == .appleMusicLibrary { continue }
+            if source.type == .baiduPan,
+               case .deferred = BaiduSnapshotRefreshPolicy.eligibility(
+                   context: context,
+                   hasDeterminedNetwork: NetworkMonitor.shared.hasDeterminedPath,
+                   isReachable: NetworkMonitor.shared.isReachable,
+                   isExpensive: NetworkMonitor.shared.isExpensive,
+                   isConstrained: NetworkMonitor.shared.isConstrained,
+                   isLowPowerModeEnabled: Self.isLowPowerModeEnabled,
+                   hasSeriousThermalPressure: Self.hasSeriousThermalPressure
+               ) {
+                continue
+            }
             scanSource(
                 source,
+                snapshotExecutionContext: context,
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourceStore,
@@ -483,6 +511,25 @@ final class ScanService {
         }
     }
 
+    private nonisolated static var isLowPowerModeEnabled: Bool {
+        #if os(iOS)
+        ProcessInfo.processInfo.isLowPowerModeEnabled
+        #else
+        false
+        #endif
+    }
+
+    private nonisolated static var hasSeriousThermalPressure: Bool {
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical:
+            true
+        case .nominal, .fair:
+            false
+        @unknown default:
+            true
+        }
+    }
+
     private func periodicDirectories(for source: MusicSource) -> [String]? {
         let directories = source.type.scansEntireLibrary ? ["/"] : source.scannedDirectories
         guard !directories.isEmpty else { return nil }
@@ -502,7 +549,13 @@ final class ScanService {
         sourceStore: SourcesStore? = nil
     ) {
         #if os(iOS)
-        let hasScanWork = scanStates.values.contains(where: { $0.canResume || $0.isScanning })
+        let hasScanWork = scanStates.contains { sourceID, state in
+            guard state.canResume || state.isScanning else { return false }
+            // Baidu has no native delta feed. Its resumable tree snapshot is
+            // foreground-only and must never be the reason for a BGProcessing
+            // wake that would enumerate the cloud tree behind the user's back.
+            return sourceStore?.source(id: sourceID)?.type != .baiduPan
+        }
         let periodicDate = sourceStore.flatMap { nextPeriodicSyncDate(sourceStore: $0) }
         guard hasScanWork || backfillPending || scrapePending || periodicDate != nil else { return }
 
@@ -547,6 +600,17 @@ final class ScanService {
     /// handler so iOS doesn't kill us mid-write.
     func cancelAllActiveScans() {
         for sourceID in Array(activeTasks.keys) {
+            cancelScan(for: sourceID)
+        }
+    }
+
+    /// Baidu refresh is a foreground-only snapshot walk. If the user leaves
+    /// the app mid-run, persist its queue and resume only after the app becomes
+    /// active again; do not spend the finite UIKit background window traversing
+    /// the cloud tree.
+    func suspendForegroundOnlyScans(sourceStore: SourcesStore) {
+        for sourceID in Array(activeTasks.keys)
+        where sourceStore.source(id: sourceID)?.type == .baiduPan {
             cancelScan(for: sourceID)
         }
     }
@@ -839,6 +903,7 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
         mode: SourceSyncMode,
+        snapshotExecutionContext: BaiduSnapshotExecutionContext,
         checkpoint: ScanCheckpoint?
     ) async {
         let connector = sourceManager.connector(for: source)
@@ -866,38 +931,183 @@ final class ScanService {
         }
 
         let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
+        let identityScopeFingerprint = Self.scopeFingerprint(for: source, directories: [])
+        let storedState = syncStates[source.id]
+        let scopedState = storedState.flatMap { state in
+            state.matchesScope(sourceID: source.id, scopeFingerprint: scopeFingerprint)
+                ? state
+                : nil
+        }
+        var workingState = scopedState
+
+        if connector is any ResumableSnapshotMusicSourceConnector {
+            let reusableState: SourceSyncState? = if let scopedState {
+                scopedState
+            } else if storedState?.matchesIdentityScope(
+                sourceID: source.id,
+                identityScopeFingerprint: identityScopeFingerprint
+            ) == true {
+                storedState
+            } else {
+                nil
+            }
+            if storedState == nil || reusableState != nil {
+                workingState = Self.legacyBaiduState(
+                    base: reusableState,
+                    sourceID: source.id,
+                    scopeFingerprint: scopeFingerprint,
+                    identityScopeFingerprint: identityScopeFingerprint,
+                    songs: existingForScan
+                )
+            }
+        }
+
+        if connector is any ResumableSnapshotMusicSourceConnector,
+           case .deferred = BaiduSnapshotRefreshPolicy.eligibility(
+               context: snapshotExecutionContext,
+               hasDeterminedNetwork: NetworkMonitor.shared.hasDeterminedPath,
+               isReachable: NetworkMonitor.shared.isReachable,
+               isExpensive: NetworkMonitor.shared.isExpensive,
+               isConstrained: NetworkMonitor.shared.isConstrained,
+               isLowPowerModeEnabled: Self.isLowPowerModeEnabled,
+               hasSeriousThermalPressure: Self.hasSeriousThermalPressure
+           ) {
+            recordScanInterruption(sourceID: source.id)
+            return
+        }
+
+        var effectiveDirectories = directories
+        var rootIdentities = workingState?.rootIdentities ?? []
+        if let rootConnector = connector as? any PersistentRootIdentityConnector {
+            do {
+                let resolution = try await rootConnector.resolveRootIdentities(
+                    configuredRoots: directories,
+                    previous: rootIdentities
+                )
+                effectiveDirectories = resolution.effectiveRoots
+                rootIdentities = resolution.identities
+            } catch SourceRootResolutionError.requiresReselection(let path) {
+                do {
+                    try await clearCheckpointAndWait(for: source.id)
+                } catch {
+                    plog("⛔ Unable to clear relocated-root checkpoint for \(source.name): \(error.localizedDescription)")
+                }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(
+                        for: SourceError.pathNotFound(path),
+                        source: source
+                    )
+                )
+                return
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                recordScanInterruption(sourceID: source.id)
+                return
+            } catch {
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
+                return
+            }
+        }
+
         let quickOnly = checkpoint?.isQuickOnly == true
             || (checkpoint == nil && mode == .quick)
-        if checkpoint?.permitsNativeQuickSync != false,
+        let supportsStatefulRefresh = connector is any IncrementalMusicSourceConnector
+            || connector is any ResumableSnapshotMusicSourceConnector
+        if checkpoint?.permitsStatefulRefresh != false,
            mode != .deep,
-           let incremental = connector as? any IncrementalMusicSourceConnector,
-           let state = syncStates[source.id],
+           supportsStatefulRefresh,
+           let state = workingState,
            state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
            !SourceSyncFolderTopologyPolicy.requiresRebuild(
                sourceType: source.type,
                state: state
            ),
-           !state.cursors.isEmpty {
+           !state.cursors.isEmpty
+                || (connector is any ResumableSnapshotMusicSourceConnector
+                    && (!state.index.isEmpty || checkpoint?.baiduSnapshotState != nil)) {
             do {
                 if try await performQuickSync(
                     source: source,
                     generation: generation,
-                    directories: directories,
+                    directories: effectiveDirectories,
                     state: state,
-                    connector: incremental,
+                    connector: connector,
                     scanner: scanner,
                     existingSongs: existingForScan,
                     library: library,
                     sourceStore: sourceStore,
                     scraperService: scraperService,
-                    sourceManager: sourceManager
+                    sourceManager: sourceManager,
+                    rootIdentities: rootIdentities,
+                    checkpoint: checkpoint
                 ) {
                     return
                 }
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
                 if isCurrentScan(source.id, generation: generation) {
+                    if connector is any ResumableSnapshotMusicSourceConnector {
+                        try? await waitForCheckpointPersistence()
+                    }
                     recordScanInterruption(sourceID: source.id)
                 }
+                return
+            } catch BaiduSnapshotExecutionError.snapshotRestartRequired(let telemetry) {
+                if let checkpoint = checkpoints[source.id] {
+                    checkpoints[source.id] = checkpoint.restartingSnapshotTraversal(
+                        telemetry: telemetry
+                    )
+                    persistCheckpoints(force: true)
+                }
+                do {
+                    try await waitForCheckpointPersistence()
+                } catch {
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return
+                }
+                recordScanInterruption(sourceID: source.id)
+                return
+            } catch BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(let telemetry) {
+                if var diagnosticState = syncStates[source.id] {
+                    diagnosticState.lastTelemetry = telemetry
+                    try? await persistSyncState(diagnosticState)
+                }
+                do {
+                    try await clearCheckpointAndWait(for: source.id)
+                } catch {
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return
+                }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: String(localized: "baidu_snapshot_deep_scan_required")
+                )
+                return
+            } catch BaiduSnapshotExecutionError.budgetExhausted(_, let telemetry) {
+                if var checkpoint = checkpoints[source.id] {
+                    checkpoint.baiduTelemetry = telemetry
+                    checkpoint.updatedAt = Date()
+                    checkpoints[source.id] = checkpoint
+                    persistCheckpoints(force: true)
+                }
+                do {
+                    try await waitForCheckpointPersistence()
+                } catch {
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return
+                }
+                recordScanInterruption(sourceID: source.id)
                 return
             } catch {
                 plog("⚠️ Quick sync failed for \(source.name); keeping committed cursor: \(error.localizedDescription)")
@@ -911,7 +1121,7 @@ final class ScanService {
 
         if quickOnly {
             do {
-                if var deepRequiredState = syncStates[source.id] {
+                if var deepRequiredState = scopedState {
                     deepRequiredState.requiresDeepScan = true
                     try await persistSyncState(deepRequiredState)
                 }
@@ -943,14 +1153,21 @@ final class ScanService {
         }
 
         var baselineCursors = checkpoint?.baselineCursors ?? [:]
-        if baselineCursors.isEmpty,
-           let incremental = connector as? any IncrementalMusicSourceConnector {
+        if baselineCursors.isEmpty, supportsStatefulRefresh {
             do {
-                baselineCursors = try await incremental.initialChangeCursors(for: directories)
+                if let snapshot = connector as? any ResumableSnapshotMusicSourceConnector {
+                    baselineCursors = try await snapshot.initialSnapshotMarker(
+                        for: effectiveDirectories
+                    )
+                } else if let incremental = connector as? any IncrementalMusicSourceConnector {
+                    baselineCursors = try await incremental.initialChangeCursors(
+                        for: effectiveDirectories
+                    )
+                }
             } catch {
                 // The full scan is still useful. Mark the state for another
-                // deep scan rather than claiming native incremental coverage.
-                plog("⚠️ Unable to capture incremental baseline for \(source.name): \(error.localizedDescription)")
+                // deep scan rather than claiming stateful refresh coverage.
+                plog("⚠️ Unable to capture synchronization baseline for \(source.name): \(error.localizedDescription)")
             }
         }
         if !baselineCursors.isEmpty {
@@ -968,17 +1185,24 @@ final class ScanService {
                 return
             }
         }
-        let nextScanEpoch = (syncStates[source.id]?.scanEpoch ?? 0) + 1
+        let nextScanEpoch = (workingState?.scanEpoch ?? 0) + 1
         let resumableDirectoryState: SourceScanResumeState? = {
-            guard let state = checkpoint?.directoryState, state.isUsable else { return nil }
+            guard (checkpoint?.resolvedDirectories ?? directories) == effectiveDirectories,
+                  let state = checkpoint?.directoryState,
+                  state.isUsable else { return nil }
             return state
         }()
         let stream = await scanner.scan(
-            directories: directories,
+            directories: effectiveDirectories,
             existingSongs: existingForScan,
             startingCount: existingForScan.count,
             resumeState: resumableDirectoryState,
-            identityIndex: syncStates[source.id]?.index ?? [:],
+            identityIndex: SourceSyncIdentityReusePolicy.reusableIndex(
+                from: workingState,
+                sourceID: source.id,
+                scopeFingerprint: scopeFingerprint
+            ),
+            identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
             scanEpoch: nextScanEpoch
         )
 
@@ -1012,7 +1236,8 @@ final class ScanService {
                         totalCount: update.totalCount,
                         currentFile: update.currentFile,
                         directoryState: directoryState,
-                        baselineCursors: baselineCursors
+                        baselineCursors: baselineCursors,
+                        resolvedDirectories: effectiveDirectories
                     )
                 }
 
@@ -1044,7 +1269,8 @@ final class ScanService {
                             songs: lastSongs,
                             totalCount: update.totalCount,
                             currentFile: update.currentFile,
-                            baselineCursors: baselineCursors
+                            baselineCursors: baselineCursors,
+                            resolvedDirectories: effectiveDirectories
                         )
                     }
                     lastIncrementalUpdate = update.addedCount
@@ -1056,17 +1282,22 @@ final class ScanService {
             try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
             metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
             let scanIndex = await scanner.syncIndexSnapshot()
+            let scanReconciliation = await scanner.syncReconciliationSnapshot()
             let candidateState = SourceSyncState(
                 sourceID: source.id,
                 scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint,
                 cursors: baselineCursors,
                 index: scanIndex,
                 pendingDirectories: [],
                 scanEpoch: nextScanEpoch,
-                requiresDeepScan: connector is any IncrementalMusicSourceConnector
-                    && baselineCursors.isEmpty,
+                requiresDeepScan: supportsStatefulRefresh && baselineCursors.isEmpty,
                 lastFullScanAt: Date(),
-                lastSuccessfulSyncAt: Date()
+                lastSuccessfulSyncAt: Date(),
+                identityAliases: workingState?.identityAliases ?? [:],
+                rootIdentities: rootIdentities,
+                reconciliation: scanReconciliation.reconciliation,
+                missingStableKeys: scanReconciliation.missingStableKeys
             )
             try await completeScan(
                 sourceID: source.id,
@@ -1119,6 +1350,7 @@ final class ScanService {
                     sourceStore: sourceStore,
                     scraperService: scraperService,
                     mode: mode,
+                    snapshotExecutionContext: snapshotExecutionContext,
                     checkpoint: checkpoints[source.id] ?? checkpoint
                 )
                 return
@@ -1152,20 +1384,44 @@ final class ScanService {
         generation: Int,
         directories: [String],
         state: SourceSyncState,
-        connector: any IncrementalMusicSourceConnector,
+        connector: any MusicSourceConnector,
         scanner: ConnectorScanner,
         existingSongs: [Song],
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        rootIdentities: [SourceSyncRootIdentity],
+        checkpoint: ScanCheckpoint?
     ) async throws -> Bool {
         scanStates[source.id]?.currentFile = String(localized: "source_quick_sync")
-        let changes = try await connector.changes(
-            since: state.cursors,
-            roots: directories,
-            index: state.index
-        )
+        let snapshotBudget = BaiduSnapshotRefreshBudget()
+        let changes: IncrementalSourceChanges
+        if let snapshotConnector = connector as? any ResumableSnapshotMusicSourceConnector {
+            changes = try await snapshotConnector.snapshotChanges(
+                from: state,
+                roots: directories,
+                rootIdentities: rootIdentities,
+                resumeState: checkpoint?.baiduSnapshotState,
+                budget: snapshotBudget
+            ) { [weak self] resumeState, telemetry in
+                await self?.persistBaiduSnapshotProgress(
+                    sourceID: source.id,
+                    generation: generation,
+                    effectiveDirectories: directories,
+                    resumeState: resumeState,
+                    telemetry: telemetry
+                )
+            }
+        } else if let incremental = connector as? any IncrementalMusicSourceConnector {
+            changes = try await incremental.changes(
+                since: state.cursors,
+                roots: directories,
+                index: state.index
+            )
+        } else {
+            return false
+        }
         guard !changes.requiresDeepScan else {
             plog("↻ Native cursor requires a deep reconciliation for \(source.name)")
             return false
@@ -1180,10 +1436,19 @@ final class ScanService {
         if changes.changedParentPaths.isEmpty && changes.deletedStableKeys.isEmpty {
             var candidateState = state
             candidateState.cursors = changes.cursors
+            candidateState.index = changes.reconciledIndex ?? state.index
             candidateState.pendingDirectories = []
             candidateState.scanEpoch = nextScanEpoch
             candidateState.requiresDeepScan = false
             candidateState.lastSuccessfulSyncAt = Date()
+            candidateState.identityAliases = changes.identityAliases
+                ?? candidateState.identityAliases
+            candidateState.rootIdentities = changes.rootIdentities
+                ?? candidateState.rootIdentities
+            candidateState.missingStableKeys = changes.missingStableKeys
+                ?? candidateState.missingStableKeys
+            candidateState.reconciliation = changes.reconciliation
+            candidateState.lastTelemetry = changes.telemetry
 
             // The provider cursor advanced, but the committed library snapshot
             // did not change. Persisting the whole JSON library here turns a
@@ -1198,17 +1463,65 @@ final class ScanService {
             guard isCurrentScan(source.id, generation: generation) else {
                 throw CancellationError()
             }
-            scanStates[source.id] = nil
+            scanStates[source.id] = Self.completedScanState(
+                reconciliation: candidateState.reconciliation
+            )
             return true
         }
 
-        let result = try await scanner.reconcileChangedDirectories(
-            changes.changedParentPaths,
-            deletedStableKeys: changes.deletedStableKeys,
-            existingSongs: existingSongs,
-            existingIndex: state.index,
-            scanEpoch: nextScanEpoch
-        )
+        if let telemetry = changes.telemetry,
+           telemetry.directoryCount + changes.changedParentPaths.count
+                > snapshotBudget.maximumDirectories {
+            var exhausted = telemetry
+            exhausted.budgetExhausted = true
+            exhausted.stopReason = .directories
+            throw BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(exhausted)
+        }
+
+        let requiresCompleteListings = connector is any ResumableSnapshotMusicSourceConnector
+        let result: ConnectorScanner.IncrementalResult
+        var combinedTelemetry = changes.telemetry
+        if requiresCompleteListings,
+           let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
+            await budgeted.beginSnapshotReconciliationBudget(
+                snapshotBudget,
+                consumed: changes.telemetry
+            )
+            do {
+                result = try await scanner.reconcileChangedDirectories(
+                    changes.changedParentPaths,
+                    deletedStableKeys: changes.deletedStableKeys,
+                    existingSongs: existingSongs,
+                    existingIndex: changes.reconciledIndex ?? state.index,
+                    scanEpoch: nextScanEpoch,
+                    requiresCompleteListings: true
+                )
+                combinedTelemetry = await budgeted.finishSnapshotReconciliationBudget()
+                    ?? combinedTelemetry
+            } catch let error as BaiduSnapshotExecutionError {
+                let finalTelemetry = await budgeted.finishSnapshotReconciliationBudget()
+                if case .budgetExhausted = error {
+                    throw BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(
+                        finalTelemetry ?? changes.telemetry ?? SourceSyncTelemetry(
+                            budgetExhausted: true
+                        )
+                    )
+                }
+                throw error
+            } catch {
+                _ = await budgeted.finishSnapshotReconciliationBudget()
+                throw error
+            }
+        } else {
+            result = try await scanner.reconcileChangedDirectories(
+                changes.changedParentPaths,
+                deletedStableKeys: changes.deletedStableKeys,
+                existingSongs: existingSongs,
+                existingIndex: changes.reconciledIndex ?? state.index,
+                scanEpoch: nextScanEpoch,
+                requiresCompleteListings: false
+            )
+        }
         var candidateState = state
         candidateState.cursors = changes.cursors
         candidateState.index = result.index
@@ -1216,6 +1529,14 @@ final class ScanService {
         candidateState.scanEpoch = nextScanEpoch
         candidateState.requiresDeepScan = false
         candidateState.lastSuccessfulSyncAt = Date()
+        candidateState.identityAliases = changes.identityAliases
+            ?? candidateState.identityAliases
+        candidateState.rootIdentities = changes.rootIdentities
+            ?? candidateState.rootIdentities
+        candidateState.missingStableKeys = changes.missingStableKeys
+            ?? candidateState.missingStableKeys
+        candidateState.reconciliation = changes.reconciliation
+        candidateState.lastTelemetry = combinedTelemetry
 
         var progressTimestamp = Date.distantPast
         publishScanProgress(
@@ -1289,7 +1610,9 @@ final class ScanService {
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
         }
-        scanStates[sourceID] = nil
+        scanStates[sourceID] = Self.completedScanState(
+            reconciliation: syncState?.reconciliation
+        )
 
         // 歌单镜像放在扫描收尾之后: 曲库已经落库(上面 addSongs +
         // persistIncrementalNowAndWait), serverItemID → Song.id 的索引才是完整的;
@@ -1326,6 +1649,7 @@ final class ScanService {
         state.totalCount = totalCount
         state.currentFile = currentFile
         state.failureMessage = nil
+        state.reconciliationMessage = nil
         // One dictionary write produces one observation change instead of
         // publishing each ScanState field independently.
         scanStates[sourceID] = state
@@ -1341,6 +1665,7 @@ final class ScanService {
         var state = scanStates[sourceID] ?? ScanState()
         state.isScanning = false
         state.failureMessage = message
+        state.reconciliationMessage = nil
         state.hasPendingWork = checkpoints[sourceID] != nil
         if let scannedCount {
             state.scannedCount = scannedCount
@@ -1389,6 +1714,22 @@ final class ScanService {
             return
         }
         syncStates = decoded
+        for (sourceID, state) in decoded
+        where state.reconciliation != nil && scanStates[sourceID] == nil {
+            scanStates[sourceID] = Self.completedScanState(
+                reconciliation: state.reconciliation
+            )
+        }
+    }
+
+    private static func completedScanState(
+        reconciliation: SourceSyncReconciliation?
+    ) -> ScanState? {
+        guard reconciliation != nil else { return nil }
+        return ScanState(
+            isScanning: false,
+            reconciliationMessage: String(localized: "baidu_snapshot_reconciliation_required")
+        )
     }
 
     private func persistSyncState(_ state: SourceSyncState) async throws {
@@ -1415,6 +1756,35 @@ final class ScanService {
         folderHierarchyRevision &+= 1
     }
 
+    private func persistBaiduSnapshotProgress(
+        sourceID: String,
+        generation: Int,
+        effectiveDirectories: [String],
+        resumeState: BaiduSnapshotResumeState,
+        telemetry: SourceSyncTelemetry
+    ) {
+        guard isCurrentScan(sourceID, generation: generation) else { return }
+        guard var checkpoint = checkpoints[sourceID] else { return }
+        checkpoint.phase = .scanning
+        checkpoint.currentFile = resumeState.pendingDirectories.last ?? ""
+        checkpoint.updatedAt = Date()
+        checkpoint.resolvedDirectories = effectiveDirectories
+        checkpoint.baiduSnapshotState = resumeState
+        checkpoint.baiduTelemetry = telemetry
+        checkpoints[sourceID] = checkpoint
+
+        var scanState = scanStates[sourceID] ?? ScanState(isScanning: true)
+        scanState.isScanning = true
+        scanState.currentFile = checkpoint.currentFile
+        scanState.scannedCount = resumeState.visitedDirectories.count
+        scanState.totalCount = resumeState.visitedDirectories.count
+            + resumeState.pendingDirectories.count
+        scanState.hasPendingWork = true
+        scanState.failureMessage = nil
+        scanStates[sourceID] = scanState
+        persistCheckpoints(force: Task.isCancelled)
+    }
+
     private func persistCheckpoint(
         sourceID: String,
         directories: [String],
@@ -1422,7 +1792,8 @@ final class ScanService {
         totalCount: Int,
         currentFile: String,
         directoryState: SourceScanResumeState? = nil,
-        baselineCursors: [String: String]? = nil
+        baselineCursors: [String: String]? = nil,
+        resolvedDirectories: [String]? = nil
     ) {
         let existing = checkpoints[sourceID]
         checkpoints[sourceID] = ScanCheckpoint(
@@ -1433,8 +1804,12 @@ final class ScanService {
             totalCount: totalCount,
             currentFile: currentFile,
             updatedAt: Date(),
+            scopeFingerprint: existing?.scopeFingerprint,
+            resolvedDirectories: resolvedDirectories ?? existing?.resolvedDirectories,
             directoryState: directoryState ?? existing?.directoryState,
-            baselineCursors: baselineCursors ?? existing?.baselineCursors
+            baselineCursors: baselineCursors ?? existing?.baselineCursors,
+            baiduSnapshotState: existing?.baiduSnapshotState,
+            baiduTelemetry: existing?.baiduTelemetry
         )
         persistCheckpoints()
     }
@@ -1573,6 +1948,61 @@ final class ScanService {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Builds the conservative bridge for libraries created before Baidu
+    /// exposed `fs_id` to the scanner. Rows already represented by a committed
+    /// index are left untouched; orphaned songs become path-keyed aliases that
+    /// the pure snapshot migration can match without changing `Song.id`.
+    private nonisolated static func legacyBaiduState(
+        base: SourceSyncState?,
+        sourceID: String,
+        scopeFingerprint: String,
+        identityScopeFingerprint: String,
+        songs: [Song]
+    ) -> SourceSyncState? {
+        guard base != nil || !songs.isEmpty else { return nil }
+        var state = base ?? SourceSyncState(
+            sourceID: sourceID,
+            scopeFingerprint: scopeFingerprint,
+            identityScopeFingerprint: identityScopeFingerprint
+        )
+        state.scopeFingerprint = scopeFingerprint
+        state.identityScopeFingerprint = identityScopeFingerprint
+        let alreadyIndexed = Set(state.index.values.flatMap(\.songIDs))
+        for song in songs where !alreadyIndexed.contains(song.id) && !song.filePath.isEmpty {
+            var key = BaiduSnapshotIdentity.legacyPathKey(song.filePath)
+            if var entry = state.index[key], entry.path == song.filePath {
+                if !entry.songIDs.contains(song.id) {
+                    entry.songIDs.append(song.id)
+                    entry.songIDs.sort()
+                }
+                state.index[key] = entry
+                continue
+            }
+            // The historical key lower-cased paths, so two valid remote names
+            // that differ only by case can collide. Preserve both orphan rows
+            // for conservative fingerprint reconciliation instead of letting
+            // dictionary insertion silently discard one Song ID.
+            if state.index[key] != nil {
+                key += "#song:\(song.id)"
+            }
+            let rawParent = (song.filePath as NSString).deletingLastPathComponent
+            let parent = rawParent.isEmpty || rawParent == "." ? "/" : rawParent
+            state.index[key] = SourceSyncIndexedItem(
+                stableKey: key,
+                path: song.filePath,
+                displayName: (song.filePath as NSString).lastPathComponent,
+                parentPath: parent,
+                isDirectory: false,
+                songIDs: [song.id],
+                size: song.fileSize,
+                modifiedDate: song.lastModified,
+                revision: song.revision,
+                seenEpoch: state.scanEpoch
+            )
+        }
+        return state
+    }
+
     private nonisolated static func isMissingConnectorRootError(_ error: Error) -> Bool {
         switch error {
         case CloudDriveError.fileNotFound,
@@ -1584,9 +2014,14 @@ final class ScanService {
         }
     }
 
-    private func resumeCheckpoint(for sourceID: String, directories: [String]) -> ScanCheckpoint? {
+    private func resumeCheckpoint(
+        for sourceID: String,
+        directories: [String],
+        scopeFingerprint: String
+    ) -> ScanCheckpoint? {
         guard let checkpoint = checkpoints[sourceID] else { return nil }
-        guard checkpoint.directories == directories else {
+        guard checkpoint.directories == directories,
+              checkpoint.scopeFingerprint == scopeFingerprint else {
             removeCheckpoint(for: sourceID)
             return nil
         }

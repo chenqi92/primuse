@@ -13,6 +13,8 @@ actor ConnectorScanner {
     private let sourceID: String
     private let metadataService = MetadataService()
     private var completedSyncIndex: [String: SourceSyncIndexedItem] = [:]
+    private var completedReconciliation: SourceSyncReconciliation?
+    private var completedMissingStableKeys: [String: Int] = [:]
     /// IDs returned by server-catalog scanners whose API already supplied the
     /// title and other useful metadata. ScanService drains this alongside scan
     /// snapshots so MetadataBackfillService does not repeat the same inspection
@@ -26,6 +28,13 @@ actor ConnectorScanner {
 
     func syncIndexSnapshot() -> [String: SourceSyncIndexedItem] {
         completedSyncIndex
+    }
+
+    func syncReconciliationSnapshot() -> (
+        reconciliation: SourceSyncReconciliation?,
+        missingStableKeys: [String: Int]
+    ) {
+        (completedReconciliation, completedMissingStableKeys)
     }
 
     func takeMetadataInspectedSongIDs() -> Set<String> {
@@ -66,7 +75,8 @@ actor ConnectorScanner {
         deletedStableKeys: Set<String>,
         existingSongs: [Song],
         existingIndex: [String: SourceSyncIndexedItem],
-        scanEpoch: Int64
+        scanEpoch: Int64,
+        requiresCompleteListings: Bool = false
     ) async throws -> IncrementalResult {
         try await connector.connect()
         var songsByID = Dictionary(
@@ -75,6 +85,11 @@ actor ConnectorScanner {
         )
         var index = existingIndex
         var changedCount = 0
+        // Keep the pre-deletion identity baseline. If an item reappears between
+        // the provider snapshot and the authoritative parent re-list, it must
+        // recover its existing Song ID instead of being recreated.
+        let reconciliationBaseline = existingIndex
+        var observedStablePaths: [String: String] = [:]
 
         for key in deletedStableKeys {
             if let entry = index.removeValue(forKey: key) {
@@ -82,15 +97,38 @@ actor ConnectorScanner {
                 changedCount += 1
             }
         }
-        // Keep an immutable view for rename/move identity resolution. The
-        // mutable index may already point at the new parent by the time the
+        // The mutable index may already point at the new parent by the time the
         // old parent is reconciled (directory processing order is arbitrary).
-        let reconciliationBaseline = index
 
         for directory in directories.sorted() {
             try Task.checkCancellation()
-            let siblings = try await connector.listFiles(at: directory)
+            if requiresCompleteListings,
+               let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
+                try await budgeted.reserveSnapshotReconciliationDirectory()
+            }
             let oldEntries = reconciliationBaseline.filter { $0.value.parentPath == directory }
+            let siblings: [RemoteFileItem]
+            do {
+                siblings = try await connector.listFiles(at: directory)
+            } catch {
+                let unconfirmedMissing = BaiduSnapshotDirectoryReconciliationPolicy
+                    .unconfirmedMissingKeys(
+                        expectedKeys: Set(oldEntries.keys),
+                        listedKeys: [],
+                        confirmedDeletedKeys: deletedStableKeys
+                    )
+                guard requiresCompleteListings,
+                      isMissingPathError(error),
+                      unconfirmedMissing.isEmpty else { throw error }
+                // A moved directory's old path (or a directory whose children
+                // were all confirmed deleted) may legitimately return -9.
+                // Nothing unconfirmed is owned by that stale path anymore.
+                continue
+            }
+            if requiresCompleteListings,
+               let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
+                try await budgeted.checkSnapshotReconciliationBudget()
+            }
             var rebuiltStableKeys: Set<String> = []
             for (key, entry) in oldEntries {
                 // If another changed directory already moved this stable key,
@@ -102,6 +140,10 @@ actor ConnectorScanner {
 
             let cueTracks = try await loadCueTracks(from: siblings)
             for directoryItem in siblings where directoryItem.isDirectory {
+                try validateStableIdentity(
+                    for: directoryItem,
+                    observedPaths: &observedStablePaths
+                )
                 let stableKey = directoryItem.providerID
                     ?? "path:\(directoryItem.path.lowercased())"
                 rebuiltStableKeys.insert(stableKey)
@@ -115,6 +157,10 @@ actor ConnectorScanner {
             for rawItem in siblings where !rawItem.isDirectory {
                 try Task.checkCancellation()
                 guard let item = SidecarHintResolver.scannableItem(rawItem, siblings: siblings) else { continue }
+                try validateStableIdentity(
+                    for: item,
+                    observedPaths: &observedStablePaths
+                )
                 let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
                 rebuiltStableKeys.insert(stableKey)
                 let oldEntry = reconciliationBaseline[stableKey]
@@ -124,7 +170,7 @@ actor ConnectorScanner {
                     let preferredID = oldEntry?.songIDs.count == 1
                         ? oldEntry?.songIDs.first
                         : nil
-                    let songID = preferredID ?? hash("\(sourceID):\(item.path)")
+                    let songID = preferredID ?? generatedSongID(for: item)
                     if let oldEntry,
                        let old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }),
                        Self.wrapperFingerprintMatches(oldEntry, item),
@@ -137,9 +183,7 @@ actor ConnectorScanner {
                         var refreshed = old
                         refreshed.filePath = item.path
                         refreshed.lastModified = item.modifiedDate ?? old.lastModified
-                        refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? old.coverArtFileName
-                        refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? old.lyricsFileName
-                        refreshed.mvPath = item.sidecarHints?.mvPath ?? old.mvPath
+                        applySidecarHints(from: item, to: &refreshed)
                         refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                         songsByID[old.id] = refreshed
                         recordSyncItem(item, songIDs: [old.id], seenEpoch: scanEpoch, in: &index)
@@ -168,16 +212,15 @@ actor ConnectorScanner {
 
                 if let descriptors = cueTracks[item.path], !descriptors.isEmpty {
                     var cueSongs = buildCueSongs(from: item, descriptors: descriptors)
-                    if let oldEntry, oldEntry.songIDs.count == cueSongs.count {
-                        cueSongs.sort { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-                        let oldSongs = oldEntry.songIDs.compactMap { id in existingSongs.first { $0.id == id } }
-                            .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-                        if oldSongs.count == cueSongs.count {
-                            for index in cueSongs.indices {
-                                cueSongs[index].id = oldSongs[index].id
-                                cueSongs[index].dateAdded = oldSongs[index].dateAdded
-                            }
-                        }
+                    if let oldEntry {
+                        reuseCueSongIdentities(
+                            in: &cueSongs,
+                            priorSongIDs: oldEntry.songIDs,
+                            existingByID: Dictionary(
+                                existingSongs.map { ($0.id, $0) },
+                                uniquingKeysWith: { first, _ in first }
+                            )
+                        )
                     }
                     for song in cueSongs {
                         if let existing = existingSongs.first(where: { $0.id == song.id }) {
@@ -202,7 +245,7 @@ actor ConnectorScanner {
                 let preferredID = oldEntry?.songIDs.count == 1
                     ? oldEntry?.songIDs.first
                     : nil
-                let songID = preferredID ?? hash("\(sourceID):\(item.path)")
+                let songID = preferredID ?? generatedSongID(for: item)
                 let incoming = await buildBareSong(from: item, songID: songID)
                 if var old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
                     if !songContentChanged(existing: old, incoming: incoming) {
@@ -210,9 +253,7 @@ actor ConnectorScanner {
                         old.fileSize = item.size
                         old.lastModified = item.modifiedDate ?? old.lastModified
                         old.revision = item.revision ?? old.revision
-                        old.coverArtFileName = item.sidecarHints?.coverPath ?? old.coverArtFileName
-                        old.lyricsFileName = item.sidecarHints?.lyricsPath ?? old.lyricsFileName
-                        old.mvPath = item.sidecarHints?.mvPath ?? old.mvPath
+                        applySidecarHints(from: item, to: &old)
                         refreshSuspiciousSourceTitle(in: &old, from: item)
                         songsByID[old.id] = old
                     } else {
@@ -230,6 +271,26 @@ actor ConnectorScanner {
                     changedCount += 1
                 }
                 recordSyncItem(item, songIDs: [songID], seenEpoch: scanEpoch, in: &index)
+            }
+
+            if requiresCompleteListings,
+               let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
+                try await budgeted.checkSnapshotReconciliationBudget()
+            }
+
+            if requiresCompleteListings {
+                let unconfirmedMissing = BaiduSnapshotDirectoryReconciliationPolicy
+                    .unconfirmedMissingKeys(
+                        expectedKeys: Set(oldEntries.keys),
+                        listedKeys: rebuiltStableKeys,
+                        confirmedDeletedKeys: deletedStableKeys
+                    )
+                guard unconfirmedMissing.isEmpty else {
+                    throw ConnectorSnapshotReconciliationError.incompleteDirectory(
+                        directory,
+                        unconfirmedMissing.sorted()
+                    )
+                }
             }
 
             changedCount += oldEntries.keys.filter {
@@ -262,9 +323,12 @@ actor ConnectorScanner {
         startingCount: Int = 0,
         resumeState: SourceScanResumeState? = nil,
         identityIndex: [String: SourceSyncIndexedItem] = [:],
+        identityMissingStableKeys: [String: Int] = [:],
         scanEpoch: Int64 = 0
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         completedSyncIndex = [:]
+        completedReconciliation = nil
+        completedMissingStableKeys = [:]
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
         // Each update carries the complete song snapshot. An unbounded stream
         // retains every pending snapshot when a fast remote listing outruns the
@@ -307,6 +371,10 @@ actor ConnectorScanner {
                     var successfulDirectoryCount = 0
                     var firstDirectoryError: Error?
                     var syncIndex = usableResumeState?.index ?? [:]
+                    var claimedIdentityKeys: Set<String> = []
+                    var observedStablePaths = Dictionary(
+                        uniqueKeysWithValues: syncIndex.map { ($0.key, $0.value.path) }
+                    )
                     var lastProgressYieldAt = Date()
 
                     if !existingSongs.isEmpty {
@@ -501,6 +569,10 @@ actor ConnectorScanner {
                         do {
                             let siblings = try await connector.listFiles(at: directory)
                             for directoryItem in siblings where directoryItem.isDirectory {
+                                try validateStableIdentity(
+                                    for: directoryItem,
+                                    observedPaths: &observedStablePaths
+                                )
                                 recordSyncItem(
                                     directoryItem,
                                     songIDs: [],
@@ -529,15 +601,28 @@ actor ConnectorScanner {
                                     )
                                 }
 
+                                try validateStableIdentity(
+                                    for: item,
+                                    observedPaths: &observedStablePaths
+                                )
                                 let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
-                                let priorEntry = identityBaseline[stableKey]
+                                let identityMatch = identityMatch(
+                                    for: item,
+                                    stableKey: stableKey,
+                                    baseline: identityBaseline,
+                                    claimedKeys: claimedIdentityKeys
+                                )
+                                let priorEntry = identityMatch?.item
+                                if let identityKey = identityMatch?.key {
+                                    claimedIdentityKeys.insert(identityKey)
+                                }
                                 let preferredSongID: String? = {
                                     guard priorEntry?.songIDs.count == 1,
                                           let candidate = priorEntry?.songIDs.first,
                                           existingByID[candidate] != nil else { return nil }
                                     return candidate
                                 }()
-                                let songID = preferredSongID ?? hash("\(sourceID):\(item.path)")
+                                let songID = preferredSongID ?? generatedSongID(for: item)
 
                                 if PrimuseConstants.supportedStreamDescriptorExtensions.contains(
                                     (item.name as NSString).pathExtension.lowercased()
@@ -560,9 +645,7 @@ actor ConnectorScanner {
                                             var refreshed = existing
                                             refreshed.filePath = item.path
                                             refreshed.lastModified = item.modifiedDate ?? existing.lastModified
-                                            refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
-                                            refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
-                                            refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
+                                            applySidecarHints(from: item, to: &refreshed)
                                             refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                                             allSongs[idx] = refreshed
                                             existingByID[songID] = refreshed
@@ -605,9 +688,7 @@ actor ConnectorScanner {
                                             var refreshed = existing
                                             refreshed.filePath = descriptorSong.filePath
                                             refreshed.lastModified = descriptorSong.lastModified ?? existing.lastModified
-                                            refreshed.coverArtFileName = descriptorSong.coverArtFileName ?? existing.coverArtFileName
-                                            refreshed.lyricsFileName = descriptorSong.lyricsFileName ?? existing.lyricsFileName
-                                            refreshed.mvPath = descriptorSong.mvPath ?? existing.mvPath
+                                            applySidecarHints(from: item, to: &refreshed)
                                             allSongs[idx] = refreshed
                                             existingByID[songID] = refreshed
                                         }
@@ -623,16 +704,12 @@ actor ConnectorScanner {
 
                                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
                                     var cueSongs = buildCueSongs(from: item, descriptors: descriptors)
-                                    if let priorEntry, priorEntry.songIDs.count == cueSongs.count {
-                                        cueSongs.sort { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-                                        let priorSongs = priorEntry.songIDs.compactMap { existingByID[$0] }
-                                            .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-                                        if priorSongs.count == cueSongs.count {
-                                            for index in cueSongs.indices {
-                                                cueSongs[index].id = priorSongs[index].id
-                                                cueSongs[index].dateAdded = priorSongs[index].dateAdded
-                                            }
-                                        }
+                                    if let priorEntry {
+                                        reuseCueSongIdentities(
+                                            in: &cueSongs,
+                                            priorSongIDs: priorEntry.songIDs,
+                                            existingByID: existingByID
+                                        )
                                     }
                                     recordSyncItem(
                                         item,
@@ -659,9 +736,7 @@ actor ConnectorScanner {
                                                 refreshed.fileSize = cueSong.fileSize
                                                 refreshed.lastModified = cueSong.lastModified ?? existing.lastModified
                                                 refreshed.revision = cueSong.revision ?? existing.revision
-                                                refreshed.coverArtFileName = cueSong.coverArtFileName ?? existing.coverArtFileName
-                                                refreshed.lyricsFileName = cueSong.lyricsFileName ?? existing.lyricsFileName
-                                                refreshed.mvPath = cueSong.mvPath ?? existing.mvPath
+                                                applySidecarHints(from: item, to: &refreshed)
                                                 refreshed.cueSheetPath = cueSong.cueSheetPath
                                                 refreshed.cueStartTime = cueSong.cueStartTime
                                                 refreshed.cueEndTime = cueSong.cueEndTime
@@ -706,19 +781,14 @@ actor ConnectorScanner {
                                     }()
                                     let revisionAdded = item.revision != nil && existing.revision == nil
                                     let mtimeAdded = item.modifiedDate != nil && existing.lastModified == nil
-                                    let sidecarChanged = item.sidecarHints?.coverPath.map { $0 != existing.coverArtFileName } ?? false
-                                        || item.sidecarHints?.lyricsPath.map { $0 != existing.lyricsFileName } ?? false
-                                        || item.sidecarHints?.mvPath.map { $0 != existing.mvPath } ?? false
-                                    if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded || sidecarChanged) {
+                                    if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded) {
                                         if let idx = allSongIndexByID[songID] {
                                             var refreshed = existing
                                             refreshed.filePath = item.path
                                             if item.size > 0 { refreshed.fileSize = item.size }
                                             refreshed.lastModified = item.modifiedDate ?? existing.lastModified
                                             refreshed.revision = item.revision ?? existing.revision
-                                            refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
-                                            refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
-                                            refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
+                                            applySidecarHints(from: item, to: &refreshed)
                                             refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                                             allSongs[idx] = refreshed
                                             existingByID[songID] = refreshed
@@ -874,6 +944,31 @@ actor ConnectorScanner {
                         throw firstDirectoryError
                     }
 
+                    if connector is any StableProviderSongIdentityConnector {
+                        let unresolvedLegacy = identityBaseline.filter { key, entry in
+                            key.hasPrefix("path:")
+                                && !claimedIdentityKeys.contains(key)
+                                && !entry.songIDs.isEmpty
+                        }
+                        if !unresolvedLegacy.isEmpty {
+                            for (key, entry) in unresolvedLegacy {
+                                let observations = (identityMissingStableKeys[key] ?? 0) + 1
+                                guard observations < BaiduSnapshotDiffPolicy
+                                    .deletionConfirmationCount else { continue }
+                                syncIndex[key] = entry
+                                encounteredSongIDs.formUnion(entry.songIDs)
+                                completedMissingStableKeys[key] = observations
+                            }
+                            if !completedMissingStableKeys.isEmpty {
+                                completedReconciliation = SourceSyncReconciliation(
+                                    kind: .baiduIdentityAndDeletionConfirmation,
+                                    unresolvedStableKeys: Array(completedMissingStableKeys.keys),
+                                    detectedAt: Date()
+                                )
+                            }
+                        }
+                    }
+
                     if !hadDirectoryFailure {
                         allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         scannedCount = allSongs.count
@@ -1017,8 +1112,14 @@ actor ConnectorScanner {
                 nil
             }
             let fallbackTitle = String(format: "Track %02d", descriptor.track.number)
+            let itemIdentity = SourceSongIdentityMaterialPolicy.itemIdentity(
+                path: item.path,
+                providerID: item.providerID,
+                usesStableProviderIdentity: connector
+                    is any StableProviderSongIdentityConnector
+            )
             let songID = hash(
-                "\(sourceID):\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+                "\(sourceID):\(itemIdentity)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
             )
             return Song(
                 id: songID,
@@ -1047,6 +1148,23 @@ actor ConnectorScanner {
         }
     }
 
+    private func reuseCueSongIdentities(
+        in incoming: inout [Song],
+        priorSongIDs: [String],
+        existingByID: [String: Song]
+    ) {
+        let priorSongs = priorSongIDs.compactMap { existingByID[$0] }
+        let grouped = Dictionary(grouping: priorSongs) { $0.trackNumber }
+        for index in incoming.indices {
+            guard let trackNumber = incoming[index].trackNumber,
+                  let matches = grouped[trackNumber],
+                  matches.count == 1,
+                  let existing = matches.first else { continue }
+            incoming[index].id = existing.id
+            incoming[index].dateAdded = existing.dateAdded
+        }
+    }
+
     private func songContentChanged(existing: Song, incoming: Song) -> Bool {
         let sizeChanged = incoming.fileSize > 0
             && existing.fileSize > 0
@@ -1059,9 +1177,6 @@ actor ConnectorScanner {
             guard let a = incoming.revision, let b = existing.revision else { return false }
             return a != b
         }()
-        let sidecarChanged = incoming.coverArtFileName.map { $0 != existing.coverArtFileName } ?? false
-            || incoming.lyricsFileName.map { $0 != existing.lyricsFileName } ?? false
-            || incoming.mvPath.map { $0 != existing.mvPath } ?? false
         // First-time fingerprint/mtime backfill — not a content change,
         // but still needs to flow through addSongs so the merge path
         // refreshes existing.revision / existing.lastModified. Without
@@ -1071,8 +1186,7 @@ actor ConnectorScanner {
         // blind on existing rows.
         let revisionAdded = incoming.revision != nil && existing.revision == nil
         let mtimeAdded = incoming.lastModified != nil && existing.lastModified == nil
-        let cueChanged = existing.cueSheetPath != incoming.cueSheetPath
-            || existing.cueStartTime != incoming.cueStartTime
+        let cueChanged = existing.cueStartTime != incoming.cueStartTime
             || existing.cueEndTime != incoming.cueEndTime
             || existing.title != incoming.title
             || existing.artistName != incoming.artistName
@@ -1080,7 +1194,7 @@ actor ConnectorScanner {
             || existing.trackNumber != incoming.trackNumber
             || existing.fileFormat != incoming.fileFormat
         return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
-            || sidecarChanged || cueChanged
+            || cueChanged
     }
 
     private func refreshServerMetadata(existing: Song, incoming: Song) -> Song {
@@ -1129,6 +1243,35 @@ actor ConnectorScanner {
         if refreshed.coverArtFileName == nil { refreshed.coverArtFileName = incoming.coverArtFileName }
 
         return refreshed
+    }
+
+    /// Applies the three-state sidecar result from a complete directory
+    /// listing. Nil from a non-authoritative connector means "unknown"; nil
+    /// from an authoritative listing can clear only a provider path in the
+    /// currently listed directory. Local cache names and sidecars that still
+    /// live in an old directory after an audio-only move are retained.
+    private func applySidecarHints(from item: RemoteFileItem, to song: inout Song) {
+        guard let hints = item.sidecarHints else { return }
+        let parent = item.parentPath ?? (item.path as NSString).deletingLastPathComponent
+        song.coverArtFileName = SourceSidecarReferencePolicy.reconciledReference(
+            existing: song.coverArtFileName,
+            incoming: hints.coverPath,
+            currentParentPath: parent,
+            authoritative: hints.isAuthoritative,
+            preserveExisting: song.userMetadataEditedAt != nil
+        )
+        song.lyricsFileName = SourceSidecarReferencePolicy.reconciledReference(
+            existing: song.lyricsFileName,
+            incoming: hints.lyricsPath,
+            currentParentPath: parent,
+            authoritative: hints.isAuthoritative
+        )
+        song.mvPath = SourceSidecarReferencePolicy.reconciledReference(
+            existing: song.mvPath,
+            incoming: hints.mvPath,
+            currentParentPath: parent,
+            authoritative: hints.isAuthoritative
+        )
     }
 
     private struct SidecarRefs {
@@ -1362,8 +1505,70 @@ actor ConnectorScanner {
             size: item.size,
             modifiedDate: item.modifiedDate,
             revision: item.revision,
+            sidecarFingerprint: item.sidecarHints?.snapshotFingerprint,
             seenEpoch: seenEpoch
         )
+    }
+
+    private func generatedSongID(for item: RemoteFileItem) -> String {
+        let material = SourceSongIdentityMaterialPolicy.itemIdentity(
+            path: item.path,
+            providerID: item.providerID,
+            usesStableProviderIdentity: connector
+                is any StableProviderSongIdentityConnector
+        )
+        return hash("\(sourceID):\(material)")
+    }
+
+    private func identityMatch(
+        for item: RemoteFileItem,
+        stableKey: String,
+        baseline: [String: SourceSyncIndexedItem],
+        claimedKeys: Set<String>
+    ) -> (key: String, item: SourceSyncIndexedItem)? {
+        if let direct = baseline[stableKey], !claimedKeys.contains(stableKey) {
+            return (stableKey, direct)
+        }
+        guard connector is any StableProviderSongIdentityConnector else { return nil }
+        let probe = SourceSyncIndexedItem(
+            stableKey: stableKey,
+            path: item.path,
+            displayName: item.name,
+            parentPath: item.parentPath,
+            isDirectory: item.isDirectory,
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            revision: item.revision,
+            sidecarFingerprint: item.sidecarHints?.snapshotFingerprint
+        )
+        return BaiduSnapshotDiffPolicy.migrationMatch(
+            for: probe,
+            previousIndex: baseline,
+            claimedPreviousKeys: claimedKeys
+        )
+    }
+
+    private func validateStableIdentity(
+        for item: RemoteFileItem,
+        observedPaths: inout [String: String]
+    ) throws {
+        guard connector is any StableProviderSongIdentityConnector,
+              let stableKey = item.providerID else { return }
+        if observedPaths[stableKey] != nil {
+            throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+        }
+        observedPaths[stableKey] = item.path
+    }
+
+    private func isMissingPathError(_ error: Error) -> Bool {
+        switch error {
+        case CloudDriveError.fileNotFound,
+             SourceError.pathNotFound,
+             SourceError.fileNotFound:
+            return true
+        default:
+            return false
+        }
     }
 
     private nonisolated static func wrapperFingerprintMatches(
@@ -1380,4 +1585,8 @@ actor ConnectorScanner {
         return indexed.revision == nil && item.revision == nil
             && indexed.modifiedDate == nil && item.modifiedDate == nil
     }
+}
+
+private enum ConnectorSnapshotReconciliationError: Error {
+    case incompleteDirectory(String, [String])
 }

@@ -347,6 +347,19 @@ struct MacSourcesView: View {
                 RoundedRectangle(cornerRadius: 9)
                     .strokeBorder(PMColor.bad.opacity(0.16), lineWidth: 0.8)
             }
+        } else if let reconciliationMessage = scanning?.reconciliationMessage,
+                  !reconciliationMessage.isEmpty {
+            Label {
+                Text(reconciliationMessage)
+                    .font(.system(size: 10.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "checkmark.shield.fill")
+            }
+            .foregroundStyle(.orange)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.orange.opacity(0.06), in: .rect(cornerRadius: 9))
         } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
         } else {

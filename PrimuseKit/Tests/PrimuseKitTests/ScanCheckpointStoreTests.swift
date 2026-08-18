@@ -18,7 +18,7 @@ struct ScanCheckpointPreparationTests {
         #expect(checkpoint.songs.isEmpty)
         #expect(checkpoint.directoryState?.pendingDirectories == ["/Music"])
         #expect(checkpoint.isUsable)
-        #expect(checkpoint.permitsNativeQuickSync)
+        #expect(checkpoint.permitsStatefulRefresh)
     }
 
     @Test("Preparing never regresses an existing progress checkpoint")
@@ -57,9 +57,9 @@ struct ScanCheckpointPreparationTests {
         )
 
         #expect(deep.intent == .fullScan)
-        #expect(!deep.permitsNativeQuickSync)
+        #expect(!deep.permitsStatefulRefresh)
         #expect(quick.intent == .quickOnly)
-        #expect(quick.permitsNativeQuickSync)
+        #expect(quick.permitsStatefulRefresh)
         #expect(quick.isQuickOnly)
     }
 
@@ -108,6 +108,91 @@ struct ScanCheckpointPreparationTests {
             isEnabled: false,
             isDeleted: false
         ) == .discard)
+    }
+
+    @Test("A cloud account switch never resumes the previous scope")
+    func scopeMismatchRestartsCheckpoint() {
+        let previous = makeCheckpoint(
+            phase: .scanning,
+            intent: .automatic,
+            directories: ["/Music"],
+            pendingDirectories: ["/Music/Album"],
+            scopeFingerprint: "account-a"
+        )
+
+        let restarted = ScanCheckpointPreparationPolicy.preparingCheckpoint(
+            existing: previous,
+            directories: ["/Music"],
+            mode: .automatic,
+            scopeFingerprint: "account-b",
+            now: Date(timeIntervalSince1970: 999)
+        )
+
+        #expect(restarted != previous)
+        #expect(restarted.phase == .initial)
+        #expect(restarted.scopeFingerprint == "account-b")
+        #expect(restarted.directoryState?.pendingDirectories == ["/Music"])
+        #expect(restarted.baiduSnapshotState == nil)
+    }
+
+    @Test("Baidu snapshot progress remains quick-resumable across encoding")
+    func baiduSnapshotProgressRoundTrip() throws {
+        let snapshot = BaiduSnapshotResumeState(
+            baselineScanEpoch: 4,
+            roots: ["/Music"],
+            pendingDirectories: ["/Music/B"],
+            visitedDirectories: ["/Music"]
+        )
+        let checkpoint = makeCheckpoint(
+            phase: .scanning,
+            intent: .automatic,
+            directories: ["/Music"],
+            pendingDirectories: [],
+            scopeFingerprint: "account-a",
+            baiduSnapshotState: snapshot,
+            baiduTelemetry: SourceSyncTelemetry(
+                requestCount: 4,
+                directoryCount: 1,
+                elapsed: 2,
+                resumed: true
+            )
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ScanCheckpoint.self,
+            from: JSONEncoder().encode(checkpoint)
+        )
+
+        #expect(decoded == checkpoint)
+        #expect(decoded.permitsStatefulRefresh)
+        #expect(decoded.baiduSnapshotState == snapshot)
+        #expect(decoded.baiduTelemetry?.requestCount == 4)
+    }
+
+    @Test("A stale snapshot directory restarts from roots without becoming a deep scan")
+    func staleBaiduDirectoryRestartsSnapshot() {
+        let progress = BaiduSnapshotResumeState(
+            baselineScanEpoch: 3,
+            roots: ["/Music"],
+            pendingDirectories: ["/Music/Old"]
+        )
+        let checkpoint = makeCheckpoint(
+            phase: .scanning,
+            intent: .automatic,
+            baiduSnapshotState: progress
+        )
+        let telemetry = SourceSyncTelemetry(requestCount: 4, directoryCount: 2)
+
+        let restarted = checkpoint.restartingSnapshotTraversal(
+            telemetry: telemetry,
+            at: Date(timeIntervalSince1970: 456)
+        )
+
+        #expect(restarted.phase == .initial)
+        #expect(restarted.intent == .automatic)
+        #expect(restarted.baiduSnapshotState == nil)
+        #expect(restarted.baiduTelemetry == telemetry)
+        #expect(restarted.permitsStatefulRefresh)
     }
 }
 
@@ -374,7 +459,10 @@ private func makeCheckpoint(
     totalCount: Int = 0,
     currentFile: String = "",
     pendingDirectories: [String] = ["/Music"],
-    baselineCursors: [String: String]? = nil
+    baselineCursors: [String: String]? = nil,
+    scopeFingerprint: String? = nil,
+    baiduSnapshotState: BaiduSnapshotResumeState? = nil,
+    baiduTelemetry: SourceSyncTelemetry? = nil
 ) -> ScanCheckpoint {
     ScanCheckpoint(
         phase: phase,
@@ -384,8 +472,11 @@ private func makeCheckpoint(
         totalCount: totalCount,
         currentFile: currentFile,
         updatedAt: Date(timeIntervalSince1970: 123),
+        scopeFingerprint: scopeFingerprint,
         directoryState: SourceScanResumeState(pendingDirectories: pendingDirectories),
-        baselineCursors: baselineCursors
+        baselineCursors: baselineCursors,
+        baiduSnapshotState: baiduSnapshotState,
+        baiduTelemetry: baiduTelemetry
     )
 }
 

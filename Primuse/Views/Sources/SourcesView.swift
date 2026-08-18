@@ -550,6 +550,21 @@ struct SourcesContentView: View {
                 }
             }
 
+            if let reconciliationMessage = scanning?.reconciliationMessage,
+               !reconciliationMessage.isEmpty {
+                Label {
+                    Text(reconciliationMessage)
+                        .font(.caption2)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "checkmark.shield.fill")
+                }
+                .foregroundStyle(.orange)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            }
+
             if let scan = scanning, scan.isScanning || scan.canResume {
                 VStack(alignment: .leading, spacing: 4) {
                     if scan.totalCount > 0 {
@@ -580,7 +595,8 @@ struct SourcesContentView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-            } else if scanning?.failureMessage == nil {
+            } else if scanning?.failureMessage == nil,
+                      scanning?.reconciliationMessage == nil {
                 // Phase A finished. If there are still bare songs from this source
                 // (cloud sources fill metadata in the background), show a softer
                 // "loading details" indicator so users don't think the scan is

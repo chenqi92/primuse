@@ -113,6 +113,7 @@ private enum BackgroundScanResumeTask {
             // task expires or work runs out. Both phases use HTTP Range
             // / list-only API calls — safe for iOS background quotas.
             scanService.resumePendingScans(
+                context: .background,
                 sourceManager: services.sourceManager,
                 library: services.musicLibrary,
                 sourceStore: services.sourcesStore,
@@ -1150,6 +1151,7 @@ struct PrimuseApp: App {
 
                     case .background:
                         #if os(iOS)
+                        scanService.suspendForegroundOnlyScans(sourceStore: sourcesStore)
                         // If a scan was running OR backfill has pending work, ask
                         // iOS to wake us later via BGProcessingTask so we can keep
                         // going past the beginBackgroundTask 30s ceiling. (No-op
@@ -1175,6 +1177,7 @@ struct PrimuseApp: App {
                             musicLibrary.endSceneTransitionQuiescence()
                             musicLibrary.persistNow()
                             scanService.resumePendingScans(
+                                context: .background,
                                 sourceManager: sourceManager,
                                 library: musicLibrary,
                                 sourceStore: sourcesStore,

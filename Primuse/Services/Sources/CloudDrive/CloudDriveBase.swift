@@ -407,13 +407,16 @@ struct CloudDriveHelper: Sendable {
 
     // MARK: - Cache
 
-    func cachedURL(for path: String) -> URL {
+    nonisolated static func cacheFileName(for path: String) -> String {
         // SHA256 哈希避免不同 path 经 '/' → '_' 替换后撞到同名缓存键、读到错误文件。
         let digest = SHA256.hash(data: Data(path.utf8))
         let hash = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
         let ext = (path as NSString).pathExtension
-        let name = ext.isEmpty ? hash : "\(hash).\(ext)"
-        return cacheDirectory.appendingPathComponent(name)
+        return ext.isEmpty ? hash : "\(hash).\(ext)"
+    }
+
+    func cachedURL(for path: String) -> URL {
+        cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path))
     }
 
     func hasCached(path: String) -> Bool {

@@ -52,15 +52,29 @@ struct SidecarHints: Sendable {
     let coverPath: String?
     let lyricsPath: String?
     let mvPath: String?
+    let snapshotFingerprint: String?
+    /// True when these hints were derived from a complete sibling listing.
+    /// This distinguishes "the connector did not inspect sidecars" from an
+    /// authoritative observation that a previously referenced sidecar vanished.
+    let isAuthoritative: Bool
 
-    init(coverPath: String? = nil, lyricsPath: String? = nil, mvPath: String? = nil) {
+    init(
+        coverPath: String? = nil,
+        lyricsPath: String? = nil,
+        mvPath: String? = nil,
+        snapshotFingerprint: String? = nil,
+        isAuthoritative: Bool = false
+    ) {
         self.coverPath = coverPath
         self.lyricsPath = lyricsPath
         self.mvPath = mvPath
+        self.snapshotFingerprint = snapshotFingerprint
+        self.isAuthoritative = isAuthoritative
     }
 
     var isEmpty: Bool {
         coverPath == nil && lyricsPath == nil && mvPath == nil
+            && snapshotFingerprint == nil && !isAuthoritative
     }
 }
 
@@ -129,13 +143,20 @@ enum SidecarHintResolver {
             return PrimuseConstants.supportedAudioExtensions.contains(siblingExt) == false
                 && PrimuseConstants.supportedStreamDescriptorExtensions.contains(siblingExt) == false
         }
-        let hints = SidecarHints(
-            coverPath: item.sidecarHints?.coverPath
+        let coverPath = item.sidecarHints?.coverPath
                 ?? findSameNameCover(basename: basename, in: nonAudio)
-                ?? findFolderCover(in: nonAudio),
-            lyricsPath: item.sidecarHints?.lyricsPath
-                ?? findSameNameLyrics(basename: basename, in: nonAudio),
-            mvPath: item.path
+                ?? findFolderCover(in: nonAudio)
+        let lyricsPath = item.sidecarHints?.lyricsPath
+                ?? findSameNameLyrics(basename: basename, in: nonAudio)
+        let hints = SidecarHints(
+            coverPath: coverPath,
+            lyricsPath: lyricsPath,
+            mvPath: item.path,
+            snapshotFingerprint: snapshotFingerprint(
+                selectedPaths: [coverPath, lyricsPath],
+                siblings: siblings
+            ),
+            isAuthoritative: true
         )
         return RemoteFileItem(
             name: item.name,
@@ -161,14 +182,22 @@ enum SidecarHintResolver {
                 && PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) == false
         }
 
-        let hints = SidecarHints(
-            coverPath: item.sidecarHints?.coverPath
+        let coverPath = item.sidecarHints?.coverPath
                 ?? findSameNameCover(basename: basename, in: nonAudio)
-                ?? findFolderCover(in: nonAudio),
-            lyricsPath: item.sidecarHints?.lyricsPath
-                ?? findSameNameLyrics(basename: basename, in: nonAudio),
-            mvPath: item.sidecarHints?.mvPath
+                ?? findFolderCover(in: nonAudio)
+        let lyricsPath = item.sidecarHints?.lyricsPath
+                ?? findSameNameLyrics(basename: basename, in: nonAudio)
+        let mvPath = item.sidecarHints?.mvPath
                 ?? findSameNameMusicVideo(basename: basename, in: nonAudio)
+        let hints = SidecarHints(
+            coverPath: coverPath,
+            lyricsPath: lyricsPath,
+            mvPath: mvPath,
+            snapshotFingerprint: snapshotFingerprint(
+                selectedPaths: [coverPath, lyricsPath, mvPath],
+                siblings: siblings
+            ),
+            isAuthoritative: true
         )
         guard hints.isEmpty == false else { return item }
 
@@ -233,6 +262,39 @@ enum SidecarHintResolver {
             }
         }
         return nil
+    }
+
+    /// A CUE edit can change virtual-track boundaries without changing the
+    /// audio bytes. Include every CUE sibling conservatively; a change then
+    /// reconciles this directory once instead of silently retaining stale
+    /// segments. Selected cover/lyrics/video items carry their provider
+    /// revision so same-path replacements are visible as well.
+    private static func snapshotFingerprint(
+        selectedPaths: [String?],
+        siblings: [RemoteFileItem]
+    ) -> String? {
+        var paths = Set(selectedPaths.compactMap { $0 })
+        for sibling in siblings where !sibling.isDirectory {
+            if (sibling.name as NSString).pathExtension.lowercased() == "cue" {
+                paths.insert(sibling.path)
+            }
+        }
+        guard !paths.isEmpty else { return nil }
+
+        let itemsByPath = Dictionary(
+            siblings.map { ($0.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return paths.sorted().map { path in
+            guard let item = itemsByPath[path] else { return "missing\u{1F}\(path)" }
+            return [
+                item.providerID ?? "path:\(path.lowercased())",
+                path,
+                item.revision ?? "",
+                String(item.size),
+                item.modifiedDate.map { String($0.timeIntervalSinceReferenceDate) } ?? "",
+            ].joined(separator: "\u{1F}")
+        }.joined(separator: "\u{1E}")
     }
 }
 
@@ -567,17 +629,35 @@ struct IncrementalSourceChanges: Sendable {
     var changedParentPaths: Set<String>
     var deletedStableKeys: Set<String>
     var requiresDeepScan: Bool
+    var reconciledIndex: [String: SourceSyncIndexedItem]?
+    var identityAliases: [String: String]?
+    var rootIdentities: [SourceSyncRootIdentity]?
+    var missingStableKeys: [String: Int]?
+    var reconciliation: SourceSyncReconciliation?
+    var telemetry: SourceSyncTelemetry?
 
     init(
         cursors: [String: String],
         changedParentPaths: Set<String> = [],
         deletedStableKeys: Set<String> = [],
-        requiresDeepScan: Bool = false
+        requiresDeepScan: Bool = false,
+        reconciledIndex: [String: SourceSyncIndexedItem]? = nil,
+        identityAliases: [String: String]? = nil,
+        rootIdentities: [SourceSyncRootIdentity]? = nil,
+        missingStableKeys: [String: Int]? = nil,
+        reconciliation: SourceSyncReconciliation? = nil,
+        telemetry: SourceSyncTelemetry? = nil
     ) {
         self.cursors = cursors
         self.changedParentPaths = changedParentPaths
         self.deletedStableKeys = deletedStableKeys
         self.requiresDeepScan = requiresDeepScan
+        self.reconciledIndex = reconciledIndex
+        self.identityAliases = identityAliases
+        self.rootIdentities = rootIdentities
+        self.missingStableKeys = missingStableKeys
+        self.reconciliation = reconciliation
+        self.telemetry = telemetry
     }
 }
 
@@ -590,6 +670,68 @@ protocol IncrementalMusicSourceConnector: MusicSourceConnector {
         roots: [String],
         index: [String: SourceSyncIndexedItem]
     ) async throws -> IncrementalSourceChanges
+}
+
+/// Marker for connectors whose new songs should derive their local ID from a
+/// provider-stable item ID. Existing rows still win through the migration
+/// index, preserving every playlist/history/cache reference.
+protocol StableProviderSongIdentityConnector: MusicSourceConnector {}
+
+struct SourceRootResolution: Sendable {
+    var effectiveRoots: [String]
+    var identities: [SourceSyncRootIdentity]
+}
+
+enum SourceRootResolutionError: Error, Sendable {
+    case requiresReselection(String)
+}
+
+protocol PersistentRootIdentityConnector: MusicSourceConnector {
+    func resolveRootIdentities(
+        configuredRoots: [String],
+        previous: [SourceSyncRootIdentity]
+    ) async throws -> SourceRootResolution
+}
+
+enum BaiduSnapshotExecutionError: Error, Sendable {
+    case budgetExhausted(BaiduSnapshotBudgetStopReason, SourceSyncTelemetry)
+    case snapshotRestartRequired(SourceSyncTelemetry)
+    case reconciliationRequiresDeepScan(SourceSyncTelemetry)
+}
+
+/// Snapshot traversal is resumable but remains uncommitted until the complete
+/// selected tree has been listed. This is intentionally not described as a
+/// native provider delta feed: Baidu does not expose one.
+protocol ResumableSnapshotMusicSourceConnector: MusicSourceConnector {
+    /// A format marker for the last committed complete snapshot. This is not a
+    /// provider cursor and must never be used to advertise native change-feed
+    /// support or schedule background periodic synchronization.
+    func initialSnapshotMarker(for roots: [String]) async throws -> [String: String]
+    func snapshotChanges(
+        from state: SourceSyncState,
+        roots: [String],
+        rootIdentities: [SourceSyncRootIdentity],
+        resumeState: BaiduSnapshotResumeState?,
+        budget: BaiduSnapshotRefreshBudget,
+        progress: @escaping @Sendable (
+            BaiduSnapshotResumeState,
+            SourceSyncTelemetry
+        ) async -> Void
+    ) async throws -> IncrementalSourceChanges
+}
+
+/// Extends the same per-execution request/directory/deadline budget across the
+/// authoritative directory reads that materialize a completed snapshot diff.
+/// Without this phase, a bounded tree walk could still trigger an unbounded
+/// second wave of list requests.
+protocol SnapshotReconciliationBudgetConnector: MusicSourceConnector {
+    func beginSnapshotReconciliationBudget(
+        _ budget: BaiduSnapshotRefreshBudget,
+        consumed: SourceSyncTelemetry?
+    ) async
+    func reserveSnapshotReconciliationDirectory() async throws
+    func checkSnapshotReconciliationBudget() async throws
+    func finishSnapshotReconciliationBudget() async -> SourceSyncTelemetry?
 }
 
 /// A song-scanning connector whose API supplies useful metadata on every

@@ -6,7 +6,10 @@ import PrimuseKit
 ///
 /// 注意：百度 xpan API 永远返回 HTTP 200，错误信息在 body 的 errno 里。
 /// 必须显式检查 errno，否则错误会被静默吞掉（list 字段缺失 → 返回空数组 → 扫描 0 首）。
-actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
+actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
+    ResumableSnapshotMusicSourceConnector,
+    StableProviderSongIdentityConnector, PersistentRootIdentityConnector,
+    SnapshotReconciliationBudgetConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回百度网盘同目录
     nonisolated var preferredDeleteBatchSize: Int { 100 }
@@ -246,6 +249,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// Debounced save task。命中频繁的播放会触发多次 cache 写入,
     /// 用 2s 节流避免每次都写盘。
     private var dlinkPersistTask: Task<Void, Never>?
+    private var activeSnapshotReconciliationBudget: BaiduSnapshotBudgetTracker?
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -365,14 +369,28 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         while true {
             let page = try await listFilesPage(dir: dir, start: start)
             all.append(contentsOf: page)
-            if page.count < Self.pageSize { break }
-            start += Self.pageSize
+            guard let next = try BaiduSnapshotPaginationPolicy.nextOffset(
+                currentOffset: start,
+                decodedItemCount: page.count,
+                pageSize: Self.pageSize
+            ) else { break }
+            start = next
+        }
+        let stableKeys = all.compactMap(\.providerID)
+        guard stableKeys.count == all.count,
+              Set(stableKeys).count == stableKeys.count else {
+            throw CloudDriveError.invalidResponse
         }
         plog("☁️ Baidu listFiles dir=\(dir) → \(all.count) items (\(all.filter{$0.isDirectory}.count) dirs)")
         return all
     }
 
-    private func listFilesPage(dir: String, start: Int) async throws -> [RemoteFileItem] {
+    private func listFilesPage(
+        dir: String,
+        start: Int,
+        snapshotBudget: BaiduSnapshotBudgetTracker? = nil
+    ) async throws -> [RemoteFileItem] {
+        let effectiveBudget = snapshotBudget ?? activeSnapshotReconciliationBudget
         let json = try await callAPI(
             base: "\(Self.apiBase)/rest/2.0/xpan/file",
             queryItems: [
@@ -381,14 +399,17 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 .init(name: "order", value: "name"),
                 .init(name: "start", value: String(start)),
                 .init(name: "limit", value: String(Self.pageSize)),
-            ]
+            ],
+            snapshotBudget: effectiveBudget
         )
         guard let list = json["list"] as? [[String: Any]] else {
             throw CloudDriveError.invalidResponse
         }
-        return try list.map { item in
+        let mapped = try list.map { item in
             guard let p = item["path"] as? String,
-                  let name = item["server_filename"] as? String else {
+                  let name = item["server_filename"] as? String,
+                  let fsID = (item["fs_id"] as? NSNumber)?.int64Value,
+                  fsID > 0 else {
                 throw CloudDriveError.invalidResponse
             }
             let isDir = (item["isdir"] as? Int ?? 0) == 1
@@ -397,8 +418,22 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             // content fingerprint so re-scan can detect overwrites with
             // the same size (modifiedDate isn't surfaced here either).
             let md5 = item["md5"] as? String
-            return RemoteFileItem(name: name, path: p, isDirectory: isDir, size: size, modifiedDate: nil, revision: md5)
+            return RemoteFileItem(
+                name: name,
+                path: p,
+                isDirectory: isDir,
+                size: size,
+                modifiedDate: nil,
+                revision: md5,
+                providerID: BaiduSnapshotIdentity.stableKey(fsID: fsID),
+                parentPath: dir
+            )
         }
+        let stableKeys = mapped.compactMap(\.providerID)
+        guard Set(stableKeys).count == stableKeys.count else {
+            throw CloudDriveError.invalidResponse
+        }
+        return mapped
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -763,8 +798,12 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 throw CloudDriveError.invalidResponse
             }
             all.append(contentsOf: entries)
-            if entries.count < Self.pageSize { break }
-            start += Self.pageSize
+            guard let next = try BaiduSnapshotPaginationPolicy.nextOffset(
+                currentOffset: start,
+                decodedItemCount: entries.count,
+                pageSize: Self.pageSize
+            ) else { break }
+            start = next
         }
         dirListingCache[dir] = (all, Date().addingTimeInterval(Self.dirListingTTL))
         return all
@@ -774,7 +813,8 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// queryItems 不要包含 access_token，本方法会自动附加最新 token。
     private func callAPI(
         base: String,
-        queryItems: [URLQueryItem]
+        queryItems: [URLQueryItem],
+        snapshotBudget: BaiduSnapshotBudgetTracker? = nil
     ) async throws -> [String: Any] {
         var attempt = 0
         var transportAttempt = 0
@@ -783,15 +823,20 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         var transportBackoff: TimeInterval = 0.75
         while true {
             try await throttle()
+            let snapshotRequestTimeout = try await snapshotBudget?.reserveRequest()
             let token = try await getToken()
             var components = URLComponents(string: base)!
             components.queryItems = queryItems + [.init(name: "access_token", value: token)]
             guard let url = components.url else { throw CloudDriveError.invalidResponse }
+            var request = URLRequest(url: url)
+            if let snapshotRequestTimeout {
+                request.timeoutInterval = snapshotRequestTimeout
+            }
 
             let data: Data
             let response: URLResponse
             do {
-                (data, response) = try await URLSession.shared.data(from: url)
+                (data, response) = try await URLSession.shared.data(for: request)
             } catch {
                 guard Self.isRetryableTransportError(error),
                       transportAttempt < Self.transportMaxRetries else { throw error }
@@ -845,6 +890,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             plog("☁️ Baidu errno=\(errno) attempt=\(attempt) url=\(base) body=\(bodyPreview)")
 
             if disposition == .retryAfterBackoff, attempt < Self.rateLimitMaxRetries {
+                await snapshotBudget?.recordRateLimitRetry()
                 plog("☁️ Baidu rate limited errno=\(errno), backoff \(backoff)s and retry")
                 let nanoseconds = (backoff * 1_000_000_000).finiteUInt64(or: 1_000_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
@@ -1002,6 +1048,312 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
     }
 
+    // MARK: - Foreground snapshot refresh
+
+    func initialSnapshotMarker(for roots: [String]) async throws -> [String: String] {
+        [BaiduSnapshotIdentity.cursorKey: BaiduSnapshotIdentity.cursorVersion]
+    }
+
+    func resolveRootIdentities(
+        configuredRoots: [String],
+        previous: [SourceSyncRootIdentity]
+    ) async throws -> SourceRootResolution {
+        var effectiveRoots: [String] = []
+        var identities: [SourceSyncRootIdentity] = []
+
+        for configuredValue in BaiduSnapshotRootPolicy.normalizedRoots(configuredRoots) {
+            try Task.checkCancellation()
+            let configured = configuredValue.isEmpty ? "/" : configuredValue
+            let prior = previous.first { $0.configuredPath == configured }
+            if configured == "/" {
+                effectiveRoots.append("/")
+                identities.append(SourceSyncRootIdentity(
+                    configuredPath: "/",
+                    currentPath: "/",
+                    stableKey: nil
+                ))
+                continue
+            }
+
+            var metadataPath: String?
+            if let stableKey = prior?.stableKey {
+                do {
+                    let metadata = try await metadataForStableKey(stableKey)
+                    if let metadata, metadata.isDirectory {
+                        metadataPath = metadata.path
+                    }
+                } catch CloudDriveError.fileNotFound {
+                    // A deleted stable root has no safe path fallback. The
+                    // relocation policy below requests an explicit reselection.
+                }
+            }
+
+            var listedStableKey: String?
+            if metadataPath == nil {
+                let parent = normalizedParentPath(of: configured)
+                do {
+                    listedStableKey = try await listFiles(at: parent).first {
+                        $0.isDirectory && $0.path == configured
+                    }?.providerID
+                } catch CloudDriveError.fileNotFound {
+                    // The parent can move together with a selected nested root.
+                    // The persisted fs_id lookup above is the only safe fallback.
+                }
+            }
+
+            switch BaiduRootRelocationPolicy.decision(
+                configuredPath: configured,
+                previousIdentity: prior,
+                listedStableKey: listedStableKey,
+                metadataPathForPreviousStableKey: metadataPath
+            ) {
+            case .use(let path, let stableKey):
+                effectiveRoots.append(path)
+                identities.append(SourceSyncRootIdentity(
+                    configuredPath: configured,
+                    currentPath: path,
+                    stableKey: stableKey
+                ))
+            case .requiresReselection:
+                throw SourceRootResolutionError.requiresReselection(configured)
+            }
+        }
+
+        return SourceRootResolution(
+            effectiveRoots: BaiduSnapshotRootPolicy.normalizedRoots(effectiveRoots),
+            identities: identities.sorted { $0.configuredPath < $1.configuredPath }
+        )
+    }
+
+    func snapshotChanges(
+        from state: SourceSyncState,
+        roots: [String],
+        rootIdentities: [SourceSyncRootIdentity],
+        resumeState: BaiduSnapshotResumeState?,
+        budget: BaiduSnapshotRefreshBudget,
+        progress: @escaping @Sendable (
+            BaiduSnapshotResumeState,
+            SourceSyncTelemetry
+        ) async -> Void
+    ) async throws -> IncrementalSourceChanges {
+        let normalizedRoots = BaiduSnapshotRootPolicy.normalizedRoots(roots)
+        let resumed = resumeState?.isUsable(
+            baselineScanEpoch: state.scanEpoch,
+            roots: normalizedRoots
+        ) == true
+        var traversal = resumed ? resumeState! : BaiduSnapshotResumeState(
+            baselineScanEpoch: state.scanEpoch,
+            roots: normalizedRoots
+        )
+        let tracker = BaiduSnapshotBudgetTracker(budget: budget, resumed: resumed)
+
+        while let directory = traversal.pendingDirectories.popLast() {
+            try Task.checkCancellation()
+            guard !traversal.visitedDirectories.contains(directory) else { continue }
+
+            do {
+                try await tracker.reserveDirectory()
+                let siblings = try await snapshotDirectory(
+                    at: directory,
+                    budget: tracker
+                )
+                var directoryItems: [String: SourceSyncIndexedItem] = [:]
+
+                for item in siblings where item.isDirectory {
+                    guard let stableKey = item.providerID else {
+                        throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
+                    }
+                    let indexed = snapshotIndexedItem(item, seenEpoch: state.scanEpoch + 1)
+                    if directoryItems[stableKey] != nil {
+                        throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                    }
+                    directoryItems[stableKey] = indexed
+                }
+                for rawItem in siblings where !rawItem.isDirectory {
+                    guard let item = SidecarHintResolver.scannableItem(
+                        rawItem,
+                        siblings: siblings
+                    ) else { continue }
+                    guard let stableKey = item.providerID else {
+                        throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
+                    }
+                    let indexed = snapshotIndexedItem(item, seenEpoch: state.scanEpoch + 1)
+                    if directoryItems[stableKey] != nil {
+                        throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                    }
+                    directoryItems[stableKey] = indexed
+                }
+
+                // Publish one directory atomically. A failed or budget-truncated
+                // pagination loop never leaks a partial sibling set into the
+                // resumable snapshot.
+                for (stableKey, item) in directoryItems {
+                    if traversal.snapshot[stableKey] != nil {
+                        throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                    }
+                    traversal.snapshot[stableKey] = item
+                }
+                traversal.visitedDirectories.insert(directory)
+                traversal.liveDirectories.insert(directory)
+
+                var queued = Set(traversal.pendingDirectories)
+                for child in siblings
+                    .filter(\.isDirectory)
+                    .map(\.path)
+                    .sorted()
+                    .reversed()
+                where !traversal.visitedDirectories.contains(child)
+                    && queued.insert(child).inserted {
+                    traversal.pendingDirectories.append(child)
+                    traversal.liveDirectories.insert(child)
+                }
+                await progress(traversal, await tracker.telemetry())
+            } catch CloudDriveError.fileNotFound {
+                throw BaiduSnapshotExecutionError.snapshotRestartRequired(
+                    await tracker.telemetry()
+                )
+            } catch {
+                if !traversal.pendingDirectories.contains(directory) {
+                    traversal.pendingDirectories.append(directory)
+                }
+                await progress(traversal, await tracker.telemetry(
+                    budgetExhausted: error.isBaiduSnapshotBudgetExhaustion
+                ))
+                throw error
+            }
+        }
+
+        try await tracker.check()
+        let diff = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: state.index,
+            currentItems: Array(traversal.snapshot.values),
+            liveDirectories: traversal.liveDirectories,
+            identityAliases: state.identityAliases,
+            missingStableKeys: state.missingStableKeys
+        )
+        try await tracker.check()
+        let telemetry = await tracker.telemetry()
+        return IncrementalSourceChanges(
+            cursors: [BaiduSnapshotIdentity.cursorKey: BaiduSnapshotIdentity.cursorVersion],
+            changedParentPaths: diff.changedParentPaths,
+            deletedStableKeys: diff.deletedStableKeys,
+            requiresDeepScan: false,
+            reconciledIndex: diff.reconciledIndex,
+            identityAliases: diff.identityAliases,
+            rootIdentities: rootIdentities,
+            missingStableKeys: diff.missingStableKeys,
+            reconciliation: diff.reconciliation,
+            telemetry: telemetry
+        )
+    }
+
+    func beginSnapshotReconciliationBudget(
+        _ budget: BaiduSnapshotRefreshBudget,
+        consumed: SourceSyncTelemetry?
+    ) async {
+        activeSnapshotReconciliationBudget = BaiduSnapshotBudgetTracker(
+            budget: budget,
+            resumed: consumed?.resumed ?? false,
+            consumed: consumed
+        )
+    }
+
+    func reserveSnapshotReconciliationDirectory() async throws {
+        try await activeSnapshotReconciliationBudget?.reserveDirectory()
+    }
+
+    func checkSnapshotReconciliationBudget() async throws {
+        try await activeSnapshotReconciliationBudget?.check()
+    }
+
+    func finishSnapshotReconciliationBudget() async -> SourceSyncTelemetry? {
+        guard let tracker = activeSnapshotReconciliationBudget else { return nil }
+        activeSnapshotReconciliationBudget = nil
+        return await tracker.telemetry()
+    }
+
+    private func snapshotDirectory(
+        at path: String,
+        budget: BaiduSnapshotBudgetTracker
+    ) async throws -> [RemoteFileItem] {
+        var items: [RemoteFileItem] = []
+        var start = 0
+        while true {
+            let page = try await listFilesPage(
+                dir: path,
+                start: start,
+                snapshotBudget: budget
+            )
+            items.append(contentsOf: page)
+            guard let next = try BaiduSnapshotPaginationPolicy.nextOffset(
+                currentOffset: start,
+                decodedItemCount: page.count,
+                pageSize: Self.pageSize
+            ) else { break }
+            start = next
+        }
+        let keys = items.compactMap(\.providerID)
+        guard keys.count == items.count, Set(keys).count == keys.count else {
+            throw CloudDriveError.invalidResponse
+        }
+        return items
+    }
+
+    private func snapshotIndexedItem(
+        _ item: RemoteFileItem,
+        seenEpoch: Int64
+    ) -> SourceSyncIndexedItem {
+        SourceSyncIndexedItem(
+            stableKey: item.providerID!,
+            path: item.path,
+            displayName: item.name,
+            parentPath: item.parentPath ?? normalizedParentPath(of: item.path),
+            isDirectory: item.isDirectory,
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            revision: item.revision,
+            sidecarFingerprint: item.sidecarHints?.snapshotFingerprint,
+            seenEpoch: seenEpoch
+        )
+    }
+
+    private struct RootMetadata {
+        var path: String
+        var isDirectory: Bool
+    }
+
+    private func metadataForStableKey(_ stableKey: String) async throws -> RootMetadata? {
+        guard let fsID = BaiduSnapshotIdentity.fsID(from: stableKey) else { return nil }
+        let json = try await callAPI(
+            base: "\(Self.apiBase)/rest/2.0/xpan/multimedia",
+            queryItems: [
+                .init(name: "method", value: "filemetas"),
+                .init(name: "fsids", value: "[\(fsID)]"),
+                .init(name: "dlink", value: "0"),
+            ]
+        )
+        guard let list = json["list"] as? [[String: Any]] else {
+            throw CloudDriveError.invalidResponse
+        }
+        guard let item = list.first(where: {
+            ($0["fs_id"] as? NSNumber)?.int64Value == fsID
+        }) else {
+            return nil
+        }
+        guard let path = item["path"] as? String else {
+            throw CloudDriveError.invalidResponse
+        }
+        return RootMetadata(
+            path: path,
+            isDirectory: (item["isdir"] as? NSNumber)?.intValue == 1
+        )
+    }
+
+    private func normalizedParentPath(of path: String) -> String {
+        let parent = (path as NSString).deletingLastPathComponent
+        return parent.isEmpty || parent == "." ? "/" : parent
+    }
+
     private func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
         let creds = try await helper.tokenManager.requireAppCredentials()
@@ -1037,6 +1389,116 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             // 由 baidu.callback.welape.com 上的中转页 JS 跳回 primuse:// 让 App 收到 code。
             explicitCallbackScheme: CloudOAuthConfig.callbackScheme
         )
+    }
+}
+
+private actor BaiduSnapshotBudgetTracker {
+    private let budget: BaiduSnapshotRefreshBudget
+    private let resumed: Bool
+    private let startedAt: Date
+    private var requestCount = 0
+    private var directoryCount = 0
+    private var rateLimitRetryCount = 0
+    private var stopReason: BaiduSnapshotBudgetStopReason?
+
+    init(
+        budget: BaiduSnapshotRefreshBudget,
+        resumed: Bool,
+        consumed: SourceSyncTelemetry? = nil
+    ) {
+        self.budget = budget
+        self.resumed = resumed
+        startedAt = Date().addingTimeInterval(-(consumed?.elapsed ?? 0))
+        requestCount = consumed?.requestCount ?? 0
+        directoryCount = consumed?.directoryCount ?? 0
+        rateLimitRetryCount = consumed?.rateLimitRetryCount ?? 0
+        stopReason = consumed?.stopReason
+    }
+
+    func reserveRequest() throws -> TimeInterval {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        switch BaiduSnapshotBudgetPolicy.decision(
+            budget: budget,
+            requestCount: requestCount,
+            directoryCount: directoryCount,
+            elapsed: elapsed,
+            reservingRequest: true
+        ) {
+        case .allow:
+            requestCount += 1
+            return max(0.25, min(10, budget.maximumDuration - elapsed))
+        case .stop(let reason):
+            stopReason = reason
+            throw BaiduSnapshotExecutionError.budgetExhausted(
+                reason,
+                makeTelemetry(budgetExhausted: true)
+            )
+        }
+    }
+
+    func reserveDirectory() throws {
+        switch BaiduSnapshotBudgetPolicy.decision(
+            budget: budget,
+            requestCount: requestCount,
+            directoryCount: directoryCount,
+            elapsed: Date().timeIntervalSince(startedAt),
+            reservingDirectory: true
+        ) {
+        case .allow:
+            directoryCount += 1
+        case .stop(let reason):
+            stopReason = reason
+            throw BaiduSnapshotExecutionError.budgetExhausted(
+                reason,
+                makeTelemetry(budgetExhausted: true)
+            )
+        }
+    }
+
+    func check() throws {
+        switch BaiduSnapshotBudgetPolicy.decision(
+            budget: budget,
+            requestCount: requestCount,
+            directoryCount: directoryCount,
+            elapsed: Date().timeIntervalSince(startedAt)
+        ) {
+        case .allow:
+            return
+        case .stop(let reason):
+            stopReason = reason
+            throw BaiduSnapshotExecutionError.budgetExhausted(
+                reason,
+                makeTelemetry(budgetExhausted: true)
+            )
+        }
+    }
+
+    func recordRateLimitRetry() {
+        rateLimitRetryCount += 1
+    }
+
+    func telemetry(budgetExhausted: Bool = false) -> SourceSyncTelemetry {
+        makeTelemetry(budgetExhausted: budgetExhausted)
+    }
+
+    private func makeTelemetry(budgetExhausted: Bool) -> SourceSyncTelemetry {
+        SourceSyncTelemetry(
+            requestCount: requestCount,
+            directoryCount: directoryCount,
+            rateLimitRetryCount: rateLimitRetryCount,
+            elapsed: Date().timeIntervalSince(startedAt),
+            resumed: resumed,
+            budgetExhausted: budgetExhausted,
+            stopReason: stopReason
+        )
+    }
+}
+
+private extension Error {
+    var isBaiduSnapshotBudgetExhaustion: Bool {
+        guard let error = self as? BaiduSnapshotExecutionError else { return false }
+        if case .budgetExhausted = error { return true }
+        return false
     }
 }
 

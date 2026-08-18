@@ -2584,6 +2584,7 @@ final class MusicLibrary {
         }
 
         var contentChanged: [Song] = []
+        var previousLocationsByID: [String: Song] = [:]
         var replacementIDs: Set<String> = []
         var persistedSongIDs: Set<String> = []
 
@@ -2596,6 +2597,9 @@ final class MusicLibrary {
             MusicLibrary.fillDerivedIDs(&newSong)
             if let idx = existingIndexByID[newSong.id] {
                 let existing = mergedSongs[idx]
+                if !newSong.filePath.isEmpty, newSong.filePath != existing.filePath {
+                    previousLocationsByID[newSong.id] = existing
+                }
                 // Detect remote replacement: same path/ID but different
                 // bytes. Conservative — only triggers when both sides
                 // populate the field. Without this, the merge below
@@ -2639,6 +2643,12 @@ final class MusicLibrary {
                 let existingHasMetadata = existingHasTechnicalMetadata || existingHasCatalogMetadata
                 if incomingIsBare && existingHasMetadata {
                     var merged = existing
+                    // A stable provider identity can survive a remote rename
+                    // or move. The fresh scan is authoritative for location
+                    // even when its metadata payload is otherwise bare.
+                    if !newSong.filePath.isEmpty {
+                        merged.filePath = newSong.filePath
+                    }
                     merged.fileSize = newSong.fileSize
                     merged.lastModified = newSong.lastModified
                     // Always refresh revision — when the connector starts
@@ -2706,6 +2716,23 @@ final class MusicLibrary {
             songReplacementToken = UUID()
         }
 
+        let locationTransitions = previousLocationsByID.values
+            .sorted { $0.id < $1.id }
+            .compactMap { previous -> (previous: Song, current: Song)? in
+                guard let current = song(id: previous.id),
+                      current.filePath != previous.filePath else { return nil }
+                return (previous, current)
+            }
+        if !locationTransitions.isEmpty {
+            NotificationCenter.default.post(
+                name: .primuseSongLocationChanged,
+                object: nil,
+                userInfo: [
+                    "previousSongs": locationTransitions.map { $0.previous },
+                    "songs": locationTransitions.map { $0.current },
+                ]
+            )
+        }
         if !contentChanged.isEmpty {
             NotificationCenter.default.post(
                 name: .primuseSongContentChanged,
@@ -5437,6 +5464,10 @@ extension Notification.Name {
     /// listeners (SourceManager, MetadataBackfillService) drop stale audio
     /// caches and clear failed-backfill marks for these IDs.
     static let primuseSongContentChanged = Notification.Name("primuse.songContentChanged")
+    /// Posted when a stable Song ID moves to another provider path. Parallel
+    /// `previousSongs` and `songs` arrays let cache owners migrate path-keyed
+    /// files without touching Song-ID-keyed user metadata.
+    static let primuseSongLocationChanged = Notification.Name("primuse.songLocationChanged")
     /// Posted when lyrics for a song are replaced by a user action such as
     /// manual scraping. Current playback surfaces (MacNowPlayingView,
     /// MacMiniPlayerView, DesktopLyricsView) reload their in-memory lyrics

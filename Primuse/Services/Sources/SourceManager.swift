@@ -1019,6 +1019,22 @@ final class SourceManager {
     }
 
     private func observeLibraryInvalidations() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseSongLocationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let previousSongs = (note.userInfo?["previousSongs"] as? [Song]) ?? []
+            let currentSongs = (note.userInfo?["songs"] as? [Song]) ?? []
+            MainActor.assumeIsolated {
+                self.reconcilePathKeyedCaches(
+                    previousSongs: previousSongs,
+                    currentSongs: currentSongs
+                )
+            }
+        }
+
         // When a re-scan detects that the bytes behind a known path
         // changed (user replaced the file on the cloud drive), the old
         // local cache files are now stale. Wipe them so the next play or
@@ -3699,6 +3715,92 @@ final class SourceManager {
         }
         plog("🧹 purgeAllPartialFiles: freed \(freed / 1024 / 1024)MB, failed=\(failed)")
         return (freed, failed)
+    }
+
+    private func reconcilePathKeyedCaches(
+        previousSongs: [Song],
+        currentSongs: [Song]
+    ) {
+        let currentByID = Dictionary(
+            currentSongs.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+
+        for previous in previousSongs {
+            guard let current = currentByID[previous.id],
+                  current.sourceID == previous.sourceID,
+                  current.filePath != previous.filePath else { continue }
+
+            offlineDownloadTasks[previous.id]?.task.cancel()
+            offlineDownloadTasks[previous.id] = nil
+            backgroundAudioCacheTasks[previous.id]?.task.cancel()
+            backgroundAudioCacheTasks[previous.id] = nil
+
+            let decision = SourceStableCacheTransitionPolicy.decision(
+                previousPath: previous.filePath,
+                currentPath: current.filePath,
+                previousRevision: previous.revision,
+                currentRevision: current.revision,
+                previousSize: previous.fileSize,
+                currentSize: current.fileSize
+            )
+            let previousAudioURL = audioCacheDirectory(for: previous.sourceID)
+                .appendingPathComponent(cacheFileName(for: previous))
+            let currentAudioURL = audioCacheDirectory(for: current.sourceID)
+                .appendingPathComponent(cacheFileName(for: current))
+            let previousRelativePath = audioCacheRelativePath(for: previous)
+            let currentRelativePath = audioCacheRelativePath(for: current)
+            let cloudCacheDirectory = cachesRoot
+                .appendingPathComponent("primuse_cloud_cache")
+                .appendingPathComponent(previous.sourceID)
+            let previousCloudURL = cloudCacheDirectory.appendingPathComponent(
+                CloudDriveHelper.cacheFileName(for: previous.filePath)
+            )
+            let currentCloudURL = cloudCacheDirectory.appendingPathComponent(
+                CloudDriveHelper.cacheFileName(for: current.filePath)
+            )
+
+            switch decision {
+            case .none:
+                continue
+            case .migrate:
+                let migratedAudioBytes: Int64?
+                do {
+                    migratedAudioBytes = try SourceStableCacheFileMigration.migrateCompletedFile(
+                        from: previousAudioURL,
+                        to: currentAudioURL
+                    )
+                } catch {
+                    migratedAudioBytes = nil
+                    plog("⚠️ Stable audio cache migration failed: \(error.localizedDescription)")
+                }
+                if let migratedAudioBytes {
+                    Task {
+                        await AudioCacheManager.shared.migrateEntry(
+                            from: previousRelativePath,
+                            to: currentRelativePath,
+                            byteCount: migratedAudioBytes
+                        )
+                    }
+                }
+                do {
+                    try SourceStableCacheFileMigration.migrateCompletedFile(
+                        from: previousCloudURL,
+                        to: currentCloudURL
+                    )
+                } catch {
+                    plog("⚠️ Stable cloud cache migration failed: \(error.localizedDescription)")
+                }
+            case .invalidate:
+                Self.removeCacheFileFamily(at: previousAudioURL)
+                try? FileManager.default.removeItem(at: previousCloudURL)
+                Task {
+                    await AudioCacheManager.shared.removeEntry(path: previousRelativePath)
+                }
+                setOfflineAudioSnapshot(.notCached, for: previous.id)
+            }
+        }
     }
 
     func deleteAudioCache(for song: Song) {

@@ -27,12 +27,24 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     public var totalCount: Int
     public var currentFile: String
     public var updatedAt: Date
+    /// Account/provider/root scope that produced this progress. Older
+    /// checkpoints decode as nil and are restarted before network I/O rather
+    /// than being resumed against a possibly different cloud account.
+    public var scopeFingerprint: String?
+    /// Provider-resolved roots used by the in-progress queue. This can differ
+    /// from `directories` when a stable Baidu root was renamed or moved.
+    public var resolvedDirectories: [String]?
     /// Nil for checkpoints written by older builds; those safely restart from
     /// the selected roots.
     public var directoryState: SourceScanResumeState?
     /// Provider cursors captured before a deep scan remain uncommitted until
     /// both the resumed walk and the library snapshot succeed.
     public var baselineCursors: [String: String]?
+    /// Uncommitted Baidu snapshot traversal. It is intentionally separate from
+    /// `directoryState`: completing only part of a provider tree must never
+    /// become authoritative for deletion, but the remaining queue can resume.
+    public var baiduSnapshotState: BaiduSnapshotResumeState?
+    public var baiduTelemetry: SourceSyncTelemetry?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -43,8 +55,12 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         totalCount: Int,
         currentFile: String,
         updatedAt: Date,
+        scopeFingerprint: String? = nil,
+        resolvedDirectories: [String]? = nil,
         directoryState: SourceScanResumeState? = nil,
-        baselineCursors: [String: String]? = nil
+        baselineCursors: [String: String]? = nil,
+        baiduSnapshotState: BaiduSnapshotResumeState? = nil,
+        baiduTelemetry: SourceSyncTelemetry? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.phase = phase
@@ -54,8 +70,12 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         self.totalCount = totalCount
         self.currentFile = currentFile
         self.updatedAt = updatedAt
+        self.scopeFingerprint = scopeFingerprint
+        self.resolvedDirectories = resolvedDirectories
         self.directoryState = directoryState
         self.baselineCursors = baselineCursors
+        self.baiduSnapshotState = baiduSnapshotState
+        self.baiduTelemetry = baiduTelemetry
     }
 
     public var isUsable: Bool {
@@ -64,11 +84,12 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
             && totalCount >= 0
     }
 
-    /// Only a pre-progress automatic or quick-only intent may still use a
-    /// committed provider cursor. A full/deep scan must remain a full walk
-    /// after a cold launch.
-    public var permitsNativeQuickSync: Bool {
-        phase == .initial && intent != .fullScan
+    /// Only a pre-progress automatic/quick intent or an explicitly resumable
+    /// snapshot may use stateful refresh. A full/deep scan must remain a full
+    /// walk after a cold launch.
+    public var permitsStatefulRefresh: Bool {
+        (phase == .initial && intent != .fullScan)
+            || (baiduSnapshotState != nil && intent != .fullScan)
     }
 
     public var isQuickOnly: Bool {
@@ -79,8 +100,27 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         guard phase == .initial, intent != .fullScan else { return self }
         var promoted = self
         promoted.intent = .fullScan
+        promoted.baiduSnapshotState = nil
+        promoted.baiduTelemetry = nil
         promoted.updatedAt = date
         return promoted
+    }
+
+    /// A directory captured by an uncommitted provider snapshot can be moved
+    /// before a cold resume. Restart the snapshot from its stable roots instead
+    /// of retrying the stale path or promoting partial evidence to a deep scan.
+    public func restartingSnapshotTraversal(
+        telemetry: SourceSyncTelemetry,
+        at date: Date = Date()
+    ) -> Self {
+        var restarted = self
+        restarted.phase = .initial
+        restarted.currentFile = ""
+        restarted.resolvedDirectories = nil
+        restarted.baiduSnapshotState = nil
+        restarted.baiduTelemetry = telemetry
+        restarted.updatedAt = date
+        return restarted
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -92,8 +132,12 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         case totalCount
         case currentFile
         case updatedAt
+        case scopeFingerprint
+        case resolvedDirectories
         case directoryState
         case baselineCursors
+        case baiduSnapshotState
+        case baiduTelemetry
     }
 
     public init(from decoder: Decoder) throws {
@@ -111,6 +155,14 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         totalCount = try container.decode(Int.self, forKey: .totalCount)
         currentFile = try container.decode(String.self, forKey: .currentFile)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        scopeFingerprint = try container.decodeIfPresent(
+            String.self,
+            forKey: .scopeFingerprint
+        )
+        resolvedDirectories = try container.decodeIfPresent(
+            [String].self,
+            forKey: .resolvedDirectories
+        )
         directoryState = try container.decodeIfPresent(
             SourceScanResumeState.self,
             forKey: .directoryState
@@ -118,6 +170,14 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         baselineCursors = try container.decodeIfPresent(
             [String: String].self,
             forKey: .baselineCursors
+        )
+        baiduSnapshotState = try container.decodeIfPresent(
+            BaiduSnapshotResumeState.self,
+            forKey: .baiduSnapshotState
+        )
+        baiduTelemetry = try container.decodeIfPresent(
+            SourceSyncTelemetry.self,
+            forKey: .baiduTelemetry
         )
     }
 }
@@ -129,11 +189,13 @@ public enum ScanCheckpointPreparationPolicy {
         existing: ScanCheckpoint?,
         directories: [String],
         mode: SourceSyncMode,
+        scopeFingerprint: String? = nil,
         now: Date = Date()
     ) -> ScanCheckpoint {
         if let existing,
            existing.isUsable,
-           existing.directories == directories {
+           existing.directories == directories,
+           scopeFingerprint == nil || existing.scopeFingerprint == scopeFingerprint {
             return existing
         }
 
@@ -154,6 +216,7 @@ public enum ScanCheckpointPreparationPolicy {
             totalCount: 0,
             currentFile: "",
             updatedAt: now,
+            scopeFingerprint: scopeFingerprint,
             directoryState: SourceScanResumeState(pendingDirectories: directories)
         )
     }
