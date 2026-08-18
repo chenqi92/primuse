@@ -478,6 +478,12 @@ final class ScanService {
         switch type {
         case .dropbox, .googleDrive, .oneDrive:
             return true
+        case .baiduPan:
+            // xpan has no changes feed, so the incremental path re-lists the
+            // selected tree. That is one `list` call per directory instead of
+            // Drive's single delta call, but it still reads no file bytes and
+            // no audio tags, which is what makes a background wake affordable.
+            return true
         default:
             return false
         }
