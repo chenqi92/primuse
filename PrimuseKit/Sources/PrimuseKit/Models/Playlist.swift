@@ -195,12 +195,21 @@ public enum PlaylistArtworkResolutionPolicy {
         let memberSet = songCandidates.map(\.id).sorted()
         let seedMaterial = ([playlist.id, dedicatedReference ?? ""] + memberSet)
             .joined(separator: "\u{0}")
-        let rankedSongs = songCandidates.sorted { lhs, rhs in
-            let lhsRank = stableHash(seedMaterial + "\u{0}" + lhs.id)
-            let rhsRank = stableHash(seedMaterial + "\u{0}" + rhs.id)
-            if lhsRank != rhsRank { return lhsRank < rhsRank }
-            return lhs.id < rhs.id
-        }
+        // FNV-1a is incremental. Hash the shared member seed once, then extend
+        // it with each candidate ID before sorting. The previous comparator
+        // rebuilt and re-hashed the complete playlist twice for every
+        // comparison, which made rendering a playlist cover grow roughly with
+        // the square of its song count on the main actor.
+        let candidateHashSeed = stableHash("\u{0}", startingAt: stableHash(seedMaterial))
+        let rankedSongs = songCandidates
+            .map { candidate in
+                (candidate: candidate, rank: stableHash(candidate.id, startingAt: candidateHashSeed))
+            }
+            .sorted { lhs, rhs in
+                if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+                return lhs.candidate.id < rhs.candidate.id
+            }
+            .map(\.candidate)
 
         var candidates: [PlaylistArtworkCandidate] = []
         if let dedicatedReference {
@@ -226,8 +235,11 @@ public enum PlaylistArtworkResolutionPolicy {
     /// FNV-1a has deliberately fixed constants and byte order, so its result is
     /// identical across processes and platforms. It is a selection hash, not a
     /// security primitive.
-    private static func stableHash(_ value: String) -> UInt64 {
-        var hash: UInt64 = 14_695_981_039_346_656_037
+    private static func stableHash(
+        _ value: String,
+        startingAt initialHash: UInt64 = 14_695_981_039_346_656_037
+    ) -> UInt64 {
+        var hash = initialHash
         for byte in value.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 1_099_511_628_211

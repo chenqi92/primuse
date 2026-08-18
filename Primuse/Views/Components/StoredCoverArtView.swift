@@ -104,13 +104,6 @@ struct PlaylistArtworkView: View {
         library.songs(forPlaylist: playlist.id)
     }
 
-    private var plan: PlaylistArtworkResolutionPlan {
-        PlaylistArtworkResolutionPolicy.makePlan(
-            playlist: currentPlaylist,
-            songs: songs
-        )
-    }
-
     private var overrideOwner: LibraryArtworkOwner {
         LibraryArtworkOwner(kind: .playlist, id: playlist.id)
     }
@@ -129,9 +122,9 @@ struct PlaylistArtworkView: View {
         return contentID
     }
 
-    private var loadIdentity: String {
+    private var loadRevisionIdentity: String {
         [
-            plan.signature,
+            playlist.id,
             String(library.playlistCollectionRevision),
             library.songReplacementToken.uuidString,
             String(library.artworkOverrideRevision),
@@ -148,12 +141,19 @@ struct PlaylistArtworkView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .task(id: loadIdentity) {
-            let identity = loadIdentity
-            let currentPlan = plan
+        .task(id: loadRevisionIdentity) {
+            let identity = loadRevisionIdentity
+            let playlistSnapshot = currentPlaylist
             let currentSongs = songs
+            let currentPlan = await Task.detached(priority: .userInitiated) {
+                PlaylistArtworkResolutionPolicy.makePlan(
+                    playlist: playlistSnapshot,
+                    songs: currentSongs
+                )
+            }.value
+            guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
             let cacheDiscriminator = [
-                String(currentPlaylist.updatedAt.timeIntervalSinceReferenceDate),
+                String(playlistSnapshot.updatedAt.timeIntervalSinceReferenceDate),
                 library.songReplacementToken.uuidString,
                 String(reloadRevision),
             ].joined(separator: "#")
@@ -162,7 +162,7 @@ struct PlaylistArtworkView: View {
                 frameworkFallbackResource = nil
             }
             let resolved = await PlaylistArtworkResourceResolver.resolve(
-                playlist: currentPlaylist,
+                playlist: playlistSnapshot,
                 plan: currentPlan,
                 songs: currentSongs,
                 size: size,
@@ -182,7 +182,7 @@ struct PlaylistArtworkView: View {
                     candidates: Array(currentPlan.candidates[(index + 1)...])
                 )
                 frameworkFallback = await PlaylistArtworkResourceResolver.resolve(
-                    playlist: currentPlaylist,
+                    playlist: playlistSnapshot,
                     plan: fallbackPlan,
                     songs: currentSongs,
                     size: size,
@@ -192,7 +192,7 @@ struct PlaylistArtworkView: View {
             } else {
                 frameworkFallback = nil
             }
-            guard !Task.isCancelled, loadIdentity == identity else { return }
+            guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
             resource = resolved?.value
             frameworkFallbackResource = frameworkFallback
             resolvedPlanSignature = currentPlan.signature
@@ -206,11 +206,11 @@ struct PlaylistArtworkView: View {
             uploadedImage = PlatformImage(data: data)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
-            guard notification(note, affects: plan) else { return }
+            guard notification(note, affects: currentPlaylist, songs: songs) else { return }
             reloadRevision &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
-            guard notification(note, affects: plan) else { return }
+            guard notification(note, affects: currentPlaylist, songs: songs) else { return }
             reloadRevision &+= 1
         }
     }
@@ -284,7 +284,8 @@ struct PlaylistArtworkView: View {
 
     private func notification(
         _ notification: Notification,
-        affects plan: PlaylistArtworkResolutionPlan
+        affects playlist: PrimuseKit.Playlist,
+        songs: [PrimuseKit.Song]
     ) -> Bool {
         if let contentID = uploadedContentID {
             if notification.object as? String == contentID {
@@ -295,7 +296,7 @@ struct PlaylistArtworkView: View {
                 return true
             }
         }
-        let songIDs = Set(plan.candidates.compactMap(\.songID))
+        let songIDs = Set(songs.map(\.id))
         if let songID = notification.object as? String, songIDs.contains(songID) {
             return true
         }
@@ -307,7 +308,10 @@ struct PlaylistArtworkView: View {
            changedSongIDs.contains(where: songIDs.contains) {
             return true
         }
-        let references = Set(plan.candidates.compactMap(\.artworkReference))
+        var references = Set(songs.compactMap(\.coverArtFileName))
+        if playlist.hasDedicatedCoverArt, let dedicatedReference = playlist.coverArtPath {
+            references.insert(dedicatedReference)
+        }
         if let tokens = notification.userInfo?["tokens"] as? [String],
            tokens.contains(where: references.contains) {
             return true

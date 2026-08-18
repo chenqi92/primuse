@@ -54,8 +54,12 @@ struct ConnectionFlowView: View {
         .transportTrustAlerts()
     }
 
-    /// 连接 / 二步验证 / 选目录(iOS) 的 NavigationStack 主体。
+    /// 连接 / 二步验证 / 选目录(iOS) 的主体验证流程。
+    @ViewBuilder
     private var authFlow: some View {
+        #if os(macOS)
+        macAuthFlow
+        #else
         NavigationStack {
             Group {
                 switch step {
@@ -84,7 +88,79 @@ struct ConnectionFlowView: View {
                 }
             }
         }
+        #endif
     }
+
+    #if os(macOS)
+    private var macAuthFlow: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(stepTitle)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text(macConnectionIdentity)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 24, height: 24)
+                        .background(PMColor.glassBtn, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityLabel(Text("cancel"))
+            }
+            .padding(.horizontal, 24)
+            .frame(height: 68)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            Group {
+                switch step {
+                case .connecting:
+                    connectingView
+                case .otp:
+                    macOTPView
+                case .password:
+                    passwordView
+                case .browsing:
+                    EmptyView()
+                case .failed:
+                    failedView
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if step == .otp {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button("cancel") { dismiss() }
+                    Button("verify") { verifyOTP() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(PMColor.brand)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(otpCode.count != 6)
+                }
+                .controlSize(.regular)
+                .padding(.horizontal, 24)
+                .frame(height: 58)
+            }
+        }
+        .background(PMColor.bg)
+    }
+
+    private var macConnectionIdentity: String {
+        let host = activeSynologySource?.host ?? source.host ?? ""
+        return host.isEmpty ? source.name : "\(source.name) · \(host)"
+    }
+    #endif
 
     #if os(macOS)
     /// Synology 的树形浏览器 —— 复用通用 `MacDirTreeBrowser`, 把 Synology 的
@@ -230,6 +306,120 @@ struct ConnectionFlowView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { otpFocused = true }
         }
     }
+
+    #if os(macOS)
+    private var macOTPView: some View {
+        VStack {
+            Spacer(minLength: 28)
+
+            VStack(spacing: 0) {
+                VStack(spacing: 24) {
+                    VStack(spacing: 14) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 27, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                            .frame(width: 58, height: 58)
+                            .background(PMColor.brand.opacity(0.13), in: .rect(cornerRadius: 16))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(PMColor.brand.opacity(0.28), lineWidth: 0.5)
+                            }
+
+                        VStack(spacing: 6) {
+                            Text("enter_otp")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(PMColor.text)
+                            Text("otp_hint")
+                                .font(.system(size: 13))
+                                .foregroundStyle(PMColor.textMuted)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+
+                    ZStack {
+                        HStack(spacing: 10) {
+                            ForEach(0..<6, id: \.self) { index in
+                                OTPDigitBox(
+                                    digit: index < otpCode.count
+                                        ? String(otpCode[otpCode.index(otpCode.startIndex, offsetBy: index)])
+                                        : "",
+                                    isCurrent: index == otpCode.count && otpFocused
+                                )
+                            }
+                        }
+
+                        TextField("", text: $otpCode)
+                            .textFieldStyle(.plain)
+                            .focused($otpFocused)
+                            .frame(width: 1, height: 1)
+                            .opacity(0.001)
+                            .onSubmit {
+                                if otpCode.count == 6 { verifyOTP() }
+                            }
+                            .onChange(of: otpCode) { _, value in
+                                let normalized = String(value.filter(\.isNumber).prefix(6))
+                                if normalized != value {
+                                    otpCode = normalized
+                                }
+                                if !normalized.isEmpty {
+                                    errorMessage = ""
+                                }
+                            }
+                            .accessibilityLabel(Text("enter_otp"))
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { otpFocused = true }
+
+                    if !errorMessage.isEmpty {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(PMColor.bad)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(PMColor.bad.opacity(0.10), in: .rect(cornerRadius: 8))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(PMColor.bad.opacity(0.22), lineWidth: 0.5)
+                            }
+                    }
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 30)
+                .padding(.bottom, 26)
+
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+                Toggle(isOn: $rememberDevice) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("remember_device_otp")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                        Text("remember_device_desc")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(PMColor.textMuted)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .padding(.horizontal, 24)
+                .frame(height: 66)
+            }
+            .frame(width: 500)
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
+
+            Spacer(minLength: 28)
+        }
+        .padding(.horizontal, 36)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { otpFocused = true }
+        }
+    }
+    #endif
 
     // MARK: - Password prompt
     //
@@ -608,12 +798,30 @@ struct OTPDigitBox: View {
     let isCurrent: Bool
 
     var body: some View {
+        #if os(macOS)
+        Text(digit)
+            .font(.system(size: 23, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(PMColor.text)
+            .frame(width: 50, height: 56)
+            .background(PMColor.bgDeep.opacity(0.72), in: .rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(
+                        isCurrent ? PMColor.brand : PMColor.cardBorder,
+                        lineWidth: isCurrent ? 1.5 : 0.5
+                    )
+            }
+            .shadow(color: isCurrent ? PMColor.brand.opacity(0.20) : .clear, radius: 5)
+            .animation(.easeOut(duration: 0.16), value: isCurrent)
+        #else
         Text(digit)
             .font(.title2).fontWeight(.bold)
             .frame(maxWidth: .infinity).frame(height: 56)
             .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary))
             .overlay(RoundedRectangle(cornerRadius: 12)
                 .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2))
+        #endif
     }
 }
 

@@ -199,6 +199,30 @@ struct PlaylistArtworkResolutionPolicyTests {
         #expect(Set(distinctSources.candidates.map(\.id)).count == 2)
     }
 
+    @Test("Large playlist ordering stays stable without comparator-wide rehashing")
+    func largePlaylistOrderingIsStable() {
+        let playlist = Playlist(id: "large-playlist", name: "Large")
+        let songs = (0..<1_500).map { index in
+            song(
+                "song-\(index)",
+                cover: "artwork/album-\(index % 80)/cover.jpg",
+                source: "source-\(index % 4)"
+            )
+        }
+
+        let forward = PlaylistArtworkResolutionPolicy.makePlan(
+            playlist: playlist,
+            songs: songs
+        )
+        let reversed = PlaylistArtworkResolutionPolicy.makePlan(
+            playlist: playlist,
+            songs: songs.reversed()
+        )
+
+        #expect(forward.candidates.count == songs.count)
+        #expect(forward == reversed)
+    }
+
     private func song(
         _ id: String,
         cover: String?,
