@@ -528,43 +528,53 @@ private struct CurrentSongLibraryObserver: View {
 // MARK: - Player Overlay
 
 struct PlayerOverlay: View {
+    private enum PresentationPhase: Equatable {
+        case staging
+        case visible
+    }
+
     @Binding var isPresented: Bool
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
-    /// Drives the entrance animation. Starts `false` on mount so the first
-    /// frame renders off-screen (offset = screenHeight + 100); `onAppear`
-    /// flips it inside a `withAnimation` so SwiftUI animates the offset to 0.
-    /// Without this, the view would render immediately on-screen with no
-    /// slide-in because `if showNowPlaying` mounts the view *during*
-    /// presentation, not before.
-    @State private var entered = false
-    @State private var screenHeight: CGFloat = UIScreen.main.bounds.height
+    @State private var presentationPhase = PresentationPhase.staging
 
     var body: some View {
-        NowPlayingView(
-            onOpenAlbum: onOpenAlbum,
-            onOpenArtist: onOpenArtist,
-            onMinimize: dismissPlayer
+        GeometryReader { geometry in
+            NowPlayingView(
+                onOpenAlbum: onOpenAlbum,
+                onOpenArtist: onOpenArtist,
+                onMinimize: dismissPlayer
+            )
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                // Keep eagerly decoded artwork and its shadow inside the same
+                // off-screen presentation surface as the rest of the player.
+                .clipped()
+                .offset(
+                    y: presentationPhase == .visible
+                        ? 0
+                        : max(geometry.size.height, geometry.size.width) + 1
+                )
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(presentationPhase == .visible)
+        .animation(
+            .spring(response: 0.45, dampingFraction: 0.92),
+            value: presentationPhase
         )
-            .background {
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear {
-                            screenHeight = geo.size.height
-                        }
-                        .onChange(of: geo.size.height) { _, newValue in
-                            screenHeight = newValue
-                        }
-                }
+        .task {
+            guard presentationPhase == .staging else { return }
+            // `CachedArtworkView` can resolve synchronously from memory. Give
+            // the complete player one display interval to commit off-screen
+            // before starting the container animation, so no child layer can
+            // appear ahead of the background and controls.
+            do {
+                try await Task.sleep(for: .milliseconds(20))
+            } catch {
+                return
             }
-            .offset(y: entered ? 0 : screenHeight + 100)
-            .ignoresSafeArea()
-            .animation(.spring(response: 0.45, dampingFraction: 0.92), value: entered)
-            .onAppear {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
-                    entered = true
-                }
-            }
+            guard !Task.isCancelled else { return }
+            presentationPhase = .visible
+        }
     }
 
     private func dismissPlayer() {
