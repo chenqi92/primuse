@@ -983,16 +983,8 @@ struct MacHomeView: View {
     }
 
     private func albumCard(_ album: Album) -> some View {
-        let song = derived.albumArtworkSongs[album.id]
         return VStack(alignment: .leading, spacing: 8) {
-            CachedArtworkView(
-                coverRef: song?.coverArtFileName,
-                songID: song?.id ?? "",
-                cornerRadius: PMRadius.m,
-                sourceID: song?.sourceID,
-                filePath: song?.filePath,
-                fileFormat: song?.fileFormat
-            )
+            AlbumArtworkView(album: album, cornerRadius: PMRadius.m)
             .aspectRatio(1, contentMode: .fit)
             .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
 

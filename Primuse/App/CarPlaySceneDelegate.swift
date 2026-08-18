@@ -982,14 +982,69 @@ extension CarPlaySceneDelegate {
 
     private func loadArtwork(forAlbumID albumID: String, into item: CPListItem) {
         let library = AppServices.shared.musicLibrary
-        guard let firstSong = library.songs(forAlbum: albumID).first else { return }
-        loadArtwork(for: firstSong, into: item)
+        let songs = library.songs(forAlbum: albumID)
+        let resolution = library.artworkOverrideResolution(
+            for: LibraryArtworkOwner(kind: .album, id: albumID),
+            eligibleSongs: songs
+        )
+        switch resolution {
+        case .uploaded(let contentID):
+            let id = UUID()
+            let task = Task { [weak self, weak item] in
+                defer { self?.artworkTasks[id] = nil }
+                let image = await Task.detached(priority: .utility) {
+                    MetadataAssetStore.shared.customArtworkData(contentID: contentID)
+                        .flatMap(UIImage.init(data:))
+                }.value
+                guard !Task.isCancelled, let image, let item else { return }
+                item.setImage(image)
+            }
+            artworkTasks[id] = task
+        case .selectedSong(let songID):
+            guard let song = songs.first(where: { $0.id == songID }) else { return }
+            loadArtwork(for: song, into: item)
+        case .automatic:
+            guard let firstSong = songs.first else { return }
+            loadArtwork(for: firstSong, into: item)
+        }
     }
 
     private func loadArtwork(for playlist: Playlist, songs: [Song], into item: CPListItem) {
         let id = UUID()
         let task = Task { [weak self, weak item] in
             defer { self?.artworkTasks[id] = nil }
+            let library = AppServices.shared.musicLibrary
+            let override = library.artworkOverrideResolution(
+                for: LibraryArtworkOwner(kind: .playlist, id: playlist.id),
+                eligibleSongs: songs
+            )
+            switch override {
+            case .uploaded(let contentID):
+                if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID),
+                   let image = UIImage(data: data) {
+                    guard !Task.isCancelled, let item else { return }
+                    item.setImage(image)
+                    return
+                }
+            case .selectedSong(let songID):
+                if let song = songs.first(where: { $0.id == songID }),
+                   let image = await CachedArtworkView.resolveImage(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 44,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    sourceManager: AppServices.shared.sourceManager,
+                    cacheDiscriminator: "carplay-selected:\(library.artworkOverrideRevision)"
+                   ) {
+                    guard !Task.isCancelled, let item else { return }
+                    item.setImage(image)
+                    return
+                }
+            case .automatic:
+                break
+            }
             let plan = PlaylistArtworkResolutionPolicy.makePlan(
                 playlist: playlist,
                 songs: songs
@@ -1214,6 +1269,7 @@ extension CarPlaySceneDelegate {
             _ = library.visibleAlbums
             _ = library.visibleArtists
             _ = library.allPlaylists  // 包含已删除的 — 影响 playlists 计算
+            _ = library.artworkOverrideRevision
             _ = radioStore.stations
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

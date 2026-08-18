@@ -294,18 +294,8 @@ struct AlbumGridView: View {
     }
 
     private func macAlbumTile(_ album: Album, artworkSize: CGFloat) -> some View {
-        let albumSongs = library.songs(forAlbum: album.id)
-        let song = albumSongs.first { $0.coverArtFileName?.isEmpty == false } ?? albumSongs.first
         return VStack(alignment: .leading, spacing: 0) {
-            CachedArtworkView(
-                coverRef: song?.coverArtFileName,
-                songID: song?.id ?? "",
-                size: artworkSize,
-                cornerRadius: PMRadius.m,
-                sourceID: song?.sourceID,
-                filePath: song?.filePath,
-                fileFormat: song?.fileFormat
-            )
+            AlbumArtworkView(album: album, size: artworkSize, cornerRadius: PMRadius.m)
             .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
 
             Text(album.title)
@@ -332,18 +322,8 @@ struct AlbumGridView: View {
     }
 
     private func macAlbumListRow(_ album: Album) -> some View {
-        let albumSongs = library.songs(forAlbum: album.id)
-        let song = albumSongs.first { $0.coverArtFileName?.isEmpty == false } ?? albumSongs.first
         return HStack(spacing: 12) {
-            CachedArtworkView(
-                coverRef: song?.coverArtFileName,
-                songID: song?.id ?? "",
-                size: 44,
-                cornerRadius: 6,
-                sourceID: song?.sourceID,
-                filePath: song?.filePath,
-                fileFormat: song?.fileFormat
-            )
+            AlbumArtworkView(album: album, size: 44, cornerRadius: 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
                     .font(.system(size: 12.5, weight: .semibold))

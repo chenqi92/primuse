@@ -6,8 +6,7 @@ struct AlbumCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            CachedArtworkView(albumID: album.id, albumTitle: album.title,
-                              artistName: album.artistName, cornerRadius: 10)
+            AlbumArtworkView(album: album, cornerRadius: 10)
                 .aspectRatio(1, contentMode: .fit)
 
             VStack(alignment: .leading, spacing: 2) {

@@ -13,6 +13,7 @@ struct AlbumDetailView: View {
     private let onMacInlineBack: (() -> Void)?
 
     @State private var showNoScraperSourceAlert = false
+    @State private var showArtworkEditor = false
     @State private var selection = SongSelectionModel()
 
     init(album: Album, onMacInlineBack: (() -> Void)? = nil) {
@@ -38,6 +39,13 @@ struct AlbumDetailView: View {
             resolve: { library.song(id: $0) }
         )
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        .sheet(isPresented: $showArtworkEditor) {
+            LibraryArtworkEditorSheet(
+                owner: LibraryArtworkOwner(kind: .album, id: album.id),
+                title: String(localized: "artwork_editor_title"),
+                songs: songs
+            )
+        }
     }
 
     /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
@@ -54,9 +62,7 @@ struct AlbumDetailView: View {
             VStack(spacing: 20) {
                 // Album header
                 VStack(spacing: 12) {
-                    CachedArtworkView(albumID: album.id, albumTitle: album.title,
-                                      artistName: album.artistName,
-                                      size: 220, cornerRadius: 14)
+                    AlbumArtworkView(album: album, size: 220, cornerRadius: 14)
 
                     Text(album.title)
                         .font(.title2)
@@ -145,6 +151,16 @@ struct AlbumDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showArtworkEditor = true
+                } label: {
+                    Image(systemName: "photo.badge.plus")
+                }
+                .accessibilityLabel(Text("artwork_edit"))
+            }
+        }
     }
 
     #if os(macOS)
@@ -156,7 +172,7 @@ struct AlbumDetailView: View {
                     title: album.title,
                     subtitle: albumSubtitle,
                     iconSystemName: "square.stack.fill",
-                    coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? songs.first,
+                    coverAlbum: album,
                     onPlay: { playAll() },
                     onShuffle: shuffleAll,
                     moreMenu: albumMoreMenu
@@ -232,6 +248,9 @@ struct AlbumDetailView: View {
         let playable = songs.filteredPlayable()
 
         var second: [MacHeaderMoreMenu.Item] = [
+            .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
+                showArtworkEditor = true
+            },
             .init(icon: "arrow.down.circle", title: String(localized: "offline_download"), enabled: !playable.isEmpty) {
                 sourceManager.downloadForOffline(songs: songs)
             },

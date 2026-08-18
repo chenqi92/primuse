@@ -367,11 +367,7 @@ struct SearchView: View {
                     ForEach(Array(matchingAlbums.prefix(6))) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 7) {
-                                CachedArtworkView(albumID: album.id,
-                                                  albumTitle: album.title,
-                                                  artistName: album.artistName,
-                                                  size: nil,
-                                                  cornerRadius: 6)
+                                AlbumArtworkView(album: album, cornerRadius: 6)
                                     .aspectRatio(1, contentMode: .fit)
                                 Text(album.title)
                                     .font(.system(size: 11.5, weight: .medium))
@@ -543,11 +539,7 @@ struct SearchView: View {
                                       filePath: song.filePath,
                                       fileFormat: song.fileFormat)
                 } else if let album {
-                    CachedArtworkView(albumID: album.id,
-                                      albumTitle: album.title,
-                                      artistName: album.artistName,
-                                      size: 80,
-                                      cornerRadius: 40)
+                    AlbumArtworkView(album: album, size: 80, cornerRadius: 40)
                 } else {
                     Circle()
                         .fill(PMColor.rowHover)
@@ -814,8 +806,7 @@ struct SearchView: View {
                     ForEach(matchingAlbums.prefix(5)) { album in
                         NavigationLink(value: album) {
                             HStack(spacing: 12) {
-                                CachedArtworkView(albumID: album.id, albumTitle: album.title,
-                                                  artistName: album.artistName, size: 44, cornerRadius: 6)
+                                AlbumArtworkView(album: album, size: 44, cornerRadius: 6)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(album.title).font(.subheadline).lineLimit(1)
                                     Text(album.artistName ?? "").font(.caption).foregroundStyle(.secondary)

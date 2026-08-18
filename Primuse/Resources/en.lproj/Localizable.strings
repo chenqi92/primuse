@@ -2583,3 +2583,13 @@
 "lyrics_converter_lrc_help" = "LRC; word timing is kept as enhanced LRC";
 "lyrics_converter_ttml_help" = "Apple Music-compatible TTML";
 "lyrics_converter_txt_help" = "Plain text without timing";
+"artwork_edit" = "Change Artwork";
+"artwork_editor_title" = "Choose Artwork";
+"artwork_mode_automatic" = "Automatic";
+"artwork_upload" = "Upload an Image";
+"artwork_choose_song" = "Choose from Songs";
+"artwork_no_songs" = "There are no songs to choose from.";
+"artwork_storage_hint" = "A selected song is saved as a cross-device reference. Uploaded images are stored in Primuse and included when library sync is enabled.";
+"artwork_processing" = "Preparing artwork…";
+"artwork_upload_failed" = "Artwork Could Not Be Updated";
+"artwork_invalid_image" = "Choose a valid image that Primuse can process.";

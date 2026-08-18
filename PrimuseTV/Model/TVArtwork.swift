@@ -620,9 +620,10 @@ struct TVArtworkView: View {
     @State private var retryRevision = 0
 
     private var artworkIdentity: String {
+        let overrideSuffix = albumArtworkOverrideIdentity.map { "|override:\($0)" } ?? ""
         if !coverKey.isEmpty {
-            guard let songID, !songID.isEmpty else { return "album:\(coverKey)" }
-            return "album:\(coverKey)|song:\(songID)|\(coverRef ?? "")"
+            guard let songID, !songID.isEmpty else { return "album:\(coverKey)\(overrideSuffix)" }
+            return "album:\(coverKey)|song:\(songID)|\(coverRef ?? "")\(overrideSuffix)"
         }
         guard let songID, !songID.isEmpty else { return "" }
         return "song:\(songID)|\(coverRef ?? "")"
@@ -630,6 +631,25 @@ struct TVArtworkView: View {
 
     private var paletteKey: String {
         !coverKey.isEmpty ? coverKey : "song:\(songID ?? "")"
+    }
+
+    private var albumArtworkOverride: LibraryArtworkOverrideResolution? {
+        guard !coverKey.isEmpty else { return nil }
+        return store.library.artworkOverrideResolution(
+            for: LibraryArtworkOwner(kind: .album, id: coverKey),
+            eligibleSongs: store.library.songs(forAlbum: coverKey)
+        )
+    }
+
+    private var albumArtworkOverrideIdentity: String? {
+        guard let albumArtworkOverride else { return nil }
+        switch albumArtworkOverride {
+        case .automatic: return "automatic:\(store.library.artworkOverrideRevision)"
+        case .selectedSong(let songID):
+            return "song:\(songID):\(store.library.artworkOverrideRevision)"
+        case .uploaded(let contentID):
+            return "upload:\(contentID):\(store.library.artworkOverrideRevision)"
+        }
     }
 
     var body: some View {
@@ -665,6 +685,30 @@ struct TVArtworkView: View {
             activeIdentity = identity
             paletteAppliedIdentity = nil
             image = nil
+
+            if let albumArtworkOverride {
+                switch albumArtworkOverride {
+                case .uploaded(let contentID):
+                    if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID),
+                       await accept(data, identity: identity, paletteKey: paletteKey) {
+                        return
+                    }
+                case .selectedSong(let selectedSongID):
+                    if let selectedSong = store.library.song(id: selectedSongID) {
+                        let client = store.fnMusicClient(for: selectedSong.sourceID)
+                        if let data = await TVArtworkLoader.shared.songCover(
+                            songID: selectedSong.id,
+                            coverRef: selectedSong.coverArtFileName,
+                            fnMusicSourceID: selectedSong.sourceID,
+                            fnMusicClient: client
+                        ), await accept(data, identity: identity, paletteKey: paletteKey) {
+                            return
+                        }
+                    }
+                case .automatic:
+                    break
+                }
+            }
 
             let hasFnMusicCoverReference = FnMusicAPIProtocol.coverID(from: coverRef ?? "") != nil
             if !coverKey.isEmpty, !hasFnMusicCoverReference {

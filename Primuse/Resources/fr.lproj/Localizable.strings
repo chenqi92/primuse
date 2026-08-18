@@ -2796,3 +2796,13 @@
 "lyrics_converter_lrc_help" = "LRC; le minutage des mots reste en LRC amélioré";
 "lyrics_converter_ttml_help" = "TTML compatible avec Apple Music";
 "lyrics_converter_txt_help" = "Texte brut sans minutage";
+"artwork_edit" = "Modifier l’illustration";
+"artwork_editor_title" = "Choisir l’illustration";
+"artwork_mode_automatic" = "Automatique";
+"artwork_upload" = "Importer une image";
+"artwork_choose_song" = "Choisir parmi les morceaux";
+"artwork_no_songs" = "Aucun morceau n’est disponible.";
+"artwork_storage_hint" = "Un morceau choisi est enregistré comme référence multiappareil. Les images importées sont stockées dans Primuse et transférées lorsque la synchronisation de la bibliothèque est activée.";
+"artwork_processing" = "Préparation de l’illustration…";
+"artwork_upload_failed" = "Impossible de modifier l’illustration";
+"artwork_invalid_image" = "Choisissez une image valide que Primuse peut traiter.";

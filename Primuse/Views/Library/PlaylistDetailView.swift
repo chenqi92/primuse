@@ -21,6 +21,7 @@ struct PlaylistDetailView: View {
     @State private var showReorderSheet = false
     @State private var scrapeFeedback: ScrapeFeedback?
     @State private var showNoScraperSourceAlert = false
+    @State private var showArtworkEditor = false
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
@@ -83,6 +84,13 @@ struct PlaylistDetailView: View {
             resolve: { library.song(id: $0) }
         )
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        .sheet(isPresented: $showArtworkEditor) {
+            LibraryArtworkEditorSheet(
+                owner: LibraryArtworkOwner(kind: .playlist, id: playlist.id),
+                title: String(localized: "artwork_editor_title"),
+                songs: songs
+            )
+        }
         .onChange(of: scraperService.completionRevision) { _, _ in
             showScrapeCompletion()
         }
@@ -217,6 +225,12 @@ struct PlaylistDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        showArtworkEditor = true
+                    } label: {
+                        Label("artwork_edit", systemImage: "photo.badge.plus")
+                    }
+
                     Button {
                         if selection.isActive {
                             selection.deactivate()
@@ -537,6 +551,9 @@ struct PlaylistDetailView: View {
         let canDelete = canDeletePlaylist(playlist.id)
 
         var middle: [MacHeaderMoreMenu.Item] = []
+        middle.append(.init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
+            showArtworkEditor = true
+        })
         if !isMirror {
             middle.append(.init(icon: "arrow.up.arrow.down", title: String(localized: "playlist_reorder"),
                                 enabled: songs.count >= 2) { showReorderSheet = true })

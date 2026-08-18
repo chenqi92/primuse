@@ -2773,3 +2773,13 @@
 "lyrics_converter_lrc_help" = "LRC；逐字時間會保留為增強 LRC";
 "lyrics_converter_ttml_help" = "相容 Apple Music 的 TTML";
 "lyrics_converter_txt_help" = "不含時間軸的純文字";
+"artwork_edit" = "更換封面";
+"artwork_editor_title" = "選擇封面";
+"artwork_mode_automatic" = "自動";
+"artwork_upload" = "上傳圖片";
+"artwork_choose_song" = "從歌曲中選擇";
+"artwork_no_songs" = "沒有可供選擇的歌曲。";
+"artwork_storage_hint" = "選擇歌曲時儲存可跨裝置解析的歌曲識別碼；上傳的圖片儲存在 Primuse 持久資源目錄中，啟用資料庫同步時會一併傳輸。";
+"artwork_processing" = "正在處理封面…";
+"artwork_upload_failed" = "無法更新封面";
+"artwork_invalid_image" = "請選擇 Primuse 可處理的有效圖片。";

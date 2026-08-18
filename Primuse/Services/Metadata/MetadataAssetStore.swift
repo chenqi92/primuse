@@ -1,6 +1,8 @@
 import CryptoKit
 import Foundation
+import ImageIO
 import PrimuseKit
+import UniformTypeIdentifiers
 
 actor MetadataAssetStore {
     static let shared = MetadataAssetStore()
@@ -9,6 +11,7 @@ actor MetadataAssetStore {
     private let lyricsDirectory: URL
     private let albumArtworkDirectory: URL
     private let artistArtworkDirectory: URL
+    private let customArtworkDirectory: URL
     /// 内容寻址的封面物理存储位置 — 同一图片只存一份, 用 SHA256 内容哈希命名,
     /// 上层(per-song / per-album / per-artist 目录)只存指向这里的 redirect
     /// 引导文件。50 首同专辑歌从前各存一份 200KB JPEG 共 10MB,现在共用一份。
@@ -20,8 +23,9 @@ actor MetadataAssetStore {
     nonisolated let artworkDirectoryURL: URL
     nonisolated let lyricsDirectoryURL: URL
     nonisolated let artworkContentDirectoryURL: URL
+    nonisolated let customArtworkDirectoryURL: URL
 
-    /// Redirect 文件前缀:`REDIRECT:` + 32 位 hex SHA。共 41 字节。
+    /// Redirect 文件前缀:`REDIRECT:` + 64 位 hex SHA。共 73 字节。
     /// JPEG magic 是 `0xFF 0xD8 0xFF`,绝不会以 ASCII `R` 开头,
     /// 所以读取时一字节就能区分新旧两种格式。
     private static let redirectPrefixData = Data("REDIRECT:".utf8)
@@ -38,17 +42,23 @@ actor MetadataAssetStore {
         lyricsDirectory = rootDirectory.appendingPathComponent("lyrics", isDirectory: true)
         albumArtworkDirectory = rootDirectory.appendingPathComponent("artwork/album", isDirectory: true)
         artistArtworkDirectory = rootDirectory.appendingPathComponent("artwork/artist", isDirectory: true)
+        // User uploads are durable data, not a disposable cache. Keep them in
+        // their own content-addressed directory so cache eviction/clear and
+        // redirect GC can never remove an active custom cover.
+        customArtworkDirectory = rootDirectory.appendingPathComponent("custom", isDirectory: true)
         // content/ 放在 root 下,与 artwork/ 平级 —— 不要嵌在 artwork/ 里,
         // 否则 contentsOfDirectory(artwork) 会把它当成普通子目录处理。
         artworkContentDirectory = rootDirectory.appendingPathComponent("content", isDirectory: true)
         artworkDirectoryURL = artworkDirectory
         lyricsDirectoryURL = lyricsDirectory
         artworkContentDirectoryURL = artworkContentDirectory
+        customArtworkDirectoryURL = customArtworkDirectory
 
         try? fileManager.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: lyricsDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: albumArtworkDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: artistArtworkDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: customArtworkDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: artworkContentDirectory, withIntermediateDirectories: true)
 
         // One-time migration from old Caches location
@@ -120,6 +130,71 @@ actor MetadataAssetStore {
 
     nonisolated private static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).prefix(32).map { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - User-selected library artwork
+
+    /// Stores the canonical JPEG once in the content-addressed pool. Album and
+    /// playlist override records retain only the returned identifier.
+    func storeCustomArtwork(_ data: Data) -> String? {
+        storeCustomArtworkSync(data)
+    }
+
+    /// Synchronous counterpart used while restoring a CloudKit or portable
+    /// library snapshot. The expected ID prevents corrupted or mismatched
+    /// remote bytes from being installed under a trusted reference.
+    @discardableResult
+    nonisolated func storeCustomArtworkSync(
+        _ data: Data,
+        expectedContentID: String? = nil
+    ) -> String? {
+        guard !data.isEmpty,
+              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes,
+              CGImageSourceCreateWithData(data as CFData, nil) != nil else {
+            return nil
+        }
+        let contentID = Self.sha256Hex(data)
+        if let expectedContentID, expectedContentID != contentID { return nil }
+        let contentURL = customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")
+        do {
+            try FileManager.default.createDirectory(
+                at: customArtworkDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: contentURL.path) {
+                try data.write(to: contentURL, options: .atomic)
+            }
+            Self.postCustomArtworkCached(contentID: contentID)
+            return contentID
+        } catch {
+            return nil
+        }
+    }
+
+    nonisolated func customArtworkData(contentID: String) -> Data? {
+        guard LibraryArtworkContentIDPolicy.isValid(contentID) else { return nil }
+        let contentURL = customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")
+        guard let data = try? Data(contentsOf: contentURL),
+              !data.isEmpty,
+              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes,
+              CGImageSourceCreateWithData(data as CFData, nil) != nil else {
+            return nil
+        }
+        return data
+    }
+
+    nonisolated func hasCustomArtwork(contentID: String) -> Bool {
+        customArtworkData(contentID: contentID) != nil
+    }
+
+    private nonisolated static func postCustomArtworkCached(contentID: String) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .primuseArtworkDidCache,
+                object: contentID,
+                userInfo: ["tokens": [contentID]]
+            )
+        }
     }
 
     /// 公共封面读取入口 — 透明处理 content-addressed redirect 与历史遗留的
@@ -697,5 +772,53 @@ actor MetadataAssetStore {
             if (try? fm.removeItem(at: e.url)) != nil { freed += e.size }
         }
         plog("🧹 artwork content evict: freed=\(freed / 1024 / 1024)MB total=\(total / 1024 / 1024)MB cap=\(maxBytes / 1024 / 1024)MB")
+    }
+}
+
+enum LibraryArtworkImageProcessor {
+    private static let maximumInputBytes = 32 * 1024 * 1024
+    private static let targetLongSides = [1200, 1024, 896, 768, 640]
+    private static let qualities: [Double] = [0.86, 0.78, 0.70, 0.62, 0.54, 0.46]
+
+    /// Decodes arbitrary picker input, applies orientation, bounds dimensions,
+    /// and emits a JPEG small enough to fit inside the existing CloudKit Data
+    /// envelope after JSON/base64 overhead.
+    nonisolated static func process(_ data: Data) -> Data? {
+        guard !data.isEmpty, data.count <= maximumInputBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+
+        for longSide in targetLongSides {
+            let options: CFDictionary = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: longSide,
+                kCGImageSourceShouldCacheImmediately: true,
+            ] as CFDictionary
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+                continue
+            }
+            for quality in qualities {
+                let output = NSMutableData()
+                guard let destination = CGImageDestinationCreateWithData(
+                    output,
+                    UTType.jpeg.identifier as CFString,
+                    1,
+                    nil
+                ) else { continue }
+                CGImageDestinationAddImage(
+                    destination,
+                    image,
+                    [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
+                )
+                guard CGImageDestinationFinalize(destination) else { continue }
+                let encoded = output as Data
+                if encoded.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes {
+                    return encoded
+                }
+            }
+        }
+        return nil
     }
 }

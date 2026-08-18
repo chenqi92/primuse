@@ -337,16 +337,8 @@ struct ArtistDetailView: View {
     }
 
     private func macAlbumTile(_ album: Album) -> some View {
-        let song = library.songs(forAlbum: album.id).first
         return VStack(alignment: .leading, spacing: 8) {
-            CachedArtworkView(
-                coverRef: song?.coverArtFileName,
-                songID: song?.id ?? "",
-                cornerRadius: PMRadius.s,
-                sourceID: song?.sourceID,
-                filePath: song?.filePath,
-                fileFormat: song?.fileFormat
-            )
+            AlbumArtworkView(album: album, cornerRadius: PMRadius.s)
             .aspectRatio(1, contentMode: .fit)
             .shadow(color: .black.opacity(0.20), radius: 8, y: 4)
 

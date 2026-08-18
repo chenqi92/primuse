@@ -2796,3 +2796,13 @@
 "lyrics_converter_lrc_help" = "LRC; Wortzeiten bleiben als erweitertes LRC erhalten";
 "lyrics_converter_ttml_help" = "Mit Apple Music kompatibles TTML";
 "lyrics_converter_txt_help" = "Klartext ohne Zeitangaben";
+"artwork_edit" = "Cover ändern";
+"artwork_editor_title" = "Cover auswählen";
+"artwork_mode_automatic" = "Automatisch";
+"artwork_upload" = "Bild hochladen";
+"artwork_choose_song" = "Aus Titeln auswählen";
+"artwork_no_songs" = "Es sind keine Titel zur Auswahl vorhanden.";
+"artwork_storage_hint" = "Ein ausgewählter Titel wird als geräteübergreifender Verweis gespeichert. Hochgeladene Bilder werden in Primuse gespeichert und bei aktivierter Mediatheksynchronisierung übertragen.";
+"artwork_processing" = "Cover wird vorbereitet…";
+"artwork_upload_failed" = "Cover konnte nicht aktualisiert werden";
+"artwork_invalid_image" = "Wähle ein gültiges Bild, das Primuse verarbeiten kann.";

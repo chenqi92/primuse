@@ -10,6 +10,7 @@ struct MacLibraryHeader: View {
     var subtitle: String
     var iconSystemName: String = "music.note"
     var coverSong: Song? = nil
+    var coverAlbum: Album? = nil
     var coverPlaylist: Playlist? = nil
     var accent: Color = PMColor.brand
     var darkAccent: Color = PMColor.brand.opacity(0.6)
@@ -121,6 +122,13 @@ struct MacLibraryHeader: View {
                 size: 160,
                 cornerRadius: PMRadius.l,
                 placeholderIcon: iconSystemName
+            )
+            .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        } else if let album = coverAlbum {
+            AlbumArtworkView(
+                album: album,
+                size: 160,
+                cornerRadius: PMRadius.l
             )
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         } else if let song = coverSong {

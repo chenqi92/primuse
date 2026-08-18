@@ -109,8 +109,23 @@ private struct TVPlaylistArtworkView: View {
     @State private var image: UIImage?
     @State private var reloadRevision = 0
 
+    private var overrideResolution: LibraryArtworkOverrideResolution {
+        store.library.artworkOverrideResolution(
+            for: LibraryArtworkOwner(kind: .playlist, id: playlist.id),
+            eligibleSongs: store.library.songs(forPlaylist: playlist.id)
+        )
+    }
+
+    private var overrideIdentity: String {
+        switch overrideResolution {
+        case .automatic: return "automatic"
+        case .selectedSong(let songID): return "song:\(songID)"
+        case .uploaded(let contentID): return "upload:\(contentID)"
+        }
+    }
+
     private var loadIdentity: String {
-        "\(playlist.artworkSignature)#\(reloadRevision)"
+        "\(playlist.artworkSignature)#\(overrideIdentity)#\(store.library.artworkOverrideRevision)#\(reloadRevision)"
     }
 
     var body: some View {
@@ -134,6 +149,31 @@ private struct TVPlaylistArtworkView: View {
         .task(id: loadIdentity) {
             let identity = loadIdentity
             image = nil
+            switch overrideResolution {
+            case .uploaded(let contentID):
+                if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID),
+                   let customImage = UIImage(data: data) {
+                    guard !Task.isCancelled, loadIdentity == identity else { return }
+                    image = customImage
+                    return
+                }
+            case .selectedSong(let songID):
+                if let song = store.library.song(id: songID) {
+                    let client = store.fnMusicClient(for: song.sourceID)
+                    if let data = await TVArtworkLoader.shared.songCover(
+                        songID: song.id,
+                        coverRef: song.coverArtFileName,
+                        fnMusicSourceID: song.sourceID,
+                        fnMusicClient: client
+                    ), let selectedImage = UIImage(data: data) {
+                        guard !Task.isCancelled, loadIdentity == identity else { return }
+                        image = selectedImage
+                        return
+                    }
+                }
+            case .automatic:
+                break
+            }
             let corePlan = PlaylistArtworkResolutionPlan(
                 signature: playlist.artworkSignature,
                 candidates: playlist.artworkCandidates.map {
@@ -193,7 +233,7 @@ private struct TVPlaylistArtworkView: View {
         }
         let references = Set(playlist.artworkCandidates.compactMap(\.coverRef))
         if let tokens = note.userInfo?["tokens"] as? [String],
-           tokens.contains(where: references.contains) {
+           tokens.contains(where: { references.contains($0) || overrideIdentity.contains($0) }) {
             return true
         }
         return false

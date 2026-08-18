@@ -1943,13 +1943,7 @@ struct HomeView: View {
         case .album(let album):
             NavigationLink(value: album) {
                 quickAccessDockLabel(title: album.title) {
-                    CachedArtworkView(
-                        albumID: album.id,
-                        albumTitle: album.title,
-                        artistName: album.artistName,
-                        size: 52,
-                        cornerRadius: 9
-                    )
+                    AlbumArtworkView(album: album, size: 52, cornerRadius: 9)
                 }
             }
             .buttonStyle(.plain)
@@ -2280,16 +2274,8 @@ struct HomeView: View {
     @ViewBuilder
     private func recentlyAddedRow(tile: HomeAlbumTile) -> some View {
         let album = tile.album
-        let albumSong = tile.artworkSong
         HStack(spacing: 10) {
-            CachedArtworkView(
-                coverRef: albumSong?.coverArtFileName,
-                songID: albumSong?.id ?? "",
-                size: 56, cornerRadius: 6,
-                sourceID: albumSong?.sourceID,
-                filePath: albumSong?.filePath,
-                fileFormat: albumSong?.fileFormat
-            )
+            AlbumArtworkView(album: album, size: 56, cornerRadius: 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
                     .font(.footnote.weight(.semibold))

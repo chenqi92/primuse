@@ -419,13 +419,7 @@ struct LibraryView: View {
                         title: album.title,
                         subtitle: album.artistName ?? String(localized: "unknown_artist")
                     ) {
-                        CachedArtworkView(
-                            albumID: album.id,
-                            albumTitle: album.title,
-                            artistName: album.artistName,
-                            size: 116,
-                            cornerRadius: 16
-                        )
+                        AlbumArtworkView(album: album, size: 116, cornerRadius: 16)
                     }
                 }
                 .buttonStyle(.plain)
@@ -536,10 +530,8 @@ struct LibraryView: View {
                 placeholderIcon: "square.stack",
                 cornerRadius: 7
             ) { album in
-                CachedArtworkView(
-                    albumID: album.id,
-                    albumTitle: album.title,
-                    artistName: album.artistName,
+                AlbumArtworkView(
+                    album: album,
                     size: 36,
                     cornerRadius: 7,
                     showsPlaceholder: false
@@ -813,13 +805,7 @@ private struct LibraryQuickAccessEditor: View {
                             pinButton(
                                 LibraryPinReference(kind: .album, itemID: album.id)
                             ) {
-                                CachedArtworkView(
-                                    albumID: album.id,
-                                    albumTitle: album.title,
-                                    artistName: album.artistName,
-                                    size: 42,
-                                    cornerRadius: 7
-                                )
+                                AlbumArtworkView(album: album, size: 42, cornerRadius: 7)
                             } title: {
                                 Text(album.title)
                             } subtitle: {
@@ -903,13 +889,7 @@ private struct LibraryQuickAccessEditor: View {
         case .album:
             if let album = library.visibleAlbums.first(where: { $0.id == pin.itemID }) {
                 pinButton(pin) {
-                    CachedArtworkView(
-                        albumID: album.id,
-                        albumTitle: album.title,
-                        artistName: album.artistName,
-                        size: 42,
-                        cornerRadius: 7
-                    )
+                    AlbumArtworkView(album: album, size: 42, cornerRadius: 7)
                 } title: {
                     Text(album.title)
                 } subtitle: {

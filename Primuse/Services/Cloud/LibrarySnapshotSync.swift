@@ -178,13 +178,16 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip upload")
             return .failure(.cloudUnavailable)
         }
-        let libraryData: Data
+        let rawLibraryData: Data
         switch validatedLibrarySnapshotData() {
         case .success(let data):
-            libraryData = data
+            rawLibraryData = data
         case .failure(let failure):
             return .failure(failure)
         }
+        let libraryData = MusicLibrary.portableSnapshotDataIncludingArtworkAssets(
+            rawLibraryData
+        ) ?? rawLibraryData
         let fm = FileManager.default
 
         let record: CKRecord
@@ -1474,13 +1477,16 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private func buildLANPayloadResult() async -> Result<LANSyncPayload, AppleTVTransferFailure> {
-        let libraryData: Data
+        let rawLibraryData: Data
         switch validatedLibrarySnapshotData() {
         case .success(let data):
-            libraryData = data
+            rawLibraryData = data
         case .failure(let failure):
             return .failure(failure)
         }
+        let libraryData = MusicLibrary.portableSnapshotDataIncludingArtworkAssets(
+            rawLibraryData
+        ) ?? rawLibraryData
         guard let libraryGz = Self.gzip(libraryData), !libraryGz.isEmpty else {
             plog("LibrarySnapshotSync: LAN library snapshot compression failed")
             return .failure(.snapshotPreparationFailed)

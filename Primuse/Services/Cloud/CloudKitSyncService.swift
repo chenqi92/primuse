@@ -105,9 +105,16 @@ final class CloudKitSyncService {
         guard Self.familySharingEnabled, recordTypeIsShareable(recordType) else {
             return Self.zoneID
         }
-        // Playlist 类型按 id 例外: 「我喜欢」每人独立
-        if recordType == RecordType.playlist, id == MusicLibrary.likedSongsPlaylistID {
-            return Self.zoneID
+        // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则每人独立。
+        if recordType == RecordType.playlist {
+            if id == MusicLibrary.likedSongsPlaylistID {
+                return Self.zoneID
+            }
+            if let owner = LibraryArtworkOwner.fromCloudRecordID(id),
+               owner.kind == .playlist,
+               owner.id == MusicLibrary.likedSongsPlaylistID {
+                return Self.zoneID
+            }
         }
         return Self.familyZoneID
     }
@@ -572,6 +579,7 @@ final class CloudKitSyncService {
         switch channel {
         case .playlists:
             playlistsChanged(ids: library.allPlaylists.map(\.id))
+            artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
             smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         case .sources:
             sourcesChanged(ids: sourceIDsForCatchUp())
@@ -824,6 +832,10 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.playlistDeleted(id: id) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseArtworkOverridesDidChange, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.artworkOverridesChanged(ids: ids) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseSmartPlaylistsDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.smartPlaylistsChanged(ids: ids) }
@@ -903,6 +915,12 @@ final class CloudKitSyncService {
         guard CloudSyncChannel.isEnabled(.playlists) else { return }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(id) else { return }
         enqueueDeletes(recordType: RecordType.playlist, ids: [id])
+    }
+
+    func artworkOverridesChanged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.playlists) else { return }
+        let validIDs = ids.filter { LibraryArtworkOwner.fromCloudRecordID($0) != nil }
+        enqueueSaves(recordType: RecordType.playlist, ids: validIDs)
     }
 
     func smartPlaylistsChanged(ids: [String]) {
@@ -1258,6 +1276,7 @@ final class CloudKitSyncService {
     /// behavior because account IDs are deterministic and not user-facing.
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
+        artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         sourcesChanged(ids: sourceIDsForCatchUp())
         cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
@@ -1580,6 +1599,19 @@ final class CloudKitSyncService {
 
         guard let id = parseLocalID(from: recordID, recordType: recordType) else { return }
         if recordType == RecordType.playlist,
+           let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
+            if allowLocalRestore, library.artworkOverride(for: owner) != nil {
+                if let engine {
+                    addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: engine)
+                }
+                return
+            }
+            isApplyingRemote = true
+            library.deleteArtworkOverrideFromRemote(owner: owner)
+            isApplyingRemote = false
+            return
+        }
+        if recordType == RecordType.playlist,
            MirrorPlaylistIdentity.isMirrorPlaylist(id) {
             return
         }
@@ -1628,6 +1660,9 @@ final class CloudKitSyncService {
     private func isLocallyRestored(recordType: String, id: String) -> Bool {
         switch recordType {
         case RecordType.playlist:
+            if let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
+                return library.artworkOverride(for: owner) != nil
+            }
             if MirrorPlaylistIdentity.isMirrorPlaylist(id) { return false }
             return library.allPlaylists.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.smartPlaylist:
@@ -1656,6 +1691,9 @@ final class CloudKitSyncService {
     // MARK: - Playlist mapping
 
     private func populatePlaylistRecord(_ record: CKRecord, playlistID: String) -> Bool {
+        if let owner = LibraryArtworkOwner.fromCloudRecordID(playlistID) {
+            return populateArtworkOverrideRecord(record, owner: owner)
+        }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return false }
         guard let playlist = library.playlist(id: playlistID) else { return false }
         record["name"] = playlist.name
@@ -1681,6 +1719,10 @@ final class CloudKitSyncService {
 
     @discardableResult
     private func applyPlaylistRecord(_ record: CKRecord) -> Bool {
+        if let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
+           let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
+            return applyArtworkOverrideRecord(record, owner: owner)
+        }
         guard let payload = decodePlaylistPayload(record) else { return false }
         let id = payload.playlist.id
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(id) else { return false }
@@ -1693,6 +1735,118 @@ final class CloudKitSyncService {
             songIDs: songIDs,
             identities: payload.identities
         )
+    }
+
+    private func populateArtworkOverrideRecord(
+        _ record: CKRecord,
+        owner: LibraryArtworkOwner
+    ) -> Bool {
+        guard let value = library.artworkOverride(for: owner),
+              value.cloudRecordID == owner.cloudRecordID else { return false }
+
+        let uploadedData: Data?
+        if value.mode == .uploaded {
+            guard let contentID = value.uploadedContentID,
+                  LibraryArtworkContentIDPolicy.isValid(contentID),
+                  let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID) else {
+                // Never replace a valid remote upload with a metadata-only
+                // value after local storage loss.
+                return false
+            }
+            uploadedData = data
+        } else {
+            uploadedData = nil
+        }
+
+        let envelope = LibraryArtworkCloudEnvelope(
+            override: value,
+            uploadedArtworkData: uploadedData
+        )
+        guard let data = try? JSONEncoder().encode(envelope) else { return false }
+        record[Self.songIdentitiesField] = data
+        record["name"] = owner.id
+        record["createdAt"] = value.updatedAt
+        record["updatedAt"] = value.updatedAt
+        record["songIDs"] = [] as [String]
+        if let contentID = value.uploadedContentID {
+            record["coverArtPath"] = contentID
+        } else {
+            record["coverArtPath"] = nil
+        }
+        return true
+    }
+
+    private func decodeArtworkOverrideEnvelope(
+        _ record: CKRecord,
+        owner: LibraryArtworkOwner
+    ) -> LibraryArtworkCloudEnvelope? {
+        guard let data = record[Self.songIdentitiesField] as? Data,
+              let envelope = try? JSONDecoder().decode(
+                LibraryArtworkCloudEnvelope.self,
+                from: data
+              ),
+              envelope.schemaVersion == LibraryArtworkCloudEnvelope.currentSchemaVersion,
+              envelope.override.owner == owner,
+              envelope.override.cloudRecordID == owner.cloudRecordID else {
+            return nil
+        }
+        switch envelope.override.mode {
+        case .automatic:
+            return envelope
+        case .selectedSong:
+            return envelope.override.selectedSongIdentity == nil ? nil : envelope
+        case .uploaded:
+            guard let contentID = envelope.override.uploadedContentID,
+                  LibraryArtworkContentIDPolicy.isValid(contentID) else { return nil }
+            if let uploadedData = envelope.uploadedArtworkData,
+               uploadedData.count > LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes {
+                return nil
+            }
+            return envelope
+        }
+    }
+
+    private func installArtworkAssetIfNeeded(
+        from envelope: LibraryArtworkCloudEnvelope
+    ) -> Bool {
+        guard envelope.override.mode == .uploaded else { return true }
+        guard let contentID = envelope.override.uploadedContentID else { return false }
+        if MetadataAssetStore.shared.hasCustomArtwork(contentID: contentID) {
+            return true
+        }
+        guard let data = envelope.uploadedArtworkData else { return false }
+        return MetadataAssetStore.shared.storeCustomArtworkSync(
+            data,
+            expectedContentID: contentID
+        ) != nil
+    }
+
+    @discardableResult
+    private func applyArtworkOverrideRecord(
+        _ record: CKRecord,
+        owner: LibraryArtworkOwner
+    ) -> Bool {
+        guard let envelope = decodeArtworkOverrideEnvelope(record, owner: owner) else {
+            return library.artworkOverride(for: owner) != nil
+        }
+        if let local = library.artworkOverride(for: owner),
+           LibraryArtworkOverrideReconciliationPolicy.winner(
+            local: local,
+            remote: envelope.override
+           ) == .local {
+            // A metadata snapshot can arrive before CloudKit's image bytes.
+            // Equal uploaded values still get a chance to repair the missing
+            // local asset even though the local logical value wins the tie.
+            if local.mode == .uploaded,
+               local.uploadedContentID == envelope.override.uploadedContentID {
+                _ = installArtworkAssetIfNeeded(from: envelope)
+            }
+            return true
+        }
+        guard installArtworkAssetIfNeeded(from: envelope) else {
+            return library.artworkOverride(for: owner) != nil
+        }
+        return library.applyRemoteArtworkOverride(envelope.override)
     }
 
     private func decodePlaylistPayload(
@@ -2231,6 +2385,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     @MainActor
     private func mergePlaylistRecord(local: CKRecord, server: CKRecord) {
         guard let id = parseLocalID(from: server.recordID, recordType: RecordType.playlist) else { return }
+        if let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
+            mergeArtworkOverrideRecord(local: local, server: server, owner: owner)
+            return
+        }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(id) else {
             enqueueDeletes(recordType: RecordType.playlist, ids: [id])
             return
@@ -2265,6 +2423,32 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 baseSongIDs: localIDs,
                 additionalIdentities: serverIdentities
             )
+        }
+    }
+
+    @MainActor
+    private func mergeArtworkOverrideRecord(
+        local: CKRecord,
+        server: CKRecord,
+        owner: LibraryArtworkOwner
+    ) {
+        guard let localEnvelope = decodeArtworkOverrideEnvelope(local, owner: owner),
+              let serverEnvelope = decodeArtworkOverrideEnvelope(server, owner: owner) else {
+            return
+        }
+        let winner = LibraryArtworkOverrideReconciliationPolicy.winner(
+            local: localEnvelope.override,
+            remote: serverEnvelope.override
+        )
+        if winner == .local,
+           localEnvelope.override.mode == .uploaded,
+           localEnvelope.override.uploadedContentID == serverEnvelope.override.uploadedContentID {
+            _ = installArtworkAssetIfNeeded(from: serverEnvelope)
+        }
+        guard winner == .remote,
+              installArtworkAssetIfNeeded(from: serverEnvelope) else { return }
+        applyRemoteEnvelope {
+            _ = library.applyRemoteArtworkOverride(serverEnvelope.override)
         }
     }
 

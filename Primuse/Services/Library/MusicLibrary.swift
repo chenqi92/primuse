@@ -1918,6 +1918,14 @@ final class MusicLibrary {
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
     private(set) var allPlaylists: [Playlist] = []
+    private var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
+    /// Lightweight invalidation token for album/playlist artwork surfaces.
+    /// It is intentionally separate from song and playlist collection
+    /// revisions so choosing a cover does not rebuild unrelated lists.
+    private(set) var artworkOverrideRevision: Int = 0
+    var allArtworkOverrides: [LibraryArtworkOverride] {
+        artworkOverridesByOwner.values.sorted { $0.id < $1.id }
+    }
     private var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
     /// Live (non-deleted) playlists for normal UI use. Apple Music's library
     /// and user-playlist mirrors are read-only snapshots, so keep them stored
@@ -2943,6 +2951,174 @@ final class MusicLibrary {
     func songs(forAlbum albumID: String) -> [Song] {
         visibleSongs.filter { $0.albumID == albumID }
             .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+    }
+
+    // MARK: - User-selected album / playlist artwork
+
+    func artworkOverride(for owner: LibraryArtworkOwner) -> LibraryArtworkOverride? {
+        artworkOverridesByOwner[owner.storageKey]
+    }
+
+    func artworkOverride(cloudRecordID: String) -> LibraryArtworkOverride? {
+        guard let owner = LibraryArtworkOwner.fromCloudRecordID(cloudRecordID) else { return nil }
+        return artworkOverride(for: owner)
+    }
+
+    func artworkOverrideResolution(
+        for owner: LibraryArtworkOwner,
+        eligibleSongs: [Song]
+    ) -> LibraryArtworkOverrideResolution {
+        let override = artworkOverride(for: owner)
+        let resolvedSongID: String?
+        if let identity = override?.selectedSongIdentity {
+            let index = makeIdentityResolutionIndex(for: [identity])
+            resolvedSongID = resolveIdentity(identity, using: index)
+        } else {
+            resolvedSongID = nil
+        }
+        return LibraryArtworkOverridePolicy.resolve(
+            override: override,
+            resolvedSongID: resolvedSongID,
+            eligibleSongIDs: Set(eligibleSongs.map(\.id))
+        )
+    }
+
+    func artworkSong(
+        for owner: LibraryArtworkOwner,
+        eligibleSongs: [Song]
+    ) -> Song? {
+        guard case .selectedSong(let songID) = artworkOverrideResolution(
+            for: owner,
+            eligibleSongs: eligibleSongs
+        ) else { return nil }
+        return eligibleSongs.first(where: { $0.id == songID })
+    }
+
+    @discardableResult
+    func setAutomaticArtwork(for owner: LibraryArtworkOwner) -> Bool {
+        setArtworkOverride(
+            owner: owner,
+            mode: .automatic,
+            selectedSongIdentity: nil,
+            uploadedContentID: nil
+        )
+    }
+
+    @discardableResult
+    func setArtwork(for owner: LibraryArtworkOwner, to song: Song) -> Bool {
+        setArtworkOverride(
+            owner: owner,
+            mode: .selectedSong,
+            selectedSongIdentity: makeArtworkSongIdentity(song),
+            uploadedContentID: nil
+        )
+    }
+
+    @discardableResult
+    func setUploadedArtwork(contentID: String, for owner: LibraryArtworkOwner) -> Bool {
+        guard LibraryArtworkContentIDPolicy.isValid(contentID),
+              MetadataAssetStore.shared.hasCustomArtwork(contentID: contentID) else {
+            return false
+        }
+        return setArtworkOverride(
+            owner: owner,
+            mode: .uploaded,
+            selectedSongIdentity: nil,
+            uploadedContentID: contentID
+        )
+    }
+
+    private func setArtworkOverride(
+        owner: LibraryArtworkOwner,
+        mode: LibraryArtworkOverrideMode,
+        selectedSongIdentity: SongIdentity?,
+        uploadedContentID: String?
+    ) -> Bool {
+        guard !owner.id.isEmpty else { return false }
+        let existing = artworkOverridesByOwner[owner.storageKey]
+        if existing?.mode == mode,
+           existing?.selectedSongIdentity == selectedSongIdentity,
+           existing?.uploadedContentID == uploadedContentID {
+            return true
+        }
+        let next = LibraryArtworkOverride(
+            owner: owner,
+            mode: mode,
+            selectedSongIdentity: selectedSongIdentity,
+            uploadedContentID: uploadedContentID,
+            updatedAt: Date(),
+            syncRevision: max(existing?.syncRevision ?? 0, 0) + 1,
+            syncWriterID: playlistSyncWriterID,
+            syncOperationID: UUID().uuidString
+        )
+        artworkOverridesByOwner[owner.storageKey] = next
+        guard persistPlaylistDurabilityLedger() else {
+            artworkOverridesByOwner[owner.storageKey] = existing
+            return false
+        }
+        persistSnapshot()
+        notifyArtworkOverrideChanged(next)
+        return true
+    }
+
+    private func makeArtworkSongIdentity(_ song: Song) -> SongIdentity {
+        SongIdentity(
+            songID: song.id,
+            title: song.title,
+            artistName: song.artistName,
+            duration: song.duration,
+            cloudAccountID: sourceIdentityResolver?(song.sourceID),
+            filePath: song.filePath
+        )
+    }
+
+    /// Applies a remote value and returns true when the existing local value
+    /// wins, allowing CloudKit's conflict path to reassert it.
+    @discardableResult
+    func applyRemoteArtworkOverride(_ remote: LibraryArtworkOverride) -> Bool {
+        guard !remote.owner.id.isEmpty else { return false }
+        if let local = artworkOverridesByOwner[remote.owner.storageKey],
+           LibraryArtworkOverrideReconciliationPolicy.winner(
+            local: local,
+            remote: remote
+           ) == .local {
+            return true
+        }
+        let previous = artworkOverridesByOwner[remote.owner.storageKey]
+        artworkOverridesByOwner[remote.owner.storageKey] = remote
+        guard persistPlaylistDurabilityLedger() else {
+            artworkOverridesByOwner[remote.owner.storageKey] = previous
+            return previous != nil
+        }
+        persistSnapshot()
+        notifyArtworkOverrideChanged(remote)
+        return false
+    }
+
+    func deleteArtworkOverrideFromRemote(owner: LibraryArtworkOwner) {
+        guard let removed = artworkOverridesByOwner.removeValue(forKey: owner.storageKey) else { return }
+        guard persistPlaylistDurabilityLedger() else {
+            artworkOverridesByOwner[owner.storageKey] = removed
+            return
+        }
+        persistSnapshot()
+        artworkOverrideRevision &+= 1
+    }
+
+    private func notifyArtworkOverrideChanged(_ value: LibraryArtworkOverride) {
+        artworkOverrideRevision &+= 1
+        var userInfo: [AnyHashable: Any] = [
+            "ids": [value.cloudRecordID],
+            "ownerIDs": [value.owner.id],
+        ]
+        if let contentID = value.uploadedContentID {
+            userInfo["contentID"] = contentID
+        }
+        NotificationCenter.default.post(
+            name: .primuseArtworkOverridesDidChange,
+            object: nil,
+            userInfo: userInfo
+        )
     }
 
     func songs(forArtist artistID: String) -> [Song] {
@@ -4350,6 +4526,7 @@ final class MusicLibrary {
             }
         }
         guard let snapshot = resolvedSnapshot else { return }
+        Self.restorePortableArtworkAssets(snapshot.artworkAssets)
 
         // Migrate the decoded value before publishing it. `songs` is backed by
         // an immutable observable reference, so mutating `songs[i]` would run
@@ -4385,6 +4562,15 @@ final class MusicLibrary {
         songs = loadedSongs
         songIndexByID = Self.makeSongIndex(loadedSongs)
         allPlaylists = snapshot.playlists
+        artworkOverridesByOwner = Dictionary(
+            (snapshot.artworkOverrides ?? []).map { ($0.owner.storageKey, $0) },
+            uniquingKeysWith: { local, remote in
+                LibraryArtworkOverrideReconciliationPolicy.winner(
+                    local: local,
+                    remote: remote
+                ) == .local ? local : remote
+            }
+        )
         mirrorPlaylistSuppressions = Dictionary(
             uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
         )
@@ -4392,6 +4578,7 @@ final class MusicLibrary {
         allSmartPlaylists = snapshot.smartPlaylists ?? []
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
         playlistCollectionRevision &+= 1
+        artworkOverrideRevision &+= 1
         recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
         // Old `deletedSongIDs` field stored mount-UUID-derived song.id
         // tombstones — useless after re-OAuth changes the source UUID.
@@ -4764,6 +4951,8 @@ final class MusicLibrary {
         Snapshot(
             songs: songs,
             playlists: allPlaylists,
+            artworkOverrides: allArtworkOverrides.isEmpty ? nil : allArtworkOverrides,
+            artworkAssets: nil,
             mirrorPlaylistSuppressions: hiddenMirrorPlaylists.isEmpty ? nil : hiddenMirrorPlaylists,
             smartPlaylists: allSmartPlaylists.isEmpty ? nil : allSmartPlaylists,
             playlistSongIDs: playlistSongIDs,
@@ -4882,6 +5071,58 @@ final class MusicLibrary {
         return isValidSnapshotData(data)
     }
 
+    /// Adds bounded transport copies of active uploads to an otherwise normal
+    /// library snapshot. The local canonical snapshot remains metadata-only;
+    /// this augmented value is used solely by CloudKit/LAN transfer to tvOS.
+    nonisolated static func portableSnapshotDataIncludingArtworkAssets(
+        _ data: Data
+    ) -> Data? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard var snapshot = try? decoder.decode(Snapshot.self, from: data) else { return nil }
+
+        let maximumEncodedSnapshotBytes = 60 * 1024 * 1024
+        let availableEncodedBytes = max(0, maximumEncodedSnapshotBytes - data.count)
+        let maximumRawArtworkBytes = min(24 * 1024 * 1024, availableEncodedBytes * 3 / 4)
+        var usedBytes = 0
+        var assets: [String: Data] = [:]
+        let uploaded = (snapshot.artworkOverrides ?? [])
+            .filter { $0.mode == .uploaded }
+            .sorted { $0.updatedAt > $1.updatedAt }
+        for value in uploaded {
+            guard let contentID = value.uploadedContentID,
+                  assets[contentID] == nil,
+                  let artworkData = MetadataAssetStore.shared.customArtworkData(
+                    contentID: contentID
+                  ),
+                  usedBytes <= maximumRawArtworkBytes - artworkData.count else {
+                continue
+            }
+            assets[contentID] = artworkData
+            usedBytes += artworkData.count
+        }
+        snapshot.artworkAssets = assets.isEmpty ? nil : assets
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let encoded = try? encoder.encode(snapshot),
+              encoded.count <= maximumEncodedSnapshotBytes else { return nil }
+        return encoded
+    }
+
+    private nonisolated static func restorePortableArtworkAssets(
+        _ assets: [String: Data]?
+    ) {
+        guard let assets else { return }
+        for (contentID, data) in assets {
+            _ = MetadataAssetStore.shared.storeCustomArtworkSync(
+                data,
+                expectedContentID: contentID
+            )
+        }
+    }
+
     private func sortPlaylists() {
         allPlaylists.sort { $0.updatedAt > $1.updatedAt }
     }
@@ -4902,7 +5143,8 @@ final class MusicLibrary {
     private func persistPlaylistDurabilityLedger() -> Bool {
         let ledger = PlaylistDurabilityLedger(
             playlists: allPlaylists.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0.id) },
-            mirrorPlaylistSuppressions: hiddenMirrorPlaylists
+            mirrorPlaylistSuppressions: hiddenMirrorPlaylists,
+            artworkOverrides: allArtworkOverrides.isEmpty ? nil : allArtworkOverrides
         )
         do {
             let data = try encoder.encode(ledger)
@@ -4931,6 +5173,16 @@ final class MusicLibrary {
             }
             for suppression in ledger.mirrorPlaylistSuppressions {
                 mirrorPlaylistSuppressions[suppression.id] = suppression
+            }
+            for durable in ledger.artworkOverrides ?? [] {
+                if let current = artworkOverridesByOwner[durable.owner.storageKey],
+                   LibraryArtworkOverrideReconciliationPolicy.winner(
+                    local: current,
+                    remote: durable
+                   ) == .local {
+                    continue
+                }
+                artworkOverridesByOwner[durable.owner.storageKey] = durable
             }
         }
 
@@ -5125,6 +5377,11 @@ final class MusicLibrary {
     private struct Snapshot: Codable, Sendable {
         var songs: [Song]
         var playlists: [Playlist]
+        var artworkOverrides: [LibraryArtworkOverride]? = nil
+        /// Transport-only copies used by the Apple TV/LAN library snapshot.
+        /// Normal local persistence always writes nil; images remain canonical
+        /// in MetadataAssetStore's durable custom directory.
+        var artworkAssets: [String: Data]? = nil
         var mirrorPlaylistSuppressions: [MirrorPlaylistSuppression]?
         /// 智能歌单。Optional 让旧 snapshot decode 不报错。
         var smartPlaylists: [SmartPlaylist]?
@@ -5143,6 +5400,7 @@ final class MusicLibrary {
     private struct PlaylistDurabilityLedger: Codable, Sendable {
         var playlists: [Playlist]
         var mirrorPlaylistSuppressions: [MirrorPlaylistSuppression]
+        var artworkOverrides: [LibraryArtworkOverride]? = nil
     }
 }
 
@@ -5164,6 +5422,7 @@ extension Notification.Name {
     /// audio session 让给 ApplicationMusicPlayer。
     static let primuseAppleMusicWillPlay = Notification.Name("primuse.appleMusicWillPlay")
     static let primusePlaylistsDidChange = Notification.Name("primuse.playlistsDidChange")
+    static let primuseArtworkOverridesDidChange = Notification.Name("primuse.artworkOverridesDidChange")
     static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
     static let primuseSmartPlaylistsDidChange = Notification.Name("primuse.smartPlaylistsDidChange")
     static let primuseSmartPlaylistDidDelete = Notification.Name("primuse.smartPlaylistDidDelete")
