@@ -37,6 +37,9 @@ struct MacSidebar: View {
 
                 primaryItems
                 librarySection
+                if showsPlaylistsSection {
+                    playlistsSection
+                }
                 sourcesSection
                 toolsSection
 
@@ -82,7 +85,7 @@ struct MacSidebar: View {
         VStack(alignment: .leading, spacing: 1) {
             sectionHeader("library_title")
 
-            ForEach(visibleLibrarySections) { section in
+            ForEach(visibleLibrarySections.filter { $0 != .playlists }) { section in
                 libraryNavigationItems(for: section)
             }
 
@@ -129,20 +132,22 @@ struct MacSidebar: View {
                 trailing: countLabel(radioStationsStore.stations.count)
             )
         case .playlists:
-            HStack(spacing: 0) {
-                item(
-                    route: .section(.playlists),
-                    icon: section.icon,
-                    title: section.title,
-                    trailing: countLabel(sidebarPlaylists.count + sidebarSmartPlaylists.count)
-                )
-                .frame(maxWidth: .infinity)
+            EmptyView()
+        }
+    }
 
+    // MARK: - Playlists section
+
+    private var playlistsSection: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                sectionHeader("playlists_title")
+                Spacer()
                 newPlaylistMenu
             }
 
             // 智能歌单排在普通歌单上面 (跟歌单总览页的分区顺序一致)。侧栏只列前
-            // 几个保持节奏, 超出的内容通过上面的歌单总览入口打开。
+            // 几个保持节奏, 超出的通过下面「全部歌单」行进入总览页。
             ForEach(sidebarSmartPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { smart in
                 item(route: .smartPlaylist(smart), icon: "sparkles",
                      title: LocalizedStringKey(smart.name))
@@ -166,10 +171,20 @@ struct MacSidebar: View {
                     .padding(.vertical, 4)
             }
         }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 8)
     }
 
     private var newPlaylistMenu: some View {
         Menu {
+            Button {
+                select(.section(.playlists))
+            } label: {
+                Label("manage_playlists", systemImage: "rectangle.stack")
+            }
+
+            Divider()
+
             Button {
                 NotificationCenter.default.post(name: .primuseSidebarRequestNewPlaylist, object: nil)
             } label: {
@@ -190,7 +205,7 @@ struct MacSidebar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(Text("new_playlist"))
+        .help(Text("playlists_title"))
         .padding(.trailing, 4)
     }
 
@@ -544,6 +559,10 @@ struct MacSidebar: View {
 
     /// 侧栏每个歌单列表最多直接展示的条数, 超出的折叠进「全部歌单」入口。
     private var sidebarPlaylistLimit: Int { 6 }
+
+    private var showsPlaylistsSection: Bool {
+        visibleLibrarySections.contains(.playlists)
+    }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
         !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)

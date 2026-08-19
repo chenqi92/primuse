@@ -649,6 +649,7 @@
 "eq_enabled" = "Equalizer";
 "eq_reset" = "Zurücksetzen";
 "new_playlist" = "Neue Wiedergabeliste";
+"manage_playlists" = "Wiedergabelisten verwalten";
 "playlist_name" = "Name der Wiedergabeliste";
 "create" = "Erstellen";
 "remove_from_playlist" = "Aus Wiedergabeliste entfernen";

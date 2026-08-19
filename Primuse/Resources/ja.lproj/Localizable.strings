@@ -650,6 +650,7 @@
 "eq_enabled" = "イコライザ";
 "eq_reset" = "リセット";
 "new_playlist" = "新規プレイリスト";
+"manage_playlists" = "プレイリストを管理";
 "playlist_name" = "プレイリスト名";
 "create" = "作成";
 "remove_from_playlist" = "プレイリストから削除";

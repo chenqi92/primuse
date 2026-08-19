@@ -649,6 +649,7 @@
 "eq_enabled" = "Égaliseur";
 "eq_reset" = "Réinitialiser";
 "new_playlist" = "Nouvelle liste de lecture";
+"manage_playlists" = "Gérer les listes de lecture";
 "playlist_name" = "Nom de la liste de lecture";
 "create" = "Créer";
 "remove_from_playlist" = "Retirer de la liste de lecture";

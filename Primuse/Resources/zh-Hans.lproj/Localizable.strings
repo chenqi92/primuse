@@ -465,6 +465,7 @@
 
 // MARK: - 歌单
 "new_playlist" = "新建歌单";
+"manage_playlists" = "管理歌单";
 "playlist_name" = "歌单名称";
 "create" = "创建";
 "remove_from_playlist" = "从歌单中移除";

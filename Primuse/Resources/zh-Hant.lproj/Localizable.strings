@@ -440,6 +440,7 @@
 "eq_enabled" = "等化器";
 "eq_reset" = "重設";
 "new_playlist" = "新增播放清單";
+"manage_playlists" = "管理播放清單";
 "playlist_name" = "播放清單名稱";
 "create" = "建立";
 "remove_from_playlist" = "從播放清單中移除";

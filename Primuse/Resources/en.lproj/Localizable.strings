@@ -464,6 +464,7 @@
 
 // MARK: - Playlists
 "new_playlist" = "New Playlist";
+"manage_playlists" = "Manage Playlists";
 "playlist_name" = "Playlist Name";
 "create" = "Create";
 "remove_from_playlist" = "Remove from Playlist";

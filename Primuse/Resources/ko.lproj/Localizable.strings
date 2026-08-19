@@ -649,6 +649,7 @@
 "eq_enabled" = "이퀄라이저";
 "eq_reset" = "재설정";
 "new_playlist" = "새로운 재생 목록";
+"manage_playlists" = "재생 목록 관리";
 "playlist_name" = "재생 목록 이름";
 "create" = "생성";
 "remove_from_playlist" = "재생 목록에서 제거";
