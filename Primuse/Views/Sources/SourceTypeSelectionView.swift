@@ -8,7 +8,7 @@ import UIKit
 struct SourceTypeSelectionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeService.self) private var theme
-    var onAdd: (MusicSource) -> Void
+    var onAdd: (MusicSource) throws -> Void
 
     /// 选类型 / 选发现到的设备都只是弹同一个 AddSourceView。合并成单一 item 驱动
     /// 一个 .sheet —— 早先用两个 .sheet(item:) 叠在同一 view 上, 而该 view 因持续
@@ -33,6 +33,7 @@ struct SourceTypeSelectionView: View {
     @State private var showLocalImporter = false
     @State private var localImportPickerMode: LocalImportPickerMode = .folder
     @State private var localImportTask: Task<Void, Never>?
+    @State private var localImportSession: LocalImportService.CopySession?
     @State private var localImportProgress: LocalImportService.CopyProgress?
     @State private var localImportAlert: LocalImportAlert?
     #endif
@@ -43,16 +44,14 @@ struct SourceTypeSelectionView: View {
             switch target {
             case .type(let type):
                 AddSourceView(sourceType: type) { source in
-                    onAdd(source)
-                    dismiss()
+                    addSourceAndDismiss(source)
                 }
             case .device(let device):
                 AddSourceView(
                     sourceType: device.sourceType,
                     prefillDevice: device
                 ) { source in
-                    onAdd(source)
-                    dismiss()
+                    addSourceAndDismiss(source)
                 }
             }
         }
@@ -483,6 +482,23 @@ struct SourceTypeSelectionView: View {
     }
     #endif
 
+    private func addSourceAndDismiss(_ source: MusicSource) {
+        do {
+            try onAdd(source)
+            dismiss()
+        } catch {
+            #if os(iOS)
+            localImportAlert = LocalImportAlert(
+                title: String(localized: "local_import_err_title"),
+                message: error.localizedDescription,
+                dismissAfterOK: false
+            )
+            #else
+            plog("⛔ Source persistence failed — \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     // MARK: - iOS layout (unchanged from prior)
 
     #if os(iOS)
@@ -556,6 +572,7 @@ struct SourceTypeSelectionView: View {
             }
             .buttonStyle(.plain)
             .disabled(localImportProgress != nil)
+            .accessibilityIdentifier("localImport.folder")
 
             Button {
                 localImportPickerMode = .files
@@ -567,6 +584,7 @@ struct SourceTypeSelectionView: View {
             }
             .buttonStyle(.plain)
             .disabled(localImportProgress != nil)
+            .accessibilityIdentifier("localImport.files")
         } header: {
             Text(SourceCategory.local.displayNameFallback)
         } footer: {
@@ -611,6 +629,8 @@ struct SourceTypeSelectionView: View {
                     }
                     .buttonStyle(.borderless)
                     .font(.caption.weight(.semibold))
+                    .disabled(progress.phase == .cancelling || progress.phase == .cancelled)
+                    .accessibilityIdentifier("localImport.cancel")
                 }
 
                 if let fraction = progress.fraction {
@@ -621,6 +641,7 @@ struct SourceTypeSelectionView: View {
                 Text(localImportProgressMessage(progress))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("localImport.progress")
 
                 if !progress.currentFileName.isEmpty {
                     Text(progress.currentFileName)
@@ -649,7 +670,7 @@ struct SourceTypeSelectionView: View {
     }
 
     private func startLocalImport(_ urls: [URL]) {
-        cancelLocalImport()
+        guard localImportSession == nil, localImportTask == nil else { return }
         localImportAlert = nil
         let cleanupPickedCopies = localImportPickerMode.importsCopy
         localImportProgress = LocalImportService.CopyProgress(
@@ -658,12 +679,17 @@ struct SourceTypeSelectionView: View {
             processed: 0,
             total: 0,
             copied: 0,
-            skipped: 0
+            duplicateSkipped: 0,
+            failed: 0
         )
+        let session = LocalImportService.copySession(
+            urls,
+            cleanupPickedCopies: cleanupPickedCopies
+        )
+        localImportSession = session
         localImportTask = Task {
             var finalResult: LocalImportService.CopyResult?
-            for await event in LocalImportService.copyEvents(urls, cleanupPickedCopies: cleanupPickedCopies) {
-                guard !Task.isCancelled else { return }
+            for await event in session.events {
                 switch event {
                 case .progress(let progress):
                     localImportProgress = progress
@@ -671,8 +697,9 @@ struct SourceTypeSelectionView: View {
                     finalResult = result
                 }
             }
-            guard !Task.isCancelled, let outcome = finalResult else { return }
+            guard let outcome = finalResult else { return }
             localImportTask = nil
+            localImportSession = nil
             localImportProgress = nil
 
             if outcome.cancelled { return }
@@ -686,7 +713,18 @@ struct SourceTypeSelectionView: View {
                 return
             }
 
-            onAdd(LocalImportService.makeSource(name: String(localized: "local_import_source_name")))
+            do {
+                try onAdd(LocalImportService.makeSource(
+                    name: String(localized: "local_import_source_name")
+                ))
+            } catch {
+                localImportAlert = LocalImportAlert(
+                    title: String(localized: "local_import_err_title"),
+                    message: error.localizedDescription,
+                    dismissAfterOK: false
+                )
+                return
+            }
             if outcome.skipped > 0 {
                 localImportAlert = LocalImportAlert(
                     title: String(localized: "local_import_partial_title"),
@@ -700,26 +738,46 @@ struct SourceTypeSelectionView: View {
     }
 
     private func cancelLocalImport() {
-        localImportTask?.cancel()
-        localImportTask = nil
-        localImportProgress = nil
+        guard let localImportSession else {
+            localImportTask?.cancel()
+            localImportTask = nil
+            localImportProgress = nil
+            return
+        }
+        if var current = localImportProgress {
+            current.phase = .cancelling
+            localImportProgress = current
+        }
+        localImportSession.cancel()
     }
 
     private func localImportProgressMessage(_ progress: LocalImportService.CopyProgress) -> String {
         switch progress.phase {
         case .discovering:
             return String(localized: "local_import_progress_discovering")
+        case .indexing:
+            return String(localized: "local_import_progress_indexing")
         case .copying:
             if progress.total > 0 {
-                return String(
+                let base = String(
                     format: String(localized: "local_import_progress_copying_format"),
                     progress.processed,
                     progress.total,
                     progress.copied,
-                    progress.skipped
+                    progress.duplicateSkipped
+                )
+                return base + " · " + String(
+                    format: String(localized: "local_import_progress_failed_format"),
+                    progress.failed
                 )
             }
             return String(localized: "local_import_progress_preparing")
+        case .validating:
+            return String(localized: "local_import_progress_validating")
+        case .committing:
+            return String(localized: "local_import_progress_committing")
+        case .cancelling:
+            return String(localized: "local_import_progress_cancelling")
         case .finished:
             return String(localized: "local_import_progress_finishing")
         case .cancelled:
@@ -731,7 +789,11 @@ struct SourceTypeSelectionView: View {
         var message = String(
             format: String(localized: "local_import_done_message_format"),
             result.copied,
-            result.skipped
+            result.duplicateSkipped
+        )
+        message += "\n" + String(
+            format: String(localized: "local_import_failed_count_format"),
+            result.failed
         )
         if let firstFailure = result.failures.first {
             message += "\n" + String(
@@ -830,6 +892,8 @@ struct SourceTypeSelectionView: View {
             return String(localized: "local_import_reason_invalid_audio")
         case .providerReturnedError:
             return String(localized: "local_import_reason_provider_error")
+        case .databaseFailed:
+            return String(localized: "local_import_reason_database")
         case .copyFailed:
             return String(localized: "local_import_reason_copy")
         }
@@ -839,7 +903,7 @@ struct SourceTypeSelectionView: View {
         switch reason {
         case .coordinatedReadFailed, .invalidAudioFile, .providerReturnedError:
             return true
-        case .unsupportedFormat, .notFound, .permissionDenied, .notEnoughSpace, .copyFailed:
+        case .unsupportedFormat, .notFound, .permissionDenied, .notEnoughSpace, .databaseFailed, .copyFailed:
             return false
         }
     }
@@ -1001,6 +1065,7 @@ struct IOSLocalDocumentPicker: UIViewControllerRepresentable {
         )
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = true
+        picker.view.accessibilityIdentifier = "localImport.documentPicker"
         return picker
     }
 

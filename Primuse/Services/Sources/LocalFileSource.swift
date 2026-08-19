@@ -329,8 +329,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
         // 才按不可读跳过。
         let ext = (item.name as NSString).pathExtension
         let isStandaloneVideo = PrimuseConstants.supportedMusicVideoExtensions.contains(ext.lowercased())
+        // A malformed WAV must fail as one item, not terminate the source's
+        // AsyncThrowingStream and discard the rest of a large import.
         let isDTSWAV = ext.caseInsensitiveCompare("wav") == .orderedSame
-            ? try await ffmpegDecoder.canDecodeAsync(url: fileURL)
+            ? (try? await ffmpegDecoder.canDecodeAsync(url: fileURL)) ?? false
             : false
         let isDTS = ext.caseInsensitiveCompare("dts") == .orderedSame || isDTSWAV
         let declaredFormat = isDTS ? AudioFormat.dts : (AudioFormat.from(fileExtension: ext) ?? .mp3)
@@ -475,7 +477,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                 let ext = candidate.pathExtension.lowercased()
                 guard var format = AudioFormat.from(fileExtension: ext) else { continue }
                 let isDTSWAV = ext == "wav"
-                    ? try await ffmpegDecoder.canDecodeAsync(url: candidate)
+                    ? (try? await ffmpegDecoder.canDecodeAsync(url: candidate)) ?? false
                     : false
                 if ext == "dts" || isDTSWAV {
                     format = .dts

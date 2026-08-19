@@ -240,6 +240,7 @@ struct SourcesContentView: View {
     @State private var showExistingLocalFileImporter = false
     @State private var localImportTargetSource: MusicSource?
     @State private var localImportTask: Task<Void, Never>?
+    @State private var localImportSession: LocalImportService.CopySession?
     @State private var localImportProgress: LocalImportService.CopyProgress?
     #endif
 
@@ -260,6 +261,9 @@ struct SourcesContentView: View {
                 cachePreparationTask?.cancel()
                 cachePreparationTask = nil
                 preparingCacheSourceID = nil
+                #if os(iOS)
+                cancelExistingLocalImport()
+                #endif
                 if let id = sourceAlert?.id {
                     AppAlertCoordinator.shared.cancel(.sourceOperation(id))
                     sourceAlert = nil
@@ -276,11 +280,17 @@ struct SourcesContentView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
+                        .accessibilityIdentifier("sources.add")
                 }
             }
             .sheet(isPresented: $showAddSource) {
                 SourceTypeSelectionView { source in
-                    sourceStore.add(source)
+                    if source.type == .local,
+                       source.id == LocalImportService.existingSourceID {
+                        try sourceStore.addDurably(source)
+                    } else {
+                        sourceStore.add(source)
+                    }
                     // 本地导入: 文件已拷进沙箱, add 后立即扫描入库, 让导入的歌
                     // 即时出现。需要远端目录的源会在目录选择会话结束后自动扫描。
                     if source.type == .local {
@@ -878,7 +888,7 @@ struct SourcesContentView: View {
     }
 
     private func startExistingLocalImport(_ urls: [URL], for source: MusicSource) {
-        localImportTask?.cancel()
+        guard localImportSession == nil, localImportTask == nil else { return }
         sourceAlert = nil
         localImportTargetSource = currentSource(for: source)
         localImportProgress = LocalImportService.CopyProgress(
@@ -887,13 +897,18 @@ struct SourcesContentView: View {
             processed: 0,
             total: 0,
             copied: 0,
-            skipped: 0
+            duplicateSkipped: 0,
+            failed: 0
         )
 
+        let session = LocalImportService.copySession(
+            urls,
+            cleanupPickedCopies: true
+        )
+        localImportSession = session
         localImportTask = Task {
             var finalResult: LocalImportService.CopyResult?
-            for await event in LocalImportService.copyEvents(urls, cleanupPickedCopies: true) {
-                guard !Task.isCancelled else { return }
+            for await event in session.events {
                 switch event {
                 case .progress(let progress):
                     localImportProgress = progress
@@ -902,8 +917,9 @@ struct SourcesContentView: View {
                 }
             }
 
-            guard !Task.isCancelled, let outcome = finalResult else { return }
+            guard let outcome = finalResult else { return }
             localImportTask = nil
+            localImportSession = nil
             localImportProgress = nil
             if outcome.cancelled { return }
 
@@ -952,6 +968,12 @@ struct SourcesContentView: View {
                     Text("\(progress.processed)/\(progress.total)")
                         .monospacedDigit()
                 }
+                Button("cancel") {
+                    cancelExistingLocalImport()
+                }
+                .buttonStyle(.borderless)
+                .disabled(progress.phase == .cancelling || progress.phase == .cancelled)
+                .accessibilityIdentifier("existingLocalImport.cancel")
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -970,17 +992,29 @@ struct SourcesContentView: View {
         switch progress.phase {
         case .discovering:
             return String(localized: "local_import_progress_discovering")
+        case .indexing:
+            return String(localized: "local_import_progress_indexing")
         case .copying:
             if progress.total > 0 {
-                return String(
+                let base = String(
                     format: String(localized: "local_import_progress_copying_format"),
                     progress.processed,
                     progress.total,
                     progress.copied,
-                    progress.skipped
+                    progress.duplicateSkipped
+                )
+                return base + " · " + String(
+                    format: String(localized: "local_import_progress_failed_format"),
+                    progress.failed
                 )
             }
             return String(localized: "local_import_progress_preparing")
+        case .validating:
+            return String(localized: "local_import_progress_validating")
+        case .committing:
+            return String(localized: "local_import_progress_committing")
+        case .cancelling:
+            return String(localized: "local_import_progress_cancelling")
         case .finished:
             return String(localized: "local_import_progress_finishing")
         case .cancelled:
@@ -992,7 +1026,11 @@ struct SourcesContentView: View {
         var message = String(
             format: String(localized: "local_import_done_message_format"),
             result.copied,
-            result.skipped
+            result.duplicateSkipped
+        )
+        message += "\n" + String(
+            format: String(localized: "local_import_failed_count_format"),
+            result.failed
         )
         if let firstFailure = result.failures.first {
             message += "\n" + String(
@@ -1091,6 +1129,8 @@ struct SourcesContentView: View {
             return String(localized: "local_import_reason_invalid_audio")
         case .providerReturnedError:
             return String(localized: "local_import_reason_provider_error")
+        case .databaseFailed:
+            return String(localized: "local_import_reason_database")
         case .copyFailed:
             return String(localized: "local_import_reason_copy")
         }
@@ -1100,9 +1140,23 @@ struct SourcesContentView: View {
         switch reason {
         case .coordinatedReadFailed, .invalidAudioFile, .providerReturnedError:
             return true
-        case .unsupportedFormat, .notFound, .permissionDenied, .notEnoughSpace, .copyFailed:
+        case .unsupportedFormat, .notFound, .permissionDenied, .notEnoughSpace, .databaseFailed, .copyFailed:
             return false
         }
+    }
+
+    private func cancelExistingLocalImport() {
+        guard let localImportSession else {
+            localImportTask?.cancel()
+            localImportTask = nil
+            localImportProgress = nil
+            return
+        }
+        if var current = localImportProgress {
+            current.phase = .cancelling
+            localImportProgress = current
+        }
+        localImportSession.cancel()
     }
     #endif
 

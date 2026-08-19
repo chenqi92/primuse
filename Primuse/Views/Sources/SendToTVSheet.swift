@@ -118,7 +118,14 @@ struct SendToTVSheet: View {
                 }
             }
             .sheet(isPresented: $showAddSource) {
-                SourceTypeSelectionView { source in sourcesStore.add(source) }
+                SourceTypeSelectionView { source in
+                    if source.type == .local,
+                       source.id == LocalImportService.existingSourceID {
+                        try sourcesStore.addDurably(source)
+                    } else {
+                        sourcesStore.add(source)
+                    }
+                }
             }
         }
     }

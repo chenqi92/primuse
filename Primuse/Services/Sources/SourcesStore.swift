@@ -114,7 +114,31 @@ final class SourcesStore {
         upsert(source)
     }
 
+    /// Adds a source only after `sources.json` has been atomically persisted.
+    /// The Files import path uses this before starting a scan so an out-of-space
+    /// error cannot leave a source that exists only in memory.
+    func addDurably(_ source: MusicSource) throws {
+        let previousSources = allSources
+        let previousDeletionRecords = sourceDeletionRecords
+        applyUpsert(source)
+        do {
+            try persistThrowing()
+        } catch {
+            allSources = previousSources
+            sourceDeletionRecords = previousDeletionRecords
+            _ = persistSourceDeletions()
+            throw error
+        }
+        notifyChanged([source.id])
+    }
+
     func upsert(_ source: MusicSource) {
+        applyUpsert(source)
+        persist()
+        notifyChanged([source.id])
+    }
+
+    private func applyUpsert(_ source: MusicSource) {
         var stamped = source
         let selectedDirectories = Set(stamped.scannedDirectories)
         stamped.scannedDirectoryDisplayNames = stamped.scannedDirectoryDisplayNames.filter {
@@ -136,8 +160,6 @@ final class SourcesStore {
             allSources.append(stamped)
             allSources.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
-        persist()
-        notifyChanged([stamped.id])
     }
 
     /// User-facing edit. Bumps `modifiedAt` and triggers an iCloud sync push.
@@ -654,8 +676,16 @@ final class SourcesStore {
     }
 
     private func persist() {
-        guard let data = try? encoder.encode(allSources) else { return }
-        try? data.write(to: storeURL, options: .atomic)
+        do {
+            try persistThrowing()
+        } catch {
+            plog("⛔ Sources persist failed — \(error.localizedDescription)")
+        }
+    }
+
+    private func persistThrowing() throws {
+        let data = try encoder.encode(allSources)
+        try data.write(to: storeURL, options: .atomic)
     }
 
     // MARK: - CloudAccount CRUD (stage 2: internal, not exposed to UI)

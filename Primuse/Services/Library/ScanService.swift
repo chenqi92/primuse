@@ -1613,6 +1613,11 @@ final class ScanService {
         scanStates[sourceID] = Self.completedScanState(
             reconciliation: syncState?.reconciliation
         )
+        #if os(iOS)
+        if sourceID == LocalImportService.existingSourceID {
+            LocalImportService.clearPendingScan()
+        }
+        #endif
 
         // 歌单镜像放在扫描收尾之后: 曲库已经落库(上面 addSongs +
         // persistIncrementalNowAndWait), serverItemID → Song.id 的索引才是完整的;
