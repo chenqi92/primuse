@@ -581,7 +581,12 @@ private struct OnboardingAddSourceCoverModifier: ViewModifier {
     private var sheetContent: some View {
         NavigationStack {
             SourceTypeSelectionView { source in
-                AppServices.shared.sourcesStore.add(source)
+                if source.type == .local,
+                   source.id == LocalImportService.existingSourceID {
+                    try AppServices.shared.sourcesStore.addDurably(source)
+                } else {
+                    AppServices.shared.sourcesStore.add(source)
+                }
                 presentAddSource = false
                 finish()
             }

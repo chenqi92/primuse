@@ -226,6 +226,12 @@ final class AppServices {
         didCompleteDeferredStartup = true
         let startedAt = ProcessInfo.processInfo.systemUptime
 
+        #if os(iOS)
+        await Task.detached(priority: .utility) {
+            LocalImportService.recoverIncompleteTransactions()
+        }.value
+        #endif
+
         let sourceSnapshot = sourcesStore.allSources
         let songSnapshot = musicLibrary.songs
         async let playbackRestore: Void = playerService.restorePlaybackSessionIfAvailable()
@@ -318,12 +324,34 @@ final class AppServices {
 
     private func rescanLocalImportIfNeeded() {
         #if os(iOS)
-        guard let sourceID = LocalImportService.existingSourceID,
-              musicLibrary.songs.contains(where: { $0.sourceID == sourceID && $0.duration <= 0 }),
-              let source = sourcesStore.source(id: sourceID),
-              source.isEnabled,
-              !source.isDeleted else { return }
-        plog("📥 LocalImport: detected unplayable local rows, scheduling local rescan")
+        guard let sourceID = LocalImportService.existingSourceID else { return }
+        let hasPendingCheckpoint = scanService.scanStates[sourceID]?.hasPendingWork == true
+        let hasUnplayableRows = musicLibrary.songs.contains {
+            $0.sourceID == sourceID && $0.duration <= 0
+        }
+        let hasPendingScan = LocalImportService.hasPendingScan
+
+        let source: MusicSource
+        if let existing = sourcesStore.source(id: sourceID),
+           existing.isEnabled,
+           !existing.isDeleted {
+            guard hasPendingScan || hasPendingCheckpoint || hasUnplayableRows else { return }
+            source = existing
+        } else if LocalImportService.hasRecoverableCompleteFiles || hasPendingCheckpoint {
+            let recovered = LocalImportService.makeSource(
+                name: String(localized: "local_import_source_name")
+            )
+            do {
+                try sourcesStore.addDurably(recovered)
+                source = recovered
+            } catch {
+                plog("⛔ LocalImport: cold-start source recovery failed — \(error.localizedDescription)")
+                return
+            }
+        } else {
+            return
+        }
+        plog("📥 LocalImport: scheduling pending/interrupted local import scan")
         scanService.scanSource(
             source,
             sourceManager: sourceManager,
