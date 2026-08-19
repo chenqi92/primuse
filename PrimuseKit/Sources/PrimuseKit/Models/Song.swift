@@ -16,6 +16,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var filePath: String // relative within source
     public var sourceID: String
     public var fileSize: Int64
+    /// Bit rate in kbps. Source adapters must normalize APIs that report bps.
     public var bitRate: Int?
     public var sampleRate: Int?
     public var bitDepth: Int?

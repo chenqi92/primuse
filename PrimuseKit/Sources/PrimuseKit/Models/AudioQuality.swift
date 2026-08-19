@@ -49,23 +49,31 @@ extension Song {
         return .lossless
     }
 
+    /// 采样率的用户可读形式，例如 `44.1 kHz`。
+    public var formattedSampleRate: String? {
+        guard let sampleRate, sampleRate > 0 else { return nil }
+        if sampleRate >= 1_000 {
+            let khz = Double(sampleRate) / 1_000
+            return String(format: khz.rounded() == khz ? "%.0f kHz" : "%.1f kHz", khz)
+        }
+        return "\(sampleRate) Hz"
+    }
+
+    /// 位深的用户可读形式，例如 `24 bit`。
+    public var formattedBitDepth: String? {
+        guard let bitDepth, bitDepth > 0 else { return nil }
+        return "\(bitDepth) bit"
+    }
+
+    /// Song.bitRate 的单位是 kbps，不要再次除以 1000。
+    public var formattedBitRate: String? {
+        guard let bitRate, bitRate > 0 else { return nil }
+        return "\(bitRate.formatted()) kbps"
+    }
+
     /// "96 kHz / 24 bit" 这种规格描述, NowPlaying 详情用。两者都缺返回 nil。
     public var qualitySpecText: String? {
-        let sr = sampleRate ?? 0
-        let bd = bitDepth ?? 0
-        guard sr > 0 || bd > 0 else { return nil }
-        var parts: [String] = []
-        if sr > 0 {
-            if sr >= 1000 {
-                let khz = Double(sr) / 1000.0
-                parts.append(String(format: khz == floor(khz) ? "%.0f kHz" : "%.1f kHz", khz))
-            } else {
-                parts.append("\(sr) Hz")
-            }
-        }
-        if bd > 0 {
-            parts.append("\(bd) bit")
-        }
-        return parts.joined(separator: " / ")
+        let parts = [formattedSampleRate, formattedBitDepth].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " / ")
     }
 }

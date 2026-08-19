@@ -2197,6 +2197,15 @@
 "casting_connected" = "● Connected";
 "file_size_label" = "File Size";
 "file_location_label" = "File Location";
+"disc_label" = "Disc";
+"playback_info" = "Playback";
+"last_played_label" = "Last Played";
+"no_recorded_playback" = "No recorded playback";
+"playback_history_note" = "Counts plays whose playback progress reached %1$d seconds, from the latest %2$d retained records.";
+"library_info" = "Library";
+"date_added_label" = "Date Added";
+"last_modified_label" = "Source Date";
+"audio_quality_label" = "Audio Quality";
 "search_scope_local_apple_music" = "Local · Apple Music";
 "search_lyrics_hits_format" = "Lyrics matches · %d";
 "search_top_match" = "Top Match";

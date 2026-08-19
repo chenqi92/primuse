@@ -2473,6 +2473,15 @@
 "casting_connected" = "● 已连接";
 "file_size_label" = "文件大小";
 "file_location_label" = "文件位置";
+"disc_label" = "碟片";
+"playback_info" = "播放记录";
+"last_played_label" = "最近播放";
+"no_recorded_playback" = "暂无播放记录";
+"playback_history_note" = "仅统计播放进度达到 %1$d 秒的记录，基于最近保留的 %2$d 条历史。";
+"library_info" = "资料库";
+"date_added_label" = "添加日期";
+"last_modified_label" = "来源日期";
+"audio_quality_label" = "音频规格";
 "search_scope_local_apple_music" = "本地 · Apple Music";
 "search_lyrics_hits_format" = "歌词命中 · %d";
 "search_top_match" = "顶部匹配";

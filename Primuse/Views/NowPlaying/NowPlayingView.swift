@@ -2986,6 +2986,15 @@ struct SongInfoSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var showSimilarSongs = false
+    private let history = PlayHistoryStore.shared
+
+    private var playbackStats: PlayHistoryStore.SongPlaybackStats {
+        history.playbackStats(forSongID: song.id)
+    }
+
+    private var sourceName: String? {
+        sourcesStore.source(id: song.sourceID)?.name
+    }
 
     var body: some View {
         #if os(macOS)
@@ -3003,20 +3012,43 @@ struct SongInfoSheet: View {
                 if let album = song.albumTitle { infoRow(String(localized: "album_label"), album) }
                 if let genre = song.genre { infoRow(String(localized: "genre_label"), genre) }
                 if let year = song.year { infoRow(String(localized: "year_label"), "\(year)") }
+                if let disc = song.discNumber { infoRow(String(localized: "disc_label"), "\(disc)") }
                 if let track = song.trackNumber { infoRow(String(localized: "track_label"), "\(track)") }
+
+                Section(String(localized: "playback_info")) {
+                    infoRow(String(localized: "stats_play_count"), playbackStats.playCount.formatted())
+                    infoRow(
+                        String(localized: "last_played_label"),
+                        playbackStats.lastPlayedAt?.formatted(date: .abbreviated, time: .shortened)
+                            ?? String(localized: "no_recorded_playback")
+                    )
+                    Text(playbackHistoryNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                Section(String(localized: "library_info")) {
+                    infoRow(String(localized: "date_added_label"), song.dateAdded.formatted(date: .long, time: .omitted))
+                    if let lastModified = song.lastModified {
+                        infoRow(String(localized: "last_modified_label"), lastModified.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    if let sourceName {
+                        infoRow(String(localized: "source_label"), sourceName)
+                    }
+                }
 
                 Section(String(localized: "technical_info")) {
                     infoRow(String(localized: "format_label"), song.fileFormat.displayName)
-                    if let sr = song.sampleRate {
-                        infoRow(String(localized: "sample_rate_label"), "\(sr) Hz")
+                    if let quality = song.qualitySpecText {
+                        infoRow(String(localized: "audio_quality_label"), quality)
                     }
-                    if let bits = song.bitDepth {
-                        infoRow(String(localized: "bit_depth_label"), "\(bits) bit")
+                    if let bitRate = song.formattedBitRate {
+                        infoRow(String(localized: "songs_column_bitrate"), bitRate)
+                    }
+                    if let fileSize = formattedFileSize {
+                        infoRow(String(localized: "file_size_label"), fileSize)
                     }
                     infoRow(String(localized: "duration_label"), formatDuration(song.duration))
-                    if let source = sourcesStore.source(id: song.sourceID) {
-                        infoRow(String(localized: "source_label"), source.name)
-                    }
                 }
 
                 Section {
@@ -3089,22 +3121,28 @@ struct SongInfoSheet: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: [
-                    GridItem(.fixed(120), spacing: 18, alignment: .leading),
-                    GridItem(.flexible(), spacing: 18, alignment: .leading),
-                ], alignment: .leading, spacing: 8) {
-                    ForEach(macInfoRows, id: \.label) { row in
-                        Text(row.label)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(PMColor.textMuted)
-                        Text(row.value)
-                            .font(row.monospace
-                                  ? .system(size: 12.5, design: .monospaced)
-                                  : .system(size: 12.5))
-                            .foregroundStyle(PMColor.text)
-                            .lineLimit(row.monospace ? 3 : 1)
-                            .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 12) {
+                    LazyVGrid(columns: [
+                        GridItem(.fixed(120), spacing: 18, alignment: .leading),
+                        GridItem(.flexible(), spacing: 18, alignment: .leading),
+                    ], alignment: .leading, spacing: 8) {
+                        ForEach(macInfoRows, id: \.label) { row in
+                            Text(row.label)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(PMColor.textMuted)
+                            Text(row.value)
+                                .font(row.monospace
+                                      ? .system(size: 12.5, design: .monospaced)
+                                      : .system(size: 12.5))
+                                .foregroundStyle(PMColor.text)
+                                .lineLimit(row.monospace ? 3 : 1)
+                                .textSelection(.enabled)
+                        }
                     }
+                    Text(playbackHistoryNote)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(22)
             }
@@ -3159,28 +3197,43 @@ struct SongInfoSheet: View {
         if let album = song.albumTitle { rows.append((String(localized: "album_label"), album, false)) }
         if let genre = song.genre { rows.append((String(localized: "genre_label"), genre, false)) }
         if let year = song.year { rows.append((String(localized: "year_label"), "\(year)", false)) }
+        if let disc = song.discNumber { rows.append((String(localized: "disc_label"), "\(disc)", false)) }
         if let track = song.trackNumber { rows.append((String(localized: "track_label"), "\(track)", false)) }
+        rows.append((String(localized: "stats_play_count"), playbackStats.playCount.formatted(), false))
+        rows.append((String(localized: "last_played_label"), playbackStats.lastPlayedAt?.formatted(date: .abbreviated, time: .shortened) ?? String(localized: "no_recorded_playback"), false))
+        rows.append((String(localized: "date_added_label"), song.dateAdded.formatted(date: .long, time: .omitted), false))
+        if let lastModified = song.lastModified {
+            rows.append((String(localized: "last_modified_label"), lastModified.formatted(date: .abbreviated, time: .shortened), false))
+        }
         rows.append((String(localized: "format_label"), song.fileFormat.displayName, false))
-        if let sr = song.sampleRate {
-            rows.append((String(localized: "sample_rate_label"), "\(sr) Hz", false))
+        if let quality = song.qualitySpecText {
+            rows.append((String(localized: "audio_quality_label"), quality, false))
         }
-        if let bits = song.bitDepth {
-            rows.append((String(localized: "bit_depth_label"), "\(bits) bit", false))
+        if let bitRate = song.formattedBitRate {
+            rows.append((String(localized: "songs_column_bitrate"), bitRate, false))
         }
-        if let bitRate = song.bitRate {
-            rows.append(("Bitrate", "\(bitRate) kbps", false))
-        }
-        if song.fileSize > 0 {
-            rows.append((String(localized: "file_size_label"), ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file), false))
+        if let fileSize = formattedFileSize {
+            rows.append((String(localized: "file_size_label"), fileSize, false))
         }
         rows.append((String(localized: "duration_label"), formatDuration(song.duration), false))
-        if let source = sourcesStore.source(id: song.sourceID) {
-            rows.append((String(localized: "source_label"), source.name, false))
+        if let sourceName {
+            rows.append((String(localized: "source_label"), sourceName, false))
         }
         rows.append((String(localized: "file_location_label"), song.filePath, true))
         return rows.map { ($0.0, $0.1, $0.2) }
     }
     #endif
+
+    private var playbackHistoryNote: String {
+        String(format: String(localized: "playback_history_note"),
+            Int(PlayHistoryStore.recordedThresholdSec),
+            PlayHistoryStore.maxRetainedEntries)
+    }
+
+    private var formattedFileSize: String? {
+        guard song.fileSize > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file)
+    }
 
     private func infoRow(_ label: String, _ value: String) -> some View {
         HStack {

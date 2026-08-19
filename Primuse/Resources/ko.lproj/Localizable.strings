@@ -2369,6 +2369,15 @@
 "casting_connected" = "● 연결됨";
 "file_size_label" = "파일 크기";
 "file_location_label" = "파일 위치";
+"disc_label" = "디스크";
+"playback_info" = "재생 기록";
+"last_played_label" = "최근 재생";
+"no_recorded_playback" = "재생 기록 없음";
+"playback_history_note" = "최근 보관된 %2$d개 기록 중 재생 위치가 %1$d초에 도달한 재생을 집계합니다.";
+"library_info" = "보관함";
+"date_added_label" = "추가 날짜";
+"last_modified_label" = "소스 날짜";
+"audio_quality_label" = "오디오 품질";
 "search_scope_local_apple_music" = "로컬 · Apple Music";
 "search_lyrics_hits_format" = "가사 일치 · %d";
 "search_top_match" = "상위 일치";

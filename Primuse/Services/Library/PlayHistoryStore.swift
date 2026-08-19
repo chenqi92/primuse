@@ -42,7 +42,7 @@ final class PlayHistoryStore {
 
     /// 最大保留条目数 — 滚动 evict 最老的。5000 条按平均 3 分钟一首
     /// 大约 250h = 10 天纯听歌, 实际能覆盖 1-2 年的零散听歌。
-    private static let maxEntries = 5000
+    static let maxRetainedEntries = 5000
 
     private(set) var entries: [Entry] = []
     private let storeURL: URL
@@ -107,8 +107,8 @@ final class PlayHistoryStore {
             sourceID: song.sourceID
         )
         entries.insert(entry, at: 0)
-        if entries.count > Self.maxEntries {
-            entries.removeLast(entries.count - Self.maxEntries)
+        if entries.count > Self.maxRetainedEntries {
+            entries.removeLast(entries.count - Self.maxRetainedEntries)
         }
         scheduleSave()
         notifyChanged()
@@ -136,7 +136,7 @@ final class PlayHistoryStore {
             mergedByID[entry.id] = entry
         }
         let merged = mergedByID.values.sorted { $0.playedAt > $1.playedAt }
-        entries = Array(merged.prefix(Self.maxEntries))
+        entries = Array(merged.prefix(Self.maxRetainedEntries))
         guard Set(entries.map(\.id)) != before else { return }
         scheduleSave()
         notifyChanged()
@@ -182,6 +182,28 @@ final class PlayHistoryStore {
     func entries(in range: Range, now: Date = Date()) -> [Entry] {
         let cutoff = range.startDate(now: now)
         return entries.filter { $0.playedAt >= cutoff }
+    }
+
+    struct SongPlaybackStats: Equatable, Sendable {
+        let playCount: Int
+        let lastPlayedAt: Date?
+    }
+
+    /// 播放次数只统计已经通过 session 阈值的记录，且受当前历史保留窗口限制。
+    func playbackStats(forSongID songID: String) -> SongPlaybackStats {
+        var count = 0
+        var lastPlayedAt: Date?
+        for entry in entries where entry.songID == songID {
+            count += 1
+            if let currentLastPlayedAt = lastPlayedAt {
+                if entry.playedAt > currentLastPlayedAt {
+                    lastPlayedAt = entry.playedAt
+                }
+            } else {
+                lastPlayedAt = entry.playedAt
+            }
+        }
+        return SongPlaybackStats(playCount: count, lastPlayedAt: lastPlayedAt)
     }
 
     struct RankedItem: Identifiable, Hashable {

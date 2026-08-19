@@ -2370,6 +2370,15 @@
 "casting_connected" = "● 接続済み";
 "file_size_label" = "ファイルサイズ";
 "file_location_label" = "ファイルの場所";
+"disc_label" = "ディスク";
+"playback_info" = "再生履歴";
+"last_played_label" = "最後に再生";
+"no_recorded_playback" = "再生記録なし";
+"playback_history_note" = "再生位置が %1$d 秒に達した記録を、保存されている最新 %2$d 件から集計します。";
+"library_info" = "ライブラリ";
+"date_added_label" = "追加日";
+"last_modified_label" = "ソースの日付";
+"audio_quality_label" = "音質";
 "search_scope_local_apple_music" = "ローカル · Apple Music";
 "search_lyrics_hits_format" = "歌詞の一致 · %d";
 "search_top_match" = "トップヒット";

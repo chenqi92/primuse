@@ -2346,6 +2346,15 @@
 "casting_connected" = "● 已連線";
 "file_size_label" = "檔案大小";
 "file_location_label" = "檔案位置";
+"disc_label" = "碟片";
+"playback_info" = "播放記錄";
+"last_played_label" = "最近播放";
+"no_recorded_playback" = "暫無播放記錄";
+"playback_history_note" = "僅統計播放進度達到 %1$d 秒的記錄，基於最近保留的 %2$d 筆歷史。";
+"library_info" = "資料庫";
+"date_added_label" = "加入日期";
+"last_modified_label" = "來源日期";
+"audio_quality_label" = "音訊規格";
 "search_scope_local_apple_music" = "本機 · Apple Music";
 "search_lyrics_hits_format" = "歌詞命中 · %d";
 "search_top_match" = "頂部配對";

@@ -388,7 +388,8 @@ actor UPnPSource: SongScanningConnector {
             filePath: resourceURL.absoluteString,
             sourceID: sourceID,
             fileSize: Int64(node.size ?? 0),
-            bitRate: node.bitrate,
+            // DIDL-Lite `res@bitrate` is bytes per second; Song stores kbps.
+            bitRate: node.bitrate.map { max(1, Int((Double($0) * 8 / 1_000).rounded())) },
             sampleRate: node.sampleRate,
             bitDepth: node.bitDepth,
             genre: nil,
