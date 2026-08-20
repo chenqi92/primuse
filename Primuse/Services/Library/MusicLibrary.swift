@@ -2097,7 +2097,7 @@ final class MusicLibrary {
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
     private static let startupCacheFormatVersion = 1
-    private static let loadedSongMigrationVersion = 1
+    private static let loadedSongMigrationVersion = 2
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -2759,6 +2759,7 @@ final class MusicLibrary {
             || old.artistID != new.artistID
             || old.albumTitle != new.albumTitle
             || old.artistName != new.artistName
+            || old.albumArtistName != new.albumArtistName
             || old.trackNumber != new.trackNumber
             || old.discNumber != new.discNumber
             || old.duration != new.duration
@@ -4703,16 +4704,17 @@ final class MusicLibrary {
                     format: song.fileFormat
                 )
                 : nil
-            let hasAlbum = song.albumTitle?.isEmpty == false
-            let needsDerivedIDs = song.artistID?.isEmpty != false
-                || (hasAlbum && song.albumID?.isEmpty != false)
-                || (!hasAlbum && song.albumID != nil)
+            var songWithExpectedDerivedIDs = song
+            fillDerivedIDs(&songWithExpectedDerivedIDs)
+            let needsDerivedIDs = song.artistID != songWithExpectedDerivedIDs.artistID
+                || song.albumID != songWithExpectedDerivedIDs.albumID
 
             if let correctedLegacyDTSDuration {
                 song.duration = correctedLegacyDTSDuration
             }
-            if repairedText || needsDerivedIDs {
-                fillDerivedIDs(&song)
+            if needsDerivedIDs {
+                song.artistID = songWithExpectedDerivedIDs.artistID
+                song.albumID = songWithExpectedDerivedIDs.albumID
             }
             if repairedText || needsDerivedIDs || correctedLegacyDTSDuration != nil {
                 songs[index] = song
@@ -4735,6 +4737,11 @@ final class MusicLibrary {
         var changed = false
         changed = repairLegacyChineseText(&song.title) || changed
         changed = repairLegacyChineseText(&song.artistName) || changed
+        if var albumArtistName = song.albumArtistName,
+           repairLegacyChineseText(&albumArtistName) {
+            song.albumArtistName = albumArtistName
+            changed = true
+        }
         changed = repairLegacyChineseText(&song.albumTitle) || changed
         changed = repairLegacyChineseText(&song.genre) || changed
         return changed
@@ -5260,8 +5267,13 @@ final class MusicLibrary {
         let unknownArtist = String(localized: "unknown_artist")
         let artist = song.artistName ?? unknownArtist
         song.artistID = hashID(artist.lowercased())
-        if let album = song.albumTitle, !album.isEmpty {
-            song.albumID = hashID("\(artist):\(album)")
+        if let identity = AlbumGroupingPolicy.identity(
+            albumTitle: song.albumTitle,
+            albumArtistName: song.albumArtistName,
+            trackArtistName: song.artistName,
+            unknownArtistName: unknownArtist
+        ) {
+            song.albumID = hashID("\(identity.artistName):\(identity.albumTitle)")
         } else {
             song.albumID = nil
         }
@@ -5290,28 +5302,32 @@ final class MusicLibrary {
         let unknownArtist = String(localized: "unknown_artist")
 
         // Albums ── 只 group 有 albumTitle 的歌曲
-        let songsWithAlbum = songs.filter { $0.albumTitle != nil && !$0.albumTitle!.isEmpty }
-        guard !cancellationCheck() else { return nil }
-        let albumGroups = Dictionary(grouping: songsWithAlbum) { song -> String in
-            let artist = song.artistName ?? unknownArtist
-            let album = song.albumTitle!
-            return "\(artist)\0\(album)"
+        let songsWithAlbum = songs.compactMap { song -> (Song, AlbumGroupingIdentity)? in
+            guard let identity = AlbumGroupingPolicy.identity(
+                albumTitle: song.albumTitle,
+                albumArtistName: song.albumArtistName,
+                trackArtistName: song.artistName,
+                unknownArtistName: unknownArtist
+            ) else { return nil }
+            return (song, identity)
         }
         guard !cancellationCheck() else { return nil }
-        let albums = albumGroups.map { key, songs -> Album in
-            let parts = key.split(separator: "\0", maxSplits: 1)
-            let artistName = parts.count > 0 ? String(parts[0]) : unknownArtist
-            let albumTitle = parts.count > 1 ? String(parts[1]) : unknownArtist
+        let albumGroups = Dictionary(grouping: songsWithAlbum) { entry in
+            entry.1
+        }
+        guard !cancellationCheck() else { return nil }
+        let albums = albumGroups.map { identity, entries -> Album in
+            let groupedSongs = entries.map(\.0)
             return Album(
-                id: hashID("\(artistName):\(albumTitle)"),
-                title: albumTitle,
-                artistID: hashID(artistName.lowercased()),
-                artistName: artistName,
-                year: songs.first?.year,
-                genre: songs.first?.genre,
-                songCount: songs.count,
-                totalDuration: songs.reduce(0) { $0 + $1.duration.sanitizedDuration },
-                sourceID: songs.first?.sourceID
+                id: hashID("\(identity.artistName):\(identity.albumTitle)"),
+                title: identity.albumTitle,
+                artistID: hashID(identity.artistName.lowercased()),
+                artistName: identity.artistName,
+                year: groupedSongs.first?.year,
+                genre: groupedSongs.first?.genre,
+                songCount: groupedSongs.count,
+                totalDuration: groupedSongs.reduce(0) { $0 + $1.duration.sanitizedDuration },
+                sourceID: groupedSongs.first?.sourceID
             )
         }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
         guard !cancellationCheck() else { return nil }
@@ -5340,11 +5356,12 @@ final class MusicLibrary {
     private nonisolated static func derivedIndexSignature(for songs: [Song]) -> String {
         var input = Data()
         input.reserveCapacity(max(128, songs.count * 96))
-        appendStableString("derived-index-v1", to: &input)
+        appendStableString("derived-index-v2", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
 
         for song in songs {
             appendStableString(song.artistName, to: &input)
+            appendStableString(song.albumArtistName, to: &input)
             appendStableString(song.albumTitle, to: &input)
             appendStableInteger(song.year.map(Int64.init) ?? Int64.min, to: &input)
             appendStableString(song.genre, to: &input)

@@ -9,6 +9,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var artistID: String?
     public var albumTitle: String?
     public var artistName: String?
+    /// Effective album artist used for album grouping. Full metadata readers
+    /// store the embedded album artist when available and otherwise fall back
+    /// to the track artist, so a nil value also identifies legacy rows that
+    /// have not yet inspected this field.
+    public var albumArtistName: String?
     public var trackNumber: Int?
     public var discNumber: Int?
     public var duration: TimeInterval
@@ -69,6 +74,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         artistID: String? = nil,
         albumTitle: String? = nil,
         artistName: String? = nil,
+        albumArtistName: String? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
         duration: TimeInterval = 0,
@@ -106,6 +112,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.artistID = artistID
         self.albumTitle = albumTitle
         self.artistName = artistName
+        self.albumArtistName = albumArtistName
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.duration = duration
@@ -136,6 +143,82 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.albumPinyin = albumPinyin
         self.lyricsText = lyricsText
         self.userMetadataEditedAt = userMetadataEditedAt
+    }
+}
+
+public struct AlbumGroupingIdentity: Hashable, Sendable {
+    public let albumTitle: String
+    public let artistName: String
+
+    public init(albumTitle: String, artistName: String) {
+        self.albumTitle = albumTitle
+        self.artistName = artistName
+    }
+}
+
+public enum AlbumGroupingPolicy {
+    /// Returns the album-level artist when supplied by the source, otherwise
+    /// the track artist. Call this when a source has completed metadata
+    /// inspection so legacy nil values can be distinguished from a known
+    /// fallback.
+    public static func resolvedAlbumArtistName(
+        albumArtistName: String?,
+        trackArtistName: String?
+    ) -> String? {
+        normalized(albumArtistName) ?? normalized(trackArtistName)
+    }
+
+    /// Keeps an explicit album artist stable while allowing the track-artist
+    /// fallback to follow a deliberate artist change.
+    public static func updatedAlbumArtistName(
+        existingAlbumArtistName: String?,
+        previousTrackArtistName: String?,
+        updatedTrackArtistName: String?,
+        incomingAlbumArtistName: String? = nil
+    ) -> String? {
+        if let incoming = normalized(incomingAlbumArtistName) {
+            return incoming
+        }
+
+        let existing = normalized(existingAlbumArtistName)
+        if existing == nil || equivalent(existing, normalized(previousTrackArtistName)) {
+            return normalized(updatedTrackArtistName)
+        }
+        return existing
+    }
+
+    public static func identity(
+        albumTitle: String?,
+        albumArtistName: String?,
+        trackArtistName: String?,
+        unknownArtistName: String
+    ) -> AlbumGroupingIdentity? {
+        guard let albumTitle = normalized(albumTitle) else { return nil }
+        let artistName = resolvedAlbumArtistName(
+            albumArtistName: albumArtistName,
+            trackArtistName: trackArtistName
+        ) ?? unknownArtistName
+        return AlbumGroupingIdentity(albumTitle: albumTitle, artistName: artistName)
+    }
+
+    /// Older persisted songs predate albumArtistName. A source that can read
+    /// embedded metadata should inspect such album rows once on its next scan.
+    public static func requiresMetadataRefresh(
+        albumTitle: String?,
+        albumArtistName: String?
+    ) -> Bool {
+        normalized(albumTitle) != nil && normalized(albumArtistName) == nil
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func equivalent(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        return lhs.caseInsensitiveCompare(rhs) == .orderedSame
     }
 }
 
@@ -283,6 +366,7 @@ public enum SongUserMetadataPolicy {
         result.artistID = existing.artistID
         result.albumTitle = existing.albumTitle
         result.artistName = existing.artistName
+        result.albumArtistName = existing.albumArtistName ?? incoming.albumArtistName
         result.trackNumber = existing.trackNumber
         result.discNumber = existing.discNumber
         result.genre = existing.genre

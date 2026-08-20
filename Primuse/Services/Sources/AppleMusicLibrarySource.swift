@@ -86,6 +86,10 @@ actor AppleMusicLibrarySource: SongScanningConnector {
                         title: displayName,
                         albumTitle: item.album.title,
                         artistName: item.artist?.name ?? item.album.albumArtist,
+                        albumArtistName: AlbumGroupingPolicy.resolvedAlbumArtistName(
+                            albumArtistName: item.album.albumArtist,
+                            trackArtistName: item.artist?.name
+                        ),
                         trackNumber: item.trackNumber > 0 ? item.trackNumber : nil,
                         discNumber: item.album.discNumber > 0 ? item.album.discNumber : nil,
                         duration: TimeInterval(item.totalTime) / 1000.0,

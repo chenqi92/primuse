@@ -9,6 +9,7 @@ actor MetadataService {
         var title: String
         var artist: String? = nil
         var albumTitle: String? = nil
+        var albumArtist: String? = nil
         var trackNumber: Int? = nil
         var discNumber: Int? = nil
         var year: Int? = nil
@@ -80,6 +81,10 @@ actor MetadataService {
             title: trustedEmbeddedTitle ?? titleFallback,
             artist: embedded.artist,
             albumTitle: embedded.albumTitle,
+            albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: embedded.albumArtist,
+                trackArtistName: embedded.artist
+            ),
             trackNumber: embedded.trackNumber,
             discNumber: embedded.discNumber,
             year: embedded.year,
@@ -196,6 +201,10 @@ actor MetadataService {
             title: preferredTitle,
             artist: MediaMetadataTextRepair.repaired(embedded.artist),
             albumTitle: MediaMetadataTextRepair.repaired(embedded.albumTitle),
+            albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: MediaMetadataTextRepair.repaired(embedded.albumArtist),
+                trackArtistName: MediaMetadataTextRepair.repaired(embedded.artist)
+            ),
             trackNumber: embedded.trackNumber,
             discNumber: embedded.discNumber,
             year: embedded.year,
@@ -326,6 +335,8 @@ actor MetadataService {
 
         // Apply metadata from detail
         if let detail = scrapeResult.detail {
+            let previousArtist = result.artist
+            let previousAlbumArtist = result.albumArtist
             result.title = ScrapeMetadataApplicationPolicy.resolvedText(
                 original: result.title,
                 scraped: detail.title,
@@ -341,6 +352,20 @@ actor MetadataService {
                 scraped: detail.album,
                 overwrite: overwriteMetadata
             )
+            let scrapedAlbumArtist = ScrapeMetadataApplicationPolicy.resolvedText(
+                original: result.albumArtist,
+                scraped: detail.albumArtist,
+                overwrite: overwriteMetadata
+            )
+            if detail.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                result.albumArtist = scrapedAlbumArtist
+            } else {
+                result.albumArtist = AlbumGroupingPolicy.updatedAlbumArtistName(
+                    existingAlbumArtistName: previousAlbumArtist,
+                    previousTrackArtistName: previousArtist,
+                    updatedTrackArtistName: result.artist
+                )
+            }
             result.year = ScrapeMetadataApplicationPolicy.resolvedValue(
                 original: result.year,
                 scraped: detail.year,

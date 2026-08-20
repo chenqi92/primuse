@@ -8,7 +8,7 @@ struct AppleMusicLibraryAPITests {
     func initialURLClampsLimit() {
         #expect(
             AppleMusicLibraryAPI.initialURL(for: .songs, limit: 500).absoluteString
-                == "https://api.music.apple.com/v1/me/library/songs?limit=100"
+                == "https://api.music.apple.com/v1/me/library/songs?limit=100&include=albums"
         )
         #expect(
             AppleMusicLibraryAPI.initialURL(for: .playlists, limit: 0).absoluteString

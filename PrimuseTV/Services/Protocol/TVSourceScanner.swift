@@ -656,6 +656,7 @@ final class TVSourceScanner {
             artistID: artistID,
             albumTitle: album,
             artistName: artist,
+            albumArtistName: artist,
             fileFormat: format,
             filePath: e.path,
             sourceID: source.id,

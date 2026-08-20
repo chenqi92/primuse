@@ -1894,6 +1894,7 @@ final class MetadataBackfillService {
         return (!incomingTitle.isEmpty && incomingTitle != currentTitle)
             || metadata.artist != nil
             || metadata.albumTitle != nil
+            || metadata.albumArtist != nil
             || metadata.trackNumber != nil
             || metadata.discNumber != nil
             || metadata.year != nil
@@ -1941,9 +1942,15 @@ final class MetadataBackfillService {
         let mergedAlbum = bare.isCueTrack
             ? (bare.albumTitle ?? metadata.albumTitle)
             : (metadata.albumTitle ?? bare.albumTitle)
+        let mergedAlbumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: bare.isCueTrack
+                ? (bare.albumArtistName ?? metadata.albumArtist)
+                : (metadata.albumArtist ?? bare.albumArtistName),
+            trackArtistName: mergedArtist
+        )
         let artistID = mergedArtist.map { Self.hash($0.lowercased()) }
-        let albumID: String? = if let artist = mergedArtist, let album = mergedAlbum {
-            Self.hash("\(artist.lowercased()):\(album.lowercased())")
+        let albumID: String? = if let albumArtist = mergedAlbumArtist, let album = mergedAlbum {
+            Self.hash("\(albumArtist.lowercased()):\(album.lowercased())")
         } else {
             nil
         }
@@ -1969,6 +1976,7 @@ final class MetadataBackfillService {
             artistID: artistID,
             albumTitle: mergedAlbum,
             artistName: mergedArtist,
+            albumArtistName: mergedAlbumArtist,
             trackNumber: bare.isCueTrack ? bare.trackNumber : (metadata.trackNumber ?? bare.trackNumber),
             discNumber: metadata.discNumber ?? bare.discNumber,
             duration: mergedDuration,
@@ -2092,6 +2100,10 @@ final class MetadataBackfillService {
             titleChecked: titleCheckedIDs.contains(song.id),
             durationInspectionComplete: incompleteSongIDs.contains(song.id)
         )
+            || AlbumGroupingPolicy.requiresMetadataRefresh(
+                albumTitle: song.albumTitle,
+                albumArtistName: song.albumArtistName
+            )
     }
 
     private static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {

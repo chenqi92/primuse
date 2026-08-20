@@ -149,6 +149,10 @@ public struct DaoLiYuCatalogTrack: Sendable {
             artistID: artistID,
             albumTitle: albumTitle,
             artistName: artistName ?? albumArtist,
+            albumArtistName: AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: albumArtist,
+                trackArtistName: artistName
+            ),
             trackNumber: trackNumber,
             discNumber: discNumber,
             duration: durationSeconds,

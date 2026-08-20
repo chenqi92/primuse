@@ -1368,6 +1368,11 @@ struct TagEditorView: View {
         }
         updated.artistName = trimmedOrNil(artist)
         updated.albumTitle = trimmedOrNil(album)
+        updated.albumArtistName = AlbumGroupingPolicy.updatedAlbumArtistName(
+            existingAlbumArtistName: song.albumArtistName,
+            previousTrackArtistName: song.artistName,
+            updatedTrackArtistName: updated.artistName
+        )
         updated.genre = trimmedOrNil(genre)
         updated.year = Int(yearText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.trackNumber = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))

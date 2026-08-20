@@ -74,8 +74,12 @@ actor LibraryScanner {
                             fallbackTitle: originalBaseName
                         )
                         let artistID = metadata.artist.map { generateArtistID(name: $0) }
-                        let albumID: String? = if let album = metadata.albumTitle, let artist = metadata.artist {
-                            generateAlbumID(artist: artist, album: album)
+                        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+                            albumArtistName: metadata.albumArtist,
+                            trackArtistName: metadata.artist
+                        )
+                        let albumID: String? = if let album = metadata.albumTitle, let albumArtist {
+                            generateAlbumID(artist: albumArtist, album: album)
                         } else {
                             nil
                         }
@@ -89,6 +93,7 @@ actor LibraryScanner {
                             artistID: artistID,
                             albumTitle: metadata.albumTitle,
                             artistName: metadata.artist,
+                            albumArtistName: albumArtist,
                             trackNumber: metadata.trackNumber,
                             discNumber: metadata.discNumber,
                             duration: metadata.duration,
@@ -124,8 +129,8 @@ actor LibraryScanner {
                             let album = Album(
                                 id: albumID,
                                 title: albumTitle,
-                                artistID: artistID,
-                                artistName: metadata.artist,
+                                artistID: albumArtist.map { generateArtistID(name: $0) },
+                                artistName: albumArtist,
                                 year: metadata.year,
                                 genre: metadata.genre,
                                 sourceID: source.id

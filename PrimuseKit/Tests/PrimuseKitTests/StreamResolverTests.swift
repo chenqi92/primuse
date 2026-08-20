@@ -907,7 +907,12 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
         "duration": 999_999,
         "createdAt": 1_725_000_000,
         "updatedAt": 1_725_000_100,
-        "album": ["guid": "album-guid", "name": "Album", "coverId": "cover-guid"],
+        "album": [
+            "guid": "album-guid",
+            "name": "Album",
+            "artistName": "Various Artists",
+            "coverId": "cover-guid",
+        ],
         "artists": [["guid": "artist-guid", "name": "Artist"]],
         "audioSpec": [
             "path": "/volume/music/track.bin",
@@ -931,6 +936,7 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(first.filePath != "/volume/music/track.flac")
     #expect(first.albumID == "album-guid")
     #expect(first.artistName == "Artist")
+    #expect(first.albumArtistName == "Various Artists")
     #expect(first.duration == 123.456)
     #expect(first.bitRate == 1_411)
     #expect(first.coverArtFileName == "fnmusic-cover/cover-guid?revision=1725000100")

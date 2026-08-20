@@ -105,6 +105,10 @@ enum TVMetadataEnricher {
         if let t = meta.title?.trimmedNonEmpty { out.title = t }
         if let al = meta.albumTitle?.trimmedNonEmpty { out.albumTitle = al }
         if let ar = meta.artist?.trimmedNonEmpty { out.artistName = ar }
+        out.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: meta.albumArtist?.trimmedNonEmpty ?? out.albumArtistName,
+            trackArtistName: out.artistName
+        )
         out.bitRate = meta.bitRate ?? out.bitRate
         out.sampleRate = meta.sampleRate ?? out.sampleRate
         out.bitDepth = meta.bitDepth ?? out.bitDepth

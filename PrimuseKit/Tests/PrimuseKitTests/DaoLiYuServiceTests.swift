@@ -35,7 +35,11 @@ import Testing
         "title": "Connector Tone",
         "artist": ["id": "artist_1", "name": "Primuse QA"],
         "artistName": "Primuse QA",
-        "album": ["id": "album_1", "title": "Validation"],
+        "album": [
+            "id": "album_1",
+            "title": "Validation",
+            "albumArtist": "Various Artists",
+        ],
         "filePath": "/data/music/tone.flac",
         "fileSize": 114_514,
         "fileFormat": "flac",
@@ -57,6 +61,7 @@ import Testing
     #expect(first.title == "Connector Tone")
     #expect(first.artistName == "Primuse QA")
     #expect(first.albumTitle == "Validation")
+    #expect(first.albumArtistName == "Various Artists")
     #expect(first.filePath == "/daoliyu/tracks/trk_123.flac")
     #expect(first.fileFormat == .flac)
     #expect(first.duration == 8)

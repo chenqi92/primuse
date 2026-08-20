@@ -1105,9 +1105,13 @@ actor ConnectorScanner {
             guard let start = descriptor.track.startTime else { return nil }
             let end = descriptor.track.endTime
             let artist = descriptor.track.performer ?? descriptor.albumPerformer
+            let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: descriptor.albumPerformer,
+                trackArtistName: artist
+            )
             let artistID = artist.map { hash($0.lowercased()) }
-            let albumID: String? = if let artist, let album = descriptor.albumTitle {
-                hash("\(artist.lowercased()):\(album.lowercased())")
+            let albumID: String? = if let albumArtist, let album = descriptor.albumTitle {
+                hash("\(albumArtist.lowercased()):\(album.lowercased())")
             } else {
                 nil
             }
@@ -1128,6 +1132,7 @@ actor ConnectorScanner {
                 artistID: artistID,
                 albumTitle: descriptor.albumTitle,
                 artistName: artist,
+                albumArtistName: albumArtist,
                 trackNumber: descriptor.track.number,
                 duration: end.map { max(0, $0 - start) } ?? 0,
                 fileFormat: descriptor.format,
@@ -1190,6 +1195,7 @@ actor ConnectorScanner {
             || existing.cueEndTime != incoming.cueEndTime
             || existing.title != incoming.title
             || existing.artistName != incoming.artistName
+            || existing.albumArtistName != incoming.albumArtistName
             || existing.albumTitle != incoming.albumTitle
             || existing.trackNumber != incoming.trackNumber
             || existing.fileFormat != incoming.fileFormat
@@ -1225,6 +1231,11 @@ actor ConnectorScanner {
         if existing.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             || MediaMetadataTextRepair.isSuspicious(existing.albumTitle) {
             refreshed.albumTitle = incoming.albumTitle
+            refreshed.albumID = incoming.albumID
+        }
+        if existing.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName) {
+            refreshed.albumArtistName = incoming.albumArtistName
             refreshed.albumID = incoming.albumID
         }
         if existing.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
@@ -1434,8 +1445,12 @@ actor ConnectorScanner {
         sidecarRefs: SidecarRefs = SidecarRefs()
     ) -> Song {
         let artistID = metadata.artist.map { hash("\($0.lowercased())") }
-        let albumID: String? = if let artist = metadata.artist, let album = metadata.albumTitle {
-            hash("\(artist.lowercased()):\(album.lowercased())")
+        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: metadata.albumArtist,
+            trackArtistName: metadata.artist
+        )
+        let albumID: String? = if let albumArtist, let album = metadata.albumTitle {
+            hash("\(albumArtist.lowercased()):\(album.lowercased())")
         } else {
             nil
         }
@@ -1454,6 +1469,7 @@ actor ConnectorScanner {
             artistID: artistID,
             albumTitle: metadata.albumTitle,
             artistName: metadata.artist,
+            albumArtistName: albumArtist,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
             duration: metadata.duration,

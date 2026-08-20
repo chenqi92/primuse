@@ -198,7 +198,13 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                                 $0.filePath == item.path && $0.isCueTrack
                             }
                             if !existingTracks.isEmpty,
-                               existingTracks.allSatisfy({ $0.revision == expectedRevision }) {
+                               existingTracks.allSatisfy({
+                                   $0.revision == expectedRevision
+                                       && !AlbumGroupingPolicy.requiresMetadataRefresh(
+                                           albumTitle: $0.albumTitle,
+                                           albumArtistName: $0.albumArtistName
+                                       )
+                               }) {
                                 for track in existingTracks {
                                     continuation.yield(ConnectorScannedSong(
                                         song: track,
@@ -214,7 +220,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                         }
 
                         if let existing = existingByID[physicalID],
-                           Self.fingerprintMatches(existing: existing, item: item) {
+                           Self.fingerprintMatches(existing: existing, item: item),
+                           !AlbumGroupingPolicy.requiresMetadataRefresh(
+                               albumTitle: existing.albumTitle,
+                               albumArtistName: existing.albumArtistName
+                           ) {
                             var refreshed = existing
                             if refreshed.revision == nil { refreshed.revision = item.revision }
                             if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }
@@ -353,6 +363,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
             title: metadata.title,
             albumTitle: metadata.albumTitle,
             artistName: metadata.artist,
+            albumArtistName: metadata.albumArtist,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
             duration: duration,
@@ -535,6 +546,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
             let end = descriptor.track.endTime ?? (physicalDuration > start ? physicalDuration : nil)
             let artist = descriptor.track.performer ?? descriptor.albumPerformer ?? metadata.artist
             let album = descriptor.albumTitle ?? metadata.albumTitle
+            let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: descriptor.albumPerformer ?? metadata.albumArtist,
+                trackArtistName: artist
+            )
             let trackID = Self.generateID(
                 sourceID: sourceID,
                 path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
@@ -542,10 +557,13 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
             let song = Song(
                 id: trackID,
                 title: descriptor.track.title ?? String(format: "Track %02d", descriptor.track.number),
-                albumID: album.map { Self.generateID(sourceID: "album", path: "\(artist ?? ""):\($0)") },
+                albumID: album.map {
+                    Self.generateID(sourceID: "album", path: "\(albumArtist ?? ""):\($0)")
+                },
                 artistID: artist.map { Self.generateID(sourceID: "artist", path: $0) },
                 albumTitle: album,
                 artistName: artist,
+                albumArtistName: albumArtist,
                 trackNumber: descriptor.track.number,
                 duration: end.map { max(0, $0 - start) } ?? 0,
                 fileFormat: descriptor.format,

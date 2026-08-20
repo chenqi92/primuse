@@ -34,6 +34,9 @@ public enum AppleMusicLibraryAPI {
         components.queryItems = [
             URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))
         ]
+        if case .songs = endpoint {
+            components.queryItems?.append(URLQueryItem(name: "include", value: "albums"))
+        }
         return components.url!
     }
 

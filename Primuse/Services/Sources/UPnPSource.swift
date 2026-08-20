@@ -368,8 +368,12 @@ actor UPnPSource: SongScanningConnector {
 
         let songID = hash("\(sourceID):\(resourceURL.absoluteString)")
         let artistID = node.artist.map { hash($0.lowercased()) }
-        let albumID: String? = if let artist = node.artist, let album = node.album {
-            hash("\(artist.lowercased()):\(album.lowercased())")
+        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: node.albumArtist,
+            trackArtistName: node.artist
+        )
+        let albumID: String? = if let albumArtist, let album = node.album {
+            hash("\(albumArtist.lowercased()):\(album.lowercased())")
         } else {
             nil
         }
@@ -381,6 +385,7 @@ actor UPnPSource: SongScanningConnector {
             artistID: artistID,
             albumTitle: node.album,
             artistName: node.artist,
+            albumArtistName: albumArtist,
             trackNumber: node.trackNumber,
             discNumber: nil,
             duration: parseDuration(node.durationString),
@@ -995,6 +1000,7 @@ private struct UPnPNode: Sendable {
     let title: String
     let className: String?
     let artist: String?
+    let albumArtist: String?
     let album: String?
     let resourceURL: URL?
     let albumArtURL: URL?
@@ -1107,6 +1113,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
         var title: String = ""
         var className: String?
         var artist: String?
+        var albumArtist: String?
         var album: String?
         var albumArtURL: URL?
         var dateString: String?
@@ -1128,6 +1135,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
     private var currentText = ""
     private var currentNode: Builder?
     private var currentResource: ResourceBuilder?
+    private var currentArtistRole: String?
 
     private(set) var nodes: [UPnPNode] = []
 
@@ -1165,6 +1173,8 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
                 sampleRate: attributeDict["sampleFrequency"].flatMap(Int.init),
                 bitDepth: attributeDict["bitsPerSample"].flatMap(Int.init)
             )
+        case "artist":
+            currentArtistRole = attributeDict["role"]
         default:
             break
         }
@@ -1193,7 +1203,17 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
             }
         case "class":
             node.className = text
-        case "artist", "creator":
+        case "artist":
+            let normalizedRole = currentArtistRole?
+                .replacingOccurrences(of: " ", with: "")
+                .lowercased()
+            if normalizedRole == "albumartist", text.isEmpty == false {
+                node.albumArtist = text
+            } else if node.artist == nil, text.isEmpty == false {
+                node.artist = text
+            }
+            currentArtistRole = nil
+        case "creator":
             if node.artist == nil, text.isEmpty == false {
                 node.artist = text
             }
@@ -1234,6 +1254,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
                     title: node.title,
                     className: node.className,
                     artist: node.artist,
+                    albumArtist: node.albumArtist,
                     album: node.album,
                     resourceURL: selectedResource?.url,
                     albumArtURL: node.albumArtURL,

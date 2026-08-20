@@ -342,7 +342,11 @@ actor SynologyScanner {
                     } else {
                         contentSame = sizeSame && mtimeSame
                     }
-                    if contentSame {
+                    if contentSame,
+                       !AlbumGroupingPolicy.requiresMetadataRefresh(
+                           albumTitle: existing.albumTitle,
+                           albumArtistName: existing.albumArtistName
+                       ) {
                         // 旧库迁移: existing 缺 mtime 而远端有 —— 廉价回填 mtime(不重新解析
                         // 元数据 / 不下载 header)。否则这首歌永远 lastModified=nil, 跳过路径也
                         // 走不到下方写入, 未来同名同大小覆盖永远检测不到。回填后随 addSongs
@@ -517,6 +521,10 @@ actor SynologyScanner {
                 ?? descriptor.albumPerformer
                 ?? physical.artistName
             let album = descriptor.albumTitle ?? physical.albumTitle
+            let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: descriptor.albumPerformer ?? physical.albumArtistName,
+                trackArtistName: artist
+            )
             var song = physical
             song.id = generateID(
                 sourceID: sourceID,
@@ -525,10 +533,11 @@ actor SynologyScanner {
             song.title = descriptor.track.title
                 ?? String(format: "Track %02d", descriptor.track.number)
             song.artistName = artist
+            song.albumArtistName = albumArtist
             song.artistID = artist.map { generateID(sourceID: "artist", path: $0.lowercased()) }
             song.albumTitle = album
             song.albumID = album.map {
-                generateID(sourceID: "album", path: "\(artist ?? ""):\($0.lowercased())")
+                generateID(sourceID: "album", path: "\(albumArtist ?? ""):\($0.lowercased())")
             }
             song.trackNumber = descriptor.track.number
             song.duration = end.map { max(0, $0 - start) } ?? 0
@@ -736,6 +745,7 @@ actor SynologyScanner {
         var title = parsedTitle
         var artist = parsedArtist
         var album: String? = genericFolders.contains(albumFromPath) ? nil : albumFromPath
+        var albumArtist: String?
         var trackNumber: Int?
         var duration: TimeInterval = 0
         var year: Int?
@@ -762,6 +772,7 @@ actor SynologyScanner {
             )
             guard readSize > 0 else {
                 return makeSong(id: songID, title: title, artist: artist, album: album,
+                               albumArtist: albumArtist,
                                trackNumber: trackNumber, duration: duration, format: format,
                                path: item.path, size: item.size, year: year, genre: genre,
                                sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth,
@@ -823,6 +834,7 @@ actor SynologyScanner {
             if let value = embedded.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 album = embedded.albumTitle
             }
+            albumArtist = MediaMetadataTextRepair.repaired(embedded.albumArtist)
             trackNumber = embedded.trackNumber
             year = embedded.year
             genre = embedded.genre
@@ -894,6 +906,7 @@ actor SynologyScanner {
         plog("📦 Song built: \(title) | cover=\(coverArtFileName ?? "nil") | lyrics=\(lyricsFileName ?? "nil")")
 
         return makeSong(id: songID, title: title, artist: artist, album: album,
+                        albumArtist: albumArtist,
                         trackNumber: trackNumber, duration: duration, format: format,
                         path: item.path, size: item.size, year: year, genre: genre,
                         sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth,
@@ -905,7 +918,7 @@ actor SynologyScanner {
     }
 
     private func makeSong(
-        id: String, title: String, artist: String?, album: String?,
+        id: String, title: String, artist: String?, album: String?, albumArtist: String?,
         trackNumber: Int?, duration: TimeInterval, format: AudioFormat,
         path: String, size: Int64, year: Int?, genre: String?,
         sampleRate: Int?, bitRate: Int?, bitDepth: Int?,
@@ -916,13 +929,17 @@ actor SynologyScanner {
         replayGainAlbumPeak: Double? = nil
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
-        let albumID: String? = if let a = album, let ar = artist {
+        let resolvedAlbumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: albumArtist,
+            trackArtistName: artist
+        )
+        let albumID: String? = if let a = album, let ar = resolvedAlbumArtist {
             generateID(sourceID: "", path: "\(ar.lowercased()):\(a.lowercased())")
         } else { nil }
 
         return Song(
             id: id, title: title, albumID: albumID, artistID: artistID,
-            albumTitle: album, artistName: artist,
+            albumTitle: album, artistName: artist, albumArtistName: resolvedAlbumArtist,
             trackNumber: trackNumber, duration: duration,
             fileFormat: format, filePath: path, sourceID: sourceID,
             fileSize: size, bitRate: bitRate, sampleRate: sampleRate,

@@ -1268,11 +1268,16 @@ final class AppleMusicLibraryService {
         let sourceID = Self.systemSourceID
         let amID = s.id.rawValue
         let songID = hashSongID(sourceID: sourceID, path: amID)
+        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: s.albums?.first?.artistName,
+            trackArtistName: s.artistName
+        )
         return PrimuseKit.Song(
             id: songID,
             title: s.title,
             albumTitle: s.albumTitle,
             artistName: s.artistName,
+            albumArtistName: albumArtist,
             trackNumber: s.trackNumber,
             discNumber: s.discNumber,
             duration: s.duration ?? 0,

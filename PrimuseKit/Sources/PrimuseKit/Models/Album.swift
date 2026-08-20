@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 public struct Album: Codable, Identifiable, Hashable, Sendable {
-    public var id: String // SHA256 of artistName + albumTitle
+    public var id: String // SHA256 of album artist name + album title
     public var title: String
     public var artistID: String?
     public var artistName: String?

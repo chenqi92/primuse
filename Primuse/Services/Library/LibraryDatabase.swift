@@ -254,6 +254,12 @@ actor LibraryDatabase {
             try PlaylistDatabaseMigration.migrate(db)
         }
 
+        migrator.registerMigration("v11_song_album_artist") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "albumArtistName", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

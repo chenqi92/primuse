@@ -110,10 +110,12 @@ struct SongUserMetadataPolicyTests {
     func preservesUserIdentityAndRefreshesDuration() {
         var existing = song(title: "手工标题", duration: 0)
         existing.artistName = "手工艺术家"
+        existing.albumArtistName = "旧专辑艺术家"
         existing.userMetadataEditedAt = Date(timeIntervalSince1970: 1_750_000_000)
 
         var incoming = song(title: "源标题", duration: 192)
         incoming.artistName = "源艺术家"
+        incoming.albumArtistName = "新专辑艺术家"
         incoming.bitRate = 320
 
         let merged = SongUserMetadataPolicy.preservingUserEdits(
@@ -122,9 +124,28 @@ struct SongUserMetadataPolicyTests {
         )
         #expect(merged.title == "手工标题")
         #expect(merged.artistName == "手工艺术家")
+        #expect(merged.albumArtistName == "旧专辑艺术家")
         #expect(merged.duration == 192)
         #expect(merged.bitRate == 320)
         #expect(merged.userMetadataEditedAt == existing.userMetadataEditedAt)
+    }
+
+    @Test("Background refresh fills album artist for legacy edited songs")
+    func fillsLegacyAlbumArtistWithoutReplacingUserArtist() {
+        var existing = song(title: "手工标题", duration: 0)
+        existing.artistName = "手工艺术家"
+        existing.userMetadataEditedAt = Date(timeIntervalSince1970: 1_750_000_000)
+
+        var incoming = song(title: "源标题", duration: 192)
+        incoming.artistName = "源艺术家"
+        incoming.albumArtistName = "源专辑艺术家"
+
+        let merged = SongUserMetadataPolicy.preservingUserEdits(
+            from: existing,
+            in: incoming
+        )
+        #expect(merged.artistName == "手工艺术家")
+        #expect(merged.albumArtistName == "源专辑艺术家")
     }
 
     private func song(title: String, duration: TimeInterval) -> Song {

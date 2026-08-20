@@ -1541,12 +1541,19 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             ?? MediaMetadataTextRepair.fileNameTitle(from: item.path)
             ?? item.name.replacingOccurrences(of: "\u{FFFD}", with: "")
         let artistCandidates = [
+            item.artists?.first,
             item.albumArtist,
-            item.albumArtists?.first?.name,
-            item.artists?.first
+            item.albumArtists?.first?.name
         ]
         let artist = artistCandidates.lazy.compactMap(MediaMetadataTextRepair.repaired).first
             ?? MediaMetadataTextRepair.fileNameArtist(from: item.path)
+        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: [item.albumArtist, item.albumArtists?.first?.name]
+                .lazy
+                .compactMap(MediaMetadataTextRepair.repaired)
+                .first,
+            trackArtistName: artist
+        )
         let album = MediaMetadataTextRepair.repaired(item.album)
         let genres = item.genres?
             .compactMap(MediaMetadataTextRepair.repaired)
@@ -1564,6 +1571,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             artistID: artist == nil ? nil : item.albumArtists?.first?.id,
             albumTitle: album,
             artistName: artist,
+            albumArtistName: albumArtist,
             trackNumber: item.indexNumber,
             discNumber: item.parentIndexNumber,
             duration: duration,
@@ -1590,11 +1598,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let title = MediaMetadataTextRepair.repaired(item.title)
             ?? MediaMetadataTextRepair.fileNameTitle(from: part?.file)
             ?? item.title
-        let artist = [item.originalTitle, item.grandparentTitle]
+        let artist = [item.originalTitle]
             .lazy
             .compactMap(MediaMetadataTextRepair.repaired)
             .first
             ?? MediaMetadataTextRepair.fileNameArtist(from: part?.file)
+            ?? MediaMetadataTextRepair.repaired(item.grandparentTitle)
+        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: MediaMetadataTextRepair.repaired(item.grandparentTitle),
+            trackArtistName: artist
+        )
         let album = MediaMetadataTextRepair.repaired(item.parentTitle)
         let genres = item.genres?
             .compactMap(MediaMetadataTextRepair.repaired)
@@ -1605,6 +1618,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             title: title,
             albumTitle: album,
             artistName: artist,
+            albumArtistName: albumArtist,
             trackNumber: item.index,
             discNumber: item.parentIndex,
             duration: Double(item.duration ?? 0) / 1000,

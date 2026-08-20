@@ -656,6 +656,18 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             ?? Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
         let albumTitle = Self.cleaned(child.album, unknown: "[Unknown Album]")
             ?? Self.cleaned(album?.name, unknown: "[Unknown Album]")
+        let joinedAlbumArtists = child.albumArtists.flatMap { artists -> String? in
+            let names = artists.compactMap {
+                Self.cleaned($0.name, unknown: "[Unknown Artist]")
+            }
+            return Self.cleaned(names.joined(separator: ", "), unknown: "[Unknown Artist]")
+        }
+        let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]")
+                ?? joinedAlbumArtists
+                ?? Self.cleaned(album?.artist, unknown: "[Unknown Artist]"),
+            trackArtistName: artist
+        )
 
         return Song(
             id: Self.hash("\(sourceID):\(relativePath)"),
@@ -664,6 +676,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             artistID: child.artistId,
             albumTitle: albumTitle,
             artistName: artist,
+            albumArtistName: albumArtist,
             trackNumber: child.track,
             discNumber: child.discNumber,
             duration: TimeInterval(child.duration ?? 0),
@@ -1005,6 +1018,8 @@ private struct SubsonicChild: Decodable, Sendable {
     let album: String?
     let artist: String?
     let displayArtist: String?
+    let displayAlbumArtist: String?
+    let albumArtists: [SubsonicArtistID3]?
     let albumId: String?
     let artistId: String?
     let track: Int?
@@ -1022,6 +1037,11 @@ private struct SubsonicChild: Decodable, Sendable {
     // OpenSubsonic 扩展
     let samplingRate: Int?
     let bitDepth: Int?
+}
+
+private struct SubsonicArtistID3: Decodable, Sendable {
+    let id: String?
+    let name: String?
 }
 
 private struct PlaylistsContainer: SubsonicResponseContainer {

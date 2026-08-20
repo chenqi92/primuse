@@ -1987,6 +1987,12 @@ final class MusicScraperService {
         var s = song
         if (s.artistName?.isEmpty ?? true), let v = m.artist, !v.isEmpty { s.artistName = v }
         if (s.albumTitle?.isEmpty ?? true), let v = m.albumTitle, !v.isEmpty { s.albumTitle = v }
+        if s.albumArtistName?.isEmpty != false {
+            s.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: m.albumArtist,
+                trackArtistName: s.artistName
+            )
+        }
         if s.year == nil { s.year = m.year }
         if (s.genre?.isEmpty ?? true), let v = m.genre, !v.isEmpty { s.genre = v }
         if s.trackNumber == nil { s.trackNumber = m.trackNumber }
@@ -2047,6 +2053,23 @@ final class MusicScraperService {
             original: song.artistName,
             scraped: scrapedArtist,
             isCueTrack: song.isCueTrack
+        )
+        let scrapedAlbumArtist = onlyFillMissing && song.albumArtistName?.isEmpty == false
+            ? song.albumArtistName
+            : AlbumGroupingPolicy.updatedAlbumArtistName(
+                existingAlbumArtistName: song.albumArtistName,
+                previousTrackArtistName: song.artistName,
+                updatedTrackArtistName: merged.artistName,
+                incomingAlbumArtistName: metadata.albumArtist
+            )
+        let resolvedAlbumArtist = ScrapeCueIdentityPolicy.resolvedOptionalText(
+            original: song.albumArtistName,
+            scraped: scrapedAlbumArtist,
+            isCueTrack: song.isCueTrack
+        )
+        merged.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
+            albumArtistName: resolvedAlbumArtist,
+            trackArtistName: merged.artistName
         )
         merged.trackNumber = song.trackNumber ?? metadata.trackNumber
         merged.discNumber = song.discNumber ?? metadata.discNumber

@@ -471,7 +471,10 @@ final class ScrobbleService {
             title: song.title,
             artist: song.artistName ?? "Unknown Artist",
             album: song.albumTitle,
-            albumArtist: nil,
+            albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: song.albumArtistName,
+                trackArtistName: song.artistName
+            ),
             durationSec: song.duration.isFinite && song.duration > 0
                 ? song.duration.finiteInt()
                 : nil,

@@ -55,6 +55,7 @@ public struct FnMusicCatalogTrack: Sendable {
     public let updatedAt: Int?
     public let albumGUID: String?
     public let albumName: String?
+    public let albumArtistName: String?
     public let artistGUID: String?
     public let artistNames: [String]
     public let genreNames: [String]
@@ -103,6 +104,25 @@ public struct FnMusicCatalogTrack: Sendable {
             ?? fnMusicFirstNonemptyString(json, keys: ["albumGUID", "albumGuid", "albumId"])
         self.albumName = fnMusicFirstNonemptyString(album, keys: ["name", "title"])
             ?? fnMusicNonemptyString(json["album"])
+
+        let albumArtistObjects = (json["albumArtists"] as? [[String: Any]])
+            ?? (album?["artists"] as? [[String: Any]])
+            ?? []
+        let albumArtistObjectNames = albumArtistObjects.compactMap {
+            fnMusicFirstNonemptyString($0, keys: ["name", "title"])
+        }
+        let albumArtistStrings = (json["albumArtists"] as? [String])?
+            .compactMap(fnMusicNonemptyString) ?? []
+        let albumArtistObject = fnMusicObject(album?["artist"])
+        self.albumArtistName = fnMusicFirstNonemptyString(
+            json,
+            keys: ["albumArtist", "albumArtistName"]
+        )
+            ?? fnMusicFirstNonemptyString(album, keys: ["albumArtist", "artistName"])
+            ?? fnMusicFirstNonemptyString(albumArtistObject, keys: ["name", "title"])
+            ?? fnMusicNonemptyString(album?["artist"])
+            ?? (!albumArtistObjectNames.isEmpty ? albumArtistObjectNames.joined(separator: ", ") : nil)
+            ?? (!albumArtistStrings.isEmpty ? albumArtistStrings.joined(separator: ", ") : nil)
 
         let artists = json["artists"] as? [[String: Any]] ?? []
         self.artistGUID = artists.compactMap {
@@ -191,6 +211,10 @@ public struct FnMusicCatalogTrack: Sendable {
             artistID: artistGUID,
             albumTitle: albumName,
             artistName: artistName,
+            albumArtistName: AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: albumArtistName,
+                trackArtistName: artistName
+            ),
             trackNumber: trackNumber,
             discNumber: discNumber,
             duration: TimeInterval(durationMilliseconds ?? 0) / 1_000,
