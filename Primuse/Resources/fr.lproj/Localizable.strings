@@ -87,6 +87,12 @@
 "tag_editor_reset" = "Rétablir l'original";
 "tag_editor_reset_confirm" = "Abandonner vos modifications ?";
 "tag_editor_footer" = "Les tags et la pochette restent dans Primuse. Pour les paroles, consultez l’état de réécriture affiché ci-dessus.";
+"tag_editor_metadata_writeback_checking" = "Vérification de l’emplacement d’enregistrement des tags et de la pochette…";
+"tag_editor_metadata_writeback_embedded" = "Les tags et la pochette seront intégrés au fichier audio WebDAV. Primuse retélécharge et vérifie le fichier et les métadonnées après l’enregistrement.";
+"tag_editor_metadata_writeback_sidecar_only" = "Cette source ne prend en charge que les fichiers annexes. Les tags et la pochette restent dans Primuse ; le fichier audio est inchangé.";
+"tag_editor_metadata_writeback_local_only" = "Source en lecture seule : les tags et la pochette restent dans Primuse ; le fichier source est inchangé.";
+"tag_editor_writeback_error_title" = "Impossible d’écrire le fichier musical";
+"tag_editor_cover_cache_failed" = "Le nouveau cache local de pochette n’a pas pu être enregistré. Analysez de nouveau la source musicale, puis réessayez.";
 "tag_editor_encoding_fix" = "Corriger les caractères illisibles…";
 "encoding_fix_title" = "Encodage du texte";
 "encoding_fix_section_header" = "Choisissez la version qui s’affiche correctement";

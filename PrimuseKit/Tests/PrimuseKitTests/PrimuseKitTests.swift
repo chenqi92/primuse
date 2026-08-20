@@ -160,7 +160,7 @@ import Testing
 
 @Test func sidecarWritingCapabilityExcludesReadOnlyCatalogues() {
     let writable: Set<MusicSourceType> = [
-        .synology, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
+        .synology, .webdav, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
         .aliyunDrive, .pan123, .drime,
     ]
 
@@ -168,6 +168,37 @@ import Testing
         #expect(sourceType.supportsSidecarWriting == writable.contains(sourceType))
     }
     #expect(!MusicSourceType.daoliyu.supportsSidecarWriting)
+}
+
+@Test func embeddedMetadataWritebackCapabilityCoversVerifiedFormats() {
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .mp3) == .embedded)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .flac) == .embedded)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .m4a) == .embedded)
+
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .wav) == .sidecarOnly)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .smb, format: .mp3) == .sidecarOnly)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .upnp, format: .mp3) == .localOnly)
+}
+
+@Test func webDAVWritebackPolicyRequiresStrongRevisionAndTagsDestination() {
+    #expect(WebDAVWritebackPolicy.strongETag("  \"rev-2\"  ") == "\"rev-2\"")
+    #expect(WebDAVWritebackPolicy.strongETag("W/\"rev-2\"") == nil)
+    #expect(WebDAVWritebackPolicy.strongETag("rev-2") == nil)
+    #expect(WebDAVWritebackPolicy.strongETag(nil) == nil)
+
+    let destination = URL(string: "https://dav.example.test/music/Song.mp3")!
+    #expect(
+        WebDAVWritebackPolicy.taggedDestinationCondition(
+            destinationURL: destination,
+            strongETag: "\"rev-2\""
+        ) == "<https://dav.example.test/music/Song.mp3> ([\"rev-2\"])"
+    )
+    #expect(
+        WebDAVWritebackPolicy.taggedDestinationCondition(
+            destinationURL: destination,
+            strongETag: "W/\"rev-2\""
+        ) == nil
+    )
 }
 
 @Test func sourceFileDeletionPolicyKeepsFailedRowsAndIgnoresSidecarWarnings() {

@@ -87,6 +87,12 @@
 "tag_editor_reset" = "Auf Original zurücksetzen";
 "tag_editor_reset_confirm" = "Deine Änderungen verwerfen?";
 "tag_editor_footer" = "Tag- und Coveränderungen bleiben in Primuse. Für Songtexte gilt der oben angezeigte Rückschreibstatus.";
+"tag_editor_metadata_writeback_checking" = "Speicherort für Tags und Cover wird geprüft…";
+"tag_editor_metadata_writeback_embedded" = "Tags und Cover werden in die WebDAV-Audiodatei eingebettet. Primuse lädt Datei und Metadaten nach dem Speichern erneut zur Prüfung herunter.";
+"tag_editor_metadata_writeback_sidecar_only" = "Diese Quelle unterstützt nur Sidecar-Dateien. Hier bearbeitete Tags und Cover bleiben in Primuse; die Audiodatei bleibt unverändert.";
+"tag_editor_metadata_writeback_local_only" = "Schreibgeschützte Quelle: Tags und Cover bleiben in Primuse; die Quelldatei bleibt unverändert.";
+"tag_editor_writeback_error_title" = "Musikdatei kann nicht geschrieben werden";
+"tag_editor_cover_cache_failed" = "Der neue lokale Cover-Cache konnte nicht gespeichert werden. Scanne die Musikquelle erneut und versuche es dann noch einmal.";
 "tag_editor_encoding_fix" = "Zeichensalat korrigieren…";
 "encoding_fix_title" = "Textkodierung";
 "encoding_fix_section_header" = "Wähle die Variante, die korrekt aussieht";

@@ -137,6 +137,59 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Describes what the tag editor can persist for a source/format pair.
+/// Sidecar-only sources can store artwork or lyrics next to the audio, but
+/// that is intentionally distinct from changing the audio file's embedded
+/// metadata.
+public enum AudioMetadataWritebackCapability: Sendable, Equatable {
+    case embedded
+    case sidecarOnly
+    case localOnly
+}
+
+public enum AudioMetadataWritebackPolicy {
+    /// Formats whose native metadata containers are verified by Primuse's
+    /// writer: ID3v2/APIC, FLAC Vorbis comments/PICTURE, and MP4 `ilst`/`covr`.
+    public static let embeddedFormats: Set<AudioFormat> = [.mp3, .flac, .m4a]
+
+    public static func capability(
+        sourceType: MusicSourceType,
+        format: AudioFormat
+    ) -> AudioMetadataWritebackCapability {
+        if sourceType == .webdav, embeddedFormats.contains(format) {
+            return .embedded
+        }
+        if sourceType.supportsSidecarWriting {
+            return .sidecarOnly
+        }
+        return .localOnly
+    }
+}
+
+/// Request preconditions shared by WebDAV media and sidecar replacements.
+/// Primuse only treats a quoted, non-weak ETag as a concurrency token.
+public enum WebDAVWritebackPolicy {
+    public static func strongETag(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.lowercased().hasPrefix("w/"),
+              trimmed.first == "\"",
+              trimmed.last == "\"" else {
+            return nil
+        }
+        return trimmed
+    }
+
+    public static func taggedDestinationCondition(
+        destinationURL: URL,
+        strongETag: String
+    ) -> String? {
+        guard self.strongETag(strongETag) != nil else { return nil }
+        return "<\(destinationURL.absoluteString)> ([\(strongETag)])"
+    }
+}
+
 public enum VideoFormat: String, Codable, Sendable, CaseIterable {
     case mp4
     case m4v

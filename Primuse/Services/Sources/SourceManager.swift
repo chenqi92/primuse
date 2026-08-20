@@ -36,6 +36,12 @@ struct SongFileDeletionOutcome: Sendable {
     let result: SongFileDeletionResult
 }
 
+enum TagMetadataPersistenceMode: Sendable, Equatable {
+    case embedded
+    case sidecarOnly
+    case localOnly
+}
+
 struct OfflineDownloadBatchResult: Sendable {
     let requestedCount: Int
     let completedCount: Int
@@ -532,6 +538,20 @@ private extension RoutedConnectorProxy {
     func writeFile(data: Data, to path: String, priority: RangeFetchPriority) async throws {
         try await routing.withMutation {
             try await $0.writeFile(data: data, to: path, priority: priority)
+        }
+    }
+
+    func writeEmbeddedMetadata(
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        try await routing.withMutation {
+            try await $0.writeEmbeddedMetadata(
+                original: original,
+                updated: updated,
+                coverData: coverData
+            )
         }
     }
 
@@ -4664,6 +4684,50 @@ final class SourceManager {
             return false
         }
         return Self.supportsSidecarWriting(sourceType: source.type)
+    }
+
+    func tagMetadataPersistenceMode(for song: Song) async -> TagMetadataPersistenceMode {
+        guard let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == song.sourceID }) else {
+            return .localOnly
+        }
+        switch AudioMetadataWritebackPolicy.capability(
+            sourceType: source.type,
+            format: song.fileFormat
+        ) {
+        case .embedded:
+            return song.isCueTrack || song.isStreamDescriptor ? .sidecarOnly : .embedded
+        case .sidecarOnly:
+            return .sidecarOnly
+        case .localOnly:
+            return .localOnly
+        }
+    }
+
+    /// Returns nil when this editor is explicitly operating in local-only or
+    /// sidecar-only mode. A non-nil result has already been downloaded and
+    /// byte-verified after the server replacement.
+    func writeEmbeddedMetadataIfSupported(
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async throws -> Song? {
+        guard await tagMetadataPersistenceMode(for: original) == .embedded else {
+            return nil
+        }
+        let connector = try await connectorForSong(original)
+        let result = try await connector.writeEmbeddedMetadata(
+            original: original,
+            updated: updated,
+            coverData: coverData
+        )
+        var sourceUpdated = updated
+        sourceUpdated.fileSize = result.fileSize
+        sourceUpdated.lastModified = result.modifiedDate
+        sourceUpdated.revision = result.revision
+        deleteAudioCache(for: original)
+        plog("WebDAV embedded metadata writeback verified for songID=\(original.id) sha256=\(result.fileSHA256)")
+        return sourceUpdated
     }
 
     func supportsMediaServerWriteback(for song: Song) async -> Bool {

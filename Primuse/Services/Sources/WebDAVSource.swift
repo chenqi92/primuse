@@ -4,6 +4,7 @@ import FilesProvider
 import PrimuseKit
 
 actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
+    nonisolated let supportsSidecarWriting = true
     let sourceID: String
     private let host: String
     private let port: Int?
@@ -221,7 +222,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                             path: sourcePath,
                             isDirectory: file.isDirectory,
                             size: file.size,
-                            modifiedDate: file.modifiedDate
+                            modifiedDate: file.modifiedDate,
+                            revision: file.allValues[.entryTagKey] as? String
                         )
                     }
                     .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -324,6 +326,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                     "WebDAV delete failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
                 )
             }
+            invalidateLocalCache(for: path)
             return
         }
         guard let provider else { throw SourceError.connectionFailed("Not connected") }
@@ -338,6 +341,132 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 }
             }
         }
+        invalidateLocalCache(for: path)
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        let current = try await resourceMetadata(at: path)
+        var request = try makeWebDAVRequest(url: fileURL(for: path), method: "PUT")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        if let current {
+            guard let etag = WebDAVWritebackPolicy.strongETag(current.etag) else {
+                throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+            }
+            request.setValue(etag, forHTTPHeaderField: "If-Match")
+        } else {
+            request.setValue("*", forHTTPHeaderField: "If-None-Match")
+        }
+
+        let response = try await send(data: data, for: request)
+        try validateMutationResponse(response, operation: "PUT")
+
+        guard let written = try await resourceMetadata(at: path),
+              let writtenETag = WebDAVWritebackPolicy.strongETag(written.etag) else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        let fetched = try await fetchWholeResource(
+            at: path,
+            expectedETag: writtenETag,
+            maximumBytes: max(PlainHTTPClient.defaultMaxBytes, data.count + 64 * 1024)
+        )
+        guard Self.sha256(fetched) == Self.sha256(data) else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        invalidateLocalCache(for: path)
+    }
+
+    func writeEmbeddedMetadata(
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        guard AudioMetadataWritebackPolicy.embeddedFormats.contains(updated.fileFormat),
+              !updated.isCueTrack,
+              !updated.isStreamDescriptor else {
+            throw EmbeddedMetadataWritebackSourceError.unsupported
+        }
+
+        let path = updated.filePath
+        guard let before = try await resourceMetadata(at: path),
+              let originalETag = WebDAVWritebackPolicy.strongETag(before.etag),
+              let scannedETag = WebDAVWritebackPolicy.strongETag(original.revision) else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        if scannedETag != originalETag {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let localURL = try await materializeCurrentResource(
+            at: path,
+            expectedETag: originalETag
+        )
+        defer { try? FileManager.default.removeItem(at: localURL) }
+
+        let edits = EmbeddedMetadataEdits(
+            title: updated.title,
+            artist: updated.artistName,
+            albumTitle: updated.albumTitle,
+            genre: updated.genre,
+            year: updated.year,
+            trackNumber: updated.trackNumber,
+            discNumber: updated.discNumber,
+            coverData: coverData
+        )
+        let verification = try await Task.detached(priority: .userInitiated) {
+            try await EmbeddedMetadataWriter.writeAndVerify(edits, to: localURL)
+        }.value
+        let editedSHA256 = try Self.sha256(fileAt: localURL)
+
+        let temporaryPath = Self.temporaryWritebackPath(for: path)
+        do {
+            var put = try makeWebDAVRequest(url: fileURL(for: temporaryPath), method: "PUT")
+            put.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            put.setValue("*", forHTTPHeaderField: "If-None-Match")
+            let putResponse = try await send(fileAt: localURL, for: put)
+            try validateMutationResponse(putResponse, operation: "PUT")
+
+            let destinationURL = try fileURL(for: path)
+            var move = try makeWebDAVRequest(url: fileURL(for: temporaryPath), method: "MOVE")
+            move.setValue(destinationURL.absoluteString, forHTTPHeaderField: "Destination")
+            move.setValue("T", forHTTPHeaderField: "Overwrite")
+            guard let destinationCondition = WebDAVWritebackPolicy.taggedDestinationCondition(
+                destinationURL: destinationURL,
+                strongETag: originalETag
+            ) else {
+                throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+            }
+            move.setValue(destinationCondition, forHTTPHeaderField: "If")
+            let (_, moveResponse) = try await TrustedHTTPTransport.data(
+                for: move,
+                session: rangeSession,
+                maxBytes: 1024 * 1024
+            )
+            try validateMutationResponse(moveResponse, operation: "MOVE")
+        } catch {
+            try? await deleteFile(at: temporaryPath)
+            throw error
+        }
+
+        invalidateLocalCache(for: path)
+
+        guard let after = try await resourceMetadata(at: path),
+              let newETag = WebDAVWritebackPolicy.strongETag(after.etag) else {
+            throw EmbeddedMetadataWritebackSourceError.invalidResponse
+        }
+        let downloaded = try await materializeCurrentResource(at: path, expectedETag: newETag)
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        let downloadedSHA256 = try Self.sha256(fileAt: downloaded)
+        guard downloadedSHA256 == editedSHA256 else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+
+        return EmbeddedMetadataWritebackResult(
+            fileSize: after.contentLength ?? Int64(clamping: Self.fileSize(at: downloaded)),
+            modifiedDate: Self.webDAVDate(after.lastModified),
+            revision: newETag,
+            fileSHA256: downloadedSHA256,
+            verification: verification
+        )
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -730,6 +859,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 <D:resourcetype/>
                 <D:getcontentlength/>
                 <D:getlastmodified/>
+                <D:getetag/>
               </D:prop>
             </D:propfind>
             """.utf8
@@ -769,7 +899,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 path: sourcePath,
                 isDirectory: entry.isDirectory,
                 size: entry.contentLength ?? -1,
-                modifiedDate: Self.webDAVDate(entry.lastModified)
+                modifiedDate: Self.webDAVDate(entry.lastModified),
+                revision: entry.etag
             )
         }
         guard !entries.isEmpty else {
@@ -787,6 +918,177 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             request.setValue("Basic \(encoded)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    private func resourceMetadata(at path: String) async throws -> WebDAVMultistatusEntry? {
+        let baseURL = try serverURL()
+        var request = try makeWebDAVRequest(url: fileURL(for: path), method: "PROPFIND")
+        request.setValue("0", forHTTPHeaderField: "Depth")
+        request.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <D:propfind xmlns:D="DAV:">
+              <D:prop>
+                <D:displayname/>
+                <D:resourcetype/>
+                <D:getcontentlength/>
+                <D:getlastmodified/>
+                <D:getetag/>
+              </D:prop>
+            </D:propfind>
+            """.utf8
+        )
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: 1024 * 1024
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw EmbeddedMetadataWritebackSourceError.invalidResponse
+        }
+        if http.statusCode == 404 { return nil }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw SourceError.authenticationFailed
+        }
+        guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
+            throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+        }
+        guard let target = RemotePathScopePolicy(rootPath: "/")
+            .resolvedPath(forStoredPath: path) else {
+            throw EmbeddedMetadataWritebackSourceError.invalidResponse
+        }
+        return try WebDAVMultistatusParser.parse(data).first { entry in
+            guard let sourcePath = sourcePath(forWebDAVHref: entry.href, baseURL: baseURL) else {
+                return false
+            }
+            return sourcePath == target
+        }
+    }
+
+    private func materializeCurrentResource(
+        at path: String,
+        expectedETag: String
+    ) async throws -> URL {
+        var request = try makeWebDAVRequest(url: fileURL(for: path), method: "GET")
+        request.setValue(expectedETag, forHTTPHeaderField: "If-Match")
+        let (downloadURL, response) = try await TrustedHTTPTransport.download(
+            for: request,
+            session: rangeSession
+        )
+        guard let http = response as? HTTPURLResponse else {
+            try? FileManager.default.removeItem(at: downloadURL)
+            throw EmbeddedMetadataWritebackSourceError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: downloadURL)
+            if http.statusCode == 412 { throw EmbeddedMetadataWritebackSourceError.conflict }
+            if http.statusCode == 401 || http.statusCode == 403 { throw SourceError.authenticationFailed }
+            throw SourceError.connectionFailed("WebDAV download failed: HTTP \(http.statusCode)")
+        }
+
+        let fileExtension = (path as NSString).pathExtension
+        let localURL = cacheDirectory.appendingPathComponent(
+            "writeback-\(UUID().uuidString)\(fileExtension.isEmpty ? "" : ".\(fileExtension)")"
+        )
+        do {
+            try FileManager.default.moveItem(at: downloadURL, to: localURL)
+            return localURL
+        } catch {
+            try? FileManager.default.removeItem(at: downloadURL)
+            throw error
+        }
+    }
+
+    private func fetchWholeResource(
+        at path: String,
+        expectedETag: String?,
+        maximumBytes: Int
+    ) async throws -> Data {
+        var request = try makeWebDAVRequest(url: fileURL(for: path), method: "GET")
+        if let expectedETag {
+            request.setValue(expectedETag, forHTTPHeaderField: "If-Match")
+        }
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: maximumBytes
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw EmbeddedMetadataWritebackSourceError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 412 { throw EmbeddedMetadataWritebackSourceError.conflict }
+            if http.statusCode == 401 || http.statusCode == 403 { throw SourceError.authenticationFailed }
+            throw SourceError.connectionFailed("WebDAV readback failed: HTTP \(http.statusCode)")
+        }
+        return data
+    }
+
+    private func send(data: Data, for request: URLRequest) async throws -> URLResponse {
+        if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            var request = request
+            request.httpBody = data
+            return try await TrustedHTTPTransport.data(
+                for: request,
+                session: rangeSession,
+                maxBytes: 1024 * 1024
+            ).1
+        }
+        return try await rangeSession.upload(for: request, from: data).1
+    }
+
+    private func send(fileAt localURL: URL, for request: URLRequest) async throws -> URLResponse {
+        if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            return try await send(data: Data(contentsOf: localURL), for: request)
+        }
+        return try await rangeSession.upload(for: request, fromFile: localURL).1
+    }
+
+    private func validateMutationResponse(_ response: URLResponse, operation: String) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw EmbeddedMetadataWritebackSourceError.invalidResponse
+        }
+        if http.statusCode == 412 || http.statusCode == 409 || http.statusCode == 423 {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw SourceError.authenticationFailed
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw SourceError.connectionFailed("WebDAV \(operation) failed: HTTP \(http.statusCode)")
+        }
+    }
+
+    private static func temporaryWritebackPath(for path: String) -> String {
+        let directory = (path as NSString).deletingLastPathComponent
+        let fileName = (path as NSString).lastPathComponent
+        let temporaryName = ".\(fileName).primuse-writeback-\(UUID().uuidString)"
+        return (directory as NSString).appendingPathComponent(temporaryName)
+    }
+
+    private func invalidateLocalCache(for path: String) {
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path))
+        )
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func sha256(fileAt url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func fileSize(at url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
     }
 
     private func sourcePath(forWebDAVHref href: String, baseURL: URL) -> String? {
@@ -897,6 +1199,7 @@ private struct WebDAVMultistatusEntry: Sendable {
     let displayName: String?
     let contentLength: Int64?
     let lastModified: String?
+    let etag: String?
     let isDirectory: Bool
 }
 
@@ -905,12 +1208,14 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
         var displayName: String?
         var contentLength: Int64?
         var lastModified: String?
+        var etag: String?
         var isDirectory = false
 
         mutating func merge(_ other: Self) {
             displayName = other.displayName ?? displayName
             contentLength = other.contentLength ?? contentLength
             lastModified = other.lastModified ?? lastModified
+            etag = other.etag ?? etag
             isDirectory = isDirectory || other.isDirectory
         }
     }
@@ -986,6 +1291,8 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
             propstat?.properties.contentLength = Int64(value)
         case "getlastmodified":
             propstat?.properties.lastModified = value.isEmpty ? nil : value
+        case "getetag":
+            propstat?.properties.etag = value.isEmpty ? nil : value
         case "status":
             let status = Self.statusCode(value)
             if propstat != nil {
@@ -1010,6 +1317,7 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
                         displayName: response.properties.displayName,
                         contentLength: response.properties.contentLength,
                         lastModified: response.properties.lastModified,
+                        etag: response.properties.etag,
                         isDirectory: response.properties.isDirectory
                     )
                 )
