@@ -327,9 +327,9 @@ struct PlaylistArtworkView: View {
 }
 
 /// Album artwork follows the same user override policy as playlists. The
-/// existing album resolver stays underneath so a removed song, a missing
-/// upload, or an asynchronous source failure always falls back to automatic
-/// artwork instead of rendering transparent content.
+/// album resolver stays above a deterministic song fallback, so a missing
+/// album image can still use sidecar, embedded, remote, or MusicKit artwork
+/// from one of its tracks.
 struct AlbumArtworkView: View {
     let album: PrimuseKit.Album
     var size: CGFloat? = nil
@@ -344,18 +344,58 @@ struct AlbumArtworkView: View {
         LibraryArtworkOwner(kind: .album, id: album.id)
     }
 
+    private var fallbackSong: PrimuseKit.Song? {
+        let songs = library.songs(forAlbum: album.id)
+        let preferredSongID = AlbumArtworkFallbackPolicy.preferredSongID(
+            orderedSongIDs: songs.map(\.id),
+            songIDsWithArtworkReference: Set(
+                songs.compactMap { song in
+                    guard song.coverArtFileName?.isEmpty == false else { return nil }
+                    return song.id
+                }
+            )
+        )
+        guard let preferredSongID else { return nil }
+        return songs.first { $0.id == preferredSongID }
+    }
+
     var body: some View {
         let presentation = library.artworkPresentation(for: owner)
         let uploadedContentID = presentation.uploadedContentID
 
         ZStack {
+            if showsPlaceholder {
+                CachedArtworkView(
+                    coverRef: nil,
+                    songID: nil,
+                    size: size,
+                    cornerRadius: cornerRadius,
+                    placeholderIcon: "square.stack",
+                    showsPlaceholder: true
+                )
+            }
+
+            if let song = fallbackSong {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: size,
+                    cornerRadius: 0,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    showsPlaceholder: false,
+                    revisionToken: library.artworkOverrideRevision
+                )
+            }
+
             CachedArtworkView(
                 albumID: album.id,
                 albumTitle: album.title,
                 artistName: album.artistName,
                 size: size,
                 cornerRadius: cornerRadius,
-                showsPlaceholder: showsPlaceholder
+                showsPlaceholder: false
             )
 
             if let uploadedImage, uploadedContentID != nil {

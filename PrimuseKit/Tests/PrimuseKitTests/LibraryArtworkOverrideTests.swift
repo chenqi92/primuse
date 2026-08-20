@@ -4,6 +4,26 @@ import Testing
 
 @Suite("Album and playlist artwork overrides")
 struct LibraryArtworkOverrideTests {
+    @Test("Album fallback prefers the first explicit song cover and otherwise keeps album order")
+    func albumFallbackSelection() {
+        #expect(AlbumArtworkFallbackPolicy.preferredSongID(
+            orderedSongIDs: ["track-1", "track-2", "track-3"],
+            songIDsWithArtworkReference: ["track-2", "track-3"]
+        ) == "track-2")
+        #expect(AlbumArtworkFallbackPolicy.preferredSongID(
+            orderedSongIDs: ["track-1", "track-2"],
+            songIDsWithArtworkReference: []
+        ) == "track-1")
+        #expect(AlbumArtworkFallbackPolicy.preferredSongID(
+            orderedSongIDs: ["", "track-2"],
+            songIDsWithArtworkReference: []
+        ) == "track-2")
+        #expect(AlbumArtworkFallbackPolicy.preferredSongID(
+            orderedSongIDs: [],
+            songIDsWithArtworkReference: []
+        ) == nil)
+    }
+
     @Test("Album and playlist owners round-trip through reserved CloudKit IDs")
     func ownerCloudRecordRoundTrip() {
         let owners = [
