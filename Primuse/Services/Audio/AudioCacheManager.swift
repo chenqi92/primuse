@@ -24,6 +24,7 @@ struct OfflineAudioCacheSnapshot: Sendable, Equatable {
 
     var isPinned: Bool { state == .pinned }
     var isDownloading: Bool { state == .downloading }
+    var isDownloaded: Bool { state == .cached || state == .pinned }
 }
 
 /// LRU cache manager for audio files. Enforces the configured disk size limit

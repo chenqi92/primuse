@@ -291,6 +291,14 @@
 "sort_album" = "Album";
 "sort_date_added" = "Date d'ajout";
 "sort_format" = "Format";
+"sort_a_to_z" = "A–Z";
+"sort_z_to_a" = "Z–A";
+"sort_newest_to_oldest" = "Du plus récent au plus ancien";
+"sort_oldest_to_newest" = "Du plus ancien au plus récent";
+"filter_by" = "Filtrer";
+"filter_downloaded" = "Téléchargés";
+"filter_downloaded_loading" = "Chargement des morceaux téléchargés…";
+"filter_downloaded_empty_desc" = "Les morceaux téléchargés pour l'écoute hors ligne apparaissent ici.";
 "song_sort_progress_format" = "Tri par %@…";
 "song_sort_progress_complete_format" = "Trié par %@";
 "song_sort_progress_cancelled" = "Tri annulé";

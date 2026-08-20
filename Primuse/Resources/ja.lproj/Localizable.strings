@@ -292,6 +292,14 @@
 "sort_album" = "アルバム";
 "sort_date_added" = "追加日";
 "sort_format" = "フォーマット";
+"sort_a_to_z" = "A–Z";
+"sort_z_to_a" = "Z–A";
+"sort_newest_to_oldest" = "新しい順";
+"sort_oldest_to_newest" = "古い順";
+"filter_by" = "フィルタ";
+"filter_downloaded" = "ダウンロード済み";
+"filter_downloaded_loading" = "ダウンロード済みの曲を読み込み中…";
+"filter_downloaded_empty_desc" = "オフライン再生用にダウンロードした曲がここに表示されます。";
 "song_sort_progress_format" = "「%@」で並べ替え中…";
 "song_sort_progress_complete_format" = "「%@」で並べ替えました";
 "song_sort_progress_cancelled" = "並べ替えをキャンセルしました";

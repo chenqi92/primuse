@@ -61,6 +61,8 @@ private final class SongListCache {
         let snapshotIdentity: ObjectIdentifier
         let sourceID: String?
         let query: String
+        let restrictsToDownloaded: Bool
+        let filterRevision: Int
         let replacementToken: UUID
     }
 
@@ -175,12 +177,14 @@ private final class SongListCache {
     func projection(
         sourceID: String?,
         query: String,
+        includedSongIDs: Set<String>?,
+        filterRevision: Int,
         replacementToken: UUID,
         resolve: (String) -> Song?
     ) -> SongListProjection {
         _ = rowOrderRevision
         guard let snapshot else { return .empty }
-        guard sourceID != nil || !query.isEmpty else {
+        guard sourceID != nil || !query.isEmpty || includedSongIDs != nil else {
             return SongListProjection(rows: snapshot.rows, orderedSongIDs: snapshot.orderedSongIDs)
         }
 
@@ -188,6 +192,8 @@ private final class SongListCache {
             snapshotIdentity: ObjectIdentifier(snapshot),
             sourceID: sourceID,
             query: query,
+            restrictsToDownloaded: includedSongIDs != nil,
+            filterRevision: filterRevision,
             replacementToken: replacementToken
         )
         if projectionEntry?.key == key, let cached = projectionEntry?.value {
@@ -196,13 +202,14 @@ private final class SongListCache {
 
         let interval = SongListPerformanceSignpost.signposter.beginInterval(
             "FilteredProjection",
-            "count: \(snapshot.rows.count, privacy: .public), hasSource: \(sourceID != nil, privacy: .public), queryLength: \(query.count, privacy: .public)"
+            "count: \(snapshot.rows.count, privacy: .public), hasSource: \(sourceID != nil, privacy: .public), downloaded: \(includedSongIDs != nil, privacy: .public), queryLength: \(query.count, privacy: .public)"
         )
         var rows: [SongListRowIdentity] = []
         var ids: [String] = []
         rows.reserveCapacity(snapshot.rows.count)
         ids.reserveCapacity(snapshot.rows.count)
         for row in snapshot.rows {
+            if let includedSongIDs, !includedSongIDs.contains(row.id) { continue }
             guard let song = resolve(row.id) else { continue }
             if let sourceID, song.sourceID != sourceID { continue }
             if !query.isEmpty,
@@ -379,13 +386,7 @@ private struct SongListSortProgressIndicator: View {
     }
 
     private func localizedSortLabel(_ order: LibrarySongSortOrder) -> String {
-        switch order {
-        case .title: return String(localized: "sort_title")
-        case .artist: return String(localized: "sort_artist")
-        case .album: return String(localized: "sort_album")
-        case .dateAdded: return String(localized: "sort_date_added")
-        case .format: return String(localized: "sort_format")
-        }
+        SongListView.SongSortOrder(libraryOrder: order).label
     }
 
     private func progressMessage(for order: LibrarySongSortOrder) -> String {
@@ -398,6 +399,7 @@ private struct SongListSortProgressIndicator: View {
 
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ScanService.self) private var scanService
     @Environment(MetadataBackfillService.self) private var backfill
@@ -409,6 +411,12 @@ struct SongListView: View {
     /// lyricsText) whenever an ancestor refreshed.
     private let scope: Scope
     @State private var sortOrder: SongSortOrder = .title
+    @State private var songFilter: SongFilter = .all
+    @State private var downloadedSongIDs: Set<String> = []
+    @State private var downloadedFilterRevision = 0
+    @State private var downloadedFilterGeneration = 0
+    @State private var downloadedFilterTask: Task<Void, Never>?
+    @State private var isDownloadedFilterLoading = false
     @State private var listCache = SongListCache()
     @State private var searchText: String = ""
     @State private var sortGeneration: Int = 0
@@ -487,6 +495,25 @@ struct SongListView: View {
         let rootDisplayNames: [String: String]
     }
 
+    enum SongFilter: String, CaseIterable, Hashable, Sendable {
+        case all
+        case downloaded
+
+        var label: LocalizedStringKey {
+            switch self {
+            case .all: return "search_chip_all"
+            case .downloaded: return "filter_downloaded"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .all: return "music.note.list"
+            case .downloaded: return "arrow.down.circle.fill"
+            }
+        }
+    }
+
     init(sourceID: String? = nil) {
         scope = sourceID.map(Scope.source) ?? .library
         #if os(macOS)
@@ -501,28 +528,65 @@ struct SongListView: View {
     }
 
     enum SongSortOrder: String, CaseIterable, Sendable {
-        case title, artist, album, dateAdded, format
+        case title, titleDescending
+        case artist, artistDescending
+        case album, albumDescending
+        case dateAdded, dateAddedOldest
+        case format, formatDescending
 
         var libraryOrder: LibrarySongSortOrder {
             switch self {
             case .title: return .title
+            case .titleDescending: return .titleDescending
             case .artist: return .artist
+            case .artistDescending: return .artistDescending
             case .album: return .album
+            case .albumDescending: return .albumDescending
             case .dateAdded: return .dateAdded
+            case .dateAddedOldest: return .dateAddedOldest
             case .format: return .format
+            case .formatDescending: return .formatDescending
             }
         }
 
-        var label: LocalizedStringKey {
+        init(libraryOrder: LibrarySongSortOrder) {
+            switch libraryOrder {
+            case .title: self = .title
+            case .titleDescending: self = .titleDescending
+            case .artist: self = .artist
+            case .artistDescending: self = .artistDescending
+            case .album: self = .album
+            case .albumDescending: self = .albumDescending
+            case .dateAdded: self = .dateAdded
+            case .dateAddedOldest: self = .dateAddedOldest
+            case .format: self = .format
+            case .formatDescending: self = .formatDescending
+            }
+        }
+
+        var label: String {
+            "\(String(localized: criterionKey)) · \(String(localized: directionKey))"
+        }
+
+        private var criterionKey: String.LocalizationValue {
             switch self {
-            case .title: return "sort_title"
-            case .artist: return "sort_artist"
-            case .album: return "sort_album"
-            case .dateAdded: return "sort_date_added"
-            case .format: return "sort_format"
+            case .title, .titleDescending: return "sort_title"
+            case .artist, .artistDescending: return "sort_artist"
+            case .album, .albumDescending: return "sort_album"
+            case .dateAdded, .dateAddedOldest: return "sort_date_added"
+            case .format, .formatDescending: return "sort_format"
             }
         }
 
+        private var directionKey: String.LocalizationValue {
+            switch self {
+            case .title, .artist, .album, .format: return "sort_a_to_z"
+            case .titleDescending, .artistDescending, .albumDescending, .formatDescending:
+                return "sort_z_to_a"
+            case .dateAdded: return "sort_newest_to_oldest"
+            case .dateAddedOldest: return "sort_oldest_to_newest"
+            }
+        }
     }
 
     #if os(macOS)
@@ -621,6 +685,9 @@ struct SongListView: View {
                     pruneRowModels: true
                 )
                 scheduleFolderIndexRecompute(delay: .milliseconds(180))
+                if songFilter == .downloaded {
+                    scheduleDownloadedFilterRefresh(delay: .milliseconds(180))
+                }
             }
             .onChange(of: configuredFolderSourceDescriptors) { _, _ in
                 folderSourceRevision &+= 1
@@ -674,6 +741,22 @@ struct SongListView: View {
             .onChange(of: searchText) { _, _ in
                 pruneSelection()
             }
+            .onChange(of: songFilter) { _, filter in
+                selection.deactivate()
+                if filter == .downloaded {
+                    scheduleDownloadedFilterRefresh()
+                } else {
+                    downloadedFilterGeneration &+= 1
+                    downloadedFilterTask?.cancel()
+                    downloadedFilterTask = nil
+                    isDownloadedFilterLoading = false
+                }
+            }
+            .onChange(of: sourceManager.offlineAudioSnapshotRevision) { _, _ in
+                guard songFilter == .downloaded,
+                      !isDownloadedFilterLoading else { return }
+                scheduleDownloadedFilterRefresh(delay: .milliseconds(120))
+            }
             .onChange(of: folderCache.revision) { _, _ in
                 #if os(macOS)
                 validateMacFolderPath()
@@ -703,6 +786,10 @@ struct SongListView: View {
             }
             .onDisappear {
                 cancelExplicitSortForNavigation()
+                downloadedFilterGeneration &+= 1
+                downloadedFilterTask?.cancel()
+                downloadedFilterTask = nil
+                isDownloadedFilterLoading = false
                 #if os(iOS)
                 browseModeTransitionTask?.cancel()
                 browseModeTransitionTask = nil
@@ -770,13 +857,7 @@ struct SongListView: View {
     }
 
     private func localizedSortLabel(_ order: LibrarySongSortOrder) -> String {
-        switch order {
-        case .title: return String(localized: "sort_title")
-        case .artist: return String(localized: "sort_artist")
-        case .album: return String(localized: "sort_album")
-        case .dateAdded: return String(localized: "sort_date_added")
-        case .format: return String(localized: "sort_format")
-        }
+        SongSortOrder(libraryOrder: order).label
     }
 
     private func sortProgressMessage(for order: LibrarySongSortOrder) -> String {
@@ -795,6 +876,7 @@ struct SongListView: View {
 
     private var showsFolderBrowser: Bool {
         browseMode == .folder
+            && songFilter == .all
             && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -842,13 +924,41 @@ struct SongListView: View {
                         selection: selection,
                         sortOrder: sortOrderBinding
                     )
-                } else {
-                    IOSSongListContainer(
-                        cache: listCache,
-                        selection: selection,
-                        onPlay: playSong
+                } else if songFilter == .downloaded,
+                          isDownloadedFilterLoading,
+                          downloadedSongIDs.isEmpty {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("filter_downloaded_loading")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if songFilter == .downloaded, filteredRows.isEmpty {
+                    ContentUnavailableView(
+                        "filter_downloaded",
+                        systemImage: "arrow.down.circle",
+                        description: Text("filter_downloaded_empty_desc")
                     )
-                    .equatable()
+                } else {
+                    if songFilter == .downloaded {
+                        IOSSongListFilteredContainer(
+                            projection: filteredProjection,
+                            projectionRevision: downloadedFilterRevision,
+                            rowOrderRevision: listCache.rowOrderRevision,
+                            cache: listCache,
+                            selection: selection,
+                            onPlay: playSong
+                        )
+                        .equatable()
+                    } else {
+                        IOSSongListContainer(
+                            cache: listCache,
+                            selection: selection,
+                            onPlay: playSong
+                        )
+                        .equatable()
+                    }
                 }
             }
             .allowsHitTesting(!isBrowseModeTransitioning)
@@ -869,6 +979,7 @@ struct SongListView: View {
 
     private var presentedShowsFolderBrowser: Bool {
         presentedBrowseMode == .folder
+            && songFilter == .all
             && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -996,8 +1107,17 @@ struct SongListView: View {
                             )
                         }
                     } else if filteredRows.isEmpty {
-                        ContentUnavailableView.search(text: searchText)
+                        if songFilter == .downloaded {
+                            ContentUnavailableView(
+                                "filter_downloaded",
+                                systemImage: "arrow.down.circle",
+                                description: Text("filter_downloaded_empty_desc")
+                            )
                             .padding(.top, 48)
+                        } else {
+                            ContentUnavailableView.search(text: searchText)
+                                .padding(.top, 48)
+                        }
                     } else {
                         macSongsContent
                     }
@@ -1025,8 +1145,9 @@ struct SongListView: View {
             HStack(spacing: 8) {
                 sourceChip(title: String(localized: "search_chip_all"),
                            count: listCache.songCount, color: nil,
-                           active: selectedSourceID == nil) {
+                           active: selectedSourceID == nil && songFilter == .all) {
                     selectedSourceID = nil
+                    songFilter = .all
                 }
 
                 ForEach(sourcesStore.allSources.prefix(5), id: \.id) { source in
@@ -1034,8 +1155,9 @@ struct SongListView: View {
                     if count > 0 {
                         sourceChip(title: source.name, count: count,
                                    color: sourceColor(source),
-                                   active: selectedSourceID == source.id) {
+                                   active: selectedSourceID == source.id && songFilter == .all) {
                             // 再点一次已选中的源 = 取消过滤回到全部。
+                            songFilter = .all
                             selectedSourceID = (selectedSourceID == source.id) ? nil : source.id
                         }
                     }
@@ -1045,7 +1167,7 @@ struct SongListView: View {
         }
     }
 
-    private func sourceChip(title: String, count: Int, color: Color?, active: Bool,
+    private func sourceChip(title: String, count: Int?, color: Color?, active: Bool,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
@@ -1056,9 +1178,11 @@ struct SongListView: View {
                 }
                 Text(verbatim: title)
                     .lineLimit(1)
-                Text(verbatim: count.formatted())
-                    .monospacedDigit()
-                    .opacity(0.65)
+                if let count {
+                    Text(verbatim: count.formatted())
+                        .monospacedDigit()
+                        .opacity(0.65)
+                }
             }
             .font(.system(size: 11.5, weight: active ? .semibold : .medium))
             .foregroundStyle(active ? .white : PMColor.text)
@@ -1109,6 +1233,31 @@ struct SongListView: View {
 
             SongListSortProgressIndicator(progress: sortProgress)
 
+            Button {
+                selectedSourceID = nil
+                songFilter = songFilter == .downloaded ? .all : .downloaded
+            } label: {
+                Label("filter_downloaded", systemImage: SongFilter.downloaded.icon)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(songFilter == .downloaded ? .white : PMColor.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(
+                        songFilter == .downloaded ? PMColor.brand : PMColor.glassBtn,
+                        in: .rect(cornerRadius: PMRadius.s)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                            .strokeBorder(
+                                songFilter == .downloaded ? .clear : PMColor.cardBorder,
+                                lineWidth: 0.5
+                            )
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(selection.isActive)
+            .accessibilityIdentifier("songFilter.downloaded")
+
             browseModeSegment
 
             Text("sort_by")
@@ -1118,13 +1267,13 @@ struct SongListView: View {
             Menu {
                 Picker("sort_by", selection: sortOrderBinding) {
                     ForEach(SongSortOrder.allCases, id: \.self) { order in
-                        Text(order.label).tag(order)
+                        Text(verbatim: order.label).tag(order)
                     }
                 }
                 .pickerStyle(.inline)
             } label: {
                 HStack(spacing: 4) {
-                    Text(sortOrder.label)
+                    Text(verbatim: sortOrder.label)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                 }
@@ -1986,7 +2135,8 @@ struct SongListView: View {
             SongListNormalToolbarMenu(
                 selection: selection,
                 browseMode: $browseMode,
-                sortOrder: sortOrderBinding
+                sortOrder: sortOrderBinding,
+                filter: $songFilter
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -2016,12 +2166,42 @@ struct SongListView: View {
         #else
         let sourceID: String? = nil
         #endif
+        let includedSongIDs = songFilter == .downloaded ? downloadedSongIDs : nil
         return listCache.projection(
             sourceID: sourceID,
             query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+            includedSongIDs: includedSongIDs,
+            filterRevision: downloadedFilterRevision,
             replacementToken: library.songReplacementToken,
             resolve: { library.unobservedVisibleSong(id: $0) }
         )
+    }
+
+    private func scheduleDownloadedFilterRefresh(delay: Duration? = nil) {
+        downloadedFilterGeneration &+= 1
+        let generation = downloadedFilterGeneration
+        let songsSnapshot = songs
+        downloadedFilterTask?.cancel()
+        isDownloadedFilterLoading = true
+
+        downloadedFilterTask = Task { @MainActor in
+            if let delay {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+            let resolvedIDs = await sourceManager.downloadedSongIDs(in: songsSnapshot)
+            guard !Task.isCancelled,
+                  songFilter == .downloaded,
+                  downloadedFilterGeneration == generation else { return }
+            downloadedSongIDs = resolvedIDs
+            downloadedFilterRevision &+= 1
+            isDownloadedFilterLoading = false
+            downloadedFilterTask = nil
+            pruneSelection()
+        }
     }
 
     private var filteredRows: [SongListRowIdentity] {
@@ -2716,6 +2896,76 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         #else
         Color(UIColor.systemBackground)
         #endif
+    }
+}
+
+/// Filtered flat lists keep their own lightweight row ordering. The full-list
+/// container remains position based for five-digit libraries, while this
+/// projection uses stable song IDs so excluded rows never leave empty slots.
+private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
+    let projection: SongListProjection
+    let projectionRevision: Int
+    let rowOrderRevision: Int
+    let cache: SongListCache
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.projectionRevision == rhs.projectionRevision
+            && lhs.rowOrderRevision == rhs.rowOrderRevision
+            && lhs.cache === rhs.cache
+            && lhs.selection === rhs.selection
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(projection.rows) { row in
+                    IOSSongListProjectedRow(
+                        songID: row.id,
+                        cache: cache,
+                        selection: selection,
+                        onPlay: onPlay
+                    )
+                    .padding(.horizontal)
+                    .padding(.vertical, 4)
+
+                    if row.offset < projection.rows.count - 1 {
+                        Divider()
+                            .padding(.leading, 66)
+                    }
+                }
+            }
+        }
+        .background(songListBackground)
+    }
+
+    private var songListBackground: Color {
+        #if os(macOS)
+        Color(NSColor.windowBackgroundColor)
+        #else
+        Color(UIColor.systemBackground)
+        #endif
+    }
+}
+
+private struct IOSSongListProjectedRow: View {
+    @Environment(MusicLibrary.self) private var library
+
+    let songID: String
+    let cache: SongListCache
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if let model = cache.rowModel(
+            id: songID,
+            song: library.unobservedVisibleSong(id: songID)
+        ) {
+            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                .accessibilityIdentifier("songRow.\(songID)")
+        }
     }
 }
 
@@ -3558,7 +3808,7 @@ private struct LibraryFolderNodeView: View {
             Menu {
                 Picker("sort_by", selection: $sortOrder) {
                     ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                        Text(order.label).tag(order)
+                        Text(verbatim: order.label).tag(order)
                     }
                 }
             } label: {
@@ -3765,6 +4015,7 @@ private struct SongListNormalToolbarMenu: View {
     let selection: SongSelectionModel
     @Binding var browseMode: LibrarySongBrowseMode
     let sortOrder: Binding<SongListView.SongSortOrder>
+    @Binding var filter: SongListView.SongFilter
 
     @ViewBuilder
     var body: some View {
@@ -3783,7 +4034,17 @@ private struct SongListNormalToolbarMenu: View {
                 Section {
                     Picker("sort_by", selection: sortOrder) {
                         ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                            Text(order.label).tag(order)
+                            Text(verbatim: order.label).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+
+                Section {
+                    Picker("filter_by", selection: $filter) {
+                        ForEach(SongListView.SongFilter.allCases, id: \.self) { filter in
+                            Label(filter.label, systemImage: filter.icon)
+                                .tag(filter)
                         }
                     }
                     .pickerStyle(.inline)
@@ -3881,7 +4142,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 Section {
                     Picker("sort_by", selection: $sortOrder) {
                         ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                            Text(order.label).tag(order)
+                            Text(verbatim: order.label).tag(order)
                         }
                     }
                     .pickerStyle(.inline)

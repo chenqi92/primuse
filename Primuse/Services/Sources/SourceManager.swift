@@ -1034,6 +1034,10 @@ final class SourceManager {
     /// Lightweight aggregate used by the source cards. Download progress does
     /// not mutate this set; only entering/leaving the downloading state does.
     private(set) var offlineDownloadingSongIDs: Set<String> = []
+    /// Changes only when a song enters or leaves the fully downloaded set.
+    /// Song-list filters can observe this aggregate without subscribing to
+    /// every row-level progress entry.
+    private(set) var offlineAudioSnapshotRevision = 0
     /// The route that most recently completed a real connection. Kept separate
     /// from the persisted source so cards can show what is in use without
     /// syncing device-local network state through iCloud.
@@ -2736,9 +2740,13 @@ final class SourceManager {
         _ snapshot: OfflineAudioCacheSnapshot,
         for songID: String
     ) {
-        guard offlineAudioSnapshots[songID] != snapshot else { return }
+        let previousSnapshot = offlineAudioSnapshots[songID]
+        guard previousSnapshot != snapshot else { return }
         offlineAudioSnapshots[songID] = snapshot
         offlineAudioSnapshotEntries[songID]?.update(snapshot)
+        if (previousSnapshot?.isDownloaded ?? false) != snapshot.isDownloaded {
+            offlineAudioSnapshotRevision &+= 1
+        }
         let wasDownloading = offlineDownloadingSongIDs.contains(songID)
         if snapshot.isDownloading != wasDownloading {
             if snapshot.isDownloading {
@@ -2750,10 +2758,14 @@ final class SourceManager {
     }
 
     private func removeOfflineAudioSnapshot(for songID: String) {
+        let wasDownloaded = offlineAudioSnapshots[songID]?.isDownloaded == true
         offlineAudioSnapshots.removeValue(forKey: songID)
         offlineAudioSnapshotEntries[songID]?.update(.notCached)
         offlineAudioSnapshotEntries.removeValue(forKey: songID)
         offlineDownloadingSongIDs.remove(songID)
+        if wasDownloaded {
+            offlineAudioSnapshotRevision &+= 1
+        }
     }
 
     /// Populate a row's first snapshot lazily. Negative results are cached as
@@ -2831,6 +2843,16 @@ final class SourceManager {
                 enqueueNext()
             }
         }
+    }
+
+    /// Resolves the filter membership after the bounded background probe has
+    /// populated missing cache states. Both ordinary complete cache files and
+    /// explicitly pinned downloads are playable without network access.
+    func downloadedSongIDs(in songs: [Song]) async -> Set<String> {
+        await prepareOfflineAudioSnapshots(for: songs)
+        return Set(songs.compactMap { song in
+            offlineAudioSnapshots[song.id]?.isDownloaded == true ? song.id : nil
+        })
     }
 
     private nonisolated static func isUsableCacheFile(

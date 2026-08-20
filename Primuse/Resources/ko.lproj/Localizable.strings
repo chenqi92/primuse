@@ -291,6 +291,14 @@
 "sort_album" = "앨범";
 "sort_date_added" = "추가된 날짜";
 "sort_format" = "포맷";
+"sort_a_to_z" = "A–Z";
+"sort_z_to_a" = "Z–A";
+"sort_newest_to_oldest" = "최신순";
+"sort_oldest_to_newest" = "오래된순";
+"filter_by" = "필터";
+"filter_downloaded" = "다운로드됨";
+"filter_downloaded_loading" = "다운로드된 노래를 불러오는 중…";
+"filter_downloaded_empty_desc" = "오프라인 재생을 위해 다운로드한 노래가 여기에 표시됩니다.";
 "song_sort_progress_format" = "%@ 기준으로 정렬 중…";
 "song_sort_progress_complete_format" = "%@ 기준 정렬 완료";
 "song_sort_progress_cancelled" = "정렬이 취소되었습니다";

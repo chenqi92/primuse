@@ -73,6 +73,14 @@
 "sort_album" = "Album";
 "sort_date_added" = "Date Added";
 "sort_format" = "Format";
+"sort_a_to_z" = "A–Z";
+"sort_z_to_a" = "Z–A";
+"sort_newest_to_oldest" = "Newest to Oldest";
+"sort_oldest_to_newest" = "Oldest to Newest";
+"filter_by" = "Filter";
+"filter_downloaded" = "Downloaded";
+"filter_downloaded_loading" = "Loading downloaded songs…";
+"filter_downloaded_empty_desc" = "Songs downloaded for offline playback appear here.";
 "song_sort_progress_format" = "Sorting by %@…";
 "song_sort_progress_complete_format" = "Sorted by %@";
 "song_sort_progress_cancelled" = "Sorting cancelled";

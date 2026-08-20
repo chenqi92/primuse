@@ -37,6 +37,21 @@ struct SongListSnapshotTests {
         #expect(snapshot.rows.map(\.id) == ["a", "b", "z"])
     }
 
+    @Test("Title and date sorting support both directions")
+    func sortsTitlesAndDatesBothWays() {
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = Date(timeIntervalSince1970: 2_000)
+        let songs = [
+            song(id: "b", title: "Beta", dateAdded: older),
+            song(id: "a", title: "Alpha", dateAdded: newer),
+        ]
+
+        #expect(sortedIDs(songs, by: .title) == ["a", "b"])
+        #expect(sortedIDs(songs, by: .titleDescending) == ["b", "a"])
+        #expect(sortedIDs(songs, by: .dateAdded) == ["a", "b"])
+        #expect(sortedIDs(songs, by: .dateAddedOldest) == ["b", "a"])
+    }
+
     @Test("Sorts every supported metadata field")
     func sortsEveryMetadataField() {
         let songs = [
@@ -58,8 +73,11 @@ struct SongListSnapshotTests {
 
         #expect(sortedIDs(songs, by: .title) == ["a", "b"])
         #expect(sortedIDs(songs, by: .artist) == ["b", "a"])
+        #expect(sortedIDs(songs, by: .artistDescending) == ["a", "b"])
         #expect(sortedIDs(songs, by: .album) == ["a", "b"])
+        #expect(sortedIDs(songs, by: .albumDescending) == ["b", "a"])
         #expect(sortedIDs(songs, by: .format) == ["a", "b"])
+        #expect(sortedIDs(songs, by: .formatDescending) == ["b", "a"])
     }
 
     @Test("Caches every visited order for the current scope version")

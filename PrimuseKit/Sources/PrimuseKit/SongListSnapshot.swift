@@ -10,10 +10,15 @@ private enum SongListSnapshotPerformance {
 
 public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case title
+    case titleDescending
     case artist
+    case artistDescending
     case album
+    case albumDescending
     case dateAdded
+    case dateAddedOldest
     case format
+    case formatDescending
 }
 
 /// Generation-bound UI state for an explicit song-list sort. The state stays
@@ -436,24 +441,34 @@ public enum SongListSnapshotBuilder {
         let rhs = songs[rhsIndex]
         let comparison: ComparisonResult
         switch order {
-        case .title:
+        case .title, .titleDescending:
             comparison = lhs.title.localizedCompare(rhs.title)
-        case .artist:
+        case .artist, .artistDescending:
             comparison = (lhs.artistName ?? "").localizedCompare(rhs.artistName ?? "")
-        case .album:
+        case .album, .albumDescending:
             comparison = (lhs.albumTitle ?? "").localizedCompare(rhs.albumTitle ?? "")
         case .dateAdded:
             if lhs.dateAdded != rhs.dateAdded {
                 return lhs.dateAdded > rhs.dateAdded
             }
             comparison = .orderedSame
-        case .format:
+        case .dateAddedOldest:
+            if lhs.dateAdded != rhs.dateAdded {
+                return lhs.dateAdded < rhs.dateAdded
+            }
+            comparison = .orderedSame
+        case .format, .formatDescending:
             comparison = lhs.fileFormat.displayName.compare(rhs.fileFormat.displayName)
         }
 
         if comparison == .orderedSame {
             return lhs.id < rhs.id
         }
-        return comparison == .orderedAscending
+        switch order {
+        case .titleDescending, .artistDescending, .albumDescending, .formatDescending:
+            return comparison == .orderedDescending
+        case .title, .artist, .album, .dateAdded, .dateAddedOldest, .format:
+            return comparison == .orderedAscending
+        }
     }
 }

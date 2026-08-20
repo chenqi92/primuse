@@ -74,6 +74,14 @@
 "sort_album" = "专辑";
 "sort_date_added" = "添加日期";
 "sort_format" = "格式";
+"sort_a_to_z" = "A–Z";
+"sort_z_to_a" = "Z–A";
+"sort_newest_to_oldest" = "从新到旧";
+"sort_oldest_to_newest" = "从旧到新";
+"filter_by" = "筛选";
+"filter_downloaded" = "已下载";
+"filter_downloaded_loading" = "正在读取已下载歌曲…";
+"filter_downloaded_empty_desc" = "下载用于离线播放的歌曲会显示在这里。";
 "song_sort_progress_format" = "正在按%@排序…";
 "song_sort_progress_complete_format" = "已按%@完成排序";
 "song_sort_progress_cancelled" = "排序已取消";
