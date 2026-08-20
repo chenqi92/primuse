@@ -8,9 +8,8 @@ import AppKit
 #endif
 
 /// 用户手动编辑歌曲元数据 ── 标题 / 艺术家 / 专辑 / 年份 / 流派 / 曲号 / 碟号
-/// 以及封面。不改文件本身的 tag (NAS / 云盘文件不可直接写),只更新 Primuse
-/// 内部的 MusicLibrary 记录 + MetadataAssetStore 封面缓存,通过 CloudKit
-/// 同步,全 fleet 都能看到一致的编辑结果。
+/// 以及封面。支持安全媒体替换的来源会把修改写入文件内嵌标签；仅支持
+/// sidecar 或只读的来源会在界面中明确提示，仍可只保存到 Primuse。
 ///
 /// 自动刮削回写 tag 走 ScrapeOptionsView; 这里是给"刮削抓不到 / 抓错了 /
 /// 想自定义命名 / 自己用一张图当封面"场景兜底,完全手工。
@@ -40,7 +39,9 @@ struct TagEditorView: View {
     @State private var originalLyricsText = ""
     @State private var lyricsLoading = true
     @State private var lyricsWritebackMode: LyricsWriteback.Mode = .checking
+    @State private var tagMetadataPersistenceMode: TagMetadataPersistenceMode?
     @State private var lyricsErrorMessage: String?
+    @State private var writebackErrorMessage: String?
     @State private var isSaving = false
     @State private var showLyricsDeleteConfirm = false
     @State private var showLyricsEditor = false
@@ -89,6 +90,7 @@ struct TagEditorView: View {
         .task(id: song.id) {
             computeCandidates()
             await loadLyricsEditor()
+            tagMetadataPersistenceMode = await sourceManager.tagMetadataPersistenceMode(for: song)
         }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
@@ -100,6 +102,17 @@ struct TagEditorView: View {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
             Text(lyricsErrorMessage ?? "")
+        }
+        .alert(
+            String(localized: "tag_editor_writeback_error_title"),
+            isPresented: Binding(
+                get: { writebackErrorMessage != nil },
+                set: { if !$0 { writebackErrorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(writebackErrorMessage ?? "")
         }
         .confirmationDialog(
             String(localized: "tag_editor_lyrics_delete_confirm_title"),
@@ -512,7 +525,7 @@ struct TagEditorView: View {
 
     private var resetRow: some View {
         HStack {
-            Text("tag_editor_footer")
+            Text(tagMetadataStatusText)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 10)
@@ -751,7 +764,7 @@ struct TagEditorView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(PMColor.textFaint)
                             .padding(.top, 1)
-                        Text(String(localized: "tag_editor_mac_note"))
+                        Text(tagMetadataStatusText)
                             .font(PMFont.caption)
                             .foregroundStyle(PMColor.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1284,6 +1297,19 @@ struct TagEditorView: View {
         return LyricsWriteback.normalized(lyricsText) != LyricsWriteback.normalized(originalLyricsText)
     }
 
+    private var tagMetadataStatusText: String {
+        switch tagMetadataPersistenceMode {
+        case nil:
+            return String(localized: "tag_editor_metadata_writeback_checking")
+        case .embedded:
+            return String(localized: "tag_editor_metadata_writeback_embedded")
+        case .sidecarOnly:
+            return String(localized: "tag_editor_metadata_writeback_sidecar_only")
+        case .localOnly:
+            return String(localized: "tag_editor_metadata_writeback_local_only")
+        }
+    }
+
     private var currentLyricsValidation: LyricsEditableValidation? {
         let content = LyricsWriteback.normalized(lyricsText)
         return content.isEmpty ? nil : LyricsContentParser.validateEditableText(content)
@@ -1346,8 +1372,49 @@ struct TagEditorView: View {
         updated.year = Int(yearText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.trackNumber = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.discNumber = Int(discText.trimmingCharacters(in: .whitespacesAndNewlines))
-        if SongUserMetadataPolicy.editableFieldsChanged(from: song, to: updated) {
-            updated.userMetadataEditedAt = Date()
+
+        // A per-song cover reference has a stable filename, so selecting new
+        // bytes must count as an edit even when the reference string is unchanged.
+        // Do not update that reference before remote verification: otherwise a
+        // failed WebDAV replacement would still make the app show the new cover.
+        let tagOrCoverChanged = pickedCoverData != nil
+            || SongUserMetadataPolicy.editableFieldsChanged(from: song, to: updated)
+        if tagOrCoverChanged { updated.userMetadataEditedAt = Date() }
+
+        var wroteEmbeddedMetadata = false
+        if tagOrCoverChanged {
+            do {
+                if let sourceUpdated = try await sourceManager.writeEmbeddedMetadataIfSupported(
+                    original: song,
+                    updated: updated,
+                    coverData: pickedCoverData
+                ) {
+                    updated = sourceUpdated
+                    wroteEmbeddedMetadata = true
+                }
+            } catch {
+                writebackErrorMessage = error.localizedDescription
+                return
+            }
+        }
+
+        if let coverData = pickedCoverData {
+            guard let newFileName = await MetadataAssetStore.shared.storeCover(
+                coverData,
+                for: song.id
+            ) else {
+                // Embedded writeback may already have succeeded. Keep the
+                // durable library fields aligned with the verified media file,
+                // but never leave the previous local cover reference visible.
+                if wroteEmbeddedMetadata {
+                    updated.coverArtFileName = nil
+                    library.replaceSong(updated)
+                    invalidateSelectedCoverIfNeeded()
+                }
+                writebackErrorMessage = String(localized: "tag_editor_cover_cache_failed")
+                return
+            }
+            updated.coverArtFileName = newFileName
         }
 
         let lyricsChanged = hasLyricsChanges
@@ -1363,6 +1430,13 @@ struct TagEditorView: View {
                 library: library
             )
             guard outcome.succeeded else {
+                // The media object may already have been atomically replaced.
+                // Keep the library aligned with that verified source state even
+                // if the independent lyrics sidecar operation failed afterward.
+                if wroteEmbeddedMetadata {
+                    library.replaceSong(updated)
+                    invalidateSelectedCoverIfNeeded()
+                }
                 lyricsErrorMessage = outcome.errorMessage
                 return
             }
@@ -1372,26 +1446,20 @@ struct TagEditorView: View {
             needsLibraryReplace = false
         }
 
-        // 新封面 → 写到 MetadataAssetStore,文件名作为新 coverArtFileName。
-        // storeCover 内部 dedupe by content hash,同一张图重复存只占一份空间。
-        if let coverData = pickedCoverData {
-            let oldRef = song.coverArtFileName
-            if let newFileName = await MetadataAssetStore.shared.storeCover(coverData, for: song.id) {
-                updated.coverArtFileName = newFileName
-                updated.userMetadataEditedAt = Date()
-                // 失效原 coverArtFileName 的渲染缓存,让 CachedArtworkView 在
-                // 下一次 read 时拿到新数据 (新文件名不会跟旧名同 hash,但保险)
-                if let oldRef { CachedArtworkView.invalidateCache(for: oldRef) }
-                CachedArtworkView.invalidateCache(for: song.id)
-                needsLibraryReplace = true
-            }
-        }
-
         if needsLibraryReplace {
             library.replaceSong(updated)
         }
+        invalidateSelectedCoverIfNeeded()
         onSave?(updated)
         dismiss()
+    }
+
+    private func invalidateSelectedCoverIfNeeded() {
+        guard pickedCoverData != nil else { return }
+        if let oldRef = song.coverArtFileName {
+            CachedArtworkView.invalidateCache(for: oldRef)
+        }
+        CachedArtworkView.invalidateCache(for: song.id)
     }
 
     @MainActor

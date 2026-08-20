@@ -963,6 +963,12 @@
 "tag_editor_reset" = "還原為原始資訊";
 "tag_editor_reset_confirm" = "要放棄你的修改嗎？";
 "tag_editor_footer" = "標籤與封面修改只會儲存在猿音；歌詞是否寫回音樂來源以上方提示為準。";
+"tag_editor_metadata_writeback_checking" = "正在檢查標籤與封面的儲存位置…";
+"tag_editor_metadata_writeback_embedded" = "標籤與封面將寫入 WebDAV 音訊檔案；儲存後會重新下載並驗證檔案與內嵌中繼資料。";
+"tag_editor_metadata_writeback_sidecar_only" = "此音樂來源僅支援旁路檔案；這裡編輯的標籤與封面只會儲存在猿音，不會修改音訊檔案。";
+"tag_editor_metadata_writeback_local_only" = "唯讀音樂來源：標籤與封面只會儲存在猿音，不會修改來源檔案。";
+"tag_editor_writeback_error_title" = "無法寫回音樂檔案";
+"tag_editor_cover_cache_failed" = "無法儲存新的本機封面快取。請重新掃描音樂來源後再試。";
 "tag_editor_encoding_fix" = "修正亂碼…";
 "encoding_fix_title" = "文字編碼";
 "encoding_fix_section_header" = "選擇顯示正常的那一項";
@@ -1847,7 +1853,7 @@
 "tag_editor_mac_note" = "變更會儲存到 Primuse 資料庫紀錄；封面會寫入本機快取並同步顯示。";
 "tag_editor_mac_changed_format" = "● %d 處變更";
 "tag_editor_mac_unchanged" = "未變更";
-"tag_editor_mac_save" = "儲存並寫回";
+"tag_editor_mac_save" = "儲存變更";
 "tag_editor_mac_field_changed" = "已變更";
 
 // MARK: - External Display Now Playing

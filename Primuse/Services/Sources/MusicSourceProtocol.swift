@@ -303,6 +303,37 @@ enum RangeFetchPriority: Sendable {
     case background
 }
 
+struct EmbeddedMetadataWritebackResult: Sendable, Equatable {
+    let fileSize: Int64
+    let modifiedDate: Date?
+    let revision: String
+    let fileSHA256: String
+    let verification: EmbeddedMetadataVerification
+}
+
+enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {
+    case unsupported
+    case missingStrongRevision
+    case conflict
+    case invalidResponse
+    case remoteVerificationFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupported:
+            return "This source does not support embedded metadata writeback."
+        case .missingStrongRevision:
+            return "The WebDAV server did not provide a strong ETag, so the file cannot be replaced safely."
+        case .conflict:
+            return "The WebDAV file changed while it was being edited. Scan again before retrying."
+        case .invalidResponse:
+            return "The WebDAV server returned an invalid writeback response."
+        case .remoteVerificationFailed:
+            return "The file downloaded after WebDAV writeback did not match the verified upload."
+        }
+    }
+}
+
 protocol MusicSourceConnector: Sendable {
     var sourceID: String { get }
     var supportsSidecarWriting: Bool { get }
@@ -335,6 +366,14 @@ protocol MusicSourceConnector: Sendable {
         to path: String,
         priority: RangeFetchPriority
     ) async throws
+
+    /// Rewrites selected embedded metadata in the media object and replaces it
+    /// on the source with optimistic concurrency and a post-write byte check.
+    func writeEmbeddedMetadata(
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async throws -> EmbeddedMetadataWritebackResult
 
     /// Delete a remote file. Used by song deletion to remove the source audio
     /// file and safe same-name sidecars.
@@ -508,6 +547,14 @@ extension MusicSourceConnector {
         priority: RangeFetchPriority
     ) async throws {
         try await writeFile(data: data, to: path)
+    }
+
+    func writeEmbeddedMetadata(
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        throw EmbeddedMetadataWritebackSourceError.unsupported
     }
 
     func deleteFile(at path: String) async throws {

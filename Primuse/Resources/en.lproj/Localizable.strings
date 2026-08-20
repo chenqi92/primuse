@@ -1053,6 +1053,12 @@
 "tag_editor_reset" = "Revert to Original";
 "tag_editor_reset_confirm" = "Discard your edits?";
 "tag_editor_footer" = "Tag and cover edits stay within Primuse. Lyrics follow the source writeback status shown above.";
+"tag_editor_metadata_writeback_checking" = "Checking where tags and cover art can be saved…";
+"tag_editor_metadata_writeback_embedded" = "Tags and cover art will be embedded in the WebDAV audio file. Primuse downloads and verifies the file and metadata after saving.";
+"tag_editor_metadata_writeback_sidecar_only" = "This source supports sidecars only. Tags and cover art edited here stay in Primuse; the audio file is unchanged.";
+"tag_editor_metadata_writeback_local_only" = "Read-only source: tags and cover art stay in Primuse; the source file is unchanged.";
+"tag_editor_writeback_error_title" = "Unable to Write Music File";
+"tag_editor_cover_cache_failed" = "The new local cover cache could not be saved. Rescan the music source, then try again.";
 "tag_editor_encoding_fix" = "Fix Garbled Text…";
 "encoding_fix_title" = "Text Encoding";
 "encoding_fix_section_header" = "Pick the version that reads correctly";

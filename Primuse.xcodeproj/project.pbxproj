@@ -346,6 +346,8 @@
 		63259BF946E30D768662FE86 /* AppSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F72C30C0410A874441AA /* AppSecrets.swift */; };
 		632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
 		63A8681ED1A2091DC4C1004B /* AudioDurationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448C0693B4F051488B4E0CD1 /* AudioDurationPolicy.swift */; };
+		63B5A50955FF23FF9A9F573C /* EmbeddedMetadataWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */; };
+		642241C2B56B3D284AC021B0 /* EmbeddedMetadataWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */; };
 		642970477DCF868695187EAD /* FnMusicAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83ED706EE476BAD28EE3B6AE /* FnMusicAPI.swift */; };
 		645A9A3AA4723B98540145BB /* ExternalDisplayNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD09951914FB65D3573E5824 /* ExternalDisplayNowPlayingView.swift */; };
 		645CAB01826996C17CB7E772 /* ArtistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EFD66532368B5A1564BE462 /* ArtistDetailView.swift */; };
@@ -552,6 +554,7 @@
 		AC59DE9888AE217101D69E03 /* ConnectorScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */; };
 		ACA5BF36C76363FF308627C8 /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
 		AD67A69E72837A8AA7866B3A /* MetadataBackfillService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B56809F1C697EF691877166D /* MetadataBackfillService.swift */; };
+		AD6FEFE184462870ADBFC294 /* EmbeddedMetadataWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */; };
 		AD8CD5AF66AE2A6B9D80B106 /* MediaServerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */; };
 		ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
 		AE1E0F179439B3421A49EBEA /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 311B669F71B39784F17F48DB /* NIOCore */; };
@@ -996,6 +999,7 @@
 		0EA999555F455617E1DF9281 /* EqualizerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerService.swift; sourceTree = "<group>"; };
 		10101623A825B5DA960255C3 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		10930AD1677DFF0C351D43C5 /* LyricLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricLine.swift; sourceTree = "<group>"; };
+		10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedMetadataWriter.swift; sourceTree = "<group>"; };
 		10EA195119C963A2DA62FC69 /* WidgetSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshots.swift; sourceTree = "<group>"; };
 		11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeOptionsView.swift; sourceTree = "<group>"; };
 		111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileFormatRouter.swift; sourceTree = "<group>"; };
@@ -2321,6 +2325,7 @@
 			children = (
 				BDAD15BF82B69F8C89D6F752 /* Scrapers */,
 				9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */,
+				10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */,
 				A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */,
 				69CE5C498EA110A27ACD19B9 /* LyricsLoader.swift */,
 				B3853774B80EC7B89FE6982B /* LyricsParser.swift */,
@@ -3136,6 +3141,7 @@
 				78616119FFF315EF497B0127 /* DuplicateCleanupService.swift in Sources */,
 				5775567CC35C0C5ECD9AA1D1 /* DuplicateDetector.swift in Sources */,
 				D8EBD25096403908B40EDC03 /* DuplicateSongsView.swift in Sources */,
+				642241C2B56B3D284AC021B0 /* EmbeddedMetadataWriter.swift in Sources */,
 				539576A6A036BCF845E5E53D /* EmptyStateView.swift in Sources */,
 				AB11470CFF39E686C288E1BC /* EncodingFixPicker.swift in Sources */,
 				C434514F68C5E59EEC0EF1D6 /* EqualizerService.swift in Sources */,
@@ -3349,6 +3355,7 @@
 				D2E190B34A801EB69260A46F /* App.swift in Sources */,
 				18D8E338807049AEFD675052 /* ByteRangeReader.swift in Sources */,
 				CFE9465BE64F9EB5B81F796D /* CloudKitRuntime.swift in Sources */,
+				63B5A50955FF23FF9A9F573C /* EmbeddedMetadataWriter.swift in Sources */,
 				9D603241B5052785AD417424 /* FTPByteReader.swift in Sources */,
 				08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */,
 				2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */,
@@ -3477,6 +3484,7 @@
 				934398001C4D2407DF0F2BD7 /* DuplicateCleanupService.swift in Sources */,
 				8457016E2EBE033A08C38A33 /* DuplicateDetector.swift in Sources */,
 				F6252DF57585604301CB0CF7 /* DuplicateSongsView.swift in Sources */,
+				AD6FEFE184462870ADBFC294 /* EmbeddedMetadataWriter.swift in Sources */,
 				1E052A8CCC85C706B34D5F38 /* EmptyStateView.swift in Sources */,
 				91DCDF1E52057B6DAEA62E9C /* EncodingFixPicker.swift in Sources */,
 				7228D937586E66F92F267E8D /* EqualizerService.swift in Sources */,
