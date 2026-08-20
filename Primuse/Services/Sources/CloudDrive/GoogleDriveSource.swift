@@ -578,6 +578,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
 
     static func oauthConfig(clientId: String) -> CloudOAuthConfig {
         CloudOAuthConfig(
+            provider: .googleDrive,
             authURL: "https://accounts.google.com/o/oauth2/v2/auth",
             tokenURL: tokenURL,
             clientId: clientId,

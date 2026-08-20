@@ -1839,6 +1839,9 @@
 "cloud_auth_prompt_mac" = "Tippe auf „Autorisieren“, um die Autorisierungsseite im Systembrowser zu öffnen.\nNach Anmeldung und Zustimmung kehrst du automatisch zu Primuse zurück.";
 "cloud_auth_prompt_ios" = "Tippe auf die Schaltfläche unten, um die Autorisierungsseite im Browser zu öffnen.\nNach Anmeldung und Zustimmung kann Primuse auf deine Dateien zugreifen.";
 "cloud_auth_button" = "Autorisieren";
+"cloud_account_use_signed_in" = "Angemeldetes Konto verwenden";
+"cloud_account_login_other" = "Mit anderem Konto anmelden";
+"cloud_account_choice_hint" = "Jede Quelle speichert eigene Anmeldedaten. Abbruch oder Fehler ändern bestehende Verbindungen nicht.";
 "cloud_authorizing_title_format" = "%@ · Autorisierung";
 "cloud_authorizing_waiting" = "Warten auf den Autorisierungscode vom Systembrowser …";
 "cloud_authorizing_steps" = "Autorisierungsschritte";

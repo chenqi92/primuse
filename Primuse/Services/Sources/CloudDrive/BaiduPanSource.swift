@@ -1377,6 +1377,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
 
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
         CloudOAuthConfig(
+            provider: .baiduPan,
             authURL: "\(oauthBase)/authorize",
             tokenURL: "\(oauthBase)/token",
             clientId: clientId,

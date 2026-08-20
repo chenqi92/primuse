@@ -1840,6 +1840,9 @@
 "cloud_auth_prompt_mac" = "「認証して接続」をタップすると、システムブラウザで認証ページが開きます。\nログインして許可すると自動的に Primuse に戻ります。";
 "cloud_auth_prompt_ios" = "下のボタンをタップすると、ブラウザで認証ページが開きます。\nログインして許可すると、Primuse がファイルにアクセスできます。";
 "cloud_auth_button" = "認証して接続";
+"cloud_account_use_signed_in" = "Use Signed-In Account";
+"cloud_account_login_other" = "Sign In to Another Account";
+"cloud_account_choice_hint" = "Each source stores separate credentials. Cancelling or a failed authorization leaves existing connections unchanged.";
 "cloud_authorizing_title_format" = "%@ · 認証";
 "cloud_authorizing_waiting" = "システムブラウザからの認証コードを待っています…";
 "cloud_authorizing_steps" = "認証の手順";

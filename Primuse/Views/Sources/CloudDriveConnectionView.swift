@@ -15,6 +15,12 @@ struct CloudDriveConnectionView: View {
     @State private var isAuthorizing = false
     @State private var directAccessToken = ""
 
+    private var hasAnotherSourceOfSameProvider: Bool {
+        sourcesStore.sources.contains {
+            $0.id != source.id && $0.type == source.type
+        }
+    }
+
     enum FlowStep {
         case checking     // Checking if credentials/token exist
         case needsSetup   // No client_id configured
@@ -305,15 +311,7 @@ struct CloudDriveConnectionView: View {
                 googleDrivePermissionDisclosure
             }
 
-            Button {
-                startOAuth()
-            } label: {
-                Label(String(localized: "cloud_auth_button"), systemImage: "link.badge.plus")
-                    .frame(maxWidth: 220)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
+            oauthActionButtons(maxWidth: 260)
 
             if !errorMessage.isEmpty {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -347,15 +345,7 @@ struct CloudDriveConnectionView: View {
                 googleDrivePermissionDisclosure
             }
 
-            Button {
-                startOAuth()
-            } label: {
-                Label(String(localized: "cloud_auth_button"), systemImage: "link.badge.plus")
-                    .font(.body).fontWeight(.semibold)
-                    .frame(maxWidth: 260).padding(.vertical, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            oauthActionButtons(maxWidth: 300)
 
             if !errorMessage.isEmpty {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -368,6 +358,53 @@ struct CloudDriveConnectionView: View {
             Spacer()
         }
         #endif
+    }
+
+    @ViewBuilder
+    private func oauthActionButtons(maxWidth: CGFloat) -> some View {
+        if hasAnotherSourceOfSameProvider {
+            VStack(spacing: 10) {
+                Button {
+                    startOAuth(loginIntent: .useSignedInAccount)
+                } label: {
+                    Label("cloud_account_use_signed_in", systemImage: "person.crop.circle.badge.checkmark")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: maxWidth)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isAuthorizing)
+
+                Button {
+                    startOAuth(loginIntent: .differentAccount)
+                } label: {
+                    Label("cloud_account_login_other", systemImage: "person.crop.circle.badge.plus")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: maxWidth)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(isAuthorizing)
+
+                Text("cloud_account_choice_hint")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 430)
+            }
+        } else {
+            Button {
+                startOAuth()
+            } label: {
+                Label(String(localized: "cloud_auth_button"), systemImage: "link.badge.plus")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: maxWidth)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(isAuthorizing)
+        }
     }
 
     private var googleDrivePermissionDisclosure: some View {
@@ -703,11 +740,14 @@ struct CloudDriveConnectionView: View {
         }
     }
 
-    private func startOAuth() {
+    private func startOAuth(loginIntent: CloudOAuthLoginIntent = .standard) {
+        guard !isAuthorizing else { return }
+        isAuthorizing = true
         step = .authorizing
         errorMessage = ""
 
         Task {
+            defer { isAuthorizing = false }
             let tokenManager = CloudTokenManager(sourceID: source.id)
             do {
                 guard let creds = try await resolvedCredentials(using: tokenManager) else {
@@ -715,17 +755,30 @@ struct CloudDriveConnectionView: View {
                     withAnimation { step = .needsSetup }
                     return
                 }
-                guard await tokenManager.saveAppCredentials(creds) else {
-                    throw OAuthError.tokenExchangeFailed(String(localized: "credential_save_failed_message"))
-                }
-
                 let config = oauthConfig(for: source.type, clientId: creds.clientId, clientSecret: creds.clientSecret)
-                plog("☁️ OAuth starting type=\(source.type.rawValue) sourceID=\(source.id) clientId=\(creds.clientId) redirect=\(config.redirectURI) scopes=\(config.scopes)")
+                plog("☁️ OAuth starting type=\(source.type.rawValue) sourceID=\(source.id) clientId=\(creds.clientId) redirect=\(config.redirectURI) scopes=\(config.scopes) intent=\(String(describing: loginIntent))")
 
-                let tokens = try await OAuthService.shared.authorize(config: config)
-                guard await tokenManager.saveTokens(tokens) else {
-                    plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
-                    throw OAuthError.tokenExchangeFailed(String(localized: "cloud_err_token_save_failed"))
+                // Do not write OAuth tokens or connection-stage credentials
+                // until the browser has returned a successful authorization.
+                // Cancelling or failing a different-account attempt therefore
+                // leaves every existing source untouched.
+                try await CloudOAuthCredentialTransaction.authorizeThenCommit {
+                    try await OAuthService.shared.authorize(
+                        config: config,
+                        loginIntent: loginIntent
+                    )
+                } commit: { tokens in
+                    guard await tokenManager.saveAppCredentials(creds) else {
+                        throw OAuthError.tokenExchangeFailed(
+                            String(localized: "credential_save_failed_message")
+                        )
+                    }
+                    guard await tokenManager.saveTokens(tokens) else {
+                        plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
+                        throw OAuthError.tokenExchangeFailed(
+                            String(localized: "cloud_err_token_save_failed")
+                        )
+                    }
                 }
 
                 // Refresh the connector so it picks up the new tokens
@@ -822,6 +875,7 @@ struct CloudDriveConnectionView: View {
         default:
             // Fallback — shouldn't happen
             return CloudOAuthConfig(
+                provider: type,
                 authURL: "", tokenURL: "",
                 clientId: clientId, clientSecret: clientSecret,
                 scopes: [], redirectURI: "\(CloudOAuthConfig.callbackScheme)://callback"

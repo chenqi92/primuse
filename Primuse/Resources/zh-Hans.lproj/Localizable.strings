@@ -1943,6 +1943,9 @@
 "cloud_auth_prompt_mac" = "点击「授权连接」，将在系统浏览器中打开授权页。\n登录并同意授权后会自动返回猿音。";
 "cloud_auth_prompt_ios" = "点击下方按钮，将在浏览器中打开授权页面。\n登录并同意授权后，猿音即可访问您的文件。";
 "cloud_auth_button" = "授权连接";
+"cloud_account_use_signed_in" = "使用已登录账号";
+"cloud_account_login_other" = "登录其他账号";
+"cloud_account_choice_hint" = "每个连接源会独立保存登录凭据；取消或授权失败不会更改已有连接。";
 "cloud_authorizing_title_format" = "%@ · 授权";
 "cloud_authorizing_waiting" = "等待系统浏览器返回授权码…";
 "cloud_authorizing_steps" = "授权步骤";

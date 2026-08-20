@@ -1816,6 +1816,9 @@
 "cloud_auth_prompt_mac" = "點按「授權連線」，將在系統瀏覽器中開啟授權頁。\n登入並同意授權後會自動返回猿音。";
 "cloud_auth_prompt_ios" = "點按下方按鈕，將在瀏覽器中開啟授權頁面。\n登入並同意授權後，猿音即可存取您的檔案。";
 "cloud_auth_button" = "授權連線";
+"cloud_account_use_signed_in" = "使用已登入帳號";
+"cloud_account_login_other" = "登入其他帳號";
+"cloud_account_choice_hint" = "每個連線來源會獨立儲存登入憑證；取消或授權失敗不會變更現有連線。";
 "cloud_authorizing_title_format" = "%@ · 授權";
 "cloud_authorizing_waiting" = "等待系統瀏覽器返回授權碼…";
 "cloud_authorizing_steps" = "授權步驟";

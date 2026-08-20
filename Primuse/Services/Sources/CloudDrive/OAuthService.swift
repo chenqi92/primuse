@@ -25,7 +25,10 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     /// Starts the full OAuth flow: authorize → get code → exchange for tokens.
     /// Returns the obtained tokens ready to be stored.
-    func authorize(config: CloudOAuthConfig) async throws -> CloudTokenManager.Tokens {
+    func authorize(
+        config: CloudOAuthConfig,
+        loginIntent: CloudOAuthLoginIntent = .standard
+    ) async throws -> CloudTokenManager.Tokens {
         let pkce = config.usesPKCE ? PKCEChallenge() : nil
 
         // CSRF / authorization-code-injection 防护:每次授权生成一次性随机 state,
@@ -34,14 +37,21 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         let state = Self.makeRandomState()
 
         // 1. Build authorize URL
-        let authURL = try buildAuthorizeURL(config: config, pkce: pkce, state: state)
+        let authURL = try buildAuthorizeURL(
+            config: config,
+            pkce: pkce,
+            state: state,
+            loginIntent: loginIntent
+        )
         plog("☁️ OAuth authorize host=\(authURL.host ?? "?") path=\(authURL.path)")
 
         // 2. Present system browser
         let callbackURL = try await presentAuthSession(
             url: authURL,
             callbackScheme: config.callbackURLScheme,
-            registeredRedirectURI: config.redirectURI
+            registeredRedirectURI: config.redirectURI,
+            prefersEphemeralSession: CloudOAuthAccountSelectionPolicy
+                .prefersEphemeralSession(for: loginIntent)
         )
 
         // 3. Extract authorization code from callback (校验 state 一致后才接受)
@@ -59,7 +69,12 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 1: Build Authorize URL
 
-    private func buildAuthorizeURL(config: CloudOAuthConfig, pkce: PKCEChallenge?, state: String) throws -> URL {
+    private func buildAuthorizeURL(
+        config: CloudOAuthConfig,
+        pkce: PKCEChallenge?,
+        state: String,
+        loginIntent: CloudOAuthLoginIntent
+    ) throws -> URL {
         guard var components = URLComponents(string: config.authURL) else {
             throw OAuthError.invalidConfiguration("Invalid auth URL: \(config.authURL)")
         }
@@ -94,6 +109,12 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             queryItems.append(.init(name: "response_mode", value: "query"))
         }
 
+        queryItems = CloudOAuthAccountSelectionPolicy.applyingAuthorizationParameters(
+            to: queryItems,
+            provider: config.provider,
+            intent: loginIntent
+        )
+
         components.queryItems = queryItems
         guard let url = components.url else {
             throw OAuthError.invalidConfiguration("Failed to build authorize URL")
@@ -106,7 +127,8 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     private func presentAuthSession(
         url: URL,
         callbackScheme: String,
-        registeredRedirectURI: String
+        registeredRedirectURI: String,
+        prefersEphemeralSession: Bool
     ) async throws -> URL {
         #if os(macOS)
         // macOS 26 + sandbox 下 ASWebAuthenticationSession 的浏览器窗口经常
@@ -125,7 +147,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
                     continuation.resume(throwing: err)
                 }
             }
-            plog("☁️ OAuth NSWorkspace.open authURL callbackScheme=\(callbackScheme)")
+            plog("☁️ OAuth NSWorkspace.open authURL callbackScheme=\(callbackScheme) differentAccountRequested=\(prefersEphemeralSession)")
             let opened = NSWorkspace.shared.open(url)
             plog("☁️ OAuth NSWorkspace.open returned \(opened)")
             if !opened {
@@ -165,7 +187,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             }
 
             session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
+            session.prefersEphemeralWebBrowserSession = prefersEphemeralSession
             self.currentSession = session
 
             if !session.start() {

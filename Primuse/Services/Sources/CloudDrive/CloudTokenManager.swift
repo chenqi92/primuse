@@ -41,9 +41,17 @@ actor CloudTokenManager {
 
     // MARK: - Public API
 
+    private var tokenKey: String {
+        CloudCredentialStorageKeyPolicy.tokenKey(sourceID: sourceID)
+    }
+
+    private var appCredentialsKey: String {
+        CloudCredentialStorageKeyPolicy.appCredentialsKey(sourceID: sourceID)
+    }
+
     func lookupTokens() -> LookupResult<Tokens> {
         if let volatileTokens { return .found(volatileTokens) }
-        switch keychainRead(key: "cloud_tokens_\(sourceID)") {
+        switch keychainRead(key: tokenKey) {
         case .found(let data):
             guard let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else {
                 plog("⛔ Keychain token decode failed sourceID=\(sourceID.prefix(8))…")
@@ -81,7 +89,7 @@ actor CloudTokenManager {
     @discardableResult
     func saveTokens(_ tokens: Tokens) -> Bool {
         guard let data = try? JSONEncoder().encode(tokens) else { return false }
-        let primary = keychainWrite(key: "cloud_tokens_\(sourceID)", data: data)
+        let primary = keychainWrite(key: tokenKey, data: data)
         plog("☁️ Keychain saveTokens sourceID=\(sourceID.prefix(8))… ok=\(primary.safe)")
         let persisted: Bool
         if primary.safe {
@@ -90,7 +98,7 @@ actor CloudTokenManager {
             // Fallback: try writing as a local-only (non-synchronizable) item.
             // Sandboxed macOS apps without an explicit keychain-access-group
             // can fail on synchronizable adds with errSecMissingEntitlement.
-            let okLocal = keychainWriteLocal(key: "cloud_tokens_\(sourceID)", data: data)
+            let okLocal = keychainWriteLocal(key: tokenKey, data: data)
             plog("☁️ Keychain saveTokens FALLBACK local-only sourceID=\(sourceID.prefix(8))… ok=\(okLocal)")
             persisted = okLocal
         } else {
@@ -105,7 +113,7 @@ actor CloudTokenManager {
 
     @discardableResult
     func deleteTokens() -> Bool {
-        let deleted = Self.keychainDelete(key: "cloud_tokens_\(sourceID)")
+        let deleted = Self.keychainDelete(key: tokenKey)
         if deleted { volatileTokens = nil }
         return deleted
     }
@@ -188,7 +196,7 @@ actor CloudTokenManager {
     }
 
     func lookupAppCredentials() -> LookupResult<AppCredentials> {
-        switch keychainRead(key: "cloud_creds_\(sourceID)") {
+        switch keychainRead(key: appCredentialsKey) {
         case .found(let data):
             guard let credentials = try? JSONDecoder().decode(AppCredentials.self, from: data) else {
                 plog("⛔ Keychain app credential decode failed sourceID=\(sourceID.prefix(8))…")
@@ -224,24 +232,28 @@ actor CloudTokenManager {
     @discardableResult
     func saveAppCredentials(_ creds: AppCredentials) -> Bool {
         guard let data = try? JSONEncoder().encode(creds) else { return false }
-        let primary = keychainWrite(key: "cloud_creds_\(sourceID)", data: data)
+        let primary = keychainWrite(key: appCredentialsKey, data: data)
         if primary.safe { return true }
         guard !primary.targetStored else { return false }
         // 与 saveTokens 一致:沙盒 macOS 在没开 iCloud Keychain 时
         // synchronizable 写会 errSecMissingEntitlement,回退本地。
-        return keychainWriteLocal(key: "cloud_creds_\(sourceID)", data: data)
+        return keychainWriteLocal(key: appCredentialsKey, data: data)
     }
 
     @discardableResult
     func deleteAppCredentials() -> Bool {
-        Self.keychainDelete(key: "cloud_creds_\(sourceID)")
+        Self.keychainDelete(key: appCredentialsKey)
     }
 
     /// Used by source tombstone pruning, where deletion must finish before the
     /// row is removed so a Keychain failure still has a retry target.
     nonisolated static func deleteStoredCredentials(for sourceID: String) -> Bool {
-        let tokensDeleted = keychainDelete(key: "cloud_tokens_\(sourceID)")
-        let appCredentialsDeleted = keychainDelete(key: "cloud_creds_\(sourceID)")
+        let tokensDeleted = keychainDelete(
+            key: CloudCredentialStorageKeyPolicy.tokenKey(sourceID: sourceID)
+        )
+        let appCredentialsDeleted = keychainDelete(
+            key: CloudCredentialStorageKeyPolicy.appCredentialsKey(sourceID: sourceID)
+        )
         return tokensDeleted && appCredentialsDeleted
     }
 

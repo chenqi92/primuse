@@ -438,6 +438,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
 
     static func oauthConfig(clientId: String) -> CloudOAuthConfig {
         CloudOAuthConfig(
+            provider: .oneDrive,
             authURL: "\(authBase)/authorize",
             tokenURL: "\(authBase)/token",
             clientId: clientId,

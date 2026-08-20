@@ -380,6 +380,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     /// `primuse://oauth/123pan/callback`;scope 固定且逗号分隔;无 PKCE。
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
         CloudOAuthConfig(
+            provider: .pan123,
             authURL: authURL,
             tokenURL: tokenURL,
             clientId: clientId,

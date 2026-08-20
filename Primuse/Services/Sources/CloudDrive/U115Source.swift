@@ -307,6 +307,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
     /// 注意:tokenURL 是 authCodeToToken(非扫码用的 deviceCodeToToken),且不用 PKCE。
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
         CloudOAuthConfig(
+            provider: .pan115,
             authURL: "\(passportBase)/authorize",
             tokenURL: "\(passportBase)/authCodeToToken",
             clientId: clientId,

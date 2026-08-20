@@ -1839,6 +1839,9 @@
 "cloud_auth_prompt_mac" = "'인증하여 연결'을 탭하면 시스템 브라우저에서 인증 페이지가 열립니다.\n로그인 후 동의하면 자동으로 Primuse로 돌아옵니다.";
 "cloud_auth_prompt_ios" = "아래 버튼을 탭하면 브라우저에서 인증 페이지가 열립니다.\n로그인 후 동의하면 Primuse가 파일에 접근할 수 있습니다.";
 "cloud_auth_button" = "인증하여 연결";
+"cloud_account_use_signed_in" = "로그인된 계정 사용";
+"cloud_account_login_other" = "다른 계정으로 로그인";
+"cloud_account_choice_hint" = "각 소스는 별도의 로그인 정보를 저장합니다. 취소하거나 인증에 실패해도 기존 연결은 변경되지 않습니다.";
 "cloud_authorizing_title_format" = "%@ · 인증";
 "cloud_authorizing_waiting" = "시스템 브라우저에서 인증 코드를 기다리는 중…";
 "cloud_authorizing_steps" = "인증 단계";

@@ -626,6 +626,7 @@
 		C0A9D1EA92EADB6659E5438F /* PlatformShims.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE10B90CF85FD450338F498 /* PlatformShims.swift */; };
 		C0CCDE0A3022B35ACE45FC5A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
 		C0CD7D6E45358510AB9E6B04 /* CloudDriveConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */; };
+		C0F8BD6105F068ADA910E7E0 /* CloudOAuthAccountSelectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */; };
 		C1A324B262C6C7E77588AF1A /* DLNARendererService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4A762C2201670999B92FB3 /* DLNARendererService.swift */; };
 		C2013CCE9B28C52112EDA8B8 /* SongSelectable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8817585FD03BC82372556BB9 /* SongSelectable.swift */; };
 		C27FC4095CCA4C732D2E235A /* QuickAccessWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6938B4831BD4508FCE2FB6C0 /* QuickAccessWidget.swift */; };
@@ -1106,6 +1107,7 @@
 		462A1CC2221A693AE52A85E3 /* MediaServerStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaServerStreamResolver.swift; sourceTree = "<group>"; };
 		466AF990FCB1B871B4D60DE5 /* CloudSyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncSettingsView.swift; sourceTree = "<group>"; };
 		471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageScenery.swift; sourceTree = "<group>"; };
+		475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOAuthAccountSelectionPolicy.swift; sourceTree = "<group>"; };
 		47748DA5FBA423FEABD1BDA1 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		4824F430EB139F30159A6457 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscoveryService.swift; sourceTree = "<group>"; };
@@ -1776,6 +1778,7 @@
 				F7FB6E8E617D8E1857173D1F /* AppleMusicLibraryAPI.swift */,
 				F822C83F2A4B56E2D9B1CC84 /* AppReviewPromptPolicy.swift */,
 				448C0693B4F051488B4E0CD1 /* AudioDurationPolicy.swift */,
+				475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */,
 				85BED3C0FFD431313E46BAD8 /* FullDownloadSeekPolicy.swift */,
 				C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */,
 				9A978F51041E03E752100B64 /* LibraryFolderIndex.swift */,
@@ -2960,6 +2963,7 @@
 				67D45D818469B9D73A8AB157 /* BundleToken.swift in Sources */,
 				DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */,
 				18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */,
+				C0F8BD6105F068ADA910E7E0 /* CloudOAuthAccountSelectionPolicy.swift in Sources */,
 				14D6F7EBC2C261E3B5E4E679 /* CloudSchemaDeploymentPolicy.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
 				38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */,

@@ -343,6 +343,6 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     }
 
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
-        CloudOAuthConfig(authURL: "\(oauthBase)/authorize", tokenURL: "\(oauthBase)/access_token", clientId: clientId, clientSecret: clientSecret, scopes: ["user:base", "file:all:read", "file:all:write"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://aliyun/callback")
+        CloudOAuthConfig(provider: .aliyunDrive, authURL: "\(oauthBase)/authorize", tokenURL: "\(oauthBase)/access_token", clientId: clientId, clientSecret: clientSecret, scopes: ["user:base", "file:all:read", "file:all:write"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://aliyun/callback")
     }
 }

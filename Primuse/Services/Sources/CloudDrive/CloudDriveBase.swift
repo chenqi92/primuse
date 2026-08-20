@@ -4,6 +4,7 @@ import PrimuseKit
 
 /// OAuth configuration for a cloud drive
 struct CloudOAuthConfig: Sendable {
+    let provider: MusicSourceType
     let authURL: String
     let tokenURL: String
     let clientId: String
@@ -26,6 +27,7 @@ struct CloudOAuthConfig: Sendable {
     }
 
     init(
+        provider: MusicSourceType,
         authURL: String,
         tokenURL: String,
         clientId: String,
@@ -36,6 +38,7 @@ struct CloudOAuthConfig: Sendable {
         usesPKCE: Bool = true,
         explicitCallbackScheme: String? = nil
     ) {
+        self.provider = provider
         self.authURL = authURL
         self.tokenURL = tokenURL
         self.clientId = clientId
