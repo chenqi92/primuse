@@ -5079,7 +5079,7 @@ final class AudioPlayerService {
         syncPlaybackProgressFromEngine()
         pendingRecoveryTime = currentTime
         needsPlaybackRecovery = hasPreparedLocalPlayback && currentSong != nil && !isAtTrackEnd
-        audioEngine.pause()
+        audioEngine.pauseWithFade()
         isPlaying = false
         stopTimeUpdater()
         updateNowPlayingInfo()
@@ -5203,7 +5203,7 @@ final class AudioPlayerService {
             }
         }
         _ = AudioSessionManager.shared.activatePlaybackSession()
-        let didResume = audioEngine.resume()
+        let didResume = audioEngine.resumeWithFade()
         syncPlaybackProgressFromEngine()
         isPlaying = didResume
         if didResume {

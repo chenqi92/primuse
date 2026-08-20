@@ -31,6 +31,11 @@ final class AudioEngine {
     private var isSetUp = false
     private var directSourceFormat: AVAudioFormat?
     private var headphoneMotionManager: CMHeadphoneMotionManager?
+    private var transportFadeTask: Task<Void, Never>?
+    private var transportFadeRestoreVolume: Float?
+
+    private static let transportFadeStepCount = 12
+    private static let transportFadeStepDuration: Duration = .milliseconds(15)
 
     /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
     /// background mode 不挂起进程, NWListener 才能持续接 SSDP / control 请求。
@@ -86,6 +91,7 @@ final class AudioEngine {
     }
 
     private func tearDownGraph() {
+        cancelTransportFade(restoreVolume: false)
         stopSilenceKeepAlive()
         playerNode?.stop()
         crossfadePlayerNode?.stop()
@@ -557,6 +563,7 @@ final class AudioEngine {
 
     @discardableResult
     func play() -> Bool {
+        cancelTransportFade(restoreVolume: true)
         if engine == nil || !isSetUp {
             do { try setUp() } catch {
                 plog("Failed to set up engine: \(error)")
@@ -582,6 +589,45 @@ final class AudioEngine {
     }
 
     func pause() {
+        cancelTransportFade(restoreVolume: true)
+        pauseImmediately()
+    }
+
+    /// Manual transport pauses use a short, cancellable envelope so a quick
+    /// Play/Pause reversal never leaves a stale task muting or pausing the new
+    /// command. The node's program volume (including ReplayGain) is restored
+    /// while paused and reused as the target of the next fade-in.
+    func pauseWithFade() {
+        guard isActuallyPlaying, let playerNode else {
+            pause()
+            return
+        }
+
+        let targetVolume = transportFadeRestoreVolume ?? playerNode.volume
+        let startVolume = playerNode.volume
+        cancelTransportFade(restoreVolume: false)
+        transportFadeRestoreVolume = targetVolume
+        transportFadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for step in 1...Self.transportFadeStepCount {
+                do {
+                    try await Task.sleep(for: Self.transportFadeStepDuration)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                let progress = Float(step) / Float(Self.transportFadeStepCount)
+                self.playerNode?.volume = startVolume * Self.fadeOutGain(at: progress)
+            }
+            guard !Task.isCancelled else { return }
+            self.pauseImmediately()
+            self.playerNode?.volume = targetVolume
+            self.transportFadeRestoreVolume = nil
+            self.transportFadeTask = nil
+        }
+    }
+
+    private func pauseImmediately() {
         playerNode?.pause()
         crossfadePlayerNode?.pause()
         // Pausing every player node leaves AVAudioEngine and the audio hardware
@@ -594,6 +640,51 @@ final class AudioEngine {
 
     @discardableResult
     func resume() -> Bool {
+        cancelTransportFade(restoreVolume: true)
+        return resumeImmediately()
+    }
+
+    /// Starts prepared local audio at the current transport volume and eases
+    /// back to the program volume. Reversing a fade-out continues from its
+    /// current level instead of producing a gain jump.
+    @discardableResult
+    func resumeWithFade() -> Bool {
+        let wasPlaying = isActuallyPlaying
+        let currentVolume = playerNode?.volume ?? 1
+        let targetVolume = transportFadeRestoreVolume ?? currentVolume
+        cancelTransportFade(restoreVolume: false)
+        let startVolume: Float = wasPlaying ? currentVolume : 0
+        playerNode?.volume = startVolume
+
+        guard resumeImmediately() else {
+            playerNode?.volume = targetVolume
+            return false
+        }
+
+        transportFadeRestoreVolume = targetVolume
+        transportFadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for step in 1...Self.transportFadeStepCount {
+                do {
+                    try await Task.sleep(for: Self.transportFadeStepDuration)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                let progress = Float(step) / Float(Self.transportFadeStepCount)
+                self.playerNode?.volume = startVolume
+                    + (targetVolume - startVolume) * Self.fadeInGain(at: progress)
+            }
+            guard !Task.isCancelled else { return }
+            self.playerNode?.volume = targetVolume
+            self.transportFadeRestoreVolume = nil
+            self.transportFadeTask = nil
+        }
+        return true
+    }
+
+    @discardableResult
+    private func resumeImmediately() -> Bool {
         // After audio interruption (e.g. phone call, other app), the engine stops.
         // Restart it before resuming playback.
         applySpatialAudioConfiguration()
@@ -617,6 +708,7 @@ final class AudioEngine {
     }
 
     func stopPlayback() {
+        cancelTransportFade(restoreVolume: true)
         playerNode?.stop()
         playerNode?.reset()
         isPlaying = false
@@ -738,6 +830,7 @@ final class AudioEngine {
     /// crossfadeVolume: volume of crossfade node (0→1 during fade in)
     func setCrossfadeVolumes(primary: Float, crossfade: Float) {
         guard outputMode == .effects else { return }
+        cancelTransportFade(restoreVolume: true)
         playerNode?.volume = primary
         crossfadePlayerNode?.volume = crossfade
     }
@@ -786,7 +879,26 @@ final class AudioEngine {
     }
 
     func resetPlayerVolume() {
+        cancelTransportFade(restoreVolume: false)
         playerNode?.volume = 1.0
+    }
+
+    private func cancelTransportFade(restoreVolume: Bool) {
+        transportFadeTask?.cancel()
+        transportFadeTask = nil
+        if restoreVolume, let targetVolume = transportFadeRestoreVolume {
+            playerNode?.volume = targetVolume
+        }
+        transportFadeRestoreVolume = nil
+    }
+
+    private static func fadeInGain(at progress: Float) -> Float {
+        let clamped = max(0, min(progress, 1))
+        return clamped * clamped * (3 - 2 * clamped)
+    }
+
+    private static func fadeOutGain(at progress: Float) -> Float {
+        1 - fadeInGain(at: progress)
     }
 
     /// Apply ReplayGain to the crossfade node (before crossfade starts).
