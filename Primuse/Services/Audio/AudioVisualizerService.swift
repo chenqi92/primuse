@@ -13,9 +13,9 @@ import os.lock
 /// 在另起的 background Task 里跑。
 ///
 /// 启停语义:
-/// - `start(engine:on:)` 在 NowPlayingView onAppear 时调,绑定到当前的
-///   AVAudioEngine。
-/// - `stop()` 在 NowPlayingView onDisappear / 后台 时调,卸 tap, 释放计算资源。
+/// - iOS 沉浸式视图通过 owner lease 获取和释放频谱，最后一个 owner 离开时
+///   才卸 tap，避免一个 inactive Scene 停掉另一个 active Scene 的频谱。
+/// - `start(engine:on:)` / `stop()` 保留为单 owner 兼容入口。
 @MainActor
 @Observable
 final class AudioVisualizerService {
@@ -31,23 +31,40 @@ final class AudioVisualizerService {
     private var tappedNode: AVAudioMixerNode?
     private let buffer = SharedSampleBuffer(capacity: fftSize)
     private var pollTask: Task<Void, Never>?
+    private var ownerIDs: Set<UUID> = []
+    private let compatibilityOwnerID = UUID()
+    private var pollGeneration: UInt64 = 0
 
     func start(engine: AVAudioEngine, on node: AVAudioMixerNode) {
-        if let tappedNode {
-            guard tappedNode !== node else { return }
-            stop()
-        }
+        _ = acquire(owner: compatibilityOwnerID, engine: engine, on: node)
+    }
 
-        guard engine.isRunning else { return }
+    func stop() {
+        release(owner: compatibilityOwnerID)
+    }
+
+    @discardableResult
+    func acquire(owner: UUID, engine: AVAudioEngine, on node: AVAudioMixerNode) -> Bool {
+        guard engine.isRunning else { return false }
+
+        if let currentEngine = self.engine,
+           currentEngine === engine,
+           tappedNode === node,
+           pollTask != nil {
+            ownerIDs.insert(owner)
+            return true
+        }
 
         let format = node.outputFormat(forBus: 0)
         guard format.sampleRate.isFinite,
               format.sampleRate > 0,
               format.channelCount > 0 else {
             plog("⚠️ Visualizer skipped: invalid mixer format sr=\(format.sampleRate) ch=\(format.channelCount)")
-            return
+            return false
         }
 
+        ownerIDs.insert(owner)
+        stopPipeline()
         self.engine = engine
 
         // tap 闭包只 memcpy + 翻 flag, 完全不 alloc 不 hop actor。
@@ -66,6 +83,8 @@ final class AudioVisualizerService {
             log2n: Int(log2(Double(Self.fftSize))),
             bandCount: Self.bandCount
         )
+        pollGeneration &+= 1
+        let generation = pollGeneration
         pollTask = Task.detached(priority: .userInitiated) { [weak self, buffer, analyzer] in
             var samples = [Float](repeating: 0, count: Self.fftSize)
             while !Task.isCancelled {
@@ -74,19 +93,30 @@ final class AudioVisualizerService {
                 guard buffer.copyLatest(into: &samples) else { continue }
                 let levels = analyzer.bandLevels(samples: samples, bandCount: Self.bandCount)
                 await MainActor.run { [weak self] in
-                    self?.bandLevels = levels
+                    guard let self, self.pollGeneration == generation else { return }
+                    self.bandLevels = levels
                 }
             }
         }
+        return true
     }
 
-    func stop() {
-        pollTask?.cancel(); pollTask = nil
+    func release(owner: UUID) {
+        guard ownerIDs.remove(owner) != nil,
+              ownerIDs.isEmpty else { return }
+        stopPipeline()
+    }
+
+    private func stopPipeline() {
+        pollGeneration &+= 1
+        pollTask?.cancel()
+        pollTask = nil
         if let node = tappedNode {
             node.removeTap(onBus: 0)
         }
         tappedNode = nil
         engine = nil
+        buffer.discardLatest()
         bandLevels = Array(repeating: 0, count: Self.bandCount)
     }
 }
@@ -159,6 +189,12 @@ private final class SharedSampleBuffer: @unchecked Sendable {
         }
         hasFresh = false
         return true
+    }
+
+    func discardLatest() {
+        os_unfair_lock_lock(&lock)
+        hasFresh = false
+        os_unfair_lock_unlock(&lock)
     }
 }
 

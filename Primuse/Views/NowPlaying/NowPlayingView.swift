@@ -158,6 +158,7 @@ struct NowPlayingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -167,6 +168,8 @@ struct NowPlayingView: View {
         return AppServices.shared.appleMusicLibrary.catalogURL(for: song)
     }
     @State private var showLyrics = false
+    @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
+    @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
     @State private var isFullscreenPlayerPresented = false
     @State private var immersiveControlsState = ImmersiveControlsState.inactive
@@ -203,6 +206,14 @@ struct NowPlayingView: View {
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
+
+    private var isVisualSceneActive: Bool {
+        #if os(iOS)
+        scenePhase == .active
+        #else
+        true
+        #endif
     }
 
     private var isScrapingCurrentSong: Bool {
@@ -389,7 +400,8 @@ struct NowPlayingView: View {
 
     private func scheduleImmersiveControlsAutoHide() {
         immersiveControlsAutoHideTask?.cancel()
-        guard isLyricsImmersive,
+        guard isVisualSceneActive,
+              isLyricsImmersive,
               immersiveControlsState.isVisible,
               !showsImmersiveEffectPicker else { return }
         immersiveControlsAutoHideTask = Task { @MainActor in
@@ -399,6 +411,7 @@ struct NowPlayingView: View {
                 return
             }
             guard !Task.isCancelled,
+                  isVisualSceneActive,
                   isLyricsImmersive,
                   !showsImmersiveEffectPicker else { return }
             withAnimation(.easeOut(duration: 0.25)) {
@@ -486,51 +499,54 @@ struct NowPlayingView: View {
         sizeClass == .regular && geo.size.width > geo.size.height
     }
 
-    private var playerMinimizeDragGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
+    private func playerMinimizeDragGesture(containerWidth: CGFloat) -> some Gesture {
+        // The player moves with this gesture, so a local coordinate space would
+        // also move under the finger and feed the offset back into translation.
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
-                let translationY = value.translation.height
-                let translationX = value.translation.width
-                guard translationY > 0,
-                      abs(translationY) > abs(translationX) else {
-                    onTopMinimizeDragChanged?(0)
-                    return
-                }
-                onTopMinimizeDragChanged?(translationY)
-            }
-            .onEnded { value in
-                let shouldDismiss = NowPlayingDismissGesturePolicy.shouldDismissFromTop(
-                    startY: Double(value.startLocation.y),
-                    translationX: Double(value.translation.width),
-                    translationY: Double(value.translation.height),
-                    predictedEndTranslationY: Double(value.predictedEndTranslation.height)
-                )
-                if let onTopMinimizeDragEnded {
-                    onTopMinimizeDragEnded(shouldDismiss)
-                } else if shouldDismiss {
-                    onMinimize?()
-                }
-            }
-    }
-
-    private var playerEdgeMinimizeDragGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                let towardCenter = CGFloat(
-                    NowPlayingDismissGesturePolicy.translationTowardCenter(
-                        translationX: Double(value.translation.width),
-                        layoutIsRightToLeft: layoutDirection == .rightToLeft
-                    )
-                )
-                guard towardCenter > 0,
-                      abs(towardCenter) > abs(value.translation.height) else {
-                    onLeadingMinimizeDragChanged?(0)
-                    return
-                }
-                onLeadingMinimizeDragChanged?(towardCenter)
-            }
-            .onEnded { value in
                 let isRTL = layoutDirection == .rightToLeft
+                if activeMinimizeDragStartLocation != value.startLocation {
+                    activeMinimizeDragStartLocation = value.startLocation
+                    activeMinimizeDragAxis = nil
+                }
+                let startDistance = NowPlayingDismissGesturePolicy.distanceFromLeadingEdge(
+                    startX: Double(value.startLocation.x),
+                    containerWidth: Double(containerWidth),
+                    layoutIsRightToLeft: isRTL
+                )
+                let towardCenter = NowPlayingDismissGesturePolicy.translationTowardCenter(
+                    translationX: Double(value.translation.width),
+                    layoutIsRightToLeft: isRTL
+                )
+                let axis = activeMinimizeDragAxis
+                    ?? NowPlayingDismissGesturePolicy.recognizedAxis(
+                        startY: Double(value.startLocation.y),
+                        startDistanceFromLeadingEdge: startDistance,
+                        translationTowardCenter: towardCenter,
+                        translationY: Double(value.translation.height)
+                    )
+                guard let axis else { return }
+                activeMinimizeDragAxis = axis
+
+                switch axis {
+                case .horizontal:
+                    onLeadingMinimizeDragChanged?(CGFloat(max(0, towardCenter)))
+                case .vertical:
+                    onTopMinimizeDragChanged?(max(0, value.translation.height))
+                }
+            }
+            .onEnded { value in
+                let axis = activeMinimizeDragAxis
+                activeMinimizeDragAxis = nil
+                activeMinimizeDragStartLocation = nil
+                guard let axis else { return }
+
+                let isRTL = layoutDirection == .rightToLeft
+                let startDistance = NowPlayingDismissGesturePolicy.distanceFromLeadingEdge(
+                    startX: Double(value.startLocation.x),
+                    containerWidth: Double(containerWidth),
+                    layoutIsRightToLeft: isRTL
+                )
                 let towardCenter = NowPlayingDismissGesturePolicy.translationTowardCenter(
                     translationX: Double(value.translation.width),
                     layoutIsRightToLeft: isRTL
@@ -539,47 +555,34 @@ struct NowPlayingView: View {
                     translationX: Double(value.predictedEndTranslation.width),
                     layoutIsRightToLeft: isRTL
                 )
-                let shouldDismiss = NowPlayingDismissGesturePolicy.shouldDismissFromLeadingEdge(
-                    startX: Double(value.startLocation.x),
-                    translationX: towardCenter,
-                    translationY: Double(value.translation.height),
-                    predictedEndTranslationX: predictedTowardCenter
-                )
-                if let onLeadingMinimizeDragEnded {
-                    onLeadingMinimizeDragEnded(shouldDismiss)
-                } else if shouldDismiss {
-                    onMinimize?()
-                }
-            }
-    }
 
-    @ViewBuilder
-    private func minimizeGestureRegions(geo: GeometryProxy) -> some View {
-        let safeInsets = resolvedSafeAreaInsets(for: geo)
-        ZStack {
-            VStack(spacing: 0) {
-                Color.clear.frame(height: safeInsets.top)
-                Color.clear
-                    .frame(width: 160, height: 32)
-                    .contentShape(Rectangle())
-                    .gesture(playerMinimizeDragGesture)
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 0) {
-                if layoutDirection == .rightToLeft {
-                    Spacer(minLength: 0)
+                switch axis {
+                case .horizontal:
+                    let shouldDismiss = NowPlayingDismissGesturePolicy.shouldDismissFromLeadingEdge(
+                        startX: startDistance,
+                        translationX: towardCenter,
+                        translationY: Double(value.translation.height),
+                        predictedEndTranslationX: predictedTowardCenter
+                    )
+                    if let onLeadingMinimizeDragEnded {
+                        onLeadingMinimizeDragEnded(shouldDismiss)
+                    } else if shouldDismiss {
+                        onMinimize?()
+                    }
+                case .vertical:
+                    let shouldDismiss = NowPlayingDismissGesturePolicy.shouldDismissFromTop(
+                        startY: Double(value.startLocation.y),
+                        translationX: Double(value.translation.width),
+                        translationY: Double(value.translation.height),
+                        predictedEndTranslationY: Double(value.predictedEndTranslation.height)
+                    )
+                    if let onTopMinimizeDragEnded {
+                        onTopMinimizeDragEnded(shouldDismiss)
+                    } else if shouldDismiss {
+                        onMinimize?()
+                    }
                 }
-                Color.clear
-                    .frame(width: CGFloat(NowPlayingDismissGesturePolicy.leadingEdgeMaximumX))
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .gesture(playerEdgeMinimizeDragGesture)
-                if layoutDirection != .rightToLeft {
-                    Spacer(minLength: 0)
-                }
             }
-        }
     }
 
     var body: some View {
@@ -645,9 +648,11 @@ struct NowPlayingView: View {
                             }
                         }
 
-                        minimizeGestureRegions(geo: geo)
                     }
                     .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        playerMinimizeDragGesture(containerWidth: geo.size.width)
+                    )
                     .transition(.opacity)
                 }
 
@@ -656,6 +661,7 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
                         lyrics: lyrics,
+                        isSceneActive: isVisualSceneActive,
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true }
@@ -666,6 +672,17 @@ struct NowPlayingView: View {
             }
         }
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        .onChange(of: isVisualSceneActive) { _, isActive in
+            if isActive {
+                if isLyricsImmersive, immersiveControlsState.isVisible {
+                    scheduleImmersiveControlsAutoHide()
+                }
+            } else {
+                immersiveControlsAutoHideTask?.cancel()
+                activeMinimizeDragAxis = nil
+                activeMinimizeDragStartLocation = nil
+            }
+        }
         .onChange(of: showsImmersiveEffectPicker) { _, isPresented in
             if isPresented {
                 immersiveControlsAutoHideTask?.cancel()
@@ -2274,6 +2291,7 @@ struct NowPlayingView: View {
             lyricsRevision: lyricsRevision,
             player: player,
             songID: player.currentSong?.id,
+            isSceneActive: isVisualSceneActive,
             isScrapingCurrentSong: isScrapingCurrentSong,
             isScrapeActionUnavailable: isScrapeActionUnavailable,
             onAutomaticScrape: { startAutomaticLyricsScrape() },
@@ -4155,6 +4173,7 @@ struct LyricsScrollView: View {
     let lyricsRevision: UInt
     let player: AudioPlayerService
     let songID: String?
+    let isSceneActive: Bool
     let isScrapingCurrentSong: Bool
     let isScrapeActionUnavailable: Bool
     let onAutomaticScrape: () -> Void
@@ -4163,11 +4182,14 @@ struct LyricsScrollView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
+    @State private var visualPlaybackTime: TimeInterval = 0
+    @State private var isRestoringVisualPosition = false
     /// Row taps and the surface tap are simultaneous gestures. Remember the
     /// row event briefly so tapping lyrics seeks only, while tapping unused
     /// space can switch the normal Now Playing surface back to artwork.
@@ -4194,6 +4216,15 @@ struct LyricsScrollView: View {
     /// render-layer scale, so a takeover does not reflow the surrounding rows.
     private static let lyricsLayoutBaseSize: CGFloat = 26
     private static let lyricsHorizontalPadding: CGFloat = 24
+
+    private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
+        NowPlayingVisualActivityPolicy(
+            isSceneActive: isSceneActive,
+            isPlaying: player.isPlaying,
+            usesRealtimeSpectrum: false,
+            reduceMotion: reduceMotion
+        )
+    }
 
     private var effectiveLyricsScale: Double {
         let combined = lyricsFontScale * Double(lyricsPinchScale)
@@ -4242,16 +4273,31 @@ struct LyricsScrollView: View {
                 currentLineIndex = -1
                 return
             }
-            updateCurrentLine()
-            guard player.isPlaying else { return }
+            guard visualActivityPolicy.shouldPollLyrics else {
+                updateCurrentLine(disableAnimations: true)
+                return
+            }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(100))
-                guard !Task.isCancelled, player.isPlaying else { break }
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      visualActivityPolicy.shouldPollLyrics else { break }
                 updateCurrentLine()
             }
         }
         .onChange(of: player.currentTime) { _, _ in
-            if hasSynchronizedLyrics, !player.isPlaying { updateCurrentLine() }
+            if hasSynchronizedLyrics, isSceneActive, !player.isPlaying {
+                updateCurrentLine(disableAnimations: true)
+            }
+        }
+        .onChange(of: isSceneActive) { _, isActive in
+            if !isActive {
+                lineAutoFollowResumeTask?.cancel()
+                updateCurrentLine(disableAnimations: true)
+            }
         }
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
@@ -4404,7 +4450,10 @@ struct LyricsScrollView: View {
                     }
                 }
                 .onChange(of: currentLineIndex) { _, idx in
-                    guard !isPinchingLyrics, idx < lyrics.count else { return }
+                    guard isSceneActive,
+                          !isRestoringVisualPosition,
+                          !isPinchingLyrics,
+                          idx < lyrics.count else { return }
                     // 用户手动滚动后 manualScrollGracePeriod 内不要把视图拽回当前行,
                     // 否则刚拖到想看的位置又被自动 scrollTo 弹回, 等同不能浏览。
                     guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
@@ -4415,7 +4464,10 @@ struct LyricsScrollView: View {
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .task(id: lineLevelScrollIdentity) {
-                    let targetIndex = updateCurrentLine()
+                    guard isSceneActive else { return }
+                    isRestoringVisualPosition = true
+                    defer { isRestoringVisualPosition = false }
+                    let targetIndex = updateCurrentLine(disableAnimations: true)
                     // Publish the active row first, then allow SwiftUI to lay
                     // out that state before issuing the initial scroll request.
                     await Task.yield()
@@ -4486,7 +4538,9 @@ struct LyricsScrollView: View {
                     }
                 }
                 .onChange(of: currentLineIndex) { _, idx in
-                    guard !isPinchingLyrics,
+                    guard isSceneActive,
+                          !isRestoringVisualPosition,
+                          !isPinchingLyrics,
                           Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
                     scrollLine(to: idx, proxy: proxy, animated: true)
@@ -4495,7 +4549,10 @@ struct LyricsScrollView: View {
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .task(id: lyricsPresentationIdentity) {
-                    let targetIndex = updateCurrentLine()
+                    guard isSceneActive else { return }
+                    isRestoringVisualPosition = true
+                    defer { isRestoringVisualPosition = false }
+                    let targetIndex = updateCurrentLine(disableAnimations: true)
                     await Task.yield()
                     guard !Task.isCancelled, let targetIndex else { return }
                     scrollLine(to: targetIndex, proxy: proxy, animated: false)
@@ -4541,20 +4598,24 @@ struct LyricsScrollView: View {
     }
 
     private var lyricsPresentationIdentity: String {
-        "\(songID ?? "")|\(lyricsRevision)"
+        "\(songID ?? "")|\(lyricsRevision)|\(isSceneActive)"
     }
 
     private struct PlaybackFollowTaskIdentity: Hashable {
         let songID: String?
         let lyricsRevision: UInt
         let isPlaying: Bool
+        let isSceneActive: Bool
+        let reduceMotion: Bool
     }
 
     private var playbackFollowTaskIdentity: PlaybackFollowTaskIdentity {
         PlaybackFollowTaskIdentity(
             songID: songID,
             lyricsRevision: lyricsRevision,
-            isPlaying: player.isPlaying
+            isPlaying: player.isPlaying,
+            isSceneActive: isSceneActive,
+            reduceMotion: reduceMotion
         )
     }
 
@@ -4573,6 +4634,7 @@ struct LyricsScrollView: View {
         delay: TimeInterval = Self.manualScrollGracePeriod
     ) {
         lineAutoFollowResumeTask?.cancel()
+        guard isSceneActive else { return }
         lineAutoFollowResumeTask = Task { @MainActor in
             if delay > 0 {
                 try? await Task.sleep(for: .seconds(delay))
@@ -4580,6 +4642,7 @@ struct LyricsScrollView: View {
                 await Task.yield()
             }
             guard !Task.isCancelled,
+                  isSceneActive,
                   !isPinchingLyrics,
                   Date().timeIntervalSince(lastUserScrollTime) >= delay else { return }
             scrollLine(to: currentLineIndex, proxy: proxy, animated: true)
@@ -4706,6 +4769,11 @@ struct LyricsScrollView: View {
                 isActive: isActive,
                 dimmedByAmbient: dimmedByAmbient
             )
+            let usesLiveTimeline = animatesWords
+                && visualActivityPolicy.shouldRunWordTimeline
+            let fixedPlaybackTime = usesLiveTimeline
+                ? timelineTime
+                : (timelineTime ?? visualPlaybackTime)
             // dimmedByAmbient 模式: KaraokeLineView 内部用固定 active=1.0 / inactive=0.4
             // 对比, 外层 ambient opacity 接管 row 整体明暗。这样无论 row 处于 future /
             // active / past, syllable 扫光的对比度都一致, 只是整体亮度被 ambient
@@ -4726,8 +4794,9 @@ struct LyricsScrollView: View {
                 inactiveColor: appearance.primary.opacity(inactiveOpacity),
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
-                fixedTime: timelineTime,
+                fixedTime: fixedPlaybackTime,
                 isAnimationEnabled: animatesWords,
+                animatesSyllableBounce: visualActivityPolicy.shouldRunWordTimeline,
                 deactivationTime: dimmedByAmbient ? wordLevelDeactivationTime(for: index) : nil
             )
         } else {
@@ -4840,12 +4909,15 @@ struct LyricsScrollView: View {
     private static let lyricsActiveVisualScale: CGFloat = 1.08
 
     @discardableResult
-    private func updateCurrentLine() -> Int? {
+    private func updateCurrentLine(disableAnimations: Bool = false) -> Int? {
         guard hasSynchronizedLyrics else {
             if currentLineIndex != -1 { currentLineIndex = -1 }
             return nil
         }
         let time = player.interpolatedTime()
+        if !visualActivityPolicy.shouldRunWordTimeline {
+            visualPlaybackTime = time
+        }
         guard let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
             at: time,
@@ -4853,7 +4925,17 @@ struct LyricsScrollView: View {
                 ? Self.wordLevelLineLookahead
                 : Self.lineLevelLookahead
         ) else { return nil }
-        if currentLineIndex != activeIndex { currentLineIndex = activeIndex }
+        if currentLineIndex != activeIndex {
+            if disableAnimations {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    currentLineIndex = activeIndex
+                }
+            } else {
+                currentLineIndex = activeIndex
+            }
+        }
         return activeIndex
     }
 }

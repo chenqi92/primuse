@@ -10,6 +10,7 @@ import PrimuseKit
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
+    let isSceneActive: Bool
     let onDismiss: () -> Void
     let onMinimize: () -> Void
     let onShowQueue: () -> Void
@@ -35,6 +36,8 @@ struct ImmersivePlayerView: View {
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
+    @State private var visualizerOwnerID = UUID()
+    @State private var visualizerRetryTask: Task<Void, Never>?
 
     private var presentationEffect: FullscreenPlayerEffect {
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
@@ -43,6 +46,15 @@ struct ImmersivePlayerView: View {
             hasArtwork: hasResolvedArtwork
         )
         return FullscreenPlayerEffect(rawValue: raw) ?? .coverFlow
+    }
+
+    private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
+        NowPlayingVisualActivityPolicy(
+            isSceneActive: isSceneActive,
+            isPlaying: player.isPlaying,
+            usesRealtimeSpectrum: presentationEffect.usesRealtimeSpectrum,
+            reduceMotion: reduceMotion
+        )
     }
 
     var body: some View {
@@ -97,43 +109,52 @@ struct ImmersivePlayerView: View {
         .scaleEffect(hasEntered ? 1 : 1.012)
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
-            refreshArtworkInputs()
-            updateVisualizer(for: presentationEffect)
-            scheduleChromeHide()
-            scheduleAmbientRest()
-            withAnimation(.easeOut(duration: 0.20)) { hasEntered = true }
+            if isSceneActive {
+                refreshArtworkInputs()
+                synchronizeVisualizer()
+                scheduleChromeHide()
+                scheduleAmbientRest()
+                withAnimation(.easeOut(duration: 0.20)) { hasEntered = true }
+            } else {
+                hasEntered = true
+            }
         }
         .task(id: lyricObservationIdentity) {
             await observeLyricPlayback()
         }
         .onChange(of: effect) { _, _ in
-            updateVisualizer(for: presentationEffect)
-            revealChrome()
-            scheduleAmbientRest()
+            synchronizeVisualizer()
+            if isSceneActive {
+                revealChrome()
+                scheduleAmbientRest()
+            }
         }
         .onChange(of: player.currentSong?.id) { _, _ in
-            refreshArtworkInputs()
-            updateVisualizer(for: presentationEffect)
+            if isSceneActive { refreshArtworkInputs() }
+            synchronizeVisualizer()
         }
         .onChange(of: titleWallQueueIdentity) { _, _ in
-            refreshTitleWallTitles()
+            if isSceneActive { refreshTitleWallTitles() }
         }
         .background {
             ImmersiveLibraryCountObserver {
-                refreshGallerySongs()
+                if isSceneActive { refreshGallerySongs() }
             }
         }
-        .onChange(of: presentationEffect) { _, newValue in
-            updateVisualizer(for: newValue)
+        .onChange(of: presentationEffect) { _, _ in
+            synchronizeVisualizer()
         }
         .onChange(of: player.isPlaying) { _, isPlaying in
+            synchronizeVisualizer()
+            guard isSceneActive else { return }
             if isPlaying {
-                updateVisualizer(for: presentationEffect)
                 scheduleChromeHide()
             } else {
-                visualizer.stop()
                 revealChrome()
             }
+        }
+        .onChange(of: isSceneActive) { _, isActive in
+            handleSceneActivityChange(isActive: isActive)
         }
         .onChange(of: showsEffectPicker) { _, isPresented in
             if isPresented {
@@ -142,14 +163,17 @@ struct ImmersivePlayerView: View {
                 showsChrome = true
                 exitAmbientRest()
             } else {
-                revealChrome()
-                scheduleAmbientRest()
+                if isSceneActive {
+                    revealChrome()
+                    scheduleAmbientRest()
+                }
             }
         }
         .onDisappear {
             chromeTask?.cancel()
             ambientTask?.cancel()
-            visualizer.stop()
+            visualizerRetryTask?.cancel()
+            visualizer.release(owner: visualizerOwnerID)
         }
         .accessibilityAction(.escape, onDismiss)
         .accessibilityAdjustableAction { direction in
@@ -202,6 +226,7 @@ struct ImmersivePlayerView: View {
                 )
             },
             titleWallTitles: titleWallTitles,
+            isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -808,51 +833,97 @@ struct ImmersivePlayerView: View {
         return lyrics[index + 1].text
     }
 
-    private var lyricObservationIdentity: String {
-        "\(player.currentSong?.id ?? "")|\(lyrics.hashValue)"
+    private struct LyricObservationIdentity: Hashable {
+        let songID: String?
+        let lyricsHash: Int
+        let isSceneActive: Bool
+        let isPlaying: Bool
+        let lyricsMotionEnabled: Bool
+    }
+
+    private var lyricObservationIdentity: LyricObservationIdentity {
+        LyricObservationIdentity(
+            songID: player.currentSong?.id,
+            lyricsHash: lyrics.hashValue,
+            isSceneActive: isSceneActive,
+            isPlaying: player.isPlaying,
+            lyricsMotionEnabled: lyricsMotionEnabled
+        )
     }
 
     @MainActor
     private func observeLyricPlayback() async {
-        activeLyricIndex = nil
-        lyricInterlude = false
-        guard hasSynchronizedLyrics else { return }
+        guard isSceneActive else { return }
+        guard hasSynchronizedLyrics else {
+            updateLyricState(index: nil, isInterlude: false, disableAnimations: true)
+            return
+        }
 
         let lookahead = lyrics.contains { $0.isWordLevel }
             ? Self.wordLevelLineLookahead
             : Self.lineLevelLookahead
+        updateLyricPlaybackPosition(lookahead: lookahead, disableAnimations: true)
+        guard visualActivityPolicy.shouldPollLyrics else { return }
         while !Task.isCancelled {
-            let playbackTime = player.interpolatedTime()
-            let index = LyricPlaybackPositionPolicy.activeLineIndex(
-                in: lyrics,
-                at: playbackTime,
-                lookahead: lookahead
-            )
-            let isInterlude: Bool
-            if lyricsMotionEnabled,
-               let index,
-               lyrics.indices.contains(index) {
-                let line = lyrics[index]
-                let estimatedEnd = line.syllables?.last?.end ?? (line.timestamp + 3.5)
-                isInterlude = playbackTime - estimatedEnd > 6
-            } else {
-                isInterlude = false
-            }
-
-            if activeLyricIndex != index { activeLyricIndex = index }
-            if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
-
             do {
                 try await Task.sleep(for: .milliseconds(100))
             } catch {
                 return
             }
+            guard !Task.isCancelled,
+                  visualActivityPolicy.shouldPollLyrics else { return }
+            updateLyricPlaybackPosition(lookahead: lookahead)
+        }
+    }
+
+    private func updateLyricPlaybackPosition(
+        lookahead: TimeInterval,
+        disableAnimations: Bool = false
+    ) {
+        let playbackTime = player.interpolatedTime()
+        let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead
+        )
+        let isInterlude: Bool
+        if lyricsMotionEnabled,
+           let index,
+           lyrics.indices.contains(index) {
+            let line = lyrics[index]
+            let estimatedEnd = line.syllables?.last?.end ?? (line.timestamp + 3.5)
+            isInterlude = playbackTime - estimatedEnd > 6
+        } else {
+            isInterlude = false
+        }
+        updateLyricState(
+            index: index,
+            isInterlude: isInterlude,
+            disableAnimations: disableAnimations
+        )
+    }
+
+    private func updateLyricState(
+        index: Int?,
+        isInterlude: Bool,
+        disableAnimations: Bool
+    ) {
+        let update = {
+            if activeLyricIndex != index { activeLyricIndex = index }
+            if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
+        }
+        if disableAnimations {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction, update)
+        } else {
+            update()
         }
     }
 
     /// 只转发真实采样结果；静音或无 tap 时保持零值，不生成替代循环。
     private var spectrumLevels: [CGFloat] {
-        guard presentationEffect.usesRealtimeSpectrum else { return [] }
+        guard visualActivityPolicy.shouldRunVisualizer else { return [] }
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }
     }
 
@@ -971,7 +1042,7 @@ struct ImmersivePlayerView: View {
     }
 
     private func ambientRestOverlay(metrics: ImmersiveStageMetrics) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        TimelineView(.animation(minimumInterval: 1, paused: !isSceneActive)) { context in
             VStack(alignment: .leading, spacing: metrics.s(12)) {
                 Text(context.date.formatted(date: .omitted, time: .shortened))
                     .font(.system(size: metrics.s(metrics.isPortrait ? 62 : 54), weight: .medium, design: .rounded))
@@ -1019,20 +1090,25 @@ struct ImmersivePlayerView: View {
 
     private func scheduleAmbientRest() {
         ambientTask?.cancel()
-        guard !UIAccessibility.isVoiceOverRunning, !showsEffectPicker else { return }
+        guard isSceneActive,
+              !UIAccessibility.isVoiceOverRunning,
+              !showsEffectPicker else { return }
         ambientTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: .seconds(5 * 60))
             } catch {
                 return
             }
-            guard !Task.isCancelled, !isSeeking, !showsEffectPicker else { return }
+            guard !Task.isCancelled,
+                  isSceneActive,
+                  !isSeeking,
+                  !showsEffectPicker else { return }
             enterAmbientRest()
         }
     }
 
     private func enterAmbientRest() {
-        guard !showsEffectPicker else { return }
+        guard isSceneActive, !showsEffectPicker else { return }
         chromeTask?.cancel()
         withAnimation(.easeInOut(duration: 0.6)) {
             showsChrome = false
@@ -1055,19 +1131,85 @@ struct ImmersivePlayerView: View {
 
     // MARK: - 频谱与控件淡出
 
-    private func updateVisualizer(for effect: FullscreenPlayerEffect) {
-        guard player.isPlaying,
-              effect.usesRealtimeSpectrum,
-              let engine = player.audioEngine.engineForVisualizer,
-              let mixer = player.audioEngine.mainMixerForVisualizer else {
-            visualizer.stop()
+    private func synchronizeVisualizer(allowRetry: Bool = true) {
+        visualizerRetryTask?.cancel()
+        visualizerRetryTask = nil
+
+        guard visualActivityPolicy.shouldRunVisualizer else {
+            visualizer.release(owner: visualizerOwnerID)
             return
         }
-        visualizer.start(engine: engine, on: mixer)
+
+        guard let engine = player.audioEngine.engineForVisualizer,
+              let mixer = player.audioEngine.mainMixerForVisualizer,
+              engine.isRunning else {
+            visualizer.release(owner: visualizerOwnerID)
+            scheduleVisualizerRetry(allowRetry: allowRetry)
+            return
+        }
+
+        guard visualizer.acquire(
+            owner: visualizerOwnerID,
+            engine: engine,
+            on: mixer
+        ) else {
+            visualizer.release(owner: visualizerOwnerID)
+            scheduleVisualizerRetry(allowRetry: allowRetry)
+            return
+        }
+    }
+
+    private func scheduleVisualizerRetry(allowRetry: Bool) {
+        guard allowRetry else { return }
+        let expectedSongID = player.currentSong?.id
+        let expectedEffect = presentationEffect
+        visualizerRetryTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  visualActivityPolicy.shouldRunVisualizer,
+                  player.currentSong?.id == expectedSongID,
+                  presentationEffect == expectedEffect else { return }
+            visualizerRetryTask = nil
+            synchronizeVisualizer(allowRetry: false)
+        }
+    }
+
+    private func handleSceneActivityChange(isActive: Bool) {
+        chromeTask?.cancel()
+        ambientTask?.cancel()
+        visualizerRetryTask?.cancel()
+        visualizerRetryTask = nil
+
+        guard isActive else {
+            visualizer.release(owner: visualizerOwnerID)
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isAmbientRest = false
+                ambientDrift = false
+            }
+            return
+        }
+
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showsChrome = true
+            isAmbientRest = false
+            ambientDrift = false
+        }
+        refreshArtworkInputs()
+        synchronizeVisualizer()
+        scheduleChromeHide()
+        scheduleAmbientRest()
     }
 
     private func toggleChrome() {
-        guard !showsEffectPicker else { return }
+        guard isSceneActive, !showsEffectPicker else { return }
         if showsChrome {
             chromeTask?.cancel()
             withAnimation(.easeInOut(duration: 0.24)) { showsChrome = false }
@@ -1077,6 +1219,7 @@ struct ImmersivePlayerView: View {
     }
 
     private func revealChrome() {
+        guard isSceneActive else { return }
         withAnimation(.easeInOut(duration: 0.2)) { showsChrome = true }
         scheduleChromeHide()
     }
@@ -1085,6 +1228,7 @@ struct ImmersivePlayerView: View {
         chromeTask?.cancel()
         // 旁白开着时控件必须一直可达,否则用户找不到退出按钮。
         guard !UIAccessibility.isVoiceOverRunning,
+              isSceneActive,
               player.isPlaying,
               !isSeeking,
               !showsEffectPicker else { return }
@@ -1095,6 +1239,7 @@ struct ImmersivePlayerView: View {
                 return
             }
             guard !Task.isCancelled,
+                  isSceneActive,
                   player.isPlaying,
                   !isSeeking,
                   !showsEffectPicker else { return }

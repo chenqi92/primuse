@@ -535,6 +535,11 @@ struct PlayerOverlay: View {
         case dismissingLeading
     }
 
+    private enum InteractiveAxis {
+        case horizontal
+        case vertical
+    }
+
     @Binding var isPresented: Bool
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
@@ -552,29 +557,30 @@ struct PlayerOverlay: View {
             NowPlayingView(
                 onOpenAlbum: onOpenAlbum,
                 onOpenArtist: onOpenArtist,
-                onMinimize: { beginDismissal(.dismissingDown, travel: travel) },
+                onMinimize: { beginDismissal(.dismissingDown) },
                 onTopMinimizeDragChanged: { translation in
-                    updateInteractiveOffset(x: 0, y: max(0, translation))
+                    updateInteractiveOffset(
+                        axis: .vertical,
+                        value: max(0, translation)
+                    )
                 },
                 onTopMinimizeDragEnded: { shouldDismiss in
                     finishInteractiveDrag(
                         shouldDismiss: shouldDismiss,
-                        phase: .dismissingDown,
-                        travel: travel
+                        phase: .dismissingDown
                     )
                 },
                 onLeadingMinimizeDragChanged: { translationTowardCenter in
                     let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
                     updateInteractiveOffset(
-                        x: max(0, translationTowardCenter) * direction,
-                        y: 0
+                        axis: .horizontal,
+                        value: max(0, translationTowardCenter) * direction
                     )
                 },
                 onLeadingMinimizeDragEnded: { shouldDismiss in
                     finishInteractiveDrag(
                         shouldDismiss: shouldDismiss,
-                        phase: .dismissingLeading,
-                        travel: travel
+                        phase: .dismissingLeading
                     )
                 }
             )
@@ -582,6 +588,10 @@ struct PlayerOverlay: View {
                 // Keep eagerly decoded artwork and its shadow inside the same
                 // off-screen presentation surface as the rest of the player.
                 .clipped()
+                // Move the live player as one presentation layer. Without this,
+                // image-backed descendants can commit at their final position
+                // while the background is still entering from the bottom.
+                .compositingGroup()
                 .offset(transitionOffset(travel: travel))
         }
         .ignoresSafeArea()
@@ -607,14 +617,17 @@ struct PlayerOverlay: View {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase != .active, dismissalState.isDismissing else { return }
+            guard newPhase != .active,
+                  dismissalState.isDismissing || interactiveOffset != .zero else { return }
             // Control Center / screen recording can interrupt an in-flight
             // transition. Invalidate its delayed completion and restore the
             // mounted player so an old callback cannot leave an invisible
             // hit-test surface over the mini player when the scene returns.
             dismissalTask?.cancel()
             dismissalTask = nil
-            dismissalState.cancelForSystemInterruption()
+            if dismissalState.isDismissing {
+                dismissalState.cancelForSystemInterruption()
+            }
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -642,37 +655,41 @@ struct PlayerOverlay: View {
         }
     }
 
-    private func updateInteractiveOffset(x: CGFloat, y: CGFloat) {
+    private func updateInteractiveOffset(axis: InteractiveAxis, value: CGFloat) {
         guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            interactiveOffset = CGSize(width: x, height: y)
+            switch axis {
+            case .horizontal:
+                interactiveOffset = CGSize(width: value, height: 0)
+            case .vertical:
+                interactiveOffset = CGSize(width: 0, height: value)
+            }
         }
     }
 
     private func finishInteractiveDrag(
         shouldDismiss: Bool,
-        phase: PresentationPhase,
-        travel: CGFloat
+        phase: PresentationPhase
     ) {
         if shouldDismiss {
-            beginDismissal(phase, travel: travel)
+            beginDismissal(phase)
         } else {
+            guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
             withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
                 interactiveOffset = .zero
             }
         }
     }
 
-    private func beginDismissal(_ phase: PresentationPhase, travel: CGFloat) {
+    private func beginDismissal(_ phase: PresentationPhase) {
         guard isPresented,
               presentationPhase == .visible,
               !dismissalState.isDismissing else { return }
 
         let generation = dismissalState.begin()
         dismissalTask?.cancel()
-        interactiveOffset = .zero
         if reduceMotion {
             completeDismissal(generation: generation)
             return

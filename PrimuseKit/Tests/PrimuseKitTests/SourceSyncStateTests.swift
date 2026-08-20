@@ -723,6 +723,75 @@ struct BaiduSnapshotReconciliationTests {
         ))
     }
 
+    @Test("Snapshot progress includes files, directories, and the persisted baseline")
+    func snapshotProgressUsesTotalWork() {
+        let previousIndex = [
+            "baidu:1": baiduIndexedItem(
+                key: "baidu:1",
+                path: "/Music/A.flac",
+                parent: "/Music"
+            ),
+            "baidu:2": baiduIndexedItem(
+                key: "baidu:2",
+                path: "/Music/B.flac",
+                parent: "/Music"
+            ),
+        ]
+        let estimate = BaiduSnapshotProgressPolicy.estimatedTotalCount(
+            previousIndex: previousIndex,
+            roots: ["/Music"]
+        )
+        var progress = BaiduSnapshotResumeState(
+            baselineScanEpoch: 7,
+            roots: ["/Music"],
+            pendingDirectories: ["/Music/Album"],
+            visitedDirectories: ["/Music"],
+            snapshot: [
+                "baidu:10": baiduIndexedItem(
+                    key: "baidu:10",
+                    path: "/Music/New.flac",
+                    parent: "/Music"
+                )
+            ],
+            estimatedTotalCount: estimate
+        )
+
+        #expect(estimate == 3)
+        #expect(BaiduSnapshotProgressPolicy.progress(for: progress) == .init(
+            completedCount: 2,
+            totalCount: 3
+        ))
+
+        progress.pendingDirectories = []
+        #expect(BaiduSnapshotProgressPolicy.progress(for: progress) == .init(
+            completedCount: 3,
+            totalCount: 3
+        ))
+    }
+
+    @Test("Snapshot progress expands when newly discovered work exceeds the baseline")
+    func snapshotProgressExpandsForNewWork() {
+        let progress = BaiduSnapshotResumeState(
+            baselineScanEpoch: 1,
+            roots: ["/Music"],
+            pendingDirectories: ["/Music/A", "/Music/B"],
+            visitedDirectories: ["/Music"],
+            snapshot: [
+                "baidu:1": baiduIndexedItem(
+                    key: "baidu:1",
+                    path: "/Music/New.flac",
+                    parent: "/Music"
+                )
+            ],
+            estimatedTotalCount: 1
+        )
+
+        #expect(BaiduSnapshotProgressPolicy.progress(for: progress) == .init(
+            completedCount: 2,
+            totalCount: 4
+        ))
+    }
+
     @Test("Account scope fences identity reuse and other provider keys stay unchanged")
     func accountAndProviderIsolation() throws {
         let rawProviderKeys = [
@@ -865,6 +934,116 @@ struct BaiduSnapshotReconciliationTests {
     }
 }
 
+@Suite("Directory sidecar indexing")
+struct SidecarDirectoryIndexTests {
+    @Test("Lookup priority and listing order match the legacy resolver")
+    func lookupPriority() {
+        let items = [
+            sidecarItem("Track.FLAC"),
+            sidecarItem("track-cover.jpg"),
+            sidecarItem("TRACK.JPG"),
+            sidecarItem("folder.png"),
+            sidecarItem("cover.webp"),
+            sidecarItem("track.TTML"),
+            sidecarItem("track.mov"),
+            sidecarItem("track.mp4"),
+            sidecarItem("orphan.m4v"),
+        ]
+        let index = SidecarDirectoryIndex(items)
+
+        #expect(index.containsAudioOrStream(basename: "TRACK"))
+        #expect(!index.containsAudioOrStream(basename: "orphan"))
+        #expect(index.sameNameCover(basename: "track")?.sidecarName == "track-cover.jpg")
+        #expect(index.folderCover()?.sidecarName == "cover.webp")
+        #expect(index.sameNameLyrics(basename: "track")?.sidecarName == "track.TTML")
+        #expect(index.sameNameMusicVideo(basename: "track")?.sidecarName == "track.mp4")
+    }
+
+    @Test("Non-CUE fingerprints retain the committed component format")
+    func legacyFingerprintFormat() {
+        let cover = sidecarItem(
+            "Track.jpg",
+            size: 42,
+            revision: "cover-v1",
+            providerID: "provider-cover"
+        )
+        let index = SidecarDirectoryIndex([cover])
+        let expected = [
+            "provider-cover",
+            cover.sidecarPath,
+            "cover-v1",
+            "42",
+            "",
+        ].joined(separator: "\u{1F}")
+
+        #expect(index.snapshotFingerprint(selectedPaths: [cover.sidecarPath]) == expected)
+        #expect(index.snapshotFingerprint(selectedPaths: ["/external/Track.jpg"])
+            == "missing\u{1F}/external/Track.jpg")
+    }
+
+    @Test("CUE dependencies are stable and invalidate every indexed song")
+    func cueFingerprint() {
+        let cover = sidecarItem("cover.jpg", revision: "cover-v1")
+        let cueV1 = sidecarItem("album.cue", revision: "cue-v1")
+        let cueV2 = sidecarItem("album.cue", revision: "cue-v2")
+        let first = SidecarDirectoryIndex([cover, cueV1])
+        let reordered = SidecarDirectoryIndex([cueV1, cover])
+        let changed = SidecarDirectoryIndex([cover, cueV2])
+
+        let firstFingerprint = first.snapshotFingerprint(selectedPaths: [cover.sidecarPath])
+        #expect(firstFingerprint == reordered.snapshotFingerprint(
+            selectedPaths: [cover.sidecarPath]
+        ))
+        #expect(firstFingerprint != changed.snapshotFingerprint(
+            selectedPaths: [cover.sidecarPath]
+        ))
+        #expect(firstFingerprint?.contains("cue-sha256-v2") == true)
+    }
+
+    @Test("A large directory resolves all songs through one reusable index")
+    func largeDirectoryLookup() {
+        let songCount = 5_000
+        var items: [SidecarIndexItem] = []
+        items.reserveCapacity(songCount * 2)
+        for index in 0..<songCount {
+            items.append(sidecarItem("track-\(index).flac"))
+            items.append(sidecarItem("track-\(index).lrc"))
+        }
+
+        let directoryIndex = SidecarDirectoryIndex(items)
+        let resolvedCount = (0..<songCount).reduce(into: 0) { count, index in
+            if directoryIndex.sameNameLyrics(basename: "track-\(index)") != nil {
+                count += 1
+            }
+        }
+
+        #expect(directoryIndex.itemCount == songCount * 2)
+        #expect(resolvedCount == songCount)
+    }
+}
+
+@Suite("Baidu foreground execution policy")
+struct BaiduSnapshotExecutionPolicyTests {
+    @Test("Automatic foreground resume is one short utility slice")
+    func automaticResumeBudget() {
+        let automatic = BaiduSnapshotExecutionPolicy.refreshBudget(for: .foregroundResume)
+        let userInitiated = BaiduSnapshotExecutionPolicy.refreshBudget(
+            for: .userInitiatedForeground
+        )
+
+        #expect(automatic.maximumRequests == 64)
+        #expect(automatic.maximumDirectories == 32)
+        #expect(automatic.maximumDuration == 8)
+        #expect(userInitiated == BaiduSnapshotRefreshBudget())
+        #expect(!BaiduSnapshotExecutionPolicy.shouldContinueImmediately(
+            context: .foregroundResume
+        ))
+        #expect(BaiduSnapshotExecutionPolicy.shouldContinueImmediately(
+            context: .userInitiatedForeground
+        ))
+    }
+}
+
 private func baiduIndexedItem(
     key: String,
     path: String,
@@ -885,5 +1064,32 @@ private func baiduIndexedItem(
         revision: revision,
         sidecarFingerprint: sidecarFingerprint,
         seenEpoch: 3
+    )
+}
+
+private struct SidecarIndexItem: SidecarDirectoryItem {
+    var sidecarName: String
+    var sidecarPath: String
+    var sidecarIsDirectory: Bool
+    var sidecarSize: Int64
+    var sidecarModifiedDate: Date?
+    var sidecarRevision: String?
+    var sidecarProviderID: String?
+}
+
+private func sidecarItem(
+    _ name: String,
+    size: Int64 = 0,
+    revision: String? = nil,
+    providerID: String? = nil
+) -> SidecarIndexItem {
+    SidecarIndexItem(
+        sidecarName: name,
+        sidecarPath: "/Music/\(name)",
+        sidecarIsDirectory: false,
+        sidecarSize: size,
+        sidecarModifiedDate: nil,
+        sidecarRevision: revision,
+        sidecarProviderID: providerID
     )
 }

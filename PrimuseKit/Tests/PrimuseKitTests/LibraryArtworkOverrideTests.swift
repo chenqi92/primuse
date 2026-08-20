@@ -76,6 +76,38 @@ struct LibraryArtworkOverrideTests {
         ) == .automatic)
     }
 
+    @Test("Automatic and uploaded artwork skip selected-song lookup")
+    func nonSelectedModesSkipSongLookup() {
+        let owner = LibraryArtworkOwner(kind: .album, id: "album")
+        let automatic = LibraryArtworkOverride(owner: owner, mode: .automatic)
+        let contentID = String(repeating: "d", count: 64)
+        let uploaded = LibraryArtworkOverride(
+            owner: owner,
+            mode: .uploaded,
+            uploadedContentID: contentID
+        )
+        let selected = LibraryArtworkOverride(
+            owner: owner,
+            mode: .selectedSong,
+            selectedSongIdentity: identity("selected")
+        )
+        var lookupCount = 0
+
+        func resolve(_ override: LibraryArtworkOverride?) -> LibraryArtworkOverrideResolution {
+            LibraryArtworkOverridePolicy.resolve(override: override) {
+                lookupCount += 1
+                return (songID: "selected", isEligible: true)
+            }
+        }
+
+        #expect(resolve(nil) == .automatic)
+        #expect(resolve(automatic) == .automatic)
+        #expect(resolve(uploaded) == .uploaded(contentID))
+        #expect(lookupCount == 0)
+        #expect(resolve(selected) == .selectedSong("selected"))
+        #expect(lookupCount == 1)
+    }
+
     @Test("The same policy result is shared by phone, Mac, TV, and CarPlay adapters")
     func sharedCrossPlatformResolution() {
         let owner = LibraryArtworkOwner(kind: .playlist, id: "shared")

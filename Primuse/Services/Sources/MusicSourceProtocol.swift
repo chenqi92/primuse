@@ -48,6 +48,16 @@ struct RemoteFileItem: Sendable {
     }
 }
 
+extension RemoteFileItem: SidecarDirectoryItem {
+    var sidecarName: String { name }
+    var sidecarPath: String { path }
+    var sidecarIsDirectory: Bool { isDirectory }
+    var sidecarSize: Int64 { size }
+    var sidecarModifiedDate: Date? { modifiedDate }
+    var sidecarRevision: String? { revision }
+    var sidecarProviderID: String? { providerID }
+}
+
 struct SidecarHints: Sendable {
     let coverPath: String?
     let lyricsPath: String?
@@ -107,54 +117,44 @@ struct RemoteCueSheetItem: Sendable {
 }
 
 enum SidecarHintResolver {
+    typealias DirectoryIndex = SidecarDirectoryIndex<RemoteFileItem>
+
     /// 统一的扫描项判定: 音频文件返回带 sidecar hints 的 item; 无同名音频的
     /// 视频文件(mp4/m4v/mov)返回 mvPath 指向自身的 item —— 上层把它当曲目
     /// yield, 建出的 Song 即独立 MV(isStandaloneMusicVideo)。其余返回 nil。
-    static func scannableItem(_ item: RemoteFileItem, siblings: [RemoteFileItem]) -> RemoteFileItem? {
+    static func scannableItem(_ item: RemoteFileItem, index: DirectoryIndex) -> RemoteFileItem? {
         guard item.isDirectory == false else { return nil }
         let ext = (item.name as NSString).pathExtension.lowercased()
         if PrimuseConstants.supportedAudioExtensions.contains(ext)
             || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
-            return decoratedAudioItem(item, siblings: siblings)
+            return decoratedAudioItem(item, index: index)
         }
         if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
-            return standaloneVideoItem(item, siblings: siblings)
+            return standaloneVideoItem(item, index: index)
         }
         return nil
     }
 
     /// 无同名音频的视频文件独立成曲; 有同名音频时它是那首歌的 sidecar,
     /// 返回 nil 以免同一文件既挂 mvPath 又重复成曲。
-    static func standaloneVideoItem(_ item: RemoteFileItem, siblings: [RemoteFileItem]) -> RemoteFileItem? {
+    private static func standaloneVideoItem(
+        _ item: RemoteFileItem,
+        index: DirectoryIndex
+    ) -> RemoteFileItem? {
         let basename = (item.name as NSString).deletingPathExtension
-        let baseLower = basename.lowercased()
-        let hasSameNameAudio = siblings.contains {
-            guard $0.isDirectory == false else { return false }
-            let siblingExt = ($0.name as NSString).pathExtension.lowercased()
-            return (PrimuseConstants.supportedAudioExtensions.contains(siblingExt)
-                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(siblingExt))
-                && ($0.name as NSString).deletingPathExtension.lowercased() == baseLower
-        }
-        guard hasSameNameAudio == false else { return nil }
+        guard !index.containsAudioOrStream(basename: basename) else { return nil }
 
-        let nonAudio = siblings.filter {
-            guard $0.isDirectory == false else { return false }
-            let siblingExt = ($0.name as NSString).pathExtension.lowercased()
-            return PrimuseConstants.supportedAudioExtensions.contains(siblingExt) == false
-                && PrimuseConstants.supportedStreamDescriptorExtensions.contains(siblingExt) == false
-        }
         let coverPath = item.sidecarHints?.coverPath
-                ?? findSameNameCover(basename: basename, in: nonAudio)
-                ?? findFolderCover(in: nonAudio)
+                ?? index.sameNameCover(basename: basename)?.path
+                ?? index.folderCover()?.path
         let lyricsPath = item.sidecarHints?.lyricsPath
-                ?? findSameNameLyrics(basename: basename, in: nonAudio)
+                ?? index.sameNameLyrics(basename: basename)?.path
         let hints = SidecarHints(
             coverPath: coverPath,
             lyricsPath: lyricsPath,
             mvPath: item.path,
-            snapshotFingerprint: snapshotFingerprint(
-                selectedPaths: [coverPath, lyricsPath],
-                siblings: siblings
+            snapshotFingerprint: index.snapshotFingerprint(
+                selectedPaths: [coverPath, lyricsPath]
             ),
             isAuthoritative: true
         )
@@ -171,31 +171,26 @@ enum SidecarHintResolver {
         )
     }
 
-    static func decoratedAudioItem(_ item: RemoteFileItem, siblings: [RemoteFileItem]) -> RemoteFileItem {
+    private static func decoratedAudioItem(
+        _ item: RemoteFileItem,
+        index: DirectoryIndex
+    ) -> RemoteFileItem {
         guard item.isDirectory == false else { return item }
 
         let basename = (item.name as NSString).deletingPathExtension
-        let nonAudio = siblings.filter {
-            guard $0.isDirectory == false else { return false }
-            let ext = ($0.name as NSString).pathExtension.lowercased()
-            return PrimuseConstants.supportedAudioExtensions.contains(ext) == false
-                && PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) == false
-        }
-
         let coverPath = item.sidecarHints?.coverPath
-                ?? findSameNameCover(basename: basename, in: nonAudio)
-                ?? findFolderCover(in: nonAudio)
+                ?? index.sameNameCover(basename: basename)?.path
+                ?? index.folderCover()?.path
         let lyricsPath = item.sidecarHints?.lyricsPath
-                ?? findSameNameLyrics(basename: basename, in: nonAudio)
+                ?? index.sameNameLyrics(basename: basename)?.path
         let mvPath = item.sidecarHints?.mvPath
-                ?? findSameNameMusicVideo(basename: basename, in: nonAudio)
+                ?? index.sameNameMusicVideo(basename: basename)?.path
         let hints = SidecarHints(
             coverPath: coverPath,
             lyricsPath: lyricsPath,
             mvPath: mvPath,
-            snapshotFingerprint: snapshotFingerprint(
-                selectedPaths: [coverPath, lyricsPath, mvPath],
-                siblings: siblings
+            snapshotFingerprint: index.snapshotFingerprint(
+                selectedPaths: [coverPath, lyricsPath, mvPath]
             ),
             isAuthoritative: true
         )
@@ -212,89 +207,6 @@ enum SidecarHintResolver {
             providerID: item.providerID,
             parentPath: item.parentPath
         )
-    }
-
-    private static func findSameNameCover(basename: String, in candidates: [RemoteFileItem]) -> String? {
-        let baseLower = basename.lowercased()
-        for ext in PrimuseConstants.supportedCoverExtensions {
-            if let match = candidates.first(where: {
-                let name = ($0.name as NSString).lowercased
-                return name == "\(baseLower).\(ext)" || name == "\(baseLower)-cover.\(ext)"
-            }) {
-                return match.path
-            }
-        }
-        return nil
-    }
-
-    private static func findFolderCover(in candidates: [RemoteFileItem]) -> String? {
-        for name in PrimuseConstants.folderCoverNames {
-            for ext in PrimuseConstants.supportedCoverExtensions {
-                if let match = candidates.first(where: {
-                    ($0.name as NSString).lowercased == "\(name).\(ext)"
-                }) {
-                    return match.path
-                }
-            }
-        }
-        return nil
-    }
-
-    private static func findSameNameLyrics(basename: String, in candidates: [RemoteFileItem]) -> String? {
-        let baseLower = basename.lowercased()
-        for ext in PrimuseConstants.supportedLyricsExtensions {
-            if let match = candidates.first(where: {
-                ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
-            }) {
-                return match.path
-            }
-        }
-        return nil
-    }
-
-    private static func findSameNameMusicVideo(basename: String, in candidates: [RemoteFileItem]) -> String? {
-        let baseLower = basename.lowercased()
-        for ext in PrimuseConstants.supportedMusicVideoExtensions {
-            if let match = candidates.first(where: {
-                ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
-            }) {
-                return match.path
-            }
-        }
-        return nil
-    }
-
-    /// A CUE edit can change virtual-track boundaries without changing the
-    /// audio bytes. Include every CUE sibling conservatively; a change then
-    /// reconciles this directory once instead of silently retaining stale
-    /// segments. Selected cover/lyrics/video items carry their provider
-    /// revision so same-path replacements are visible as well.
-    private static func snapshotFingerprint(
-        selectedPaths: [String?],
-        siblings: [RemoteFileItem]
-    ) -> String? {
-        var paths = Set(selectedPaths.compactMap { $0 })
-        for sibling in siblings where !sibling.isDirectory {
-            if (sibling.name as NSString).pathExtension.lowercased() == "cue" {
-                paths.insert(sibling.path)
-            }
-        }
-        guard !paths.isEmpty else { return nil }
-
-        let itemsByPath = Dictionary(
-            siblings.map { ($0.path, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return paths.sorted().map { path in
-            guard let item = itemsByPath[path] else { return "missing\u{1F}\(path)" }
-            return [
-                item.providerID ?? "path:\(path.lowercased())",
-                path,
-                item.revision ?? "",
-                String(item.size),
-                item.modifiedDate.map { String($0.timeIntervalSinceReferenceDate) } ?? "",
-            ].joined(separator: "\u{1F}")
-        }.joined(separator: "\u{1E}")
     }
 }
 
@@ -773,10 +685,9 @@ protocol ResumableSnapshotMusicSourceConnector: MusicSourceConnector {
     ) async throws -> IncrementalSourceChanges
 }
 
-/// Extends the same per-execution request/directory/deadline budget across the
-/// authoritative directory reads that materialize a completed snapshot diff.
-/// Without this phase, a bounded tree walk could still trigger an unbounded
-/// second wave of list requests.
+/// Tracks provider requests across the authoritative directory reads that
+/// materialize a completed snapshot diff. This phase must finish atomically;
+/// the app lifecycle cancels it and the completed snapshot remains resumable.
 protocol SnapshotReconciliationBudgetConnector: MusicSourceConnector {
     func beginSnapshotReconciliationBudget(
         _ budget: BaiduSnapshotRefreshBudget,

@@ -76,7 +76,12 @@ actor ConnectorScanner {
         existingSongs: [Song],
         existingIndex: [String: SourceSyncIndexedItem],
         scanEpoch: Int64,
-        requiresCompleteListings: Bool = false
+        requiresCompleteListings: Bool = false,
+        progress: (@Sendable (
+            _ completedCount: Int,
+            _ totalCount: Int,
+            _ currentDirectory: String
+        ) async -> Void)? = nil
     ) async throws -> IncrementalResult {
         try await connector.connect()
         var songsByID = Dictionary(
@@ -100,7 +105,9 @@ actor ConnectorScanner {
         // The mutable index may already point at the new parent by the time the
         // old parent is reconciled (directory processing order is arbitrary).
 
-        for directory in directories.sorted() {
+        let orderedDirectories = directories.sorted()
+        var completedDirectoryCount = 0
+        for directory in orderedDirectories {
             try Task.checkCancellation()
             if requiresCompleteListings,
                let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
@@ -123,12 +130,19 @@ actor ConnectorScanner {
                 // A moved directory's old path (or a directory whose children
                 // were all confirmed deleted) may legitimately return -9.
                 // Nothing unconfirmed is owned by that stale path anymore.
+                completedDirectoryCount += 1
+                await progress?(
+                    completedDirectoryCount,
+                    orderedDirectories.count,
+                    directory
+                )
                 continue
             }
             if requiresCompleteListings,
                let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
                 try await budgeted.checkSnapshotReconciliationBudget()
             }
+            let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
             var rebuiltStableKeys: Set<String> = []
             for (key, entry) in oldEntries {
                 // If another changed directory already moved this stable key,
@@ -156,7 +170,10 @@ actor ConnectorScanner {
             }
             for rawItem in siblings where !rawItem.isDirectory {
                 try Task.checkCancellation()
-                guard let item = SidecarHintResolver.scannableItem(rawItem, siblings: siblings) else { continue }
+                guard let item = SidecarHintResolver.scannableItem(
+                    rawItem,
+                    index: sidecarIndex
+                ) else { continue }
                 try validateStableIdentity(
                     for: item,
                     observedPaths: &observedStablePaths
@@ -296,6 +313,15 @@ actor ConnectorScanner {
             changedCount += oldEntries.keys.filter {
                 !rebuiltStableKeys.contains($0) && index[$0] == nil
             }.count
+            completedDirectoryCount += 1
+            if completedDirectoryCount.isMultiple(of: 5)
+                || completedDirectoryCount == orderedDirectories.count {
+                await progress?(
+                    completedDirectoryCount,
+                    orderedDirectories.count,
+                    directory
+                )
+            }
         }
 
         var remaining = songsByID
@@ -568,6 +594,7 @@ actor ConnectorScanner {
 
                         do {
                             let siblings = try await connector.listFiles(at: directory)
+                            let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
                             for directoryItem in siblings where directoryItem.isDirectory {
                                 try validateStableIdentity(
                                     for: directoryItem,
@@ -584,7 +611,7 @@ actor ConnectorScanner {
                             for rawItem in siblings where !rawItem.isDirectory {
                                 guard let item = SidecarHintResolver.scannableItem(
                                     rawItem,
-                                    siblings: siblings
+                                    index: sidecarIndex
                                 ) else { continue }
                                 try Task.checkCancellation()
 

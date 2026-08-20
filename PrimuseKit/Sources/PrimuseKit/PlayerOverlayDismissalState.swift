@@ -32,6 +32,11 @@ public struct PlayerOverlayDismissalState: Equatable, Sendable {
 /// Keeping these rules independent from SwiftUI makes rotation irrelevant to
 /// the decision and lets the presentation host unmount immediately afterward.
 public enum NowPlayingDismissGesturePolicy {
+    public enum Axis: Equatable, Sendable {
+        case horizontal
+        case vertical
+    }
+
     public static let topStartMaximumY = 140.0
     public static let leadingEdgeMaximumX = 24.0
 
@@ -42,16 +47,75 @@ public enum NowPlayingDismissGesturePolicy {
         translationX * (layoutIsRightToLeft ? -1 : 1)
     }
 
+    public static func distanceFromLeadingEdge(
+        startX: Double,
+        containerWidth: Double,
+        layoutIsRightToLeft: Bool
+    ) -> Double {
+        layoutIsRightToLeft ? containerWidth - startX : startX
+    }
+
+    public static func topInteractiveTranslation(
+        startY: Double,
+        translationX: Double,
+        translationY: Double
+    ) -> Double? {
+        guard startY >= 0,
+              startY <= topStartMaximumY,
+              translationY > 0,
+              abs(translationY) > abs(translationX) else { return nil }
+        return translationY
+    }
+
+    public static func leadingInteractiveTranslation(
+        startDistanceFromLeadingEdge: Double,
+        translationTowardCenter: Double,
+        translationY: Double
+    ) -> Double? {
+        guard startDistanceFromLeadingEdge >= 0,
+              startDistanceFromLeadingEdge <= leadingEdgeMaximumX,
+              translationTowardCenter > 0,
+              abs(translationTowardCenter) > abs(translationY) else { return nil }
+        return translationTowardCenter
+    }
+
+    /// Chooses one dismissal axis for the lifetime of a drag. The caller must
+    /// retain the returned value until the gesture ends so a diagonal drag
+    /// cannot alternate between two interactive offsets.
+    public static func recognizedAxis(
+        startY: Double,
+        startDistanceFromLeadingEdge: Double,
+        translationTowardCenter: Double,
+        translationY: Double
+    ) -> Axis? {
+        if topInteractiveTranslation(
+            startY: startY,
+            translationX: translationTowardCenter,
+            translationY: translationY
+        ) != nil {
+            return .vertical
+        }
+        if leadingInteractiveTranslation(
+            startDistanceFromLeadingEdge: startDistanceFromLeadingEdge,
+            translationTowardCenter: translationTowardCenter,
+            translationY: translationY
+        ) != nil {
+            return .horizontal
+        }
+        return nil
+    }
+
     public static func shouldDismissFromTop(
         startY: Double,
         translationX: Double,
         translationY: Double,
         predictedEndTranslationY: Double
     ) -> Bool {
-        guard startY >= 0,
-              startY <= topStartMaximumY,
-              translationY > 0,
-              abs(translationY) > abs(translationX) else { return false }
+        guard topInteractiveTranslation(
+            startY: startY,
+            translationX: translationX,
+            translationY: translationY
+        ) != nil else { return false }
         return translationY >= 110 || predictedEndTranslationY >= 320
     }
 
@@ -61,10 +125,11 @@ public enum NowPlayingDismissGesturePolicy {
         translationY: Double,
         predictedEndTranslationX: Double
     ) -> Bool {
-        guard startX >= 0,
-              startX <= leadingEdgeMaximumX,
-              translationX > 0,
-              abs(translationX) > abs(translationY) else { return false }
+        guard leadingInteractiveTranslation(
+            startDistanceFromLeadingEdge: startX,
+            translationTowardCenter: translationX,
+            translationY: translationY
+        ) != nil else { return false }
         return translationX >= 100 || predictedEndTranslationX >= 300
     }
 }

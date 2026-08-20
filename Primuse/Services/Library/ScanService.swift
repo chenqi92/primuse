@@ -165,8 +165,15 @@ final class ScanService {
                 scopeFingerprint: checkpointScopeFingerprint
             )
         let resumeSongs = checkpoint?.songs ?? []
-        let resumeCount = checkpoint?.songs.count ?? 0
-        let resumeTotal = checkpoint?.totalCount ?? 0
+        let resumedSnapshotProgress = checkpoint?.baiduSnapshotState.map {
+            BaiduSnapshotProgressPolicy.progress(for: $0)
+        }
+        let resumeCount = resumedSnapshotProgress?.completedCount
+            ?? checkpoint?.songs.count
+            ?? 0
+        let resumeTotal = resumedSnapshotProgress?.totalCount
+            ?? checkpoint?.totalCount
+            ?? 0
 
         if !resumeSongs.isEmpty {
             // resume 阶段恢复 checkpoint 内容, 是部分扫描结果, 不应触发"已删除"
@@ -220,7 +227,10 @@ final class ScanService {
         scanGenerations[source.id, default: 0] += 1
         let generation = scanGenerations[source.id] ?? 0
 
-        let task = Task {
+        let taskPriority: TaskPriority = snapshotExecutionContext == .userInitiatedForeground
+            ? .userInitiated
+            : .utility
+        let task = Task(priority: taskPriority) {
             defer {
                 // Only release shared state if we're still the current scan.
                 // A cancelled-but-resuming old task must not wipe the
@@ -256,6 +266,29 @@ final class ScanService {
                     scanStates[source.id] = nil
                 }
                 return
+            }
+
+            if source.type == .baiduPan,
+               snapshotExecutionContext == .foregroundResume {
+                do {
+                    try await Task.sleep(
+                        for: .seconds(BaiduSnapshotExecutionPolicy.foregroundResumeDelay)
+                    )
+                } catch {
+                    if isCurrentScan(source.id, generation: generation) {
+                        recordScanInterruption(
+                            sourceID: source.id,
+                            scannedCount: resumeCount,
+                            totalCount: resumeTotal
+                        )
+                    }
+                    return
+                }
+                guard !Task.isCancelled,
+                      isCurrentScan(source.id, generation: generation),
+                      sourceCanContinue(source.id, sourceStore: sourceStore) else {
+                    return
+                }
             }
 
             // Synology has a dedicated authenticated scan path below and may
@@ -475,6 +508,7 @@ final class ScanService {
             scanSource(
                 source,
                 mode: .quick,
+                snapshotExecutionContext: .foregroundResume,
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourceStore,
@@ -538,6 +572,27 @@ final class ScanService {
         @unknown default:
             true
         }
+    }
+
+    private func canContinueBaiduSnapshot(
+        context: BaiduSnapshotExecutionContext,
+        sourceID: String,
+        generation: Int,
+        sourceStore: SourcesStore
+    ) -> Bool {
+        guard isCurrentScan(sourceID, generation: generation),
+              sourceCanContinue(sourceID, sourceStore: sourceStore) else {
+            return false
+        }
+        return BaiduSnapshotRefreshPolicy.eligibility(
+            context: context,
+            hasDeterminedNetwork: NetworkMonitor.shared.hasDeterminedPath,
+            isReachable: NetworkMonitor.shared.isReachable,
+            isExpensive: NetworkMonitor.shared.isExpensive,
+            isConstrained: NetworkMonitor.shared.isConstrained,
+            isLowPowerModeEnabled: Self.isLowPowerModeEnabled,
+            hasSeriousThermalPressure: Self.hasSeriousThermalPressure
+        ) == .allowed
     }
 
     private func periodicDirectories(for source: MusicSource) -> [String]? {
@@ -1038,94 +1093,124 @@ final class ScanService {
            !state.cursors.isEmpty
                 || (connector is any ResumableSnapshotMusicSourceConnector
                     && (!state.index.isEmpty || checkpoint?.baiduSnapshotState != nil)) {
-            do {
-                if try await performQuickSync(
-                    source: source,
-                    generation: generation,
-                    directories: effectiveDirectories,
-                    state: state,
-                    connector: connector,
-                    scanner: scanner,
-                    existingSongs: existingForScan,
-                    library: library,
-                    sourceStore: sourceStore,
-                    scraperService: scraperService,
-                    sourceManager: sourceManager,
-                    rootIdentities: rootIdentities,
-                    checkpoint: checkpoint
-                ) {
-                    return
-                }
-            } catch let error where OperationCancellationPolicy.isCancellation(error) {
-                if isCurrentScan(source.id, generation: generation) {
-                    if connector is any ResumableSnapshotMusicSourceConnector {
-                        try? await waitForCheckpointPersistence()
+            var snapshotRestartCount = 0
+            quickSyncLoop: while true {
+                do {
+                    if try await performQuickSync(
+                        source: source,
+                        generation: generation,
+                        directories: effectiveDirectories,
+                        state: state,
+                        connector: connector,
+                        scanner: scanner,
+                        existingSongs: existingForScan,
+                        library: library,
+                        sourceStore: sourceStore,
+                        scraperService: scraperService,
+                        sourceManager: sourceManager,
+                        rootIdentities: rootIdentities,
+                        snapshotExecutionContext: snapshotExecutionContext,
+                        checkpoint: checkpoints[source.id] ?? checkpoint
+                    ) {
+                        return
                     }
-                    recordScanInterruption(sourceID: source.id)
-                }
-                return
-            } catch BaiduSnapshotExecutionError.snapshotRestartRequired(let telemetry) {
-                if let checkpoint = checkpoints[source.id] {
-                    checkpoints[source.id] = checkpoint.restartingSnapshotTraversal(
-                        telemetry: telemetry
+                    break quickSyncLoop
+                } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                    if isCurrentScan(source.id, generation: generation) {
+                        if connector is any ResumableSnapshotMusicSourceConnector {
+                            try? await waitForCheckpointPersistence()
+                        }
+                        recordScanInterruption(sourceID: source.id)
+                    }
+                    return
+                } catch BaiduSnapshotExecutionError.snapshotRestartRequired(let telemetry) {
+                    if let checkpoint = checkpoints[source.id] {
+                        checkpoints[source.id] = checkpoint.restartingSnapshotTraversal(
+                            telemetry: telemetry
+                        )
+                    }
+                    do {
+                        try await waitForCheckpointPersistence()
+                    } catch {
+                        recordScanFailure(
+                            sourceID: source.id,
+                            message: sourceManager.scanFailureMessage(for: error, source: source)
+                        )
+                        return
+                    }
+                    snapshotRestartCount += 1
+                    guard snapshotRestartCount <= 2,
+                          BaiduSnapshotExecutionPolicy.shouldContinueImmediately(
+                              context: snapshotExecutionContext
+                          ),
+                          canContinueBaiduSnapshot(
+                              context: snapshotExecutionContext,
+                              sourceID: source.id,
+                              generation: generation,
+                              sourceStore: sourceStore
+                          ) else {
+                        recordScanInterruption(sourceID: source.id)
+                        return
+                    }
+                    await Task.yield()
+                    continue quickSyncLoop
+                } catch BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(let telemetry) {
+                    if var diagnosticState = syncStates[source.id] {
+                        diagnosticState.lastTelemetry = telemetry
+                        try? await persistSyncState(diagnosticState)
+                    }
+                    do {
+                        try await clearCheckpointAndWait(for: source.id)
+                    } catch {
+                        recordScanFailure(
+                            sourceID: source.id,
+                            message: sourceManager.scanFailureMessage(for: error, source: source)
+                        )
+                        return
+                    }
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: String(localized: "baidu_snapshot_deep_scan_required")
                     )
-                    persistCheckpoints(force: true)
-                }
-                do {
-                    try await waitForCheckpointPersistence()
+                    return
+                } catch BaiduSnapshotExecutionError.budgetExhausted(_, let telemetry) {
+                    if var checkpoint = checkpoints[source.id] {
+                        checkpoint.baiduTelemetry = telemetry
+                        checkpoint.updatedAt = Date()
+                        checkpoints[source.id] = checkpoint
+                    }
+                    do {
+                        try await waitForCheckpointPersistence()
+                    } catch {
+                        recordScanFailure(
+                            sourceID: source.id,
+                            message: sourceManager.scanFailureMessage(for: error, source: source)
+                        )
+                        return
+                    }
+                    guard BaiduSnapshotExecutionPolicy.shouldContinueImmediately(
+                        context: snapshotExecutionContext
+                    ), canContinueBaiduSnapshot(
+                        context: snapshotExecutionContext,
+                        sourceID: source.id,
+                        generation: generation,
+                        sourceStore: sourceStore
+                    ) else {
+                        recordScanInterruption(sourceID: source.id)
+                        return
+                    }
+                    // Explicit refreshes continue from the durable queue. An
+                    // automatic foreground resume stops after one short slice.
+                    await Task.yield()
+                    continue quickSyncLoop
                 } catch {
+                    plog("⚠️ Quick sync failed for \(source.name); keeping committed cursor: \(error.localizedDescription)")
                     recordScanFailure(
                         sourceID: source.id,
                         message: sourceManager.scanFailureMessage(for: error, source: source)
                     )
                     return
                 }
-                recordScanInterruption(sourceID: source.id)
-                return
-            } catch BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(let telemetry) {
-                if var diagnosticState = syncStates[source.id] {
-                    diagnosticState.lastTelemetry = telemetry
-                    try? await persistSyncState(diagnosticState)
-                }
-                do {
-                    try await clearCheckpointAndWait(for: source.id)
-                } catch {
-                    recordScanFailure(
-                        sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
-                    )
-                    return
-                }
-                recordScanFailure(
-                    sourceID: source.id,
-                    message: String(localized: "baidu_snapshot_deep_scan_required")
-                )
-                return
-            } catch BaiduSnapshotExecutionError.budgetExhausted(_, let telemetry) {
-                if var checkpoint = checkpoints[source.id] {
-                    checkpoint.baiduTelemetry = telemetry
-                    checkpoint.updatedAt = Date()
-                    checkpoints[source.id] = checkpoint
-                    persistCheckpoints(force: true)
-                }
-                do {
-                    try await waitForCheckpointPersistence()
-                } catch {
-                    recordScanFailure(
-                        sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
-                    )
-                    return
-                }
-                recordScanInterruption(sourceID: source.id)
-                return
-            } catch {
-                plog("⚠️ Quick sync failed for \(source.name); keeping committed cursor: \(error.localizedDescription)")
-                recordScanFailure(
-                    sourceID: source.id,
-                    message: sourceManager.scanFailureMessage(for: error, source: source)
-                )
-                return
             }
         }
 
@@ -1402,10 +1487,13 @@ final class ScanService {
         scraperService: MusicScraperService?,
         sourceManager: SourceManager,
         rootIdentities: [SourceSyncRootIdentity],
+        snapshotExecutionContext: BaiduSnapshotExecutionContext,
         checkpoint: ScanCheckpoint?
     ) async throws -> Bool {
         scanStates[source.id]?.currentFile = String(localized: "source_quick_sync")
-        let snapshotBudget = BaiduSnapshotRefreshBudget()
+        let snapshotBudget = BaiduSnapshotExecutionPolicy.refreshBudget(
+            for: snapshotExecutionContext
+        )
         let changes: IncrementalSourceChanges
         if let snapshotConnector = connector as? any ResumableSnapshotMusicSourceConnector {
             changes = try await snapshotConnector.snapshotChanges(
@@ -1479,25 +1567,26 @@ final class ScanService {
             return true
         }
 
-        if let telemetry = changes.telemetry,
-           telemetry.directoryCount + changes.changedParentPaths.count
-                > snapshotBudget.maximumDirectories {
-            var exhausted = telemetry
-            exhausted.budgetExhausted = true
-            exhausted.stopReason = .directories
-            throw BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(exhausted)
-        }
-
         let requiresCompleteListings = connector is any ResumableSnapshotMusicSourceConnector
         let result: ConnectorScanner.IncrementalResult
         var combinedTelemetry = changes.telemetry
+        let snapshotWorkCount = checkpoints[source.id]?.baiduSnapshotState.map {
+            BaiduSnapshotProgressPolicy.progress(for: $0).totalCount
+        } ?? max(scanStates[source.id]?.scannedCount ?? 0, 0)
         if requiresCompleteListings,
            let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
             await budgeted.beginSnapshotReconciliationBudget(
-                snapshotBudget,
+                .uninterruptedReconciliation,
                 consumed: changes.telemetry
             )
             do {
+                publishBaiduReconciliationProgress(
+                    sourceID: source.id,
+                    snapshotWorkCount: snapshotWorkCount,
+                    completedDirectoryCount: 0,
+                    totalDirectoryCount: changes.changedParentPaths.count,
+                    currentDirectory: scanStates[source.id]?.currentFile ?? ""
+                )
                 result = try await scanner.reconcileChangedDirectories(
                     changes.changedParentPaths,
                     deletedStableKeys: changes.deletedStableKeys,
@@ -1505,7 +1594,15 @@ final class ScanService {
                     existingIndex: changes.reconciledIndex ?? state.index,
                     scanEpoch: nextScanEpoch,
                     requiresCompleteListings: true
-                )
+                ) { [weak self] completedCount, totalCount, currentDirectory in
+                    await self?.publishBaiduReconciliationProgress(
+                        sourceID: source.id,
+                        snapshotWorkCount: snapshotWorkCount,
+                        completedDirectoryCount: completedCount,
+                        totalDirectoryCount: totalCount,
+                        currentDirectory: currentDirectory
+                    )
+                }
                 combinedTelemetry = await budgeted.finishSnapshotReconciliationBudget()
                     ?? combinedTelemetry
             } catch let error as BaiduSnapshotExecutionError {
@@ -1644,6 +1741,24 @@ final class ScanService {
 
     // MARK: - Helpers
 
+    private func publishBaiduReconciliationProgress(
+        sourceID: String,
+        snapshotWorkCount: Int,
+        completedDirectoryCount: Int,
+        totalDirectoryCount: Int,
+        currentDirectory: String
+    ) {
+        var state = scanStates[sourceID] ?? ScanState(isScanning: true)
+        state.isScanning = true
+        state.scannedCount = snapshotWorkCount + completedDirectoryCount
+        state.totalCount = snapshotWorkCount + totalDirectoryCount
+        state.currentFile = currentDirectory
+        state.hasPendingWork = true
+        state.failureMessage = nil
+        state.reconciliationMessage = nil
+        scanStates[sourceID] = state
+    }
+
     private func publishScanProgress(
         sourceID: String,
         scannedCount: Int,
@@ -1713,11 +1828,14 @@ final class ScanService {
     private func loadCheckpoints(_ decoded: [String: ScanCheckpoint]) {
         checkpoints = decoded
         for (sourceID, checkpoint) in decoded {
+            let snapshotProgress = checkpoint.baiduSnapshotState.map {
+                BaiduSnapshotProgressPolicy.progress(for: $0)
+            }
             scanStates[sourceID] = ScanState(
                 isScanning: false,
                 currentFile: String(localized: "scan_resume_hint"),
-                scannedCount: checkpoint.songs.count,
-                totalCount: checkpoint.totalCount,
+                scannedCount: snapshotProgress?.completedCount ?? checkpoint.songs.count,
+                totalCount: snapshotProgress?.totalCount ?? checkpoint.totalCount,
                 hasPendingWork: true
             )
         }
@@ -1787,14 +1905,15 @@ final class ScanService {
         checkpoint.resolvedDirectories = effectiveDirectories
         checkpoint.baiduSnapshotState = resumeState
         checkpoint.baiduTelemetry = telemetry
+        let progress = BaiduSnapshotProgressPolicy.progress(for: resumeState)
+        checkpoint.totalCount = progress.totalCount
         checkpoints[sourceID] = checkpoint
 
         var scanState = scanStates[sourceID] ?? ScanState(isScanning: true)
         scanState.isScanning = true
         scanState.currentFile = checkpoint.currentFile
-        scanState.scannedCount = resumeState.visitedDirectories.count
-        scanState.totalCount = resumeState.visitedDirectories.count
-            + resumeState.pendingDirectories.count
+        scanState.scannedCount = progress.completedCount
+        scanState.totalCount = progress.totalCount
         scanState.hasPendingWork = true
         scanState.failureMessage = nil
         scanStates[sourceID] = scanState

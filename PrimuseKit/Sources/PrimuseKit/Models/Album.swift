@@ -144,26 +144,39 @@ public enum LibraryArtworkContentIDPolicy {
 public enum LibraryArtworkOverridePolicy {
     public static func resolve(
         override: LibraryArtworkOverride?,
-        resolvedSongID: String?,
-        eligibleSongIDs: Set<String>
+        resolveSelectedSong: () -> (songID: String, isEligible: Bool)?
     ) -> LibraryArtworkOverrideResolution {
         guard let override else { return .automatic }
         switch override.mode {
         case .automatic:
             return .automatic
         case .selectedSong:
-            guard let resolvedSongID,
-                  !resolvedSongID.isEmpty,
-                  eligibleSongIDs.contains(resolvedSongID) else {
+            guard let selectedSong = resolveSelectedSong(),
+                  !selectedSong.songID.isEmpty,
+                  selectedSong.isEligible else {
                 return .automatic
             }
-            return .selectedSong(resolvedSongID)
+            return .selectedSong(selectedSong.songID)
         case .uploaded:
             guard let contentID = override.uploadedContentID,
                   LibraryArtworkContentIDPolicy.isValid(contentID) else {
                 return .automatic
             }
             return .uploaded(contentID)
+        }
+    }
+
+    public static func resolve(
+        override: LibraryArtworkOverride?,
+        resolvedSongID: String?,
+        eligibleSongIDs: Set<String>
+    ) -> LibraryArtworkOverrideResolution {
+        resolve(override: override) {
+            guard let resolvedSongID else { return nil }
+            return (
+                songID: resolvedSongID,
+                isEligible: eligibleSongIDs.contains(resolvedSongID)
+            )
         }
     }
 }

@@ -2997,17 +2997,59 @@ final class MusicLibrary {
         eligibleSongs: [Song]
     ) -> LibraryArtworkOverrideResolution {
         let override = artworkOverride(for: owner)
-        let resolvedSongID: String?
-        if let identity = override?.selectedSongIdentity {
-            let index = makeIdentityResolutionIndex(for: [identity])
-            resolvedSongID = resolveIdentity(identity, using: index)
-        } else {
-            resolvedSongID = nil
+        return LibraryArtworkOverridePolicy.resolve(override: override) {
+            guard let identity = override?.selectedSongIdentity,
+                  let resolvedSongID = resolveArtworkSongID(identity) else {
+                return nil
+            }
+            return (
+                songID: resolvedSongID,
+                isEligible: eligibleSongs.contains { $0.id == resolvedSongID }
+            )
         }
-        return LibraryArtworkOverridePolicy.resolve(
-            override: override,
-            resolvedSongID: resolvedSongID,
-            eligibleSongIDs: Set(eligibleSongs.map(\.id))
+    }
+
+    struct ArtworkPresentation {
+        let resolution: LibraryArtworkOverrideResolution
+        let selectedSong: Song?
+
+        var uploadedContentID: String? {
+            guard case .uploaded(let contentID) = resolution else { return nil }
+            return contentID
+        }
+    }
+
+    /// Resolves the lightweight override state used by artwork views without
+    /// materializing every song in an album or playlist. Automatic and uploaded
+    /// modes never touch song membership; selected-song mode performs only an
+    /// indexed lookup in the common case.
+    func artworkPresentation(for owner: LibraryArtworkOwner) -> ArtworkPresentation {
+        let override = artworkOverride(for: owner)
+        var selectedSong: Song?
+        let resolution = LibraryArtworkOverridePolicy.resolve(override: override) {
+            guard let identity = override?.selectedSongIdentity,
+                  let resolvedSongID = resolveArtworkSongID(identity) else {
+                return nil
+            }
+            guard let song = visibleSong(id: resolvedSongID) else {
+                return (songID: resolvedSongID, isEligible: false)
+            }
+
+            let isEligible: Bool
+            switch owner.kind {
+            case .album:
+                isEligible = song.albumID == owner.id
+            case .playlist:
+                isEligible = playlistSongIDs[owner.id]?.contains(resolvedSongID) == true
+            }
+            if isEligible {
+                selectedSong = song
+            }
+            return (songID: resolvedSongID, isEligible: isEligible)
+        }
+        return ArtworkPresentation(
+            resolution: resolution,
+            selectedSong: selectedSong
         )
     }
 
@@ -4029,6 +4071,14 @@ final class MusicLibrary {
             }
         }
         return nil
+    }
+
+    private func resolveArtworkSongID(_ identity: SongIdentity) -> String? {
+        if songIndexByID[identity.songID] != nil {
+            return identity.songID
+        }
+        let index = makeIdentityResolutionIndex(for: [identity])
+        return resolveIdentity(identity, using: index)
     }
 
     /// Merge a fresh batch of unresolved identities into the existing

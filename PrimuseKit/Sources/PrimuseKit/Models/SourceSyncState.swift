@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum SourceSyncMode: String, Codable, Sendable, CaseIterable {
@@ -366,6 +367,180 @@ public enum SourcePeriodicSyncPolicy {
     }
 }
 
+// MARK: - Directory sidecar indexing
+
+/// The minimal directory-entry surface needed to resolve covers, lyrics,
+/// music videos and CUE dependencies without coupling PrimuseKit to a specific
+/// cloud connector model.
+public protocol SidecarDirectoryItem: Sendable {
+    var sidecarName: String { get }
+    var sidecarPath: String { get }
+    var sidecarIsDirectory: Bool { get }
+    var sidecarSize: Int64 { get }
+    var sidecarModifiedDate: Date? { get }
+    var sidecarRevision: String? { get }
+    var sidecarProviderID: String? { get }
+}
+
+/// Immutable per-directory lookup data. It is built once per sibling listing;
+/// every song in that directory then performs only a bounded number of
+/// dictionary/set lookups instead of repeatedly filtering and scanning the
+/// entire listing.
+public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
+    private struct IndexedItem: Sendable {
+        var item: Item
+        var offset: Int
+    }
+
+    private let firstItemByLowercasedName: [String: IndexedItem]
+    private let firstItemByPath: [String: Item]
+    private let audioBasenames: Set<String>
+    private let cueFingerprint: String?
+
+    public let itemCount: Int
+
+    public init(_ items: [Item]) {
+        var firstItemByLowercasedName: [String: IndexedItem] = [:]
+        var firstItemByPath: [String: Item] = [:]
+        var audioBasenames: Set<String> = []
+        var cuePaths: Set<String> = []
+
+        firstItemByLowercasedName.reserveCapacity(items.count)
+        firstItemByPath.reserveCapacity(items.count)
+
+        for (offset, item) in items.enumerated() {
+            if firstItemByPath[item.sidecarPath] == nil {
+                firstItemByPath[item.sidecarPath] = item
+            }
+            guard !item.sidecarIsDirectory else { continue }
+
+            let lowercasedName = item.sidecarName.lowercased()
+            if firstItemByLowercasedName[lowercasedName] == nil {
+                firstItemByLowercasedName[lowercasedName] = IndexedItem(
+                    item: item,
+                    offset: offset
+                )
+            }
+
+            let fileName = item.sidecarName as NSString
+            let fileExtension = fileName.pathExtension.lowercased()
+            if PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
+                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fileExtension) {
+                audioBasenames.insert(fileName.deletingPathExtension.lowercased())
+            }
+            if PrimuseConstants.supportedCueSheetExtensions.contains(fileExtension) {
+                cuePaths.insert(item.sidecarPath)
+            }
+        }
+
+        self.firstItemByLowercasedName = firstItemByLowercasedName
+        self.firstItemByPath = firstItemByPath
+        self.audioBasenames = audioBasenames
+        itemCount = items.count
+
+        let cueComponents = cuePaths.sorted().map { path in
+            Self.fingerprintComponent(
+                for: path,
+                item: firstItemByPath[path]
+            )
+        }
+        if cueComponents.isEmpty {
+            cueFingerprint = nil
+        } else {
+            let digest = SHA256.hash(
+                data: Data(cueComponents.joined(separator: "\u{1E}").utf8)
+            )
+            cueFingerprint = digest.map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    public func containsAudioOrStream(basename: String) -> Bool {
+        audioBasenames.contains(basename.lowercased())
+    }
+
+    public func sameNameCover(basename: String) -> Item? {
+        let base = basename.lowercased()
+        for fileExtension in PrimuseConstants.supportedCoverExtensions {
+            let exact = firstItemByLowercasedName["\(base).\(fileExtension)"]
+            let suffixed = firstItemByLowercasedName["\(base)-cover.\(fileExtension)"]
+            switch (exact, suffixed) {
+            case let (exact?, suffixed?):
+                // Preserve the old `first(where:)` result when both forms are
+                // present with the same preferred extension.
+                return exact.offset < suffixed.offset ? exact.item : suffixed.item
+            case let (exact?, nil):
+                return exact.item
+            case let (nil, suffixed?):
+                return suffixed.item
+            case (nil, nil):
+                continue
+            }
+        }
+        return nil
+    }
+
+    public func folderCover() -> Item? {
+        for name in PrimuseConstants.folderCoverNames {
+            for fileExtension in PrimuseConstants.supportedCoverExtensions {
+                if let match = firstItemByLowercasedName["\(name).\(fileExtension)"] {
+                    return match.item
+                }
+            }
+        }
+        return nil
+    }
+
+    public func sameNameLyrics(basename: String) -> Item? {
+        let base = basename.lowercased()
+        for fileExtension in PrimuseConstants.supportedLyricsExtensions {
+            if let match = firstItemByLowercasedName["\(base).\(fileExtension)"] {
+                return match.item
+            }
+        }
+        return nil
+    }
+
+    public func sameNameMusicVideo(basename: String) -> Item? {
+        let base = basename.lowercased()
+        for fileExtension in PrimuseConstants.supportedMusicVideoExtensions {
+            if let match = firstItemByLowercasedName["\(base).\(fileExtension)"] {
+                return match.item
+            }
+        }
+        return nil
+    }
+
+    /// Selected sidecars retain the legacy component format. CUE entries are
+    /// represented by one fixed-size digest shared by every song in the
+    /// directory, so a CUE edit still invalidates all virtual tracks without
+    /// re-concatenating every CUE component for every audio file.
+    public func snapshotFingerprint(selectedPaths: [String?]) -> String? {
+        let paths = Set(selectedPaths.compactMap { $0 })
+        var components = paths.sorted().map { path in
+            Self.fingerprintComponent(
+                for: path,
+                item: firstItemByPath[path]
+            )
+        }
+        if let cueFingerprint {
+            components.append("cue-sha256-v2\u{1F}\(cueFingerprint)")
+        }
+        guard !components.isEmpty else { return nil }
+        return components.joined(separator: "\u{1E}")
+    }
+
+    private static func fingerprintComponent(for path: String, item: Item?) -> String {
+        guard let item else { return "missing\u{1F}\(path)" }
+        return [
+            item.sidecarProviderID ?? "path:\(path.lowercased())",
+            path,
+            item.sidecarRevision ?? "",
+            String(item.sidecarSize),
+            item.sidecarModifiedDate.map { String($0.timeIntervalSinceReferenceDate) } ?? "",
+        ].joined(separator: "\u{1F}")
+    }
+}
+
 // MARK: - Baidu snapshot synchronization
 
 public enum BaiduSnapshotIdentity {
@@ -700,6 +875,11 @@ public struct BaiduSnapshotResumeState: Codable, Sendable, Equatable {
     public var visitedDirectories: Set<String>
     public var liveDirectories: Set<String>
     public var snapshot: [String: SourceSyncIndexedItem]
+    /// Stable work estimate captured from the last committed index. A snapshot
+    /// discovers new subdirectories lazily, so `visited + pending` alone is a
+    /// moving, directory-only denominator and cannot represent whole-sync
+    /// progress across relaunches.
+    public var estimatedTotalCount: Int?
     public var createdAt: Date
 
     public init(
@@ -710,6 +890,7 @@ public struct BaiduSnapshotResumeState: Codable, Sendable, Equatable {
         visitedDirectories: Set<String> = [],
         liveDirectories: Set<String>? = nil,
         snapshot: [String: SourceSyncIndexedItem] = [:],
+        estimatedTotalCount: Int? = nil,
         createdAt: Date = Date()
     ) {
         let normalizedRoots = BaiduSnapshotRootPolicy.normalizedRoots(roots)
@@ -720,6 +901,7 @@ public struct BaiduSnapshotResumeState: Codable, Sendable, Equatable {
         self.visitedDirectories = visitedDirectories
         self.liveDirectories = liveDirectories ?? Set(normalizedRoots)
         self.snapshot = snapshot
+        self.estimatedTotalCount = estimatedTotalCount
         self.createdAt = createdAt
     }
 
@@ -733,6 +915,47 @@ public struct BaiduSnapshotResumeState: Codable, Sendable, Equatable {
             && self.roots == BaiduSnapshotRootPolicy.normalizedRoots(roots)
             && now.timeIntervalSince(createdAt) >= 0
             && now.timeIntervalSince(createdAt) <= Self.maximumAge
+    }
+}
+
+public struct BaiduSnapshotProgress: Sendable, Equatable {
+    public var completedCount: Int
+    public var totalCount: Int
+
+    public init(completedCount: Int, totalCount: Int) {
+        self.completedCount = completedCount
+        self.totalCount = totalCount
+    }
+}
+
+public enum BaiduSnapshotProgressPolicy {
+    /// One unit represents either a scannable file or one directory listing.
+    /// Mature indexes contain both; legacy indexes still provide a useful file
+    /// baseline, with selected roots accounting for the first listings.
+    public static func estimatedTotalCount(
+        previousIndex: [String: SourceSyncIndexedItem],
+        roots: [String]
+    ) -> Int {
+        previousIndex.count + BaiduSnapshotRootPolicy.normalizedRoots(roots).count
+    }
+
+    public static func progress(
+        for state: BaiduSnapshotResumeState
+    ) -> BaiduSnapshotProgress {
+        let completedFiles = state.snapshot.values.lazy.filter { !$0.isDirectory }.count
+        let rawCompleted = state.visitedDirectories.count + completedFiles
+        let discoveredTotal = rawCompleted + state.pendingDirectories.count
+        let total = max(state.estimatedTotalCount ?? 0, discoveredTotal)
+        // When the queue is empty, missing entries from the previous snapshot
+        // have also been checked. Count those expected units as completed so a
+        // deletion-only refresh reaches the end instead of stopping below 100%.
+        let completed = state.pendingDirectories.isEmpty
+            ? total
+            : min(rawCompleted, total)
+        return BaiduSnapshotProgress(
+            completedCount: completed,
+            totalCount: total
+        )
     }
 }
 
@@ -750,6 +973,15 @@ public struct BaiduSnapshotRefreshBudget: Sendable, Equatable {
         self.maximumDirectories = maximumDirectories
         self.maximumDuration = maximumDuration
     }
+
+    /// Reconciliation runs only while a foreground scan remains alive and is
+    /// cancelled by the app lifecycle. It must be allowed to finish in one
+    /// pass because its partially rebuilt song/index result is not committed.
+    public static let uninterruptedReconciliation = BaiduSnapshotRefreshBudget(
+        maximumRequests: .max,
+        maximumDirectories: .max,
+        maximumDuration: .greatestFiniteMagnitude
+    )
 }
 
 public enum BaiduSnapshotBudgetStopReason: String, Codable, Sendable, Equatable {
@@ -787,6 +1019,36 @@ public enum BaiduSnapshotExecutionContext: Sendable, Equatable {
     case userInitiatedForeground
     case foregroundResume
     case background
+}
+
+public enum BaiduSnapshotExecutionPolicy {
+    /// Give the foreground scene time to finish layout, audio-session and
+    /// navigation restoration before an interrupted tree snapshot resumes.
+    public static let foregroundResumeDelay: TimeInterval = 2
+
+    /// Automatic foreground work is deliberately a short durable slice. A
+    /// user-initiated refresh may keep taking normal slices until it finishes;
+    /// automatic work resumes from its checkpoint on a later activation.
+    public static func refreshBudget(
+        for context: BaiduSnapshotExecutionContext
+    ) -> BaiduSnapshotRefreshBudget {
+        switch context {
+        case .userInitiatedForeground:
+            BaiduSnapshotRefreshBudget()
+        case .foregroundResume, .background:
+            BaiduSnapshotRefreshBudget(
+                maximumRequests: 64,
+                maximumDirectories: 32,
+                maximumDuration: 8
+            )
+        }
+    }
+
+    public static func shouldContinueImmediately(
+        context: BaiduSnapshotExecutionContext
+    ) -> Bool {
+        context == .userInitiatedForeground
+    }
 }
 
 public enum BaiduSnapshotRefreshDeferralReason: Sendable, Equatable {

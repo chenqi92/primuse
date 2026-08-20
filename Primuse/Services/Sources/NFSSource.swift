@@ -334,6 +334,7 @@ actor NFSSource: MusicSourceConnector {
     ) async throws {
         try Task.checkCancellation()
         let items = try await listFiles(at: path)
+        let sidecarIndex = SidecarHintResolver.DirectoryIndex(items)
 
         for item in items {
             try Task.checkCancellation()
@@ -342,7 +343,10 @@ actor NFSSource: MusicSourceConnector {
                 continue
             }
 
-            if let scannable = SidecarHintResolver.scannableItem(item, siblings: items) {
+            if let scannable = SidecarHintResolver.scannableItem(
+                item,
+                index: sidecarIndex
+            ) {
                 continuation.yield(scannable)
             }
         }

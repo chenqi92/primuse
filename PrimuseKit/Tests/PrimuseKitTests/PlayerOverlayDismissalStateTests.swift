@@ -128,5 +128,51 @@ struct NowPlayingDismissGesturePolicyTests {
             translationX: -120,
             layoutIsRightToLeft: true
         ) == 120)
+        #expect(NowPlayingDismissGesturePolicy.distanceFromLeadingEdge(
+            startX: 378,
+            containerWidth: 390,
+            layoutIsRightToLeft: true
+        ) == 12)
+    }
+
+    @Test("Invalid drag samples do not request an interactive snap-back")
+    func invalidInteractiveSamplesAreIgnored() {
+        #expect(NowPlayingDismissGesturePolicy.topInteractiveTranslation(
+            startY: 70,
+            translationX: 90,
+            translationY: 40
+        ) == nil)
+        #expect(NowPlayingDismissGesturePolicy.topInteractiveTranslation(
+            startY: 139,
+            translationX: 3,
+            translationY: 40
+        ) == 40)
+        #expect(NowPlayingDismissGesturePolicy.leadingInteractiveTranslation(
+            startDistanceFromLeadingEdge: 25,
+            translationTowardCenter: 80,
+            translationY: 2
+        ) == nil)
+    }
+
+    @Test("A drag resolves to one dominant dismissal axis")
+    func dragAxisUsesTheDominantEligibleDirection() {
+        #expect(NowPlayingDismissGesturePolicy.recognizedAxis(
+            startY: 60,
+            startDistanceFromLeadingEdge: 120,
+            translationTowardCenter: 8,
+            translationY: 40
+        ) == .vertical)
+        #expect(NowPlayingDismissGesturePolicy.recognizedAxis(
+            startY: 220,
+            startDistanceFromLeadingEdge: 12,
+            translationTowardCenter: 40,
+            translationY: 8
+        ) == .horizontal)
+        #expect(NowPlayingDismissGesturePolicy.recognizedAxis(
+            startY: 60,
+            startDistanceFromLeadingEdge: 12,
+            translationTowardCenter: 20,
+            translationY: 20
+        ) == nil)
     }
 }

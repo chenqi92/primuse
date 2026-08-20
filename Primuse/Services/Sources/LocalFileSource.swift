@@ -293,8 +293,12 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
         var scannable: [RemoteFileItem] = []
         for siblings in filesByParent.values {
             let byPath = Dictionary(siblings.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+            let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
             for item in siblings {
-                guard let decorated = SidecarHintResolver.scannableItem(item, siblings: siblings) else { continue }
+                guard let decorated = SidecarHintResolver.scannableItem(
+                    item,
+                    index: sidecarIndex
+                ) else { continue }
                 let sidecarRevisions = [
                     decorated.sidecarHints?.coverPath,
                     decorated.sidecarHints?.lyricsPath,

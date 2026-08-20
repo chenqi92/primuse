@@ -32,6 +32,9 @@ struct KaraokeLineView: View {
     /// Timeline. This prevents active-row takeover from changing wrapping or
     /// measured height while still avoiding unnecessary 60 Hz updates.
     let isAnimationEnabled: Bool
+    /// Progress can be rendered at a fixed playback time while motion-only
+    /// bounce is disabled for paused, inactive, or Reduce Motion states.
+    let animatesSyllableBounce: Bool
     /// 超过该时间后，这一行已经让位给下一行；即使外层 active index 还没刷新，
     /// 也不要继续在旧行上扫光或弹动。
     let deactivationTime: TimeInterval?
@@ -46,6 +49,7 @@ struct KaraokeLineView: View {
         timeAt: @escaping (Date) -> TimeInterval,
         fixedTime: TimeInterval? = nil,
         isAnimationEnabled: Bool = true,
+        animatesSyllableBounce: Bool = true,
         deactivationTime: TimeInterval? = nil
     ) {
         self.line = line
@@ -57,6 +61,7 @@ struct KaraokeLineView: View {
         self.timeAt = timeAt
         self.fixedTime = fixedTime
         self.isAnimationEnabled = isAnimationEnabled
+        self.animatesSyllableBounce = animatesSyllableBounce
         self.deactivationTime = deactivationTime
     }
 
@@ -172,7 +177,9 @@ struct KaraokeLineView: View {
     private func syllableView(_ syl: LyricSyllable, at now: TimeInterval) -> some View {
         let sweepProgress = computeSweepProgress(syl: syl, now: now)
         let bumpProgress = computeBumpProgress(syl: syl, now: now)
-        let scale = 1.0 + Self.bumpAmount * bellCurve(bumpProgress)
+        let scale = animatesSyllableBounce
+            ? 1.0 + Self.bumpAmount * bellCurve(bumpProgress)
+            : 1.0
         ZStack {
             // 底层: inactive 色, 总是显示
             Text(syl.text)

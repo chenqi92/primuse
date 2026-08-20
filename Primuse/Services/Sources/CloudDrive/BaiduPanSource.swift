@@ -173,6 +173,11 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// 单文件夹分页大小。百度 list 接口最大 1000。
     private static let pageSize = 1000
 
+    /// Keep several directory listings in flight so network latency does not
+    /// turn the 10 QPS provider allowance into one serial round-trip at a time.
+    /// `throttle()` still reserves every request 100ms apart, including pages.
+    private static let snapshotDirectoryConcurrency = 4
+
     /// 频控退避：每次 listFiles 之间至少间隔这么久，避免 errno 31034。
     /// 百度 file/list 免费档大约 5-10 QPS。100ms 留出 10 QPS 上限，
     /// 实测无 31034 命中；如果撞到了 31034 退避会自动兜底。
@@ -250,6 +255,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// 用 2s 节流避免每次都写盘。
     private var dlinkPersistTask: Task<Void, Never>?
     private var activeSnapshotReconciliationBudget: BaiduSnapshotBudgetTracker?
+    /// Complete per-directory listings retained only between a snapshot walk
+    /// and its immediate reconciliation. Reusing the authoritative response
+    /// avoids listing every changed directory a second time.
+    private var snapshotReconciliationListings: [String: [RemoteFileItem]] = [:]
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -362,6 +371,11 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let dir = path.isEmpty ? "/" : path
+        if activeSnapshotReconciliationBudget != nil,
+           let listing = snapshotReconciliationListings[dir] {
+            plog("☁️ Baidu listFiles snapshot cache dir=\(dir) → \(listing.count) items")
+            return listing
+        }
         var all: [RemoteFileItem] = []
         var start = 0
         plog("☁️ Baidu listFiles dir=\(dir)")
@@ -1143,69 +1157,112 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         ) == true
         var traversal = resumed ? resumeState! : BaiduSnapshotResumeState(
             baselineScanEpoch: state.scanEpoch,
-            roots: normalizedRoots
+            roots: normalizedRoots,
+            estimatedTotalCount: BaiduSnapshotProgressPolicy.estimatedTotalCount(
+                previousIndex: state.index,
+                roots: normalizedRoots
+            )
         )
+        if traversal.estimatedTotalCount == nil {
+            traversal.estimatedTotalCount = BaiduSnapshotProgressPolicy.estimatedTotalCount(
+                previousIndex: state.index,
+                roots: normalizedRoots
+            )
+        }
+        if !resumed {
+            snapshotReconciliationListings.removeAll(keepingCapacity: true)
+        }
         let tracker = BaiduSnapshotBudgetTracker(budget: budget, resumed: resumed)
 
-        while let directory = traversal.pendingDirectories.popLast() {
+        while !traversal.pendingDirectories.isEmpty {
             try Task.checkCancellation()
-            guard !traversal.visitedDirectories.contains(directory) else { continue }
+            var batch: [String] = []
+            while batch.count < Self.snapshotDirectoryConcurrency,
+                  let directory = traversal.pendingDirectories.popLast() {
+                guard !traversal.visitedDirectories.contains(directory),
+                      !batch.contains(directory) else { continue }
+                batch.append(directory)
+            }
+            guard !batch.isEmpty else { continue }
 
             do {
-                try await tracker.reserveDirectory()
-                let siblings = try await snapshotDirectory(
-                    at: directory,
-                    budget: tracker
+                let listings = try await withThrowingTaskGroup(
+                    of: SnapshotDirectoryListing.self,
+                    returning: [SnapshotDirectoryListing].self
+                ) { group in
+                    for directory in batch {
+                        group.addTask { [self] in
+                            try await tracker.reserveDirectory()
+                            return SnapshotDirectoryListing(
+                                directory: directory,
+                                siblings: try await snapshotDirectory(
+                                    at: directory,
+                                    budget: tracker
+                                )
+                            )
+                        }
+                    }
+                    var results: [SnapshotDirectoryListing] = []
+                    results.reserveCapacity(batch.count)
+                    for try await result in group {
+                        results.append(result)
+                    }
+                    return results
+                }
+
+                let listingsByDirectory = Dictionary(
+                    uniqueKeysWithValues: listings.map { ($0.directory, $0) }
                 )
-                var directoryItems: [String: SourceSyncIndexedItem] = [:]
-
-                for item in siblings where item.isDirectory {
-                    guard let stableKey = item.providerID else {
-                        throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
+                var prepared: [(
+                    directory: String,
+                    siblings: [RemoteFileItem],
+                    items: [String: SourceSyncIndexedItem]
+                )] = []
+                var batchStableKeys: Set<String> = []
+                for directory in batch {
+                    guard let listing = listingsByDirectory[directory] else {
+                        throw CloudDriveError.invalidResponse
                     }
-                    let indexed = snapshotIndexedItem(item, seenEpoch: state.scanEpoch + 1)
-                    if directoryItems[stableKey] != nil {
-                        throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                    let directoryItems = try snapshotDirectoryItems(
+                        listing.siblings,
+                        seenEpoch: state.scanEpoch + 1
+                    )
+                    for stableKey in directoryItems.keys {
+                        if traversal.snapshot[stableKey] != nil
+                            || !batchStableKeys.insert(stableKey).inserted {
+                            throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                        }
                     }
-                    directoryItems[stableKey] = indexed
-                }
-                for rawItem in siblings where !rawItem.isDirectory {
-                    guard let item = SidecarHintResolver.scannableItem(
-                        rawItem,
-                        siblings: siblings
-                    ) else { continue }
-                    guard let stableKey = item.providerID else {
-                        throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
-                    }
-                    let indexed = snapshotIndexedItem(item, seenEpoch: state.scanEpoch + 1)
-                    if directoryItems[stableKey] != nil {
-                        throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
-                    }
-                    directoryItems[stableKey] = indexed
+                    prepared.append((directory, listing.siblings, directoryItems))
                 }
 
-                // Publish one directory atomically. A failed or budget-truncated
-                // pagination loop never leaks a partial sibling set into the
-                // resumable snapshot.
-                for (stableKey, item) in directoryItems {
-                    if traversal.snapshot[stableKey] != nil {
-                        throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                // Validate the whole batch before publishing any of it. A
+                // failed/cancelled page therefore leaves every popped directory
+                // resumable without a partial sibling set in the checkpoint.
+                for listing in prepared {
+                    for (stableKey, item) in listing.items {
+                        guard traversal.snapshot[stableKey] == nil else {
+                            throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                        }
+                        traversal.snapshot[stableKey] = item
                     }
-                    traversal.snapshot[stableKey] = item
+                    traversal.visitedDirectories.insert(listing.directory)
+                    traversal.liveDirectories.insert(listing.directory)
+                    snapshotReconciliationListings[listing.directory] = listing.siblings
                 }
-                traversal.visitedDirectories.insert(directory)
-                traversal.liveDirectories.insert(directory)
 
                 var queued = Set(traversal.pendingDirectories)
-                for child in siblings
-                    .filter(\.isDirectory)
-                    .map(\.path)
-                    .sorted()
-                    .reversed()
-                where !traversal.visitedDirectories.contains(child)
-                    && queued.insert(child).inserted {
-                    traversal.pendingDirectories.append(child)
-                    traversal.liveDirectories.insert(child)
+                for listing in prepared {
+                    for child in listing.siblings
+                        .filter(\.isDirectory)
+                        .map(\.path)
+                        .sorted()
+                        .reversed()
+                    where !traversal.visitedDirectories.contains(child)
+                        && queued.insert(child).inserted {
+                        traversal.pendingDirectories.append(child)
+                        traversal.liveDirectories.insert(child)
+                    }
                 }
                 await progress(traversal, await tracker.telemetry())
             } catch CloudDriveError.fileNotFound {
@@ -1213,7 +1270,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     await tracker.telemetry()
                 )
             } catch {
-                if !traversal.pendingDirectories.contains(directory) {
+                var queued = Set(traversal.pendingDirectories)
+                for directory in batch.reversed()
+                where !traversal.visitedDirectories.contains(directory)
+                    && queued.insert(directory).inserted {
                     traversal.pendingDirectories.append(directory)
                 }
                 await progress(traversal, await tracker.telemetry(
@@ -1231,6 +1291,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             identityAliases: state.identityAliases,
             missingStableKeys: state.missingStableKeys
         )
+        snapshotReconciliationListings = snapshotReconciliationListings.filter {
+            diff.changedParentPaths.contains($0.key)
+        }
         try await tracker.check()
         let telemetry = await tracker.telemetry()
         return IncrementalSourceChanges(
@@ -1245,6 +1308,42 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             reconciliation: diff.reconciliation,
             telemetry: telemetry
         )
+    }
+
+    private struct SnapshotDirectoryListing: Sendable {
+        var directory: String
+        var siblings: [RemoteFileItem]
+    }
+
+    private func snapshotDirectoryItems(
+        _ siblings: [RemoteFileItem],
+        seenEpoch: Int64
+    ) throws -> [String: SourceSyncIndexedItem] {
+        var directoryItems: [String: SourceSyncIndexedItem] = [:]
+        let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
+        for item in siblings where item.isDirectory {
+            guard let stableKey = item.providerID else {
+                throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
+            }
+            guard directoryItems[stableKey] == nil else {
+                throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+            }
+            directoryItems[stableKey] = snapshotIndexedItem(item, seenEpoch: seenEpoch)
+        }
+        for rawItem in siblings where !rawItem.isDirectory {
+            guard let item = SidecarHintResolver.scannableItem(
+                rawItem,
+                index: sidecarIndex
+            ) else { continue }
+            guard let stableKey = item.providerID else {
+                throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
+            }
+            guard directoryItems[stableKey] == nil else {
+                throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+            }
+            directoryItems[stableKey] = snapshotIndexedItem(item, seenEpoch: seenEpoch)
+        }
+        return directoryItems
     }
 
     func beginSnapshotReconciliationBudget(
@@ -1269,7 +1368,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     func finishSnapshotReconciliationBudget() async -> SourceSyncTelemetry? {
         guard let tracker = activeSnapshotReconciliationBudget else { return nil }
         activeSnapshotReconciliationBudget = nil
-        return await tracker.telemetry()
+        let telemetry = await tracker.telemetry()
+        snapshotReconciliationListings.removeAll(keepingCapacity: true)
+        return telemetry
     }
 
     private func snapshotDirectory(

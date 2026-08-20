@@ -42,6 +42,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
     var titleWallTitles: [String] = []
+    var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     var lyricInterlude = false
@@ -75,7 +76,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveHairlinePlaybackProgress(
                 initialElapsed: track.elapsed,
                 duration: track.duration,
-                isPlaying: track.isPlaying,
+                isPlaying: playbackClockIsActive,
                 playbackTime: playbackTime,
                 height: max(1, metrics.f(platform == .tvOS ? 4 : 2)),
                 accent: palette.primary
@@ -132,8 +133,12 @@ struct ImmersiveStageView<Artwork: View>: View {
         max(metrics.safeArea.bottom, metrics.s(14)) + controlsInset
     }
 
+    private var playbackClockIsActive: Bool {
+        isRenderingActive && track.isPlaying
+    }
+
     private var sceneIsAnimating: Bool {
-        !reduceMotion && track.isPlaying
+        !reduceMotion && playbackClockIsActive
     }
 
     // MARK: - 1. 封面流光
@@ -507,7 +512,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 barWidth: max(1.4, metrics.f(platform == .tvOS ? 5 : 3)),
                 isAnimating: sceneIsAnimating,
                 tint: palette.primary,
-                isPlaying: track.isPlaying
+                isPlaying: playbackClockIsActive
             )
 
             rotatingCircularArtwork(diameter: diameter * 0.60)
@@ -559,7 +564,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             levels: levels,
             initialElapsed: track.elapsed,
             duration: track.duration,
-            isPlaying: track.isPlaying,
+            isPlaying: playbackClockIsActive,
             playbackTime: playbackTime,
             active: palette.primary,
             inactive: ImmersiveStagePalette.text.opacity(0.22),

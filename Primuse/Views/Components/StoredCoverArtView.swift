@@ -108,20 +108,6 @@ struct PlaylistArtworkView: View {
         LibraryArtworkOwner(kind: .playlist, id: playlist.id)
     }
 
-    private var overrideResolution: LibraryArtworkOverrideResolution {
-        library.artworkOverrideResolution(for: overrideOwner, eligibleSongs: songs)
-    }
-
-    private var selectedArtworkSong: PrimuseKit.Song? {
-        guard case .selectedSong(let songID) = overrideResolution else { return nil }
-        return songs.first(where: { $0.id == songID })
-    }
-
-    private var uploadedContentID: String? {
-        guard case .uploaded(let contentID) = overrideResolution else { return nil }
-        return contentID
-    }
-
     private var loadRevisionIdentity: String {
         [
             playlist.id,
@@ -134,10 +120,13 @@ struct PlaylistArtworkView: View {
     }
 
     var body: some View {
+        let presentation = library.artworkPresentation(for: overrideOwner)
+        let uploadedContentID = presentation.uploadedContentID
+
         ZStack {
             placeholder
             resolvedArtwork
-            manualArtwork
+            manualArtwork(presentation)
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -198,32 +187,48 @@ struct PlaylistArtworkView: View {
             resolvedPlanSignature = currentPlan.signature
         }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
-            guard let contentID = uploadedContentID,
-                  let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID) else {
+            guard let contentID = uploadedContentID else {
+                uploadedImage = nil
+                return
+            }
+            let data = await Task.detached(priority: .utility) {
+                MetadataAssetStore.shared.customArtworkData(contentID: contentID)
+            }.value
+            guard !Task.isCancelled, let data else {
                 uploadedImage = nil
                 return
             }
             uploadedImage = PlatformImage(data: data)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
-            guard notification(note, affects: currentPlaylist, songs: songs) else { return }
+            guard notification(
+                note,
+                affects: currentPlaylist,
+                songs: songs,
+                uploadedContentID: uploadedContentID
+            ) else { return }
             reloadRevision &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
-            guard notification(note, affects: currentPlaylist, songs: songs) else { return }
+            guard notification(
+                note,
+                affects: currentPlaylist,
+                songs: songs,
+                uploadedContentID: uploadedContentID
+            ) else { return }
             reloadRevision &+= 1
         }
     }
 
     @ViewBuilder
-    private var manualArtwork: some View {
-        if let uploadedImage, uploadedContentID != nil {
+    private func manualArtwork(_ presentation: MusicLibrary.ArtworkPresentation) -> some View {
+        if let uploadedImage, presentation.uploadedContentID != nil {
             Image(platformImage: uploadedImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: size, height: size)
                 .clipped()
-        } else if let song = selectedArtworkSong {
+        } else if let song = presentation.selectedSong {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
@@ -285,7 +290,8 @@ struct PlaylistArtworkView: View {
     private func notification(
         _ notification: Notification,
         affects playlist: PrimuseKit.Playlist,
-        songs: [PrimuseKit.Song]
+        songs: [PrimuseKit.Song],
+        uploadedContentID: String?
     ) -> Bool {
         if let contentID = uploadedContentID {
             if notification.object as? String == contentID {
@@ -334,29 +340,14 @@ struct AlbumArtworkView: View {
     @State private var uploadedImage: PlatformImage?
     @State private var reloadRevision = 0
 
-    private var songs: [PrimuseKit.Song] {
-        library.songs(forAlbum: album.id)
-    }
-
     private var owner: LibraryArtworkOwner {
         LibraryArtworkOwner(kind: .album, id: album.id)
     }
 
-    private var resolution: LibraryArtworkOverrideResolution {
-        library.artworkOverrideResolution(for: owner, eligibleSongs: songs)
-    }
-
-    private var selectedSong: PrimuseKit.Song? {
-        guard case .selectedSong(let songID) = resolution else { return nil }
-        return songs.first(where: { $0.id == songID })
-    }
-
-    private var uploadedContentID: String? {
-        guard case .uploaded(let contentID) = resolution else { return nil }
-        return contentID
-    }
-
     var body: some View {
+        let presentation = library.artworkPresentation(for: owner)
+        let uploadedContentID = presentation.uploadedContentID
+
         ZStack {
             CachedArtworkView(
                 albumID: album.id,
@@ -371,7 +362,7 @@ struct AlbumArtworkView: View {
                 Image(platformImage: uploadedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-            } else if let song = selectedSong {
+            } else if let song = presentation.selectedSong {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -391,8 +382,14 @@ struct AlbumArtworkView: View {
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
-            guard let contentID = uploadedContentID,
-                  let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID) else {
+            guard let contentID = uploadedContentID else {
+                uploadedImage = nil
+                return
+            }
+            let data = await Task.detached(priority: .utility) {
+                MetadataAssetStore.shared.customArtworkData(contentID: contentID)
+            }.value
+            guard !Task.isCancelled, let data else {
                 uploadedImage = nil
                 return
             }

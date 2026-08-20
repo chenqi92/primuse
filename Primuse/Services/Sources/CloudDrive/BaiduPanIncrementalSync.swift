@@ -98,6 +98,7 @@ extension BaiduPanSource: IncrementalMusicSourceConnector {
             // 选中的根目录可能互相嵌套，也可能出现符号链接式的重复路径。
             guard visited.insert(directory).inserted else { continue }
             let siblings = try await listFiles(at: directory)
+            let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
             for item in siblings {
                 if item.isDirectory {
                     liveDirectories.insert(item.path)
@@ -109,7 +110,7 @@ extension BaiduPanSource: IncrementalMusicSourceConnector {
                 // 歌词等 sidecar 文件每次差分都会被算成新增。
                 guard let scannable = SidecarHintResolver.scannableItem(
                     item,
-                    siblings: siblings
+                    index: sidecarIndex
                 ) else { continue }
                 snapshot[Self.stableKey(for: scannable)] = Self.indexedItem(for: scannable)
             }

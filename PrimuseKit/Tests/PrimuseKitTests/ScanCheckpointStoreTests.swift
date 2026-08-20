@@ -141,7 +141,8 @@ struct ScanCheckpointPreparationTests {
             baselineScanEpoch: 4,
             roots: ["/Music"],
             pendingDirectories: ["/Music/B"],
-            visitedDirectories: ["/Music"]
+            visitedDirectories: ["/Music"],
+            estimatedTotalCount: 12
         )
         let checkpoint = makeCheckpoint(
             phase: .scanning,
@@ -166,6 +167,7 @@ struct ScanCheckpointPreparationTests {
         #expect(decoded == checkpoint)
         #expect(decoded.permitsStatefulRefresh)
         #expect(decoded.baiduSnapshotState == snapshot)
+        #expect(decoded.baiduSnapshotState?.estimatedTotalCount == 12)
         #expect(decoded.baiduTelemetry?.requestCount == 4)
     }
 
