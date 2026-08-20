@@ -127,6 +127,14 @@ final class AppServices {
         scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }
+        scanService.serverRadioSyncHandler = { [weak manager, weak radioStore] source in
+            guard let manager, let radioStore else { return }
+            await ServerRadioSyncService.sync(
+                source: source,
+                sourceManager: manager,
+                store: radioStore
+            )
+        }
         self.scanService = scanService
         self.metadataBackfill = metadataBackfill
         self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
@@ -277,6 +285,13 @@ final class AppServices {
                 removeSourceLibraryData(id: id, purgePersistentCaches: false)
             }
         }
+        let activeSourceIDs = Set(sourcesStore.sources.map(\.id))
+        let staleRadioSourceIDs = Set(
+            radioStationsStore.allStations.lazy
+                .filter { $0.isServerMirror && !$0.isDeleted }
+                .compactMap(\.sourceID)
+        ).subtracting(activeSourceIDs)
+        radioStationsStore.removeServerMirrors(forSourceIDs: staleRadioSourceIDs)
         sourcesStore.reconcileLocalSongCounts(reconciliation.sourceSongCounts)
         migrateSourceDirectoryDisplayNames()
 
@@ -616,6 +631,7 @@ final class AppServices {
         metadataBackfill.discardWorkNow(forSourceIDs: sourceIDs)
         musicLibrary.removeSongsForSources(sourceIDs)
         musicLibrary.pruneServerPlaylistMirrors(forSourceIDs: sourceIDs)
+        radioStationsStore.removeServerMirrors(forSourceIDs: sourceIDs)
         sourcesStore.resetLocalScanState(for: sourceIDs)
 
         let cachePurgeIDs = Set(requests.compactMap { id, request in

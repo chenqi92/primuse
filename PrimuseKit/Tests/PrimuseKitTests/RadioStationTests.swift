@@ -44,6 +44,41 @@ struct RadioStationTests {
         #expect(song.artistName == "FLAC · 1411 kbps")
     }
 
+    @Test("Server mirrors preserve provenance without persisting credentials")
+    func projectsServerMirrorPlayback() {
+        let station = RadioStation(
+            id: ServerRadioStationIdentity.stationID(sourceID: "jf", serverStationID: "radio-1"),
+            name: "Server Radio",
+            streamURL: "",
+            sourceID: "jf",
+            serverStationID: "radio-1",
+            sourceName: "Jellyfin",
+            sourcePlaybackPath: "/items/radio-1.mp3"
+        )
+
+        #expect(station.isServerMirror)
+        #expect(station.requiresSourceStreamResolution)
+        #expect(RadioStationValidation.hasConsistentServerIdentity(station))
+        #expect(station.displayEndpoint == "Jellyfin")
+        #expect(RadioStationValidation.hasValidPlaybackReference(station))
+        #expect(station.playbackSong.sourceID == "jf")
+        #expect(station.playbackSong.filePath == "/items/radio-1.mp3")
+    }
+
+    @Test("Server mirror identity must match its provenance")
+    func rejectsInconsistentServerIdentity() {
+        let station = RadioStation(
+            id: "unrelated",
+            name: "Server Radio",
+            streamURL: "https://radio.example.com/live",
+            sourceID: "source",
+            serverStationID: "station"
+        )
+
+        #expect(station.isServerMirror)
+        #expect(!RadioStationValidation.hasConsistentServerIdentity(station))
+    }
+
     @Test("Live playback disables track-only presentation capabilities")
     func exposesLiveCapabilities() {
         let capabilities = PlaybackPresentationCapabilities.capabilities(for: .liveRadio)
@@ -97,6 +132,23 @@ struct RadioStationTests {
 
         let station = try decoder.decode(RadioStation.self, from: data)
         #expect(station.sortOrder == nil)
+        #expect(station.sourceID == nil)
+        #expect(!station.isServerMirror)
+    }
+
+    @Test("Server radio identities reconcile within one source")
+    func reconcilesServerRadioIdentities() {
+        let first = ServerRadioStationIdentity.stationID(sourceID: "src-a", serverStationID: "1")
+        let second = ServerRadioStationIdentity.stationID(sourceID: "src-a", serverStationID: "2")
+        let keep = ServerRadioReconciliationPolicy.mirrorIDsToKeep(
+            sourceID: "src-a",
+            serverStationIDs: [" 1 "],
+            failedServerStationIDs: ["2"]
+        )
+
+        #expect(keep == [first, second])
+        #expect(first.hasPrefix(ServerRadioStationIdentity.stationIDPrefix(sourceID: "src-a")))
+        #expect(!first.hasPrefix(ServerRadioStationIdentity.stationIDPrefix(sourceID: "src-b")))
     }
 
     @Test("Playback state remains compatible with pre-radio snapshots")

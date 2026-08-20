@@ -30,18 +30,22 @@ struct RadioStationsView: View {
     ]
 
     private var selectedStations: [RadioStation] {
-        store.stations.filter { selection.contains($0.id) }
+        store.stations.filter { selection.contains($0.id) && !$0.isServerMirror }
+    }
+
+    private var editableStationIDs: Set<String> {
+        Set(store.stations.filter { !$0.isServerMirror }.map(\.id))
     }
 
     /// 管理态且有选中时，标题让位给计数 —— 批量操作藏在菜单里，选了几条
     /// 得有个地方看得见。
     private var navigationTitleText: String {
-        guard isManaging, !selection.isEmpty else {
+        guard isManaging, !selectedStations.isEmpty else {
             return String(localized: "radio_title")
         }
         return String(
             format: String(localized: "radio_manage_selected %lld"),
-            selection.count
+            selectedStations.count
         )
     }
 
@@ -82,7 +86,10 @@ struct RadioStationsView: View {
             titleVisibility: .visible
         ) {
             Button(
-                String(format: String(localized: "radio_manage_delete_count %lld"), selection.count),
+                String(
+                    format: String(localized: "radio_manage_delete_count %lld"),
+                    selectedStations.count
+                ),
                 role: .destructive
             ) {
                 deleteSelected()
@@ -133,22 +140,22 @@ struct RadioStationsView: View {
                 Menu {
                     Section {
                         Button {
-                            if selection.count == store.stations.count {
+                            if selection == editableStationIDs {
                                 selection = []
                             } else {
-                                selection = Set(store.stations.map(\.id))
+                                selection = editableStationIDs
                             }
                         } label: {
                             Label(
-                                selection.count == store.stations.count
+                                selection == editableStationIDs
                                     ? String(localized: "radio_manage_deselect_all")
                                     : String(localized: "select_all"),
-                                systemImage: selection.count == store.stations.count
+                                systemImage: selection == editableStationIDs
                                     ? "circle"
                                     : "checkmark.circle"
                             )
                         }
-                        .disabled(store.stations.isEmpty)
+                        .disabled(editableStationIDs.isEmpty)
                     }
 
                     Section {
@@ -157,25 +164,23 @@ struct RadioStationsView: View {
                         } label: {
                             Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
                         }
-                        .disabled(selection.isEmpty)
+                        .disabled(selectedStations.isEmpty)
 
                         Button {
-                            guard let id = selection.first,
-                                  let station = store.stations.first(where: { $0.id == id })
-                            else { return }
+                            guard let station = selectedStations.first else { return }
                             editingStation = station
                         } label: {
                             Label("edit", systemImage: "pencil")
                         }
                         // 编辑是单条操作，多选时没有明确目标。
-                        .disabled(selection.count != 1)
+                        .disabled(selectedStations.count != 1)
 
                         Button {
                             exportSelected()
                         } label: {
                             Label("radio_manage_export", systemImage: "square.and.arrow.up")
                         }
-                        .disabled(selection.isEmpty)
+                        .disabled(selectedStations.isEmpty)
                     }
 
                     Section {
@@ -184,7 +189,7 @@ struct RadioStationsView: View {
                         } label: {
                             Label("delete", systemImage: "trash")
                         }
-                        .disabled(selection.isEmpty)
+                        .disabled(selectedStations.isEmpty)
                     }
                 } label: {
                     Label("radio_manage", systemImage: "ellipsis.circle")
@@ -192,7 +197,7 @@ struct RadioStationsView: View {
             }
         } else {
             ToolbarItemGroup(placement: .primaryAction) {
-                if !store.stations.isEmpty {
+                if !editableStationIDs.isEmpty {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { isManaging = true }
                     } label: {
@@ -262,6 +267,8 @@ struct RadioStationsView: View {
                 ForEach(store.stations) { station in
                     manageRow(station: station)
                         .tag(station.id)
+                        .selectionDisabled(station.isServerMirror)
+                        .deleteDisabled(station.isServerMirror)
                 }
                 .onMove(perform: store.moveStations)
                 .onDelete { offsets in
@@ -292,7 +299,7 @@ struct RadioStationsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(station.streamURL)
+                Text(station.displayEndpoint)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -307,9 +314,10 @@ struct RadioStationsView: View {
     /// 置顶保持选中项之间的相对顺序，其余的原样跟在后面。
     private func moveToTop(_ ids: Set<String>) {
         let ordered = store.stations
-        let picked = ordered.filter { ids.contains($0.id) }
+        let picked = ordered.filter { ids.contains($0.id) && !$0.isServerMirror }
         guard !picked.isEmpty else { return }
-        let rest = ordered.filter { !ids.contains($0.id) }
+        let pickedIDs = Set(picked.map(\.id))
+        let rest = ordered.filter { !pickedIDs.contains($0.id) }
         store.applyOrder((picked + rest).map(\.id))
     }
 
@@ -321,7 +329,7 @@ struct RadioStationsView: View {
     }
 
     private func deleteSelected() {
-        for id in selection { store.remove(id: id) }
+        for station in selectedStations { store.remove(id: station.id) }
         selection = []
     }
 
@@ -405,6 +413,11 @@ private struct RadioStationCard: View {
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
+                            if station.isServerMirror {
+                                Image(systemName: "server.rack")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer(minLength: 4)
                             Text("#\(priority)")
                                 .font(.caption2.monospacedDigit())
@@ -428,7 +441,7 @@ private struct RadioStationCard: View {
                             .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
                             .lineLimit(2)
 
-                        Text(station.streamURL)
+                        Text(station.displayEndpoint)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -474,13 +487,20 @@ private struct RadioStationCard: View {
 
     @ViewBuilder
     private var managementActions: some View {
-        Button("edit", systemImage: "pencil", action: onEdit)
+        if station.isServerMirror {
+            Label(station.displayEndpoint, systemImage: "server.rack")
+                .foregroundStyle(.secondary)
+        } else {
+            Button("edit", systemImage: "pencil", action: onEdit)
+        }
         Button("radio_priority_move_up", systemImage: "arrow.up", action: onMoveUp)
             .disabled(!canMoveUp)
         Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
             .disabled(!canMoveDown)
-        Divider()
-        Button("delete", systemImage: "trash", role: .destructive, action: onDelete)
+        if !station.isServerMirror {
+            Divider()
+            Button("delete", systemImage: "trash", role: .destructive, action: onDelete)
+        }
     }
 }
 
@@ -505,6 +525,19 @@ struct RadioStationArtworkView: View {
                     Image(systemName: "radio.fill")
                         .font(.system(size: size * 0.34, weight: .medium))
                         .foregroundStyle(.white)
+                    if station.logoFileName?.isEmpty == false {
+                        CachedArtworkView(
+                            coverRef: station.logoFileName,
+                            songID: station.playbackSong.id,
+                            size: size,
+                            cornerRadius: 0,
+                            sourceID: station.sourceID,
+                            filePath: station.sourcePlaybackPath ?? station.streamURL,
+                            fileFormat: station.streamFormat.audioFormat,
+                            placeholderIcon: "radio.fill",
+                            showsPlaceholder: false
+                        )
+                    }
                 }
             }
         }

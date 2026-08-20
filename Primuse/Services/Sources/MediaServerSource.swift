@@ -2,7 +2,9 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector {
+actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerRadioConnector,
+    ServerRadioStreamResolvingConnector {
     private static let maximumCatalogTracks = 10_000_000
     private static let maximumPlaylistCount = 100_000
     private static let playlistPageSize = 200
@@ -398,6 +400,21 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
+    private func radioPlaybackURL(for itemID: String) throws -> URL {
+        guard kind != .plex, let accessToken else {
+            throw SourceError.authenticationFailed
+        }
+        return buildURL(
+            path: "/Audio/\(itemID)/stream.mp3",
+            queryItems: [
+                URLQueryItem(name: "Static", value: "false"),
+                URLQueryItem(name: "AudioCodec", value: "mp3"),
+                URLQueryItem(name: "Container", value: "mp3"),
+                URLQueryItem(name: "api_key", value: accessToken)
+            ]
+        )
+    }
+
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         let stream = try await scanSongs(from: path)
 
@@ -737,6 +754,54 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         } else {
             return try await fetchJellyfinOrEmbyPlaylists()
         }
+    }
+
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        guard kind != .plex else { return nil }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+
+        let response = try await fetchAllJellyfinOrEmbyItems(
+            path: "/LiveTv/Channels",
+            baseQueryItems: [
+                URLQueryItem(name: "UserId", value: userID),
+                URLQueryItem(name: "Type", value: "Radio"),
+                URLQueryItem(name: "EnableImages", value: "true")
+            ],
+            maximumCount: Self.maximumPlaylistCount,
+            deduplicatesItems: true
+        )
+        let stations = response.items.compactMap { item -> ServerRadioStation? in
+            if let channelType = item.channelType,
+               channelType.caseInsensitiveCompare("Radio") != .orderedSame {
+                return nil
+            }
+            let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ServerRadioStation(
+                id: item.id,
+                name: name.isEmpty ? item.id : name,
+                coverArtReference: playlistCoverArtReference(for: item),
+                sourcePlaybackPath: ServerRadioStationIdentity.mediaServerPlaybackPath(
+                    serverStationID: item.id
+                ),
+                streamFormat: .mp3
+            )
+        }
+        return ServerRadioStationSnapshot(stations: stations)
+    }
+
+    func resolveServerRadioStream(stationID: String, forceRefresh: Bool) async throws -> URL {
+        guard kind != .plex else {
+            throw SourceError.connectionFailed("Plex server radio is unavailable")
+        }
+        if forceRefresh {
+            loginTask?.cancel()
+            loginTask = nil
+            accessToken = nil
+            userID = nil
+        }
+        try await connect()
+        return try radioPlaybackURL(for: stationID)
     }
 
     private func fetchJellyfinOrEmbyPlaylists() async throws -> ServerPlaylistSnapshot {
@@ -1921,6 +1986,7 @@ private struct AudioItem: Decodable {
     let mediaSources: [AudioMediaSource]?
     let imageTags: [String: String]?
     let path: String?
+    let channelType: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -1941,6 +2007,7 @@ private struct AudioItem: Decodable {
         case mediaSources = "MediaSources"
         case imageTags = "ImageTags"
         case path = "Path"
+        case channelType = "ChannelType"
     }
 
     var embyLyricsStream: EmbyLyricsStreamDescriptor? {

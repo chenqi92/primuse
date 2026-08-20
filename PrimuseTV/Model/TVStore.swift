@@ -976,13 +976,20 @@ final class TVStore {
             }
         }
         radioStations = RadioStationOrdering.sorted(
-            decoded.filter { !$0.isDeleted && $0.url != nil }
+            decoded.filter {
+                !$0.isDeleted
+                    && RadioStationValidation.hasConsistentServerIdentity($0)
+                    && RadioStationValidation.hasValidPlaybackReference($0)
+            }
         )
 
         if isLiveRadio,
            let currentRadioStationID,
            !radioStations.contains(where: { $0.id == currentRadioStationID }) {
             radioReconnectTask?.cancel()
+            playbackTask?.cancel()
+            playbackTask = nil
+            activePlaybackRequestID = nil
             engine.stop()
             isLiveRadio = false
             self.currentRadioStationID = nil
@@ -1372,6 +1379,17 @@ final class TVStore {
     private func pausePlayback() {
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
+        if isLiveRadio {
+            playbackTask?.cancel()
+            playbackTask = nil
+            activePlaybackRequestID = nil
+            if engine.status == .loading {
+                engine.stop()
+            } else {
+                engine.pause()
+            }
+            return
+        }
         engine.pause()
     }
 
@@ -1379,15 +1397,13 @@ final class TVStore {
         if isLiveRadio {
             radioReconnectTask?.cancel()
             radioReconnectTask = nil
-            guard let station = currentRadioStation, let url = station.url else { return }
+            guard let station = currentRadioStation else { return }
+            playbackTask?.cancel()
+            let requestID = UUID()
+            activePlaybackRequestID = requestID
             playbackIssue = nil
-            engine.loadLiveRadio(
-                url: url,
-                title: station.name,
-                subtitle: radioMetadataTitle.isEmpty ? station.playbackSubtitle : radioMetadataTitle,
-                format: station.streamFormat.displayName,
-                streamFormat: station.streamFormat
-            )
+            engine.prepareForSelection(startAt: 0)
+            beginRadioResolution(station, requestID: requestID, forceRefresh: false)
             return
         }
 
@@ -1433,10 +1449,11 @@ final class TVStore {
     }
 
     func play(_ station: RadioStation) {
-        guard let url = station.url else { return }
+        guard RadioStationValidation.hasConsistentServerIdentity(station),
+              RadioStationValidation.hasValidPlaybackReference(station) else { return }
         playbackTask?.cancel()
-        playbackTask = nil
-        activePlaybackRequestID = nil
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
         radioReconnectAttempt = 0
@@ -1449,6 +1466,7 @@ final class TVStore {
         isLiveRadio = true
         currentRadioStationID = station.id
         radioMetadataTitle = ""
+        engine.prepareForSelection(startAt: 0)
 
         let fallback = Self.tint(station.id)
         nowPlaying = TVNowPlaying(
@@ -1466,17 +1484,55 @@ final class TVStore {
             format: station.streamFormat.displayName,
             bitrate: (station.bitRate ?? 0) / 1_000,
             sampleRate: 0,
-            sourcePath: station.streamURL
+            sourcePath: station.sourcePlaybackPath ?? station.streamURL
         )
         hasNowPlaying = true
         markRadioPlayed(station.id)
-        engine.loadLiveRadio(
-            url: url,
-            title: station.name,
-            subtitle: station.playbackSubtitle,
-            format: station.streamFormat.displayName,
-            streamFormat: station.streamFormat
-        )
+        beginRadioResolution(station, requestID: requestID, forceRefresh: false)
+    }
+
+    private func beginRadioResolution(
+        _ station: RadioStation,
+        requestID: UUID,
+        forceRefresh: Bool
+    ) {
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let url = try await self.coordinator.resolveRadioStream(
+                    for: station,
+                    requestID: requestID,
+                    forceRefresh: forceRefresh
+                )
+                guard self.isCurrentPlaybackRequest(
+                    requestID,
+                    isCancelled: Task.isCancelled
+                ), self.currentRadioStationID == station.id else { return }
+                self.playbackTask = nil
+                self.engine.loadLiveRadio(
+                    url: url,
+                    title: station.name,
+                    subtitle: self.radioMetadataTitle.isEmpty
+                        ? station.playbackSubtitle
+                        : self.radioMetadataTitle,
+                    format: station.streamFormat.displayName,
+                    streamFormat: station.streamFormat
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                guard self.isCurrentPlaybackRequest(
+                    requestID,
+                    isCancelled: Task.isCancelled
+                ), self.currentRadioStationID == station.id else { return }
+                self.playbackTask = nil
+                self.engine.stop()
+                self.playbackIssue = self.coordinator.radioPlaybackIssue(
+                    for: error,
+                    station: station
+                )
+            }
+        }
     }
 
     /// 选中一首歌播放:以其所属专辑为队列,从该曲开始。
@@ -1723,7 +1779,7 @@ final class TVStore {
         guard isLiveRadio,
               radioReconnectTask == nil,
               let station = currentRadioStation,
-              let url = station.url else { return }
+              let requestID = activePlaybackRequestID else { return }
         radioReconnectAttempt += 1
         let attempt = radioReconnectAttempt
         let delay = min(15.0, pow(2.0, Double(min(attempt - 1, 4))))
@@ -1734,13 +1790,39 @@ final class TVStore {
                   self.isLiveRadio,
                   self.currentRadioStationID == station.id else { return }
             self.radioReconnectTask = nil
-            self.engine.loadLiveRadio(
-                url: url,
-                title: station.name,
-                subtitle: self.radioMetadataTitle.isEmpty ? station.playbackSubtitle : self.radioMetadataTitle,
-                format: station.streamFormat.displayName,
-                streamFormat: station.streamFormat
-            )
+            do {
+                let url = try await self.coordinator.resolveRadioStream(
+                    for: station,
+                    requestID: requestID,
+                    forceRefresh: station.requiresSourceStreamResolution
+                )
+                guard self.isCurrentPlaybackRequest(
+                    requestID,
+                    isCancelled: Task.isCancelled
+                ), self.currentRadioStationID == station.id else { return }
+                self.playbackIssue = nil
+                self.engine.loadLiveRadio(
+                    url: url,
+                    title: station.name,
+                    subtitle: self.radioMetadataTitle.isEmpty
+                        ? station.playbackSubtitle
+                        : self.radioMetadataTitle,
+                    format: station.streamFormat.displayName,
+                    streamFormat: station.streamFormat
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                guard self.isCurrentPlaybackRequest(
+                    requestID,
+                    isCancelled: Task.isCancelled
+                ), self.currentRadioStationID == station.id else { return }
+                self.playbackIssue = self.coordinator.radioPlaybackIssue(
+                    for: error,
+                    station: station
+                )
+                self.scheduleRadioReconnect()
+            }
         }
     }
 

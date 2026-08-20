@@ -810,7 +810,7 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector {
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerRadioConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -822,6 +822,13 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerRadioConnector else { return nil }
+            return try await provider.fetchServerRadioStations()
         }
     }
 
@@ -909,7 +916,8 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 }
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector {
+    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
+    ServerRadioConnector, ServerRadioStreamResolvingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -922,6 +930,25 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerRadioConnector else { return nil }
+            return try await provider.fetchServerRadioStations()
+        }
+    }
+
+    func resolveServerRadioStream(stationID: String, forceRefresh: Bool) async throws -> URL {
+        try await routing.withRead { connector in
+            guard let resolver = connector as? any ServerRadioStreamResolvingConnector else {
+                throw SourceError.connectionFailed("Server radio resolver unavailable")
+            }
+            return try await resolver.resolveServerRadioStream(
+                stationID: stationID,
+                forceRefresh: forceRefresh
+            )
         }
     }
 
@@ -4991,6 +5018,31 @@ final class SourceManager {
     func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
         return try await conn.fetchServerPlaylists()
+    }
+
+    func fetchServerRadioStations(for source: MusicSource) async throws -> ServerRadioStationSnapshot? {
+        guard let conn = connector(for: source) as? any ServerRadioConnector else { return nil }
+        return try await conn.fetchServerRadioStations()
+    }
+
+    func resolveServerRadioStream(
+        sourceID: String,
+        stationID: String,
+        forceRefresh: Bool = false
+    ) async throws -> URL {
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: {
+            $0.id == sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
+            throw SourceError.fileNotFound("Source not found for radio station")
+        }
+        guard let resolver = connector(for: source) as? any ServerRadioStreamResolvingConnector else {
+            throw SourceError.connectionFailed("Server radio resolver unavailable")
+        }
+        return try await resolver.resolveServerRadioStream(
+            stationID: stationID,
+            forceRefresh: forceRefresh
+        )
     }
 
     /// 该歌是否来自"服务端曲库源"(Subsonic/Navidrome、Jellyfin/Emby/Plex)。

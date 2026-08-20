@@ -6,6 +6,13 @@ extension Notification.Name {
     static let primuseRadioStationDidDelete = Notification.Name("primuse.radioStations.deleted")
 }
 
+struct ServerRadioSyncResult: Sendable {
+    var discoveredCount = 0
+    var synchronizedCount = 0
+    var removedCount = 0
+    var isSupported = false
+}
+
 @MainActor
 @Observable
 final class RadioStationsStore {
@@ -53,6 +60,7 @@ final class RadioStationsStore {
 
     func upsert(_ station: RadioStation) {
         var stamped = station
+        guard !stamped.isServerMirror else { return }
         guard RadioStationValidation.isValid(name: stamped.name, urlString: stamped.streamURL),
               let normalizedURL = RadioStationValidation.normalizedURLString(stamped.streamURL),
               stamped.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true else {
@@ -83,6 +91,7 @@ final class RadioStationsStore {
 
     func update(_ id: String, mutate: (inout RadioStation) -> Void) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
+        guard !allStations[index].isServerMirror else { return }
         var updated = allStations[index]
         mutate(&updated)
         guard RadioStationValidation.isValid(name: updated.name, urlString: updated.streamURL),
@@ -152,6 +161,7 @@ final class RadioStationsStore {
 
     func remove(id: String) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
+        guard !allStations[index].isServerMirror else { return }
         allStations[index].isDeleted = true
         allStations[index].deletedAt = Date()
         allStations[index].modifiedAt = Date()
@@ -166,17 +176,23 @@ final class RadioStationsStore {
 
     func upsertFromRemote(_ remote: RadioStation) {
         guard remote.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true,
+              RadioStationValidation.hasConsistentServerIdentity(remote),
               remote.isDeleted
-                || RadioStationValidation.isValid(name: remote.name, urlString: remote.streamURL) else {
+                || RadioStationValidation.hasValidPlaybackReference(remote) else {
             return
         }
         var normalized = remote
         if !normalized.isDeleted {
             normalized.name = RadioStationValidation.normalizedName(normalized.name)
-            guard let normalizedURL = RadioStationValidation.normalizedURLString(normalized.streamURL) else {
-                return
+            if normalized.requiresSourceStreamResolution,
+               normalized.streamURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                normalized.streamURL = ""
+            } else {
+                guard let normalizedURL = RadioStationValidation.normalizedURLString(normalized.streamURL) else {
+                    return
+                }
+                normalized.streamURL = normalizedURL
             }
-            normalized.streamURL = normalizedURL
         }
         if let index = allStations.firstIndex(where: { $0.id == normalized.id }) {
             guard allStations[index].modifiedAt <= normalized.modifiedAt else { return }
@@ -205,6 +221,133 @@ final class RadioStationsStore {
         for station in incoming {
             upsertFromRemote(station)
         }
+    }
+
+    /// Reconciles one source's complete radio snapshot in a single durable
+    /// write. Server fields are authoritative, while local playback recency
+    /// and user ordering survive refreshes. Missing upstream stations become
+    /// tombstones so CloudKit and LAN snapshots cannot resurrect them.
+    @discardableResult
+    func reconcileServerStations(
+        source: MusicSource,
+        snapshot: ServerRadioStationSnapshot
+    ) -> ServerRadioSyncResult {
+        let now = Date()
+        var result = ServerRadioSyncResult(
+            discoveredCount: snapshot.stations.count,
+            isSupported: true
+        )
+        let keepIDs = ServerRadioReconciliationPolicy.mirrorIDsToKeep(
+            sourceID: source.id,
+            serverStationIDs: snapshot.stations.map {
+                $0.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            },
+            failedServerStationIDs: snapshot.failedStationIDs
+        )
+        var changedIDs: [String] = []
+        var seenServerIDs = Set<String>()
+        var nextSortOrder: Int? = allStations.contains(where: {
+            !$0.isDeleted && $0.sortOrder != nil
+        }) ? (allStations.compactMap(\.sortOrder).max() ?? -1) + 1 : nil
+
+        for serverStation in snapshot.stations {
+            let serverID = serverStation.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !serverID.isEmpty, seenServerIDs.insert(serverID).inserted else { continue }
+            let name = RadioStationValidation.normalizedName(serverStation.name)
+            guard !name.isEmpty else { continue }
+
+            let playbackPath = serverStation.sourcePlaybackPath?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedPlaybackPath = playbackPath?.isEmpty == false ? playbackPath : nil
+            let normalizedStreamURL: String
+            if let rawURL = serverStation.streamURL,
+               !rawURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard let url = RadioStationValidation.normalizedURLString(rawURL) else { continue }
+                normalizedStreamURL = url
+            } else {
+                guard normalizedPlaybackPath != nil else { continue }
+                normalizedStreamURL = ""
+            }
+
+            let localID = ServerRadioStationIdentity.stationID(
+                sourceID: source.id,
+                serverStationID: serverID
+            )
+            let index = allStations.firstIndex(where: { $0.id == localID })
+            if let index, !allStations[index].isServerMirror {
+                continue
+            }
+
+            let existing = index.map { allStations[$0] }
+            var updated = RadioStation(
+                id: localID,
+                name: name,
+                streamURL: normalizedStreamURL,
+                logoData: nil,
+                logoFileName: normalizedOptional(serverStation.coverArtReference),
+                streamFormat: serverStation.streamFormat,
+                bitRate: serverStation.bitRate,
+                createdAt: existing?.createdAt ?? now,
+                modifiedAt: existing?.modifiedAt ?? now,
+                lastPlayedAt: existing?.lastPlayedAt,
+                sortOrder: existing?.sortOrder ?? nextSortOrder,
+                sourceID: source.id,
+                serverStationID: serverID,
+                sourceName: source.name,
+                sourcePlaybackPath: normalizedPlaybackPath,
+                homepageURL: normalizedHTTPURLString(serverStation.homepageURL)
+            )
+            if existing == nil, nextSortOrder != nil {
+                nextSortOrder = (nextSortOrder ?? 0) + 1
+            }
+
+            if let existing, serverMirrorContentMatches(existing, updated) {
+                continue
+            }
+            updated.modifiedAt = now
+            if let index {
+                allStations[index] = updated
+            } else {
+                allStations.append(updated)
+            }
+            changedIDs.append(localID)
+            result.synchronizedCount += 1
+        }
+
+        let prefix = ServerRadioStationIdentity.stationIDPrefix(sourceID: source.id)
+        for index in allStations.indices where
+            allStations[index].id.hasPrefix(prefix)
+                && !allStations[index].isDeleted
+                && !keepIDs.contains(allStations[index].id) {
+            allStations[index].isDeleted = true
+            allStations[index].deletedAt = now
+            allStations[index].modifiedAt = now
+            changedIDs.append(allStations[index].id)
+            result.removedCount += 1
+        }
+
+        guard !changedIDs.isEmpty else { return result }
+        persist()
+        notifyChanged(ids: changedIDs)
+        return result
+    }
+
+    func removeServerMirrors(forSourceIDs sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        let prefixes = sourceIDs.map(ServerRadioStationIdentity.stationIDPrefix(sourceID:))
+        let now = Date()
+        var changedIDs: [String] = []
+        for index in allStations.indices where
+            !allStations[index].isDeleted
+                && prefixes.contains(where: { allStations[index].id.hasPrefix($0) }) {
+            allStations[index].isDeleted = true
+            allStations[index].deletedAt = now
+            allStations[index].modifiedAt = now
+            changedIDs.append(allStations[index].id)
+        }
+        guard !changedIDs.isEmpty else { return }
+        persist()
+        notifyChanged(ids: changedIDs)
     }
 
     func reloadFromDisk() {
@@ -264,6 +407,59 @@ final class RadioStationsStore {
             Task {
                 _ = await MetadataAssetStore.shared.storeCover(data, for: "radio:\(station.id)")
             }
+        }
+    }
+
+    private func normalizedOptional(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    private func normalizedHTTPURLString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        return RadioStationValidation.normalizedURLString(value)
+    }
+
+    private func serverMirrorContentMatches(_ lhs: RadioStation, _ rhs: RadioStation) -> Bool {
+        lhs.name == rhs.name
+            && lhs.streamURL == rhs.streamURL
+            && lhs.logoFileName == rhs.logoFileName
+            && lhs.streamFormat == rhs.streamFormat
+            && lhs.bitRate == rhs.bitRate
+            && lhs.sortOrder == rhs.sortOrder
+            && !lhs.isDeleted
+            && lhs.sourceID == rhs.sourceID
+            && lhs.serverStationID == rhs.serverStationID
+            && lhs.sourceName == rhs.sourceName
+            && lhs.sourcePlaybackPath == rhs.sourcePlaybackPath
+            && lhs.homepageURL == rhs.homepageURL
+    }
+}
+
+@MainActor
+enum ServerRadioSyncService {
+    @discardableResult
+    static func sync(
+        source: MusicSource,
+        sourceManager: SourceManager,
+        store: RadioStationsStore
+    ) async -> ServerRadioSyncResult {
+        do {
+            guard let snapshot = try await sourceManager.fetchServerRadioStations(for: source) else {
+                return ServerRadioSyncResult()
+            }
+            let result = store.reconcileServerStations(source: source, snapshot: snapshot)
+            plog(
+                "📻 Server radio '\(source.name)' synchronized "
+                    + "\(result.synchronizedCount)/\(result.discoveredCount), removed \(result.removedCount)"
+            )
+            return result
+        } catch is CancellationError {
+            return ServerRadioSyncResult()
+        } catch {
+            plog("⚠️ Server radio '\(source.name)' sync failed: \(error.localizedDescription)")
+            return ServerRadioSyncResult()
         }
     }
 }

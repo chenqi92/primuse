@@ -787,6 +787,11 @@ final class AudioPlayerService {
     private var radioPrefersDecodedTransport = false
     private var radioDidAttemptDecodedFallback = false
     private var radioDecodedFallbackNeedsValidation = false
+    /// Ephemeral direct URL for the active station. Source-backed streams can
+    /// contain access tokens, so this value never enters `RadioStation`,
+    /// persistence, widgets, or CloudKit payloads.
+    private var radioResolvedStreamURL: URL?
+    private var pendingRadioResolutionID: UUID?
     private var radioStationOrder: [RadioStation] = []
     private var radioReconnectTask: Task<Void, Never>?
     private var radioReconnectAttempt = 0
@@ -1723,6 +1728,7 @@ final class AudioPlayerService {
     }
 
     private func registerPlayIntent() {
+        pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
         cancelPendingConfigurationRecovery()
         clearBluetoothHFPDeferredResume()
@@ -1731,6 +1737,7 @@ final class AudioPlayerService {
     }
 
     private func registerPauseOrStopIntent() {
+        pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.completeForPauseOrStopIntent()
         cancelPendingConfigurationRecovery()
         clearBluetoothHFPDeferredResume()
@@ -2307,18 +2314,43 @@ final class AudioPlayerService {
     // MARK: - Playback Control
 
     func play(station: RadioStation, within stations: [RadioStation] = []) async {
-        guard let url = station.url else {
+        let resolutionID = UUID()
+        let resolutionGeneration = playbackAdvancePolicy.generation
+        pendingRadioResolutionID = resolutionID
+        let url: URL
+        do {
+            url = try await resolveRadioStreamURL(for: station, forceRefresh: false)
+        } catch {
+            guard pendingRadioResolutionID == resolutionID,
+                  playbackAdvancePolicy.generation == resolutionGeneration else { return }
+            pendingRadioResolutionID = nil
+            plog("⚠️ Radio URL resolution failed for '\(station.name)': \(error.localizedDescription)")
+            showPlaybackError(String(localized: station.requiresSourceStreamResolution
+                ? "playback_error_connection"
+                : "radio_invalid_url"))
+            return
+        }
+        guard pendingRadioResolutionID == resolutionID,
+              playbackAdvancePolicy.generation == resolutionGeneration else { return }
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false,
+              url.user == nil,
+              url.password == nil else {
+            pendingRadioResolutionID = nil
             showPlaybackError(String(localized: "radio_invalid_url"))
             return
         }
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
            let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
            !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
+            pendingRadioResolutionID = nil
             showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
             return
         }
         registerPlayIntent()
-        let startGeneration = playbackAdvancePolicy.generation
+        pendingRadioResolutionID = resolutionID
+        let transportGeneration = playbackAdvancePolicy.generation
 
         let id = UUID()
         playID = id
@@ -2328,6 +2360,7 @@ final class AudioPlayerService {
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
         radioReconnectAttempt = 0
+        radioResolvedStreamURL = url
         let inferredFormat = RadioStreamFormat.inferred(from: url)
         radioPrefersDecodedTransport = station.streamFormat == .flac || inferredFormat == .flac
         radioDidAttemptDecodedFallback = radioPrefersDecodedTransport
@@ -2340,12 +2373,14 @@ final class AudioPlayerService {
             castingRenderer = nil
             castingController = nil
         }
-        guard playbackAdvancePolicy.generation == startGeneration,
+        guard playbackAdvancePolicy.generation == transportGeneration,
+              pendingRadioResolutionID == resolutionID,
               playID == id,
               interruptionResumePolicy.playbackIsIntended else {
             plog("🛡️ Radio start cancelled during renderer handoff")
             return
         }
+        pendingRadioResolutionID = nil
         appleMusicPlaybackTask?.cancel()
         appleMusicPlaybackTask = nil
         appleMusicTimeoutTask?.cancel()
@@ -2355,8 +2390,7 @@ final class AudioPlayerService {
         AppServices.shared.appleMusic.stopAppleMusic()
         isPrimuseManagingAppleMusicQueue = false
 
-        if let previous = currentSong,
-           previous.sourceID != RadioStation.playbackSourceID {
+        if let previous = currentSong, !isLiveRadio {
             sourceManager?.finalizeStreamingSession(for: previous)
             ScrobbleService.shared.handlePlaybackStopped()
             PlayHistoryStore.shared.endSession()
@@ -2450,7 +2484,7 @@ final class AudioPlayerService {
     }
 
     private func startRadioTransport(station: RadioStation, playID id: UUID) {
-        guard let url = station.url,
+        guard let url = radioResolvedStreamURL,
               playID == id,
               currentRadioStation?.id == station.id,
               interruptionResumePolicy.playbackIsIntended,
@@ -2716,7 +2750,7 @@ final class AudioPlayerService {
             if !radioUsesDecodedTransport,
                !radioDidAttemptDecodedFallback,
                station.streamFormat == .automatic,
-               station.url.map({ RadioStreamFormat.inferred(from: $0) == .automatic }) == true {
+               radioResolvedStreamURL.map({ RadioStreamFormat.inferred(from: $0) == .automatic }) == true {
                 radioDidAttemptDecodedFallback = true
                 radioPrefersDecodedTransport = true
                 radioDecodedFallbackNeedsValidation = true
@@ -2763,6 +2797,24 @@ final class AudioPlayerService {
                   self.currentRadioStation?.id == station.id,
                   self.interruptionResumePolicy.playbackIsIntended,
                   !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
+            if station.requiresSourceStreamResolution {
+                do {
+                    self.radioResolvedStreamURL = try await self.resolveRadioStreamURL(
+                        for: station,
+                        forceRefresh: true
+                    )
+                } catch {
+                    guard self.playID == id,
+                          self.currentRadioStation?.id == station.id else { return }
+                    self.isLoading = false
+                    self.isPlaying = false
+                    self.showPlaybackError(String(localized: "playback_error_connection"))
+                    self.updateNowPlayingInfo()
+                    self.updatePlaybackState()
+                    self.scheduleRadioReconnect(station: station, playID: id)
+                    return
+                }
+            }
             self.radioPlaybackStartedAt = nil
             self.startRadioTransport(station: station, playID: id)
         }
@@ -2784,6 +2836,8 @@ final class AudioPlayerService {
         radioPrefersDecodedTransport = false
         radioDidAttemptDecodedFallback = false
         radioDecodedFallbackNeedsValidation = false
+        radioResolvedStreamURL = nil
+        pendingRadioResolutionID = nil
         stopTimeUpdater()
         isPlaying = false
         isLoading = false
@@ -2796,10 +2850,30 @@ final class AudioPlayerService {
             radioBitRate = nil
             radioStationOrder = []
             playbackKind = .track
-            if currentSong?.sourceID == RadioStation.playbackSourceID {
-                currentSong = nil
-            }
+            currentSong = nil
         }
+    }
+
+    private func resolveRadioStreamURL(
+        for station: RadioStation,
+        forceRefresh: Bool
+    ) async throws -> URL {
+        if station.requiresSourceStreamResolution {
+            guard let sourceID = station.sourceID,
+                  let serverStationID = station.serverStationID,
+                  let sourceManager else {
+                throw SourceError.fileNotFound("Radio source is unavailable")
+            }
+            return try await sourceManager.resolveServerRadioStream(
+                sourceID: sourceID,
+                stationID: serverStationID,
+                forceRefresh: forceRefresh
+            )
+        }
+        guard let url = station.url else {
+            throw SourceError.fileNotFound(station.streamURL)
+        }
+        return url
     }
 
     private func refreshRadioStationOrder() {

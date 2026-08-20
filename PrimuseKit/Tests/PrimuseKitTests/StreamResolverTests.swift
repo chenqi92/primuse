@@ -190,6 +190,16 @@ import Testing
     let jf = MediaServerStreamResolver.jellyfinStreamURL(base: base, itemID: "abc123", token: "TK")
     #expect(jf?.absoluteString == "https://jelly.example.com:8096/Audio/abc123/stream?Static=true&api_key=TK")
 
+    let radio = MediaServerStreamResolver.jellyfinLiveRadioStreamURL(
+        base: base,
+        itemID: "radio123",
+        token: "TK"
+    )
+    #expect(
+        radio?.absoluteString
+            == "https://jelly.example.com:8096/Audio/radio123/stream.mp3?Static=false&AudioCodec=mp3&Container=mp3&api_key=TK"
+    )
+
     let plexBase = URL(string: "http://plex.local:32400")!
     let px = MediaServerStreamResolver.plexStreamURL(base: plexBase, partKey: "/library/parts/77/file.mp3", token: "PT")
     #expect(px?.absoluteString == "http://plex.local:32400/library/parts/77/file.mp3?X-Plex-Token=PT")
@@ -200,9 +210,39 @@ import Testing
     let plexJSON = #"{"MediaContainer":{"Metadata":[{"Media":[{"Part":[{"key":"/library/parts/9/a.flac"}]}]}]}}"#
     #expect(MediaServerStreamResolver.parsePlexPartKey(Data(plexJSON.utf8)) == "/library/parts/9/a.flac")
     #expect(MediaServerStreamResolver.itemID(from: "/items/xyz789.mp3") == "xyz789")
+    #expect(MediaServerStreamResolver.itemID(from: "/live-radio/radio789.mp3") == "radio789")
     #expect(MediaServerStreamResolver.mediaBrowserAuth(deviceID: "d1", token: nil).contains("DeviceId=\"d1\""))
     #expect(MediaServerStreamResolver.baseURL(host: "h", port: 8096, useSsl: false, basePath: "/jf")?.absoluteString
             == "http://h:8096/jf")
+}
+
+@Test func jellyfinLiveRadioUsesDynamicAudioStream() async throws {
+    let resolver = MediaServerStreamResolver()
+    let source = MusicSource(
+        id: "jf-radio",
+        name: "Jellyfin",
+        type: .jellyfin,
+        host: "jelly.example.com",
+        useSsl: true,
+        authType: .apiKey
+    )
+    let station = RadioStation(
+        name: "Radio",
+        streamURL: "",
+        sourceID: source.id,
+        serverStationID: "station-id",
+        sourcePlaybackPath: ServerRadioStationIdentity.mediaServerPlaybackPath(
+            serverStationID: "station-id"
+        )
+    )
+
+    let url = try await resolver.streamURL(
+        for: station.playbackSong,
+        source: source,
+        credential: SourceCredential(password: "API-KEY")
+    )
+    #expect(url.absoluteString.contains("/Audio/station-id/stream.mp3"))
+    #expect(url.absoluteString.contains("Static=false"))
 }
 
 @Test func mediaServerConcurrentResolvesShareLogin() async throws {

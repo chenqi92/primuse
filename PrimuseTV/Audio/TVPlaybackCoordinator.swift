@@ -57,6 +57,63 @@ final class TVPlaybackCoordinator {
         self.engine = engine
     }
 
+    func resolveRadioStream(
+        for station: RadioStation,
+        requestID: UUID,
+        forceRefresh: Bool
+    ) async throws -> URL {
+        guard let store else { throw CancellationError() }
+        try ensureCurrent(requestID, store: store)
+
+        if !station.requiresSourceStreamResolution {
+            guard let url = station.url else { throw StreamResolveError.cannotBuildURL }
+            return url
+        }
+
+        guard let sourceID = station.sourceID,
+              let source = store.sourcesStore.source(id: sourceID),
+              source.isEnabled,
+              !source.isDeleted else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        if forceRefresh {
+            await registry.invalidateSession(for: source)
+            try ensureCurrent(requestID, store: store)
+        }
+        let credential = TVCredentialStore.credential(
+            for: source,
+            bundle: store.credentialBundle
+        )
+        let resolved = try await resolveStream(
+            song: station.playbackSong,
+            source: source,
+            credential: credential,
+            requestID: requestID,
+            retried: false
+        )
+        try ensureCurrent(requestID, store: store)
+        guard resolved.headers.isEmpty,
+              let scheme = resolved.url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              resolved.url.host?.isEmpty == false,
+              resolved.url.user == nil,
+              resolved.url.password == nil else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        return resolved.url
+    }
+
+    func radioPlaybackIssue(for error: Error, station: RadioStation) -> TVPlaybackIssue {
+        if let streamError = error as? StreamResolveError {
+            let sourceName = station.sourceID
+                .flatMap { store?.sourcesStore.source(id: $0)?.name }
+                ?? station.sourceName
+                ?? station.name
+            return issue(for: streamError, sourceName: sourceName)
+        }
+        return .failed(error.localizedDescription)
+    }
+
     func play(
         songID: String,
         requestID: UUID,
@@ -749,9 +806,13 @@ final class TVPlaybackCoordinator {
     }
 
     private func issue(for error: StreamResolveError, source: MusicSource) -> TVPlaybackIssue {
+        issue(for: error, sourceName: source.name)
+    }
+
+    private func issue(for error: StreamResolveError, sourceName: String) -> TVPlaybackIssue {
         switch error {
         case .unsupportedSourceType(let type): return .unsupported(type.displayName)
-        case .missingCredential: return .missingCredential(source.name)
+        case .missingCredential: return .missingCredential(sourceName)
         case .needs2FA: return .failed(PMString("ext.tv.test.needs2FA"))
         case .authFailed: return .failed(PMString("ext.tv.playback.authFailed"))
         case .badServerResponse(let code): return .failed(PMString("ext.tv.playback.httpError", code))

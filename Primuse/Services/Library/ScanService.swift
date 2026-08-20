@@ -16,6 +16,10 @@ final class ScanService {
     /// Full-metadata scanners report only IDs they actually inspected. AppServices
     /// wires this to MetadataBackfillService after both services are initialized.
     @ObservationIgnored var metadataInspectionHandler: ((Set<String>) -> Void)?
+    /// AppServices injects the radio store without making every scan call site
+    /// carry another dependency. Invoked only after a successful server-library
+    /// catalogue commit, alongside server playlist mirroring.
+    @ObservationIgnored var serverRadioSyncHandler: ((MusicSource) async -> Void)?
     struct ScanState: Equatable {
         var isScanning: Bool = false
         var currentFile: String = ""
@@ -1634,6 +1638,7 @@ final class ScanService {
                 sourceManager: sourceManager,
                 library: library
             )
+            await serverRadioSyncHandler?(source)
         }
     }
 

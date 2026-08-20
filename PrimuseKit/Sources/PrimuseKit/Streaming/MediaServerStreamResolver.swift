@@ -42,6 +42,7 @@ public actor MediaServerStreamResolver: StreamResolver {
             throw StreamResolveError.cannotBuildURL
         }
         guard let itemID = Self.itemID(from: song.filePath) else { throw StreamResolveError.cannotBuildURL }
+        let isLiveRadio = ServerRadioStationIdentity.isMediaServerPlaybackPath(song.filePath)
 
         switch source.type {
         case .plex:
@@ -59,7 +60,10 @@ public actor MediaServerStreamResolver: StreamResolver {
                 guard let token = cred.password ?? cred.token, !token.isEmpty else {
                     throw StreamResolveError.missingCredential
                 }
-                guard let url = Self.jellyfinStreamURL(base: base, itemID: itemID, token: token) else {
+                let url = isLiveRadio
+                    ? Self.jellyfinLiveRadioStreamURL(base: base, itemID: itemID, token: token)
+                    : Self.jellyfinStreamURL(base: base, itemID: itemID, token: token)
+                guard let url else {
                     throw StreamResolveError.cannotBuildURL
                 }
                 return url
@@ -75,7 +79,10 @@ public actor MediaServerStreamResolver: StreamResolver {
             let password = cred.password ?? ""
             let token = try await currentToken(source: source, base: base, username: username,
                                                password: password, emby: source.type == .emby)
-            guard let url = Self.jellyfinStreamURL(base: base, itemID: itemID, token: token) else {
+            let url = isLiveRadio
+                ? Self.jellyfinLiveRadioStreamURL(base: base, itemID: itemID, token: token)
+                : Self.jellyfinStreamURL(base: base, itemID: itemID, token: token)
+            guard let url else {
                 throw StreamResolveError.cannotBuildURL
             }
             return url
@@ -173,6 +180,20 @@ public actor MediaServerStreamResolver: StreamResolver {
                                        resolvingAgainstBaseURL: false) else { return nil }
         comp.queryItems = [URLQueryItem(name: "Static", value: "true"),
                            URLQueryItem(name: "api_key", value: token)]
+        return comp.url
+    }
+
+    static func jellyfinLiveRadioStreamURL(base: URL, itemID: String, token: String) -> URL? {
+        guard var comp = URLComponents(
+            url: base.appendingPathComponent("Audio/\(itemID)/stream.mp3"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+        comp.queryItems = [
+            URLQueryItem(name: "Static", value: "false"),
+            URLQueryItem(name: "AudioCodec", value: "mp3"),
+            URLQueryItem(name: "Container", value: "mp3"),
+            URLQueryItem(name: "api_key", value: token)
+        ]
         return comp.url
     }
 

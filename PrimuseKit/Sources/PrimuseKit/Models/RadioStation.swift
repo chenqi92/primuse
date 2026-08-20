@@ -104,6 +104,17 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     public var sortOrder: Int?
     public var isDeleted: Bool
     public var deletedAt: Date?
+    /// Music-source provenance for a read-only server mirror. These fields are
+    /// optional so snapshots created before server radio synchronization keep
+    /// decoding through synthesized `Codable` defaults.
+    public var sourceID: String?
+    public var serverStationID: String?
+    public var sourceName: String?
+    /// Opaque source-owned playback path. When present, the app resolves a
+    /// fresh authenticated URL through the source connector instead of
+    /// persisting a credential-bearing URL in this value type.
+    public var sourcePlaybackPath: String?
+    public var homepageURL: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -118,7 +129,12 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         lastPlayedAt: Date? = nil,
         sortOrder: Int? = nil,
         isDeleted: Bool = false,
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        sourceID: String? = nil,
+        serverStationID: String? = nil,
+        sourceName: String? = nil,
+        sourcePlaybackPath: String? = nil,
+        homepageURL: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -133,6 +149,27 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         self.sortOrder = sortOrder
         self.isDeleted = isDeleted
         self.deletedAt = deletedAt
+        self.sourceID = sourceID
+        self.serverStationID = serverStationID
+        self.sourceName = sourceName
+        self.sourcePlaybackPath = sourcePlaybackPath
+        self.homepageURL = homepageURL
+    }
+
+    public var isServerMirror: Bool {
+        sourceID?.isEmpty == false && serverStationID?.isEmpty == false
+    }
+
+    public var requiresSourceStreamResolution: Bool {
+        isServerMirror && sourcePlaybackPath?.isEmpty == false
+    }
+
+    public var displayEndpoint: String {
+        if let sourceName = sourceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sourceName.isEmpty {
+            return sourceName
+        }
+        return streamURL
     }
 
     public var url: URL? {
@@ -154,8 +191,8 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
             artistName: playbackSubtitle,
             duration: 0,
             fileFormat: streamFormat.audioFormat,
-            filePath: streamURL,
-            sourceID: Self.playbackSourceID,
+            filePath: sourcePlaybackPath ?? streamURL,
+            sourceID: sourceID ?? Self.playbackSourceID,
             fileSize: 0,
             bitRate: bitRate,
             dateAdded: createdAt,
@@ -220,5 +257,25 @@ public enum RadioStationValidation {
 
     public static func isValid(name: String, urlString: String) -> Bool {
         !normalizedName(name).isEmpty && normalizedURLString(urlString) != nil
+    }
+
+    /// Server-backed stations may intentionally omit a direct URL because an
+    /// authenticated, route-aware URL is minted only when playback starts.
+    public static func hasValidPlaybackReference(_ station: RadioStation) -> Bool {
+        guard !normalizedName(station.name).isEmpty else { return false }
+        if station.requiresSourceStreamResolution {
+            return true
+        }
+        return normalizedURLString(station.streamURL) != nil
+    }
+
+    public static func hasConsistentServerIdentity(_ station: RadioStation) -> Bool {
+        guard station.isServerMirror else { return true }
+        guard let sourceID = station.sourceID,
+              let serverStationID = station.serverStationID else { return false }
+        return station.id == ServerRadioStationIdentity.stationID(
+            sourceID: sourceID,
+            serverStationID: serverStationID
+        )
     }
 }

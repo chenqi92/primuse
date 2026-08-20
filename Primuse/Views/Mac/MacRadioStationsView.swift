@@ -270,6 +270,12 @@ private struct MacRadioStationCard: View {
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
 
+                    if station.isServerMirror {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 10))
+                            .foregroundStyle(PMColor.textMuted)
+                    }
+
                     if isPlaying {
                         HStack(spacing: 4) {
                             Circle().fill(PMColor.bad).frame(width: 5, height: 5)
@@ -292,7 +298,7 @@ private struct MacRadioStationCard: View {
                     .foregroundStyle(isCurrent ? PMColor.brand : PMColor.textMuted)
                     .lineLimit(1)
 
-                Text(station.streamURL)
+                Text(station.displayEndpoint)
                     .font(PMFont.monoXS)
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
@@ -317,8 +323,10 @@ private struct MacRadioStationCard: View {
                     .disabled(!canMoveDown)
                     .opacity(canMoveDown ? 1 : 0.35)
 
-                    PMRoundBtn(icon: "pencil", size: PMSize.smallBtn, iconSize: 11, style: .glass) {
-                        onEdit()
+                    if !station.isServerMirror {
+                        PMRoundBtn(icon: "pencil", size: PMSize.smallBtn, iconSize: 11, style: .glass) {
+                            onEdit()
+                        }
                     }
                 }
 
@@ -342,14 +350,20 @@ private struct MacRadioStationCard: View {
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)
         .contextMenu {
-            Button { onEdit() } label: { Label("edit", systemImage: "pencil") }
+            if station.isServerMirror {
+                Label(station.displayEndpoint, systemImage: "server.rack")
+            } else {
+                Button { onEdit() } label: { Label("edit", systemImage: "pencil") }
+            }
             Button { onMoveUp() } label: { Label("radio_priority_move_up", systemImage: "arrow.up") }
                 .disabled(!canMoveUp)
             Button { onMoveDown() } label: { Label("radio_priority_move_down", systemImage: "arrow.down") }
                 .disabled(!canMoveDown)
-            Divider()
-            Button(role: .destructive) { onDelete() } label: {
-                Label("delete", systemImage: "trash")
+            if !station.isServerMirror {
+                Divider()
+                Button(role: .destructive) { onDelete() } label: {
+                    Label("delete", systemImage: "trash")
+                }
             }
         }
     }

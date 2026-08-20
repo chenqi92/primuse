@@ -876,6 +876,64 @@ protocol ServerPlaylistConnector: MusicSourceConnector {
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
 }
 
+/// One radio station exposed by a server library. `streamURL` is used for
+/// credential-free internet-radio URLs. `sourcePlaybackPath` is used when the
+/// connector must mint an authenticated URL at playback time (Jellyfin/Emby
+/// Live TV); at least one of the two must be present.
+struct ServerRadioStation: Sendable {
+    let id: String
+    let name: String
+    let streamURL: String?
+    let homepageURL: String?
+    let coverArtReference: String?
+    let sourcePlaybackPath: String?
+    let streamFormat: RadioStreamFormat
+    let bitRate: Int?
+
+    init(
+        id: String,
+        name: String,
+        streamURL: String? = nil,
+        homepageURL: String? = nil,
+        coverArtReference: String? = nil,
+        sourcePlaybackPath: String? = nil,
+        streamFormat: RadioStreamFormat = .automatic,
+        bitRate: Int? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.streamURL = streamURL
+        self.homepageURL = homepageURL
+        self.coverArtReference = coverArtReference
+        self.sourcePlaybackPath = sourcePlaybackPath
+        self.streamFormat = streamFormat
+        self.bitRate = bitRate
+    }
+}
+
+/// `nil` from the connector means the server does not implement a compatible
+/// radio API. An empty non-nil snapshot is authoritative and removes stale
+/// mirrors for that source.
+struct ServerRadioStationSnapshot: Sendable {
+    let stations: [ServerRadioStation]
+    let failedStationIDs: Set<String>
+
+    init(stations: [ServerRadioStation], failedStationIDs: Set<String> = []) {
+        self.stations = stations
+        self.failedStationIDs = failedStationIDs
+    }
+}
+
+protocol ServerRadioConnector: MusicSourceConnector {
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot?
+}
+
+/// Authenticated radio streams are resolved at the last possible moment so a
+/// token or route-specific session URL never enters local/CloudKit snapshots.
+protocol ServerRadioStreamResolvingConnector: MusicSourceConnector {
+    func resolveServerRadioStream(stationID: String, forceRefresh: Bool) async throws -> URL
+}
+
 struct ServerLyricsCapabilities: Equatable, Sendable {
     let canRead: Bool
     let canWrite: Bool

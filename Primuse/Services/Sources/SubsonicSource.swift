@@ -15,7 +15,7 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
-    ServerPlaylistConnector {
+    ServerPlaylistConnector, ServerRadioConnector {
     let sourceID: String
 
     private let baseURL: URL          // 形如 https://host:4533 (+ basePath), 不含 /rest
@@ -640,6 +640,40 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         )
     }
 
+    // MARK: - Internet radio
+
+    /// `getInternetRadioStations` is part of Subsonic 1.9.0. Navidrome and
+    /// Subsonic expose it directly; Airsonic supports the read endpoint while
+    /// older compatible servers may not. Unsupported-method responses return
+    /// nil so reconciliation preserves existing mirrors instead of treating
+    /// an unavailable capability as an authoritative empty list.
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        try await connect()
+        let container: InternetRadioStationsContainer
+        do {
+            container = try await requestJSON("getInternetRadioStations")
+        } catch {
+            if Self.isInternetRadioAPIUnavailable(error) { return nil }
+            throw error
+        }
+
+        let upstreamStations = container.internetRadioStations
+            .flatMap(\.internetRadioStation) ?? []
+        let stations = upstreamStations.map { station in
+            let name = Self.cleaned(station.name, unknown: "") ?? station.id.value
+            let format = station.streamURL.flatMap(URL.init(string:))
+                .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic
+            return ServerRadioStation(
+                id: station.id.value,
+                name: name,
+                streamURL: station.streamURL,
+                homepageURL: station.homePageURL,
+                streamFormat: format
+            )
+        }
+        return ServerRadioStationSnapshot(stations: stations)
+    }
+
     // MARK: - Song construction
 
     private func buildSong(from child: SubsonicChild, album: AlbumSummary? = nil) -> Song {
@@ -904,6 +938,25 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             || normalized.contains("unknown api")
             || normalized.contains("unknown method")
     }
+
+    private static func isInternetRadioAPIUnavailable(_ error: Error) -> Bool {
+        let message: String
+        if let sourceError = error as? SourceError,
+           case .connectionFailed(let detail) = sourceError {
+            message = detail
+        } else {
+            message = error.localizedDescription
+        }
+        let normalized = message.lowercased()
+        return normalized == "http 404"
+            || normalized == "http 405"
+            || normalized == "http 501"
+            || normalized.contains("not found")
+            || normalized.contains("not implemented")
+            || normalized.contains("unknown api")
+            || normalized.contains("unknown method")
+            || normalized.contains("unsupported method")
+    }
 }
 
 private enum SubsonicCompatibilityError: Error {
@@ -1073,6 +1126,30 @@ private struct PlaylistWithEntries: Decodable {
     let songCount: Int?
     let coverArt: String?
     let entry: [SubsonicChild]?
+}
+
+private struct InternetRadioStationsContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let internetRadioStations: InternetRadioStationList?
+}
+
+private struct InternetRadioStationList: Decodable {
+    let internetRadioStation: [SubsonicInternetRadioStation]?
+}
+
+private struct SubsonicInternetRadioStation: Decodable {
+    let id: FlexibleID
+    let name: String?
+    let streamURL: String?
+    let homePageURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case streamURL = "streamUrl"
+        case homePageURL = "homePageUrl"
+    }
 }
 
 /// 歌单 ID 在规范里是字符串(Navidrome 给 UUID), 但部分实现按整数序列化 JSON
