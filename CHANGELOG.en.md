@@ -41,6 +41,7 @@ This release consolidates changes made after 1.7.0 that had not yet been documen
 - **Scraping and translation logs** — empty titles no longer query online providers, and lyrics already in the target language no longer create no-op translation failures
 - **Simulator credentials** — uses local Keychain items when synchronizable Keychain attributes are unavailable, preserving credentials across app restarts
 - **Audio session startup** — cold launch no longer interrupts audio already playing in another app
+- **Local source platform labels** — adding a local source on macOS no longer shows “iPhone Storage” or an iPhone icon; it now uses “Mac Storage” and a computer icon, and tvOS uses Apple TV chrome if a local source is present
 - **Malformed media and playback menus** — hardened invalid inputs, Now Playing menu updates, and lyric-scrolling edge cases
 
 ### Performance

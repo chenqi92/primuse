@@ -38,7 +38,7 @@ enum YearlyReportAnalyzer {
 
     private static func symbolName(for type: MusicSourceType) -> String {
         switch type {
-        case .local: return "iphone"
+        case .local: return type.iconName
         case .synology, .qnap, .ugreen, .fnos: return "externaldrive.fill"
         case .fnMusic: return "music.note.list"
         case .daoliyu: return "music.note.house"

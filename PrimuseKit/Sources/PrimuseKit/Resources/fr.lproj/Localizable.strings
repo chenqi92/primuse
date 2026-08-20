@@ -404,6 +404,8 @@
 "src.displayName.local" = "Local";
 "src.displayName.appleMusicLibrary" = "Bibliothèque Apple Music";
 "src.subtitle.local" = "Stockage de l’iPhone";
+"src.subtitle.local.mac" = "Stockage du Mac";
+"src.subtitle.local.tv" = "Stockage de l’Apple TV";
 "src.subtitle.appleMusicLibrary" = "Apple Music / iTunes local";
 "ext.tv.sources.apiPending" = "API en attente";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · Dossiers partagés";

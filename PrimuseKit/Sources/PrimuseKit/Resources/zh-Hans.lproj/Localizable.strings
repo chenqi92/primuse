@@ -401,6 +401,8 @@
 "src.displayName.local" = "本地";
 "src.displayName.appleMusicLibrary" = "Apple Music 资料库";
 "src.subtitle.local" = "iPhone 存储空间";
+"src.subtitle.local.mac" = "Mac 存储空间";
+"src.subtitle.local.tv" = "Apple TV 存储空间";
 "src.subtitle.appleMusicLibrary" = "本机 Apple Music / iTunes";
 "ext.tv.sources.apiPending" = "API 待公开";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · 共享文件夹";
