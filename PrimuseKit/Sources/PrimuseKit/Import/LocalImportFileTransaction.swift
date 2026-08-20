@@ -301,11 +301,20 @@ public final class LocalImportFileTransaction: @unchecked Sendable {
             configuration.minimumFreeSpaceReserve
         )
         let required = overflow ? Int64.max : sum
+        #if os(tvOS)
         guard let values = try? destinationDirectory.resourceValues(forKeys: [
-            .volumeAvailableCapacityForImportantUsageKey,
-        ]), let available = values.volumeAvailableCapacityForImportantUsage else {
+            .volumeAvailableCapacityKey,
+        ]), let rawAvailable = values.volumeAvailableCapacity else {
             return
         }
+        #else
+        guard let values = try? destinationDirectory.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey,
+        ]), let rawAvailable = values.volumeAvailableCapacityForImportantUsage else {
+            return
+        }
+        #endif
+        let available = Int64(clamping: rawAvailable)
         guard available >= required else {
             throw TransactionError.insufficientSpace(required: required, available: available)
         }
