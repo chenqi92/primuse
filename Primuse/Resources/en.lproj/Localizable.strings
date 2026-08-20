@@ -534,6 +534,7 @@
 "import_mode" = "Import Mode";
 "invalid_url" = "Invalid URL";
 "reorder" = "Reorder";
+"remove_from_queue" = "Remove from Queue";
 "done" = "Done";
 
 // Network Discovery

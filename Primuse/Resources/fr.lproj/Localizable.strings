@@ -721,6 +721,7 @@
 "import_mode" = "Mode d'importation";
 "invalid_url" = "URL non valide";
 "reorder" = "Réorganiser";
+"remove_from_queue" = "Retirer de la file d’attente";
 "discovered_devices" = "Appareils détectés";
 "discovering_devices" = "Analyse du réseau local…";
 "rescan" = "Analyser à nouveau";

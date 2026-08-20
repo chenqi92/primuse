@@ -506,6 +506,7 @@
 "import_mode" = "匯入方式";
 "invalid_url" = "無效的 URL";
 "reorder" = "排序";
+"remove_from_queue" = "從佇列中移除";
 "discovered_devices" = "找到的裝置";
 "discovering_devices" = "正在掃描區域網路裝置...";
 "rescan" = "重新掃描";

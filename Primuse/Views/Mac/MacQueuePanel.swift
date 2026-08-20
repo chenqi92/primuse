@@ -54,6 +54,7 @@ struct MacQueuePanel: View {
                     // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
                     // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
                     let cur = min(max(player.currentIndex, 0), entries.count - 1)
+                    let currentEntryID = entries[cur].id
 
                     // In shuffle mode raw queue offsets are not playback history.
                     // Use the player's current-round traversal prefix so Played
@@ -86,7 +87,9 @@ struct MacQueuePanel: View {
                                     reorderID: QueueReorderOccurrenceID(
                                         queueEntryID: entry.id.queueEntryID,
                                         roundOffset: entry.id.roundOffset
-                                    )
+                                    ),
+                                    allowsRemoval: player.canRemoveUpcomingQueueEntries
+                                        && entry.id.queueEntryID != currentEntryID
                                 )
                             }
                         }
@@ -144,8 +147,10 @@ struct MacQueuePanel: View {
                           displayedSong: Song? = nil,
                           isPlaying: Bool = false,
                           dimmed: Bool = false,
-                          reorderID: QueueReorderOccurrenceID? = nil) -> some View {
+                          reorderID: QueueReorderOccurrenceID? = nil,
+                          allowsRemoval: Bool = false) -> some View {
         let song = displayedSong ?? entry.song
+        let isDropTarget = dropTarget == reorderID && reorderID != nil
         let accessibilityLabel = [song.title, song.artistName]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: ", ")
@@ -156,7 +161,9 @@ struct MacQueuePanel: View {
                     .foregroundStyle(PMColor.textFaint)
                     .frame(width: 14)
                     .contentShape(Rectangle())
-                    .draggable(reorderID.dragPayload)
+                    .draggable(reorderID.dragPayload) {
+                        queueDragPreview(song)
+                    }
                     .help(Text("reorder"))
                     .accessibilityHidden(true)
             } else {
@@ -190,23 +197,52 @@ struct MacQueuePanel: View {
                 .font(.system(size: 10.5, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textFaint)
+
+            if let reorderID, allowsRemoval {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        _ = player.removeUpcomingQueueEntry(reorderID)
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PMColor.textFaint)
+                        .frame(width: 22, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(Text("remove_from_queue"))
+                .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
         .background(
-            isPlaying || dropTarget == reorderID ? PMColor.rowHover : Color.clear,
+            isPlaying || isDropTarget ? PMColor.rowHover : Color.clear,
             in: .rect(cornerRadius: 6)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(PMColor.brand.opacity(isDropTarget ? 0.9 : 0), lineWidth: 1.5)
+        }
+        .scaleEffect(isDropTarget ? 1.012 : 1)
+        .shadow(
+            color: PMColor.brand.opacity(isDropTarget ? 0.16 : 0),
+            radius: isDropTarget ? 7 : 0,
+            y: isDropTarget ? 2 : 0
+        )
+        .animation(.snappy(duration: 0.18), value: isDropTarget)
         .opacity(dimmed ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
 
         if let reorderID {
-            row
+            let accessibleRow = row
                 // Pointer dragging starts on the visible handle so it cannot
                 // compete with the row's tap-to-play gesture. The complete row
                 // remains the drop target and exposes keyboard/VoiceOver moves.
                 .dropDestination(for: String.self) { payloads, _ in
+                    defer { dropTarget = nil }
                     guard let payload = payloads.first,
                           let dragged = QueueReorderOccurrenceID(dragPayload: payload) else {
                         return false
@@ -228,9 +264,54 @@ struct MacQueuePanel: View {
                 .accessibilityAdjustableAction { direction in
                     moveEntry(reorderID, direction: direction)
                 }
+            if allowsRemoval {
+                accessibleRow
+                    .accessibilityAction(named: Text("remove_from_queue")) {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            _ = player.removeUpcomingQueueEntry(reorderID)
+                        }
+                    }
+            } else {
+                accessibleRow
+            }
         } else {
             row
         }
+    }
+
+    private func queueDragPreview(_ song: Song) -> some View {
+        HStack(spacing: 8) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 34,
+                cornerRadius: 5,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            VStack(alignment: .leading, spacing: 1) {
+                Text(song.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                Text(song.artistName ?? song.albumTitle ?? "")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(8)
+        .frame(width: 220)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(PMColor.brand.opacity(0.55), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
     }
 
     private var footer: some View {

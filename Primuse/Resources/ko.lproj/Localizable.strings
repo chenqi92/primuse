@@ -721,6 +721,7 @@
 "import_mode" = "가져오기 방식";
 "invalid_url" = "잘못된 URL";
 "reorder" = "순서 변경";
+"remove_from_queue" = "대기열에서 제거";
 "discovered_devices" = "발견된 기기";
 "discovering_devices" = "로컬 네트워크 검색 중...";
 "rescan" = "다시 검색";

@@ -278,6 +278,83 @@ struct ShuffleRoundPreparationPolicyTests {
     }
 }
 
+@Suite("Queue upcoming removal")
+struct QueueUpcomingRemovalPolicyTests {
+    private let played = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+    private let current = UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
+    private let first = UUID(uuidString: "00000000-0000-0000-0000-000000000013")!
+    private let second = UUID(uuidString: "00000000-0000-0000-0000-000000000014")!
+
+    @Test("An exact upcoming occurrence resolves to its canonical queue slot")
+    func resolvesExactOccurrence() {
+        let queue = [played, current, first, second]
+        let upcoming = [
+            occurrence(first),
+            occurrence(second),
+            occurrence(played, roundOffset: 1),
+        ]
+
+        #expect(QueueUpcomingRemovalPolicy.queueIndex(
+            for: occurrence(second),
+            currentQueueEntryID: current,
+            queueEntryIDs: queue,
+            upcomingOccurrences: upcoming
+        ) == 3)
+        #expect(QueueUpcomingRemovalPolicy.queueIndex(
+            for: occurrence(played, roundOffset: 1),
+            currentQueueEntryID: current,
+            queueEntryIDs: queue,
+            upcomingOccurrences: upcoming
+        ) == 0)
+    }
+
+    @Test("The current slot and stale occurrences cannot be removed")
+    func rejectsCurrentAndStaleOccurrences() {
+        let queue = [played, current, first]
+        let upcoming = [
+            occurrence(first),
+            occurrence(current, roundOffset: 1),
+        ]
+
+        #expect(QueueUpcomingRemovalPolicy.queueIndex(
+            for: occurrence(current, roundOffset: 1),
+            currentQueueEntryID: current,
+            queueEntryIDs: queue,
+            upcomingOccurrences: upcoming
+        ) == nil)
+        #expect(QueueUpcomingRemovalPolicy.queueIndex(
+            for: occurrence(second),
+            currentQueueEntryID: current,
+            queueEntryIDs: queue,
+            upcomingOccurrences: upcoming
+        ) == nil)
+    }
+
+    @Test("Removing a raw slot preserves shuffle order and the current position")
+    func rebasesShuffleTraversal() {
+        let result = QueueUpcomingRemovalPolicy.rebasedTraversal(
+            [3, 1, 0, 2],
+            currentPosition: 2,
+            removingQueueIndex: 1,
+            queueCount: 4
+        )
+
+        #expect(result == QueueTraversalRemovalResult(
+            indices: [2, 0, 1],
+            currentPosition: 1
+        ))
+        #expect(QueueUpcomingRemovalPolicy.rebasedIndices(
+            [2, 0, 3, 1],
+            removingQueueIndex: 1,
+            queueCount: 4
+        ) == [1, 0, 2])
+    }
+
+    private func occurrence(_ id: UUID, roundOffset: Int = 0) -> QueueReorderOccurrenceID {
+        QueueReorderOccurrenceID(queueEntryID: id, roundOffset: roundOffset)
+    }
+}
+
 @Suite("Queue traversal")
 struct QueueTraversalPolicyTests {
     @Test("Next skips unavailable entries without changing queue positions")

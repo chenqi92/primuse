@@ -51,7 +51,9 @@ struct QueueView: View {
                                     reorderID: QueueReorderOccurrenceID(
                                         queueEntryID: presentation.id.queueEntryID,
                                         roundOffset: presentation.id.roundOffset
-                                    )
+                                    ),
+                                    allowsRemoval: player.canRemoveUpcomingQueueEntries
+                                        && presentation.id.queueEntryID != currentEntry.id
                                 )
                             }
                         }
@@ -95,9 +97,11 @@ struct QueueView: View {
         displayedSong: Song? = nil,
         isPlaying: Bool = false,
         dimmed: Bool = false,
-        reorderID: QueueReorderOccurrenceID? = nil
+        reorderID: QueueReorderOccurrenceID? = nil,
+        allowsRemoval: Bool = false
     ) -> some View {
         let song = displayedSong ?? entry.song
+        let isDropTarget = dropTarget == reorderID && reorderID != nil
         let accessibilityLabel = [song.title, song.artistName]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
@@ -112,7 +116,9 @@ struct QueueView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 32, height: 44)
                     .contentShape(Rectangle())
-                    .draggable(reorderID.dragPayload)
+                    .draggable(reorderID.dragPayload) {
+                        queueDragPreview(song)
+                    }
                     .accessibilityHidden(true)
             }
 
@@ -154,23 +160,51 @@ struct QueueView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
+            if let reorderID, allowsRemoval {
+                Button {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        _ = player.removeUpcomingQueueEntry(reorderID)
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(minHeight: 56)
         .background(
-            isPlaying || dropTarget == reorderID
+            isPlaying || isDropTarget
                 ? Color.accentColor.opacity(0.10)
                 : Color.clear,
             in: RoundedRectangle(cornerRadius: 10)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.accentColor.opacity(isDropTarget ? 0.9 : 0), lineWidth: 2)
+        }
+        .scaleEffect(isDropTarget ? 1.015 : 1)
+        .shadow(
+            color: Color.accentColor.opacity(isDropTarget ? 0.18 : 0),
+            radius: isDropTarget ? 8 : 0,
+            y: isDropTarget ? 3 : 0
+        )
+        .animation(.snappy(duration: 0.2), value: isDropTarget)
         .opacity(dimmed ? 0.58 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
 
         if let reorderID {
-            row
+            let accessibleRow = row
                 .dropDestination(for: String.self) { payloads, _ in
+                    defer { dropTarget = nil }
                     guard let payload = payloads.first,
                           let dragged = QueueReorderOccurrenceID(dragPayload: payload) else {
                         return false
@@ -192,6 +226,16 @@ struct QueueView: View {
                 .accessibilityAdjustableAction { direction in
                     moveEntry(reorderID, direction: direction)
                 }
+            if allowsRemoval {
+                accessibleRow
+                    .accessibilityAction(named: Text("remove_from_queue")) {
+                        withAnimation(.snappy(duration: 0.22)) {
+                            _ = player.removeUpcomingQueueEntry(reorderID)
+                        }
+                    }
+            } else {
+                accessibleRow
+            }
         } else {
             row
                 .accessibilityElement(children: .combine)
@@ -199,6 +243,40 @@ struct QueueView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { playEntry(entry) }
         }
+    }
+
+    private func queueDragPreview(_ song: Song) -> some View {
+        HStack(spacing: 10) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 42,
+                cornerRadius: 6,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(song.artistName ?? song.albumTitle ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .frame(width: 260)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.accentColor.opacity(0.55), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
     }
 
     private func playEntry(_ entry: QueueEntry) {

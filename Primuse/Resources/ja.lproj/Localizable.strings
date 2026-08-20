@@ -722,6 +722,7 @@
 "import_mode" = "読み込み方法";
 "invalid_url" = "無効な URL";
 "reorder" = "並べ替え";
+"remove_from_queue" = "キューから削除";
 "discovered_devices" = "見つかったデバイス";
 "discovering_devices" = "ローカルネットワークをスキャン中...";
 "rescan" = "再スキャン";

@@ -682,6 +682,9 @@ final class AudioPlayerService {
         guard queueEntries.indices.contains(index) else { return nil }
         return queueEntries[index].song
     }
+    var canRemoveUpcomingQueueEntries: Bool {
+        !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue)
+    }
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet {
@@ -6652,6 +6655,74 @@ final class AudioPlayerService {
         let destination = desiredRawIndex > sourceIndex ? desiredRawIndex + 1 : desiredRawIndex
         moveQueueItems(fromOffsets: IndexSet(integer: sourceIndex), toOffset: destination)
         if currentSong != nil { prefetchNextSong() }
+        return true
+    }
+
+    /// Remove one durable Up Next occurrence without rebuilding a managed
+    /// shuffle round. Repeat-all may present the same slot again in its next
+    /// round; deleting either presentation removes that canonical slot once,
+    /// while the currently playing slot remains protected.
+    @discardableResult
+    func removeUpcomingQueueEntry(_ occurrence: QueueReorderOccurrenceID) -> Bool {
+        guard canRemoveUpcomingQueueEntries,
+              queueEntries.indices.contains(currentIndex) else { return false }
+
+        let currentUpcoming = upcomingQueueEntries.map {
+            QueueReorderOccurrenceID(
+                queueEntryID: $0.id.queueEntryID,
+                roundOffset: $0.id.roundOffset
+            )
+        }
+        guard let removalIndex = QueueUpcomingRemovalPolicy.queueIndex(
+            for: occurrence,
+            currentQueueEntryID: queueEntries[currentIndex].id,
+            queueEntryIDs: queueEntries.map(\.id),
+            upcomingOccurrences: currentUpcoming
+        ) else { return false }
+
+        let rebasedCurrentIndex = currentIndex - (removalIndex < currentIndex ? 1 : 0)
+        if usesManagedShuffleOrder {
+            guard let rebasedTraversal = QueueUpcomingRemovalPolicy.rebasedTraversal(
+                shuffledIndices,
+                currentPosition: shufflePosition,
+                removingQueueIndex: removalIndex,
+                queueCount: queueEntries.count
+            ),
+            rebasedTraversal.indices[rebasedTraversal.currentPosition] == rebasedCurrentIndex else {
+                return false
+            }
+
+            let rebasedPending: [Int]?
+            if let pendingNextShuffleIndices {
+                guard let nextRound = QueueUpcomingRemovalPolicy.rebasedIndices(
+                    pendingNextShuffleIndices,
+                    removingQueueIndex: removalIndex,
+                    queueCount: queueEntries.count
+                ) else { return false }
+                rebasedPending = nextRound
+            } else {
+                rebasedPending = nil
+            }
+
+            invalidateQueueTransitions()
+            queueEntries.remove(at: removalIndex)
+            currentIndex = rebasedCurrentIndex
+            shuffledIndices = rebasedTraversal.indices
+            shufflePosition = rebasedTraversal.currentPosition
+            pendingNextShuffleIndices = rebasedPending
+        } else {
+            guard !shuffleEnabled else { return false }
+            invalidateQueueTransitions()
+            queueEntries.remove(at: removalIndex)
+            currentIndex = rebasedCurrentIndex
+            pendingNextShuffleIndices = nil
+        }
+
+        persistPlaybackSession()
+        if currentSong != nil {
+            updateNowPlayingInfo()
+            prefetchNextSong()
+        }
         return true
     }
 

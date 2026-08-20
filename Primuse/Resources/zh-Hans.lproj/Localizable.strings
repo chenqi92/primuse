@@ -535,6 +535,7 @@
 "import_mode" = "导入方式";
 "invalid_url" = "无效的 URL";
 "reorder" = "排序";
+"remove_from_queue" = "从队列中移除";
 "done" = "完成";
 
 // Network Discovery

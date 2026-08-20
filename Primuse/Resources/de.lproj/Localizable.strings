@@ -721,6 +721,7 @@
 "import_mode" = "Importmodus";
 "invalid_url" = "Ungültige URL";
 "reorder" = "Neu anordnen";
+"remove_from_queue" = "Aus der Warteschlange entfernen";
 "discovered_devices" = "Gefundene Geräte";
 "discovering_devices" = "Lokales Netzwerk wird durchsucht …";
 "rescan" = "Erneut suchen";
