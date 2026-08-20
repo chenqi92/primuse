@@ -232,7 +232,11 @@ actor SynologySource: MusicSourceConnector {
             // 清除, 重试再进 connect() 又被 isLoggedIn 短路, 重连永远不发生。
             // 现在: 强制重建会话后原地重试一次。仍失败才向上抛。
             try await reconnect()
-            return try await fetchRangeOnce(path: path, offset: offset, length: length)
+            do {
+                return try await fetchRangeOnce(path: path, offset: offset, length: length)
+            } catch SynologyError.notLoggedIn {
+                throw SourceError.authenticationFailed
+            }
         }
     }
 
@@ -278,10 +282,16 @@ actor SynologySource: MusicSourceConnector {
             // 都视为错误体, 解析错误码 —— 会话类错误清 sid 抛 notLoggedIn 触发
             // reconnect-and-retry, 其余抛 apiError。
             if let error = synologyErrorPacket(data: data, response: http) {
-                if isSessionError(code: error) {
+                switch SynologyFileStationDownloadErrorPolicy.disposition(code: error) {
+                case .reconnectSession:
                     throw SynologyError.notLoggedIn
+                case .missingFile:
+                    throw SourceError.fileNotFound(path)
+                case .sourceUnavailable:
+                    throw SourceError.authenticationFailed
+                case .fail:
+                    throw SynologyError.apiError(synologyErrorMessage(code: error))
                 }
-                throw SynologyError.apiError(synologyErrorMessage(code: error))
             }
             guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
                 bodyLength: data.count,
@@ -438,12 +448,6 @@ actor SynologySource: MusicSourceConnector {
             return -1
         }
         return nil
-    }
-
-    /// 会话过期类错误码: 119 (sid 过期 / 无效)、105/106/107 (会话相关)。
-    /// 这些清 sid 并 reconnect-and-retry; 其余 (如 408 路径不存在) 直接抛。
-    private func isSessionError(code: Int) -> Bool {
-        code == 119 || code == 105 || code == 106 || code == 107 || code == 100
     }
 
     private func synologyErrorMessage(code: Int) -> String {

@@ -792,6 +792,18 @@ struct BaiduSnapshotReconciliationTests {
         ))
     }
 
+    @Test("A missing snapshot child does not restart the selected roots")
+    func missingSnapshotDirectoryDisposition() {
+        #expect(BaiduSnapshotMissingDirectoryPolicy.disposition(
+            missingDirectory: "/Music/Deleted Album",
+            roots: ["/Music"]
+        ) == .discardStaleDescendant)
+        #expect(BaiduSnapshotMissingDirectoryPolicy.disposition(
+            missingDirectory: "/Music",
+            roots: ["/Music", "/Music/Album"]
+        ) == .requiresRootReselection)
+    }
+
     @Test("Account scope fences identity reuse and other provider keys stay unchanged")
     func accountAndProviderIsolation() throws {
         let rawProviderKeys = [

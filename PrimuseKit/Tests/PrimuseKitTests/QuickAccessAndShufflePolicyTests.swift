@@ -338,6 +338,33 @@ struct MetadataBackfillStallPolicyTests {
             hasTransientAttemptsBelowLimit: true
         ))
     }
+
+    @Test("A source outage persists only the request that actually failed")
+    func sourceOutageDoesNotPersistTheWholeSnapshot() {
+        let snapshotIDs = Set((1...300).map { "synology-\($0)" })
+        #expect(MetadataBackfillDeferredRetryPolicy.idsToPersist(
+            failedSongID: "synology-3",
+            snapshotSongIDs: snapshotIDs,
+            cause: .sourceUnavailable
+        ) == ["synology-3"])
+        #expect(MetadataBackfillDeferredRetryPolicy.idsToPersist(
+            failedSongID: nil,
+            snapshotSongIDs: snapshotIDs,
+            cause: .repeatedSnapshot
+        ).isEmpty)
+    }
+}
+
+@Suite("Synology FileStation download error classification")
+struct SynologyFileStationDownloadErrorPolicyTests {
+    @Test("Session, missing-file, and source errors keep distinct meanings")
+    func dispositions() {
+        #expect(SynologyFileStationDownloadErrorPolicy.disposition(code: 119) == .reconnectSession)
+        #expect(SynologyFileStationDownloadErrorPolicy.disposition(code: 408) == .missingFile)
+        #expect(SynologyFileStationDownloadErrorPolicy.disposition(code: 407) == .sourceUnavailable)
+        #expect(SynologyFileStationDownloadErrorPolicy.disposition(code: 410) == .sourceUnavailable)
+        #expect(SynologyFileStationDownloadErrorPolicy.disposition(code: 999) == .fail)
+    }
 }
 
 @Suite("Cloud scan error classification")

@@ -2323,6 +2323,32 @@ public enum MetadataBackfillRetryPolicy {
     }
 }
 
+public enum MetadataBackfillDeferredRetryCause: Sendable, Equatable {
+    case sourceUnavailable
+    case repeatedSnapshot
+}
+
+public enum MetadataBackfillDeferredRetryPolicy {
+    /// Source-level circuit breaking may pause a whole snapshot in memory, but
+    /// persisting every member makes one failed request look like hundreds of
+    /// failed songs on the next launch. Persist only the request that actually
+    /// failed; a generic repeated-snapshot guard is session-only.
+    public static func idsToPersist(
+        failedSongID: String?,
+        snapshotSongIDs: Set<String>,
+        cause: MetadataBackfillDeferredRetryCause
+    ) -> Set<String> {
+        switch cause {
+        case .sourceUnavailable:
+            guard let failedSongID,
+                  snapshotSongIDs.contains(failedSongID) else { return [] }
+            return [failedSongID]
+        case .repeatedSnapshot:
+            return []
+        }
+    }
+}
+
 /// Accepts a server-catalog title as the completed title inspection only when
 /// it contains a real value. Placeholder titles must retain the bounded file
 /// header fallback so incomplete server metadata can still be repaired.
@@ -2397,6 +2423,30 @@ public enum MetadataBackfillStallPolicy {
         !hasTransientAttemptsBelowLimit
             && !previousIDs.isEmpty
             && previousIDs == currentIDs
+    }
+}
+
+public enum SynologyFileStationDownloadErrorDisposition: Sendable, Equatable {
+    case reconnectSession
+    case missingFile
+    case sourceUnavailable
+    case fail
+}
+
+public enum SynologyFileStationDownloadErrorPolicy {
+    public static func disposition(
+        code: Int
+    ) -> SynologyFileStationDownloadErrorDisposition {
+        switch code {
+        case 100, 105, 106, 107, 119:
+            return .reconnectSession
+        case 408:
+            return .missingFile
+        case 407, 410:
+            return .sourceUnavailable
+        default:
+            return .fail
+        }
     }
 }
 

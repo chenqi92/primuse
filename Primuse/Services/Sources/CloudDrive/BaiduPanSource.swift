@@ -1186,28 +1186,73 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             guard !batch.isEmpty else { continue }
 
             do {
-                let listings = try await withThrowingTaskGroup(
-                    of: SnapshotDirectoryListing.self,
-                    returning: [SnapshotDirectoryListing].self
+                let outcomes = try await withThrowingTaskGroup(
+                    of: SnapshotDirectoryListingOutcome.self,
+                    returning: [SnapshotDirectoryListingOutcome].self
                 ) { group in
                     for directory in batch {
                         group.addTask { [self] in
                             try await tracker.reserveDirectory()
-                            return SnapshotDirectoryListing(
-                                directory: directory,
-                                siblings: try await snapshotDirectory(
-                                    at: directory,
-                                    budget: tracker
-                                )
-                            )
+                            do {
+                                return .listing(SnapshotDirectoryListing(
+                                    directory: directory,
+                                    siblings: try await snapshotDirectory(
+                                        at: directory,
+                                        budget: tracker
+                                    )
+                                ))
+                            } catch CloudDriveError.fileNotFound {
+                                return .missing(directory)
+                            }
                         }
                     }
-                    var results: [SnapshotDirectoryListing] = []
+                    var results: [SnapshotDirectoryListingOutcome] = []
                     results.reserveCapacity(batch.count)
                     for try await result in group {
                         results.append(result)
                     }
                     return results
+                }
+
+                var listings: [SnapshotDirectoryListing] = []
+                var missingDirectories: [String] = []
+                listings.reserveCapacity(outcomes.count)
+                missingDirectories.reserveCapacity(outcomes.count)
+                for outcome in outcomes {
+                    switch outcome {
+                    case .listing(let listing):
+                        listings.append(listing)
+                    case .missing(let directory):
+                        missingDirectories.append(directory)
+                    }
+                }
+
+                if let missingRoot = missingDirectories.first(where: {
+                    BaiduSnapshotMissingDirectoryPolicy.disposition(
+                        missingDirectory: $0,
+                        roots: normalizedRoots
+                    ) == .requiresRootReselection
+                }) {
+                    throw SourceRootResolutionError.requiresReselection(missingRoot)
+                }
+                for directory in missingDirectories {
+                    // The parent page was valid when it queued this child, but
+                    // the child vanished before its own paged listing. Count
+                    // that listing attempt as complete and discard the stale
+                    // directory row. Song deletions remain guarded by the
+                    // normal two-snapshot confirmation policy.
+                    traversal.visitedDirectories.insert(directory)
+                    traversal.liveDirectories.remove(directory)
+                    let staleDirectoryKeys = traversal.snapshot.compactMap {
+                        stableKey, item in
+                        item.isDirectory && item.path == directory
+                            ? stableKey
+                            : nil
+                    }
+                    for stableKey in staleDirectoryKeys {
+                        traversal.snapshot[stableKey] = nil
+                    }
+                    snapshotReconciliationListings[directory] = nil
                 }
 
                 let listingsByDirectory = Dictionary(
@@ -1219,7 +1264,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     items: [String: SourceSyncIndexedItem]
                 )] = []
                 var batchStableKeys: Set<String> = []
-                for directory in batch {
+                for directory in batch where !missingDirectories.contains(directory) {
                     guard let listing = listingsByDirectory[directory] else {
                         throw CloudDriveError.invalidResponse
                     }
@@ -1265,10 +1310,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     }
                 }
                 await progress(traversal, await tracker.telemetry())
-            } catch CloudDriveError.fileNotFound {
-                throw BaiduSnapshotExecutionError.snapshotRestartRequired(
-                    await tracker.telemetry()
-                )
             } catch {
                 var queued = Set(traversal.pendingDirectories)
                 for directory in batch.reversed()
@@ -1313,6 +1354,11 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     private struct SnapshotDirectoryListing: Sendable {
         var directory: String
         var siblings: [RemoteFileItem]
+    }
+
+    private enum SnapshotDirectoryListingOutcome: Sendable {
+        case listing(SnapshotDirectoryListing)
+        case missing(String)
     }
 
     private func snapshotDirectoryItems(

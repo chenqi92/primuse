@@ -861,6 +861,25 @@ public enum BaiduSnapshotDirectoryReconciliationPolicy {
     }
 }
 
+public enum BaiduSnapshotMissingDirectoryDisposition: Sendable, Equatable {
+    case requiresRootReselection
+    case discardStaleDescendant
+}
+
+public enum BaiduSnapshotMissingDirectoryPolicy {
+    /// A selected root disappearing invalidates the user's configured scope.
+    /// Descendants can legitimately disappear between the parent listing and
+    /// their own paged listing, so they must not restart the whole snapshot.
+    public static func disposition(
+        missingDirectory: String,
+        roots: [String]
+    ) -> BaiduSnapshotMissingDirectoryDisposition {
+        BaiduSnapshotRootPolicy.normalizedRoots(roots).contains(missingDirectory)
+            ? .requiresRootReselection
+            : .discardStaleDescendant
+    }
+}
+
 public struct BaiduSnapshotResumeState: Codable, Sendable, Equatable {
     public static let currentSchemaVersion = 1
     /// Long enough to survive termination and several user-driven budget

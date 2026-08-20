@@ -200,6 +200,21 @@ final class MetadataBackfillService {
         loadTitleChecked()
         loadDeferredRetries()
 
+        // The first deferred-retry implementation persisted every song in a
+        // source snapshot after one connector failure. That inflated a three-
+        // request network interruption into hundreds of visible retries. Clear
+        // those ambiguous batch markers once; corrected builds persist only the
+        // request that actually failed.
+        let deferredBatchRepairKey = "primuse.backfillDeferredRetryReset.v2026_08_singleFailure"
+        if !UserDefaults.standard.bool(forKey: deferredBatchRepairKey) {
+            if !deferredRetrySongIDs.isEmpty {
+                plog("📥 Backfill: clearing \(deferredRetrySongIDs.count) inflated deferred retry markers")
+                deferredRetrySongIDs.removeAll()
+                saveDeferredRetries()
+            }
+            UserDefaults.standard.set(true, forKey: deferredBatchRepairKey)
+        }
+
         // One-time migration. Earlier builds had an overly-aggressive
         // partial-merge rule that marked any song as failed when head
         // 256KB didn't yield a duration — even if a tail-fetch would
@@ -583,9 +598,11 @@ final class MetadataBackfillService {
                 self.incompleteSongIDs.subtract(ids)
                 self.sourceIssueSongIDs.subtract(ids)
                 self.sessionGivenUpIDs.subtract(ids)
+                self.deferredRetrySongIDs.subtract(ids)
                 self.titleCheckedIDs.subtract(ids)
                 for id in ids { self.transientFailureCounts[id] = nil }
                 self.saveFailed()
+                self.saveDeferredRetries()
                 self.saveTitleChecked()
                 self.start()
             }
@@ -1152,11 +1169,16 @@ final class MetadataBackfillService {
                 hasTransientAttemptsBelowLimit: hasTransientAttemptsBelowLimit
             ) {
                 sessionGivenUpIDs.formUnion(snapIDs)
-                deferredRetrySongIDs.formUnion(snapIDs)
+                let deferredIDs = MetadataBackfillDeferredRetryPolicy.idsToPersist(
+                    failedSongID: nil,
+                    snapshotSongIDs: snapIDs,
+                    cause: .repeatedSnapshot
+                )
+                deferredRetrySongIDs.formUnion(deferredIDs)
                 for parkedID in snapIDs {
                     transientFailureCounts[parkedID] = nil
                 }
-                saveDeferredRetries()
+                if !deferredIDs.isEmpty { saveDeferredRetries() }
                 refreshRemainingCounts(force: true)
                 plog("⚠️ Backfill: pickNextBatch returned the same \(snapIDs.count) IDs after a full round — parked for this session")
                 break
@@ -1241,8 +1263,13 @@ final class MetadataBackfillService {
                     )
                     let wasAlreadyParked = sourceSongIDs.isSubset(of: sessionGivenUpIDs)
                     sessionGivenUpIDs.formUnion(sourceSongIDs)
-                    deferredRetrySongIDs.formUnion(sourceSongIDs)
-                    saveDeferredRetries()
+                    let deferredIDs = MetadataBackfillDeferredRetryPolicy.idsToPersist(
+                        failedSongID: songID,
+                        snapshotSongIDs: sourceSongIDs,
+                        cause: .sourceUnavailable
+                    )
+                    deferredRetrySongIDs.formUnion(deferredIDs)
+                    if !deferredIDs.isEmpty { saveDeferredRetries() }
                     for parkedID in sourceSongIDs {
                         transientFailureCounts[parkedID] = nil
                     }
@@ -1447,6 +1474,7 @@ final class MetadataBackfillService {
     /// transient (never persisted as a bad song), but should trip the
     /// per-session source circuit breaker immediately.
     static func isSourceUnavailableBackfillError(_ error: Error) -> Bool {
+        if error is SourceConnectionTerminalError { return true }
         switch error {
         case SourceError.authenticationFailed, SourceError.credentialUnavailable,
              CloudDriveError.notAuthenticated, CloudDriveError.tokenExpired,
