@@ -43,15 +43,11 @@ actor SidecarWriteService {
         guard connector.supportsSidecarWriting else {
             throw SourceError.connectionFailed("Source does not support sidecar writing")
         }
-        let target = Self.lyricsTargetPath(for: song)
-        let directory = (target as NSString).deletingLastPathComponent
-        let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
-        let targetName = (target as NSString).lastPathComponent
-        let exists = items.contains { !$0.isDirectory && $0.name.caseInsensitiveCompare(targetName) == .orderedSame }
+        let target = try await lyricsTarget(for: song, using: connector)
         return LyricsPreflightResult(
-            targetPath: target,
-            fileName: targetName,
-            replacesExistingFile: exists
+            targetPath: target.targetPath,
+            fileName: target.fileName,
+            replacesExistingFile: target.exists
         )
     }
 
@@ -107,20 +103,19 @@ actor SidecarWriteService {
             let sidecarContent = lyricsContent?.trimmingCharacters(in: .newlines)
                 ?? LyricsContentParser.serialize(lyricsLines)
             if let sidecarData = sidecarContent.data(using: .utf8) {
-                let lyricsPath = Self.lyricsTargetPath(for: song)
-                let lyricsFileName = (lyricsPath as NSString).lastPathComponent
                 do {
+                    let target = try await lyricsTarget(for: song, using: connector)
                     try await connector.writeFile(
                         data: sidecarData,
-                        to: lyricsPath,
+                        to: target.targetPath,
                         priority: .background
                     )
                     result.lyricsWritten = true
-                    plog("📁 Sidecar: \(lyricsFileName) written to \(songDir)")
+                    plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
                 } catch {
                     result.errors.append("Lyrics: \(error.localizedDescription)")
                     result.sourceUnavailable = Self.isSourceUnavailable(error)
-                    plog("⚠️ Sidecar: Failed to write \(lyricsFileName): \(error)")
+                    plog("⚠️ Sidecar: Failed to write lyrics: \(error)")
                 }
             }
         }
@@ -138,24 +133,19 @@ actor SidecarWriteService {
             return result
         }
 
-        let target = Self.lyricsTargetPath(for: song)
-        let directory = (target as NSString).deletingLastPathComponent
-        let targetName = (target as NSString).lastPathComponent
         do {
-            let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
-            guard items.contains(where: {
-                !$0.isDirectory && $0.name.caseInsensitiveCompare(targetName) == .orderedSame
-            }) else {
+            let target = try await lyricsTarget(for: song, using: connector)
+            guard target.exists else {
                 result.lyricsRemoved = true
                 return result
             }
-            try await connector.deleteFile(at: target)
+            try await connector.deleteFile(at: target.targetPath)
             result.lyricsRemoved = true
-            plog("📁 Sidecar: \(targetName) removed from \(directory)")
+            plog("📁 Sidecar: \(target.fileName) removed")
         } catch {
             result.errors.append("Lyrics: \(error.localizedDescription)")
             result.sourceUnavailable = Self.isSourceUnavailable(error)
-            plog("⚠️ Sidecar: Failed to remove \(targetName): \(error)")
+            plog("⚠️ Sidecar: Failed to remove lyrics: \(error)")
         }
         return result
     }
@@ -180,6 +170,27 @@ actor SidecarWriteService {
             }
         }
         return (songDir as NSString).appendingPathComponent("\(songBase).lrc")
+    }
+
+    private func lyricsTarget(
+        for song: Song,
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsSidecarTarget {
+        if let resolver = connector as? any LyricsSidecarTargetResolving {
+            return try await resolver.lyricsSidecarTarget(for: song)
+        }
+
+        let targetPath = Self.lyricsTargetPath(for: song)
+        let directory = (targetPath as NSString).deletingLastPathComponent
+        let fileName = (targetPath as NSString).lastPathComponent
+        let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
+        return LyricsSidecarTarget(
+            targetPath: targetPath,
+            fileName: fileName,
+            exists: items.contains {
+                !$0.isDirectory && $0.name.caseInsensitiveCompare(fileName) == .orderedSame
+            }
+        )
     }
 
     private nonisolated static func isSourceUnavailable(_ error: Error) -> Bool {

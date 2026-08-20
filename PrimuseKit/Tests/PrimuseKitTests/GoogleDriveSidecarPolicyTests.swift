@@ -12,6 +12,13 @@ struct GoogleDriveSidecarPolicyTests {
                     suffix: ".lrc"
                 )
         )
+        #expect(
+            GoogleDriveSidecarPolicy.reference(from: "opaque-file-id.ttml")
+                == GoogleDriveSidecarReference(
+                    sourceFileID: "opaque-file-id",
+                    suffix: ".ttml"
+                )
+        )
     }
 
     @Test func parsesCoverVirtualPath() {
@@ -27,6 +34,7 @@ struct GoogleDriveSidecarPolicyTests {
     @Test func rejectsUnsupportedOrEmptyVirtualPath() {
         #expect(GoogleDriveSidecarPolicy.reference(from: "opaque-file-id.txt") == nil)
         #expect(GoogleDriveSidecarPolicy.reference(from: ".lrc") == nil)
+        #expect(GoogleDriveSidecarPolicy.reference(from: ".ttml") == nil)
         #expect(GoogleDriveSidecarPolicy.reference(from: "-cover.jpg") == nil)
     }
 
@@ -37,5 +45,35 @@ struct GoogleDriveSidecarPolicyTests {
                 suffix: ".lrc"
             ) == "组合字符 é 与中文.lrc"
         )
+    }
+
+    @Test func preservesAnExistingTTMLSidecar() {
+        #expect(
+            GoogleDriveSidecarPolicy.preferredLyricsSuffix(
+                sourceFileName: "Track.flac",
+                siblingNames: ["TRACK.TTML"]
+            ) == ".ttml"
+        )
+        #expect(
+            GoogleDriveSidecarPolicy.preferredLyricsSuffix(
+                sourceFileName: "Track.flac",
+                siblingNames: ["Track.ttml", "Track.lrc"]
+            ) == ".lrc"
+        )
+        #expect(
+            GoogleDriveSidecarPolicy.preferredLyricsSuffix(
+                sourceFileName: "Track.flac",
+                siblingNames: []
+            ) == ".lrc"
+        )
+    }
+
+    @Test func usesTextMIMETypesForEveryLyricsFormat() {
+        #expect(GoogleDriveSidecarPolicy.mimeType(for: ".lrc") == "text/plain; charset=utf-8")
+        #expect(
+            GoogleDriveSidecarPolicy.mimeType(for: ".ttml")
+                == "application/ttml+xml"
+        )
+        #expect(GoogleDriveSidecarPolicy.mimeType(for: "-cover.jpg") == "image/jpeg")
     }
 }

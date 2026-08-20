@@ -5252,7 +5252,9 @@ private extension SourceManager {
         let songBase = (songFileName as NSString).deletingPathExtension
 
         var paths: [String] = []
-        paths.append((songDir as NSString).appendingPathComponent("\(songBase).lrc"))
+        for ext in PrimuseConstants.supportedLyricsExtensions {
+            paths.append((songDir as NSString).appendingPathComponent("\(songBase).\(ext)"))
+        }
         paths.append((songDir as NSString).appendingPathComponent("\(songBase)-cover.jpg"))
 
         if let lyricsRef = song.lyricsFileName, isSafeLyricsSidecar(lyricsRef, for: song) {

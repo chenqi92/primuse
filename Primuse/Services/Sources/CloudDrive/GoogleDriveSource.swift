@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// Google Drive Source — Drive API v3
-actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding, IncrementalMusicSourceConnector {
+actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding, IncrementalMusicSourceConnector, LyricsSidecarTargetResolving {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Google Drive 同目录
     private let helper: CloudDriveHelper
@@ -12,7 +12,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     private static let reversedClientIdKey = "PrimuseGoogleReversedClientID"
 
     /// 写 sidecar 到 Google Drive。filePath 是 file ID,SidecarWriteService 拼的 `to`
-    /// 形如 "{fileID}-cover.jpg" / "{fileID}.lrc"。反解出源 file → 查名+父目录 → multipart 上传。
+    /// 形如 "{fileID}-cover.jpg" / "{fileID}.lrc" / "{fileID}.ttml"。
+    /// 反解出源 file → 查名+父目录 → multipart 上传。
     func writeFile(data: Data, to path: String) async throws {
         guard let reference = GoogleDriveSidecarPolicy.reference(from: path) else {
             throw CloudDriveError.invalidResponse
@@ -29,7 +30,9 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             initialToken: token,
             refresh: refreshToken
         ) { @Sendable tok in
-            let mime = reference.suffix == ".lrc" ? "text/plain; charset=utf-8" : "image/jpeg"
+            guard let mime = GoogleDriveSidecarPolicy.mimeType(for: reference.suffix) else {
+                throw CloudDriveError.invalidResponse
+            }
             let request: URLRequest
 
             if let existingID {
@@ -141,6 +144,30 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         return matches.max {
             ($0.modifiedDate ?? .distantPast) < ($1.modifiedDate ?? .distantPast)
         }?.path
+    }
+
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        let lrcReference = GoogleDriveSidecarReference(
+            sourceFileID: song.filePath,
+            suffix: ".lrc"
+        )
+        let lrcContext = try await sidecarContext(for: lrcReference)
+        let siblings = try await listFiles(at: lrcContext.parentID)
+        let suffix = GoogleDriveSidecarPolicy.preferredLyricsSuffix(
+            sourceFileName: lrcContext.name,
+            siblingNames: siblings.filter { !$0.isDirectory }.map(\.name)
+        )
+        let fileName = GoogleDriveSidecarPolicy.targetName(
+            sourceFileName: lrcContext.name,
+            suffix: suffix
+        )
+        return LyricsSidecarTarget(
+            targetPath: song.filePath + suffix,
+            fileName: fileName,
+            exists: siblings.contains {
+                !$0.isDirectory && $0.name.caseInsensitiveCompare(fileName) == .orderedSame
+            }
+        )
     }
 
     private func resolvedDownloadPath(for path: String) async throws -> String {
@@ -496,8 +523,9 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     /// updated resource to explicitly confirm `trashed=true`.
     func deleteFile(at path: String) async throws {
         guard !path.isEmpty else { throw CloudDriveError.invalidResponse }
+        let resolvedPath = try await resolvedDownloadPath(for: path)
         let token = try await getToken()
-        var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!
+        var components = URLComponents(string: "\(Self.apiBase)/files/\(resolvedPath)")!
         components.queryItems = [
             .init(name: "supportsAllDrives", value: "true"),
             .init(name: "fields", value: "id,trashed"),
@@ -520,7 +548,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         guard json["trashed"] as? Bool == true else {
             throw CloudDriveError.apiError(http.statusCode, "Google Drive did not confirm trashed=true")
         }
-        plog("🗑️ Google Drive item moved to trash: \(path)")
+        plog("🗑️ Google Drive item moved to trash: \(resolvedPath)")
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {

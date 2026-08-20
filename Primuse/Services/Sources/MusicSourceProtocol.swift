@@ -423,6 +423,16 @@ protocol MusicSourceConnector: Sendable {
     func prefetchMetadata(paths: [String]) async
 }
 
+struct LyricsSidecarTarget: Sendable, Equatable {
+    let targetPath: String
+    let fileName: String
+    let exists: Bool
+}
+
+protocol LyricsSidecarTargetResolving: MusicSourceConnector {
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget
+}
+
 extension MusicSourceConnector {
     var supportsSidecarWriting: Bool { false }
     var preferredDeleteBatchSize: Int { 1 }

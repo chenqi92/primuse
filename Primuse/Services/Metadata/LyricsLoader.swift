@@ -47,15 +47,7 @@ enum LyricsLoader {
                 }
             }
 
-            let songDir = (song.filePath as NSString).deletingLastPathComponent
-            let baseName = ((song.filePath as NSString).lastPathComponent as NSString)
-                .deletingPathExtension
-            let lyricsPath: String
-            if let ref = song.lyricsFileName, ref.contains("/") {
-                lyricsPath = ref
-            } else {
-                lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
-            }
+            let lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
             let data = try await connector.fetchRange(
                 path: lyricsPath,
                 offset: 0,
@@ -147,14 +139,7 @@ enum LyricsLoader {
                 }
             }
 
-            let songDir = (song.filePath as NSString).deletingLastPathComponent
-            let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
-            let lyricsPath: String
-            if let ref = song.lyricsFileName, ref.contains("/") {
-                lyricsPath = ref
-            } else {
-                lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
-            }
+            let lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
             let lyricsData = try await connector.fetchRange(
                 path: lyricsPath,
                 offset: 0,
@@ -202,5 +187,21 @@ enum LyricsLoader {
         text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func lyricsSourcePath(
+        for song: Song,
+        connector: any MusicSourceConnector
+    ) async throws -> String {
+        if let resolver = connector as? any LyricsSidecarTargetResolving {
+            return try await resolver.lyricsSidecarTarget(for: song).targetPath
+        }
+        let songDir = (song.filePath as NSString).deletingLastPathComponent
+        let baseName = ((song.filePath as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+        if let ref = song.lyricsFileName, ref.contains("/") {
+            return ref
+        }
+        return (songDir as NSString).appendingPathComponent("\(baseName).lrc")
     }
 }
