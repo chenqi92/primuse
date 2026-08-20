@@ -253,7 +253,7 @@ final class AppServices {
         await playbackRestore
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        let pruneThreshold = Date(timeIntervalSinceNow: -30 * 24 * 60 * 60)
+        let pruneThreshold = RecoverableDeletionPolicy.pruneThreshold()
         musicLibrary.prunePlaylists(deletedBefore: pruneThreshold)
         let sourcePruneResults = sourcesStore.pruneSources(deletedBefore: pruneThreshold)
         let sourcePruneFailures = sourcePruneResults.filter {

@@ -821,7 +821,7 @@
 "credentials_channel_footer" = "자격 증명 채널: 끄면 새 비밀번호와 토큰은 이 기기에만 남습니다. 이미 iCloud 키체인에 있는 항목은 설정 → Apple ID → iCloud → 비밀번호 및 키체인에서 관리됩니다.";
 "recently_deleted" = "최근 삭제된 항목";
 "recently_deleted_empty" = "최근 삭제된 항목 없음";
-"recently_deleted_empty_desc" = "삭제된 재생 목록, 음악 소스, 스크레이퍼 구성은 여기에 7일간 보관됩니다.";
+"recently_deleted_empty_desc" = "삭제된 재생 목록, 음악 소스, 스크레이퍼 구성은 여기에 30일간 보관됩니다.";
 "recently_deleted_playlists" = "재생 목록";
 "recently_deleted_sources" = "음악 소스";
 "recently_deleted_scraper_configs" = "스크레이퍼 구성";

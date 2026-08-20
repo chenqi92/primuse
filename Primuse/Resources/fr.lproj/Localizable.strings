@@ -821,7 +821,7 @@
 "credentials_channel_footer" = "Canal des identifiants : lorsqu'il est désactivé, les nouveaux mots de passe et jetons restent sur cet appareil ; les entrées déjà présentes dans le trousseau iCloud se gèrent dans Réglages → Identifiant Apple → iCloud → Mots de passe et trousseau.";
 "recently_deleted" = "Supprimés récemment";
 "recently_deleted_empty" = "Aucun élément supprimé récemment";
-"recently_deleted_empty_desc" = "Les listes de lecture, sources de musique et configurations de récupération supprimées sont conservées ici pendant 7 jours.";
+"recently_deleted_empty_desc" = "Les listes de lecture, sources de musique et configurations de récupération supprimées sont conservées ici pendant 30 jours.";
 "recently_deleted_playlists" = "Listes de lecture";
 "recently_deleted_sources" = "Sources de musique";
 "recently_deleted_scraper_configs" = "Configurations de récupération";

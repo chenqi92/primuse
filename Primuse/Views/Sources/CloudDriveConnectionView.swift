@@ -762,7 +762,7 @@ struct CloudDriveConnectionView: View {
                 // until the browser has returned a successful authorization.
                 // Cancelling or failing a different-account attempt therefore
                 // leaves every existing source untouched.
-                try await CloudOAuthCredentialTransaction.authorizeThenCommit {
+                let authorizedTokens = try await CloudOAuthCredentialTransaction.authorizeThenCommit {
                     try await OAuthService.shared.authorize(
                         config: config,
                         loginIntent: loginIntent
@@ -783,6 +783,7 @@ struct CloudDriveConnectionView: View {
 
                 // Refresh the connector so it picks up the new tokens
                 await sourceManager.refreshConnector(for: source.id)
+                await applyGoogleDrivePickerSelection(from: authorizedTokens)
 
                 // Stage 4a: identify the upstream OAuth account and
                 // link this mount to a CloudAccount entity. Same
@@ -810,6 +811,35 @@ struct CloudDriveConnectionView: View {
                 withAnimation { step = .failed }
             }
         }
+    }
+
+    private func applyGoogleDrivePickerSelection(from tokens: CloudTokenManager.Tokens) async {
+        guard source.type == .googleDrive,
+              let raw = tokens.extra?["picked_file_ids"] else {
+            return
+        }
+        var seen: Set<String> = []
+        let pickedIDs = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        guard !pickedIDs.isEmpty else { return }
+
+        selectedDirectories = pickedIDs
+        guard let provider = sourceManager.connector(for: source)
+            as? RemoteFileDisplayNameProviding else {
+            return
+        }
+        var names: [String: String] = [:]
+        for id in pickedIDs {
+            guard let name = try? await provider.displayName(for: id),
+                  !name.isEmpty else {
+                continue
+            }
+            names[id] = name
+            CloudDirectoryNameStore.saveName(name, for: id, sourceID: source.id)
+        }
+        sourcesStore.mergeDirectoryDisplayNames(names, sourceID: source.id)
     }
 
     private func credentialMessage(for error: CloudDriveError) -> String {

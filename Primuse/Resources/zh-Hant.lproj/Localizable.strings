@@ -609,7 +609,7 @@
 "credentials_channel_footer" = "憑證通道：關閉後新寫入的密碼與 token 僅儲存在本機；已上傳到 iCloud 鑰匙圈的舊項目需至系統設定 → Apple ID → iCloud → 密碼與鑰匙圈 中處理。";
 "recently_deleted" = "最近刪除";
 "recently_deleted_empty" = "沒有最近刪除項目";
-"recently_deleted_empty_desc" = "歌單、音樂來源和刮削設定刪除後會在此保留 7 天。";
+"recently_deleted_empty_desc" = "歌單、音樂來源和刮削設定刪除後會在此保留 30 天。";
 "recently_deleted_playlists" = "歌單";
 "recently_deleted_sources" = "音樂來源";
 "recently_deleted_scraper_configs" = "刮削設定";

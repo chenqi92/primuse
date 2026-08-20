@@ -666,7 +666,7 @@
 // MARK: - 最近删除（回收站）
 "recently_deleted" = "最近删除";
 "recently_deleted_empty" = "没有最近删除项";
-"recently_deleted_empty_desc" = "歌单、音乐源和刮削配置删除后会在此保留 7 天。";
+"recently_deleted_empty_desc" = "歌单、音乐源和刮削配置删除后会在此保留 30 天。";
 "recently_deleted_playlists" = "歌单";
 "recently_deleted_sources" = "音乐源";
 "recently_deleted_scraper_configs" = "刮削配置";
