@@ -191,6 +191,17 @@ struct SongListSnapshotTests {
         #expect(elapsed < .seconds(3))
     }
 
+    @Test("Large iOS lists use lazy presentation at the guarded boundary")
+    func choosesLargeLibraryPresentation() {
+        let threshold = SongListPresentationPolicy.lazyStackSongCountThreshold
+
+        #expect(threshold == 5_000)
+        #expect(!SongListPresentationPolicy.prefersLazyStack(songCount: 0))
+        #expect(!SongListPresentationPolicy.prefersLazyStack(songCount: threshold - 1))
+        #expect(SongListPresentationPolicy.prefersLazyStack(songCount: threshold))
+        #expect(SongListPresentationPolicy.prefersLazyStack(songCount: 20_000))
+    }
+
     @Test("Build cancellation stops obsolete sort work cooperatively")
     func cancelsObsoleteBuild() async {
         let songs = (0..<20_000).map { index in

@@ -2434,9 +2434,8 @@ struct SongListView: View {
     }
 }
 
-/// Sorting changes only the visible models attached to stable positions, not
-/// the List's 20,000 structural children. Equatable also isolates unrelated
-/// parent state such as the Picker binding.
+/// Sorting changes only the visible models attached to stable positions.
+/// Equatable also isolates unrelated parent state such as the Picker binding.
 private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let selection: SongSelectionModel
@@ -2446,18 +2445,41 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         lhs.cache === rhs.cache && lhs.selection === rhs.selection
     }
 
+    @ViewBuilder
     var body: some View {
-        List {
-            ForEach(0..<cache.positionCount, id: \.self) { position in
-                IOSSongListPositionRow(
-                    position: position,
-                    cache: cache,
-                    selection: selection,
-                    onPlay: onPlay
-                )
+        if SongListPresentationPolicy.prefersLazyStack(
+            songCount: cache.positionCount
+        ) {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(0..<cache.positionCount, id: \.self) { position in
+                        IOSSongListPositionRow(
+                            position: position,
+                            cache: cache,
+                            selection: selection,
+                            onPlay: onPlay
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .overlay(alignment: .bottom) {
+                            Divider().padding(.leading, 70)
+                        }
+                    }
+                }
             }
+        } else {
+            List {
+                ForEach(0..<cache.positionCount, id: \.self) { position in
+                    IOSSongListPositionRow(
+                        position: position,
+                        cache: cache,
+                        selection: selection,
+                        onPlay: onPlay
+                    )
+                }
+            }
+            .listStyle(.plain)
         }
-        .listStyle(.plain)
     }
 }
 
@@ -3106,7 +3128,7 @@ private struct IOSSongListPositionRow: View {
                         orderedIDs: { cache.orderedSongIDs },
                         defaultAction: { onPlay(model.song) }
                     )
-                    // The structural List identity stays bound to `position`,
+                    // The structural identity stays bound to `position`,
                     // while VoiceOver tracks the song currently occupying it.
                     .accessibilityIdentifier("songRow.\(row.id)")
             }

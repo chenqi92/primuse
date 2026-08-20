@@ -16,6 +16,18 @@ public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case format
 }
 
+/// Selects the iOS song-list container without coupling the policy to SwiftUI.
+/// Native `List` performs an expensive whole-structure diff when a large
+/// library publishes a new song count, while a lazy stack only resolves the
+/// visible positions.
+public enum SongListPresentationPolicy {
+    public static let lazyStackSongCountThreshold = 5_000
+
+    public static func prefersLazyStack(songCount: Int) -> Bool {
+        songCount >= lazyStackSongCountThreshold
+    }
+}
+
 /// Generation-bound UI state for an explicit song-list sort. The state stays
 /// active after the worker finishes when publication is deferred by scrolling,
 /// and ignores stale callbacks from superseded requests.
