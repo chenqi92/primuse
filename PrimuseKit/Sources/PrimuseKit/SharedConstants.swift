@@ -3560,6 +3560,17 @@ public struct QueueTraversalRemovalResult: Equatable, Sendable {
 }
 
 public enum QueueUpcomingRemovalPolicy {
+    /// Removing an entry only invalidates already-started successor preparation
+    /// when that exact queue slot is the immediate successor. Song identity is
+    /// deliberately insufficient because the same song may occupy several
+    /// independent queue slots.
+    public static func shouldCancelSuccessorPreparation(
+        removing occurrence: QueueReorderOccurrenceID,
+        immediateSuccessorQueueEntryID: UUID?
+    ) -> Bool {
+        occurrence.queueEntryID == immediateSuccessorQueueEntryID
+    }
+
     public static func queueIndex(
         for occurrence: QueueReorderOccurrenceID,
         currentQueueEntryID: UUID,

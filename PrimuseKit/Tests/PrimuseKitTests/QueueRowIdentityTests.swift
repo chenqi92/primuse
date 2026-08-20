@@ -330,6 +330,22 @@ struct QueueUpcomingRemovalPolicyTests {
         ) == nil)
     }
 
+    @Test("Only the exact immediate successor cancels transition preparation")
+    func cancelsPreparationOnlyForImmediateSuccessor() {
+        #expect(QueueUpcomingRemovalPolicy.shouldCancelSuccessorPreparation(
+            removing: occurrence(first),
+            immediateSuccessorQueueEntryID: first
+        ))
+        #expect(!QueueUpcomingRemovalPolicy.shouldCancelSuccessorPreparation(
+            removing: occurrence(second),
+            immediateSuccessorQueueEntryID: first
+        ))
+        #expect(!QueueUpcomingRemovalPolicy.shouldCancelSuccessorPreparation(
+            removing: occurrence(first),
+            immediateSuccessorQueueEntryID: nil
+        ))
+    }
+
     @Test("Removing a raw slot preserves shuffle order and the current position")
     func rebasesShuffleTraversal() {
         let result = QueueUpcomingRemovalPolicy.rebasedTraversal(

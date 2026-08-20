@@ -225,6 +225,7 @@ private final class GaplessTransitionState: @unchecked Sendable {
 }
 
 private struct GaplessPreparedTrack: @unchecked Sendable {
+    let queueEntryID: UUID
     let song: Song
     let url: URL
     let decoderKind: AudioPlayerService.DecoderKind
@@ -6679,6 +6680,18 @@ final class AudioPlayerService {
             queueEntryIDs: queueEntries.map(\.id),
             upcomingOccurrences: currentUpcoming
         ) else { return false }
+        let shouldCancelSuccessorPreparation = QueueUpcomingRemovalPolicy
+            .shouldCancelSuccessorPreparation(
+                removing: occurrence,
+                immediateSuccessorQueueEntryID: nextQueueEntryInQueue()?.id
+            )
+
+        // Keep the active transport and its end-of-track ticket intact. The
+        // old implementation called invalidateQueueTransitions() for every
+        // removal, which seeks the current song and creates an audible gap even
+        // when an unrelated Up Next slot was deleted. Only preparation for the
+        // exact successor can become stale; its boundary callback will resolve
+        // the newly rebased queue when the current track naturally finishes.
 
         let rebasedCurrentIndex = currentIndex - (removalIndex < currentIndex ? 1 : 0)
         if usesManagedShuffleOrder {
@@ -6704,7 +6717,10 @@ final class AudioPlayerService {
                 rebasedPending = nil
             }
 
-            invalidateQueueTransitions()
+            if shouldCancelSuccessorPreparation {
+                cancelGaplessTasks()
+                cancelCrossfadeAttempt()
+            }
             queueEntries.remove(at: removalIndex)
             currentIndex = rebasedCurrentIndex
             shuffledIndices = rebasedTraversal.indices
@@ -6712,7 +6728,10 @@ final class AudioPlayerService {
             pendingNextShuffleIndices = rebasedPending
         } else {
             guard !shuffleEnabled else { return false }
-            invalidateQueueTransitions()
+            if shouldCancelSuccessorPreparation {
+                cancelGaplessTasks()
+                cancelCrossfadeAttempt()
+            }
             queueEntries.remove(at: removalIndex)
             currentIndex = rebasedCurrentIndex
             pendingNextShuffleIndices = nil
@@ -6920,7 +6939,7 @@ final class AudioPlayerService {
         guard shouldAttemptGapless(settings: settings),
               queueGeneration == transition.queueGeneration,
               let prepared = transition.prepared,
-              nextSongInQueue()?.id == prepared.song.id else {
+              nextQueueEntryInQueue()?.id == prepared.queueEntryID else {
             transition.shouldCancelPreparation = true
             gaplessPreparationTask?.cancel()
             gaplessPreparationTask = nil
@@ -7058,7 +7077,8 @@ final class AudioPlayerService {
               queueGeneration == transition.queueGeneration,
               !transition.shouldCancelPreparation,
               shouldAttemptGapless(settings: playbackSettings.snapshot()),
-              let nextSong = nextSongInQueue() else { return }
+              let nextEntry = nextQueueEntryInQueue() else { return }
+        let nextSong = nextEntry.song
 
         var nextURL: URL
         var nextDecoderKind: DecoderKind
@@ -7105,6 +7125,7 @@ final class AudioPlayerService {
             didMarkPrepared = true
             transition.bufferGate = gate
             transition.prepared = GaplessPreparedTrack(
+                queueEntryID: nextEntry.id,
                 song: nextSong,
                 url: nextURL,
                 decoderKind: nextDecoderKind,
@@ -7244,6 +7265,7 @@ final class AudioPlayerService {
             )
             return
         }
+        let hadAudibleTransition = isCrossfading || crossfadeTimer != nil
         let hadActiveAttempt = crossfadeAttemptID != nil
             || crossfadeStartupTask != nil
             || crossfadeDecodingTask != nil
@@ -7264,6 +7286,8 @@ final class AudioPlayerService {
         crossfadeSwapDone = false
         if hadActiveAttempt {
             audioEngine.stopCrossfadeNode()
+        }
+        if hadAudibleTransition {
             audioEngine.resetPlayerVolume()
         }
     }
