@@ -3702,7 +3702,7 @@ private struct IOSSongListPositionRow: View {
                         orderedIDs: { cache.orderedSongIDs },
                         defaultAction: { onPlay(model.song) }
                     )
-                    // The structural List identity stays bound to `position`,
+                    // The structural identity stays bound to `position`,
                     // while VoiceOver tracks the song currently occupying it.
                     .accessibilityIdentifier("songRow.\(row.id)")
                 #endif
