@@ -217,6 +217,23 @@ import Testing
     }
 }
 
+@Test func localSourcePresentationMatchesCurrentPlatform() {
+    let subtitle = MusicSourceType.local.subtitle
+    let icon = MusicSourceType.local.iconName
+    #if os(macOS)
+    #expect(!subtitle.localizedCaseInsensitiveContains("iPhone"))
+    #expect(subtitle.localizedCaseInsensitiveContains("Mac"))
+    #expect(icon == "desktopcomputer")
+    #elseif os(tvOS)
+    #expect(!subtitle.localizedCaseInsensitiveContains("iPhone"))
+    #expect(subtitle.localizedCaseInsensitiveContains("Apple TV"))
+    #expect(icon == "appletv")
+    #else
+    #expect(subtitle.localizedCaseInsensitiveContains("iPhone"))
+    #expect(icon == "iphone")
+    #endif
+}
+
 @Test func testVideoFormatRouting() {
     #expect(VideoFormat.from(fileExtension: "MP4") == .mp4)
     #expect(VideoFormat.mov.isNativelyPlayable == true)

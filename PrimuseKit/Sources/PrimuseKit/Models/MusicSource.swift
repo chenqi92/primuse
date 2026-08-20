@@ -172,7 +172,14 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .pan115: return "cloud.fill"
         case .pan123: return "cloud.fill"
         case .appleMusic: return "music.note"
-        case .local: return "iphone"
+        case .local:
+            #if os(macOS)
+            return "desktopcomputer"
+            #elseif os(tvOS)
+            return "appletv"
+            #else
+            return "iphone"
+            #endif
         case .appleMusicLibrary: return "music.note.house"
         }
     }
@@ -454,7 +461,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             return String(localized: "src.subtitle.pan123", bundle: Bundle.primuseKit)
         case .appleMusic: return "Apple Music"
         case .local:
+            #if os(macOS)
+            return PMString("src.subtitle.local.mac")
+            #elseif os(tvOS)
+            return PMString("src.subtitle.local.tv")
+            #else
             return PMString("src.subtitle.local")
+            #endif
         case .appleMusicLibrary:
             return PMString("src.subtitle.appleMusicLibrary")
         }

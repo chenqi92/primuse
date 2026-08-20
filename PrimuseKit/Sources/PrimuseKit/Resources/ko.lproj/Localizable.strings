@@ -404,6 +404,8 @@
 "src.displayName.local" = "로컬";
 "src.displayName.appleMusicLibrary" = "Apple Music 보관함";
 "src.subtitle.local" = "iPhone 저장 공간";
+"src.subtitle.local.mac" = "Mac 저장 공간";
+"src.subtitle.local.tv" = "Apple TV 저장 공간";
 "src.subtitle.appleMusicLibrary" = "로컬 Apple Music / iTunes";
 "ext.tv.sources.apiPending" = "API 공개 대기";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · 공유 폴더";

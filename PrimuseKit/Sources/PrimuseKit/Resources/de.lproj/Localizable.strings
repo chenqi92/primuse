@@ -404,6 +404,8 @@
 "src.displayName.local" = "Lokal";
 "src.displayName.appleMusicLibrary" = "Apple Music-Mediathek";
 "src.subtitle.local" = "iPhone-Speicher";
+"src.subtitle.local.mac" = "Mac-Speicher";
+"src.subtitle.local.tv" = "Apple-TV-Speicher";
 "src.subtitle.appleMusicLibrary" = "Lokales Apple Music / iTunes";
 "ext.tv.sources.apiPending" = "API ausstehend";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · Freigegebene Ordner";
