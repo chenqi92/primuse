@@ -144,6 +144,41 @@ struct NowPlayingLandscapePolicyTests {
     }
 }
 
+@Suite("Now Playing regular player layout policy")
+struct NowPlayingPlayerLayoutPolicyTests {
+    @Test("Portrait keeps the vertical composition")
+    func portraitLayout() {
+        #expect(NowPlayingPlayerLayoutPolicy.mode(
+            viewportWidth: 393,
+            viewportHeight: 852,
+            prefersWideColumns: false
+        ) == .portrait)
+    }
+
+    @Test("Compact-width landscape uses the short-height composition")
+    func compactLandscapeLayout() {
+        #expect(NowPlayingPlayerLayoutPolicy.mode(
+            viewportWidth: 852,
+            viewportHeight: 393,
+            prefersWideColumns: false
+        ) == .compactLandscape)
+        #expect(NowPlayingPlayerLayoutPolicy.mode(
+            viewportWidth: 667,
+            viewportHeight: 375,
+            prefersWideColumns: false
+        ) == .compactLandscape)
+    }
+
+    @Test("Regular-width landscape keeps the two-column iPad layout")
+    func wideLandscapeLayout() {
+        #expect(NowPlayingPlayerLayoutPolicy.mode(
+            viewportWidth: 1_366,
+            viewportHeight: 1_024,
+            prefersWideColumns: true
+        ) == .wideLandscape)
+    }
+}
+
 @Suite("Lyrics background tap policy")
 struct LyricsBackgroundTapPolicyTests {
     @Test("Unused lyric space can switch the normal surface")

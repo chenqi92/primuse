@@ -1,6 +1,7 @@
 import Foundation
 import CoreFoundation
 import CryptoKit
+import ImageIO
 
 /// Reconciles the local and synchronizable Keychain variants used for cloud
 /// OAuth credentials. A rotation is durable only when no obsolete variant can
@@ -2873,6 +2874,79 @@ public enum WAVEHeaderParser {
 /// The check parses only JPEG marker headers, so callers can reject or replace
 /// the data without first triggering ImageIO's decoder.
 public enum ArtworkImageCompatibility {
+    /// ImageIO can render a partial JPEG/PNG and report a valid first frame
+    /// even when the transfer ended early. Such a bitmap typically contains a
+    /// black lower half or repeated scan blocks and must never enter the cover
+    /// cache. Require both the container and its first frame to be complete.
+    public static func isCompleteImage(_ data: Data) -> Bool {
+        guard !data.isEmpty,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              CGImageSourceGetType(source) != nil,
+              hasRequiredTerminalMarker(data) else {
+            return false
+        }
+        guard CGImageSourceGetStatus(source) == .statusComplete,
+              CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete else {
+            return false
+        }
+        let decodeOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 64,
+        ]
+        guard let decoded = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            decodeOptions as CFDictionary
+        ) else { return false }
+        return decoded.width > 0 && decoded.height > 0
+    }
+
+    private static func hasRequiredTerminalMarker(_ data: Data) -> Bool {
+        let pngSignature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        if data.starts(with: pngSignature) {
+            let iendChunk: [UInt8] = [
+                0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+                0xAE, 0x42, 0x60, 0x82,
+            ]
+            return data.suffix(iendChunk.count).elementsEqual(iendChunk)
+        }
+
+        if data.count >= 2, data[0] == 0xFF, data[1] == 0xD8 {
+            var end = data.endIndex
+            while end > data.startIndex {
+                let previous = data.index(before: end)
+                if ![0x00, 0x09, 0x0A, 0x0D, 0x20].contains(data[previous]) {
+                    break
+                }
+                end = previous
+            }
+            guard data.distance(from: data.startIndex, to: end) >= 2 else { return false }
+            let last = data.index(before: end)
+            let penultimate = data.index(before: last)
+            return data[penultimate] == 0xFF && data[last] == 0xD9
+        }
+
+        if data.count >= 6,
+           data.prefix(3).elementsEqual([0x47, 0x49, 0x46]) {
+            return data.last == 0x3B
+        }
+
+        if data.count >= 12,
+           data.prefix(4).elementsEqual([0x52, 0x49, 0x46, 0x46]),
+           data[8..<12].elementsEqual([0x57, 0x45, 0x42, 0x50]) {
+            let declaredPayloadLength = Int(data[4])
+                | (Int(data[5]) << 8)
+                | (Int(data[6]) << 16)
+                | (Int(data[7]) << 24)
+            return declaredPayloadLength + 8 == data.count
+        }
+
+        return true
+    }
+
     public static func hasRedundantJPEGSampling(_ data: Data) -> Bool {
         guard data.count >= 12, data[0] == 0xFF, data[1] == 0xD8 else { return false }
         var marker = 2
@@ -2998,6 +3072,27 @@ public enum NowPlayingLandscapePolicy {
         if isMusicVideoActive { return .musicVideo }
         guard areLyricsVisible else { return .none }
         return areLyricsImmersive ? .immersiveLyrics : .standardLyrics
+    }
+}
+
+public enum NowPlayingPlayerLayoutMode: Equatable, Sendable {
+    case portrait
+    case compactLandscape
+    case wideLandscape
+}
+
+/// Chooses the regular player composition independently from lyrics/video
+/// takeovers. Compact-width landscape windows need a dedicated horizontal
+/// layout; squeezing the portrait stack below a phone's short edge clips the
+/// volume/footer rows and places metadata under the sensor housing.
+public enum NowPlayingPlayerLayoutPolicy {
+    public static func mode(
+        viewportWidth: Double,
+        viewportHeight: Double,
+        prefersWideColumns: Bool
+    ) -> NowPlayingPlayerLayoutMode {
+        guard viewportWidth > viewportHeight else { return .portrait }
+        return prefersWideColumns ? .wideLandscape : .compactLandscape
     }
 }
 

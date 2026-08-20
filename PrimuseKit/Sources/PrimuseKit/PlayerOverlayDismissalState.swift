@@ -35,6 +35,13 @@ public enum NowPlayingDismissGesturePolicy {
     public static let topStartMaximumY = 140.0
     public static let leadingEdgeMaximumX = 24.0
 
+    public static func translationTowardCenter(
+        translationX: Double,
+        layoutIsRightToLeft: Bool
+    ) -> Double {
+        translationX * (layoutIsRightToLeft ? -1 : 1)
+    }
+
     public static func shouldDismissFromTop(
         startY: Double,
         translationX: Double,

@@ -87,6 +87,53 @@ private struct NowPlayingAppearance {
     }
 }
 
+#if os(iOS)
+private struct WindowSafeAreaInsetsReader: UIViewRepresentable {
+    let onChange: (UIEdgeInsets) -> Void
+
+    func makeUIView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ uiView: ReaderView, context: Context) {
+        uiView.onChange = onChange
+        uiView.publishIfNeeded()
+    }
+
+    final class ReaderView: UIView {
+        var onChange: ((UIEdgeInsets) -> Void)?
+        private var lastInsets: UIEdgeInsets?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            publishIfNeeded()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            publishIfNeeded()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            publishIfNeeded()
+        }
+
+        func publishIfNeeded() {
+            guard let window else { return }
+            let insets = window.safeAreaInsets
+            guard insets != lastInsets else { return }
+            lastInsets = insets
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange?(insets)
+            }
+        }
+    }
+}
+#endif
+
 struct NowPlayingView: View {
     private enum AmbientBackdropTuning {
         static let transitionDuration = 0.5
@@ -95,6 +142,10 @@ struct NowPlayingView: View {
     var onOpenAlbum: ((Album) -> Void)? = nil
     var onOpenArtist: ((Artist) -> Void)? = nil
     var onMinimize: (() -> Void)? = nil
+    var onTopMinimizeDragChanged: ((CGFloat) -> Void)? = nil
+    var onTopMinimizeDragEnded: ((Bool) -> Void)? = nil
+    var onLeadingMinimizeDragChanged: ((CGFloat) -> Void)? = nil
+    var onLeadingMinimizeDragEnded: ((Bool) -> Void)? = nil
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -106,6 +157,7 @@ struct NowPlayingView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.layoutDirection) private var layoutDirection
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -143,6 +195,9 @@ struct NowPlayingView: View {
     @State private var lyricsEditorTargetSong: Song?
     @State private var showSimilarSongs = false
     @State private var showMusicVideoFullScreen = false
+    #if os(iOS)
+    @State private var windowSafeAreaInsets = UIEdgeInsets.zero
+    #endif
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
 
@@ -385,22 +440,10 @@ struct NowPlayingView: View {
     }
 
 
-    #if os(iOS)
-    private var foregroundApplicationWindowScene: UIWindowScene? {
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .filter {
-                $0.activationState == .foregroundActive
-                    && $0.session.role == .windowApplication
-            }
-        return scenes.first { $0.keyWindow != nil } ?? scenes.first
-    }
-    #endif
-
     /// Top safe area height (dynamic island / status bar)
     private var topSafeArea: CGFloat {
         #if os(iOS)
-        foregroundApplicationWindowScene?.keyWindow?.safeAreaInsets.top ?? 59
+        windowSafeAreaInsets.top
         #else
         // macOS 没有 dynamic island / 状态栏 safe area, 标题栏由窗口 chrome
         // 负责, NowPlayingView 内容直接顶到窗口客户区上沿即可。
@@ -410,9 +453,29 @@ struct NowPlayingView: View {
 
     private var bottomSafeArea: CGFloat {
         #if os(iOS)
-        foregroundApplicationWindowScene?.keyWindow?.safeAreaInsets.bottom ?? 0
+        windowSafeAreaInsets.bottom
         #else
         0
+        #endif
+    }
+
+    private func resolvedSafeAreaInsets(for geo: GeometryProxy) -> EdgeInsets {
+        #if os(iOS)
+        let windowInsets = windowSafeAreaInsets
+        let logicalLeading = layoutDirection == .rightToLeft
+            ? windowInsets.right
+            : windowInsets.left
+        let logicalTrailing = layoutDirection == .rightToLeft
+            ? windowInsets.left
+            : windowInsets.right
+        return EdgeInsets(
+            top: max(geo.safeAreaInsets.top, windowInsets.top),
+            leading: max(geo.safeAreaInsets.leading, logicalLeading),
+            bottom: max(geo.safeAreaInsets.bottom, windowInsets.bottom),
+            trailing: max(geo.safeAreaInsets.trailing, logicalTrailing)
+        )
+        #else
+        return geo.safeAreaInsets
         #endif
     }
 
@@ -425,33 +488,104 @@ struct NowPlayingView: View {
 
     private var playerMinimizeDragGesture: some Gesture {
         DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                let translationY = value.translation.height
+                let translationX = value.translation.width
+                guard translationY > 0,
+                      abs(translationY) > abs(translationX) else {
+                    onTopMinimizeDragChanged?(0)
+                    return
+                }
+                onTopMinimizeDragChanged?(translationY)
+            }
             .onEnded { value in
-                guard NowPlayingDismissGesturePolicy.shouldDismissFromTop(
+                let shouldDismiss = NowPlayingDismissGesturePolicy.shouldDismissFromTop(
                     startY: Double(value.startLocation.y),
                     translationX: Double(value.translation.width),
                     translationY: Double(value.translation.height),
                     predictedEndTranslationY: Double(value.predictedEndTranslation.height)
-                ) else { return }
-                onMinimize?()
+                )
+                if let onTopMinimizeDragEnded {
+                    onTopMinimizeDragEnded(shouldDismiss)
+                } else if shouldDismiss {
+                    onMinimize?()
+                }
             }
     }
 
     private var playerEdgeMinimizeDragGesture: some Gesture {
         DragGesture(minimumDistance: 12)
-            .onEnded { value in
-                guard NowPlayingDismissGesturePolicy.shouldDismissFromLeadingEdge(
-                    startX: Double(value.startLocation.x),
-                    translationX: Double(value.translation.width),
-                    translationY: Double(value.translation.height),
-                    predictedEndTranslationX: Double(value.predictedEndTranslation.width)
-                ) else { return }
-                onMinimize?()
+            .onChanged { value in
+                let towardCenter = CGFloat(
+                    NowPlayingDismissGesturePolicy.translationTowardCenter(
+                        translationX: Double(value.translation.width),
+                        layoutIsRightToLeft: layoutDirection == .rightToLeft
+                    )
+                )
+                guard towardCenter > 0,
+                      abs(towardCenter) > abs(value.translation.height) else {
+                    onLeadingMinimizeDragChanged?(0)
+                    return
+                }
+                onLeadingMinimizeDragChanged?(towardCenter)
             }
+            .onEnded { value in
+                let isRTL = layoutDirection == .rightToLeft
+                let towardCenter = NowPlayingDismissGesturePolicy.translationTowardCenter(
+                    translationX: Double(value.translation.width),
+                    layoutIsRightToLeft: isRTL
+                )
+                let predictedTowardCenter = NowPlayingDismissGesturePolicy.translationTowardCenter(
+                    translationX: Double(value.predictedEndTranslation.width),
+                    layoutIsRightToLeft: isRTL
+                )
+                let shouldDismiss = NowPlayingDismissGesturePolicy.shouldDismissFromLeadingEdge(
+                    startX: Double(value.startLocation.x),
+                    translationX: towardCenter,
+                    translationY: Double(value.translation.height),
+                    predictedEndTranslationX: predictedTowardCenter
+                )
+                if let onLeadingMinimizeDragEnded {
+                    onLeadingMinimizeDragEnded(shouldDismiss)
+                } else if shouldDismiss {
+                    onMinimize?()
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func minimizeGestureRegions(geo: GeometryProxy) -> some View {
+        let safeInsets = resolvedSafeAreaInsets(for: geo)
+        ZStack {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: safeInsets.top)
+                Color.clear
+                    .frame(width: 160, height: 32)
+                    .contentShape(Rectangle())
+                    .gesture(playerMinimizeDragGesture)
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 0) {
+                if layoutDirection == .rightToLeft {
+                    Spacer(minLength: 0)
+                }
+                Color.clear
+                    .frame(width: CGFloat(NowPlayingDismissGesturePolicy.leadingEdgeMaximumX))
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(playerEdgeMinimizeDragGesture)
+                if layoutDirection != .rightToLeft {
+                    Spacer(minLength: 0)
+                }
+            }
+        }
     }
 
     var body: some View {
         GeometryReader { geo in
             let artSize = min(geo.size.width - 60, geo.size.height * 0.38)
+            let safeInsets = resolvedSafeAreaInsets(for: geo)
             let landscapeMode = NowPlayingLandscapePolicy.mode(
                 viewportWidth: Double(geo.size.width),
                 viewportHeight: Double(geo.size.height),
@@ -459,8 +593,22 @@ struct NowPlayingView: View {
                 areLyricsVisible: showLyrics,
                 areLyricsImmersive: isLyricsImmersive
             )
+            let playerLayoutMode = NowPlayingPlayerLayoutPolicy.mode(
+                viewportWidth: Double(geo.size.width),
+                viewportHeight: Double(geo.size.height),
+                prefersWideColumns: shouldUseWideLayout(geo: geo)
+            )
 
             ZStack {
+                #if os(iOS)
+                WindowSafeAreaInsetsReader { insets in
+                    guard insets != windowSafeAreaInsets else { return }
+                    windowSafeAreaInsets = insets
+                }
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                #endif
+
                 if !isFullscreenPlayerPresented {
                     ZStack {
                         // Opaque base — prevents content bleeding through
@@ -483,19 +631,23 @@ struct NowPlayingView: View {
                             case .standardLyrics:
                                 standardLandscapeLyricsLayout(geo: geo)
                             case .none:
-                                if showLyrics {
+                                switch playerLayoutMode {
+                                case .portrait:
                                     portraitLayout(geo: geo, artSize: artSize)
-                                } else if shouldUseWideLayout(geo: geo) {
+                                case .compactLandscape:
+                                    compactLandscapePlayerLayout(
+                                        geo: geo,
+                                        safeInsets: safeInsets
+                                    )
+                                case .wideLandscape:
                                     wideLandscapeLayout(geo: geo)
-                                } else {
-                                    portraitLayout(geo: geo, artSize: artSize)
                                 }
                             }
                         }
+
+                        minimizeGestureRegions(geo: geo)
                     }
                     .contentShape(Rectangle())
-                    .simultaneousGesture(playerMinimizeDragGesture)
-                    .simultaneousGesture(playerEdgeMinimizeDragGesture)
                     .transition(.opacity)
                 }
 
@@ -844,25 +996,7 @@ struct NowPlayingView: View {
             .foregroundStyle(appearance.primary)
             .padding(.top, 24)
 
-            HStack(spacing: 9) {
-                Image(systemName: "speaker.fill")
-                    .font(.caption2)
-                    .foregroundStyle(appearance.tertiary)
-                #if os(iOS) && !targetEnvironment(simulator)
-                SystemVolumeSlider()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: SystemVolumeSlider.compactHeight)
-                    .offset(y: SystemVolumeSlider.verticalOffset)
-                #else
-                VolumeSlider(value: Binding(
-                    get: { Double(player.audioEngine.volume) },
-                    set: { player.setPlaybackVolume(Float($0)) }
-                ))
-                #endif
-                Image(systemName: "speaker.wave.3.fill")
-                    .font(.caption2)
-                    .foregroundStyle(appearance.tertiary)
-            }
+            playerVolumeRow
             .frame(maxWidth: 460)
             .padding(.horizontal, 36)
             .padding(.top, 18)
@@ -893,6 +1027,193 @@ struct NowPlayingView: View {
             parts.append("\(bitRate / 1_000) kbps")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private var playerVolumeRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "speaker.fill")
+                .font(.caption2)
+                .foregroundStyle(appearance.tertiary)
+            #if os(iOS) && !targetEnvironment(simulator)
+            SystemVolumeSlider()
+                .frame(maxWidth: .infinity)
+                .frame(height: SystemVolumeSlider.compactHeight)
+                .offset(y: SystemVolumeSlider.verticalOffset)
+            #else
+            VolumeSlider(value: Binding(
+                get: { Double(player.audioEngine.volume) },
+                set: { player.setPlaybackVolume(Float($0)) }
+            ))
+            #endif
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.caption2)
+                .foregroundStyle(appearance.tertiary)
+        }
+        // Changing between artwork and lyrics animates the surrounding
+        // composition, but the route-owned MPVolumeView must remain visually
+        // stable instead of replaying its fill animation on every page switch.
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+
+    // MARK: - Compact phone landscape
+
+    @ViewBuilder
+    private func compactLandscapePlayerLayout(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets
+    ) -> some View {
+        let contentWidth = max(0, geo.size.width - safeInsets.leading - safeInsets.trailing - 32)
+        let contentHeight = max(0, geo.size.height - safeInsets.top - safeInsets.bottom - 28)
+        let artworkColumnWidth = min(max(contentWidth * 0.36, 164), 252)
+        let artworkSize = min(artworkColumnWidth, contentHeight)
+
+        ZStack(alignment: .top) {
+            HStack(spacing: 24) {
+                artworkOrMusicVideo(size: artworkSize, cornerRadius: 14)
+                    .scaleEffect(player.isPlaying ? 1 : 0.96)
+                    .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
+                    .animation(
+                        .spring(response: 0.5, dampingFraction: 0.75),
+                        value: player.isPlaying
+                    )
+                    .onTapGesture { setStandardLyricsVisible(true) }
+                    .frame(width: artworkColumnWidth, height: contentHeight)
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 5) {
+                                Text(player.currentSong?.title ?? "")
+                                    .font(.headline.weight(.bold))
+                                    .lineLimit(1)
+                                    .foregroundStyle(appearance.primary)
+                                if let song = player.currentSong,
+                                   song.audioQuality != .standard {
+                                    AudioQualityBadge(quality: song.audioQuality)
+                                }
+                            }
+                            nowPlayingMetadataLinks(font: .subheadline)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        musicVideoToggleButton(font: .body, trailing: 0)
+                        lyricsFullScreenButton(font: .body, trailing: 0)
+                        Button { toggleLikedCurrent() } label: {
+                            nowPlayingActionIcon(
+                                symbol: isCurrentLiked ? "heart.fill" : "heart",
+                                tint: isCurrentLiked ? .red : appearance.secondary,
+                                isSelected: isCurrentLiked
+                            )
+                        }
+                        .frame(width: 40, height: 40)
+                        .disabled(player.currentSong == nil)
+                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                        moreMenu
+                    }
+
+                    PlaybackProgressBar()
+                        .padding(.top, 4)
+
+                    HStack(spacing: 0) {
+                        ctrlBtn("shuffle", active: player.shuffleEnabled) {
+                            player.shuffleEnabled.toggle()
+                        }
+                        Spacer(minLength: 6)
+                        Button { Task { await player.previous() } } label: {
+                            Image(systemName: "backward.fill")
+                                .font(.title3)
+                                .foregroundStyle(appearance.primary)
+                        }
+                        .frame(width: 48, height: 48)
+                        .accessibilityLabel("a11y_previous_track")
+                        Spacer(minLength: 6)
+                        Button { player.togglePlayPause() } label: {
+                            ZStack {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 52))
+                                    .opacity(0)
+                                if player.isLoading {
+                                    ProgressView().tint(appearance.primary)
+                                } else {
+                                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                        .font(.system(size: 52))
+                                        .foregroundStyle(appearance.primary)
+                                        .contentTransition(.symbolEffect(.replace))
+                                }
+                            }
+                        }
+                        .disabled(player.isLoading)
+                        .accessibilityLabel(player.isPlaying
+                            ? String(localized: "a11y_pause")
+                            : String(localized: "a11y_play"))
+                        Spacer(minLength: 6)
+                        Button { Task { await player.next() } } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.title3)
+                                .foregroundStyle(appearance.primary)
+                        }
+                        .frame(width: 48, height: 48)
+                        .accessibilityLabel("a11y_next_track")
+                        Spacer(minLength: 6)
+                        ctrlBtn(
+                            player.repeatMode == .one ? "repeat.1" : "repeat",
+                            active: player.repeatMode != .off
+                        ) {
+                            switch player.repeatMode {
+                            case .off: player.repeatMode = .all
+                            case .all: player.repeatMode = .one
+                            case .one: player.repeatMode = .off
+                            }
+                        }
+                    }
+                    .frame(height: 56)
+
+                    playerVolumeRow
+                        .padding(.top, 3)
+
+                    HStack(spacing: 12) {
+                        Button { toggleStandardLyrics() } label: {
+                            Image(systemName: "quote.bubble")
+                                .foregroundStyle(appearance.tertiary)
+                        }
+                        .frame(width: 40, height: 40)
+                        .accessibilityLabel(Text("a11y_open_lyrics"))
+
+                        AirPlayButton()
+                            .frame(width: 34, height: 34)
+                            .frame(width: 40, height: 40)
+
+                        Button { showQueue = true } label: {
+                            Image(systemName: "list.bullet")
+                                .foregroundStyle(appearance.tertiary)
+                        }
+                        .frame(width: 40, height: 40)
+                        .accessibilityLabel("a11y_queue")
+
+                        Spacer(minLength: 0)
+
+                        if let song = player.currentSong {
+                            Text(song.fileFormat.displayName)
+                                .font(.caption2)
+                                .foregroundStyle(appearance.faint)
+                        }
+                    }
+                    .frame(height: 40)
+                }
+                .frame(maxWidth: .infinity, maxHeight: contentHeight)
+            }
+            .padding(.leading, safeInsets.leading + 16)
+            .padding(.trailing, safeInsets.trailing + 16)
+            .padding(.top, safeInsets.top + 22)
+            .padding(.bottom, safeInsets.bottom + 6)
+
+            Capsule()
+                .fill(appearance.tertiary)
+                .frame(width: 48, height: 5)
+                .padding(.top, safeInsets.top + 6)
+        }
     }
 
     // MARK: - iPad 横屏 layout (左封面 / 右歌词)
@@ -1029,21 +1350,7 @@ struct NowPlayingView: View {
             }
             .padding(.top, 14)
 
-            HStack(spacing: 8) {
-                Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(appearance.tertiary)
-                #if os(iOS) && !targetEnvironment(simulator)
-                SystemVolumeSlider()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: SystemVolumeSlider.compactHeight)
-                    .offset(y: SystemVolumeSlider.verticalOffset)
-                #else
-                VolumeSlider(value: Binding(
-                    get: { Double(player.audioEngine.volume) },
-                    set: { player.setPlaybackVolume(Float($0)) }
-                ))
-                #endif
-                Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
-            }
+            playerVolumeRow
             .padding(.horizontal, 36).padding(.top, 12)
 
             // 底部 bar —— 没有歌词切换按钮(歌词永远在右栏可见),保留 AirPlay
@@ -1093,9 +1400,12 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func standardLandscapeLyricsLayout(geo: GeometryProxy) -> some View {
+        let safeInsets = resolvedSafeAreaInsets(for: geo)
+        let baseHorizontalPadding = max(72, geo.size.width * 0.10)
         ZStack {
             lyricsFullView
-                .padding(.horizontal, max(72, geo.size.width * 0.10))
+                .padding(.leading, max(baseHorizontalPadding, safeInsets.leading + 18))
+                .padding(.trailing, max(baseHorizontalPadding, safeInsets.trailing + 18))
                 .padding(.top, 56)
                 .padding(.bottom, 88)
 
@@ -1148,21 +1458,23 @@ struct NowPlayingView: View {
 
                     immersiveMoreMenu
                 }
-                .padding(.horizontal, max(geo.safeAreaInsets.leading, 18))
-                .padding(.top, max(geo.safeAreaInsets.top, 10))
+                .padding(.leading, max(safeInsets.leading, 18))
+                .padding(.trailing, max(safeInsets.trailing, 18))
+                .padding(.top, max(safeInsets.top, 10))
 
                 Spacer()
 
                 floatingPlaybackDock
                     .frame(maxWidth: 420)
                     .padding(.horizontal, 24)
-                    .padding(.bottom, max(geo.safeAreaInsets.bottom, 10))
+                    .padding(.bottom, max(safeInsets.bottom, 10))
             }
         }
     }
 
     @ViewBuilder
     private func immersiveLandscapeLyricsLayout(geo: GeometryProxy) -> some View {
+        let safeInsets = resolvedSafeAreaInsets(for: geo)
         let playerWidth = min(max(geo.size.width * 0.34, 260), 410)
         let artSize = min(max(0, playerWidth - 52), geo.size.height * 0.56)
 
@@ -1202,8 +1514,10 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, max(geo.safeAreaInsets.leading, 24))
-            .padding(.vertical, max(geo.safeAreaInsets.top, 18))
+            .padding(.leading, max(safeInsets.leading, 24))
+            .padding(.trailing, max(safeInsets.trailing, 24))
+            .padding(.top, max(safeInsets.top, 18))
+            .padding(.bottom, max(safeInsets.bottom, 18))
             .background {
                 Color.clear
                     .contentShape(Rectangle())
@@ -1453,21 +1767,7 @@ struct NowPlayingView: View {
                         .padding(.top, 12)
 
                         // Volume
-                        HStack(spacing: 8) {
-                        Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(appearance.tertiary)
-                        #if os(iOS) && !targetEnvironment(simulator)
-                        SystemVolumeSlider()
-                            .frame(maxWidth: .infinity)
-                            .frame(height: SystemVolumeSlider.compactHeight)
-                            .offset(y: SystemVolumeSlider.verticalOffset)
-                        #else
-                        VolumeSlider(value: Binding(
-                            get: { Double(player.audioEngine.volume) },
-                            set: { player.setPlaybackVolume(Float($0)) }
-                        ))
-                        #endif
-                        Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
-                        }
+                        playerVolumeRow
                         .padding(.horizontal, 26).padding(.top, 10)
 
                         // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
@@ -2848,24 +3148,49 @@ struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
     static let verticalOffset: CGFloat = 1.5
 
+    final class Coordinator {
+        var styleKey: StyleKey?
+    }
+
+    struct StyleKey: Equatable {
+        let isLight: Bool
+        let usesIncreasedContrast: Bool
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: .zero)
-        view.showsVolumeSlider = true
-        // The row owns the compact height, while MPVolumeView remains free to
-        // lay out its private slider hierarchy. Forcing the internal UISlider's
-        // frame can make the track disappear on newer iOS versions.
-        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        styleSlider(in: view)
+        UIView.performWithoutAnimation {
+            view.showsVolumeSlider = true
+            // The row owns the compact height, while MPVolumeView remains free
+            // to lay out its private slider hierarchy. Forcing the internal
+            // UISlider's frame can make the track disappear on newer iOS.
+            view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            styleSlider(in: view)
+            view.layoutIfNeeded()
+        }
+        context.coordinator.styleKey = currentStyleKey
         return view
     }
 
     func updateUIView(_ uiView: MPVolumeView, context: Context) {
-        styleSlider(in: uiView)
-        uiView.setNeedsLayout()
+        let styleKey = currentStyleKey
+        guard context.coordinator.styleKey != styleKey || findSlider(in: uiView) == nil else {
+            return
+        }
+        UIView.performWithoutAnimation {
+            styleSlider(in: uiView)
+            uiView.setNeedsLayout()
+            uiView.layoutIfNeeded()
+        }
+        context.coordinator.styleKey = styleKey
     }
 
     func sizeThatFits(
@@ -2906,6 +3231,13 @@ struct SystemVolumeSlider: UIViewRepresentable {
         colorScheme == .light
             ? UIColor.black.withAlphaComponent(colorSchemeContrast == .increased ? 0.96 : 0.88)
             : UIColor.white
+    }
+
+    private var currentStyleKey: StyleKey {
+        StyleKey(
+            isLight: colorScheme == .light,
+            usesIncreasedContrast: colorSchemeContrast == .increased
+        )
     }
 
     private func thumbImage(diameter: CGFloat, color: UIColor) -> UIImage {

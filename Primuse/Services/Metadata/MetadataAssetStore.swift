@@ -312,6 +312,11 @@ actor MetadataAssetStore {
 
     /// Cache cover art data using song ID as the cache key.
     func cacheCover(_ data: Data, forSongID songID: String) {
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
+            plog("MetadataAssetStore: rejected incomplete cover for song '\(songID.prefix(8))'")
+            return
+        }
         let fileName = hashedFileName(for: songID, pathExtension: "jpg")
         let fileURL = artworkDirectory.appendingPathComponent(fileName)
         do {

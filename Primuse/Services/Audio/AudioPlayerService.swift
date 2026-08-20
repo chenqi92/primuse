@@ -8578,9 +8578,11 @@ final class AudioPlayerService {
 
         // Tier 1: songID-based cache (透明处理 content-addressed redirect)
         let hashedName = store.expectedCoverFileName(for: songID)
-        if let data = store.readCoverData(named: hashedName),
-           let image = decodeArtworkImage(from: data) {
-            return image
+        if let data = store.readCoverData(named: hashedName) {
+            if let image = decodeArtworkImage(from: data) {
+                return image
+            }
+            await store.invalidateCoverCache(forSongID: songID)
         }
 
         // Tier 2: legacy filename (local hashed filename, no "/" or "://")
@@ -8648,6 +8650,10 @@ final class AudioPlayerService {
     /// 超大位图会显著拖慢传输甚至失败, 懒解码则会把解码开销转嫁给
     /// MPMediaItemArtwork 的系统回调队列。
     nonisolated private static func decodeArtworkImage(from data: Data) -> PlatformImage? {
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
+            return nil
+        }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -8656,7 +8662,7 @@ final class AudioPlayerService {
         ]
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return PlatformImage(data: data)
+            return nil
         }
         #if os(iOS)
         return UIImage(cgImage: cgImage)

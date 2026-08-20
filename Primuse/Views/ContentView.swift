@@ -531,36 +531,61 @@ struct PlayerOverlay: View {
     private enum PresentationPhase: Equatable {
         case staging
         case visible
+        case dismissingDown
+        case dismissingLeading
     }
 
     @Binding var isPresented: Bool
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.scenePhase) private var scenePhase
     @State private var presentationPhase = PresentationPhase.staging
+    @State private var interactiveOffset = CGSize.zero
+    @State private var dismissalState = PlayerOverlayDismissalState()
+    @State private var dismissalTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { geometry in
+            let travel = max(geometry.size.height, geometry.size.width) + 1
             NowPlayingView(
                 onOpenAlbum: onOpenAlbum,
                 onOpenArtist: onOpenArtist,
-                onMinimize: dismissPlayer
+                onMinimize: { beginDismissal(.dismissingDown, travel: travel) },
+                onTopMinimizeDragChanged: { translation in
+                    updateInteractiveOffset(x: 0, y: max(0, translation))
+                },
+                onTopMinimizeDragEnded: { shouldDismiss in
+                    finishInteractiveDrag(
+                        shouldDismiss: shouldDismiss,
+                        phase: .dismissingDown,
+                        travel: travel
+                    )
+                },
+                onLeadingMinimizeDragChanged: { translationTowardCenter in
+                    let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
+                    updateInteractiveOffset(
+                        x: max(0, translationTowardCenter) * direction,
+                        y: 0
+                    )
+                },
+                onLeadingMinimizeDragEnded: { shouldDismiss in
+                    finishInteractiveDrag(
+                        shouldDismiss: shouldDismiss,
+                        phase: .dismissingLeading,
+                        travel: travel
+                    )
+                }
             )
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same
                 // off-screen presentation surface as the rest of the player.
                 .clipped()
-                .offset(
-                    y: presentationPhase == .visible
-                        ? 0
-                        : max(geometry.size.height, geometry.size.width) + 1
-                )
+                .offset(transitionOffset(travel: travel))
         }
         .ignoresSafeArea()
-        .allowsHitTesting(presentationPhase == .visible)
-        .animation(
-            .spring(response: 0.45, dampingFraction: 0.92),
-            value: presentationPhase
-        )
+        .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
         .task {
             guard presentationPhase == .staging else { return }
             // `CachedArtworkView` can resolve synchronously from memory. Give
@@ -573,12 +598,101 @@ struct PlayerOverlay: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            presentationPhase = .visible
+            if reduceMotion {
+                presentationPhase = .visible
+            } else {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
+                    presentationPhase = .visible
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase != .active, dismissalState.isDismissing else { return }
+            // Control Center / screen recording can interrupt an in-flight
+            // transition. Invalidate its delayed completion and restore the
+            // mounted player so an old callback cannot leave an invisible
+            // hit-test surface over the mini player when the scene returns.
+            dismissalTask?.cancel()
+            dismissalTask = nil
+            dismissalState.cancelForSystemInterruption()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                interactiveOffset = .zero
+                presentationPhase = .visible
+            }
+        }
+        .onDisappear {
+            dismissalTask?.cancel()
+            dismissalTask = nil
         }
     }
 
-    private func dismissPlayer() {
-        guard isPresented else { return }
+    private func transitionOffset(travel: CGFloat) -> CGSize {
+        switch presentationPhase {
+        case .staging:
+            return CGSize(width: 0, height: travel)
+        case .visible:
+            return interactiveOffset
+        case .dismissingDown:
+            return CGSize(width: 0, height: travel)
+        case .dismissingLeading:
+            let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
+            return CGSize(width: travel * direction, height: 0)
+        }
+    }
+
+    private func updateInteractiveOffset(x: CGFloat, y: CGFloat) {
+        guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            interactiveOffset = CGSize(width: x, height: y)
+        }
+    }
+
+    private func finishInteractiveDrag(
+        shouldDismiss: Bool,
+        phase: PresentationPhase,
+        travel: CGFloat
+    ) {
+        if shouldDismiss {
+            beginDismissal(phase, travel: travel)
+        } else {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                interactiveOffset = .zero
+            }
+        }
+    }
+
+    private func beginDismissal(_ phase: PresentationPhase, travel: CGFloat) {
+        guard isPresented,
+              presentationPhase == .visible,
+              !dismissalState.isDismissing else { return }
+
+        let generation = dismissalState.begin()
+        dismissalTask?.cancel()
+        interactiveOffset = .zero
+        if reduceMotion {
+            completeDismissal(generation: generation)
+            return
+        }
+
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.94)) {
+            presentationPhase = phase
+        }
+        dismissalTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(460))
+            } catch {
+                return
+            }
+            completeDismissal(generation: generation)
+        }
+    }
+
+    private func completeDismissal(generation: UInt64) {
+        guard dismissalState.complete(generation: generation) else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {

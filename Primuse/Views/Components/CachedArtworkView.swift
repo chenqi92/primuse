@@ -541,7 +541,17 @@ struct CachedArtworkView: View {
             songID: ignoredGenericFolderCover ? nil : songID,
             ref: effectiveRef
            ) {
-            return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
+            if let decoded = finalize(data: data, bucket: bucket, cacheKey: cacheKey) {
+                return decoded
+            }
+            // Earlier builds accepted ImageIO's `.statusIncomplete`, so a
+            // prematurely ended Jellyfin/Emby response could persist as a
+            // half-black cover. Remove the bad song mirror and continue to the
+            // source in this same load instead of returning the corrupted file
+            // forever.
+            if let songID {
+                await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+            }
         }
 
         let fetchKey: String
@@ -562,11 +572,14 @@ struct CachedArtworkView: View {
                 sourceManager: sourceManager
             )
         }
-        guard let fetched else { return nil }
+        guard let fetched,
+              let decoded = finalize(data: fetched, bucket: bucket, cacheKey: cacheKey) else {
+            return nil
+        }
         if let songID {
             await MetadataAssetStore.shared.cacheCover(fetched, forSongID: songID)
         }
-        return finalize(data: fetched, bucket: bucket, cacheKey: cacheKey)
+        return decoded
     }
 
     /// Decode + write to memory cache. NSCache is thread-safe so this can
@@ -690,14 +703,11 @@ struct CachedArtworkView: View {
     /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
     /// at draw time.
     private static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
-        guard !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
             return nil
         }
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
-            // Fallback for formats ImageIO can't open (rare): PlatformImage(data:)
-            // still defers decode to first draw, but this is a graceful path.
-            return PlatformImage(data: data)
-        }
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let maxPixel = bucket == .thumb ? thumbMaxPixel : fullMaxPixel
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -708,7 +718,7 @@ struct CachedArtworkView: View {
         if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
             return PlatformImage.fromCGImage(cg)
         }
-        return PlatformImage(data: data)
+        return nil
     }
 
     private static func imageCost(_ image: PlatformImage) -> Int {

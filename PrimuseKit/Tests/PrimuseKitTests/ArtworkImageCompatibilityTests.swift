@@ -1,8 +1,57 @@
 import Foundation
+import CoreGraphics
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import PrimuseKit
 
 struct ArtworkImageCompatibilityTests {
+    @Test func acceptsCompleteImageAndRejectsTruncatedTransfer() throws {
+        let completePNG = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )!
+        let completeJPEG = try makeJPEG()
+
+        #expect(ArtworkImageCompatibility.isCompleteImage(completePNG))
+        #expect(!ArtworkImageCompatibility.isCompleteImage(Data(completePNG.dropLast(12))))
+        #expect(ArtworkImageCompatibility.isCompleteImage(completeJPEG))
+        #expect(!ArtworkImageCompatibility.isCompleteImage(Data(completeJPEG.dropLast(2))))
+        #expect(!ArtworkImageCompatibility.isCompleteImage(Data("not-image".utf8)))
+    }
+
+    private func makeJPEG() throws -> Data {
+        let pixels = Data([
+            0xFF, 0x00, 0x00, 0xFF,
+            0x00, 0xFF, 0x00, 0xFF,
+            0x00, 0x00, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF,
+        ])
+        let provider = try #require(CGDataProvider(data: pixels as CFData))
+        let image = try #require(CGImage(
+            width: 2,
+            height: 2,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 8,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ))
+        let encoded = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(
+            encoded,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ))
+        CGImageDestinationAddImage(destination, image, nil)
+        try #require(CGImageDestinationFinalize(destination))
+        return encoded as Data
+    }
+
     @Test func detectsRedundantOneByTwoSampling() {
         let jpeg = jpegHeader(componentSamples: [0x12, 0x12, 0x12])
         #expect(ArtworkImageCompatibility.hasRedundantJPEGSampling(jpeg))

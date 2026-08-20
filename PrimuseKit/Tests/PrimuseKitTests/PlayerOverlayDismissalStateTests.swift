@@ -117,4 +117,16 @@ struct NowPlayingDismissGesturePolicyTests {
             )
         )
     }
+
+    @Test("Leading-edge translation follows the logical layout direction")
+    func leadingEdgeTranslationSupportsRTL() {
+        #expect(NowPlayingDismissGesturePolicy.translationTowardCenter(
+            translationX: 120,
+            layoutIsRightToLeft: false
+        ) == 120)
+        #expect(NowPlayingDismissGesturePolicy.translationTowardCenter(
+            translationX: -120,
+            layoutIsRightToLeft: true
+        ) == 120)
+    }
 }

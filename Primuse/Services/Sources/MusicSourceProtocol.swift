@@ -595,12 +595,8 @@ private enum SourceArtworkDataTransport {
 
 private enum SourceArtworkDataValidator {
     static func isRecognizedImage(_ data: Data) -> Bool {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 0,
-              CGImageSourceGetType(source) != nil else {
-            return false
-        }
-        return CGImageSourceGetStatus(source) != .statusInvalidData
+        ArtworkImageCompatibility.isCompleteImage(data)
+            && !ArtworkImageCompatibility.hasRedundantJPEGSampling(data)
     }
 }
 
