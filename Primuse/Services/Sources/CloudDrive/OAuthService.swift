@@ -56,21 +56,13 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
         // 3. Extract authorization code from callback (校验 state 一致后才接受)
         let code = try extractCode(from: callbackURL, expectedState: state, config: config)
-        let pickedFileIDs = config.provider == .googleDrive
-            ? extractPickedFileIDs(from: callbackURL)
-            : []
 
         // 4. Exchange code for tokens
-        var tokens = try await exchangeCodeForTokens(
+        let tokens = try await exchangeCodeForTokens(
             code: code,
             config: config,
             codeVerifier: pkce?.verifier
         )
-        if !pickedFileIDs.isEmpty {
-            var extra = tokens.extra ?? [:]
-            extra["picked_file_ids"] = pickedFileIDs.joined(separator: ",")
-            tokens.extra = extra
-        }
 
         return tokens
     }
@@ -247,20 +239,6 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         }
 
         return code
-    }
-
-    private func extractPickedFileIDs(from url: URL) -> [String] {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let raw = components.queryItems?
-                .first(where: { $0.name == "picked_file_ids" })?
-                .value else {
-            return []
-        }
-        var seen: Set<String> = []
-        return raw
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     // MARK: - Step 4: Exchange Code for Tokens

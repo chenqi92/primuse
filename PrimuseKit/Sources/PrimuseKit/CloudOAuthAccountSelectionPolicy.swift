@@ -27,15 +27,13 @@ public enum CloudOAuthAccountSelectionPolicy {
 
         if provider == .googleDrive {
             parameters["access_type"] = "offline"
-            parameters["trigger_onepick"] = "true"
-            parameters["allow_folder_selection"] = "true"
-            parameters["allow_multiple"] = "true"
+            parameters["include_granted_scopes"] = "true"
         }
 
         switch (provider, intent) {
         case (.baiduPan, .differentAccount):
             parameters["force_login"] = "1"
-        case (.googleDrive, .standard), (.googleDrive, .useSignedInAccount):
+        case (.googleDrive, .useSignedInAccount):
             parameters["prompt"] = "consent"
         case (.googleDrive, .differentAccount):
             parameters["prompt"] = "select_account consent"
