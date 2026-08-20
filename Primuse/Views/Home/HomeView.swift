@@ -131,8 +131,7 @@ private struct HomeModeFlipButtonStyle: ButtonStyle {
     }
 }
 
-/// 首页的两种模式。电台和音乐互斥 —— 同一时刻只有一个「正在播放」，所以首页
-/// 也只呈现其中一态，避免用户觉得在管理两个 App。
+/// 首页的两种展示模式。翻面只切换首页内容，不改变当前音乐或电台的播放状态。
 enum HomeMode: String, CaseIterable, Hashable {
     case music
     case radio
@@ -660,10 +659,6 @@ struct HomeView: View {
     private func switchHomeMode(to destination: HomeMode? = nil) {
         let nextMode = destination ?? homeMode.opposite
         guard nextMode != homeMode else { return }
-
-        if player.isPlaying || player.isLoading {
-            player.pause()
-        }
 
         if reduceMotion {
             homeModeRawValue = nextMode.rawValue
