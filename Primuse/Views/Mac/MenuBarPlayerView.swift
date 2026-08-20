@@ -13,13 +13,17 @@ struct MenuBarPlayerView: View {
     @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
     @AppStorage("desktopLyricsVisible") private var desktopLyricsVisible: Bool = false
     @AppStorage("miniPlayerVisible") private var miniPlayerVisible: Bool = false
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             coverRow
             scrubber
             transport
-            volume
+            if showsPlayerVolumeBar {
+                volume
+            }
 
             Divider().background(PMColor.divider).padding(.vertical, 2)
 

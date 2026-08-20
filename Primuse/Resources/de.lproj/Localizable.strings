@@ -2843,3 +2843,6 @@
 "artwork_invalid_image" = "Wähle ein gültiges Bild, das Primuse verarbeiten kann.";
 "baidu_snapshot_reconciliation_required" = "Nicht eindeutig zugeordnete Baidu-Dateien wurden sicher beibehalten. Führe im Vordergrund erneut einen Scan aus, bevor fehlende Einträge entfernt werden.";
 "baidu_snapshot_deep_scan_required" = "Die bei dieser kurzen Aktualisierung gefundenen Änderungen überschreiten das Sicherheitsbudget; die Mediathek blieb unverändert. Führe im Vordergrund einen Tiefenscan aus.";
+"player_appearance_title" = "Player";
+"player_volume_bar" = "Lautstärkeregler";
+"player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";

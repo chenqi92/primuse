@@ -159,6 +159,8 @@ struct NowPlayingView: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -1013,10 +1015,12 @@ struct NowPlayingView: View {
             .foregroundStyle(appearance.primary)
             .padding(.top, 24)
 
-            playerVolumeRow
-            .frame(maxWidth: 460)
-            .padding(.horizontal, 36)
-            .padding(.top, 18)
+            if showsPlayerVolumeBar {
+                playerVolumeRow
+                    .frame(maxWidth: 460)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 18)
+            }
 
             HStack(spacing: 10) {
                 AirPlayButton()
@@ -1187,8 +1191,10 @@ struct NowPlayingView: View {
                     }
                     .frame(height: 56)
 
-                    playerVolumeRow
-                        .padding(.top, 3)
+                    if showsPlayerVolumeBar {
+                        playerVolumeRow
+                            .padding(.top, 3)
+                    }
 
                     HStack(spacing: 12) {
                         Button { toggleStandardLyrics() } label: {
@@ -1367,8 +1373,10 @@ struct NowPlayingView: View {
             }
             .padding(.top, 14)
 
-            playerVolumeRow
-            .padding(.horizontal, 36).padding(.top, 12)
+            if showsPlayerVolumeBar {
+                playerVolumeRow
+                    .padding(.horizontal, 36).padding(.top, 12)
+            }
 
             // 底部 bar —— 没有歌词切换按钮(歌词永远在右栏可见),保留 AirPlay
             // 和队列入口
@@ -1783,9 +1791,10 @@ struct NowPlayingView: View {
                         }
                         .padding(.top, 12)
 
-                        // Volume
-                        playerVolumeRow
-                        .padding(.horizontal, 26).padding(.top, 10)
+                        if showsPlayerVolumeBar {
+                            playerVolumeRow
+                                .padding(.horizontal, 26).padding(.top, 10)
+                        }
 
                         // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
                         // 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等

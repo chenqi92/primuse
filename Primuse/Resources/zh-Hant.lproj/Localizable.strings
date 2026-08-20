@@ -2820,3 +2820,6 @@
 "artwork_invalid_image" = "請選擇 Primuse 可處理的有效圖片。";
 "baidu_snapshot_reconciliation_required" = "已安全保留無法確認身分的百度網盤檔案。請在前景再次掃描並確認快照後，才會移除缺少的項目。";
 "baidu_snapshot_deep_scan_required" = "輕量重新整理偵測到的變更超過本次安全預算，資料庫未被修改。請在前景選擇「深度掃描」以安全完成核對。";
+"player_appearance_title" = "播放器";
+"player_volume_bar" = "音量列";
+"player_volume_bar_description" = "在播放器中顯示音量列。隱藏後，其他控制項會自然填滿空出的空間。";

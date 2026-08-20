@@ -3458,6 +3458,8 @@ private struct MacSTThemeView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
@@ -3527,6 +3529,18 @@ private struct MacSTThemeView: View {
                             secondary: themeService.darkAccent
                         )
                     )
+                }
+            }
+        }
+
+        MacSTSection(String(localized: "player_appearance_title")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "player_volume_bar"),
+                    hint: String(localized: "player_volume_bar_description"),
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: $showsPlayerVolumeBar)
                 }
             }
         }

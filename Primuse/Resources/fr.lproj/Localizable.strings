@@ -2843,3 +2843,6 @@
 "artwork_invalid_image" = "Choisissez une image valide que Primuse peut traiter.";
 "baidu_snapshot_reconciliation_required" = "Les fichiers Baidu non identifiés ont été conservés. Relancez l’analyse au premier plan pour confirmer l’instantané avant toute suppression.";
 "baidu_snapshot_deep_scan_required" = "Les changements détectés dépassent le budget de sécurité de cette actualisation légère ; la bibliothèque n’a pas été modifiée. Lancez une analyse approfondie au premier plan.";
+"player_appearance_title" = "Lecteur";
+"player_volume_bar" = "Curseur de volume";
+"player_volume_bar_description" = "Afficher le curseur de volume dans le lecteur. Les autres commandes occupent naturellement l’espace disponible lorsqu’il est masqué.";

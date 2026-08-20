@@ -24,6 +24,8 @@ struct MacImmersivePlayerView: View {
     private var effectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
     @State private var showsChrome = true
     @State private var isStageReady = false
@@ -329,8 +331,10 @@ struct MacImmersivePlayerView: View {
                         modeButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                             advanceRepeatMode()
                         }
-                        Divider().frame(height: metrics.s(24)).opacity(0.24)
-                        volumeControl
+                        if showsPlayerVolumeBar {
+                            Divider().frame(height: metrics.s(24)).opacity(0.24)
+                            volumeControl
+                        }
                         queueButton
                     }
                 }
@@ -365,7 +369,9 @@ struct MacImmersivePlayerView: View {
                 Text(player.duration.formattedDuration)
                     .font(.system(size: metrics.s(12), design: .monospaced))
                     .foregroundStyle(chromeInk.opacity(0.48))
-                volumeControl
+                if showsPlayerVolumeBar {
+                    volumeControl
+                }
                 queueButton
             }
         case .showcase:
@@ -415,7 +421,9 @@ struct MacImmersivePlayerView: View {
                     .foregroundStyle(chromeInk.opacity(0.58))
                     .lineLimit(1)
                     .minimumScaleFactor(0.68)
-                volumeControl
+                if showsPlayerVolumeBar {
+                    volumeControl
+                }
                 queueButton
             }
         }

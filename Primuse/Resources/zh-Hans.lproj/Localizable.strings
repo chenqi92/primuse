@@ -2947,3 +2947,6 @@
 "artwork_invalid_image" = "请选择 Primuse 可处理的有效图片。";
 "baidu_snapshot_reconciliation_required" = "已安全保留未能确认身份的百度网盘文件。请在前台再次扫描并确认快照后，才会移除缺失项目。";
 "baidu_snapshot_deep_scan_required" = "轻量刷新检测到的变更超过本次安全预算，资料库未被修改。请在前台选择“深度扫描”完成安全对账。";
+"player_appearance_title" = "播放器";
+"player_volume_bar" = "音量条";
+"player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";

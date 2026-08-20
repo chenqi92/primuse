@@ -2,6 +2,11 @@ import Foundation
 import PrimuseKit
 import SwiftUI
 
+enum PlayerAppearancePreferences {
+    static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
+    static let showsVolumeBarByDefault = true
+}
+
 /// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverFlow

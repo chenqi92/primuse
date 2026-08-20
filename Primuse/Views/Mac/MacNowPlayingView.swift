@@ -45,6 +45,8 @@ struct MacNowPlayingView: View {
     @State private var showsImmersiveStage = false
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -155,7 +157,7 @@ struct MacNowPlayingView: View {
                         } else {
                             floatingControls
                         }
-                        if isWindowFullScreen {
+                        if isWindowFullScreen, showsPlayerVolumeBar {
                             fullscreenVolumeControl
                         }
                     }

@@ -17,6 +17,8 @@ struct MacBottomBar: View {
     @Environment(AudioEngine.self) private var engine
     @Environment(MusicLibrary.self) private var library
     @Environment(\.pmAppearance) private var mode
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
     @State private var airPlayShown = false
     @State private var castShown = false
@@ -285,19 +287,21 @@ struct MacBottomBar: View {
                 AudioOutputPickerView()
             }
 
-            // AppKit slider opts out of window-background dragging, so volume
-            // drags do not move the hidden-titlebar window.
-            PMVolumeSlider(value: Binding(
-                get: { Double(engine.volume) },
-                set: { player.setPlaybackVolume(Float($0)) }
-            ), isEnabled: player.isLiveRadio || player.playbackSettings.outputMode == .effects,
-               accessibilityHelp: !player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
-                   ? String(localized: "volume_high_fidelity_system_hint")
-                   : nil)
-            .frame(width: 72)
-            .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
-                ? Text("volume_high_fidelity_system_hint")
-                : Text("volume"))
+            if showsPlayerVolumeBar {
+                // AppKit slider opts out of window-background dragging, so volume
+                // drags do not move the hidden-titlebar window.
+                PMVolumeSlider(value: Binding(
+                    get: { Double(engine.volume) },
+                    set: { player.setPlaybackVolume(Float($0)) }
+                ), isEnabled: player.isLiveRadio || player.playbackSettings.outputMode == .effects,
+                   accessibilityHelp: !player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
+                       ? String(localized: "volume_high_fidelity_system_hint")
+                       : nil)
+                .frame(width: 72)
+                .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
+                    ? Text("volume_high_fidelity_system_hint")
+                    : Text("volume"))
+            }
         }
     }
 

@@ -99,6 +99,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        PlayerAppearanceSettingsView()
+                    } label: {
+                        Label("player_appearance_title", systemImage: "play.rectangle")
+                    }
+
+                    NavigationLink {
                         FullscreenPlayerEffectSettingsView()
                     } label: {
                         Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
@@ -246,6 +252,25 @@ struct SettingsView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct PlayerAppearanceSettingsView: View {
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("player_volume_bar", isOn: $showsVolumeBar)
+            } footer: {
+                Text("player_volume_bar_description")
+            }
+        }
+        .navigationTitle("player_appearance_title")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+#endif
 
 private struct LibraryDisplaySettingsView: View {
     @AppStorage(LibrarySongBrowseModePreference.storageKey)

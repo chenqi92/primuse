@@ -2630,3 +2630,6 @@
 "artwork_invalid_image" = "Choose a valid image that Primuse can process.";
 "baidu_snapshot_reconciliation_required" = "Some unmatched Baidu files were kept safely. Run Scan again in the foreground to confirm the snapshot before anything is removed.";
 "baidu_snapshot_deep_scan_required" = "The changes found by this light refresh exceeded its safety budget, so the library was left unchanged. Run Deep Scan in the foreground to reconcile them safely.";
+"player_appearance_title" = "Player";
+"player_volume_bar" = "Volume Slider";
+"player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";

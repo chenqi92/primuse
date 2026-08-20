@@ -18,6 +18,8 @@ struct MacMiniPlayerView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
     @State private var lyricsLoadRevision: UInt = 0
@@ -303,19 +305,21 @@ struct MacMiniPlayerView: View {
             .disabled(!player.canSwitchRadioStation)
             .help(Text("radio_next_station"))
 
-            Spacer(minLength: 6)
+            if showsPlayerVolumeBar {
+                Spacer(minLength: 6)
 
-            Image(systemName: volumeSymbol)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(PMColor.textMuted)
-                .frame(width: 14)
+                Image(systemName: volumeSymbol)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 14)
 
-            PMVolumeSlider(value: Binding(
-                get: { Double(engine.volume) },
-                set: { player.setPlaybackVolume(Float($0)) }
-            ), isEnabled: true)
-            .frame(width: 92)
-            .help(Text("volume"))
+                PMVolumeSlider(value: Binding(
+                    get: { Double(engine.volume) },
+                    set: { player.setPlaybackVolume(Float($0)) }
+                ), isEnabled: true)
+                .frame(width: 92)
+                .help(Text("volume"))
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
@@ -360,26 +364,28 @@ struct MacMiniPlayerView: View {
             }
             .help(Text("audio_output"))
 
-            Spacer(minLength: 8)
+            if showsPlayerVolumeBar {
+                Spacer(minLength: 8)
 
-            Image(systemName: volumeSymbol)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(PMColor.textMuted)
-                .frame(width: 14)
+                Image(systemName: volumeSymbol)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 14)
 
-            // AppKit slider opts out of window-background dragging, so volume
-            // drags stay on the control in this borderless panel.
-            PMVolumeSlider(value: Binding(
-                get: { Double(engine.volume) },
-                set: { player.setPlaybackVolume(Float($0)) }
-            ), isEnabled: player.playbackSettings.outputMode == .effects,
-               accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
-                   ? String(localized: "volume_high_fidelity_system_hint")
-                   : nil)
-            .frame(width: 64)
-            .help(player.playbackSettings.outputMode == .highFidelity
-                ? Text("volume_high_fidelity_system_hint")
-                : Text("volume"))
+                // AppKit slider opts out of window-background dragging, so volume
+                // drags stay on the control in this borderless panel.
+                PMVolumeSlider(value: Binding(
+                    get: { Double(engine.volume) },
+                    set: { player.setPlaybackVolume(Float($0)) }
+                ), isEnabled: player.playbackSettings.outputMode == .effects,
+                   accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
+                       ? String(localized: "volume_high_fidelity_system_hint")
+                       : nil)
+                .frame(width: 64)
+                .help(player.playbackSettings.outputMode == .highFidelity
+                    ? Text("volume_high_fidelity_system_hint")
+                    : Text("volume"))
+            }
 
             PlayerMoreMenu {
                 miniIcon("ellipsis", tint: .secondary)
