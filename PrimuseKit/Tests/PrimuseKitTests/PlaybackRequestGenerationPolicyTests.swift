@@ -82,6 +82,46 @@ struct AppleMusicPlaybackOwnershipPolicyTests {
     }
 }
 
+@Suite("Apple Music toggle playback policy")
+struct AppleMusicTogglePlaybackPolicyTests {
+    @Test("A live request toggles while a restored item rebuilds playback")
+    func routesToggleByRequestLifetime() {
+        #expect(AppleMusicTogglePlaybackPolicy.action(
+            hasStartedPlaybackRequest: true
+        ) == .toggleActiveRequest)
+        #expect(AppleMusicTogglePlaybackPolicy.action(
+            hasStartedPlaybackRequest: false
+        ) == .rebuildRestoredRequest)
+    }
+}
+
+@Suite("Apple Music playback cache policy")
+struct AppleMusicPlaybackCachePolicyTests {
+    @Test("A single contextual item starts without waiting for a full snapshot")
+    func skipsSnapshotForPrimuseManagedItem() {
+        #expect(!AppleMusicPlaybackCachePolicy.requiresCompleteLibrarySnapshot(
+            hasQueueContext: true,
+            appleMusicItemCount: 1
+        ))
+    }
+
+    @Test("Missing, empty, and multi-item contexts require the complete snapshot")
+    func requiresSnapshotForSystemQueues() {
+        #expect(AppleMusicPlaybackCachePolicy.requiresCompleteLibrarySnapshot(
+            hasQueueContext: false,
+            appleMusicItemCount: 0
+        ))
+        #expect(AppleMusicPlaybackCachePolicy.requiresCompleteLibrarySnapshot(
+            hasQueueContext: true,
+            appleMusicItemCount: 0
+        ))
+        #expect(AppleMusicPlaybackCachePolicy.requiresCompleteLibrarySnapshot(
+            hasQueueContext: true,
+            appleMusicItemCount: 2
+        ))
+    }
+}
+
 @Suite("Apple Music library playback gate policy")
 struct AppleMusicLibraryPlaybackGatePolicyTests {
     @Test("All request and environment gates must remain valid")

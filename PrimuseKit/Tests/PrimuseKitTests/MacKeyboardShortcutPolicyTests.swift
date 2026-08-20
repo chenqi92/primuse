@@ -124,4 +124,16 @@ struct MacKeyboardShortcutPolicyTests {
         #expect(MacKeyboardShortcutPolicy.shouldPerform(action: .volumeDown, isRepeat: true))
         #expect(MacKeyboardShortcutPolicy.shouldPerform(action: .playPause, isRepeat: false))
     }
+
+    @Test("Title-bar search ignores whitespace and releases focus outside Search")
+    func titleBarSearchRouting() {
+        #expect(!MacTitleBarSearchPolicy.shouldActivateSearch(for: " ", isOnSearch: false))
+        #expect(!MacTitleBarSearchPolicy.shouldActivateSearch(for: "\n\t", isOnSearch: false))
+        #expect(MacTitleBarSearchPolicy.shouldActivateSearch(for: " song ", isOnSearch: false))
+        #expect(!MacTitleBarSearchPolicy.shouldActivateSearch(for: "song", isOnSearch: true))
+        #expect(MacTitleBarSearchPolicy.shouldReleaseFocus(isOnSearch: false))
+        #expect(!MacTitleBarSearchPolicy.shouldReleaseFocus(isOnSearch: true))
+        #expect(MacTitleBarSearchPolicy.queryAfterReleasingFocus("  \n") == "")
+        #expect(MacTitleBarSearchPolicy.queryAfterReleasingFocus(" song ") == " song ")
+    }
 }

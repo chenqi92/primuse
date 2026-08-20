@@ -1,5 +1,6 @@
 #if os(macOS)
 import SwiftUI
+import AppKit
 import PrimuseKit
 
 /// 主窗口顶部 44pt 自定义 title bar — 跟设计稿里的 TitleBar 对齐:
@@ -94,10 +95,20 @@ struct PMTitleBar: View {
                 .foregroundStyle(PMColor.text)
                 .focused($searchFocused)
                 .onSubmit {
-                    if !searchText.isEmpty { selectSearchRoute() }
+                    if MacTitleBarSearchPolicy.shouldActivateSearch(
+                        for: searchText,
+                        isOnSearch: isOnSearch
+                    ) {
+                        selectSearchRoute()
+                    }
+                    releaseSearchFocus()
                 }
+                .onExitCommand(perform: releaseSearchFocus)
                 .onChange(of: searchText) { _, value in
-                    if !value.isEmpty, !isOnSearch {
+                    if MacTitleBarSearchPolicy.shouldActivateSearch(
+                        for: value,
+                        isOnSearch: isOnSearch
+                    ) {
                         selectSearchRoute()
                     }
                 }
@@ -139,6 +150,18 @@ struct PMTitleBar: View {
             searchFocused = true
             selectSearchRoute()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDismissSearchFocus)) { _ in
+            releaseSearchFocus()
+        }
+        .onChange(of: selection.stableID) { _, _ in
+            releaseSearchFocusIfNeeded()
+        }
+        .onAppear {
+            releaseSearchFocusIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            releaseSearchFocusIfNeeded()
+        }
     }
 
     private var isOnSearch: Bool {
@@ -169,12 +192,58 @@ struct PMTitleBar: View {
             selection = .search
         }
     }
+
+    private func releaseSearchFocusIfNeeded() {
+        guard MacTitleBarSearchPolicy.shouldReleaseFocus(isOnSearch: isOnSearch) else { return }
+        releaseSearchFocus()
+    }
+
+    private func releaseSearchFocus() {
+        searchFocused = false
+        searchText = MacTitleBarSearchPolicy.queryAfterReleasingFocus(searchText)
+
+        // SwiftUI's FocusState can say `false` while AppKit restores the field
+        // editor as the real first responder after launch. Release it on the
+        // next main-loop turn as well so an unmodified Space reaches the
+        // playback shortcut instead of becoming invisible search whitespace.
+        Task { @MainActor in
+            await Task.yield()
+            guard !searchFocused else { return }
+            searchFocused = false
+            guard let window = NSApp.keyWindow,
+                  window.attachedSheet == nil,
+                  window.sheetParent == nil,
+                  Self.isTitleBarSearchFirstResponder(in: window) else {
+                return
+            }
+            window.makeFirstResponder(nil)
+        }
+    }
+
+    private static func isTitleBarSearchFirstResponder(in window: NSWindow) -> Bool {
+        let field: NSTextField?
+        if let directField = window.firstResponder as? NSTextField {
+            field = directField
+        } else if let fieldEditor = window.firstResponder as? NSTextView {
+            field = fieldEditor.delegate as? NSTextField
+        } else {
+            field = nil
+        }
+
+        guard let field,
+              field.window === window,
+              let contentView = window.contentView else { return false }
+        let frameInWindow = field.convert(field.bounds, to: nil)
+        let titleBarFloor = contentView.convert(contentView.bounds, to: nil).maxY - PMSize.titlebar - 12
+        return frameInWindow.midY >= titleBarFloor
+    }
 }
 
 extension Notification.Name {
     static let primuseDetailGoBack    = Notification.Name("primuse.detail.goBack")
     static let primuseDetailGoForward = Notification.Name("primuse.detail.goForward")
     static let primuseFocusSearch     = Notification.Name("primuse.titlebar.focusSearch")
+    static let primuseDismissSearchFocus = Notification.Name("primuse.titlebar.dismissSearchFocus")
 }
 
 #endif
