@@ -583,7 +583,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             tokenURL: tokenURL,
             clientId: clientId,
             clientSecret: nil,
-            scopes: ["https://www.googleapis.com/auth/drive"],
+            scopes: ["https://www.googleapis.com/auth/drive.file"],
             redirectURI: redirectURI()
         )
     }
