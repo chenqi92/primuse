@@ -815,7 +815,7 @@
 "credentials_channel_footer" = "Anmeldedaten-Kanal: Wenn deaktiviert, verbleiben neue Passwörter und Tokens auf diesem Gerät; bereits im iCloud-Schlüsselbund vorhandene Einträge werden über Einstellungen → Apple-ID → iCloud → Passwörter & Schlüsselbund verwaltet.";
 "recently_deleted" = "Zuletzt gelöscht";
 "recently_deleted_empty" = "Nichts zuletzt gelöscht";
-"recently_deleted_empty_desc" = "Gelöschte Wiedergabelisten, Musikquellen und Scraper-Konfigurationen werden hier 7 Tage lang aufbewahrt.";
+"recently_deleted_empty_desc" = "Gelöschte Wiedergabelisten, Musikquellen und Scraper-Konfigurationen werden hier 30 Tage lang aufbewahrt.";
 "recently_deleted_playlists" = "Wiedergabelisten";
 "recently_deleted_sources" = "Musikquellen";
 "recently_deleted_scraper_configs" = "Scraper-Konfigurationen";

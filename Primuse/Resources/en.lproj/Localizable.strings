@@ -665,7 +665,7 @@
 // MARK: - Recently Deleted
 "recently_deleted" = "Recently Deleted";
 "recently_deleted_empty" = "Nothing recently deleted";
-"recently_deleted_empty_desc" = "Deleted playlists, music sources and scraper configs are kept here for 7 days.";
+"recently_deleted_empty_desc" = "Deleted playlists, music sources and scraper configs are kept here for 30 days.";
 "recently_deleted_playlists" = "Playlists";
 "recently_deleted_sources" = "Music Sources";
 "recently_deleted_scraper_configs" = "Scraper Configs";

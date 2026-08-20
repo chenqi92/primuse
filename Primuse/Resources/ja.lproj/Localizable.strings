@@ -816,7 +816,7 @@
 "credentials_channel_footer" = "認証情報チャンネル：オフの場合、新しいパスワードとトークンはこのデバイスにのみ保存されます。すでに iCloud キーチェーンにある項目は、設定 → Apple ID → iCloud → パスワードとキーチェーン から管理してください。";
 "recently_deleted" = "最近削除した項目";
 "recently_deleted_empty" = "最近削除した項目はありません";
-"recently_deleted_empty_desc" = "削除したプレイリスト、音楽ソース、スクレイパー設定は 7 日間ここに保管されます。";
+"recently_deleted_empty_desc" = "削除したプレイリスト、音楽ソース、スクレイパー設定は 30 日間ここに保管されます。";
 "recently_deleted_playlists" = "プレイリスト";
 "recently_deleted_sources" = "音楽ソース";
 "recently_deleted_scraper_configs" = "スクレイパー設定";
