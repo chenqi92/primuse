@@ -65,4 +65,90 @@ struct LyricPlaybackPositionPolicyTests {
             timestamp: { $0.time }
         ) == 1)
     }
+
+    @Test("Long line-level gaps scroll to an interlude without advancing the active lyric")
+    func longLineLevelGapUsesInterludeTarget() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 0, text: "First"),
+            LyricLine(id: "second", timestamp: 40, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: 20
+        ) == 0)
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 20
+        ) == .interlude(afterLine: 0))
+    }
+
+    @Test("Interlude scrolling waits until the current lyric has visibly finished")
+    func interludeTargetHonorsActivationDelay() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 0, text: "First"),
+            LyricLine(id: "second", timestamp: 40, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 9.4
+        ) == .line(0))
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 9.5
+        ) == .interlude(afterLine: 0))
+    }
+
+    @Test("Ordinary lyric spacing never creates an interlude target")
+    func ordinaryGapStaysOnActiveLine() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 0, text: "First"),
+            LyricLine(id: "second", timestamp: 10, text: "Second"),
+        ]
+
+        #expect(!LyricPlaybackPositionPolicy.hasLongInterlude(
+            afterLine: 0,
+            in: lyrics
+        ))
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 9
+        ) == .line(0))
+    }
+
+    @Test("Word-level interludes use the final syllable end time")
+    func wordLevelGapUsesExplicitEndTime() {
+        let lyrics = [
+            LyricLine(
+                id: "first",
+                timestamp: 0,
+                text: "First",
+                syllables: [LyricSyllable(text: "First", start: 0, end: 20)]
+            ),
+            LyricLine(id: "second", timestamp: 40, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 25.9
+        ) == .line(0))
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 26
+        ) == .interlude(afterLine: 0))
+    }
+
+    @Test("The next timestamp ends the interlude and selects its lyric")
+    func nextLineEndsInterlude() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 0, text: "First"),
+            LyricLine(id: "second", timestamp: 40, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 40
+        ) == .line(1))
+    }
 }

@@ -4197,6 +4197,7 @@ struct LyricsScrollView: View {
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
+    @State private var activeInterludeAfterLineIndex: Int? = nil
     @State private var visualPlaybackTime: TimeInterval = 0
     @State private var isRestoringVisualPosition = false
     /// Row taps and the surface tap are simultaneous gestures. Remember the
@@ -4280,6 +4281,7 @@ struct LyricsScrollView: View {
         .task(id: playbackFollowTaskIdentity) {
             guard hasSynchronizedLyrics else {
                 currentLineIndex = -1
+                activeInterludeAfterLineIndex = nil
                 return
             }
             guard visualActivityPolicy.shouldPollLyrics else {
@@ -4311,6 +4313,7 @@ struct LyricsScrollView: View {
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
             currentLineIndex = 0
+            activeInterludeAfterLineIndex = nil
             lastLyricRowTapAt = .distantPast
             lastUserScrollTime = .distantPast
             lyricsPinchScale = 1
@@ -4395,7 +4398,7 @@ struct LyricsScrollView: View {
                                     visualScale: CGFloat(activity.scale)
                                 )
                             }
-                                .id(line.id)
+                                .id(LyricsScrollTarget.line(id: line.id))
                                 .opacity(activity.opacity)
                                 // Match the word-level path: highlight, scale,
                                 // and scroll all travel on one curve instead of
@@ -4405,6 +4408,14 @@ struct LyricsScrollView: View {
                                     value: currentLineIndex
                                 )
                                 .padding(.vertical, 2)
+
+                            if LyricPlaybackPositionPolicy.hasLongInterlude(
+                                afterLine: index,
+                                in: lyrics
+                            ) {
+                                interludeMarker(afterLine: index)
+                                    .id(LyricsScrollTarget.interlude(afterLineID: line.id))
+                            }
                         }
 
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
@@ -4458,16 +4469,16 @@ struct LyricsScrollView: View {
                         break
                     }
                 }
-                .onChange(of: currentLineIndex) { _, idx in
+                .onChange(of: playbackScrollTarget) { _, target in
                     guard isSceneActive,
                           !isRestoringVisualPosition,
                           !isPinchingLyrics,
-                          idx < lyrics.count else { return }
+                          let target else { return }
                     // 用户手动滚动后 manualScrollGracePeriod 内不要把视图拽回当前行,
                     // 否则刚拖到想看的位置又被自动 scrollTo 弹回, 等同不能浏览。
                     guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
-                    scrollLine(to: idx, proxy: proxy, animated: true)
+                    scroll(to: target, proxy: proxy, animated: true)
                 }
                 .onChange(of: lyricsFontScale) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
@@ -4476,12 +4487,12 @@ struct LyricsScrollView: View {
                     guard isSceneActive else { return }
                     isRestoringVisualPosition = true
                     defer { isRestoringVisualPosition = false }
-                    let targetIndex = updateCurrentLine(disableAnimations: true)
+                    let target = updateCurrentLine(disableAnimations: true)
                     // Publish the active row first, then allow SwiftUI to lay
                     // out that state before issuing the initial scroll request.
                     await Task.yield()
-                    guard !Task.isCancelled, let targetIndex else { return }
-                    scrollLine(to: targetIndex, proxy: proxy, animated: false)
+                    guard !Task.isCancelled, let target else { return }
+                    scroll(to: target, proxy: proxy, animated: false)
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
@@ -4513,13 +4524,21 @@ struct LyricsScrollView: View {
                                     visualScale: CGFloat(activity.scale)
                                 )
                             }
-                            .id(line.id)
+                            .id(LyricsScrollTarget.line(id: line.id))
                             .opacity(activity.opacity)
                             .animation(
                                 .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
                                 value: currentLineIndex
                             )
                             .padding(.vertical, 2)
+
+                            if LyricPlaybackPositionPolicy.hasLongInterlude(
+                                afterLine: index,
+                                in: lyrics
+                            ) {
+                                interludeMarker(afterLine: index)
+                                    .id(LyricsScrollTarget.interlude(afterLineID: line.id))
+                            }
                         }
 
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
@@ -4546,13 +4565,14 @@ struct LyricsScrollView: View {
                         break
                     }
                 }
-                .onChange(of: currentLineIndex) { _, idx in
+                .onChange(of: playbackScrollTarget) { _, target in
                     guard isSceneActive,
                           !isRestoringVisualPosition,
                           !isPinchingLyrics,
+                          let target,
                           Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
-                    scrollLine(to: idx, proxy: proxy, animated: true)
+                    scroll(to: target, proxy: proxy, animated: true)
                 }
                 .onChange(of: lyricsFontScale) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
@@ -4561,10 +4581,10 @@ struct LyricsScrollView: View {
                     guard isSceneActive else { return }
                     isRestoringVisualPosition = true
                     defer { isRestoringVisualPosition = false }
-                    let targetIndex = updateCurrentLine(disableAnimations: true)
+                    let target = updateCurrentLine(disableAnimations: true)
                     await Task.yield()
-                    guard !Task.isCancelled, let targetIndex else { return }
-                    scrollLine(to: targetIndex, proxy: proxy, animated: false)
+                    guard !Task.isCancelled, let target else { return }
+                    scroll(to: target, proxy: proxy, animated: false)
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
@@ -4608,6 +4628,20 @@ struct LyricsScrollView: View {
 
     private var lyricsPresentationIdentity: String {
         "\(songID ?? "")|\(lyricsRevision)|\(isSceneActive)"
+    }
+
+    private enum LyricsScrollTarget: Hashable {
+        case line(id: String)
+        case interlude(afterLineID: String)
+    }
+
+    private var playbackScrollTarget: LyricsScrollTarget? {
+        if let index = activeInterludeAfterLineIndex,
+           lyrics.indices.contains(index) {
+            return .interlude(afterLineID: lyrics[index].id)
+        }
+        guard lyrics.indices.contains(currentLineIndex) else { return nil }
+        return .line(id: lyrics[currentLineIndex].id)
     }
 
     private struct PlaybackFollowTaskIdentity: Hashable {
@@ -4654,15 +4688,19 @@ struct LyricsScrollView: View {
                   isSceneActive,
                   !isPinchingLyrics,
                   Date().timeIntervalSince(lastUserScrollTime) >= delay else { return }
-            scrollLine(to: currentLineIndex, proxy: proxy, animated: true)
+            guard let target = playbackScrollTarget else { return }
+            scroll(to: target, proxy: proxy, animated: true)
         }
     }
 
-    private func scrollLine(to index: Int, proxy: ScrollViewProxy, animated: Bool) {
-        guard lyrics.indices.contains(index) else { return }
+    private func scroll(
+        to target: LyricsScrollTarget,
+        proxy: ScrollViewProxy,
+        animated: Bool
+    ) {
         let update = {
             proxy.scrollTo(
-                lyrics[index].id,
+                target,
                 anchor: UnitPoint(x: 0.5, y: Self.lyricsVisualAnchor)
             )
         }
@@ -4673,6 +4711,22 @@ struct LyricsScrollView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction, update)
         }
+    }
+
+    private func interludeMarker(afterLine index: Int) -> some View {
+        let isActive = activeInterludeAfterLineIndex == index
+        return Image(systemName: "ellipsis")
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(appearance.secondary)
+            .symbolEffect(
+                .variableColor.iterative,
+                isActive: isActive && !reduceMotion
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 24)
+            .opacity(isActive ? 0.9 : appearance.futureLyricOpacity * 0.65)
+            .animation(.smooth(duration: 0.3, extraBounce: 0), value: isActive)
+            .accessibilityHidden(true)
     }
 
     private var wordLevelBadge: some View {
@@ -4918,34 +4972,63 @@ struct LyricsScrollView: View {
     private static let lyricsActiveVisualScale: CGFloat = 1.08
 
     @discardableResult
-    private func updateCurrentLine(disableAnimations: Bool = false) -> Int? {
+    private func updateCurrentLine(
+        disableAnimations: Bool = false
+    ) -> LyricsScrollTarget? {
         guard hasSynchronizedLyrics else {
             if currentLineIndex != -1 { currentLineIndex = -1 }
+            if activeInterludeAfterLineIndex != nil {
+                activeInterludeAfterLineIndex = nil
+            }
             return nil
         }
         let time = player.interpolatedTime()
         if !visualActivityPolicy.shouldRunWordTimeline {
             visualPlaybackTime = time
         }
-        guard let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
+        let lookahead = hasWordLevelLyrics
+            ? Self.wordLevelLineLookahead
+            : Self.lineLevelLookahead
+        guard let position = LyricPlaybackPositionPolicy.scrollTarget(
             in: lyrics,
             at: time,
-            lookahead: hasWordLevelLyrics
-                ? Self.wordLevelLineLookahead
-                : Self.lineLevelLookahead
+            lookahead: lookahead
         ) else { return nil }
-        if currentLineIndex != activeIndex {
-            if disableAnimations {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    currentLineIndex = activeIndex
-                }
-            } else {
+
+        let activeIndex: Int
+        let interludeAfterLineIndex: Int?
+        let scrollTarget: LyricsScrollTarget
+        switch position {
+        case .line(let index):
+            guard lyrics.indices.contains(index) else { return nil }
+            activeIndex = index
+            interludeAfterLineIndex = nil
+            scrollTarget = .line(id: lyrics[index].id)
+        case .interlude(let index):
+            guard lyrics.indices.contains(index) else { return nil }
+            activeIndex = index
+            interludeAfterLineIndex = index
+            scrollTarget = .interlude(afterLineID: lyrics[index].id)
+        }
+
+        let update = {
+            if currentLineIndex != activeIndex {
                 currentLineIndex = activeIndex
             }
+            if activeInterludeAfterLineIndex != interludeAfterLineIndex {
+                activeInterludeAfterLineIndex = interludeAfterLineIndex
+            }
         }
-        return activeIndex
+        if disableAnimations {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                update()
+            }
+        } else {
+            update()
+        }
+        return scrollTarget
     }
 }
 

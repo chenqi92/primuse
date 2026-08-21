@@ -15,6 +15,11 @@ public enum LyricRowFrameBatchPolicy {
 }
 
 public enum LyricPlaybackPositionPolicy {
+    public enum ScrollTarget: Equatable, Sendable {
+        case line(Int)
+        case interlude(afterLine: Int)
+    }
+
     public static func shouldFollowPlayback(in lyrics: [LyricLine]) -> Bool {
         shouldFollowPlayback(in: lyrics, isSynchronized: \.isSynchronized)
     }
@@ -61,5 +66,81 @@ public enum LyricPlaybackPositionPolicy {
             }
         }
         return max(0, lower - 1)
+    }
+
+    /// Keeps the semantic active row unchanged during a long instrumental
+    /// break while allowing a lyrics surface to move to a dedicated interlude
+    /// marker. Line-level lyrics have no explicit end time, so their visible
+    /// singing window is conservatively estimated before the break begins.
+    public static func scrollTarget(
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        lineLevelEstimatedDuration: TimeInterval = 3.5,
+        interludeActivationDelay: TimeInterval = 6,
+        minimumInterludeDuration: TimeInterval = 12
+    ) -> ScrollTarget? {
+        guard let activeIndex = activeLineIndex(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead
+        ) else { return nil }
+        guard let window = interludeWindow(
+            afterLine: activeIndex,
+            in: lyrics,
+            lineLevelEstimatedDuration: lineLevelEstimatedDuration,
+            interludeActivationDelay: interludeActivationDelay,
+            minimumInterludeDuration: minimumInterludeDuration
+        ) else {
+            return .line(activeIndex)
+        }
+
+        let targetTime = playbackTime + max(0, lookahead)
+        guard targetTime >= window.activation,
+              targetTime < window.nextLineStart else {
+            return .line(activeIndex)
+        }
+        return .interlude(afterLine: activeIndex)
+    }
+
+    public static func hasLongInterlude(
+        afterLine index: Int,
+        in lyrics: [LyricLine],
+        lineLevelEstimatedDuration: TimeInterval = 3.5,
+        minimumInterludeDuration: TimeInterval = 12
+    ) -> Bool {
+        interludeWindow(
+            afterLine: index,
+            in: lyrics,
+            lineLevelEstimatedDuration: lineLevelEstimatedDuration,
+            interludeActivationDelay: 0,
+            minimumInterludeDuration: minimumInterludeDuration
+        ) != nil
+    }
+
+    private static func interludeWindow(
+        afterLine index: Int,
+        in lyrics: [LyricLine],
+        lineLevelEstimatedDuration: TimeInterval,
+        interludeActivationDelay: TimeInterval,
+        minimumInterludeDuration: TimeInterval
+    ) -> (activation: TimeInterval, nextLineStart: TimeInterval)? {
+        guard lyrics.indices.contains(index),
+              lyrics.indices.contains(index + 1) else { return nil }
+
+        let line = lyrics[index]
+        let nextLineStart = lyrics[index + 1].timestamp
+        let fallbackEnd = line.timestamp + max(0, lineLevelEstimatedDuration)
+        let explicitEnd = line.endTime.flatMap { $0.isFinite ? $0 : nil }
+        let estimatedEnd = max(line.timestamp, explicitEnd ?? fallbackEnd)
+        let duration = nextLineStart - estimatedEnd
+        guard estimatedEnd.isFinite,
+              nextLineStart.isFinite,
+              duration >= max(0, minimumInterludeDuration) else { return nil }
+
+        return (
+            activation: estimatedEnd + max(0, interludeActivationDelay),
+            nextLineStart: nextLineStart
+        )
     }
 }
