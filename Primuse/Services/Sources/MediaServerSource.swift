@@ -1133,6 +1133,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             "AlbumArtists",
             "AlbumId",
             "AlbumPrimaryImageTag",
+            "ArtistItems",
             "Artists",
             "DateCreated",
             "Genres",
@@ -1650,7 +1651,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             genre: genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil,
             year: year,
             lastModified: item.dateCreated,
-            coverArtFileName: coverArtURL(for: item)?.absoluteString
+            coverArtFileName: coverArtURL(for: item)?.absoluteString,
+            artistArtworkFileName: artistArtworkReference(for: item, artistName: artist)
         )
     }
 
@@ -1695,8 +1697,44 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             sampleRate: audioStream?.samplingRate,
             genre: genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil,
             year: item.year,
-            coverArtFileName: coverArtURL(for: item)?.absoluteString
+            coverArtFileName: coverArtURL(for: item)?.absoluteString,
+            artistArtworkFileName: artistArtworkReference(for: item, artistName: artist)
         )
+    }
+
+    /// Jellyfin/Emby expose stable artist item IDs alongside every audio row.
+    /// Persist a credential-free image URL; `imageURL(for:)` later rebases it
+    /// onto the active LAN/public route and adds the current token.
+    private func artistArtworkReference(for item: AudioItem, artistName: String?) -> String? {
+        let candidates = (item.artistItems ?? []) + (item.albumArtists ?? [])
+        let match = candidates.first { candidate in
+            guard let artistName else { return false }
+            return candidate.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(artistName.trimmingCharacters(in: .whitespacesAndNewlines))
+                == .orderedSame
+        } ?? candidates.first
+        guard let artistID = match?.id, !artistID.isEmpty else { return nil }
+        return buildURL(
+            path: "/Items/\(artistID)/Images/Primary",
+            queryItems: [
+                URLQueryItem(name: "maxWidth", value: "480"),
+                URLQueryItem(name: "format", value: "png"),
+            ]
+        ).absoluteString
+    }
+
+    /// Plex track rows carry the artist's own `grandparentThumb`. Only attach
+    /// it when the visible track artist is that grandparent, avoiding an album
+    /// artist portrait on compilation tracks credited to somebody else.
+    private func artistArtworkReference(for item: PlexAudioItem, artistName: String?) -> String? {
+        guard let artistName,
+              let grandparentTitle = item.grandparentTitle,
+              artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(grandparentTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+                == .orderedSame,
+              let thumb = item.grandparentThumb,
+              !thumb.isEmpty else { return nil }
+        return buildURL(path: thumb).absoluteString
     }
 
     private func coverArtURL(for item: AudioItem) -> URL? {
@@ -1973,6 +2011,7 @@ private struct AudioItem: Decodable {
     let album: String?
     let albumArtist: String?
     let albumArtists: [NameIDPair]?
+    let artistItems: [NameIDPair]?
     let artists: [String]?
     let albumId: String?
     let albumPrimaryImageTag: String?
@@ -1994,6 +2033,7 @@ private struct AudioItem: Decodable {
         case album = "Album"
         case albumArtist = "AlbumArtist"
         case albumArtists = "AlbumArtists"
+        case artistItems = "ArtistItems"
         case artists = "Artists"
         case albumId = "AlbumId"
         case albumPrimaryImageTag = "AlbumPrimaryImageTag"
@@ -2325,6 +2365,7 @@ private struct PlexAudioItem: Decodable {
     let year: Int?
     let duration: Int?
     let thumb: String?
+    let grandparentThumb: String?
     let genres: [String]?
     let media: [PlexMedia]?
 
@@ -2341,6 +2382,7 @@ private struct PlexAudioItem: Decodable {
         case year
         case duration
         case thumb
+        case grandparentThumb
         case media = "Media"
         case genre = "Genre"
     }
@@ -2359,6 +2401,7 @@ private struct PlexAudioItem: Decodable {
         year = try container.decodeIfPresent(Int.self, forKey: .year)
         duration = try container.decodeIfPresent(Int.self, forKey: .duration)
         thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+        grandparentThumb = try container.decodeIfPresent(String.self, forKey: .grandparentThumb)
         media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
         genres = try container.decodeIfPresent([PlexGenre].self, forKey: .genre)?.map(\.tag)
     }

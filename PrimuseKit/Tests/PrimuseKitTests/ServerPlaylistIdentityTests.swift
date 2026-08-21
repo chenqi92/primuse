@@ -101,6 +101,31 @@ struct ServerPlaylistIdentityTests {
     }
 }
 
+@Suite("Source-owned artwork identity")
+struct SourceOwnedArtworkReferenceTests {
+    @Test("Source and connector reference round-trip without exposing URL syntax")
+    func roundTrips() throws {
+        let encoded = try #require(SourceOwnedArtworkReference.make(
+            sourceID: "server/上海",
+            reference: "subsonic-artist/ar+1/2"
+        ))
+
+        #expect(!encoded.contains("://"))
+        #expect(SourceOwnedArtworkReference.resolve(encoded) == .init(
+            sourceID: "server/上海",
+            reference: "subsonic-artist/ar+1/2"
+        ))
+    }
+
+    @Test("Malformed and empty references are rejected")
+    func rejectsInvalidReferences() {
+        #expect(SourceOwnedArtworkReference.make(sourceID: "", reference: "art") == nil)
+        #expect(SourceOwnedArtworkReference.make(sourceID: "source", reference: "") == nil)
+        #expect(SourceOwnedArtworkReference.resolve("https://example.com/art.jpg") == nil)
+        #expect(SourceOwnedArtworkReference.resolve("primuse-source-artwork:not-base64") == nil)
+    }
+}
+
 @Suite("Mirror playlist identity")
 struct MirrorPlaylistIdentityTests {
     @Test("Both mirror families are recognized")

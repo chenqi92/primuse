@@ -1948,6 +1948,7 @@ struct HomeView: View {
                     CachedArtworkView(
                         artistID: artist.id,
                         artistName: artist.name,
+                        artworkReference: artist.thumbnailPath,
                         size: 52,
                         cornerRadius: 26
                     )
@@ -2315,6 +2316,7 @@ struct HomeView: View {
                         NavigationLink(value: artist) {
                             VStack(spacing: 6) {
                                 CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                                                  artworkReference: artist.thumbnailPath,
                                                   size: 80, cornerRadius: 40)
                                 Text(artist.name).font(.caption).lineLimit(1).frame(width: 80)
                             }

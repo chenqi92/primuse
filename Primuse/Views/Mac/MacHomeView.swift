@@ -1092,6 +1092,7 @@ struct MacHomeView: View {
             CachedArtworkView(
                 artistID: artist.id,
                 artistName: artist.name,
+                artworkReference: artist.thumbnailPath,
                 size: 92,
                 cornerRadius: 46
             )

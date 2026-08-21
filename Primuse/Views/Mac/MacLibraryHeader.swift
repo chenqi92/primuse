@@ -139,6 +139,7 @@ struct MacLibraryHeader: View {
             CachedArtworkView(
                 artistID: artist.id,
                 artistName: artist.name,
+                artworkReference: artist.thumbnailPath,
                 size: 160,
                 cornerRadius: 80
             )

@@ -426,6 +426,7 @@ struct ArtistDetailView: View {
             CachedArtworkView(
                 artistID: artist.id,
                 artistName: artist.name,
+                artworkReference: artist.thumbnailPath,
                 size: 140,
                 cornerRadius: 70
             )
@@ -451,6 +452,7 @@ struct ArtistDetailView: View {
     private var iosHeader: some View {
         VStack(spacing: 8) {
             CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                              artworkReference: artist.thumbnailPath,
                               size: 120, cornerRadius: 60)
 
             Text(displayArtistName)

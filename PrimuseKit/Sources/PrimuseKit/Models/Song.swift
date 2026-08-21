@@ -30,6 +30,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var lastModified: Date?
     public var dateAdded: Date
     public var coverArtFileName: String?
+    /// Source-owned artist artwork reference captured from a server catalogue.
+    /// Unlike `artistID`, which is replaced with Primuse's name-derived ID,
+    /// this stays in the connector's native namespace so artist views can ask
+    /// the originating source for its dedicated image.
+    public var artistArtworkFileName: String?
     public var lyricsFileName: String?
     public var mvPath: String?
     public var replayGainTrackGain: Double?
@@ -90,6 +95,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         lastModified: Date? = nil,
         dateAdded: Date = Date(),
         coverArtFileName: String? = nil,
+        artistArtworkFileName: String? = nil,
         lyricsFileName: String? = nil,
         mvPath: String? = nil,
         replayGainTrackGain: Double? = nil,
@@ -128,6 +134,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.lastModified = lastModified
         self.dateAdded = dateAdded
         self.coverArtFileName = coverArtFileName
+        self.artistArtworkFileName = artistArtworkFileName
         self.lyricsFileName = lyricsFileName
         self.mvPath = mvPath
         self.replayGainTrackGain = replayGainTrackGain
@@ -143,6 +150,50 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.albumPinyin = albumPinyin
         self.lyricsText = lyricsText
         self.userMetadataEditedAt = userMetadataEditedAt
+    }
+}
+
+/// Encodes a connector-relative artwork reference together with the source
+/// that owns it. `Artist.thumbnailPath` has only one persisted string slot, so
+/// the ownership must travel with the reference for adaptive source routing to
+/// select the correct credentials and LAN/public endpoint at display time.
+public enum SourceOwnedArtworkReference {
+    public struct Resolved: Equatable, Sendable {
+        public let sourceID: String
+        public let reference: String
+
+        public init(sourceID: String, reference: String) {
+            self.sourceID = sourceID
+            self.reference = reference
+        }
+    }
+
+    private static let prefix = "primuse-source-artwork:"
+
+    public static func make(sourceID: String, reference: String) -> String? {
+        guard !sourceID.isEmpty, !reference.isEmpty,
+              !sourceID.contains("\0"), !reference.contains("\0") else { return nil }
+        let payload = Data((sourceID + "\0" + reference).utf8)
+        let encoded = payload.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return prefix + encoded
+    }
+
+    public static func resolve(_ value: String?) -> Resolved? {
+        guard let value, value.hasPrefix(prefix) else { return nil }
+        var encoded = String(value.dropFirst(prefix.count))
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = (4 - encoded.count % 4) % 4
+        if padding > 0 { encoded.append(String(repeating: "=", count: padding)) }
+        guard let payload = Data(base64Encoded: encoded),
+              let separator = payload.firstIndex(of: 0),
+              let sourceID = String(data: payload[..<separator], encoding: .utf8),
+              let reference = String(data: payload[payload.index(after: separator)...], encoding: .utf8),
+              !sourceID.isEmpty, !reference.isEmpty else { return nil }
+        return Resolved(sourceID: sourceID, reference: reference)
     }
 }
 

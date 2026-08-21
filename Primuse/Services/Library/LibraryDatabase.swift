@@ -260,6 +260,16 @@ actor LibraryDatabase {
             }
         }
 
+        // Server-library songs can expose an artist image independently from
+        // the track/album cover. Keep the connector-owned reference on the
+        // song because `artistID` is intentionally replaced by Primuse's
+        // normalized, name-derived identity during ingestion.
+        migrator.registerMigration("v12_song_artist_artwork") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "artistArtworkFileName", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

@@ -434,6 +434,7 @@ struct LibraryView: View {
                         CachedArtworkView(
                             artistID: artist.id,
                             artistName: artist.name,
+                            artworkReference: artist.thumbnailPath,
                             size: 116,
                             cornerRadius: 58
                         )
@@ -546,6 +547,7 @@ struct LibraryView: View {
                 CachedArtworkView(
                     artistID: artist.id,
                     artistName: artist.name,
+                    artworkReference: artist.thumbnailPath,
                     size: 36,
                     cornerRadius: 18,
                     showsPlaceholder: false
@@ -824,6 +826,7 @@ private struct LibraryQuickAccessEditor: View {
                                 CachedArtworkView(
                                     artistID: artist.id,
                                     artistName: artist.name,
+                                    artworkReference: artist.thumbnailPath,
                                     size: 42,
                                     cornerRadius: 21
                                 )
@@ -902,6 +905,7 @@ private struct LibraryQuickAccessEditor: View {
                     CachedArtworkView(
                         artistID: artist.id,
                         artistName: artist.name,
+                        artworkReference: artist.thumbnailPath,
                         size: 42,
                         cornerRadius: 21
                     )

@@ -2661,6 +2661,9 @@ final class MusicLibrary {
                     // backfill's embedded-art reference; if the scan didn't
                     // find any, keep what backfill stored.
                     if let cover = newSong.coverArtFileName { merged.coverArtFileName = cover }
+                    if let artistArtwork = newSong.artistArtworkFileName {
+                        merged.artistArtworkFileName = artistArtwork
+                    }
                     if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
                     if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
                     if merged != existing {
@@ -2774,6 +2777,7 @@ final class MusicLibrary {
             || old.year != new.year
             || old.lastModified != new.lastModified
             || old.coverArtFileName != new.coverArtFileName
+            || old.artistArtworkFileName != new.artistArtworkFileName
             || old.lyricsFileName != new.lyricsFileName
             || old.mvPath != new.mvPath
             || old.replayGainTrackGain != new.replayGainTrackGain
@@ -5387,11 +5391,17 @@ final class MusicLibrary {
         guard !cancellationCheck() else { return nil }
         let artists = artistGroups.map { name, songs -> Artist in
             let albumCount = Set(songs.compactMap(\.albumTitle)).count
+            let thumbnailPath = songs.lazy.compactMap { song in
+                song.artistArtworkFileName.flatMap {
+                    SourceOwnedArtworkReference.make(sourceID: song.sourceID, reference: $0)
+                }
+            }.first
             return Artist(
                 id: hashID(name.lowercased()),
                 name: name,
                 albumCount: albumCount,
-                songCount: songs.count
+                songCount: songs.count,
+                thumbnailPath: thumbnailPath
             )
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         guard !cancellationCheck() else { return nil }
@@ -5406,7 +5416,7 @@ final class MusicLibrary {
     private nonisolated static func derivedIndexSignature(for songs: [Song]) -> String {
         var input = Data()
         input.reserveCapacity(max(128, songs.count * 96))
-        appendStableString("derived-index-v2", to: &input)
+        appendStableString("derived-index-v3", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
 
         for song in songs {
@@ -5417,6 +5427,7 @@ final class MusicLibrary {
             appendStableString(song.genre, to: &input)
             appendStableInteger(song.duration.sanitizedDuration.bitPattern, to: &input)
             appendStableString(song.sourceID, to: &input)
+            appendStableString(song.artistArtworkFileName, to: &input)
         }
 
         return SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()

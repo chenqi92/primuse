@@ -163,11 +163,11 @@ struct CachedArtworkView: View {
     }
 
     // Artist image init — fetches via ArtworkFetchService if not cached
-    init(artistID: String, artistName: String,
+    init(artistID: String, artistName: String, artworkReference: String? = nil,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          showsPlaceholder: Bool = true,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
-        self.coverRef = nil
+        self.coverRef = artworkReference
         self.artistID = artistID
         self.artistName = artistName
         self.size = size
@@ -319,7 +319,9 @@ struct CachedArtworkView: View {
     private var cacheKey: String {
         let suffix = "@\(bucket.rawValue)"
         if let albumID { return "album_\(albumID)\(suffix)" }
-        if let artistID { return "artist_\(artistID)\(suffix)" }
+        if let artistID {
+            return "artist_\(artistID)#\(coverRef ?? "")\(suffix)"
+        }
         return (songID ?? coverRef ?? "") + suffix
     }
 
@@ -518,10 +520,32 @@ struct CachedArtworkView: View {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
-        // Artist path — ArtworkFetchService
+        // Artist path — prefer the originating server, then fall back to the
+        // existing name-based artwork provider. Source artwork gets its own
+        // disk namespace so an older scraped image cannot mask a server image.
         if let artistID, let artistName {
             let data: Data?
-            if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID) {
+            let owned = SourceOwnedArtworkReference.resolve(effectiveRef)
+            let sourceCacheID = owned.map { _ in
+                "\(artistID)\u{1F}\(effectiveRef ?? "")"
+            }
+            if let sourceCacheID,
+               let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: sourceCacheID) {
+                data = cached
+            } else if let owned,
+                      let sourceData = await sourceManager.artworkData(
+                        for: owned.reference,
+                        sourceID: owned.sourceID,
+                        maximumBytes: 8 * 1024 * 1024
+                      ) {
+                if let sourceCacheID {
+                    _ = await MetadataAssetStore.shared.storeArtistImage(
+                        sourceData,
+                        forArtistID: sourceCacheID
+                    )
+                }
+                data = sourceData
+            } else if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID) {
                 data = cached
             } else {
                 data = await ArtworkFetchService.shared.fetchArtistImage(

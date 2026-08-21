@@ -43,6 +43,7 @@ struct ArtistListView: View {
                 NavigationLink(value: artist) {
                     HStack(spacing: 12) {
                         CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                                          artworkReference: artist.thumbnailPath,
                                           size: 44, cornerRadius: 22)
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -164,6 +165,7 @@ struct ArtistListView: View {
         } label: {
             HStack(spacing: 10) {
                 CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                                  artworkReference: artist.thumbnailPath,
                                   size: 36, cornerRadius: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(displayName(for: artist))

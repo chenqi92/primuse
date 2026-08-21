@@ -707,6 +707,7 @@ final class AudioPlayerService {
     }
     var repeatMode: RepeatMode = .off {
         didSet {
+            guard repeatMode != oldValue else { return }
             defer {
                 if !isRestoringPlaybackSession {
                     persistPlaybackSession()
@@ -717,7 +718,13 @@ final class AudioPlayerService {
                 AppServices.shared.appleMusic.setAppleMusicRepeat(repeatMode)
                 return
             }
-            invalidateQueueTransitions()
+            // Track-end, gapless and crossfade callbacks all re-read the
+            // current repeat mode before committing their successor. Reusing
+            // the active transport is therefore both safe and immediate.
+            // `invalidateQueueTransitions()` is for structural queue changes;
+            // it rebuilds the current decoder with a seek and creates an
+            // audible pause when used for this policy-only change.
+            prefetchNextSong()
         }
     }
 

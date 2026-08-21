@@ -595,11 +595,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         try await connect()
         let container: PlaylistsContainer = try await requestJSON("getPlaylists")
         let summaries = container.playlists?.playlist ?? []
-        guard summaries.isEmpty == false else { return ServerPlaylistSnapshot(playlists: []) }
 
         var result: [ServerPlaylist] = []
         var failedPlaylistIDs = Set<String>()
-        result.reserveCapacity(summaries.count)
+        result.reserveCapacity(summaries.count + 1)
         for summary in summaries {
             try Task.checkCancellation()
             let detail: PlaylistContainer
@@ -634,11 +633,38 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 reportedTrackCount: playlist.songCount ?? summary.songCount
             ))
         }
+
+        // Subsonic favorites are annotations, not ordinary playlists, so they
+        // never appear in getPlaylists. Mirror starred songs as one read-only
+        // source playlist. Navidrome, Airsonic and gonic all expose this through
+        // getStarred2; a temporarily unavailable endpoint must preserve an
+        // existing mirror without blocking the normal playlist snapshot.
+        do {
+            let starred: Starred2Container = try await requestJSON("getStarred2")
+            let songs = starred.starred2?.song ?? []
+            if !songs.isEmpty {
+                result.append(ServerPlaylist(
+                    id: Self.starredPlaylistID,
+                    name: String(localized: "playlist_liked_name"),
+                    coverArtReference: songs.first?.coverArt.flatMap { coverArtURLString(for: $0) },
+                    trackIDs: songs.map(\.id),
+                    reportedTrackCount: songs.count
+                ))
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try Task.checkCancellation()
+            failedPlaylistIDs.insert(Self.starredPlaylistID)
+            plog("⚠️ Subsonic getStarred2 failed: \(error.localizedDescription)")
+        }
         return ServerPlaylistSnapshot(
             playlists: result,
             failedPlaylistIDs: failedPlaylistIDs
         )
     }
+
+    private static let starredPlaylistID = "primuse.subsonic.starred-songs"
 
     // MARK: - Internet radio
 
@@ -724,7 +750,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             genre: child.genre,
             year: child.year,
             lastModified: child.created.flatMap(Self.parseDate),
-            coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) }
+            coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
+            artistArtworkFileName: child.artistId.flatMap { artistArtworkReference(for: $0) }
         )
     }
 
@@ -741,11 +768,39 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private static let coverRefPrefix = "subsonic-cover/"
+    private static let artistRefPrefix = "subsonic-artist/"
+
+    private func artistArtworkReference(for artistID: String) -> String? {
+        guard !artistID.isEmpty else { return nil }
+        return Self.artistRefPrefix + artistID
+    }
 
     /// 取图层经 SourceManager.imageURL 回调 —— 把封面引用还原成带当前凭据的
     /// 实时 getCoverArt URL。同样兜底处理历史上落盘的完整 URL(老快照里直接
     /// 存了 https://.../getCoverArt 的情况), 直接放行。
     func imageURL(for path: String) async throws -> URL? {
+        if path.hasPrefix(Self.artistRefPrefix) {
+            try await connect()
+            let artistID = String(path.dropFirst(Self.artistRefPrefix.count))
+            guard !artistID.isEmpty else { return nil }
+            let container: ArtistContainer = try await requestJSON(
+                "getArtist",
+                query: [URLQueryItem(name: "id", value: artistID)]
+            )
+            if let coverArtID = container.artist?.coverArt, !coverArtID.isEmpty {
+                return buildRESTURL(
+                    method: "getCoverArt",
+                    query: [
+                        URLQueryItem(name: "id", value: coverArtID),
+                        URLQueryItem(name: "size", value: "480")
+                    ]
+                )
+            }
+            if let imageURL = container.artist?.artistImageURL, !imageURL.isEmpty {
+                return URL(string: imageURL)
+            }
+            return nil
+        }
         if path.hasPrefix(Self.coverRefPrefix) {
             try await connect()
             let coverArtID = String(path.dropFirst(Self.coverRefPrefix.count))
@@ -1054,6 +1109,12 @@ private struct SearchResult3: Decodable {
     let song: [SubsonicChild]?
 }
 
+private struct ArtistContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let artist: SubsonicArtistID3?
+}
+
 private struct AlbumWithSongs: Decodable, Sendable {
     let song: [SubsonicChild]?
 }
@@ -1095,6 +1156,15 @@ private struct SubsonicChild: Decodable, Sendable {
 private struct SubsonicArtistID3: Decodable, Sendable {
     let id: String?
     let name: String?
+    let coverArt: String?
+    let artistImageURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case coverArt
+        case artistImageURL = "artistImageUrl"
+    }
 }
 
 private struct PlaylistsContainer: SubsonicResponseContainer {
@@ -1118,6 +1188,16 @@ private struct PlaylistContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let playlist: PlaylistWithEntries?
+}
+
+private struct Starred2Container: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let starred2: Starred2?
+}
+
+private struct Starred2: Decodable {
+    let song: [SubsonicChild]?
 }
 
 /// `playlistWithSongs`: 曲目字段是单数 `entry`, 装的是 Child 数组。
