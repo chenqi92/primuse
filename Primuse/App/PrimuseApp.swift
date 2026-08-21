@@ -906,17 +906,21 @@ struct PrimuseApp: App {
         #endif
     }
 
+    @ViewBuilder
+    private var platformRootContent: some View {
+        #if os(iOS)
+        ContentView()
+            .automaticAppReviewPrompt()
+        #else
+        MacContentView()
+            .automaticAppReviewPrompt()
+        #endif
+    }
+
     var body: some Scene {
         macAwareMainGroup {
             injectServices {
-                #if os(iOS)
-                ContentView()
-                    .automaticAppReviewPrompt()
-                #else
-                MacContentView()
-                    .automaticAppReviewPrompt()
-                #endif
-            }
+                platformRootContent
                 // Keep one scene-level presenter alive on every platform so
                 // background scans and playback never wait for a sheet-local
                 // certificate prompt that has already disappeared.
@@ -1267,6 +1271,7 @@ struct PrimuseApp: App {
                         .environment(musicLibrary)
                         .environment(sourcesStore)
                 }
+            }
         }
         #if os(macOS)
         // 标题栏背景和标题由 PMWindowChromeConfigurator 隐藏。这里保留 SwiftUI

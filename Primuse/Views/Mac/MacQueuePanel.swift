@@ -11,6 +11,7 @@ struct MacQueuePanel: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -312,6 +313,7 @@ struct MacQueuePanel: View {
                 .stroke(PMColor.brand.opacity(0.55), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        .environment(sourceManager)
     }
 
     private var footer: some View {

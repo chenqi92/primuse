@@ -34,6 +34,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     fileprivate static let maxDecodeStallNanos: UInt64 = 8_000_000_000    // 8s 无进度→放弃
 
     func canDecode(url: URL) -> Bool {
+        guard url.isFileURL else { return false }
         // SFBAudioEngine supports a huge range of formats
         let ext = url.pathExtension.lowercased()
         return SFBAudioEngine.AudioDecoder.handlesPaths(withExtension: ext)
@@ -41,6 +42,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     }
 
     func fileInfo(for url: URL) async throws -> AudioFileInfo {
+        try Self.requireFileURL(url)
         if isDSD(url) {
             let decoder = try SFBAudioEngine.DSDDecoder(url: url)
             try decoder.open()
@@ -165,6 +167,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
+                    try Self.requireFileURL(url)
                     let prepared = try self.prepareDecoder(
                         startingAt: startTime,
                         reopenAfterFailedSeek: true,
@@ -519,6 +522,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     }
 
     func dsdOutputFormat(for url: URL, mode: DSDPlaybackMode) throws -> AVAudioFormat? {
+        try Self.requireFileURL(url)
         guard isDSD(url) else { return nil }
         let decoder: any SFBAudioEngine.PCMDecoding
         switch mode {
@@ -536,6 +540,16 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     func isDSD(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         return ext == "dsf" || ext == "dff"
+    }
+
+    /// SFBAudioEngine's URL initializers assert instead of returning an error
+    /// when handed a non-file URL. Keep that Objective-C precondition behind a
+    /// throwing Swift boundary so failed remote-stream setup cannot terminate
+    /// the process.
+    private static func requireFileURL(_ url: URL) throws {
+        guard url.isFileURL else {
+            throw URLError(.unsupportedURL, userInfo: [NSURLErrorKey: url])
+        }
     }
 }
 

@@ -3,6 +3,7 @@ import PrimuseKit
 
 struct QueueView: View {
     let player: AudioPlayerService
+    @Environment(SourceManager.self) private var sourceManager
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -277,6 +278,9 @@ struct QueueView: View {
                 .stroke(Color.accentColor.opacity(0.55), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
+        // SwiftUI renders custom drag previews in a separate host that does
+        // not reliably inherit type-based observable environments.
+        .environment(sourceManager)
     }
 
     private func playEntry(_ entry: QueueEntry) {
