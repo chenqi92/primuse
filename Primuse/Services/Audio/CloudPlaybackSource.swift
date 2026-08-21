@@ -316,6 +316,16 @@ enum CloudPlaybackSource {
         _ = state.closeForRebuild()
     }
 
+    /// Stops live range streams from being promoted into persistent cache
+    /// files when the user turns automatic audio caching off mid-track.
+    /// Their sparse files remain available until playback ends.
+    static func disablePersistenceForActiveSessions() {
+        registryLock.lock()
+        let states = Array(activeStates.values)
+        registryLock.unlock()
+        states.forEach { $0.disablePersistence() }
+    }
+
     /// 当前所有活跃 streaming session 的 .partial 绝对路径集合。
     /// 给「存储管理」用 —— 把这些 .partial 标成「正在播放/缓存中」, 跟
     /// 真正中断废弃的 .partial 区分, 用户就不会以为正在听的歌算 bug。
@@ -423,10 +433,10 @@ private final class State: @unchecked Sendable {
     /// every byte has been fetched (only when `persistOnComplete` is on).
     private var activeURL: URL
     private let totalLength: Int64
-    /// When false, fully-fetched files are kept at `partialURL` (in
-    /// NSTemporaryDirectory) and never promoted to the canonical cache
-    /// path — used when the user has Audio Cache disabled.
-    private let persistOnComplete: Bool
+    /// When false, fetched bytes stay at `partialURL` for the live session,
+    /// are never promoted to the canonical cache path, and are discarded when
+    /// playback ends — used when the user has Audio Cache disabled.
+    private var persistOnComplete: Bool
     /// LRU 里这个文件的相对路径 (`<sourceID>/<sanitized>`)。rename 完成
     /// 后用它去 AudioCacheManager.recordAccess 给本曲打访问时间戳, 让
     /// 后续 evict 能正确按 LRU 淘汰。nil 表示不持久化 (cache 关掉了)。
@@ -902,6 +912,12 @@ private final class State: @unchecked Sendable {
         return tasks
     }
 
+    fileprivate func disablePersistence() {
+        lock.lock()
+        persistOnComplete = false
+        lock.unlock()
+    }
+
     /// 把 cacheHit 累计字段加锁更新成原子动作。serve 多入口都要计数, 抽出
     /// 来比每处 lock/unlock 易读。
     private func cacheHitCountIncrement(by bytes: Int) {
@@ -1003,9 +1019,8 @@ private final class State: @unchecked Sendable {
         // rename .partial → final so the canonical cache path is only
         // ever populated when truly complete. Future plays of this song
         // hit the SourceManager Priority-1 local-cache fast path.
-        // When `persistOnComplete` is off (Audio Cache disabled), we skip
-        // the rename — the temp file lives in NSTemporaryDirectory and
-        // iOS purges it on its own schedule.
+        // When `persistOnComplete` is off (Audio Cache disabled), skip the
+        // rename. `finalizeSession` discards the partial deterministically.
         var renamedRelativePath: String?
         var fillRequest: (offset: Int64, length: Int64)?
         // A State retired by closeForRebuild() / finalizeSession() (`closed`)
@@ -1099,11 +1114,23 @@ private final class State: @unchecked Sendable {
         // dedupe, 多次调用只输出一次。
         emitSessionSummary()
         closeAndCancelForegroundFetches().forEach { $0.cancel() }
-        // Audio Cache 关闭时 streaming 文件只放在 NSTemporaryDirectory 供
-        // 本次 SFB 解码读取。不要在用户切歌/停止后继续补齐临时文件, 否则
-        // 会把"边播边取"退化成后台整首下载。
-        guard persistOnComplete, allowsTrailingFill else { return }
+        // Audio Cache 关闭时 streaming 文件只作为本次 SFB 解码的 sparse
+        // 临时数据。会话结束后立即删除, 不依赖系统稍后回收；也不要
+        // 继续补齐临时文件, 否则会把"边播边取"退化成后台整首下载。
         lock.lock()
+        let shouldPersist = persistOnComplete
+        lock.unlock()
+        guard shouldPersist else {
+            discardUnpersistedPartial()
+            return
+        }
+        guard allowsTrailingFill else { return }
+        lock.lock()
+        guard persistOnComplete else {
+            lock.unlock()
+            discardUnpersistedPartial()
+            return
+        }
         // 已经 rename 过了, 啥也不做。
         if activeURL == finalURL {
             lock.unlock()
@@ -1155,6 +1182,17 @@ private final class State: @unchecked Sendable {
                 plog("⚠️ Cloud stream '\(label)' finalize fill failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// The canonical file may already have completed before caching was
+    /// disabled, or an explicit offline download may have installed it in the
+    /// meantime. Only the still-active partial belongs to this live session.
+    private func discardUnpersistedPartial() {
+        lock.lock()
+        let ownsPartial = activeURL == partialURL
+        lock.unlock()
+        guard ownsPartial else { return }
+        try? FileManager.default.removeItem(at: partialURL)
     }
 
     /// 同 session seek 时, makeInputSource 重建一个新 State 来替换本 State。

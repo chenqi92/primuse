@@ -1049,6 +1049,7 @@ final class SourceManager {
     private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
+    @ObservationIgnored private var automaticAudioCachingEnabled = true
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
     private var musicVideoCacheTargets: [String: URL] = [:]
 
@@ -4250,11 +4251,21 @@ final class SourceManager {
         }
     }
 
+    func setAutomaticAudioCachingEnabled(_ enabled: Bool) {
+        guard automaticAudioCachingEnabled != enabled else { return }
+        automaticAudioCachingEnabled = enabled
+        guard !enabled else { return }
+        cancelBackgroundAudioCaching(keeping: [])
+        CloudPlaybackSource.disablePersistenceForActiveSessions()
+    }
+
     private func backgroundAudioCacheTask(
         for song: Song,
         cacheEnabled: Bool
     ) -> Task<Void, Never>? {
-        guard cacheEnabled, cachedURL(for: song) == nil else { return nil }
+        guard cacheEnabled,
+              automaticAudioCachingEnabled,
+              cachedURL(for: song) == nil else { return nil }
         if let record = backgroundAudioCacheTasks[song.id] {
             return record.task
         }
@@ -4484,6 +4495,7 @@ final class SourceManager {
     /// the actual play session starts — so the very first SFB read hits
     /// disk, not the network. Idempotent on repeat calls.
     private func prewarmCloudSong(song: Song, connector: any MusicSourceConnector) async {
+        guard automaticAudioCachingEnabled else { return }
         if isPrewarmed(song: song) { return }
         let fileSize = song.fileSize
         guard fileSize > 0 else { return }
@@ -4508,6 +4520,7 @@ final class SourceManager {
                 : Data()
             let (head, tail) = try await (headData, tailData)
             try Task.checkCancellation()
+            guard automaticAudioCachingEnabled else { return }
             seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
         } catch {
             if Task.isCancelled {
@@ -4527,7 +4540,8 @@ final class SourceManager {
     /// fire-and-forget `cacheInBackground` which spawns one Task per song
     /// and would stampede the connector).
     func prewarmCloudSongPublic(song: Song) async {
-        guard let sources = try? await sourcesProvider(),
+        guard automaticAudioCachingEnabled,
+              let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }),
               shouldUseRangeStreamingForPlayback(source: source, song: song) else { return }
         guard RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: source.type) else { return }
@@ -4596,7 +4610,7 @@ final class SourceManager {
     /// MetadataBackfillService (head-only, via the compatibility overload).
     /// fileSize=0 means "tail unknown, only seed head".
     func seedPrewarmCache(song: Song, head: Data, tail: Data, fileSize: Int64) {
-        guard !head.isEmpty else { return }
+        guard automaticAudioCachingEnabled, !head.isEmpty else { return }
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
@@ -4647,8 +4661,8 @@ final class SourceManager {
     /// When `cacheEnabled` is false (the user disabled Audio Cache), the
     /// streaming partial is routed to `NSTemporaryDirectory` and is never
     /// promoted to the canonical cache path — the file is still needed
-    /// during the session for SFB to read from, but iOS reaps the temp
-    /// directory on its own schedule afterward.
+    /// during the session for SFB to read from, then it is deleted when the
+    /// playback session ends.
     func makeStreamingInputSource(for song: Song, cacheEnabled: Bool = true) async throws -> InputSource? {
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {

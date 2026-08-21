@@ -1434,7 +1434,10 @@ struct StorageManagementView: View {
                 Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
 
                 Picker("audio_cache_limit", selection: $settings.audioCacheLimitBytes) {
-                    ForEach(Self.audioCacheLimitOptions, id: \.self) { bytes in
+                    ForEach(
+                        AudioCacheLimitPolicy.options(including: settings.audioCacheLimitBytes),
+                        id: \.self
+                    ) { bytes in
                         Text(formatBytes(bytes)).tag(bytes)
                     }
                 }
@@ -1703,17 +1706,12 @@ struct StorageManagementView: View {
         metadataSize = formatter.string(fromByteCount: metadata)
     }
 
-    private static let audioCacheLimitOptions: [Int64] = [
-        1_073_741_824,
-        2_147_483_648,
-        5_368_709_120,
-        10_737_418_240,
-        21_474_836_480,
-    ]
-
     private func formatBytes(_ bytes: Int64) -> String {
+        guard bytes != AudioCacheLimitPolicy.unlimitedBytes else {
+            return String(localized: "smart_limit_placeholder")
+        }
         let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
+        formatter.countStyle = .binary
         return formatter.string(fromByteCount: bytes)
     }
 }

@@ -250,7 +250,13 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
-    var audioCacheEnabled: Bool { didSet { persist() } }
+    var audioCacheEnabled: Bool {
+        didSet {
+            persist()
+            guard audioCacheEnabled != oldValue else { return }
+            audioCacheEnabledDidChange?(audioCacheEnabled)
+        }
+    }
     var audioCacheLimitBytes: Int64 { didSet { persist() } }
     var skipLeadingSilenceEnabled: Bool { didSet { persist() } }
     var skipTrailingSilenceEnabled: Bool { didSet { persist() } }
@@ -295,6 +301,7 @@ final class PlaybackSettingsStore {
 
     private let defaults: UserDefaults
     private var suppressPersist = false
+    @ObservationIgnored var audioCacheEnabledDidChange: ((Bool) -> Void)?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

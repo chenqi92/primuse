@@ -610,6 +610,7 @@ private struct MacSTInfoText: View {
 private struct MacSTPlaybackView: View {
     // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
     @Environment(PlaybackSettingsStore.self) private var store
+    @Environment(SourceManager.self) private var sourceManager
 
     var body: some View {
         @Bindable var s = store
@@ -720,19 +721,19 @@ private struct MacSTPlaybackView: View {
                     MacSTToggle(isOn: $s.audioCacheEnabled)
                 }
                 if s.audioCacheEnabled {
-                    MacSTRow(Lz("Cache Limit (MB)"), hint: Lz("Default 500 MB")) {
-                        MacSTSlider(
-                            value: Binding(
-                                get: { Double(s.audioCacheLimitBytes) / 1_048_576 },
-                                set: { s.audioCacheLimitBytes = Int64($0 * 1_048_576) }
-                            ),
-                            in: 100...4000,
-                            width: 250,
-                            formatter: { "\(Int($0)) MB" }
+                    MacSTRow(String(localized: "audio_cache_limit")) {
+                        MacSTPicker(
+                            selection: $s.audioCacheLimitBytes,
+                            options: AudioCacheLimitPolicy.options(
+                                including: s.audioCacheLimitBytes
+                            ).map {
+                                ($0, Self.audioCacheLimitLabel($0))
+                            },
+                            width: 120
                         )
                         MacSTButton(title: Lz("Clean Up Now")) {
                             Task {
-                                await AudioCacheManager.shared.clearAll()
+                                await sourceManager.clearAudioCache()
                             }
                         }
                     }
@@ -749,6 +750,15 @@ private struct MacSTPlaybackView: View {
                 }
             }
         }
+    }
+
+    private static func audioCacheLimitLabel(_ bytes: Int64) -> String {
+        guard bytes != AudioCacheLimitPolicy.unlimitedBytes else {
+            return String(localized: "smart_limit_placeholder")
+        }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        return formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -4993,7 +5003,9 @@ private struct MacDiagnosticsWindowView: View {
         let used = await AudioCacheManager.shared.totalCacheSize()
         let limit = await AudioCacheManager.shared.cacheLimitBytes()
         let usedStr = ByteCountFormatter.string(fromByteCount: used, countStyle: .file)
-        let limitStr = ByteCountFormatter.string(fromByteCount: limit, countStyle: .file)
+        let limitStr = limit == AudioCacheLimitPolicy.unlimitedBytes
+            ? String(localized: "smart_limit_placeholder")
+            : ByteCountFormatter.string(fromByteCount: limit, countStyle: .binary)
         cacheText = "\(usedStr) / \(limitStr)"
     }
 

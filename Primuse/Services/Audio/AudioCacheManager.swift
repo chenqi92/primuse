@@ -32,7 +32,7 @@ struct OfflineAudioCacheSnapshot: Sendable, Equatable {
 actor AudioCacheManager {
     static let shared = AudioCacheManager()
 
-    static let defaultMaxCacheSize: Int64 = 2_147_483_648 // 2 GB
+    static let defaultMaxCacheSize = AudioCacheLimitPolicy.defaultBytes
 
     private var accessLog: [String: Date] = [:]
     private var offlineManifest: [String: OfflineManifestEntry] = [:]
@@ -186,9 +186,11 @@ actor AudioCacheManager {
     /// 当 access time 兜底, 一并参与 LRU 排序 + eviction。
     func evictIfNeeded(reserveBytes: Int64) {
         ensureInitialized()
-        let reserve = reserveBytes > 0 ? reserveBytes : 10_485_760 // default 10 MB estimate
         let currentSize = totalCacheSizeSync()
-        let target = cacheLimitBytes() - reserve
+        guard let target = AudioCacheLimitPolicy.evictionTarget(
+            limitBytes: cacheLimitBytes(),
+            reserveBytes: reserveBytes
+        ) else { return }
 
         guard currentSize > target else { return }
 

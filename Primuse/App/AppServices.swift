@@ -90,6 +90,10 @@ final class AppServices {
         let scraperSettings = ScraperSettingsStore()
         let scraper = MusicScraperService(sourceManager: manager)
         let playbackSettings = PlaybackSettingsStore()
+        manager.setAutomaticAudioCachingEnabled(playbackSettings.audioCacheEnabled)
+        playbackSettings.audioCacheEnabledDidChange = { [weak manager] enabled in
+            manager?.setAutomaticAudioCachingEnabled(enabled)
+        }
         let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
         let sync = CloudKitSyncService(
             library: library,
