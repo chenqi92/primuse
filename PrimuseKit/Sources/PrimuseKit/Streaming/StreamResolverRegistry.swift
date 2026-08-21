@@ -31,6 +31,7 @@ public actor StreamResolverRegistry {
     public static let shared = StreamResolverRegistry()
 
     private var resolvers: [MusicSourceType: StreamResolver] = [:]
+    private let cloudDriveResolver: CloudDriveStreamResolver
     private struct RoutedResolverState: Sendable {
         let candidate: SourceConnectionCandidate
         let routeGeneration: UInt64
@@ -44,6 +45,7 @@ public actor StreamResolverRegistry {
         let synology = SynologyStreamResolver()
         let s3 = S3StreamResolver()
         let cloud = CloudDriveStreamResolver()
+        cloudDriveResolver = cloud
         let baidu = BaiduPanStreamResolver()
         let media = MediaServerStreamResolver()
         let nas = NasHttpStreamResolver()
@@ -82,6 +84,22 @@ public actor StreamResolverRegistry {
     }
 
     public func resolver(for type: MusicSourceType) -> StreamResolver? { resolvers[type] }
+
+    public func setCloudCredentialRefreshHandler(_ handler: CloudCredentialRefreshHandler?) async {
+        await cloudDriveResolver.setCredentialRefreshHandler(handler)
+    }
+
+    public func listCloudDirectory(
+        source: MusicSource,
+        credential: SourceCredential?,
+        path: String
+    ) async throws -> [CloudDriveDirectoryEntry] {
+        try await cloudDriveResolver.listDirectory(
+            source: source,
+            credential: credential,
+            path: path
+        )
+    }
 
     /// 支持在 tvOS 上流式播放的源类型(已注册 resolver)。
     public var supportedTypes: Set<MusicSourceType> { Set(resolvers.keys) }

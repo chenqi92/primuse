@@ -10,6 +10,8 @@ struct TVScanFlowView: View {
 
     @State private var lister: TVDirectoryLister?
     @State private var path = "/"
+    @State private var parentPaths: [String] = []
+    @State private var breadcrumbNames: [String] = []
     @State private var entries: [TVDirEntry] = []
     @State private var selected: Set<String> = []
     @State private var loading = false
@@ -98,9 +100,9 @@ struct TVScanFlowView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
-                        if path != "/" {
+                        if !parentPaths.isEmpty {
                             folderRow(name: PMString("ext.tv.scan.up"), isUp: true, selectable: false, checked: false) {
-                                load(Self.parent(of: path))
+                                goUp()
                             }
                         }
                         if loading {
@@ -115,7 +117,7 @@ struct TVScanFlowView: View {
                         }
                         ForEach(entries.filter(\.isDir)) { e in
                             folderRow(name: e.name, isUp: false, selectable: true, checked: selected.contains(e.path),
-                                      onSelect: { toggle(e.path) }, onOpen: { load(e.path) })
+                                      onSelect: { toggle(e.path) }, onOpen: { openFolder(e) })
                         }
                     }
                 }
@@ -201,7 +203,22 @@ struct TVScanFlowView: View {
 
     // MARK: 行为
 
-    private var breadcrumb: String { "\(source.name) · \(path)" }
+    private var breadcrumb: String {
+        let displayPath = breadcrumbNames.isEmpty ? "/" : "/" + breadcrumbNames.joined(separator: "/")
+        return "\(source.name) · \(displayPath)"
+    }
+
+    private func openFolder(_ entry: TVDirEntry) {
+        parentPaths.append(path)
+        breadcrumbNames.append(entry.name)
+        load(entry.path)
+    }
+
+    private func goUp() {
+        guard let parent = parentPaths.popLast() else { return }
+        if !breadcrumbNames.isEmpty { breadcrumbNames.removeLast() }
+        load(parent)
+    }
 
     private func load(_ p: String) {
         guard let lister else { return }
@@ -243,10 +260,6 @@ struct TVScanFlowView: View {
         scanTask = Task { await store.runFnMusicScan(source: source) }
     }
 
-    private static func parent(of path: String) -> String {
-        let comps = path.split(separator: "/", omittingEmptySubsequences: true).dropLast()
-        return comps.isEmpty ? "/" : "/" + comps.joined(separator: "/")
-    }
 }
 
 // MARK: - 扫描进行中(第 4 步)

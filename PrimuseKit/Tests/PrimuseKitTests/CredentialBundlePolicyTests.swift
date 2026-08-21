@@ -129,4 +129,62 @@ struct CredentialBundlePolicyTests {
 
         #expect(rebased.relay == newRelay)
     }
+
+    @Test("OAuth refresh updates one source without erasing unrelated secrets")
+    func oauthRefreshIsTargeted() {
+        let relay = RelayEndpoint(host: "192.0.2.9", port: 9200, token: "relay")
+        let original = CredentialBundle(
+            entries: [
+                "cloud": CredentialEntry(
+                    username: "account",
+                    password: "keep-password",
+                    token: "old-access",
+                    refreshToken: "old-refresh",
+                    clientID: "client",
+                    clientSecret: "secret",
+                    extra: ["drive_id": "drive", "keep": "value"]
+                ),
+                "other": CredentialEntry(token: "untouched"),
+            ],
+            relay: relay
+        )
+
+        let result = CredentialBundlePolicy.refreshingOAuthCredential(
+            sourceID: "cloud",
+            credential: SourceCredential(
+                token: "new-access",
+                refreshToken: "new-refresh",
+                clientID: "client",
+                extra: ["drive_id": "drive"]
+            ),
+            in: original
+        )
+
+        #expect(result.entries["cloud"]?.token == "new-access")
+        #expect(result.entries["cloud"]?.refreshToken == "new-refresh")
+        #expect(result.entries["cloud"]?.password == "keep-password")
+        #expect(result.entries["cloud"]?.clientSecret == "secret")
+        #expect(result.entries["cloud"]?.extra["keep"] == "value")
+        #expect(result.entries["other"]?.token == "untouched")
+        #expect(result.relay == relay)
+    }
+
+    @Test("Missing rotated refresh token preserves the last durable token")
+    func absentRefreshTokenDoesNotEraseExistingValue() {
+        let original = CredentialBundle(entries: [
+            "dropbox": CredentialEntry(
+                token: "old-access",
+                refreshToken: "durable-refresh"
+            ),
+        ])
+
+        let result = CredentialBundlePolicy.refreshingOAuthCredential(
+            sourceID: "dropbox",
+            credential: SourceCredential(token: "new-access", refreshToken: "  "),
+            in: original
+        )
+
+        #expect(result.entries["dropbox"]?.token == "new-access")
+        #expect(result.entries["dropbox"]?.refreshToken == "durable-refresh")
+    }
 }

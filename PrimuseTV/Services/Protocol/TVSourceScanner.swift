@@ -106,6 +106,35 @@ actor TVDaoLiYuLister: TVDirectoryLister {
     }
 }
 
+/// Dropbox / OneDrive 直接通过 PrimuseKit 的 OAuth resolver 浏览目录。
+/// lister 与播放共用同一 resolver，因此 401 触发的 token 刷新只发生一次，
+/// 刷新结果也会走 TVStore 配置的持久化回调写回钥匙串和 CloudKit。
+actor TVCloudDriveLister: TVDirectoryLister {
+    private let source: MusicSource
+    private let credential: SourceCredential?
+
+    init(source: MusicSource, credential: SourceCredential?) {
+        self.source = source
+        self.credential = credential
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        let entries = try await StreamResolverRegistry.shared.listCloudDirectory(
+            source: source,
+            credential: credential,
+            path: path
+        )
+        return entries.map {
+            TVDirEntry(
+                name: $0.name,
+                isDir: $0.isDirectory,
+                size: $0.size,
+                path: $0.path
+            )
+        }
+    }
+}
+
 // MARK: - SMB 目录列举(AMSMB2)
 
 actor TVSMBLister: TVDirectoryLister {
@@ -225,6 +254,8 @@ final class TVSourceScanner {
     ) -> TVDirectoryLister? {
         switch source.type {
         case .smb: return TVSMBLister(source: source, credential: credential)
+        case .oneDrive, .dropbox:
+            return TVCloudDriveLister(source: source, credential: credential)
         case .fnMusic:
             return TVFnMusicLister(client: fnMusicClient(source: source, credential: credential))
         case .daoliyu:

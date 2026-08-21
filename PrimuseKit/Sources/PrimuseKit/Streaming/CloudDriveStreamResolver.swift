@@ -1,5 +1,58 @@
 import Foundation
 
+/// Dropbox / OneDrive 目录浏览返回的轻量条目。`path` 保持提供方原生标识：
+/// OneDrive 是 driveItem ID，Dropbox 是 display path，可直接复用为歌曲播放标识。
+public struct CloudDriveDirectoryEntry: Sendable, Equatable {
+    public let name: String
+    public let isDirectory: Bool
+    public let size: Int64
+    public let path: String
+
+    public init(name: String, isDirectory: Bool, size: Int64, path: String) {
+        self.name = name
+        self.isDirectory = isDirectory
+        self.size = size
+        self.path = path
+    }
+}
+
+/// OAuth 刷新后的完整结果。除新的凭据外还保留过期时间与 token type，
+/// 让调用方可以按 CloudTokenManager 的既有格式写回 iCloud Keychain。
+public struct CloudCredentialRefresh: Sendable, Equatable {
+    public let credential: SourceCredential
+    public let expiresAt: Date?
+    public let tokenType: String?
+
+    public init(credential: SourceCredential, expiresAt: Date?, tokenType: String?) {
+        self.credential = credential
+        self.expiresAt = expiresAt
+        self.tokenType = tokenType
+    }
+}
+
+public typealias CloudCredentialRefreshHandler = @Sendable (
+    _ sourceID: String,
+    _ refresh: CloudCredentialRefresh
+) async -> Void
+
+struct CloudDriveDirectoryPage: Equatable {
+    let entries: [CloudDriveDirectoryEntry]
+    let nextURL: URL?
+}
+
+struct DropboxDirectoryPage: Equatable {
+    let entries: [CloudDriveDirectoryEntry]
+    let cursor: String?
+    let hasMore: Bool
+}
+
+struct CloudOAuthTokenResponse: Equatable {
+    let accessToken: String
+    let refreshToken: String?
+    let expiresIn: TimeInterval?
+    let tokenType: String?
+}
+
 /// 云盘流式解析 —— 用同步下来的 OAuth 凭据换一个**预签名直链**给 AVPlayer 直接播。
 ///
 /// 本期覆盖"直链无需额外播放头"的提供方:阿里云盘 / OneDrive / Dropbox / 123 云盘。
@@ -12,6 +65,8 @@ import Foundation
 public actor CloudDriveStreamResolver: StreamResolver {
     private var accessTokens: [String: String] = [:]   // sourceID → 当前 access token
     private var accessTokenTasks: [String: (id: UUID, forceRefresh: Bool, task: Task<String, Error>)] = [:]
+    private var refreshedCredentials: [String: SourceCredential] = [:]
+    private var credentialRefreshHandler: CloudCredentialRefreshHandler?
     private let session: URLSession
 
     public init() {
@@ -20,8 +75,13 @@ public actor CloudDriveStreamResolver: StreamResolver {
         self.session = URLSession(configuration: cfg)
     }
 
+    public func setCredentialRefreshHandler(_ handler: CloudCredentialRefreshHandler?) {
+        credentialRefreshHandler = handler
+    }
+
     public func invalidateSession(sourceID: String) {
         accessTokens[sourceID] = nil
+        refreshedCredentials[sourceID] = nil
         accessTokenTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
 
@@ -32,11 +92,40 @@ public actor CloudDriveStreamResolver: StreamResolver {
         let fileID = song.filePath
         let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
         do {
-            return try await mint(type: source.type, fileID: fileID, token: token, cred: cred)
+            return try await mint(
+                type: source.type,
+                fileID: fileID,
+                token: token,
+                cred: refreshedCredentials[source.id] ?? cred
+            )
         } catch StreamResolveError.authFailed {
             // token 过期 → 刷新后重试一次
             let fresh = try await accessToken(for: source, cred: cred, forceRefresh: true)
-            return try await mint(type: source.type, fileID: fileID, token: fresh, cred: cred)
+            return try await mint(
+                type: source.type,
+                fileID: fileID,
+                token: fresh,
+                cred: refreshedCredentials[source.id] ?? cred
+            )
+        }
+    }
+
+    /// Apple TV 目录浏览 / 扫描入口。目前只开放已验证可直接播放的 OneDrive 与 Dropbox。
+    public func listDirectory(
+        source: MusicSource,
+        credential: SourceCredential?,
+        path: String
+    ) async throws -> [CloudDriveDirectoryEntry] {
+        guard source.type == .oneDrive || source.type == .dropbox else {
+            throw StreamResolveError.unsupportedSourceType(source.type)
+        }
+        let cred = credential ?? SourceCredential()
+        let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
+        do {
+            return try await listDirectory(type: source.type, path: path, token: token)
+        } catch StreamResolveError.authFailed {
+            let fresh = try await accessToken(for: source, cred: cred, forceRefresh: true)
+            return try await listDirectory(type: source.type, path: path, token: fresh)
         }
     }
 
@@ -99,17 +188,22 @@ public actor CloudDriveStreamResolver: StreamResolver {
             return try await inFlight.task.value
         }
         let taskID = UUID()
+        let effectiveCredential = refreshedCredentials[source.id] ?? cred
         let task = Task<String, Error> { [self] in
             switch source.type {
             case .pan123:
-                return try await mint123Token(cred: cred)   // 123 是 client-credentials,无 refresh_token
+                return try await mint123Token(cred: effectiveCredential)   // 123 是 client-credentials,无 refresh_token
             case .drime:
-                guard let token = cred.token?.trimmingCharacters(in: .whitespacesAndNewlines),
+                guard let token = effectiveCredential.token?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !token.isEmpty else { throw StreamResolveError.missingCredential }
                 return token
             default:
-                if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
-                return try await refreshOAuthToken(type: source.type, cred: cred)
+                if !forceRefresh, let token = effectiveCredential.token, !token.isEmpty { return token }
+                return try await refreshOAuthToken(
+                    sourceID: source.id,
+                    type: source.type,
+                    cred: effectiveCredential
+                )
             }
         }
         accessTokenTasks[source.id] = (taskID, forceRefresh, task)
@@ -125,6 +219,112 @@ public actor CloudDriveStreamResolver: StreamResolver {
             accessTokenTasks[source.id] = nil
         }
         return token
+    }
+
+    // MARK: - 云盘目录列举
+
+    private func listDirectory(
+        type: MusicSourceType,
+        path: String,
+        token: String
+    ) async throws -> [CloudDriveDirectoryEntry] {
+        let entries: [CloudDriveDirectoryEntry]
+        switch type {
+        case .oneDrive:
+            entries = try await listOneDriveDirectory(path: path, token: token)
+        case .dropbox:
+            entries = try await listDropboxDirectory(path: path, token: token)
+        default:
+            throw StreamResolveError.unsupportedSourceType(type)
+        }
+        return entries.sorted {
+            if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+            return $0.name.localizedCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func listOneDriveDirectory(
+        path: String,
+        token: String
+    ) async throws -> [CloudDriveDirectoryEntry] {
+        let isRoot = path.isEmpty || path == "/"
+        let endpoint: String
+        if isRoot {
+            endpoint = "https://graph.microsoft.com/v1.0/me/drive/root/children"
+        } else {
+            endpoint = "https://graph.microsoft.com/v1.0/me/drive/items/\(Self.formEncode(path))/children"
+        }
+        var components = URLComponents(string: endpoint)
+        components?.queryItems = [
+            URLQueryItem(
+                name: "$select",
+                value: "id,name,folder,file,size,eTag,lastModifiedDateTime,parentReference"
+            ),
+            URLQueryItem(name: "$top", value: "999"),
+            URLQueryItem(name: "$orderby", value: "name"),
+        ]
+        guard var nextURL = components?.url else { throw StreamResolveError.cannotBuildURL }
+
+        var entries: [CloudDriveDirectoryEntry] = []
+        var seenURLs: Set<String> = []
+        while true {
+            guard Self.isTrustedOneDriveURL(nextURL),
+                  seenURLs.insert(nextURL.absoluteString).inserted else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            var request = URLRequest(url: nextURL)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await session.data(for: request)
+            try Self.checkAuth(response)
+            guard let page = Self.parseOneDriveDirectoryPage(data) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            entries.append(contentsOf: page.entries)
+            guard let following = page.nextURL else { break }
+            nextURL = following
+        }
+        return entries
+    }
+
+    private func listDropboxDirectory(
+        path: String,
+        token: String
+    ) async throws -> [CloudDriveDirectoryEntry] {
+        let folderPath = path.isEmpty || path == "/" ? "" : path
+        var request = try Self.dropboxJSONRequest(
+            endpoint: "files/list_folder",
+            token: token,
+            body: [
+                "path": folderPath,
+                "limit": 2_000,
+                "recursive": false,
+                "include_deleted": false,
+                "include_mounted_folders": true,
+            ]
+        )
+        var entries: [CloudDriveDirectoryEntry] = []
+        var seenCursors: Set<String> = []
+        while true {
+            let (data, response) = try await session.data(for: request)
+            try Self.checkAuth(response)
+            guard let page = Self.parseDropboxDirectoryPage(data) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            entries.append(contentsOf: page.entries)
+            guard page.hasMore,
+                  let cursor = page.cursor,
+                  !cursor.isEmpty,
+                  seenCursors.insert(cursor).inserted else {
+                if page.hasMore { throw StreamResolveError.cannotBuildURL }
+                break
+            }
+            request = try Self.dropboxJSONRequest(
+                endpoint: "files/list_folder/continue",
+                token: token,
+                body: ["cursor": cursor]
+            )
+        }
+        return entries
     }
 
     // MARK: - 取直链(各提供方)
@@ -177,7 +377,11 @@ public actor CloudDriveStreamResolver: StreamResolver {
         return token
     }
 
-    private func refreshOAuthToken(type: MusicSourceType, cred: SourceCredential) async throws -> String {
+    private func refreshOAuthToken(
+        sourceID: String,
+        type: MusicSourceType,
+        cred: SourceCredential
+    ) async throws -> String {
         if type == .pan115 {
             // 115:passportapi 刷新,只需 refresh_token(无 client_secret)。
             guard let rt = cred.refreshToken, !rt.isEmpty else { throw StreamResolveError.missingCredential }
@@ -200,7 +404,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         case .oneDrive:
             req = Self.formRequest(url: URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0/token")!,
                                    fields: ["grant_type": "refresh_token", "refresh_token": rt,
-                                            "client_id": cid, "scope": "Files.Read offline_access"])
+                                            "client_id": cid, "scope": "Files.ReadWrite offline_access"])
         case .dropbox:
             req = Self.formRequest(url: URL(string: "https://api.dropboxapi.com/oauth2/token")!,
                                    fields: ["grant_type": "refresh_token", "refresh_token": rt,
@@ -213,8 +417,28 @@ public actor CloudDriveStreamResolver: StreamResolver {
         }
         let (data, response) = try await session.data(for: req)
         try Self.checkAuth(response)
-        guard let token = Self.parseOAuthAccessToken(data) else { throw StreamResolveError.authFailed }
-        return token
+        guard let tokenResponse = Self.parseOAuthTokenResponse(data) else {
+            throw StreamResolveError.authFailed
+        }
+        var refreshed = cred
+        refreshed.token = tokenResponse.accessToken
+        if let rotated = tokenResponse.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rotated.isEmpty {
+            refreshed.refreshToken = rotated
+        }
+        refreshedCredentials[sourceID] = refreshed
+        let expiresAt = tokenResponse.expiresIn.map { Date().addingTimeInterval($0) }
+        if let credentialRefreshHandler {
+            await credentialRefreshHandler(
+                sourceID,
+                CloudCredentialRefresh(
+                    credential: refreshed,
+                    expiresAt: expiresAt,
+                    tokenType: tokenResponse.tokenType
+                )
+            )
+        }
+        return tokenResponse.accessToken
     }
 
     private func send(
@@ -246,6 +470,22 @@ public actor CloudDriveStreamResolver: StreamResolver {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.httpBody = fields.map { "\($0.key)=\(Self.formEncode($0.value))" }.joined(separator: "&").data(using: .utf8)
         return req
+    }
+
+    static func dropboxJSONRequest(
+        endpoint: String,
+        token: String,
+        body: [String: Any]
+    ) throws -> URLRequest {
+        guard let url = URL(string: "https://api.dropboxapi.com/2/\(endpoint)") else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try SafeJSONSerialization.data(withJSONObject: body)
+        return request
     }
 
     static func formEncode(_ s: String) -> String {
@@ -307,8 +547,97 @@ public actor CloudDriveStreamResolver: StreamResolver {
     }
 
     static func parseOAuthAccessToken(_ data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return json["access_token"] as? String
+        parseOAuthTokenResponse(data)?.accessToken
+    }
+
+    static func parseOAuthTokenResponse(_ data: Data) -> CloudOAuthTokenResponse? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let accessToken = json["access_token"] as? String,
+              !accessToken.isEmpty else { return nil }
+        let expiresIn: TimeInterval? = {
+            if let value = json["expires_in"] as? NSNumber { return value.doubleValue }
+            if let value = json["expires_in"] as? String { return TimeInterval(value) }
+            return nil
+        }()
+        return CloudOAuthTokenResponse(
+            accessToken: accessToken,
+            refreshToken: json["refresh_token"] as? String,
+            expiresIn: expiresIn,
+            tokenType: json["token_type"] as? String
+        )
+    }
+
+    static func parseOneDriveDirectoryPage(_ data: Data) -> CloudDriveDirectoryPage? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let values = json["value"] as? [[String: Any]] else { return nil }
+        var entries: [CloudDriveDirectoryEntry] = []
+        entries.reserveCapacity(values.count)
+        for value in values {
+            guard let id = value["id"] as? String,
+                  !id.isEmpty,
+                  let name = value["name"] as? String,
+                  !name.isEmpty else { return nil }
+            entries.append(CloudDriveDirectoryEntry(
+                name: name,
+                isDirectory: value["folder"] != nil,
+                size: int64Value(value["size"]),
+                path: id
+            ))
+        }
+        let nextURL: URL?
+        if let rawNext = json["@odata.nextLink"] as? String {
+            guard !rawNext.isEmpty,
+                  let parsed = URL(string: rawNext),
+                  isTrustedOneDriveURL(parsed) else { return nil }
+            nextURL = parsed
+        } else {
+            nextURL = nil
+        }
+        return CloudDriveDirectoryPage(entries: entries, nextURL: nextURL)
+    }
+
+    static func parseDropboxDirectoryPage(_ data: Data) -> DropboxDirectoryPage? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let values = json["entries"] as? [[String: Any]] else { return nil }
+        var entries: [CloudDriveDirectoryEntry] = []
+        entries.reserveCapacity(values.count)
+        for value in values {
+            guard let tag = value[".tag"] as? String else { return nil }
+            // Dropbox may include deleted rows when an old cursor is resumed.
+            // Fresh directory scans request include_deleted=false, but ignoring
+            // an explicit deleted row keeps parsing defensive and non-destructive.
+            if tag == "deleted" { continue }
+            guard (tag == "file" || tag == "folder"),
+                  let name = value["name"] as? String,
+                  !name.isEmpty,
+                  let path = (value["path_display"] as? String)
+                    ?? (value["path_lower"] as? String),
+                  !path.isEmpty else { return nil }
+            entries.append(CloudDriveDirectoryEntry(
+                name: name,
+                isDirectory: tag == "folder",
+                size: int64Value(value["size"]),
+                path: path
+            ))
+        }
+        return DropboxDirectoryPage(
+            entries: entries,
+            cursor: json["cursor"] as? String,
+            hasMore: json["has_more"] as? Bool ?? false
+        )
+    }
+
+    private static func int64Value(_ value: Any?) -> Int64 {
+        if let value = value as? Int64 { return value }
+        if let value = value as? NSNumber { return value.int64Value }
+        if let value = value as? String { return Int64(value) ?? 0 }
+        return 0
+    }
+
+    private static func isTrustedOneDriveURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased() else { return false }
+        return host == "graph.microsoft.com"
     }
 
     static func parse115AccessToken(_ data: Data) -> String? {

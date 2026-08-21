@@ -1108,6 +1108,73 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(CloudDriveStreamResolver.parseOAuthAccessToken(Data(#"{"access_token":"AT","expires_in":3600}"#.utf8)) == "AT")
 }
 
+@Test func cloudOAuthRefreshResponseKeepsRotationMetadata() throws {
+    let rotated = try #require(CloudDriveStreamResolver.parseOAuthTokenResponse(Data(#"""
+    {
+        "access_token":"new-access",
+        "refresh_token":"new-refresh",
+        "expires_in":3600,
+        "token_type":"Bearer"
+    }
+    """#.utf8)))
+    #expect(rotated.accessToken == "new-access")
+    #expect(rotated.refreshToken == "new-refresh")
+    #expect(rotated.expiresIn == 3600)
+    #expect(rotated.tokenType == "Bearer")
+
+    let nonRotating = try #require(CloudDriveStreamResolver.parseOAuthTokenResponse(
+        Data(#"{"access_token":"dropbox-access","expires_in":"14400"}"#.utf8)
+    ))
+    #expect(nonRotating.refreshToken == nil)
+    #expect(nonRotating.expiresIn == 14_400)
+}
+
+@Test func oneDriveDirectoryPageParsing() throws {
+    let page = try #require(CloudDriveStreamResolver.parseOneDriveDirectoryPage(Data(#"""
+    {
+        "value":[
+            {"id":"folder-id","name":"Albums","folder":{"childCount":2},"size":0},
+            {"id":"song-id","name":"Track.flac","file":{"mimeType":"audio/flac"},"size":123456}
+        ],
+        "@odata.nextLink":"https://graph.microsoft.com/v1.0/me/drive/root/children?$skiptoken=next"
+    }
+    """#.utf8)))
+
+    #expect(page.entries == [
+        CloudDriveDirectoryEntry(name: "Albums", isDirectory: true, size: 0, path: "folder-id"),
+        CloudDriveDirectoryEntry(name: "Track.flac", isDirectory: false, size: 123_456, path: "song-id"),
+    ])
+    #expect(page.nextURL?.host == "graph.microsoft.com")
+
+    #expect(CloudDriveStreamResolver.parseOneDriveDirectoryPage(Data(#"""
+    {
+        "value":[],
+        "@odata.nextLink":"https://example.invalid/steal-token"
+    }
+    """#.utf8)) == nil)
+}
+
+@Test func dropboxDirectoryPageParsing() throws {
+    let page = try #require(CloudDriveStreamResolver.parseDropboxDirectoryPage(Data(#"""
+    {
+        "entries":[
+            {".tag":"folder","name":"Albums","path_display":"/Albums"},
+            {".tag":"file","name":"Track.mp3","path_display":"/Track.mp3","size":9876},
+            {".tag":"deleted","name":"Old.mp3","path_lower":"/old.mp3"}
+        ],
+        "cursor":"cursor-2",
+        "has_more":true
+    }
+    """#.utf8)))
+
+    #expect(page.entries == [
+        CloudDriveDirectoryEntry(name: "Albums", isDirectory: true, size: 0, path: "/Albums"),
+        CloudDriveDirectoryEntry(name: "Track.mp3", isDirectory: false, size: 9_876, path: "/Track.mp3"),
+    ])
+    #expect(page.cursor == "cursor-2")
+    #expect(page.hasMore)
+}
+
 @Test func cloud115Parsing() {
     #expect(CloudDriveStreamResolver.parse115URL(Data(#"{"state":1,"data":{"99":{"url":{"url":"https://115cdn/x.mp3"}}}}"#.utf8))?.absoluteString
             == "https://115cdn/x.mp3")

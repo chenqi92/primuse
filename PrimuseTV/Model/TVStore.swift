@@ -172,6 +172,15 @@ final class TVStore {
         engine.onRemotePlay = { [weak self] in self?.resumePlayback() }
         engine.onRemotePause = { [weak self] in self?.pausePlayback() }
         engine.onRemoteTogglePlayPause = { [weak self] in self?.togglePlayPause() }
+        Task { [weak self] in
+            await StreamResolverRegistry.shared.setCloudCredentialRefreshHandler {
+                [weak self] sourceID, refresh in
+                await self?.persistRefreshedCloudCredential(
+                    sourceID: sourceID,
+                    refresh: refresh
+                )
+            }
+        }
     }
 
     var hasRealLibrary: Bool {
@@ -198,6 +207,7 @@ final class TVStore {
     var currentRadioStationID: String?
     var radioMetadataTitle = ""
     var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
+    @ObservationIgnored private var cloudCredentialSourceIDs: Set<String> = []
     var sourcesRevision = 0   // 源启用/删除后 bump,强制 sources 视图重渲染(嵌套 store 观察传导不稳)
 
     // 局域网「扫码直传」接收端(绕开 iCloud)。二维码内容随端点就绪更新。
@@ -492,7 +502,7 @@ final class TVStore {
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
                          supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
-                         canScan: s.type == .smb || s.type == .fnMusic || s.type == .daoliyu)
+                         canScan: Self.tvScannableTypes.contains(s.type))
     }
 
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
@@ -535,6 +545,9 @@ final class TVStore {
     /// 判断一个源能否在 Apple TV 上播放(注册表支持类型 + 凭据/中继可用性)。
     /// 在 TV 上本机直连播放(不经 iPhone 中继)的协议类型。与 TVPlaybackCoordinator.makeDirectReader 对应。
     static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp]
+    private static let tvScannableTypes: Set<MusicSourceType> = [
+        .smb, .fnMusic, .daoliyu, .oneDrive, .dropbox,
+    ]
 
     private func playability(for s: MusicSource) -> TVPlayability {
         let type = s.type
@@ -562,6 +575,16 @@ final class TVStore {
 
     /// 是否有可用凭据:TV 本地输入 > 同步凭据包条目 > 同步 iCloud 钥匙串密码。
     private func hasUsableCredential(for s: MusicSource) -> Bool {
+        if s.type.isCloudDrive {
+            let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
+            if credential.token?.isEmpty == false { return true }
+            if s.type == .pan123 {
+                return credential.clientID?.isEmpty == false
+                    && credential.clientSecret?.isEmpty == false
+            }
+            return credential.refreshToken?.isEmpty == false
+                && credential.clientID?.isEmpty == false
+        }
         if s.type == .fnMusic || s.type == .daoliyu {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
             return credential.username?.isEmpty == false && credential.password?.isEmpty == false
@@ -761,6 +784,7 @@ final class TVStore {
         // 拉到(同账号兜底)的逐条覆盖上去。不同 Apple ID 的 TV,CloudKit 返回 nil,
         // 仅靠 LAN 配对包即可;同账号则两者合并。模拟器无 iCloud 也保留注入的 DEBUG 凭据。
         if let cloud = await LibrarySnapshotSync.shared.downloadCredentials() {
+            cloudCredentialSourceIDs = Set(cloud.entries.keys)
             mergeCredentialBundle(cloud, persistAsPaired: false)
         }
     }
@@ -1046,6 +1070,7 @@ final class TVStore {
         persistAsPaired: Bool
     ) -> Bool {
         let activeSourceIDs = activeCredentialSourceIDs
+        let previous = credentialBundle ?? CredentialBundle()
         var persisted = true
         if persistAsPaired {
             let paired = CredentialBundlePolicy.merging(
@@ -1055,13 +1080,59 @@ final class TVStore {
             )
             persisted = TVCredentialStore.savePairedBundle(paired)
         }
-        credentialBundle = CredentialBundlePolicy.merging(
-            current: credentialBundle ?? CredentialBundle(),
+        let merged = CredentialBundlePolicy.merging(
+            current: previous,
             incoming: incoming,
             activeSourceIDs: activeSourceIDs
         )
+        credentialBundle = merged
         scanner.invalidateFnMusicClients()
+        for sourceID in activeSourceIDs where previous.entries[sourceID] != merged.entries[sourceID] {
+            guard let source = sourcesStore.source(id: sourceID) else { continue }
+            Task { await StreamResolverRegistry.shared.invalidateSession(for: source) }
+        }
         return persisted
+    }
+
+    /// OAuth provider 成功刷新后先把轮换后的 token pair 落到本机，再异步窄化回写
+    /// iCloud。CloudKit 不可用不会阻塞当前播放，下一次启动仍可用本地 Keychain 副本。
+    private func persistRefreshedCloudCredential(
+        sourceID: String,
+        refresh: CloudCredentialRefresh
+    ) {
+        let shouldUseSynchronizableKeychain = cloudCredentialSourceIDs.contains(sourceID)
+            || TVCredentialStore.hasSynchronizableOAuthCredential(sourceID: sourceID)
+        let keychainPersisted = TVCredentialStore.saveOAuthRefresh(
+            sourceID: sourceID,
+            refresh: refresh,
+            synchronizable: shouldUseSynchronizableKeychain
+        )
+
+        let current = credentialBundle
+            ?? TVCredentialStore.loadPairedBundle()
+            ?? CredentialBundle()
+        let updated = CredentialBundlePolicy.pruning(
+            CredentialBundlePolicy.refreshingOAuthCredential(
+                sourceID: sourceID,
+                credential: refresh.credential,
+                in: current
+            ),
+            activeSourceIDs: activeCredentialSourceIDs
+        )
+        credentialBundle = updated
+        let bundlePersisted = TVCredentialStore.savePairedBundle(updated)
+        if !keychainPersisted || !bundlePersisted {
+            plog("TVStore: refreshed OAuth credential kept in memory; durable persistence incomplete source=\(sourceID.prefix(8))…")
+        }
+        sourcesRevision &+= 1
+
+        let credential = refresh.credential
+        Task {
+            await LibrarySnapshotSync.shared.updateRefreshedCredential(
+                credential,
+                forSourceID: sourceID
+            )
+        }
     }
 
     /// 生成 Top Shelf 展示数据(最近播放 + 资料库专辑),后台预取封面并写入 App Group,
@@ -1254,11 +1325,11 @@ final class TVStore {
         enqueueSnapshotUpload()
     }
 
-    // MARK: TV 本机扫描(SMB 选目录 / 飞牛音乐整库)
+    // MARK: TV 本机扫描(SMB / Dropbox / OneDrive 选目录，服务端音乐源整库)
 
     /// 该源能否在 TV 上扫描。飞牛音乐不浏览文件夹，直接读取服务端完整曲库。
     func canScanOnTV(_ source: MusicSource) -> Bool {
-        source.type == .smb || source.type == .fnMusic || source.type == .daoliyu
+        Self.tvScannableTypes.contains(source.type)
     }
 
     /// 构造目录列举器(供选目录页浏览)。

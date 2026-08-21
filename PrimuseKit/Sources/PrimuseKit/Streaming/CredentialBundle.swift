@@ -155,6 +155,36 @@ public enum CredentialBundlePolicy {
         return pruning(result, activeSourceIDs: activeSourceIDs)
     }
 
+    /// 将一次成功的 OAuth 刷新窄化到单个 source。只覆盖刷新结果中确实存在的
+    /// 字段，保留同一条目里的密码、client secret、provider extra，以及包内所有
+    /// 其它源和 relay。CloudKit 冲突重放也使用这条纯策略，避免整包旧值回盖新值。
+    public static func refreshingOAuthCredential(
+        sourceID: String,
+        credential: SourceCredential,
+        in bundle: CredentialBundle
+    ) -> CredentialBundle {
+        var result = bundle
+        var entry = result.entries[sourceID] ?? CredentialEntry()
+
+        func nonEmpty(_ value: String?) -> String? {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return value
+        }
+
+        if let value = nonEmpty(credential.username) { entry.username = value }
+        if let value = nonEmpty(credential.password) { entry.password = value }
+        if let value = nonEmpty(credential.token) { entry.token = value }
+        if let value = nonEmpty(credential.refreshToken) { entry.refreshToken = value }
+        if let value = nonEmpty(credential.clientID) { entry.clientID = value }
+        if let value = nonEmpty(credential.clientSecret) { entry.clientSecret = value }
+        for (key, value) in credential.extra where !key.isEmpty && !value.isEmpty {
+            entry.extra[key] = value
+        }
+        if !entry.isEmpty { result.entries[sourceID] = entry }
+        return result
+    }
+
     public static func removing(
         sourceID: String,
         from bundle: CredentialBundle

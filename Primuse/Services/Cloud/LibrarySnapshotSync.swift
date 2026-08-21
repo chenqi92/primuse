@@ -1213,6 +1213,102 @@ final class LibrarySnapshotSync: Sendable {
         )
     }
 
+    /// tvOS OAuth 刷新后的窄化回写。只在 CloudKit 当前仍有该 source 条目时更新，
+    /// 因此不会把 LAN 配对凭据意外写进另一 Apple ID，也不会复活已被手机删除的凭据。
+    /// 冲突时在服务器胜出包上重放同一个 source 的刷新，保留其它设备并发写入的条目。
+    @discardableResult
+    func updateRefreshedCredential(
+        _ credential: SourceCredential,
+        forSourceID sourceID: String
+    ) async -> Bool {
+        await withCloudMutationLock { [self] in
+            await performUpdateRefreshedCredential(
+                credential,
+                forSourceID: sourceID
+            )
+        }
+    }
+
+    private func performUpdateRefreshedCredential(
+        _ credential: SourceCredential,
+        forSourceID sourceID: String
+    ) async -> Bool {
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable, keep refreshed credential local source=\(sourceID.prefix(8))…")
+            return false
+        }
+        let record: CKRecord
+        do {
+            record = try await database.record(for: credRecordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            return false
+        } catch {
+            plog("LibrarySnapshotSync: refreshed credential fetch failed source=\(sourceID.prefix(8))… — \(error)")
+            return false
+        }
+        guard let data = record.encryptedValues["credentials"] as? Data,
+              let current = CredentialBundle.decode(data),
+              current.entries[sourceID] != nil else {
+            return false
+        }
+        return await saveRefreshedCredential(
+            credential,
+            sourceID: sourceID,
+            current: current,
+            record: record,
+            in: database,
+            conflictRetriesRemaining: 1
+        )
+    }
+
+    private func saveRefreshedCredential(
+        _ credential: SourceCredential,
+        sourceID: String,
+        current: CredentialBundle,
+        record: CKRecord,
+        in database: CKDatabase,
+        conflictRetriesRemaining: Int
+    ) async -> Bool {
+        guard current.entries[sourceID] != nil else { return false }
+        let updated = CredentialBundlePolicy.refreshingOAuthCredential(
+            sourceID: sourceID,
+            credential: credential,
+            in: current
+        )
+        guard updated != current else { return true }
+        guard let data = try? updated.jsonData() else { return false }
+        record.encryptedValues["credentials"] = data
+        record["modifiedAt"] = Date() as CKRecordValue
+
+        switch await saveChangedRecord(
+            record,
+            in: database,
+            savePolicy: .ifServerRecordUnchanged
+        ) {
+        case .success:
+            plog("LibrarySnapshotSync: updated refreshed credential source=\(sourceID.prefix(8))…")
+            return true
+        case .conflict(let serverRecord):
+            guard conflictRetriesRemaining > 0,
+                  let serverData = serverRecord.encryptedValues["credentials"] as? Data,
+                  let serverBundle = CredentialBundle.decode(serverData),
+                  serverBundle.entries[sourceID] != nil else {
+                return false
+            }
+            return await saveRefreshedCredential(
+                credential,
+                sourceID: sourceID,
+                current: serverBundle,
+                record: serverRecord,
+                in: database,
+                conflictRetriesRemaining: conflictRetriesRemaining - 1
+            )
+        case .failure(let error):
+            plog("LibrarySnapshotSync: refreshed credential upload failed source=\(sourceID.prefix(8))… — \(error?.localizedDescription ?? "unknown")")
+            return false
+        }
+    }
+
     private func saveCredentialBundle(
         _ bundle: CredentialBundle,
         existingRecord: CKRecord?,
