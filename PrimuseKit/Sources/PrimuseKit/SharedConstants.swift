@@ -2265,21 +2265,72 @@ public enum SourceFailureAdvancePolicy {
     }
 }
 
-/// Shared predicate for the background metadata pipeline. A scanner can mark
-/// only the title inspection as complete while still leaving duration or MP3
-/// artwork work eligible for backfill.
+public struct MetadataBackfillWorkReasons: OptionSet, Sendable, Equatable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let duration = Self(rawValue: 1 << 0)
+    public static let artwork = Self(rawValue: 1 << 1)
+    public static let title = Self(rawValue: 1 << 2)
+    public static let albumArtist = Self(rawValue: 1 << 3)
+}
+
+/// Shared predicate for the background metadata pipeline. Each inspection leg
+/// is completed independently so an absent optional tag does not make a valid
+/// song eligible forever.
 public enum MetadataBackfillEligibilityPolicy {
+    public static func reasons(
+        duration: TimeInterval,
+        format: AudioFormat,
+        hasCoverArt: Bool,
+        artworkGivenUp: Bool,
+        titleChecked: Bool,
+        durationInspectionComplete: Bool = false,
+        hasAlbumTitle: Bool = false,
+        hasAlbumArtist: Bool = true,
+        albumArtistChecked: Bool = true
+    ) -> MetadataBackfillWorkReasons {
+        var reasons: MetadataBackfillWorkReasons = []
+        if duration <= 0 && !durationInspectionComplete {
+            reasons.insert(.duration)
+        }
+        if format == .mp3 && !hasCoverArt && !artworkGivenUp {
+            reasons.insert(.artwork)
+        }
+        if !titleChecked {
+            reasons.insert(.title)
+        }
+        if hasAlbumTitle && !hasAlbumArtist && !albumArtistChecked {
+            reasons.insert(.albumArtist)
+        }
+        return reasons
+    }
+
     public static func needsBackfill(
         duration: TimeInterval,
         format: AudioFormat,
         hasCoverArt: Bool,
         artworkGivenUp: Bool,
         titleChecked: Bool,
-        durationInspectionComplete: Bool = false
+        durationInspectionComplete: Bool = false,
+        hasAlbumTitle: Bool = false,
+        hasAlbumArtist: Bool = true,
+        albumArtistChecked: Bool = true
     ) -> Bool {
-        (duration <= 0 && !durationInspectionComplete)
-            || (format == .mp3 && !hasCoverArt && !artworkGivenUp)
-            || !titleChecked
+        !reasons(
+            duration: duration,
+            format: format,
+            hasCoverArt: hasCoverArt,
+            artworkGivenUp: artworkGivenUp,
+            titleChecked: titleChecked,
+            durationInspectionComplete: durationInspectionComplete,
+            hasAlbumTitle: hasAlbumTitle,
+            hasAlbumArtist: hasAlbumArtist,
+            albumArtistChecked: albumArtistChecked
+        ).isEmpty
     }
 }
 
@@ -2315,11 +2366,21 @@ public enum SongDetailsState: Equatable, Sendable {
 /// Cancellation stops the current worker generation. It must not consume a
 /// transient retry or park a song as though the source had failed.
 public enum MetadataBackfillRetryPolicy {
+    public static let maximumAutomaticAttempts = 5
+
     public static func shouldCountTransientFailure(
         isCancellation: Bool,
         isTransient: Bool
     ) -> Bool {
         isTransient && !isCancellation
+    }
+
+    public static func attemptCountAfterFailure(currentCount: Int) -> Int {
+        min(maximumAutomaticAttempts, max(0, currentCount) + 1)
+    }
+
+    public static func hasExhaustedAutomaticAttempts(_ count: Int) -> Bool {
+        count >= maximumAutomaticAttempts
     }
 }
 
@@ -2417,11 +2478,9 @@ public enum MetadataBackfillActivityState: Equatable, Sendable {
 public enum MetadataBackfillStallPolicy {
     public static func shouldParkRepeatedSnapshot(
         previousIDs: Set<String>,
-        currentIDs: Set<String>,
-        hasTransientAttemptsBelowLimit: Bool = false
+        currentIDs: Set<String>
     ) -> Bool {
-        !hasTransientAttemptsBelowLimit
-            && !previousIDs.isEmpty
+        !previousIDs.isEmpty
             && previousIDs == currentIDs
     }
 }

@@ -1374,9 +1374,20 @@ private struct MacHomeSourceStatusCard: View {
                 progress: entry.state.totalCount > 0 ? min(entry.state.progress, 1) : 0,
                 indeterminate: entry.state.totalCount == 0
             )
-        } else if backfill.isRunning || backfill.hasPendingWork || backfill.hasDeferredRetryWork {
+        } else if backfill.isRunning || backfill.statusCount > 0 {
             let processed = backfill.processedCount
             let total = processed + backfill.statusCount
+            let remainingDetail = String(
+                format: String(localized: "backfill_remaining"),
+                backfill.statusCount
+            )
+            let retryCount = backfill.deferredRetryCount(forSource: nil)
+            let detail = retryCount > 0
+                ? remainingDetail + " · " + String(
+                    format: String(localized: "backfill_retry_count_format"),
+                    retryCount
+                )
+                : remainingDetail
             let phase = switch backfill.activityState {
             case .running: Lz("Reading tags")
             case .retrying: String(localized: "backfill_retry_in_progress")
@@ -1387,7 +1398,7 @@ private struct MacHomeSourceStatusCard: View {
             taskBox(
                 title: Lz("Metadata backfill"),
                 phase: phase,
-                detail: String(format: String(localized: "backfill_remaining"), backfill.statusCount),
+                detail: detail,
                 progress: total > 0 ? Double(processed) / Double(total) : 0,
                 indeterminate: (backfill.activityState == .running || backfill.activityState == .retrying)
                     && total == 0

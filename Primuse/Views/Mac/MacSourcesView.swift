@@ -366,6 +366,7 @@ struct MacSourcesView: View {
             let outstanding = backfill.statusCount(forSource: source.id)
             if outstanding > 0 {
                 let activityState = backfill.activityState(forSource: source.id)
+                let retryCount = backfill.deferredRetryCount(forSource: source.id)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         switch activityState {
@@ -390,8 +391,16 @@ struct MacSourcesView: View {
                             .font(.system(size: 11)).monospacedDigit()
                         Spacer()
                     }
+                    if retryCount > 0 {
+                        Text(String(format: String(localized: "backfill_retry_count_format"), retryCount))
+                            .font(.system(size: 10.5))
+                            .monospacedDigit()
+                    }
                     if activityState == .retryPending {
-                        Text("backfill_retry_pending_hint")
+                        Text(String(
+                            format: String(localized: "backfill_retry_pending_hint"),
+                            MetadataBackfillRetryPolicy.maximumAutomaticAttempts
+                        ))
                             .font(.system(size: 10.5))
                     }
                 }
@@ -729,11 +738,7 @@ struct MacSourcesView: View {
         // source library rows and caches belongs to deleteSource(_:).
         updateSource(source.id) { $0.isEnabled = enabled }
         library.updateDisabledSourceIDs(disabledSourceIDs)
-        if enabled {
-            backfill.start()
-        } else {
-            backfill.sourceAvailabilityChanged()
-        }
+        backfill.sourceAvailabilityChanged(forSourceID: source.id)
     }
 
     private func toggleSourceEnabled(_ source: MusicSource) {

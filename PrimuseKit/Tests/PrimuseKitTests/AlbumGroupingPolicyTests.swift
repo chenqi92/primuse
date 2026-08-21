@@ -70,15 +70,23 @@ struct AlbumGroupingPolicyTests {
     func legacyRowsRequireOneRefresh() {
         #expect(AlbumGroupingPolicy.requiresMetadataRefresh(
             albumTitle: "Together",
-            albumArtistName: nil
+            albumArtistName: nil,
+            metadataInspectionComplete: false
         ))
         #expect(!AlbumGroupingPolicy.requiresMetadataRefresh(
             albumTitle: "Together",
-            albumArtistName: "Artist A"
+            albumArtistName: "Artist A",
+            metadataInspectionComplete: false
         ))
         #expect(!AlbumGroupingPolicy.requiresMetadataRefresh(
             albumTitle: nil,
-            albumArtistName: nil
+            albumArtistName: nil,
+            metadataInspectionComplete: false
+        ))
+        #expect(!AlbumGroupingPolicy.requiresMetadataRefresh(
+            albumTitle: "Together",
+            albumArtistName: nil,
+            metadataInspectionComplete: true
         ))
     }
 

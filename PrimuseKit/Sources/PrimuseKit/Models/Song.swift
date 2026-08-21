@@ -252,13 +252,17 @@ public enum AlbumGroupingPolicy {
         return AlbumGroupingIdentity(albumTitle: albumTitle, artistName: artistName)
     }
 
-    /// Older persisted songs predate albumArtistName. A source that can read
-    /// embedded metadata should inspect such album rows once on its next scan.
+    /// Older persisted songs predate albumArtistName. Callers must provide an
+    /// independent persisted completion marker: absence is a valid inspected
+    /// result and must not force every later scan to reread the same file.
     public static func requiresMetadataRefresh(
         albumTitle: String?,
-        albumArtistName: String?
+        albumArtistName: String?,
+        metadataInspectionComplete: Bool
     ) -> Bool {
-        normalized(albumTitle) != nil && normalized(albumArtistName) == nil
+        !metadataInspectionComplete
+            && normalized(albumTitle) != nil
+            && normalized(albumArtistName) == nil
     }
 
     private static func normalized(_ value: String?) -> String? {

@@ -342,11 +342,7 @@ actor SynologyScanner {
                     } else {
                         contentSame = sizeSame && mtimeSame
                     }
-                    if contentSame,
-                       !AlbumGroupingPolicy.requiresMetadataRefresh(
-                           albumTitle: existing.albumTitle,
-                           albumArtistName: existing.albumArtistName
-                       ) {
+                    if contentSame {
                         // 旧库迁移: existing 缺 mtime 而远端有 —— 廉价回填 mtime(不重新解析
                         // 元数据 / 不下载 header)。否则这首歌永远 lastModified=nil, 跳过路径也
                         // 走不到下方写入, 未来同名同大小覆盖永远检测不到。回填后随 addSongs

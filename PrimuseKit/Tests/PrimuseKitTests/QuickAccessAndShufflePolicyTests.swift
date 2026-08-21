@@ -179,6 +179,47 @@ struct MetadataBackfillEligibilityPolicyTests {
             titleChecked: false
         ))
     }
+
+    @Test("Each inspection reason is tracked independently")
+    func independentWorkReasons() {
+        let reasons = MetadataBackfillEligibilityPolicy.reasons(
+            duration: 0,
+            format: .mp3,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            hasAlbumTitle: true,
+            hasAlbumArtist: false,
+            albumArtistChecked: false
+        )
+
+        #expect(reasons == [.duration, .artwork, .title, .albumArtist])
+    }
+
+    @Test("A legitimately absent album artist completes after inspection")
+    func absentAlbumArtistDoesNotLoop() {
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasAlbumTitle: true,
+            hasAlbumArtist: false,
+            albumArtistChecked: false
+        ) == [.albumArtist])
+
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasAlbumTitle: true,
+            hasAlbumArtist: false,
+            albumArtistChecked: true
+        ))
+    }
 }
 
 @Suite("Server catalog metadata inspection")
@@ -327,15 +368,6 @@ struct MetadataBackfillStallPolicyTests {
         #expect(!MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
             previousIDs: ["ftp-1", "sftp-1"],
             currentIDs: ["sftp-1"]
-        ))
-    }
-
-    @Test("Transient retries reach their per-song limit before stall parking")
-    func transientRetriesAreNotParkedEarly() {
-        #expect(!MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
-            previousIDs: ["baidu-1"],
-            currentIDs: ["baidu-1"],
-            hasTransientAttemptsBelowLimit: true
         ))
     }
 

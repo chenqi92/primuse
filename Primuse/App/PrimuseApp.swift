@@ -708,6 +708,7 @@ private struct NetworkPathChangeObserver: View {
                 if onWifi { metadataBackfill.start() }
             }
             .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
+                metadataBackfill.networkPathChanged()
                 Task {
                     for source in sourcesStore.sources where source.type == .synology {
                         scanService.removeSynologyAPI(for: source.id)

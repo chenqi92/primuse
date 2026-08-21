@@ -607,15 +607,14 @@ struct SourcesContentView: View {
                 }
             } else if scanning?.failureMessage == nil,
                       scanning?.reconciliationMessage == nil {
-                // Phase A finished. If there are still bare songs from this source
-                // (cloud sources fill metadata in the background), show a softer
-                // "loading details" indicator so users don't think the scan is
-                // stuck or "interrupted". Filter matches `MetadataBackfillService`
-                // exactly (excludes already-failed songs) so this number agrees
-                // with the global "remaining" in StorageManagementView.
+                // Phase A finished. Surface every unresolved background tag
+                // inspection for this source, including work parked behind a
+                // source circuit breaker, without implying every row issued a
+                // failed request.
                 let outstanding = backfill.statusCount(forSource: source.id)
                 if outstanding > 0 {
                     let activityState = backfill.activityState(forSource: source.id)
+                    let retryCount = backfill.deferredRetryCount(forSource: source.id)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             switch activityState {
@@ -639,6 +638,12 @@ struct SourcesContentView: View {
                             Text(String(format: String(localized: "backfill_remaining"), outstanding))
                                 .font(.caption2).monospacedDigit()
                         }
+                        if retryCount > 0 {
+                            Text(String(format: String(localized: "backfill_retry_count_format"), retryCount))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .monospacedDigit()
+                        }
                         if activityState == .running || activityState == .retrying {
                             Text("backfill_runs_in_background_hint")
                                 .font(.caption2)
@@ -647,7 +652,10 @@ struct SourcesContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         } else if activityState == .retryPending {
-                            Text("backfill_retry_pending_hint")
+                            Text(String(
+                                format: String(localized: "backfill_retry_pending_hint"),
+                                MetadataBackfillRetryPolicy.maximumAutomaticAttempts
+                            ))
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
@@ -1657,11 +1665,7 @@ struct SourcesContentView: View {
                 appleMusicLibrary.cancel()
             }
         }
-        if enabled {
-            backfill.start()
-        } else {
-            backfill.sourceAvailabilityChanged()
-        }
+        backfill.sourceAvailabilityChanged(forSourceID: current.id)
     }
 
     private var disabledSourceIDs: Set<String> {

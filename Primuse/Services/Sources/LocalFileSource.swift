@@ -200,10 +200,6 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                             if !existingTracks.isEmpty,
                                existingTracks.allSatisfy({
                                    $0.revision == expectedRevision
-                                       && !AlbumGroupingPolicy.requiresMetadataRefresh(
-                                           albumTitle: $0.albumTitle,
-                                           albumArtistName: $0.albumArtistName
-                                       )
                                }) {
                                 for track in existingTracks {
                                     continuation.yield(ConnectorScannedSong(
@@ -220,11 +216,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
                         }
 
                         if let existing = existingByID[physicalID],
-                           Self.fingerprintMatches(existing: existing, item: item),
-                           !AlbumGroupingPolicy.requiresMetadataRefresh(
-                               albumTitle: existing.albumTitle,
-                               albumArtistName: existing.albumArtistName
-                           ) {
+                           Self.fingerprintMatches(existing: existing, item: item) {
                             var refreshed = existing
                             if refreshed.revision == nil { refreshed.revision = item.revision }
                             if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }

@@ -102,6 +102,22 @@ struct BackfillStatePolicyTests {
             isTransient: true
         ))
     }
+
+    @Test("Automatic retry attempts stop at the persisted limit")
+    func automaticRetryBudgetIsBounded() {
+        var persistedCount = 0
+        for expected in 1...MetadataBackfillRetryPolicy.maximumAutomaticAttempts {
+            persistedCount = MetadataBackfillRetryPolicy.attemptCountAfterFailure(
+                currentCount: persistedCount
+            )
+            #expect(persistedCount == expected)
+        }
+
+        #expect(MetadataBackfillRetryPolicy.hasExhaustedAutomaticAttempts(persistedCount))
+        #expect(MetadataBackfillRetryPolicy.attemptCountAfterFailure(
+            currentCount: persistedCount
+        ) == MetadataBackfillRetryPolicy.maximumAutomaticAttempts)
+    }
 }
 
 @Suite("User metadata protection")

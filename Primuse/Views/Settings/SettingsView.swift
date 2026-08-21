@@ -1381,7 +1381,7 @@ struct StorageManagementView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                if backfill.hasPendingWork || backfill.hasDeferredRetryWork {
+                if backfill.statusCount > 0 {
                     HStack {
                         switch backfill.activityState {
                         case .running:
@@ -1400,8 +1400,22 @@ struct StorageManagementView: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                    if backfill.deferredRetryCount(forSource: nil) > 0 {
+                        Text(
+                            String(
+                                format: String(localized: "backfill_retry_count_format"),
+                                backfill.deferredRetryCount(forSource: nil)
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    }
                     if backfill.activityState == .retryPending {
-                        Text("backfill_retry_pending_hint")
+                        Text(String(
+                            format: String(localized: "backfill_retry_pending_hint"),
+                            MetadataBackfillRetryPolicy.maximumAutomaticAttempts
+                        ))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
