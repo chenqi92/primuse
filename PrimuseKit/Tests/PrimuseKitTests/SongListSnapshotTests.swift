@@ -259,6 +259,72 @@ struct SongListSnapshotTests {
         #expect(SongListSortProgressState.shouldAwaitFeedbackDeadline(songCount: 20_000))
     }
 
+    @Test("Selecting a sort criterion toggles only the active criterion")
+    func criterionSelectionTogglesDirection() {
+        #expect(LibrarySongSortOrder.title.selecting(.title) == .titleDescending)
+        #expect(LibrarySongSortOrder.titleDescending.selecting(.title) == .title)
+        #expect(LibrarySongSortOrder.title.selecting(.dateAdded) == .dateAdded)
+        #expect(LibrarySongSortOrder.dateAdded.selecting(.dateAdded) == .dateAddedOldest)
+        #expect(LibrarySongSortOrder.dateAddedOldest.selecting(.artist) == .artist)
+    }
+
+    @Test("Alphabetic sorts expose a complete directional section index")
+    func alphabeticSortBuildsSectionIndex() {
+        let songs = [
+            song(id: "a", title: "Atlas"),
+            song(id: "d", title: "Drift"),
+            song(id: "z", title: "Zenith"),
+        ]
+
+        let ascending = SongListSnapshotBuilder.build(songs: songs, order: .title)
+        #expect(ascending.sectionIndexEntries.count == 26)
+        #expect(ascending.sectionIndexEntries.first?.label == "A")
+        #expect(ascending.sectionIndexEntries.last?.label == "Z")
+        #expect(ascending.sectionIndexEntries.first(where: { $0.label == "B" })?.rowOffset == 1)
+        #expect(ascending.sectionIndexEntries.first(where: { $0.label == "D" })?.rowOffset == 1)
+        #expect(ascending.sectionIndexEntries.first(where: { $0.label == "Y" })?.rowOffset == 2)
+
+        let descending = SongListSnapshotBuilder.build(songs: songs, order: .titleDescending)
+        #expect(descending.sectionIndexEntries.count == 26)
+        #expect(descending.sectionIndexEntries.first?.label == "Z")
+        #expect(descending.sectionIndexEntries.last?.label == "A")
+        #expect(descending.sectionIndexEntries.first(where: { $0.label == "Y" })?.rowOffset == 1)
+        #expect(descending.sectionIndexEntries.first(where: { $0.label == "B" })?.rowOffset == 2)
+
+        let chronological = SongListSnapshotBuilder.build(songs: songs, order: .dateAdded)
+        #expect(chronological.sectionIndexEntries.isEmpty)
+
+        let localized = SongListSnapshotBuilder.build(
+            songs: [
+                song(id: "number", title: "123 Intro"),
+                song(id: "accent", title: "Élan"),
+                song(id: "han", title: "北京"),
+            ],
+            order: .title
+        )
+        let offsetsByID = Dictionary(uniqueKeysWithValues: localized.rows.map { ($0.id, $0.offset) })
+        #expect(
+            localized.sectionIndexEntries.first(where: { $0.label == "#" })?.rowOffset
+                == offsetsByID["number"]
+        )
+        #expect(
+            localized.sectionIndexEntries.first(where: { $0.label == "B" })?.rowOffset
+                == offsetsByID["han"]
+        )
+        #expect(
+            localized.sectionIndexEntries.first(where: { $0.label == "E" })?.rowOffset
+                == offsetsByID["accent"]
+        )
+
+        let missingArtist = SongListSnapshotBuilder.build(
+            songs: [song(id: "unknown", title: "Unknown")],
+            order: .artist
+        )
+        #expect(missingArtist.sectionIndexEntries == [
+            SongListSectionIndexEntry(label: "#", rowOffset: 0),
+        ])
+    }
+
     @Test("Delayed feedback follows the latest generation without flicker")
     func feedbackUsesLatestGeneration() {
         var state = SongListSortProgressState()

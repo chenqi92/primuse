@@ -21,6 +21,76 @@ public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case formatDescending
 }
 
+public enum LibrarySongSortCriterion: String, CaseIterable, Hashable, Sendable {
+    case title
+    case artist
+    case album
+    case dateAdded
+    case format
+}
+
+public extension LibrarySongSortOrder {
+    var criterion: LibrarySongSortCriterion {
+        switch self {
+        case .title, .titleDescending: return .title
+        case .artist, .artistDescending: return .artist
+        case .album, .albumDescending: return .album
+        case .dateAdded, .dateAddedOldest: return .dateAdded
+        case .format, .formatDescending: return .format
+        }
+    }
+
+    var isAscending: Bool {
+        switch self {
+        case .title, .artist, .album, .dateAddedOldest, .format:
+            return true
+        case .titleDescending, .artistDescending, .albumDescending, .dateAdded, .formatDescending:
+            return false
+        }
+    }
+
+    var reversed: LibrarySongSortOrder {
+        switch self {
+        case .title: return .titleDescending
+        case .titleDescending: return .title
+        case .artist: return .artistDescending
+        case .artistDescending: return .artist
+        case .album: return .albumDescending
+        case .albumDescending: return .album
+        case .dateAdded: return .dateAddedOldest
+        case .dateAddedOldest: return .dateAdded
+        case .format: return .formatDescending
+        case .formatDescending: return .format
+        }
+    }
+
+    static func defaultOrder(for criterion: LibrarySongSortCriterion) -> LibrarySongSortOrder {
+        switch criterion {
+        case .title: return .title
+        case .artist: return .artist
+        case .album: return .album
+        case .dateAdded: return .dateAdded
+        case .format: return .format
+        }
+    }
+
+    func selecting(_ criterion: LibrarySongSortCriterion) -> LibrarySongSortOrder {
+        self.criterion == criterion ? reversed : Self.defaultOrder(for: criterion)
+    }
+}
+
+public struct SongListSectionIndexEntry: Identifiable, Equatable, Hashable, Sendable {
+    public let label: String
+    public let rowOffset: Int
+
+    public var id: String { label }
+
+    public init(label: String, rowOffset: Int) {
+        self.label = label
+        self.rowOffset = rowOffset
+    }
+}
+
 /// Generation-bound UI state for an explicit song-list sort. The state stays
 /// active after the worker finishes when publication is deferred by scrolling,
 /// and ignores stale callbacks from superseded requests.
@@ -266,6 +336,7 @@ public final class SongListSnapshot: Sendable {
     public let sourceCounts: [String: Int]
     public let playableCount: Int
     public let totalDuration: TimeInterval
+    public let sectionIndexEntries: [SongListSectionIndexEntry]
 
     public init(
         rows: [SongListRowIdentity],
@@ -273,7 +344,8 @@ public final class SongListSnapshot: Sendable {
         songIDs: Set<String>,
         sourceCounts: [String: Int],
         playableCount: Int,
-        totalDuration: TimeInterval
+        totalDuration: TimeInterval,
+        sectionIndexEntries: [SongListSectionIndexEntry] = []
     ) {
         self.rows = rows
         self.orderedSongIDs = orderedSongIDs
@@ -281,6 +353,7 @@ public final class SongListSnapshot: Sendable {
         self.sourceCounts = sourceCounts
         self.playableCount = playableCount
         self.totalDuration = totalDuration
+        self.sectionIndexEntries = sectionIndexEntries
     }
 }
 
@@ -331,6 +404,7 @@ public enum SongListSnapshotBuilder {
             var orderedSongIDs: [String] = []
             var songIDs: Set<String> = []
             var sourceCounts: [String: Int] = [:]
+            var sectionOffsets: [String: Int] = [:]
             var playableCount = 0
             var totalDuration: TimeInterval = 0
             rows.reserveCapacity(orderedIndices.count)
@@ -346,6 +420,11 @@ public enum SongListSnapshotBuilder {
                 orderedSongIDs.append(song.id)
                 songIDs.insert(song.id)
                 sourceCounts[song.sourceID, default: 0] += 1
+                if let indexValue = sectionIndexValue(for: song, order: order),
+                   let label = sectionIndexLabel(for: indexValue),
+                   sectionOffsets[label] == nil {
+                    sectionOffsets[label] = offset
+                }
                 if song.isPlayable {
                     playableCount += 1
                 }
@@ -360,7 +439,11 @@ public enum SongListSnapshotBuilder {
                 songIDs: songIDs,
                 sourceCounts: sourceCounts,
                 playableCount: playableCount,
-                totalDuration: totalDuration
+                totalDuration: totalDuration,
+                sectionIndexEntries: sectionIndexEntries(
+                    from: sectionOffsets,
+                    order: order
+                )
             )
             SongListSnapshotPerformance.signposter.endInterval(
                 "SnapshotBuild",
@@ -376,6 +459,95 @@ public enum SongListSnapshotBuilder {
             )
             throw error
         }
+    }
+
+    private static let latinSectionLabels = (65...90)
+        .compactMap { UnicodeScalar($0).map(String.init) }
+
+    private static func sectionIndexValue(
+        for song: Song,
+        order: LibrarySongSortOrder
+    ) -> String? {
+        switch order.criterion {
+        case .title:
+            return song.title
+        case .artist:
+            return song.artistName ?? ""
+        case .album:
+            return song.albumTitle ?? ""
+        case .dateAdded:
+            return nil
+        case .format:
+            return song.fileFormat.displayName
+        }
+    }
+
+    private static func sectionIndexLabel(for value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "#" }
+
+        guard let leadingScalar = trimmed.unicodeScalars.first else { return "#" }
+        if (65...90).contains(leadingScalar.value) || (97...122).contains(leadingScalar.value) {
+            return String(leadingScalar).uppercased()
+        }
+        guard CharacterSet.letters.contains(leadingScalar) else { return "#" }
+
+        let leadingCharacter = String(trimmed.prefix(1))
+        let latin = leadingCharacter.applyingTransform(.toLatin, reverse: false) ?? leadingCharacter
+        let folded = latin.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: .current
+        )
+        guard let scalar = folded.uppercased(with: .current).unicodeScalars.first,
+              (65...90).contains(scalar.value) else {
+            return "#"
+        }
+        return String(scalar)
+    }
+
+    private static func sectionIndexEntries(
+        from sectionOffsets: [String: Int],
+        order: LibrarySongSortOrder
+    ) -> [SongListSectionIndexEntry] {
+        guard order.criterion != .dateAdded else { return [] }
+
+        let orderedLabels = order.isAscending
+            ? latinSectionLabels
+            : Array(latinSectionLabels.reversed())
+        let availableLabels = orderedLabels.filter { sectionOffsets[$0] != nil }
+        guard !availableLabels.isEmpty else {
+            guard let symbolOffset = sectionOffsets["#"] else { return [] }
+            return [SongListSectionIndexEntry(label: "#", rowOffset: symbolOffset)]
+        }
+
+        var entries: [SongListSectionIndexEntry] = []
+        entries.reserveCapacity(orderedLabels.count + (sectionOffsets["#"] == nil ? 0 : 1))
+
+        for (index, label) in orderedLabels.enumerated() {
+            let targetLabel: String
+            if sectionOffsets[label] != nil {
+                targetLabel = label
+            } else if let next = orderedLabels[index...].first(where: { sectionOffsets[$0] != nil }) {
+                targetLabel = next
+            } else if let previous = orderedLabels[..<index].last(where: { sectionOffsets[$0] != nil }) {
+                targetLabel = previous
+            } else {
+                continue
+            }
+            if let rowOffset = sectionOffsets[targetLabel] {
+                entries.append(SongListSectionIndexEntry(label: label, rowOffset: rowOffset))
+            }
+        }
+
+        if let symbolOffset = sectionOffsets["#"] {
+            let symbolEntry = SongListSectionIndexEntry(label: "#", rowOffset: symbolOffset)
+            if symbolOffset <= (entries.first?.rowOffset ?? symbolOffset) {
+                entries.insert(symbolEntry, at: 0)
+            } else {
+                entries.append(symbolEntry)
+            }
+        }
+        return entries
     }
 
     private static func sortedIndices(

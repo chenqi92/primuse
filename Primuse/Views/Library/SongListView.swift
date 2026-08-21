@@ -90,6 +90,9 @@ private final class SongListCache {
 
     var rows: [SongListRowIdentity] { snapshot?.rows ?? [] }
     var orderedSongIDs: [String] { snapshot?.orderedSongIDs ?? [] }
+    var sectionIndexEntries: [SongListSectionIndexEntry] {
+        snapshot?.sectionIndexEntries ?? []
+    }
     var isEmpty: Bool { !hasSnapshot }
 
     func songCount(forSourceID sourceID: String) -> Int {
@@ -564,28 +567,24 @@ struct SongListView: View {
             }
         }
 
-        var label: String {
-            "\(String(localized: criterionKey)) · \(String(localized: directionKey))"
+        var criterion: LibrarySongSortCriterion { libraryOrder.criterion }
+
+        var isAscending: Bool { libraryOrder.isAscending }
+
+        var directionIcon: String { isAscending ? "arrow.up" : "arrow.down" }
+
+        var directionLabel: String { String(localized: directionKey) }
+
+        func selecting(_ criterion: LibrarySongSortCriterion) -> SongSortOrder {
+            SongSortOrder(libraryOrder: libraryOrder.selecting(criterion))
         }
 
-        private var criterionKey: String.LocalizationValue {
-            switch self {
-            case .title, .titleDescending: return "sort_title"
-            case .artist, .artistDescending: return "sort_artist"
-            case .album, .albumDescending: return "sort_album"
-            case .dateAdded, .dateAddedOldest: return "sort_date_added"
-            case .format, .formatDescending: return "sort_format"
-            }
+        var label: String {
+            criterion.label
         }
 
         private var directionKey: String.LocalizationValue {
-            switch self {
-            case .title, .artist, .album, .format: return "sort_a_to_z"
-            case .titleDescending, .artistDescending, .albumDescending, .formatDescending:
-                return "sort_z_to_a"
-            case .dateAdded: return "sort_newest_to_oldest"
-            case .dateAddedOldest: return "sort_oldest_to_newest"
-            }
+            isAscending ? "smart_sort_ascending" : "smart_sort_descending"
         }
     }
 
@@ -954,6 +953,8 @@ struct SongListView: View {
                     } else {
                         IOSSongListContainer(
                             cache: listCache,
+                            rowOrderRevision: listCache.rowOrderRevision,
+                            sectionIndexEntries: listCache.sectionIndexEntries,
                             selection: selection,
                             onPlay: playSong
                         )
@@ -1265,15 +1266,12 @@ struct SongListView: View {
                 .foregroundStyle(PMColor.textFaint)
 
             Menu {
-                Picker("sort_by", selection: sortOrderBinding) {
-                    ForEach(SongSortOrder.allCases, id: \.self) { order in
-                        Text(verbatim: order.label).tag(order)
-                    }
-                }
-                .pickerStyle(.inline)
+                SongSortMenuOptions(sortOrder: sortOrderBinding)
             } label: {
                 HStack(spacing: 4) {
                     Text(verbatim: sortOrder.label)
+                    Image(systemName: sortOrder.directionIcon)
+                        .font(.system(size: 9, weight: .bold))
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                 }
@@ -2860,34 +2858,61 @@ struct SongListView: View {
 /// though only a screenful of rows is visible.
 private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
+    let rowOrderRevision: Int
+    let sectionIndexEntries: [SongListSectionIndexEntry]
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.cache === rhs.cache && lhs.selection === rhs.selection
+        lhs.cache === rhs.cache
+            && lhs.rowOrderRevision == rhs.rowOrderRevision
+            && lhs.sectionIndexEntries == rhs.sectionIndexEntries
+            && lhs.selection === rhs.selection
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(0..<cache.positionCount, id: \.self) { position in
-                    IOSSongListPositionRow(
-                        position: position,
-                        cache: cache,
-                        selection: selection,
-                        onPlay: onPlay
-                    )
-                    .padding(.horizontal)
-                    .padding(.vertical, 4)
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(0..<cache.positionCount, id: \.self) { position in
+                            IOSSongListPositionRow(
+                                position: position,
+                                cache: cache,
+                                selection: selection,
+                                onPlay: onPlay
+                            )
+                            .padding(.leading, 16)
+                            .padding(.trailing, showsSectionIndex ? 42 : 16)
+                            .padding(.vertical, 4)
+                            .id(position)
 
-                    if position < cache.positionCount - 1 {
-                        Divider()
-                            .padding(.leading, 66)
+                            if position < cache.positionCount - 1 {
+                                Divider()
+                                    .padding(.leading, 66)
+                            }
+                        }
                     }
+                }
+                .background(songListBackground)
+
+                if showsSectionIndex {
+                    IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
+                        proxy.scrollTo(entry.rowOffset, anchor: .top)
+                    }
+                    .frame(width: 92)
+                    .padding(.trailing, 2)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
                 }
             }
         }
-        .background(songListBackground)
+        .animation(.easeOut(duration: 0.18), value: showsSectionIndex)
+    }
+
+    private var showsSectionIndex: Bool {
+        !selection.isActive
+            && cache.positionCount >= 24
+            && sectionIndexEntries.count > 1
     }
 
     private var songListBackground: Color {
@@ -2896,6 +2921,170 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         #else
         Color(UIColor.systemBackground)
         #endif
+    }
+}
+
+private struct IOSSongAlphabetIndex: View {
+    let entries: [SongListSectionIndexEntry]
+    let onSelect: (SongListSectionIndexEntry) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var focusedIndex: Int?
+
+    var body: some View {
+        GeometryReader { geometry in
+            let metrics = metrics(for: geometry.size)
+            ZStack(alignment: .topTrailing) {
+                rail(itemHeight: metrics.itemHeight, fontSize: metrics.fontSize)
+                    .frame(width: 32, height: metrics.railHeight)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.5)
+                    }
+                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(indexGesture(itemHeight: metrics.itemHeight))
+                    .offset(y: metrics.topInset)
+
+                if let focusedIndex, entries.indices.contains(focusedIndex) {
+                    focusBubble(label: entries[focusedIndex].label)
+                        .position(
+                            x: 4,
+                            y: bubbleY(
+                                for: focusedIndex,
+                                itemHeight: metrics.itemHeight,
+                                topInset: metrics.topInset,
+                                availableHeight: geometry.size.height
+                            )
+                        )
+                        .transition(.scale(scale: 0.72).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
+        .sensoryFeedback(.selection, trigger: focusedIndex) { oldValue, newValue in
+            newValue != nil && oldValue != newValue
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func rail(itemHeight: CGFloat, fontSize: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            ForEach(entries.indices, id: \.self) { index in
+                Button {
+                    focus(on: index, announcesSelection: true)
+                    clearFocus()
+                } label: {
+                    Text(verbatim: entries[index].label)
+                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                        .foregroundStyle(index == focusedIndex ? Color.white : Color.accentColor)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background {
+                            if index == focusedIndex {
+                                Circle()
+                                    .fill(Color.accentColor)
+                                    .padding(1)
+                            }
+                        }
+                        .scaleEffect(scale(for: index), anchor: .trailing)
+                        .offset(x: horizontalOffset(for: index))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(height: itemHeight)
+                .accessibilityLabel(Text(verbatim: entries[index].label))
+            }
+        }
+    }
+
+    private func focusBubble(label: String) -> some View {
+        Text(verbatim: label)
+            .font(.system(size: 23, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: 50, height: 50)
+            .background {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                Circle()
+                    .fill(Color.accentColor.opacity(0.9))
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.75)
+            }
+            .shadow(color: Color.accentColor.opacity(0.3), radius: 12, y: 4)
+            .accessibilityHidden(true)
+    }
+
+    private func indexGesture(itemHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                let rawIndex = Int(value.location.y / max(itemHeight, 1))
+                let index = min(max(rawIndex, 0), entries.count - 1)
+                focus(on: index, announcesSelection: false)
+            }
+            .onEnded { _ in
+                clearFocus()
+            }
+    }
+
+    private func focus(on index: Int, announcesSelection: Bool) {
+        guard entries.indices.contains(index) else { return }
+        if focusedIndex != index {
+            withAnimation(focusAnimation) {
+                focusedIndex = index
+            }
+            onSelect(entries[index])
+        } else if announcesSelection {
+            onSelect(entries[index])
+        }
+    }
+
+    private func clearFocus() {
+        withAnimation(focusAnimation) {
+            focusedIndex = nil
+        }
+    }
+
+    private var focusAnimation: Animation? {
+        reduceMotion ? nil : .snappy(duration: 0.18, extraBounce: 0.08)
+    }
+
+    private func scale(for index: Int) -> CGFloat {
+        guard let focusedIndex else { return 1 }
+        switch abs(index - focusedIndex) {
+        case 0: return 1.6
+        case 1: return 1.3
+        case 2: return 1.12
+        default: return 1
+        }
+    }
+
+    private func horizontalOffset(for index: Int) -> CGFloat {
+        guard let focusedIndex else { return 0 }
+        switch abs(index - focusedIndex) {
+        case 0: return -8
+        case 1: return -4
+        case 2: return -1.5
+        default: return 0
+        }
+    }
+
+    private func bubbleY(
+        for index: Int,
+        itemHeight: CGFloat,
+        topInset: CGFloat,
+        availableHeight: CGFloat
+    ) -> CGFloat {
+        let target = topInset + (CGFloat(index) + 0.5) * itemHeight
+        return min(max(target, 28), max(28, availableHeight - 28))
+    }
+
+    private func metrics(for size: CGSize) -> (railHeight: CGFloat, itemHeight: CGFloat, fontSize: CGFloat, topInset: CGFloat) {
+        let availableHeight = max(0, size.height - 24)
+        let railHeight = min(availableHeight, CGFloat(entries.count) * 14)
+        let itemHeight = railHeight / CGFloat(max(entries.count, 1))
+        let fontSize = min(10.5, max(8.5, itemHeight * 0.74))
+        return (railHeight, itemHeight, fontSize, max(12, (size.height - railHeight) / 2))
     }
 }
 
@@ -4011,6 +4200,41 @@ private struct SongListToolbarPrincipal: View {
     }
 }
 
+private extension LibrarySongSortCriterion {
+    var label: String {
+        switch self {
+        case .title: return String(localized: "sort_title")
+        case .artist: return String(localized: "sort_artist")
+        case .album: return String(localized: "sort_album")
+        case .dateAdded: return String(localized: "sort_date_added")
+        case .format: return String(localized: "sort_format")
+        }
+    }
+}
+
+private struct SongSortMenuOptions: View {
+    @Binding var sortOrder: SongListView.SongSortOrder
+
+    var body: some View {
+        ForEach(LibrarySongSortCriterion.allCases, id: \.self) { criterion in
+            Button {
+                sortOrder = sortOrder.selecting(criterion)
+            } label: {
+                if sortOrder.criterion == criterion {
+                    Label(criterion.label, systemImage: sortOrder.directionIcon)
+                } else {
+                    Text(verbatim: criterion.label)
+                }
+            }
+            .accessibilityValue(
+                sortOrder.criterion == criterion
+                    ? Text(verbatim: sortOrder.directionLabel)
+                    : Text(verbatim: "")
+            )
+        }
+    }
+}
+
 private struct SongListNormalToolbarMenu: View {
     let selection: SongSelectionModel
     @Binding var browseMode: LibrarySongBrowseMode
@@ -4032,12 +4256,7 @@ private struct SongListNormalToolbarMenu: View {
                 }
 
                 Section {
-                    Picker("sort_by", selection: sortOrder) {
-                        ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                            Text(verbatim: order.label).tag(order)
-                        }
-                    }
-                    .pickerStyle(.inline)
+                    SongSortMenuOptions(sortOrder: sortOrder)
                 }
 
                 Section {
@@ -4140,12 +4359,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
         if !selection.isActive {
             Menu {
                 Section {
-                    Picker("sort_by", selection: $sortOrder) {
-                        ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                            Text(verbatim: order.label).tag(order)
-                        }
-                    }
-                    .pickerStyle(.inline)
+                    SongSortMenuOptions(sortOrder: $sortOrder)
                 }
                 Section {
                     Button {
