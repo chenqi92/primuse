@@ -723,9 +723,9 @@ final class AudioPlayerService {
             // Track-end, gapless and crossfade callbacks all re-read the
             // current repeat mode before committing their successor. Reusing
             // the active transport is therefore both safe and immediate.
-            // `invalidateQueueTransitions()` is for structural queue changes;
-            // it rebuilds the current decoder with a seek and creates an
-            // audible pause when used for this policy-only change.
+            // `invalidateQueueTransitions()` is reserved for changes that
+            // replace current transport ownership; it rebuilds the decoder
+            // with a seek and creates an audible pause for policy-only edits.
             prefetchNextSong()
         }
     }
@@ -5056,6 +5056,23 @@ final class AudioPlayerService {
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
     }
 
+    /// A changed immediate successor makes any in-flight gapless/crossfade
+    /// preparation stale. Advance only the traversal generation: the current
+    /// decoder and its automatic-advance ticket remain authoritative until the
+    /// track reaches its natural boundary. A committed crossfade already owns
+    /// the newly-current song, so reordering the rows after it must not shorten
+    /// that audible transition.
+    private func invalidatePreparedQueueSuccessor() {
+        queueGeneration += 1
+        cancelGaplessTasks()
+        let hasCommittedCurrentCrossfade = committedCrossfade.map {
+            crossfadeAttemptID == $0.attemptID && playID == $0.playID
+        } ?? false
+        if !hasCommittedCurrentCrossfade {
+            cancelCrossfadeAttempt()
+        }
+    }
+
     func pause() {
         // Record this before route-specific early returns so Apple Music,
         // radio, casting and MV all cancel a pending interruption resume.
@@ -6578,23 +6595,32 @@ final class AudioPlayerService {
         persistPlaybackSession()
     }
 
-    /// Move queue rows. Used by the QueueView reorder handle. Beyond
-    /// the obvious `move`, this also invalidates any pending shuffle
-    /// plan and rebuilds the shuffle order — `shuffledIndices` stores
-    /// raw queue offsets, so a manual reorder makes those offsets
-    /// point at the wrong songs unless we regenerate them.
-    func moveQueueItems(fromOffsets source: IndexSet, toOffset destination: Int) {
+    /// Move queue rows without rebuilding the active audio transport. A drag
+    /// can invalidate prepared audio for the immediate successor, but the
+    /// current song, decoder and natural-end ticket remain unchanged.
+    private func moveQueueItems(
+        fromOffsets source: IndexSet,
+        toOffset destination: Int,
+        invalidatesPreparedSuccessor: Bool
+    ) {
         guard !source.isEmpty,
               source.allSatisfy({ queueEntries.indices.contains($0) }),
               destination >= 0,
               destination <= queueEntries.count else { return }
-        invalidateQueueTransitions()
         queueEntries.move(fromOffsets: source, toOffset: destination)
         pendingNextShuffleIndices = nil
         if shuffleEnabled {
             rebuildShuffleOrder()
         }
+        completeQueueReorder(invalidatesPreparedSuccessor: invalidatesPreparedSuccessor)
+    }
+
+    private func completeQueueReorder(invalidatesPreparedSuccessor: Bool) {
+        if invalidatesPreparedSuccessor {
+            invalidatePreparedQueueSuccessor()
+        }
         persistPlaybackSession()
+        if currentSong != nil { prefetchNextSong() }
     }
 
     /// Reorder one visible Up Next occurrence by its durable queue-slot UUID.
@@ -6619,6 +6645,11 @@ final class AudioPlayerService {
             queueEntryIDs: queueEntries.map(\.id),
             upcomingOccurrences: currentUpcoming
         ) else { return false }
+        let invalidatesPreparedSuccessor = QueueUpcomingReorderPolicy
+            .shouldInvalidatePreparedSuccessor(
+                before: currentUpcoming,
+                after: reordered
+            )
 
         let roundOffset = dragged.roundOffset
         let currentRoundIDs = currentUpcoming
@@ -6643,7 +6674,6 @@ final class AudioPlayerService {
                 }
                 guard actualCurrentRoundIDs == currentRoundIDs,
                       currentRawIndices.count == reorderedRawIndices.count else { return false }
-                invalidateQueueTransitions()
                 shuffledIndices.replaceSubrange(start..<shuffledIndices.count, with: reorderedRawIndices)
             case 1:
                 guard repeatMode == .all else { return false }
@@ -6653,13 +6683,13 @@ final class AudioPlayerService {
                 }
                 guard actualNextRoundIDs == currentRoundIDs,
                       pending.count == reorderedRawIndices.count else { return false }
-                invalidateQueueTransitions()
                 pendingNextShuffleIndices = reorderedRawIndices
             default:
                 return false
             }
-            persistPlaybackSession()
-            if currentSong != nil { prefetchNextSong() }
+            completeQueueReorder(
+                invalidatesPreparedSuccessor: invalidatesPreparedSuccessor
+            )
             return true
         }
 
@@ -6677,8 +6707,11 @@ final class AudioPlayerService {
             return false
         }
         let destination = desiredRawIndex > sourceIndex ? desiredRawIndex + 1 : desiredRawIndex
-        moveQueueItems(fromOffsets: IndexSet(integer: sourceIndex), toOffset: destination)
-        if currentSong != nil { prefetchNextSong() }
+        moveQueueItems(
+            fromOffsets: IndexSet(integer: sourceIndex),
+            toOffset: destination,
+            invalidatesPreparedSuccessor: invalidatesPreparedSuccessor
+        )
         return true
     }
 

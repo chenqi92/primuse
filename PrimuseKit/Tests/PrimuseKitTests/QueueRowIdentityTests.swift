@@ -214,6 +214,42 @@ struct QueueUpcomingReorderPolicyTests {
         #expect(!(reordered ?? []).contains(occurrence(current)))
     }
 
+    @Test("Only changing the first upcoming occurrence invalidates prepared audio")
+    func successorPreparationInvalidationIsScoped() {
+        let before = occurrences([first, second, last])
+        let laterOnly = occurrences([first, last, second])
+        let newSuccessor = occurrences([last, first, second])
+
+        #expect(!QueueUpcomingReorderPolicy.shouldInvalidatePreparedSuccessor(
+            before: before,
+            after: laterOnly
+        ))
+        #expect(QueueUpcomingReorderPolicy.shouldInvalidatePreparedSuccessor(
+            before: before,
+            after: newSuccessor
+        ))
+        #expect(!QueueUpcomingReorderPolicy.shouldInvalidatePreparedSuccessor(
+            before: [],
+            after: []
+        ))
+    }
+
+    @Test("A repeat-all next round invalidates preparation only at the active boundary")
+    func repeatAllBoundaryScopesSuccessorInvalidation() {
+        let currentRoundLast = occurrence(last)
+        let nextRoundFirst = occurrence(first, roundOffset: 1)
+        let nextRoundSecond = occurrence(second, roundOffset: 1)
+
+        #expect(!QueueUpcomingReorderPolicy.shouldInvalidatePreparedSuccessor(
+            before: [currentRoundLast, nextRoundFirst, nextRoundSecond],
+            after: [currentRoundLast, nextRoundSecond, nextRoundFirst]
+        ))
+        #expect(QueueUpcomingReorderPolicy.shouldInvalidatePreparedSuccessor(
+            before: [nextRoundFirst, nextRoundSecond],
+            after: [nextRoundSecond, nextRoundFirst]
+        ))
+    }
+
     @Test("Repeat-all occurrences cannot move across shuffle rounds")
     func shuffleRoundsStayIndependent() {
         let currentRoundLast = occurrence(last)

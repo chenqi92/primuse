@@ -3606,6 +3606,17 @@ public enum QueueUpcomingReorderPolicy {
         reordered.insert(moved, at: targetIndex)
         return reordered == upcomingOccurrences ? nil : reordered
     }
+
+    /// Gapless and crossfade preparation only owns the first upcoming
+    /// occurrence. Reordering later rows can keep that work intact; replacing
+    /// the first occurrence must discard it without touching the current
+    /// transport or its natural-end ticket.
+    public static func shouldInvalidatePreparedSuccessor(
+        before currentUpcoming: [QueueReorderOccurrenceID],
+        after reorderedUpcoming: [QueueReorderOccurrenceID]
+    ) -> Bool {
+        currentUpcoming.first != reorderedUpcoming.first
+    }
 }
 
 public struct QueueTraversalRemovalResult: Equatable, Sendable {
