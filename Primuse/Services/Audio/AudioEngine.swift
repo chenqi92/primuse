@@ -34,8 +34,8 @@ final class AudioEngine {
     private var transportFadeTask: Task<Void, Never>?
     private var transportFadeRestoreVolume: Float?
 
-    private static let transportFadeStepCount = 12
-    private static let transportFadeStepDuration: Duration = .milliseconds(15)
+    private static let transportFadeStepCount = 6
+    private static let transportFadeStepDuration: Duration = .milliseconds(8)
 
     /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
     /// background mode 不挂起进程, NWListener 才能持续接 SSDP / control 请求。

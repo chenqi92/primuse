@@ -345,81 +345,32 @@ struct AlbumArtworkView: View {
     }
 
     private var fallbackSong: PrimuseKit.Song? {
-        let songs = library.songs(forAlbum: album.id)
-        let preferredSongID = AlbumArtworkFallbackPolicy.preferredSongID(
-            orderedSongIDs: songs.map(\.id),
-            songIDsWithArtworkReference: Set(
-                songs.compactMap { song in
-                    guard song.coverArtFileName?.isEmpty == false else { return nil }
-                    return song.id
-                }
-            )
-        )
-        guard let preferredSongID else { return nil }
-        return songs.first { $0.id == preferredSongID }
+        library.preferredArtworkSong(forAlbumID: album.id)
     }
 
     var body: some View {
         let presentation = library.artworkPresentation(for: owner)
         let uploadedContentID = presentation.uploadedContentID
 
-        ZStack {
-            if showsPlaceholder {
-                CachedArtworkView(
-                    coverRef: nil,
-                    songID: nil,
-                    size: size,
-                    cornerRadius: cornerRadius,
-                    placeholderIcon: "square.stack",
-                    showsPlaceholder: true
+        Group {
+            if let size {
+                artworkLayers(
+                    side: max(0, size),
+                    selectedSong: presentation.selectedSong,
+                    uploadedContentID: uploadedContentID
                 )
-            }
-
-            if let song = fallbackSong {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: size,
-                    cornerRadius: 0,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat,
-                    showsPlaceholder: false,
-                    revisionToken: library.artworkOverrideRevision
-                )
-            }
-
-            CachedArtworkView(
-                albumID: album.id,
-                albumTitle: album.title,
-                artistName: album.artistName,
-                size: size,
-                cornerRadius: cornerRadius,
-                showsPlaceholder: false
-            )
-
-            if let uploadedImage, uploadedContentID != nil {
-                Image(platformImage: uploadedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else if let song = presentation.selectedSong {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: size,
-                    cornerRadius: 0,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat,
-                    showsPlaceholder: false,
-                    revisionToken: library.artworkOverrideRevision
-                )
+            } else {
+                GeometryReader { proxy in
+                    let side = max(0, min(proxy.size.width, proxy.size.height))
+                    artworkLayers(
+                        side: side,
+                        selectedSong: presentation.selectedSong,
+                        uploadedContentID: uploadedContentID
+                    )
+                }
+                .aspectRatio(1, contentMode: .fit)
             }
         }
-        .if(size != nil) { view in
-            view.frame(width: size!, height: size!)
-        }
-        .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             guard let contentID = uploadedContentID else {
@@ -442,6 +393,71 @@ struct AlbumArtworkView: View {
             guard objectMatches || tokensMatch else { return }
             reloadRevision &+= 1
         }
+    }
+
+    @ViewBuilder
+    private func artworkLayers(
+        side: CGFloat,
+        selectedSong: PrimuseKit.Song?,
+        uploadedContentID: String?
+    ) -> some View {
+        ZStack {
+            if showsPlaceholder {
+                CachedArtworkView(
+                    coverRef: nil,
+                    songID: nil,
+                    size: side,
+                    cornerRadius: cornerRadius,
+                    placeholderIcon: "square.stack",
+                    showsPlaceholder: true
+                )
+            }
+
+            if let song = fallbackSong {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: side,
+                    cornerRadius: 0,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    showsPlaceholder: false,
+                    revisionToken: library.artworkOverrideRevision
+                )
+            }
+
+            CachedArtworkView(
+                albumID: album.id,
+                albumTitle: album.title,
+                artistName: album.artistName,
+                size: side,
+                cornerRadius: cornerRadius,
+                showsPlaceholder: false
+            )
+
+            if let uploadedImage, uploadedContentID != nil {
+                Image(platformImage: uploadedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: side, height: side)
+                    .clipped()
+            } else if let song = selectedSong {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: side,
+                    cornerRadius: 0,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    showsPlaceholder: false,
+                    revisionToken: library.artworkOverrideRevision
+                )
+            }
+        }
+        .frame(width: side, height: side)
+        .clipped()
     }
 }
 

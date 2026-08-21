@@ -456,6 +456,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             throw SourceError.pathNotFound(path)
         }
 
+        let scanStartedAt = Date()
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -567,7 +568,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                         embyLyricsProbedItemIDs.insert(item.id)
                                         embyLyricsStreams[item.id] = item.embyLyricsStream
                                     }
-                                    let song = buildSong(from: item)
+                                    let song = buildSong(
+                                        from: item,
+                                        dateAddedFallback: scanStartedAt
+                                    )
                                     continuation.yield(
                                         ConnectorScannedSong(
                                             song: song,
@@ -1599,7 +1603,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return normalized
     }
 
-    private func buildSong(from item: AudioItem) -> Song {
+    private func buildSong(
+        from item: AudioItem,
+        dateAddedFallback: Date
+    ) -> Song {
         let fileExtension = audioFileExtension(for: item)
         let format = AudioFormat.from(fileExtension: fileExtension) ?? .mp3
         let repairedServerTitle = MediaMetadataTextRepair.repaired(item.name)
@@ -1629,12 +1636,21 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             ?? item.mediaStreams?.first
         let duration = Double(item.runTimeTicks ?? 0) / 10_000_000
         let relativePath = "/items/\(item.id).\(fileExtension)"
+        let songID = hash("\(sourceID):\(relativePath)")
+        let albumID = album == nil ? nil : item.albumId
+        let artistID = artist == nil ? nil : item.albumArtists?.first?.id
+        let fileSize = item.mediaSources?.first?.size ?? 0
+        let bitRate = audioStream?.bitRate.map { Int($0 / 1000) }
+        let genre = genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil
+        let dateAdded = item.dateCreated ?? dateAddedFallback
+        let coverArtFileName = coverArtURL(for: item)?.absoluteString
+        let artistArtworkFileName = artistArtworkReference(for: item, artistName: artist)
 
         return Song(
-            id: hash("\(sourceID):\(relativePath)"),
+            id: songID,
             title: title.isEmpty ? item.id : title,
-            albumID: album == nil ? nil : item.albumId,
-            artistID: artist == nil ? nil : item.albumArtists?.first?.id,
+            albumID: albumID,
+            artistID: artistID,
             albumTitle: album,
             artistName: artist,
             albumArtistName: albumArtist,
@@ -1644,15 +1660,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             fileFormat: format,
             filePath: relativePath,
             sourceID: sourceID,
-            fileSize: item.mediaSources?.first?.size ?? 0,
-            bitRate: audioStream?.bitRate.map { Int($0 / 1000) },
+            fileSize: fileSize,
+            bitRate: bitRate,
             sampleRate: audioStream?.sampleRate,
             bitDepth: audioStream?.bitDepth,
-            genre: genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil,
+            genre: genre,
             year: year,
             lastModified: item.dateCreated,
-            coverArtFileName: coverArtURL(for: item)?.absoluteString,
-            artistArtworkFileName: artistArtworkReference(for: item, artistName: artist)
+            dateAdded: dateAdded,
+            coverArtFileName: coverArtFileName,
+            artistArtworkFileName: artistArtworkFileName
         )
     }
 

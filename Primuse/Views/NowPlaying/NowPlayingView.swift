@@ -501,7 +501,10 @@ struct NowPlayingView: View {
         sizeClass == .regular && geo.size.width > geo.size.height
     }
 
-    private func playerMinimizeDragGesture(containerWidth: CGFloat) -> some Gesture {
+    private func playerMinimizeDragGesture(
+        containerWidth: CGFloat,
+        verticalStartMaximumY: CGFloat
+    ) -> some Gesture {
         // The player moves with this gesture, so a local coordinate space would
         // also move under the finger and feed the offset back into translation.
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
@@ -525,7 +528,8 @@ struct NowPlayingView: View {
                         startY: Double(value.startLocation.y),
                         startDistanceFromLeadingEdge: startDistance,
                         translationTowardCenter: towardCenter,
-                        translationY: Double(value.translation.height)
+                        translationY: Double(value.translation.height),
+                        verticalStartMaximumY: Double(verticalStartMaximumY)
                     )
                 guard let axis else { return }
                 activeMinimizeDragAxis = axis
@@ -576,7 +580,8 @@ struct NowPlayingView: View {
                         startY: Double(value.startLocation.y),
                         translationX: Double(value.translation.width),
                         translationY: Double(value.translation.height),
-                        predictedEndTranslationY: Double(value.predictedEndTranslation.height)
+                        predictedEndTranslationY: Double(value.predictedEndTranslation.height),
+                        maximumStartY: Double(verticalStartMaximumY)
                     )
                     if let onTopMinimizeDragEnded {
                         onTopMinimizeDragEnded(shouldDismiss)
@@ -591,6 +596,12 @@ struct NowPlayingView: View {
         GeometryReader { geo in
             let artSize = min(geo.size.width - 60, geo.size.height * 0.38)
             let safeInsets = resolvedSafeAreaInsets(for: geo)
+            let verticalDismissStartMaximumY = showLyrics
+                ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
+                : max(
+                    CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY),
+                    geo.size.height * 0.62
+                )
             let landscapeMode = NowPlayingLandscapePolicy.mode(
                 viewportWidth: Double(geo.size.width),
                 viewportHeight: Double(geo.size.height),
@@ -653,7 +664,10 @@ struct NowPlayingView: View {
                     }
                     .contentShape(Rectangle())
                     .simultaneousGesture(
-                        playerMinimizeDragGesture(containerWidth: geo.size.width)
+                        playerMinimizeDragGesture(
+                            containerWidth: geo.size.width,
+                            verticalStartMaximumY: verticalDismissStartMaximumY
+                        )
                     )
                     .transition(.opacity)
                 }
@@ -1338,7 +1352,7 @@ struct NowPlayingView: View {
                 .frame(width: 56, height: 56)
                 .accessibilityLabel("a11y_previous_track")
                 Spacer()
-                Button { withAnimation(.spring(response: 0.3)) { player.togglePlayPause() } } label: {
+                Button { player.togglePlayPause() } label: {
                     ZStack {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 60)).opacity(0)
@@ -1669,6 +1683,7 @@ struct NowPlayingView: View {
                             moreMenu
                             }
                             .padding(.horizontal, 20).padding(.bottom, 6)
+                            .transition(.opacity)
                         }
 
                         // Full screen lyrics
@@ -1676,8 +1691,10 @@ struct NowPlayingView: View {
                             immersiveLyricsExperience(isLandscape: false) {
                                 lyricsFullView
                             }
+                            .transition(.opacity)
                         } else {
                             lyricsFullView
+                                .transition(.opacity)
                         }
                     } else {
                         // PLAYER MODE
@@ -1698,6 +1715,7 @@ struct NowPlayingView: View {
                             guard !player.isMusicVideoPlaybackActive else { return }
                             setStandardLyricsVisible(true)
                         }
+                        .transition(.opacity)
 
                         Spacer()
                     }
@@ -1753,7 +1771,7 @@ struct NowPlayingView: View {
                         .frame(width: 56, height: 56)
                         .accessibilityLabel("a11y_previous_track")
                         Spacer()
-                        Button { withAnimation(.spring(response: 0.3)) { player.togglePlayPause() } } label: {
+                        Button { player.togglePlayPause() } label: {
                             ZStack {
                                 // Anchor sizing so the button doesn't reflow.
                                 Image(systemName: "play.circle.fill")

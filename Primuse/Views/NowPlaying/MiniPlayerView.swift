@@ -10,8 +10,8 @@ struct MiniPlayerView: View {
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
                 onTap: { onTap?() },
-                artworkSize: 40,
-                artworkCornerRadius: 8,
+                artworkSize: 36,
+                artworkCornerRadius: 7,
                 titleFont: .caption
             )
 

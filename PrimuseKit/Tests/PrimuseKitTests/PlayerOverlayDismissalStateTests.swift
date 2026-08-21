@@ -90,6 +90,28 @@ struct NowPlayingDismissGesturePolicyTests {
         )
     }
 
+    @Test("Player artwork can extend the downward dismissal start region")
+    func artworkRegionCanDismiss() {
+        #expect(
+            NowPlayingDismissGesturePolicy.shouldDismissFromTop(
+                startY: 360,
+                translationX: 4,
+                translationY: 180,
+                predictedEndTranslationY: 260,
+                maximumStartY: 480
+            )
+        )
+        #expect(
+            !NowPlayingDismissGesturePolicy.shouldDismissFromTop(
+                startY: 500,
+                translationX: 4,
+                translationY: 180,
+                predictedEndTranslationY: 260,
+                maximumStartY: 480
+            )
+        )
+    }
+
     @Test("Leading-edge right swipe dismisses without accepting content drags")
     func leadingEdgeSwipeDismisses() {
         #expect(

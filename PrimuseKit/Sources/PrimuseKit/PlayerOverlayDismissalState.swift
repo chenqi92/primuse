@@ -58,10 +58,11 @@ public enum NowPlayingDismissGesturePolicy {
     public static func topInteractiveTranslation(
         startY: Double,
         translationX: Double,
-        translationY: Double
+        translationY: Double,
+        maximumStartY: Double = topStartMaximumY
     ) -> Double? {
         guard startY >= 0,
-              startY <= topStartMaximumY,
+              startY <= max(0, maximumStartY),
               translationY > 0,
               abs(translationY) > abs(translationX) else { return nil }
         return translationY
@@ -86,12 +87,14 @@ public enum NowPlayingDismissGesturePolicy {
         startY: Double,
         startDistanceFromLeadingEdge: Double,
         translationTowardCenter: Double,
-        translationY: Double
+        translationY: Double,
+        verticalStartMaximumY: Double = topStartMaximumY
     ) -> Axis? {
         if topInteractiveTranslation(
             startY: startY,
             translationX: translationTowardCenter,
-            translationY: translationY
+            translationY: translationY,
+            maximumStartY: verticalStartMaximumY
         ) != nil {
             return .vertical
         }
@@ -109,12 +112,14 @@ public enum NowPlayingDismissGesturePolicy {
         startY: Double,
         translationX: Double,
         translationY: Double,
-        predictedEndTranslationY: Double
+        predictedEndTranslationY: Double,
+        maximumStartY: Double = topStartMaximumY
     ) -> Bool {
         guard topInteractiveTranslation(
             startY: startY,
             translationX: translationX,
-            translationY: translationY
+            translationY: translationY,
+            maximumStartY: maximumStartY
         ) != nil else { return false }
         return translationY >= 110 || predictedEndTranslationY >= 320
     }

@@ -741,8 +741,8 @@ struct NowPlayingAccessory: View {
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
                 onTap: onTap,
-                artworkSize: isInline ? 32 : 40,
-                artworkCornerRadius: isInline ? 6 : 8,
+                artworkSize: isInline ? 32 : 36,
+                artworkCornerRadius: isInline ? 6 : 7,
                 titleFont: .caption
             )
 

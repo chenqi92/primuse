@@ -689,6 +689,7 @@ final class AudioPlayerService {
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet {
+            guard shuffleEnabled != oldValue else { return }
             defer {
                 if !isRestoringPlaybackSession {
                     persistPlaybackSession()
@@ -701,8 +702,9 @@ final class AudioPlayerService {
                 AppServices.shared.appleMusic.setAppleMusicShuffle(shuffleEnabled)
                 return
             }
-            invalidateQueueTransitions()
+            cancelPreparedQueueSuccessor()
             rebuildShuffleOrder()
+            prefetchNextSong()
         }
     }
     var repeatMode: RepeatMode = .off {
@@ -5046,6 +5048,14 @@ final class AudioPlayerService {
         gaplessFollowupTask = nil
     }
 
+    /// Traversal-only changes must discard the prepared successor without
+    /// invalidating the current track's completion ticket or rebuilding its
+    /// decoder. The next prefetch uses the freshly rebuilt shuffle order.
+    private func cancelPreparedQueueSuccessor() {
+        cancelGaplessTasks()
+        cancelCrossfadeAttempt(finishingCommittedTransition: true)
+    }
+
     func pause() {
         // Record this before route-specific early returns so Apple Music,
         // radio, casting and MV all cancel a pending interruption resume.
@@ -5870,6 +5880,7 @@ final class AudioPlayerService {
     }
 
     private var seekTimeOffset: TimeInterval = 0
+    @ObservationIgnored private var seekTask: Task<Void, Never>?
 
     func seek(
         to time: TimeInterval,
@@ -5976,7 +5987,6 @@ final class AudioPlayerService {
         guard let song = currentSong else { isLoading = false; return }
         let savedDuration = duration
         let shouldStartPlaying = startPlaying ?? isPlaying
-        let hadPreparedLocalPlayback = hasPreparedLocalPlayback
         isPlaying = false
 
         // Invalidate old playID BEFORE stopPlayback() so any pending completion
@@ -5995,6 +6005,7 @@ final class AudioPlayerService {
 
         // Stop only the playerNode, not the full pipeline — preserve Live Activity,
         // currentSong, and other state that stop() would tear down.
+        seekTask?.cancel()
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
@@ -6008,8 +6019,11 @@ final class AudioPlayerService {
         currentTime = targetTime
         duration = savedDuration
 
-        Task {
+        seekTask = Task {
             defer {
+                if playID == id {
+                    seekTask = nil
+                }
                 if isConfigurationRecovery,
                    configurationRecoveryOwnerPlayID == id {
                     configurationRecoveryOwnerPlayID = nil
@@ -6017,15 +6031,12 @@ final class AudioPlayerService {
             }
             do {
                 let url = try await resolvedURL(for: song)
-                guard playID == id else { return }
-                if isRecovery, !hadPreparedLocalPlayback {
-                    // A restored session has no live decoder pipeline, so the
-                    // default `.native` value is not evidence about the saved
-                    // track. Re-resolve cloud/HTTP/FFmpeg routing before
-                    // rebuilding playback at the persisted position.
-                    activeDecoderKind = await decoderKind(for: song, url: url)
-                }
+                guard !Task.isCancelled, playID == id else { return }
+                let resolvedDecoderKind = await decoderKind(for: song, url: url)
+                guard !Task.isCancelled, playID == id else { return }
+                activeDecoderKind = resolvedDecoderKind
                 activeDSDPlaybackMode = try await configureOutputPipeline(for: song, url: url)
+                guard !Task.isCancelled, playID == id else { return }
                 applySpatialAudioSettings()
                 applyPlaybackRate()
                 guard let outputFormat = audioEngine.outputFormat else {
@@ -6047,6 +6058,7 @@ final class AudioPlayerService {
                         expectedPlayID: id,
                         expectedSongID: song.id
                     )
+                    guard !Task.isCancelled, playID == id else { return }
                 }
 
                 // Use the same decoder that was used for initial playback.
@@ -6082,9 +6094,10 @@ final class AudioPlayerService {
                    sourceManager?.cachedURL(for: song) == nil,
                    playbackSettings.audioCacheEnabled,
                    let cached = await sourceManager?.materializeCachedURLForSeeking(for: song) {
-                    guard playID == id else { return }
+                    guard !Task.isCancelled, playID == id else { return }
                     seekURL = cached
                     seekDecoderKind = await ffmpegCanDecodeOffMain(cached) ? .ffmpeg : .native
+                    guard !Task.isCancelled, playID == id else { return }
                     activeDecoderKind = seekDecoderKind
                     plog("📍 Seek materialized remote audio to local cache; decoder=\(seekDecoderKind)")
                 }
@@ -6111,6 +6124,7 @@ final class AudioPlayerService {
                     // Custom formats enter through the full-download fallback.
                     // Once cached, FFmpeg can seek at the demuxer level.
                     if await usesFFmpegDecoder(for: song, url: seekURL) {
+                        guard !Task.isCancelled, playID == id else { return }
                         decoderPerformedSeek = true
                         decoderSourceStartTime = physicalSeekTime
                         rawStream = ffmpegDecoder.decode(
@@ -6150,6 +6164,7 @@ final class AudioPlayerService {
                             onResolveSourceLength: onResolveLength
                         )
                     } else if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+                        guard !Task.isCancelled, playID == id else { return }
                         decoderPerformedSeek = true
                         decoderSourceStartTime = physicalSeekTime
                         rawStream = nativeDecoder.decode(
@@ -6190,6 +6205,7 @@ final class AudioPlayerService {
                                   for: song,
                                   cacheEnabled: playbackSettings.audioCacheEnabled
                               ) {
+                        guard !Task.isCancelled, playID == id else { return }
                         decoderPerformedSeek = true
                         decoderSourceStartTime = physicalSeekTime
                         rawStream = nativeDecoder.decode(
@@ -6241,7 +6257,7 @@ final class AudioPlayerService {
                 var firstPlayableBuffer: AVAudioPCMBuffer?
 
                 while let buffer = try await iteratorBox.next() {
-                    guard playID == id else { return }
+                    guard !Task.isCancelled, playID == id else { return }
                     let bufferSamples = Int64(buffer.frameLength)
                     if samplesSkipped + bufferSamples <= seekSamples {
                         samplesSkipped += bufferSamples
@@ -6278,14 +6294,14 @@ final class AudioPlayerService {
                     }
                     return
                 }
-                guard playID == id else { return }
+                guard !Task.isCancelled, playID == id else { return }
 
                 // Hold one buffer ahead just like the initial playback path.
                 // Without this prefetch, a seek/recovery with exactly one
                 // remaining buffer schedules it as an ordinary buffer and an
                 // unknown-duration stream never receives a terminal callback.
                 let secondPlayableBuffer = try await iteratorBox.next()
-                guard playID == id else { return }
+                guard !Task.isCancelled, playID == id else { return }
 
                 let gate = AsyncBufferGate(
                     maxBufferedDuration: Self.decodedAudioLookahead,
@@ -6384,7 +6400,7 @@ final class AudioPlayerService {
                 }
             } catch {
                 plog("Seek error: \(error)")
-                guard playID == id else { return }
+                guard !Task.isCancelled, playID == id else { return }
                 isLoading = false
                 isPlaying = false
                 currentTime = previousTime

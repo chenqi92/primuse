@@ -15,8 +15,9 @@ import AppKit
 ///
 /// Decoding runs off the main thread via ImageIO so list scrolling never
 /// pays for `PlatformImage(data:)` lazy decode at draw time. Each cover is
-/// also downsampled to one of two pixel buckets:
+/// also downsampled to one of three pixel buckets:
 /// - `thumb` (max 288px) for list-cell sized requests (size <= 96pt)
+/// - `card`  (max 768px) for album / artist grids
 /// - `full`  (max 1536px) for hero / large views
 /// so a 1500×1500 source image never sits decoded inside a 44pt row cell.
 ///
@@ -78,19 +79,30 @@ struct CachedArtworkView: View {
     private static let inFlightTracker = InFlightFetchTracker()
 
     private enum Bucket: String, Sendable {
-        case thumb, full
+        case thumb, card, full
     }
 
     /// Anything visibly small (list rows, mini player, album cards under
     /// ~88pt) lands in the thumb bucket. 96 keeps a small headroom for
     /// occasional 80pt artist circles without bumping them to a full decode.
     private var bucket: Bucket {
-        if let s = size, s <= 96 { return .thumb } else { return .full }
+        Self.bucket(for: size)
+    }
+
+    private static func bucket(for size: CGFloat?) -> Bucket {
+        guard let size else { return .full }
+        if size <= 96 { return .thumb }
+        if size <= 320 { return .card }
+        return .full
     }
 
     /// 96pt × 3x display scale. ImageIO downsamples in the GPU and the
     /// resulting CGImage is fed to PlatformImage at scale 1, so cost stays small.
     private static let thumbMaxPixel: Int = 288
+
+    /// Grid cards need enough pixels for a 3x display without paying the
+    /// roughly 9 MiB decoded cost of a 1536px square for every visible album.
+    private static let cardMaxPixel: Int = 768
 
     /// Cap full-resolution decodes so a pathological 4000×4000 source can't
     /// blow the cache budget by itself. Larger than any device's hero art.
@@ -456,7 +468,7 @@ struct CachedArtworkView: View {
         sourceManager: SourceManager,
         cacheDiscriminator: String = ""
     ) async -> PlatformImage? {
-        let bucket: Bucket = size <= 96 ? .thumb : .full
+        let bucket = bucket(for: size)
         let identityComponents = [
             songID ?? "",
             coverRef ?? "",
@@ -732,7 +744,15 @@ struct CachedArtworkView: View {
             return nil
         }
         guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let maxPixel = bucket == .thumb ? thumbMaxPixel : fullMaxPixel
+        let maxPixel: Int
+        switch bucket {
+        case .thumb:
+            maxPixel = thumbMaxPixel
+        case .card:
+            maxPixel = cardMaxPixel
+        case .full:
+            maxPixel = fullMaxPixel
+        }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -759,7 +779,7 @@ struct CachedArtworkView: View {
     // MARK: - Static helpers
 
     static func invalidateCache(for fileName: String) {
-        for bucket in ["thumb", "full"] {
+        for bucket in ["thumb", "card", "full"] {
             memoryCache.removeObject(forKey: "\(fileName)@\(bucket)" as NSString)
             memoryCache.removeObject(forKey: "album_\(fileName)@\(bucket)" as NSString)
             memoryCache.removeObject(forKey: "artist_\(fileName)@\(bucket)" as NSString)

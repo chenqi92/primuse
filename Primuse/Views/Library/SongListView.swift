@@ -414,7 +414,7 @@ struct SongListView: View {
     /// lyricsText) whenever an ancestor refreshed.
     private let scope: Scope
     @State private var sortOrder: SongSortOrder = .title
-    @State private var songFilter: SongFilter = .all
+    @State private var songFilter: SongFilter
     @State private var downloadedSongIDs: Set<String> = []
     @State private var downloadedFilterRevision = 0
     @State private var downloadedFilterGeneration = 0
@@ -519,6 +519,10 @@ struct SongListView: View {
 
     init(sourceID: String? = nil) {
         scope = sourceID.map(Scope.source) ?? .library
+        let initialSongFilter = UserDefaults.standard
+            .string(forKey: "library.songFilter.v1")
+            .flatMap(SongFilter.init(rawValue:)) ?? .all
+        _songFilter = State(initialValue: initialSongFilter)
         #if os(macOS)
         let initialBrowseMode = LibrarySongBrowseModePreference.load(defaultMode: .flat)
         #else
@@ -677,6 +681,9 @@ struct SongListView: View {
                     scheduleSortedRecompute(pruneRowModels: false)
                 }
                 scheduleFolderIndexRecompute()
+                if songFilter == .downloaded {
+                    scheduleDownloadedFilterRefresh()
+                }
             }
             .onChange(of: library.visibleSongCollectionRevision) { _, _ in
                 scheduleSortedRecompute(
@@ -741,6 +748,7 @@ struct SongListView: View {
                 pruneSelection()
             }
             .onChange(of: songFilter) { _, filter in
+                UserDefaults.standard.set(filter.rawValue, forKey: "library.songFilter.v1")
                 selection.deactivate()
                 if filter == .downloaded {
                     scheduleDownloadedFilterRefresh()
@@ -770,7 +778,8 @@ struct SongListView: View {
                     folderSourceRevision &+= 1
                     scheduleFolderIndexRecompute(delay: .milliseconds(80))
                 }
-                if listCache.isEmpty || shouldRetryPendingSort {
+                let dateAddedOrderNeedsRefresh = sortOrder.criterion == .dateAdded
+                if listCache.isEmpty || shouldRetryPendingSort || dateAddedOrderNeedsRefresh {
                     scheduleSortedRecompute(
                         delay: .milliseconds(80),
                         pruneRowModels: false,

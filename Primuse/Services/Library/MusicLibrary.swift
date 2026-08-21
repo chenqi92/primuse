@@ -2059,6 +2059,10 @@ final class MusicLibrary {
     /// counts here avoids one full-library filter per source on every sidebar
     /// body evaluation.
     @ObservationIgnored private var visibleSongCountBySourceID: [String: Int] = [:]
+    /// Album grids ask for one deterministic song fallback per card. Keep the
+    /// selection beside the other visible lookups so scrolling never scans and
+    /// sorts the complete library from a card body.
+    @ObservationIgnored private var preferredArtworkSongIDByAlbumID: [String: String] = [:]
 
     private struct PreparedVisibleCache: Sendable {
         let songs: [Song]
@@ -2070,6 +2074,7 @@ final class MusicLibrary {
         let songsBySourceID: [String: [Song]]
         let playableBySourceID: [String: [Song]]
         let countBySourceID: [String: Int]
+        let preferredArtworkSongIDByAlbumID: [String: String]
         let orderedIDsChanged: Bool
     }
     /// Changes only when the ordered set of visible song IDs changes. Views
@@ -2077,6 +2082,7 @@ final class MusicLibrary {
     /// of comparing `[Song]`; a derived `Song` equality also walks lyricsText,
     /// which made a 10K-song library block AttributeGraph for several seconds.
     private(set) var visibleSongCollectionRevision: Int = 0
+    private(set) var albumArtworkLookupRevision: Int = 0
     private(set) var searchRevision: Int = 0
     /// Lyrics cache files are searched directly by `LibrarySearchWorker`.
     /// Keep their invalidation separate from structural library revisions so
@@ -2136,6 +2142,8 @@ final class MusicLibrary {
         visibleSongsBySourceID = prepared.songsBySourceID
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
         visibleSongCountBySourceID = prepared.countBySourceID
+        preferredArtworkSongIDByAlbumID = prepared.preferredArtworkSongIDByAlbumID
+        albumArtworkLookupRevision &+= 1
         if prepared.orderedIDsChanged {
             visibleSongCollectionRevision &+= 1
         }
@@ -2175,6 +2183,9 @@ final class MusicLibrary {
             songsBySourceID: lookups.songsBySourceID,
             playableBySourceID: lookups.playableBySourceID,
             countBySourceID: lookups.countBySourceID,
+            preferredArtworkSongIDByAlbumID: makePreferredArtworkSongLookup(
+                songs: nextVisibleSongs
+            ),
             orderedIDsChanged: !haveSameOrderedIDs(previousVisibleSongs, nextVisibleSongs)
         )
     }
@@ -2208,6 +2219,41 @@ final class MusicLibrary {
             }
         }
         return (indexByID, songByID, songsBySourceID, playableBySourceID, countBySourceID)
+    }
+
+    private nonisolated static func makePreferredArtworkSongLookup(
+        songs: [Song]
+    ) -> [String: String] {
+        var preferredSongs: [String: Song] = [:]
+        for song in songs {
+            guard let albumID = song.albumID, !albumID.isEmpty else { continue }
+            guard let current = preferredSongs[albumID] else {
+                preferredSongs[albumID] = song
+                continue
+            }
+            if albumArtworkFallbackPrecedes(song, current) {
+                preferredSongs[albumID] = song
+            }
+        }
+        return preferredSongs.mapValues(\.id)
+    }
+
+    private nonisolated static func albumArtworkFallbackPrecedes(
+        _ lhs: Song,
+        _ rhs: Song
+    ) -> Bool {
+        let lhsHasArtwork = lhs.coverArtFileName?.isEmpty == false
+        let rhsHasArtwork = rhs.coverArtFileName?.isEmpty == false
+        if lhsHasArtwork != rhsHasArtwork { return lhsHasArtwork }
+
+        let lhsDisc = lhs.discNumber ?? Int.max
+        let rhsDisc = rhs.discNumber ?? Int.max
+        if lhsDisc != rhsDisc { return lhsDisc < rhsDisc }
+
+        let lhsTrack = lhs.trackNumber ?? Int.max
+        let rhsTrack = rhs.trackNumber ?? Int.max
+        if lhsTrack != rhsTrack { return lhsTrack < rhsTrack }
+        return lhs.id < rhs.id
     }
 
     private nonisolated static func makeSongIndex(_ songs: [Song]) -> [String: Int] {
@@ -2444,6 +2490,7 @@ final class MusicLibrary {
             visibleSongs = nextVisibleSongs
         }
         visibleSongByID[songID] = updatedSong
+        promotePreferredArtworkSongIfNeeded(updatedSong)
         lastReplacedSong = updatedSong
         lastReplacedSongIDs = [songID]
         songReplacementToken = UUID()
@@ -2651,6 +2698,9 @@ final class MusicLibrary {
                     }
                     merged.fileSize = newSong.fileSize
                     merged.lastModified = newSong.lastModified
+                    if newSong.dateAdded < merged.dateAdded {
+                        merged.dateAdded = newSong.dateAdded
+                    }
                     // Always refresh revision — when the connector starts
                     // surfacing a fingerprint that wasn't there before
                     // (e.g. user upgraded to a build that reads md5), we
@@ -2775,6 +2825,7 @@ final class MusicLibrary {
             || old.bitDepth != new.bitDepth
             || old.genre != new.genre
             || old.year != new.year
+            || old.dateAdded != new.dateAdded
             || old.lastModified != new.lastModified
             || old.coverArtFileName != new.coverArtFileName
             || old.artistArtworkFileName != new.artistArtworkFileName
@@ -2983,6 +3034,26 @@ final class MusicLibrary {
     func songs(forAlbum albumID: String) -> [Song] {
         visibleSongs.filter { $0.albumID == albumID }
             .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+    }
+
+    func preferredArtworkSong(forAlbumID albumID: String) -> Song? {
+        _ = albumArtworkLookupRevision
+        _ = songReplacementToken
+        guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { return nil }
+        return visibleSongByID[songID]
+    }
+
+    private func promotePreferredArtworkSongIfNeeded(_ song: Song) {
+        guard visibleSongByID[song.id] != nil,
+              let albumID = song.albumID,
+              !albumID.isEmpty else { return }
+        if let currentID = preferredArtworkSongIDByAlbumID[albumID],
+           let current = visibleSongByID[currentID],
+           !Self.albumArtworkFallbackPrecedes(song, current) {
+            return
+        }
+        preferredArtworkSongIDByAlbumID[albumID] = song.id
+        albumArtworkLookupRevision &+= 1
     }
 
     // MARK: - User-selected album / playlist artwork
