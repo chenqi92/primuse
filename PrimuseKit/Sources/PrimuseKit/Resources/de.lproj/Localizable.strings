@@ -439,6 +439,7 @@
 "error.fnMusic.invalidURL" = "Die Feiniu-Music-Dienstadresse ist ungültig.";
 "error.fnMusic.authenticationFailed" = "Feiniu-Music-Anmeldung fehlgeschlagen. Prüfe Konto, Passwort und Mediathekzugriff.";
 "error.fnMusic.http" = "Der Feiniu-Music-Dienst hat HTTP %@ zurückgegeben.";
+"error.remoteDirectory.http" = "Die Verzeichnisanfrage von %1$@ ist fehlgeschlagen: HTTP %2$@.";
 "error.fnMusic.invalidResponse" = "Feiniu Music hat ungültige Daten zurückgegeben: %@";
 "ext.tv.error.invalidContentLength" = "Die entfernte Datei meldete eine ungültige Inhaltslänge: %@.";
 "ext.tv.error.incompleteDownload" = "Der Download der entfernten Datei war unvollständig: %@ Byte erwartet, %@ empfangen.";

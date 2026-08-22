@@ -439,6 +439,7 @@
 "error.fnMusic.invalidURL" = "Feiniu Music 서비스 주소가 올바르지 않습니다.";
 "error.fnMusic.authenticationFailed" = "Feiniu Music 로그인에 실패했습니다. 계정, 암호, 보관함 권한을 확인하세요.";
 "error.fnMusic.http" = "Feiniu Music 서비스에서 HTTP %@을(를) 반환했습니다.";
+"error.remoteDirectory.http" = "%1$@ 디렉터리 요청에 실패했습니다: HTTP %2$@.";
 "error.fnMusic.invalidResponse" = "Feiniu Music에서 올바르지 않은 데이터를 반환했습니다: %@";
 "ext.tv.error.invalidContentLength" = "원격 파일에서 올바르지 않은 콘텐츠 길이를 보고했습니다: %@.";
 "ext.tv.error.incompleteDownload" = "원격 파일 다운로드가 완료되지 않았습니다: 예상 %@바이트, 수신 %@바이트.";

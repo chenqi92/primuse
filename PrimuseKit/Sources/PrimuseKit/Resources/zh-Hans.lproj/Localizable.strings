@@ -436,6 +436,7 @@
 "error.fnMusic.invalidURL" = "飞牛音乐服务地址无效。";
 "error.fnMusic.authenticationFailed" = "飞牛音乐登录失败，请检查账号、密码和曲库权限。";
 "error.fnMusic.http" = "飞牛音乐服务返回了 HTTP %@。";
+"error.remoteDirectory.http" = "%1$@ 目录请求失败：HTTP %2$@。";
 "error.fnMusic.invalidResponse" = "飞牛音乐返回的数据无效：%@";
 "ext.tv.error.invalidContentLength" = "远程文件报告的内容长度无效：%@。";
 "ext.tv.error.incompleteDownload" = "远程文件下载不完整：预期 %@ 字节，实际收到 %@ 字节。";

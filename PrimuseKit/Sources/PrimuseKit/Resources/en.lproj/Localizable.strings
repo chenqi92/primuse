@@ -437,6 +437,7 @@
 "error.fnMusic.invalidURL" = "The Feiniu Music service address is invalid.";
 "error.fnMusic.authenticationFailed" = "Feiniu Music sign-in failed. Check the account, password, and library permission.";
 "error.fnMusic.http" = "The Feiniu Music service returned HTTP %@.";
+"error.remoteDirectory.http" = "%1$@ directory request failed: HTTP %2$@.";
 "error.fnMusic.invalidResponse" = "Feiniu Music returned invalid data: %@";
 "ext.tv.error.invalidContentLength" = "The remote file reported an invalid content length: %@.";
 "ext.tv.error.incompleteDownload" = "The remote file download was incomplete: expected %@ bytes, received %@.";

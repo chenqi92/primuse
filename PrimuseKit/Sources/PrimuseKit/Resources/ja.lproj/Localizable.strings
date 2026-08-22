@@ -439,6 +439,7 @@
 "error.fnMusic.invalidURL" = "Feiniu Music のサービスアドレスが無効です。";
 "error.fnMusic.authenticationFailed" = "Feiniu Music へのサインインに失敗しました。アカウント、パスワード、ライブラリへのアクセス権を確認してください。";
 "error.fnMusic.http" = "Feiniu Music サービスが HTTP %@ を返しました。";
+"error.remoteDirectory.http" = "%1$@ のディレクトリ要求に失敗しました：HTTP %2$@。";
 "error.fnMusic.invalidResponse" = "Feiniu Music から無効なデータが返されました：%@";
 "ext.tv.error.invalidContentLength" = "リモートファイルから無効なコンテンツ長が報告されました：%@。";
 "ext.tv.error.incompleteDownload" = "リモートファイルのダウンロードが不完全です：%@ バイトを想定していましたが、%@ バイトを受信しました。";

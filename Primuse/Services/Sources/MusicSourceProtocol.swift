@@ -340,7 +340,7 @@ struct RemoteDirectoryHTTPStatusError: Error, LocalizedError, Sendable {
     let statusCode: Int
 
     var errorDescription: String? {
-        "\(service) directory request failed: HTTP \(statusCode)"
+        PMString("error.remoteDirectory.http", service, String(statusCode))
     }
 }
 

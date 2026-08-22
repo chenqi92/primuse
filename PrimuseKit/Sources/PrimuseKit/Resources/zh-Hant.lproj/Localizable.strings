@@ -436,6 +436,7 @@
 "error.fnMusic.invalidURL" = "飛牛音樂服務位址無效。";
 "error.fnMusic.authenticationFailed" = "飛牛音樂登入失敗，請檢查帳號、密碼和曲庫權限。";
 "error.fnMusic.http" = "飛牛音樂服務傳回了 HTTP %@。";
+"error.remoteDirectory.http" = "%1$@ 目錄請求失敗：HTTP %2$@。";
 "error.fnMusic.invalidResponse" = "飛牛音樂傳回的資料無效：%@";
 "ext.tv.error.invalidContentLength" = "遠端檔案回報的內容長度無效：%@。";
 "ext.tv.error.incompleteDownload" = "遠端檔案下載不完整：預期 %@ 位元組，實際收到 %@ 位元組。";

@@ -439,6 +439,7 @@
 "error.fnMusic.invalidURL" = "L’adresse du service Feiniu Music n’est pas valide.";
 "error.fnMusic.authenticationFailed" = "Échec de la connexion à Feiniu Music. Vérifiez le compte, le mot de passe et l’accès à la bibliothèque.";
 "error.fnMusic.http" = "Le service Feiniu Music a renvoyé HTTP %@.";
+"error.remoteDirectory.http" = "La requête de répertoire %1$@ a échoué : HTTP %2$@.";
 "error.fnMusic.invalidResponse" = "Feiniu Music a renvoyé des données non valides : %@";
 "ext.tv.error.invalidContentLength" = "Le fichier distant a signalé une longueur de contenu non valide : %@.";
 "ext.tv.error.incompleteDownload" = "Le téléchargement du fichier distant est incomplet : %@ octets attendus, %@ reçus.";
