@@ -8263,7 +8263,7 @@ final class AudioPlayerService {
                     failedSourceID: failedSourceID,
                     candidateSourceID: candidate.sourceID
                   ) {
-                guard skippedCount < queue.count else {
+                guard skippedCount < queueEntries.count else {
                     plog("⏹️ No playable provider remains after source-wide failure")
                     stop()
                     return
@@ -8411,7 +8411,7 @@ final class AudioPlayerService {
                 currentIndex = shuffledIndices.isEmpty ? 0 : shuffledIndices[0]
             }
         } else {
-            currentIndex = (currentIndex + 1) % queue.count
+            currentIndex = (currentIndex + 1) % queueEntries.count
         }
     }
 
