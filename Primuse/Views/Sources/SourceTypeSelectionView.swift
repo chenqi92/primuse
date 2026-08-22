@@ -5,10 +5,28 @@ import UniformTypeIdentifiers
 import UIKit
 #endif
 
-struct SourceTypeSelectionView: View {
+struct SourceTypeSelectionView<ConnectionContent: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeService.self) private var theme
-    var onAdd: (MusicSource) throws -> Void
+    let submitIntent: AddSourceSubmitIntent
+    let onAdd: (MusicSource) throws -> Void
+    let onConnectionStart: (MusicSource) -> Void
+    let onConnectionFinish: (MusicSource) -> Void
+    let connectionContent: (MusicSource) -> ConnectionContent
+
+    init(
+        submitIntent: AddSourceSubmitIntent = .save,
+        onAdd: @escaping (MusicSource) throws -> Void,
+        onConnectionStart: @escaping (MusicSource) -> Void,
+        onConnectionFinish: @escaping (MusicSource) -> Void,
+        @ViewBuilder connectionContent: @escaping (MusicSource) -> ConnectionContent
+    ) {
+        self.submitIntent = submitIntent
+        self.onAdd = onAdd
+        self.onConnectionStart = onConnectionStart
+        self.onConnectionFinish = onConnectionFinish
+        self.connectionContent = connectionContent
+    }
 
     /// 选类型 / 选发现到的设备都只是弹同一个 AddSourceView。合并成单一 item 驱动
     /// 一个 .sheet —— 早先用两个 .sheet(item:) 叠在同一 view 上, 而该 view 因持续
@@ -23,8 +41,16 @@ struct SourceTypeSelectionView: View {
             case .device(let device): return "device-\(device.id)"
             }
         }
+
+        var sourceType: MusicSourceType {
+            switch self {
+            case .type(let type): return type
+            case .device(let device): return device.sourceType
+            }
+        }
     }
     @State private var addTarget: AddSourceTarget?
+    @State private var connectionSource: MusicSource?
     @State private var discoveryService = NetworkDiscoveryService()
     #if os(macOS)
     @State private var pendingType: MusicSourceType?
@@ -40,23 +66,51 @@ struct SourceTypeSelectionView: View {
 
     var body: some View {
         content
-        .sheet(item: $addTarget) { target in
+        .sheet(item: $addTarget, onDismiss: finishConnectionFlowIfNeeded) { target in
+            addFlowContent(for: target)
+        }
+        .onAppear { discoveryService.startDiscovery() }
+        .onDisappear { discoveryService.stopDiscovery() }
+    }
+
+    @ViewBuilder
+    private func addFlowContent(for target: AddSourceTarget) -> some View {
+        #if os(macOS)
+        if target.sourceType.continuesToDirectorySelectionAfterCreation,
+           submitIntent == .continueToConnection {
+            addFlowStep(for: target)
+                // macOS fixes a sheet's size from its first step. Start the
+                // combined form/browser flow at the directory browser width so
+                // advancing in place cannot crop the tree view.
+                .frame(minWidth: 880, idealWidth: 940, minHeight: 600, idealHeight: 680)
+        } else {
+            addFlowStep(for: target)
+        }
+        #else
+        addFlowStep(for: target)
+        #endif
+    }
+
+    @ViewBuilder
+    private func addFlowStep(for target: AddSourceTarget) -> some View {
+        if let connectionSource {
+            connectionContent(connectionSource)
+        } else {
             switch target {
             case .type(let type):
-                AddSourceView(sourceType: type) { source in
-                    addSourceAndDismiss(source)
+                AddSourceView(sourceType: type, submitIntent: submitIntent) { source in
+                    addSourceAndAdvance(source)
                 }
             case .device(let device):
                 AddSourceView(
                     sourceType: device.sourceType,
-                    prefillDevice: device
+                    prefillDevice: device,
+                    submitIntent: submitIntent
                 ) { source in
-                    addSourceAndDismiss(source)
+                    addSourceAndAdvance(source)
                 }
             }
         }
-        .onAppear { discoveryService.startDiscovery() }
-        .onDisappear { discoveryService.stopDiscovery() }
     }
 
     @ViewBuilder
@@ -482,10 +536,19 @@ struct SourceTypeSelectionView: View {
     }
     #endif
 
-    private func addSourceAndDismiss(_ source: MusicSource) {
+    private func addSourceAndAdvance(_ source: MusicSource) {
         do {
             try onAdd(source)
-            dismiss()
+            if submitIntent == .continueToConnection,
+               source.type.continuesToDirectorySelectionAfterCreation {
+                // Persist first, then move the same presented sheet to the
+                // existing connection flow. Everything after this point is
+                // optional setup and cannot undo the saved source.
+                onConnectionStart(source)
+                connectionSource = source
+            } else {
+                dismiss()
+            }
         } catch {
             #if os(iOS)
             localImportAlert = LocalImportAlert(
@@ -497,6 +560,13 @@ struct SourceTypeSelectionView: View {
             plog("⛔ Source persistence failed — \(error.localizedDescription)")
             #endif
         }
+    }
+
+    private func finishConnectionFlowIfNeeded() {
+        guard let source = connectionSource else { return }
+        connectionSource = nil
+        onConnectionFinish(source)
+        dismiss()
     }
 
     // MARK: - iOS layout (unchanged from prior)
@@ -1026,6 +1096,21 @@ struct SourceTypeSelectionView: View {
     #endif
 }
 
+extension SourceTypeSelectionView where ConnectionContent == EmptyView {
+    init(
+        submitIntent: AddSourceSubmitIntent = .save,
+        onAdd: @escaping (MusicSource) throws -> Void
+    ) {
+        self.init(
+            submitIntent: submitIntent,
+            onAdd: onAdd,
+            onConnectionStart: { _ in },
+            onConnectionFinish: { _ in },
+            connectionContent: { _ in EmptyView() }
+        )
+    }
+}
+
 extension MusicSourceType: @retroactive Identifiable {
     public var id: String { rawValue }
 }
@@ -1040,7 +1125,7 @@ enum LocalImportPickerMode {
         case .folder:
             return [.folder]
         case .files:
-            return SourceTypeSelectionView.audioContentTypes
+            return SourceTypeSelectionView<EmptyView>.audioContentTypes
         }
     }
 

@@ -71,7 +71,7 @@ actor SMBSource: MusicSourceConnector {
     }
 
     func connect() async throws {
-        try await withSerializedOperation {
+        try await runWithRetry {
             if self.sharePath.isEmpty == false {
                 _ = try await self.ensureConnectedShare(named: self.sharePath)
             } else {
@@ -486,7 +486,7 @@ actor SMBSource: MusicSourceConnector {
             try Task.checkCancellation()
         } catch {
             await invalidateConnection()
-            throw mapSMBError(error)
+            throw error
         }
         connectedShareName = normalizedShareName
         return client
@@ -514,7 +514,7 @@ actor SMBSource: MusicSourceConnector {
             try Task.checkCancellation()
         } catch {
             await invalidateBackgroundConnection()
-            throw mapSMBError(error)
+            throw error
         }
         backgroundConnectedShareName = normalizedShareName
         return client
@@ -529,7 +529,7 @@ actor SMBSource: MusicSourceConnector {
             return shares
         } catch {
             await invalidateConnection()
-            throw mapSMBError(error)
+            throw error
         }
     }
 
@@ -551,10 +551,10 @@ actor SMBSource: MusicSourceConnector {
         backgroundClient = nil
     }
 
-    /// Run an SMB request, retrying once if the first attempt fails with a
-    /// transient connection error. AMSMB2 sessions die silently after Wi-Fi
-    /// changes / device sleep and surface as `ECONNRESET` / `EBADF`; reconnecting
-    /// transparently is much nicer than asking the user to reopen the source.
+    /// Run an SMB request, retrying once if the first attempt leaves the
+    /// session unusable. Besides ordinary transport failures, AMSMB2 can emit
+    /// ENODATA when a directory callback has no payload; a fresh session must
+    /// be established before repeating that request.
     private func runWithRetry<T: Sendable>(
         _ block: () async throws -> T
     ) async throws -> T {
@@ -567,22 +567,33 @@ actor SMBSource: MusicSourceConnector {
         _ block: () async throws -> T
     ) async throws -> T {
         try await withSerializedBackgroundOperation {
-            do {
-                return try await block()
-            } catch is CancellationError {
-                await invalidateBackgroundConnection()
-                throw CancellationError()
-            } catch {
-                guard Self.isTransientConnectionError(error) else {
-                    throw mapSMBError(error)
-                }
-                plog("⚠️ SMB background transient error, reconnecting: \(error)")
-                await invalidateBackgroundConnection()
+            var completedReconnectAttempts = 0
+            while true {
                 do {
+                    try Task.checkCancellation()
                     return try await block()
-                } catch {
+                } catch is CancellationError {
                     await invalidateBackgroundConnection()
-                    throw mapSMBError(error)
+                    throw CancellationError()
+                } catch {
+                    let nsError = error as NSError
+                    guard SMBConnectionRecoveryPolicy.shouldReconnect(
+                        errorDomain: nsError.domain,
+                        errorCode: nsError.code,
+                        completedReconnectAttempts: completedReconnectAttempts
+                    ) else {
+                        if completedReconnectAttempts > 0 {
+                            await invalidateBackgroundConnection()
+                        }
+                        throw mapSMBError(error)
+                    }
+                    completedReconnectAttempts += 1
+                    plog(
+                        "⚠️ SMB background recoverable error "
+                            + "\(nsError.domain)(\(nsError.code)), reconnecting: "
+                            + nsError.localizedDescription
+                    )
+                    await invalidateBackgroundConnection()
                 }
             }
         }
@@ -591,22 +602,33 @@ actor SMBSource: MusicSourceConnector {
     private func runWithRetryWhileLocked<T: Sendable>(
         _ block: () async throws -> T
     ) async throws -> T {
-        do {
-            return try await block()
-        } catch is CancellationError {
-            await invalidateConnection()
-            throw CancellationError()
-        } catch {
-            guard Self.isTransientConnectionError(error) else {
-                throw mapSMBError(error)
-            }
-            plog("⚠️ SMB transient error, reconnecting: \(error)")
-            await invalidateConnection()
+        var completedReconnectAttempts = 0
+        while true {
             do {
+                try Task.checkCancellation()
                 return try await block()
-            } catch {
+            } catch is CancellationError {
                 await invalidateConnection()
-                throw mapSMBError(error)
+                throw CancellationError()
+            } catch {
+                let nsError = error as NSError
+                guard SMBConnectionRecoveryPolicy.shouldReconnect(
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code,
+                    completedReconnectAttempts: completedReconnectAttempts
+                ) else {
+                    if completedReconnectAttempts > 0 {
+                        await invalidateConnection()
+                    }
+                    throw mapSMBError(error)
+                }
+                completedReconnectAttempts += 1
+                plog(
+                    "⚠️ SMB foreground recoverable error "
+                        + "\(nsError.domain)(\(nsError.code)), reconnecting: "
+                        + nsError.localizedDescription
+                )
+                await invalidateConnection()
             }
         }
     }
@@ -655,19 +677,14 @@ actor SMBSource: MusicSourceConnector {
                 return SourceError.connectionFailed(String(localized: "smb_error_unreachable"))
             case Int(ETIMEDOUT):
                 return SourceError.connectionFailed(String(localized: "smb_error_timeout"))
+            case Int(ENODATA):
+                return SourceError.connectionFailed(
+                    "SMB: \(String(localized: "source_diag_advice_invalid_response"))"
+                )
             default: break
             }
         }
         return SourceError.connectionFailed("SMB: \(ns.localizedDescription)")
-    }
-
-    private static func isTransientConnectionError(_ error: Error) -> Bool {
-        let ns = error as NSError
-        guard ns.domain == NSPOSIXErrorDomain else { return false }
-        return [
-            Int(ECONNRESET), Int(EPIPE), Int(EBADF),
-            Int(ENOTCONN), Int(ETIMEDOUT), Int(ENETRESET)
-        ].contains(ns.code)
     }
 
     /// Hide system / administrative shares from the source picker. Hidden shares

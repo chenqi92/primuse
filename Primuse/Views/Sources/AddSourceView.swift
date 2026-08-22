@@ -11,6 +11,11 @@ enum SourceFormField: Hashable {
     case basePath, publicBasePath, shareName, exportPath, username, password, sshKey
 }
 
+enum AddSourceSubmitIntent {
+    case save
+    case continueToConnection
+}
+
 // MARK: - Add / Edit Source View
 // Simple form — just fill info and save. Connecting & browsing happens from SourcesView.
 
@@ -20,6 +25,7 @@ struct AddSourceView: View {
     let sourceType: MusicSourceType
     var editingSource: MusicSource?
     var prefillDevice: DiscoveredDevice?
+    var submitIntent: AddSourceSubmitIntent = .save
     var onSave: (MusicSource) -> Void
 
     @State private var name = ""
@@ -58,6 +64,14 @@ struct AddSourceView: View {
     @FocusState private var focusedField: SourceFormField?
 
     private var isEditing: Bool { editingSource != nil }
+    private var continuesToConnectionAfterSave: Bool {
+        !isEditing
+            && submitIntent == .continueToConnection
+            && sourceType.continuesToDirectorySelectionAfterCreation
+    }
+    private var submitButtonTitle: LocalizedStringKey {
+        continuesToConnectionAfterSave ? "Next" : "save"
+    }
     private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
     private var supportsAdaptiveConnections: Bool { sourceType.supportsAdaptiveConnections }
     private var supportsSSLToggle: Bool {
@@ -290,7 +304,7 @@ struct AddSourceView: View {
                     Button("cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("save") { saveSource() }
+                    Button(submitButtonTitle) { saveSource() }
                         .disabled(canSave == false)
                         .fontWeight(.semibold)
                 }
@@ -324,7 +338,7 @@ struct AddSourceView: View {
                     .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
                     .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
 
-                Button("save") { saveSource() }
+                Button(submitButtonTitle) { saveSource() }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
                     .disabled(canSave == false)
@@ -508,7 +522,7 @@ struct AddSourceView: View {
             }
         }
 
-        if !isEditing && sourceType.requiresHost {
+        if !isEditing && sourceType.requiresHost && !continuesToConnectionAfterSave {
             macSection(nil) {
                 Label(
                     sourceType.scansEntireLibrary
@@ -612,27 +626,8 @@ struct AddSourceView: View {
                 macInfoRow("drime_token_permission_hint")
             }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
-            macSection("cloud_oauth_config") {
-                if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
-                    Label("built_in_credentials_ready", systemImage: "checkmark.seal.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(PMColor.ok)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    DisclosureGroup("custom_credentials_advanced") {
-                        macTextRow("Client ID / App Key", text: $username, focus: .username)
-                        macCustomRow("Client Secret") {
-                            RevealableSecureField(title: "Client Secret", text: $password)
-                                .focused($focusedField, equals: .password)
-                                .frame(maxWidth: 280)
-                        }
-                    }
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                } else {
+            if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
+                macSection("cloud_oauth_config") {
                     macTextRow("Client ID / App Key", text: $username, focus: .username)
                     macCustomRow("Client Secret") {
                         RevealableSecureField(title: "Client Secret (optional)", text: $password)
@@ -953,7 +948,7 @@ struct AddSourceView: View {
             }
         }
 
-        if !isEditing && sourceType.requiresHost {
+        if !isEditing && sourceType.requiresHost && !continuesToConnectionAfterSave {
             Section {
                 Label(
                     sourceType.scansEntireLibrary
@@ -1157,24 +1152,8 @@ struct AddSourceView: View {
                     .foregroundStyle(.secondary)
             }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
-            Section("cloud_oauth_config") {
-                if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
-                    // Built-in credentials available — no input needed
-                    Label("built_in_credentials_ready", systemImage: "checkmark.seal.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.green)
-                    // Still allow override if user wants custom credentials
-                    DisclosureGroup("custom_credentials_advanced") {
-                        TextField("Client ID / App Key", text: $username)
-                            .focused($focusedField, equals: .username)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                        RevealableSecureField(title: "Client Secret", text: $password)
-                            .focused($focusedField, equals: .password)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else {
+            if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
+                Section("cloud_oauth_config") {
                     TextField("Client ID / App Key", text: $username)
                         .focused($focusedField, equals: .username)
                         .autocorrectionDisabled()
@@ -1440,8 +1419,7 @@ struct AddSourceView: View {
                     showCredentialSaveError = true
                     return
                 }
-                onSave(source)
-                dismiss()
+                completeSave(source)
             }
             return
         } else if sourceType.isCloudDrive {
@@ -1449,7 +1427,12 @@ struct AddSourceView: View {
             let tm = CloudTokenManager(sourceID: source.id)
             Task { @MainActor in
                 let persisted: Bool
-                if !username.isEmpty {
+                if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
+                    // Built-in providers hide this configuration entirely.
+                    // Preserve any legacy per-source override instead of
+                    // rewriting its hidden secret during an unrelated edit.
+                    persisted = true
+                } else if !username.isEmpty {
                     persisted = await tm.saveAppCredentials(.init(
                         clientId: username,
                         clientSecret: password.isEmpty ? nil : password
@@ -1461,8 +1444,7 @@ struct AddSourceView: View {
                     showCredentialSaveError = true
                     return
                 }
-                onSave(source)
-                dismiss()
+                completeSave(source)
             }
             return
         } else if authType == .none {
@@ -1507,8 +1489,18 @@ struct AddSourceView: View {
         }
         #endif
 
+        completeSave(source)
+    }
+
+    private func completeSave(_ source: MusicSource) {
         onSave(source)
-        dismiss()
+        // The main Sources flow keeps this sheet alive and replaces the form
+        // with the existing connection / OTP / directory UI. The source has
+        // already been persisted by onSave, so connection or scan failures do
+        // not roll it back and the user can adjust it later from Sources.
+        if !continuesToConnectionAfterSave {
+            dismiss()
+        }
     }
 
     private func makeAdaptiveConnectionConfiguration() -> SourceConnectionConfiguration? {

@@ -284,24 +284,35 @@ struct SourcesContentView: View {
                 }
             }
             .sheet(isPresented: $showAddSource) {
-                SourceTypeSelectionView { source in
-                    if source.type == .local,
-                       source.id == LocalImportService.existingSourceID {
-                        try sourceStore.addDurably(source)
-                    } else {
-                        sourceStore.add(source)
+                SourceTypeSelectionView(
+                    submitIntent: .continueToConnection,
+                    onAdd: { source in
+                        if source.type == .local,
+                           source.id == LocalImportService.existingSourceID {
+                            try sourceStore.addDurably(source)
+                        } else {
+                            sourceStore.add(source)
+                        }
+                        // 本地导入: 文件已拷进沙箱, add 后立即扫描入库, 让导入的歌
+                        // 即时出现。需要远端目录的源会在目录选择会话结束后自动扫描。
+                        if source.type == .local {
+                            scanService.scanSource(
+                                source,
+                                sourceManager: sourceManager,
+                                library: library,
+                                sourceStore: sourceStore,
+                                scraperService: scraperService
+                            )
+                        }
+                    },
+                    onConnectionStart: { source in
+                        beginDirectorySelectionSession(for: currentSource(for: source))
+                    },
+                    onConnectionFinish: { _ in
+                        finishDirectorySelectionSession()
                     }
-                    // 本地导入: 文件已拷进沙箱, add 后立即扫描入库, 让导入的歌
-                    // 即时出现。需要远端目录的源会在目录选择会话结束后自动扫描。
-                    if source.type == .local {
-                        scanService.scanSource(
-                            source,
-                            sourceManager: sourceManager,
-                            library: library,
-                            sourceStore: sourceStore,
-                            scraperService: scraperService
-                        )
-                    }
+                ) { source in
+                    connectionSheet(for: currentSource(for: source))
                 }
             }
             .sheet(item: $editingSource) { source in

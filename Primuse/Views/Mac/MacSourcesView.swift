@@ -39,13 +39,24 @@ struct MacSourcesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $showAddSource) {
-            SourceTypeSelectionView { source in
-                sourceStore.add(source)
-                // Local 已通过 basePath 限定扫描范围，不需要再次选择目录；
-                // 保存后立即扫描，和 iOS 的新增来源流程保持一致。
-                if source.type == .local {
-                    runScan(source)
+            SourceTypeSelectionView(
+                submitIntent: .continueToConnection,
+                onAdd: { source in
+                    sourceStore.add(source)
+                    // Local 已通过 basePath 限定扫描范围，不需要再次选择目录；
+                    // 保存后立即扫描，和 iOS 的新增来源流程保持一致。
+                    if source.type == .local {
+                        runScan(source)
+                    }
+                },
+                onConnectionStart: { source in
+                    beginDirectorySelectionSession(for: currentSource(for: source))
+                },
+                onConnectionFinish: { _ in
+                    finishDirectorySelectionSession()
                 }
+            ) { source in
+                connectionSheet(for: currentSource(for: source))
             }
         }
         .sheet(item: $editingSource) { source in
@@ -680,10 +691,11 @@ struct MacSourcesView: View {
                 selectedDirectories: selectedDirectories
             )
         case .upnp: UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .s3:
+        case .qnap, .ugreen, .fnos, .s3:
             // S3 stores region + dir list together in extraConfig; the S3-aware
             // binding above keeps the region intact while the connector browser
-            // drives directory selection.
+            // drives directory selection. Other connector-backed NAS sources
+            // use the same browser as the iOS sources screen.
             ConnectorDirectoryBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),

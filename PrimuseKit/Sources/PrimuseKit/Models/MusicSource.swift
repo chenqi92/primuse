@@ -242,6 +242,21 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Sources that can hand off from creation to the existing connection and
+    /// directory picker flow. Whole-library and local-library sources already
+    /// have their scope, while Apple Music is configured in Settings.
+    public var continuesToDirectorySelectionAfterCreation: Bool {
+        switch self {
+        case .synology, .qnap, .ugreen, .fnos,
+             .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
+             .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+             .drime, .pan115, .pan123:
+            return true
+        default:
+            return false
+        }
+    }
+
     public var category: SourceCategory {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return .nas

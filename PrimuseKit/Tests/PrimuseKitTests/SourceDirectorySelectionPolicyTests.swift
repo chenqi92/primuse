@@ -3,6 +3,19 @@ import Testing
 
 @Suite("Source directory selection")
 struct SourceDirectorySelectionPolicyTests {
+    @Test("Creation continues only for directory-scoped sources")
+    func creationDirectorySelectionPolicy() {
+        let expected: Set<MusicSourceType> = [
+            .synology, .qnap, .ugreen, .fnos,
+            .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
+            .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+            .drime, .pan115, .pan123,
+        ]
+        let actual = Set(MusicSourceType.allCases.filter(\.continuesToDirectorySelectionAfterCreation))
+
+        #expect(actual == expected)
+    }
+
     @Test("S3 browser root maps to the bucket prefix")
     func mapsS3RootToEmptyPrefix() {
         #expect(SourceDirectorySelectionPolicy.connectorPath(
