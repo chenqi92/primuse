@@ -120,6 +120,8 @@ struct TVScanFlowView: View {
                                       onSelect: { toggle(e.path) }, onOpen: { openFolder(e) })
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

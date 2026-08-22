@@ -4,6 +4,15 @@ import SwiftUI
 import PrimuseKit
 import UIKit
 
+private var tvDebugImmersiveLaunch: (show: Bool, picker: Bool) {
+    #if DEBUG
+    let screen = TVDebugLaunch.screen
+    return (screen == "immersivePlayer" || screen == "immersivePicker", screen == "immersivePicker")
+    #else
+    return (false, false)
+    #endif
+}
+
 /// tvOS 正在播放 — 左列封面+元数据+进度+传输键,右列巨幅逐字歌词(对应 TVNowPlayingArtboard)。
 /// Menu 键返回;右上角可打开队列 / 选项。
 struct TVNowPlayingView: View {
@@ -20,8 +29,8 @@ struct TVNowPlayingView: View {
 
     @State private var showQueue = false
     @State private var showOptions = false
-    @State private var showImmersive = false
-    @State private var immersiveStartsWithEffectPicker = false
+    @State private var showImmersive = tvDebugImmersiveLaunch.show
+    @State private var immersiveStartsWithEffectPicker = tvDebugImmersiveLaunch.picker
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     /// 最近一次遥控操作的时间戳。播放中静置一段时间自动进入沉浸展示。
@@ -322,7 +331,11 @@ struct TVNowPlayingView: View {
             .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 18)
+                TVEyebrow(
+                    text: PMString("ext.tv.nowPlaying.eyebrow"),
+                    color: .white.opacity(0.62)
+                )
+                .padding(.bottom, 18)
                 Text(np.title)
                     .font(.system(size: 58, weight: .bold))
                     .foregroundStyle(.white)
@@ -356,6 +369,7 @@ struct TVNowPlayingView: View {
             .padding(.top, isTabContent ? TVSpace.pageTop : 78)
             .padding(.bottom, isTabContent ? TVSpace.pageBottom : 70)
         }
+        .environment(\.colorScheme, .dark)
     }
 
     private var leftColumn: some View {
@@ -526,9 +540,9 @@ struct TVNowPlayingView: View {
         let ln = store.lyrics[i]
         let isCur = cur == i
         let dist = cur.map { abs(i - $0) }
-        let opacity = isCur ? 1 : dist.map { max(0.18, 0.5 - Double($0) * 0.1) } ?? 0.78
+        let opacity = isCur ? 1 : dist.map { max(0.42, 0.72 - Double($0) * 0.08) } ?? 0.82
         // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
-        let scale: CGFloat = isCur ? 1.0 : (cur == nil ? 0.88 : 0.78)
+        let scale: CGFloat = isCur ? 1.0 : (cur == nil ? 0.90 : 0.84)
         let size: CGFloat = 48
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {

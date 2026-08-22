@@ -13,9 +13,9 @@ enum TVColor {
     static let bgElev = adaptive(light: rgb(0xFFFCF8), dark: rgb(0x1A1715))
     static let text = adaptive(light: rgb(0x1B1816), dark: rgb(0xF3EEE7))
     static func textAlpha(_ a: Double) -> Color { text.opacity(a) }
-    static let textMuted   = textAlpha(0.72)
-    static let textFaint   = textAlpha(0.55)
-    static let textGhost   = textAlpha(0.40)
+    static let textMuted = adaptive(light: rgb(0x544F4A), dark: rgb(0xC7BFB7))
+    static let textFaint = adaptive(light: rgb(0x69635E), dark: rgb(0xA8A098))
+    static let textGhost = adaptive(light: rgb(0x726C66), dark: rgb(0x8F8881))
     static let card = adaptive(light: UIColor.white.withAlphaComponent(0.70),
                                dark: UIColor.white.withAlphaComponent(0.06))
     static let cardElev = adaptive(light: UIColor.white.withAlphaComponent(0.92),
@@ -32,6 +32,10 @@ enum TVColor {
                                         dark: UIColor.white.withAlphaComponent(0.18))
     static let chrome = adaptive(light: UIColor.white.withAlphaComponent(0.82),
                                  dark: UIColor.black.withAlphaComponent(0.72))
+    static let cardShadow = adaptive(light: UIColor.black.withAlphaComponent(0.10),
+                                     dark: UIColor.black.withAlphaComponent(0.24))
+    static let focusShadow = adaptive(light: UIColor.black.withAlphaComponent(0.26),
+                                      dark: UIColor.black.withAlphaComponent(0.54))
     static let focusRing = adaptive(light: rgb(0x8E351F), dark: rgb(0xED9A7B))
     /// 品牌底色在浅色外观中加深、深色外观中提亮，并提供对应前景色，
     /// 让 16pt 普通文本和焦点图标都达到稳定对比度。
@@ -152,7 +156,7 @@ extension View {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .strokeBorder(accent, lineWidth: focused ? 4 : 0)
             }
-            .shadow(color: .black.opacity(focused ? 0.52 : 0.30),
+            .shadow(color: focused ? TVColor.focusShadow : TVColor.cardShadow,
                     radius: focused ? 26 : 11, x: 0, y: focused ? 18 : 8)
             .shadow(color: focused ? accent.opacity(0.45) : .clear,
                     radius: focused ? 30 : 0)
@@ -160,6 +164,17 @@ extension View {
             .offset(y: focused ? -lift : 0)
             .zIndex(focused ? 1 : 0)
             .animation(.easeOut(duration: 0.22), value: focused)
+    }
+
+    /// 页面级分组面板。浅色下用细描边明确边界，深色下用低对比表面保持层级。
+    func tvPanel(radius: CGFloat = 22) -> some View {
+        self
+            .background(TVColor.card, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(TVColor.cardBorder, lineWidth: 1)
+            }
+            .shadow(color: TVColor.cardShadow, radius: 18, y: 10)
     }
 }
 

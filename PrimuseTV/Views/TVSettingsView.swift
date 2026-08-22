@@ -2,6 +2,14 @@
 import SwiftUI
 import PrimuseKit
 
+private var tvDebugShowsEffectPicker: Bool {
+    #if DEBUG
+    TVDebugLaunch.screen == "effectPicker"
+    #else
+    false
+    #endif
+}
+
 /// tvOS 设置 — 左列常用清单,右列 Siri Remote 图示(对应 TVSettingsArtboard)。
 /// 刻意精简:无 EQ 推子 / 刮削源 / SSL 信任,这些留在 macOS / iOS。
 struct TVSettingsView: View {
@@ -16,7 +24,7 @@ struct TVSettingsView: View {
     private var immersiveEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
-    @State private var showsEffectPicker = false
+    @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var isSyncing = false
     @State private var syncMsg: String?
 
@@ -43,44 +51,64 @@ struct TVSettingsView: View {
         ZStack {
             TVColor.bg.ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 80) {
+                HStack(alignment: .top, spacing: 64) {
                     VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: PMString("ext.tv.settings.eyebrow")).padding(.bottom, 6)
-                    Text(PMString("ext.tv.settings.general")).font(TVFont.pageTitle).foregroundStyle(TVColor.text).padding(.bottom, 24)
-                    VStack(spacing: 12) {
-                        navRow("icloud.fill", PMString("ext.tv.settings.icloudSync"), syncValue, trailing: "arrow.clockwise", action: sync)
-                        toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
-                        appearanceRow()
-                        navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
-                               immersiveEffect.localizedTitle,
-                               action: { showsEffectPicker = true })
-                        navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
-                        navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
-                        navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
-                        navRow("star.bubble", PMString("rate_on_app_store"), "App Store", trailing: "arrow.up.right") {
-                            openURL(PrimuseAppStore.reviewURL)
+                        TVEyebrow(text: PMString("ext.tv.settings.eyebrow")).padding(.bottom, 6)
+                        Text(PMString("ext.tv.settings.general"))
+                            .font(TVFont.pageTitle)
+                            .foregroundStyle(TVColor.text)
+                            .padding(.bottom, 24)
+                        VStack(spacing: 0) {
+                            navRow("icloud.fill", PMString("ext.tv.settings.icloudSync"), syncValue, trailing: "arrow.clockwise", action: sync)
+                            settingDivider
+                            toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
+                            settingDivider
+                            appearanceRow()
+                            settingDivider
+                            navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
+                                   immersiveEffect.localizedTitle,
+                                   action: { showsEffectPicker = true })
+                            settingDivider
+                            navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
+                            settingDivider
+                            navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
+                            settingDivider
+                            navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
+                            settingDivider
+                            navRow("star.bubble", PMString("rate_on_app_store"), "App Store", trailing: "arrow.up.right") {
+                                openURL(PrimuseAppStore.reviewURL)
+                            }
+                            settingDivider
+                            infoRow("info.circle", PMString("ext.tv.settings.about"), "\(version) (\(build)) · tvOS \(osVersion)")
                         }
-                        infoRow("info.circle", PMString("ext.tv.settings.about"), "\(version) (\(build)) · tvOS \(osVersion)")
+                        .tvPanel(radius: 20)
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: PMString("ext.tv.settings.remoteTips")).padding(.bottom, 24)
-                    HStack { Spacer(); TVSiriRemote(); Spacer() }
-                    VStack(alignment: .leading, spacing: 14) {
-                        TVRemoteHint(PMString("ext.tv.settings.tip.touch.title"), PMString("ext.tv.settings.tip.touch.body"))
-                        TVRemoteHint(PMString("ext.tv.settings.tip.menu.title"), PMString("ext.tv.settings.tip.menu.body"))
-                        TVRemoteHint(PMString("ext.tv.settings.tip.tv.title"), PMString("ext.tv.settings.tip.tv.body"))
-                        TVRemoteHint(PMString("ext.tv.settings.tip.search.title"), PMString("ext.tv.settings.tip.search.body"))
+                    VStack(alignment: .leading, spacing: 0) {
+                        TVEyebrow(text: PMString("ext.tv.settings.remoteTips")).padding(.bottom, 24)
+                        VStack(spacing: 0) {
+                            HStack { Spacer(); TVSiriRemote(); Spacer() }
+                            Rectangle()
+                                .fill(TVColor.divider)
+                                .frame(height: 1)
+                                .padding(.vertical, 24)
+                            VStack(alignment: .leading, spacing: 14) {
+                                TVRemoteHint(PMString("ext.tv.settings.tip.touch.title"), PMString("ext.tv.settings.tip.touch.body"))
+                                TVRemoteHint(PMString("ext.tv.settings.tip.menu.title"), PMString("ext.tv.settings.tip.menu.body"))
+                                TVRemoteHint(PMString("ext.tv.settings.tip.tv.title"), PMString("ext.tv.settings.tip.tv.body"))
+                                TVRemoteHint(PMString("ext.tv.settings.tip.search.title"), PMString("ext.tv.settings.tip.search.body"))
+                            }
+                        }
+                        .padding(28)
+                        .tvPanel(radius: 20)
                     }
-                    .padding(.top, 32)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 72)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.bottom, 24)
-            .tvPage()
 
             if showsEffectPicker {
                 TVFullscreenEffectPicker(
@@ -164,7 +192,7 @@ struct TVSettingsView: View {
         }
         .padding(.horizontal, 22).padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        .background(TVColor.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.clear)
     }
 
     private func settingIcon(_ icon: String, focused: Bool) -> some View {
@@ -179,7 +207,7 @@ struct TVSettingsView: View {
     private func navRow(_ icon: String, _ title: String, _ value: String,
                         trailing: String = "chevron.right",
                         action: @escaping () -> Void) -> some View {
-        TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: action) { focused in
+        TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: action) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
                 Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
@@ -190,13 +218,13 @@ struct TVSettingsView: View {
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(focused ? TVColor.surfaceStrong : TVColor.card)
+            .background(focused ? TVColor.surfaceStrong : .clear)
         }
     }
 
     /// 开关行 — 真实持久化偏好(@AppStorage),启动时被读取。
     private func toggleRow(_ icon: String, _ title: String, isOn: Binding<Bool>) -> some View {
-        TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
+        TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
                 Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
@@ -211,7 +239,7 @@ struct TVSettingsView: View {
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(focused ? TVColor.surfaceStrong : TVColor.card)
+            .background(focused ? TVColor.surfaceStrong : .clear)
             .accessibilityValue(Text(isOn.wrappedValue
                 ? PMString("ext.tv.sources.status.enabled")
                 : PMString("ext.tv.sources.status.disabled")))
@@ -228,7 +256,14 @@ struct TVSettingsView: View {
         }
         .padding(.horizontal, 22).padding(.vertical, 16)
         .frame(maxWidth: .infinity)
-        .background(TVColor.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.clear)
+    }
+
+    private var settingDivider: some View {
+        Rectangle()
+            .fill(TVColor.divider)
+            .frame(height: 1)
+            .padding(.leading, 80)
     }
 }
 

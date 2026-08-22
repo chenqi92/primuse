@@ -282,7 +282,11 @@ struct TVSourceFormView: View {
             //(右侧焦点区 frame 必须满高,否则下方字段往右无候选)。
             HStack(alignment: .top, spacing: 90) {
                 ScrollView(.vertical, showsIndicators: false) {
-                    leftFields.frame(maxWidth: .infinity, alignment: .topLeading)
+                    leftFields
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 12)
+                        .padding(.bottom, 96)
                 }
                 .focusSection()
                 rightPanel
@@ -954,9 +958,12 @@ struct TVRecycleBinView: View {
                         .padding(.bottom, 8)
                     let deleted = store.deletedSources
                     if deleted.isEmpty {
-                        Text(PMString("ext.tv.sources.recycleEmpty"))
-                            .font(.system(size: 20))
-                            .foregroundStyle(TVColor.textGhost)
+                        TVEmptyState(
+                            icon: "trash",
+                            title: PMString("ext.tv.sources.recycleEmpty"),
+                            subtitle: ""
+                        )
+                        .frame(minHeight: 520)
                     } else {
                         ForEach(deleted) { s in
                             TVFocusButton(radius: TVRadius.card, scale: 1.0, lift: 0,

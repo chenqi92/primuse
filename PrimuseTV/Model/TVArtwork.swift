@@ -669,6 +669,10 @@ struct TVArtworkView: View {
         }
         .frame(width: size, height: h)
         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(TVColor.cardBorder, lineWidth: 1)
+        }
         .task(id: "\(artworkIdentity)|\(retryRevision)") {
             let identity = artworkIdentity
             guard !identity.isEmpty else {

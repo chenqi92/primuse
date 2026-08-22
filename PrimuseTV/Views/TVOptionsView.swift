@@ -37,7 +37,7 @@ struct TVOptionsView: View {
             TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 0.5)
             TVColor.bg.opacity(0.52).ignoresSafeArea()
 
-            VStack {
+            VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 28) {
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                                   songID: np.songID, coverRef: np.coverRef,
@@ -48,10 +48,9 @@ struct TVOptionsView: View {
                     }
                     Spacer()
                 }
-                .opacity(0.7)
-                .padding(.horizontal, 100).padding(.top, 80)
-
-                Spacer()
+                Rectangle()
+                    .fill(TVColor.divider)
+                    .frame(height: 1)
 
                 VStack(alignment: .leading, spacing: 24) {
                     TVEyebrow(text: PMString("ext.tv.options.eyebrow"))
@@ -59,15 +58,16 @@ struct TVOptionsView: View {
                         HStack(spacing: 20) {
                             ForEach(actions) { a in actionTile(a) }
                         }
-                        .padding(.vertical, 14).padding(.horizontal, 4)
+                        .padding(.vertical, 18)
+                        .padding(.horizontal, 18)
                     }
                 }
-                .padding(.horizontal, 100).padding(.bottom, 60)
-                .background(
-                    LinearGradient(colors: [.clear, TVColor.chrome],
-                                   startPoint: .top, endPoint: .bottom)
-                )
             }
+            .padding(36)
+            .frame(maxWidth: 900, alignment: .leading)
+            .tvPanel(radius: 24)
+            .padding(.horizontal, 100)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .onExitCommand { dismiss() }
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
@@ -75,7 +75,7 @@ struct TVOptionsView: View {
 
     private func actionTile(_ a: Action) -> some View {
         // 不 dismiss:执行后菜单保留,用户能看到状态变化(喜欢/睡眠定时切换);按返回键关闭。
-        TVFocusButton(radius: 16, scale: 1.08, lift: 8, action: { a.run() }) { focused in
+        TVFocusButton(radius: 16, scale: 1.05, lift: 4, action: { a.run() }) { focused in
             VStack(spacing: 14) {
                 Image(systemName: a.icon).font(.system(size: 40, weight: .regular))
                     .foregroundStyle(focused ? TVColor.onBrand : (a.on ? TVColor.brand : TVColor.text))
@@ -119,7 +119,7 @@ struct TVFullscreenEffectPicker: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(PMString("ext.tv.settings.immersive"))
                                 .font(.system(size: 38, weight: .bold))
-                                .foregroundStyle(TVColor.text)
+                                .foregroundStyle(.white)
                         }
                         Spacer()
                         Button {
@@ -153,7 +153,7 @@ struct TVFullscreenEffectPicker: View {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(collection.title)
                                         .font(.system(size: 17, weight: .semibold))
-                                        .foregroundStyle(TVColor.textMuted)
+                                        .foregroundStyle(.white.opacity(0.66))
 
                                     LazyVGrid(columns: columns, spacing: 18) {
                                         ForEach(collection.effects) { candidate in
@@ -163,7 +163,8 @@ struct TVFullscreenEffectPicker: View {
                                 }
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
                     }
                 }
                 .padding(.horizontal, 70)
@@ -173,6 +174,7 @@ struct TVFullscreenEffectPicker: View {
         .focusSection()
         .onAppear { focusedEffect = selectedEffect }
         .accessibilityAddTraits(.isModal)
+        .environment(\.colorScheme, .dark)
     }
 
     private func effectChoice(_ candidate: FullscreenPlayerEffect) -> some View {
@@ -214,7 +216,7 @@ struct TVFullscreenEffectPicker: View {
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(selected ? previewPalette.primary : TVColor.text)
+            .foregroundStyle(selected ? previewPalette.primary : .white.opacity(0.90))
             .padding(11)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(.white.opacity(focused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))

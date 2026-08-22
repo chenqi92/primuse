@@ -266,7 +266,11 @@ struct TVRoot: View {
                 await waitForDemoContent()
                 await store.loadDemoNowPlaying()
                 showOptions = true
-            case "settings": showSettings = true
+            case "immersivePlayer", "immersivePicker":
+                await waitForDemoContent()
+                await store.loadDemoNowPlaying()
+                tab = .nowPlaying
+            case "settings", "effectPicker": showSettings = true
             default: break
             }
             #endif
@@ -636,10 +640,12 @@ extension View {
 
 struct TVEyebrow: View {
     let text: String
+    var color: Color = TVColor.textFaint
+
     var body: some View {
         Text(text.uppercased())
             .font(TVFont.eyebrow).tracking(1.4)
-            .foregroundStyle(TVColor.textFaint)
+            .foregroundStyle(color)
     }
 }
 #endif

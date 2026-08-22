@@ -36,7 +36,12 @@ struct TVImmersivePlayerView: View {
     private enum Control: Hashable { case previous, playPause, next, modes, queue }
 
     private var effect: FullscreenPlayerEffect {
-        FullscreenPlayerEffect(rawValue: effectRawValue) ?? .defaultValue
+        #if DEBUG
+        if TVDebugLaunch.screen == "immersivePlayer" {
+            return .coverFlow
+        }
+        #endif
+        return FullscreenPlayerEffect(rawValue: effectRawValue) ?? .defaultValue
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
@@ -169,6 +174,8 @@ struct TVImmersivePlayerView: View {
                 refreshGallerySongs()
             }
         }
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - 画面
@@ -402,7 +409,7 @@ struct TVImmersivePlayerView: View {
 
     private func modePicker(metrics: ImmersiveStageMetrics) -> some View {
         ZStack {
-            Color.black.opacity(0.72).ignoresSafeArea()
+            Color.black.opacity(0.94).ignoresSafeArea()
             VStack(spacing: metrics.s(24)) {
                 HStack {
                     Text(PMString("ext.tv.settings.immersive"))
@@ -496,7 +503,8 @@ struct TVImmersivePlayerView: View {
                             }
                         }
                     }
-                    .padding(.vertical, metrics.s(6))
+                    .padding(.horizontal, metrics.s(14))
+                    .padding(.vertical, metrics.s(14))
                 }
             }
             .padding(.horizontal, metrics.s(54))
