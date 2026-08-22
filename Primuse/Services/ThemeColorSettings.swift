@@ -4,8 +4,8 @@ import UIKit
 import WidgetKit
 import PrimuseKit
 
-/// iOS 主题偏好。固定主题色负责全局控件，封面取色只负责播放相关氛围；
-/// 两者可以同时开启，不再使用旧版互斥的 auto / fixed 模式。
+/// iOS 主题偏好。自动模式让全局控件跟随当前封面；固定模式使用色板或
+/// 自定义颜色。播放背景的封面氛围仍是独立偏好。
 @MainActor
 @Observable
 final class ThemeColorSettings {
@@ -19,6 +19,12 @@ final class ThemeColorSettings {
         var hue: CGFloat
         var saturation: CGFloat
         var brightness: CGFloat
+    }
+
+    var mode: AppThemeColorMode {
+        didSet {
+            UserDefaults.standard.set(mode.rawValue, forKey: AppThemePreferences.colorModeKey)
+        }
     }
 
     var fixedColorHex: String {
@@ -51,17 +57,15 @@ final class ThemeColorSettings {
     var fixedColor: Color { Color(hex: fixedColorHex) }
     var baseAccent: Color { fixedColor }
 
-    private static let legacyModeKey = "primuse.theme.colorMode"
-
     private init() {
         let defaults = UserDefaults.standard
+        let resolvedMode = AppThemePreferences.colorMode(in: defaults)
+
+        mode = resolvedMode
 
         if defaults.object(forKey: AppThemePreferences.coverDrivenAmbientKey) == nil {
-            // 旧版 auto 表示允许封面取色，fixed 表示关闭；只迁移一次，之后
-            // 两个设置完全独立。
-            let legacyMode = defaults.string(forKey: Self.legacyModeKey)
             defaults.set(
-                legacyMode != "fixed",
+                resolvedMode == .automatic,
                 forKey: AppThemePreferences.coverDrivenAmbientKey
             )
         }
@@ -70,7 +74,7 @@ final class ThemeColorSettings {
             // 旧版安装迁移原图标对应的回退色；全新安装直接采用三端一致的
             // 默认色。直接读取稳定图标 id，避免两个 shared 初始化互相递归。
             let iconKey = "primuse.appIconChoice"
-            let hasLegacyPreference = defaults.object(forKey: Self.legacyModeKey) != nil
+            let hasLegacyPreference = defaults.object(forKey: AppThemePreferences.colorModeKey) != nil
                 || defaults.object(forKey: iconKey) != nil
             let iconID = defaults.string(forKey: iconKey) ?? ""
             defaults.set(
@@ -92,6 +96,7 @@ final class ThemeColorSettings {
         )
 
         // 把可能来自早期版本的非法值归一，确保其它端直接读取同一键也安全。
+        defaults.set(mode.rawValue, forKey: AppThemePreferences.colorModeKey)
         defaults.set(fixedColorHex, forKey: AppThemePreferences.accentHexKey)
         defaults.set(coverDrivenAmbient, forKey: AppThemePreferences.coverDrivenAmbientKey)
         defaults.set(ambientStrength, forKey: AppThemePreferences.ambientStrengthKey)

@@ -38,10 +38,13 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct PrimuseTVApp: App {
     @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
+    @State private var themeState = TVThemeState.shared
     @AppStorage(TVAppearancePreference.storageKey)
     private var appearanceRawValue = TVAppearancePreference.system.rawValue
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.colorModeKey)
+    private var themeColorModeRawValue = AppThemePreferences.colorMode().rawValue
 
     private var store: TVStore { appDelegate.store }
 
@@ -53,10 +56,27 @@ struct PrimuseTVApp: App {
         WindowGroup {
             TVRoot()
                 .environment(store)
+                .environment(themeState)
                 .preferredColorScheme(appearance.colorScheme)
                 .modifier(TVWindowAppearanceModifier(preference: appearance))
-                .tint(TVColor.brand(hex: accentHex))
+                .tint(themeState.accent)
                 .onOpenURL { store.handleDeepLink($0) }
+                .onAppear {
+                    themeState.setFixedHex(accentHex)
+                    themeState.setMode(
+                        AppThemeColorMode(rawValue: themeColorModeRawValue)
+                            ?? AppThemePreferences.defaultColorMode
+                    )
+                }
+                .onChange(of: accentHex) { _, value in
+                    themeState.setFixedHex(value)
+                }
+                .onChange(of: themeColorModeRawValue) { _, value in
+                    themeState.setMode(
+                        AppThemeColorMode(rawValue: value)
+                            ?? AppThemePreferences.defaultColorMode
+                    )
+                }
                 .task {
                     FullscreenPlayerEffectSync.shared.install()
                     #if DEBUG

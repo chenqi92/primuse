@@ -208,6 +208,7 @@
 "ext.tv.settings.appearance.light"         = "라이트";
 "ext.tv.settings.appearance.dark"          = "다크";
 "ext.tv.settings.themeColor"               = "테마 색상";
+"theme_color_mode_auto"                    = "커버 아트 따르기";
 "ext.tv.settings.coverColor"               = "커버 색상 배경";
 "ext.tv.settings.ambientIntensity"          = "앰비언트 강도";
 "ext.tv.settings.intensity.low"             = "낮음";

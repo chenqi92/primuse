@@ -205,6 +205,7 @@
 "ext.tv.settings.appearance.light"         = "浅色";
 "ext.tv.settings.appearance.dark"          = "深色";
 "ext.tv.settings.themeColor"               = "主题色";
+"theme_color_mode_auto"                    = "跟随封面";
 "ext.tv.settings.coverColor"               = "封面色氛围";
 "ext.tv.settings.ambientIntensity"          = "氛围强度";
 "ext.tv.settings.intensity.low"             = "低";

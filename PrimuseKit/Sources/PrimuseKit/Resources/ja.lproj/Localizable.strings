@@ -208,6 +208,7 @@
 "ext.tv.settings.appearance.light"         = "ライト";
 "ext.tv.settings.appearance.dark"          = "ダーク";
 "ext.tv.settings.themeColor"               = "テーマカラー";
+"theme_color_mode_auto"                    = "アートワークに追従";
 "ext.tv.settings.coverColor"               = "ジャケットカラーの背景";
 "ext.tv.settings.ambientIntensity"          = "アンビエント強度";
 "ext.tv.settings.intensity.low"             = "弱";

@@ -12,15 +12,12 @@ import AppKit
 @MainActor
 @Observable
 final class ThemeService {
-    /// Current accent color derived from the playing song's cover art
-    private(set) var accentColor: Color = ThemeService.defaultAccent
+    /// 最近一次从当前封面提取的颜色。主题色来源与播放背景分别决定是否消费它。
+    private(set) var artworkAccentColor: Color = ThemeService.defaultAccent
+    private(set) var artworkDarkAccent: Color = ThemeService.defaultDarkAccent
 
-    /// Darker variant for background gradients (NowPlaying etc.)
-    private(set) var darkAccent: Color = ThemeService.defaultDarkAccent
-
-    /// Foreground color that keeps solid accent controls readable. Updated
-    /// together with both artwork-driven and user-selected fallback accents.
-    private(set) var onAccent: Color = .white
+    private(set) var colorMode = AppThemePreferences.defaultColorMode
+    private(set) var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
 
     /// Identity token for SwiftUI animation tracking
     private(set) var colorID: String = "default"
@@ -40,11 +37,14 @@ final class ThemeService {
     private(set) var baseAccent: Color = ThemeService.defaultAccent
     private(set) var baseDarkAccent: Color = ThemeService.defaultDarkAccent
 
-    /// 固定的应用主题色。普通按钮、选择态与系统 tint 读这里；播放页仍可读
-    /// `accentColor` / `darkAccent` 展示当前封面的动态色。
-    var uiAccentColor: Color { baseAccent }
-    var uiDarkAccent: Color { baseDarkAccent }
-    var uiOnAccent: Color { Self.contrastingForeground(for: baseAccent) }
+    /// 播放页的氛围色与全局控件主题色分别计算。这样固定主题仍可保留封面背景，
+    /// 自动主题也能在关闭背景氛围时只改变按钮与选择态。
+    var accentColor: Color { coverDrivenAmbient ? artworkAccentColor : baseAccent }
+    var darkAccent: Color { coverDrivenAmbient ? artworkDarkAccent : baseDarkAccent }
+    var onAccent: Color { Self.contrastingForeground(for: accentColor) }
+    var uiAccentColor: Color { colorMode == .automatic ? artworkAccentColor : baseAccent }
+    var uiDarkAccent: Color { colorMode == .automatic ? artworkDarkAccent : baseDarkAccent }
+    var uiOnAccent: Color { Self.contrastingForeground(for: uiAccentColor) }
 
     // MARK: - Defaults
 
@@ -78,17 +78,10 @@ final class ThemeService {
     ) {
         let generation = beginArtworkUpdate()
 
-        #if os(macOS)
-        guard MacUIPreferences.shared.coverDrivenAmbient else {
+        guard colorMode == .automatic || coverDrivenAmbient else {
             applyFallbackTheme()
             return
         }
-        #else
-        guard ThemeColorSettings.shared.coverDrivenAmbient else {
-            applyFallbackTheme()
-            return
-        }
-        #endif
 
         let normalizedFileName = fileName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedAppleMusicID = appleMusicID?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -251,6 +244,20 @@ final class ThemeService {
         applyFallbackTheme(animated: animated)
     }
 
+    func setColorMode(_ mode: AppThemeColorMode, animated: Bool = true) {
+        guard colorMode != mode else { return }
+        applyThemeChange(animated: animated) {
+            colorMode = mode
+        }
+    }
+
+    func setCoverDrivenAmbient(_ enabled: Bool, animated: Bool = true) {
+        guard coverDrivenAmbient != enabled else { return }
+        applyThemeChange(animated: animated) {
+            coverDrivenAmbient = enabled
+        }
+    }
+
     @discardableResult
     private func beginArtworkUpdate() -> UInt {
         artworkUpdateTask?.cancel()
@@ -269,20 +276,24 @@ final class ThemeService {
 
     private func applyFallbackTheme(animated: Bool = true) {
         applyThemeChange(animated: animated) {
-            accentColor = baseAccent
-            darkAccent = baseDarkAccent
-            onAccent = Self.contrastingForeground(for: baseAccent)
+            artworkAccentColor = baseAccent
+            artworkDarkAccent = baseDarkAccent
             colorID = "default"
         }
+        #if os(macOS)
+        MacUIPreferences.shared.updateArtworkBrandColor(nil)
+        #endif
     }
 
     private func applyArtworkTheme(_ result: ColorResult, identity: String) {
         withAnimation(.easeInOut(duration: 0.6)) {
-            accentColor = result.accent
-            darkAccent = result.dark
-            onAccent = Self.contrastingForeground(for: result.accent)
+            artworkAccentColor = result.accent
+            artworkDarkAccent = result.dark
             colorID = identity
         }
+        #if os(macOS)
+        MacUIPreferences.shared.updateArtworkBrandColor(result.accent)
+        #endif
     }
 
     private nonisolated static func cachedCoverData(
@@ -352,9 +363,8 @@ final class ThemeService {
         baseDarkAccent = dark
         if colorID == "default" {
             applyThemeChange(animated: animated) {
-                accentColor = tint
-                darkAccent = dark
-                onAccent = Self.contrastingForeground(for: tint)
+                artworkAccentColor = tint
+                artworkDarkAccent = dark
             }
         }
     }

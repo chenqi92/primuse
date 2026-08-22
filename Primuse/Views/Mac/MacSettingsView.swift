@@ -3511,6 +3511,31 @@ private struct MacSTThemeView: View {
         )
     }
 
+    private func setThemeColorMode(_ mode: AppThemeColorMode) {
+        guard preferences.themeColorMode != mode else { return }
+        preferences.themeColorMode = mode
+        themeService.setColorMode(mode)
+        if mode == .automatic {
+            refreshThemeFromCurrentSong()
+        } else if !preferences.coverDrivenAmbient {
+            themeService.resetToDefault()
+        }
+    }
+
+    private func refreshThemeFromCurrentSong() {
+        guard let song = player.currentSong else {
+            themeService.resetToDefault()
+            return
+        }
+        themeService.updateFromCoverArt(
+            fileName: song.coverArtFileName,
+            songID: song.id,
+            appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
+                ? song.filePath
+                : nil
+        )
+    }
+
     private var librarySectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(librarySectionOrderRawValue)
     }
@@ -3594,12 +3619,35 @@ private struct MacSTThemeView: View {
 
         MacSTSection(Lz("Brand Color")) {
             MacSTGroup {
+                MacSTRow(String(localized: "theme_color_mode"), block: true) {
+                    HStack(spacing: 8) {
+                        MacThemeChoiceCard(
+                            title: String(localized: "theme_color_mode_auto"),
+                            icon: "photo.on.rectangle.angled",
+                            selected: preferences.themeColorMode == .automatic
+                        ) {
+                            setThemeColorMode(.automatic)
+                        }
+                        MacThemeChoiceCard(
+                            title: String(localized: "theme_color_mode_fixed"),
+                            icon: "paintpalette",
+                            selected: preferences.themeColorMode == .fixed
+                        ) {
+                            setThemeColorMode(.fixed)
+                        }
+                    }
+                }
+            }
+
+            MacSTGroup {
                 ForEach(Array(swatches.enumerated()), id: \.offset) { index, swatch in
                     MacBrandSwatchRow(
                         swatch: swatch,
-                        selected: normHex(swatch.hex) == preferences.brandColorHex,
+                        selected: preferences.themeColorMode == .fixed
+                            && normHex(swatch.hex) == preferences.brandColorHex,
                         divider: index != 0
                     ) {
+                        setThemeColorMode(.fixed)
                         preferences.brandColorHex = normHex(swatch.hex)
                         // 同步 ambient fallback, 让 NowPlaying / 桌面歌词没有封面取色时
                         // 也跟着换成新品牌色。
@@ -3616,6 +3664,7 @@ private struct MacSTThemeView: View {
                         get: { preferences.coverDrivenAmbient },
                         set: {
                             preferences.coverDrivenAmbient = $0
+                            themeService.setCoverDrivenAmbient($0)
                             if $0, let song = player.currentSong {
                                 themeService.updateFromCoverArt(
                                     fileName: song.coverArtFileName,
@@ -3624,7 +3673,7 @@ private struct MacSTThemeView: View {
                                         ? song.filePath
                                         : nil
                                 )
-                            } else if !$0 {
+                            } else if !$0, preferences.themeColorMode == .fixed {
                                 themeService.resetToDefault()
                             }
                         }

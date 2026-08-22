@@ -208,6 +208,7 @@
 "ext.tv.settings.appearance.light"         = "Hell";
 "ext.tv.settings.appearance.dark"          = "Dunkel";
 "ext.tv.settings.themeColor"               = "Themenfarbe";
+"theme_color_mode_auto"                    = "Vom Cover";
 "ext.tv.settings.coverColor"               = "Coverfarben-Ambiente";
 "ext.tv.settings.ambientIntensity"          = "Ambiente-Intensität";
 "ext.tv.settings.intensity.low"             = "Niedrig";

@@ -30,6 +30,8 @@ struct TVSettingsView: View {
     private var appearanceRawValue = TVAppearancePreference.system.rawValue
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.colorModeKey)
+    private var themeColorModeRawValue = AppThemePreferences.colorMode().rawValue
     @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
     @AppStorage(AppThemePreferences.ambientStrengthKey)
@@ -153,6 +155,7 @@ struct TVSettingsView: View {
             if showsThemePicker {
                 TVThemeColorPicker(
                     selectedHex: $accentHex,
+                    selectedModeRawValue: $themeColorModeRawValue,
                     onDismiss: { showsThemePicker = false }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -194,10 +197,18 @@ struct TVSettingsView: View {
     }
 
     private var currentThemeTitle: String {
+        if themeColorMode == .automatic {
+            return PMString("theme_color_mode_auto")
+        }
         guard let swatch = AppThemePreferences.swatches.first(where: { $0.id == accentHex }) else {
             return "#\(accentHex)"
         }
         return PMString(swatch.localizationKey)
+    }
+
+    private var themeColorMode: AppThemeColorMode {
+        AppThemeColorMode(rawValue: themeColorModeRawValue)
+            ?? AppThemePreferences.defaultColorMode
     }
 
     private func appearanceTitle(_ preference: TVAppearancePreference) -> String {
@@ -364,16 +375,35 @@ struct TVSettingsView: View {
 }
 
 private struct TVThemeColorPicker: View {
+    @Environment(TVStore.self) private var store
     @Binding var selectedHex: String
+    @Binding var selectedModeRawValue: String
     let onDismiss: () -> Void
 
-    @FocusState private var focusedHex: String?
+    @FocusState private var focusedID: String?
+
+    private static let automaticFocusID = "__automatic_theme__"
+
+    private var mode: AppThemeColorMode {
+        AppThemeColorMode(rawValue: selectedModeRawValue)
+            ?? AppThemePreferences.defaultColorMode
+    }
+
+    private var previewColors: (primary: Color, secondary: Color) {
+        if mode == .automatic {
+            return store.nowPlayingPresentationColors
+        }
+        return (
+            TVColor.brand(hex: selectedHex),
+            TVColor.brandSecondary(hex: selectedHex)
+        )
+    }
 
     var body: some View {
         ZStack {
             TVAmbientBackdrop(
-                tint: TVColor.brand(hex: selectedHex),
-                tint2: TVColor.brandSecondary(hex: selectedHex),
+                tint: previewColors.primary,
+                tint2: previewColors.secondary,
                 strength: 0.65
             )
             TVColor.bg.opacity(0.48).ignoresSafeArea()
@@ -396,6 +426,7 @@ private struct TVThemeColorPicker: View {
                     columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 6),
                     spacing: 18
                 ) {
+                    automaticButton
                     ForEach(AppThemePreferences.swatches) { swatch in
                         swatchButton(swatch)
                     }
@@ -407,16 +438,70 @@ private struct TVThemeColorPicker: View {
             .padding(.horizontal, 84)
         }
         .focusSection()
-        .onAppear { focusedHex = selectedHex }
+        .onAppear {
+            focusedID = mode == .automatic ? Self.automaticFocusID : selectedHex
+        }
         .accessibilityAddTraits(.isModal)
     }
 
-    private func swatchButton(_ swatch: AppThemePreferences.Swatch) -> some View {
-        let focused = focusedHex == swatch.id
-        let selected = selectedHex == swatch.id
+    private var automaticButton: some View {
+        let focused = focusedID == Self.automaticFocusID
+        let selected = mode == .automatic
 
         return Button {
+            selectedModeRawValue = AppThemeColorMode.automatic.rawValue
+            TVThemeState.shared.setMode(.automatic)
+            onDismiss()
+        } label: {
+            VStack(spacing: 12) {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [previewColors.primary, previewColors.secondary],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 66, height: 66)
+                    .overlay {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 25, weight: .bold))
+                            .foregroundStyle(TVColor.onBrand)
+                    }
+                Text(PMString("theme_color_mode_auto"))
+                    .font(.system(size: 17, weight: selected ? .bold : .semibold))
+                    .foregroundStyle(TVColor.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+            .background(
+                focused ? TVColor.surfaceStrong : TVColor.card,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(selected ? TVColor.brand : TVColor.cardBorder,
+                                  lineWidth: selected ? 3 : 1)
+            }
+            .tvFocusRing(focused, radius: 16, accent: TVColor.brand, scale: 1.05, lift: 6)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedID, equals: Self.automaticFocusID)
+        .focusEffectDisabled()
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func swatchButton(_ swatch: AppThemePreferences.Swatch) -> some View {
+        let focused = focusedID == swatch.id
+        let selected = mode == .fixed && selectedHex == swatch.id
+
+        return Button {
+            selectedModeRawValue = AppThemeColorMode.fixed.rawValue
             selectedHex = swatch.id
+            TVThemeState.shared.setMode(.fixed)
+            TVThemeState.shared.setFixedHex(swatch.id)
             onDismiss()
         } label: {
             VStack(spacing: 12) {
@@ -453,7 +538,7 @@ private struct TVThemeColorPicker: View {
             .tvFocusRing(focused, radius: 16, accent: TVColor.brand(hex: swatch.id), scale: 1.05, lift: 6)
         }
         .buttonStyle(TVBareButtonStyle())
-        .focused($focusedHex, equals: swatch.id)
+        .focused($focusedID, equals: swatch.id)
         .focusEffectDisabled()
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }

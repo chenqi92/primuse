@@ -114,14 +114,15 @@ final class AppServices {
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
         let theme = ThemeService()
-        // Seed the accent the user configured. Cover-art-derived colors only
-        // override playback ambience while the independent cover-color switch
-        // is enabled.
+        // 启动时同时恢复固定回退色、主题色来源与封面氛围偏好。
         #if os(iOS)
         theme.setBaseAccent(ThemeColorSettings.shared.baseAccent)
+        theme.setColorMode(ThemeColorSettings.shared.mode, animated: false)
+        theme.setCoverDrivenAmbient(ThemeColorSettings.shared.coverDrivenAmbient, animated: false)
         #else
-        // macOS: 用用户在「外观」里选的品牌色作为 ambient fallback (没封面取色时)。
-        theme.setBaseAccent(MacUIPreferences.shared.brandColor)
+        theme.setBaseAccent(MacUIPreferences.shared.fixedBrandColor)
+        theme.setColorMode(MacUIPreferences.shared.themeColorMode, animated: false)
+        theme.setCoverDrivenAmbient(MacUIPreferences.shared.coverDrivenAmbient, animated: false)
         #endif
         self.themeService = theme
         let scanService = ScanService()

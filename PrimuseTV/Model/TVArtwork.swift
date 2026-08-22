@@ -16,6 +16,15 @@ struct TVArtworkPalette: Codable, Equatable, Sendable {
         @MainActor var color: Color {
             Color(.sRGB, red: red, green: green, blue: blue, opacity: 1)
         }
+
+        var hex: String {
+            String(
+                format: "%02X%02X%02X",
+                Int((min(max(red, 0), 1) * 255).rounded()),
+                Int((min(max(green, 0), 1) * 255).rounded()),
+                Int((min(max(blue, 0), 1) * 255).rounded())
+            )
+        }
     }
 
     let primary: RGB

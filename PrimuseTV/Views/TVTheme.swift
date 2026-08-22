@@ -2,11 +2,62 @@
 import SwiftUI
 import UIKit
 
+@MainActor
+@Observable
+final class TVThemeState {
+    static let shared = TVThemeState()
+
+    private(set) var mode: AppThemeColorMode
+    private(set) var fixedHex: String
+    private(set) var artworkPrimaryHex: String?
+    private(set) var artworkSecondaryHex: String?
+
+    private init() {
+        let defaults = UserDefaults.standard
+        mode = AppThemePreferences.colorMode(in: defaults)
+        fixedHex = AppThemePreferences.normalizedHex(
+            defaults.string(forKey: AppThemePreferences.accentHexKey)
+                ?? AppThemePreferences.defaultAccentHex
+        )
+    }
+
+    var accent: Color {
+        TVColor.brand(hex: mode == .automatic ? artworkPrimaryHex ?? fixedHex : fixedHex)
+    }
+
+    var secondary: Color {
+        TVColor.brandSecondary(hex: mode == .automatic ? artworkSecondaryHex ?? fixedHex : fixedHex)
+    }
+
+    var onAccent: Color {
+        TVColor.onBrand(hex: mode == .automatic ? artworkPrimaryHex ?? fixedHex : fixedHex)
+    }
+
+    func setMode(_ mode: AppThemeColorMode) {
+        self.mode = mode
+    }
+
+    func setFixedHex(_ hex: String) {
+        fixedHex = AppThemePreferences.normalizedHex(hex)
+    }
+
+    func setArtworkPalette(primaryHex: String, secondaryHex: String) {
+        artworkPrimaryHex = AppThemePreferences.normalizedHex(primaryHex)
+        artworkSecondaryHex = AppThemePreferences.normalizedHex(secondaryHex)
+    }
+
+    func resetArtworkPalette() {
+        artworkPrimaryHex = nil
+        artworkSecondaryHex = nil
+    }
+}
+
 // MARK: - 设计 token
 //
 // 保留原有 10ft 字号和焦点层级，颜色 token 同时适配 tvOS 浅色与深色外观。
 // 封面色只负责氛围和强调，文字、卡片、分隔线始终由语义色保证对比度。
 
+@MainActor
 enum TVColor {
     static let bg = adaptive(light: rgb(0xF2EFEB), dark: rgb(0x000000))
     static let bgDeep = adaptive(light: rgb(0xE9E4DE), dark: rgb(0x0A0A0A))
@@ -40,18 +91,13 @@ enum TVColor {
     /// 品牌底色在浅色外观中加深、深色外观中提亮，并提供对应前景色，
     /// 让 16pt 普通文本和焦点图标都达到稳定对比度。
     static var brand: Color {
-        brand(hex: UserDefaults.standard.string(forKey: AppThemePreferences.accentHexKey)
-              ?? AppThemePreferences.defaultAccentHex)
+        TVThemeState.shared.accent
     }
     static var brandSecondary: Color {
-        brandSecondary(hex: UserDefaults.standard.string(forKey: AppThemePreferences.accentHexKey)
-                       ?? AppThemePreferences.defaultAccentHex)
+        TVThemeState.shared.secondary
     }
     static var onBrand: Color {
-        onBrand(
-            hex: UserDefaults.standard.string(forKey: AppThemePreferences.accentHexKey)
-                ?? AppThemePreferences.defaultAccentHex
-        )
+        TVThemeState.shared.onAccent
     }
     static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))
     static let warn = adaptive(light: rgb(0x9A551F), dark: rgb(0xF0B078))

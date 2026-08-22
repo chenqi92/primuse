@@ -874,8 +874,7 @@ struct PrimuseApp: App {
     }
 
     private func injectServices<V: View>(@ViewBuilder _ content: () -> V) -> some View {
-        // 三端普通控件统一使用固定主题色；播放器仍直接读取动态
-        // accentColor 展示封面氛围。
+        // 自动模式下全局 tint 跟随封面，固定模式下使用用户选择的回退色。
         let injected = content()
             .environment(themeService)
             .environment(playerService)

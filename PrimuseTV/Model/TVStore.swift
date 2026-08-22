@@ -412,6 +412,7 @@ final class TVStore {
         if nowPlaying.albumID == albumID {
             nowPlaying.tint = primary
             nowPlaying.tint2 = secondary
+            updateAutomaticThemePalette(palette)
         }
         if updatedAlbum { libraryViewRevision &+= 1 }
     }
@@ -427,6 +428,7 @@ final class TVStore {
         if nowPlaying.songID == songID {
             nowPlaying.tint = palette.primary.color
             nowPlaying.tint2 = palette.secondary.color
+            updateAutomaticThemePalette(palette)
         }
         libraryViewRevision &+= 1
     }
@@ -441,6 +443,17 @@ final class TVStore {
 
     private static func songArtworkPaletteKey(_ songID: String) -> String {
         "song:\(songID)"
+    }
+
+    private func updateAutomaticThemePalette(_ palette: TVArtworkPalette?) {
+        guard let palette else {
+            TVThemeState.shared.resetArtworkPalette()
+            return
+        }
+        TVThemeState.shared.setArtworkPalette(
+            primaryHex: palette.primary.hex,
+            secondaryHex: palette.secondary.hex
+        )
     }
     private func map(_ s: Song) -> TVSong {
         TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName, title: s.title,
@@ -931,6 +944,7 @@ final class TVStore {
             bitrate: song.bitrate > 0 ? song.bitrate : 1411,
             sampleRate: song.sampleRate > 0 ? song.sampleRate : 96,
             sourcePath: "")
+        updateAutomaticThemePalette(albumPalette ?? songPalette)
         hasNowPlaying = true
         queueUpNextIDs = songs.lazy
             .filter { $0.id != song.id }
@@ -1562,6 +1576,7 @@ final class TVStore {
             sampleRate: 0,
             sourcePath: station.sourcePlaybackPath ?? station.streamURL
         )
+        updateAutomaticThemePalette(nil)
         hasNowPlaying = true
         markRadioPlayed(station.id)
         beginRadioResolution(station, requestID: requestID, forceRefresh: false)
@@ -1823,6 +1838,7 @@ final class TVStore {
                 ?? a?.tint2 ?? fallback.1,
             glyph: a?.glyph ?? "♪", duration: song.duration, currentTime: resumeTime,
             format: song.format, bitrate: song.bitrate, sampleRate: song.sampleRate, sourcePath: "")
+        updateAutomaticThemePalette(albumPalette ?? songPalette)
         hasNowPlaying = true
         lyrics = []
         refreshUpNext()
@@ -1919,6 +1935,7 @@ final class TVStore {
 
 extension TVNowPlaying {
     /// 占位「无正在播放」。
+    @MainActor
     static var none: TVNowPlaying {
         TVNowPlaying(songID: "", coverRef: nil,
                      title: "", artist: "", album: "", albumID: "",

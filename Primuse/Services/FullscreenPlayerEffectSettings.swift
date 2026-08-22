@@ -7,8 +7,13 @@ enum PlayerAppearancePreferences {
     static let showsVolumeBarByDefault = true
 }
 
-/// 三端共用的主题偏好键与色板。主题色只负责应用控件与无封面时的回退色；
-/// 封面取色是独立开关，避免“选了绿色就再也没有封面氛围”这类耦合行为。
+enum AppThemeColorMode: String, CaseIterable, Sendable {
+    case automatic = "auto"
+    case fixed
+}
+
+/// 三端共用的主题偏好键与色板。主题色来源与播放背景的封面氛围分别保存：
+/// 自动主题色负责控件强调色，封面氛围开关负责播放背景，两者可以独立使用。
 enum AppThemePreferences {
     struct Swatch: Identifiable, Equatable, Sendable {
         /// 大写、无 `#` 的 RRGGBB，同时作为稳定存储值。
@@ -17,11 +22,13 @@ enum AppThemePreferences {
     }
 
     static let accentHexKey = "primuse.theme.fixedColorHex"
+    static let colorModeKey = "primuse.theme.colorMode"
     static let coverDrivenAmbientKey = "primuse.theme.coverDrivenAmbient"
     static let ambientStrengthKey = "primuse.theme.ambientStrength"
     static let iOSAppearanceKey = "primuse.appearance"
 
     static let defaultAccentHex = "C96442"
+    static let defaultColorMode = AppThemeColorMode.automatic
     static let defaultCoverDrivenAmbient = true
     static let defaultAmbientStrength = 0.70
 
@@ -54,6 +61,20 @@ enum AppThemePreferences {
 
     static func normalizedAmbientStrength(_ value: Double) -> Double {
         min(max(value, 0), 1)
+    }
+
+    static func colorMode(in defaults: UserDefaults = .standard) -> AppThemeColorMode {
+        if let rawValue = defaults.string(forKey: colorModeKey),
+           let mode = AppThemeColorMode(rawValue: rawValue) {
+            return mode
+        }
+
+        // 兼容短暂使用“固定主题色 + 封面氛围”模型的版本：没有旧模式值时，
+        // 用封面氛围偏好推断一次，避免升级后无故改变用户看到的颜色来源。
+        if let coverDriven = defaults.object(forKey: coverDrivenAmbientKey) as? Bool {
+            return coverDriven ? .automatic : .fixed
+        }
+        return defaultColorMode
     }
 }
 

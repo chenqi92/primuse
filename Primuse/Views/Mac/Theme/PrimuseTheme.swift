@@ -64,7 +64,7 @@ enum PMColor {
     // 默认品牌色 (赤陶) — 用户没选时的回退, 也用在色板里"默认"项的固定展示。
     static let brandDefault = hex(0xC96442)
 
-    /// 当前品牌色 — 用户在「外观」里选, 持久化在 MacUIPreferences。整个 Mac UI
+    /// 当前品牌色 — 自动模式读取正在播放封面，固定模式读取用户色板。整个 Mac UI
     /// 90+ 处自定义控件 (按钮 / 进度条 / active 高亮 / ambient fallback) 的 accent
     /// 都读它, 所以改这一处即全局换色。读取发生在 view body 内, Observation 会
     /// 注册依赖, 切换后相关视图自动重渲染。@MainActor 因为读的是主线程隔离的
@@ -1237,6 +1237,11 @@ final class MacUIPreferences {
     var sidebarWidth: CGFloat {
         didSet { UserDefaults.standard.set(Double(sidebarWidth), forKey: Self.keySidebarWidth) }
     }
+    var themeColorMode: AppThemeColorMode {
+        didSet {
+            UserDefaults.standard.set(themeColorMode.rawValue, forKey: AppThemePreferences.colorModeKey)
+        }
+    }
     var ambientStrength: Double {
         didSet {
             UserDefaults.standard.set(
@@ -1279,8 +1284,17 @@ final class MacUIPreferences {
         }
     }
 
-    /// 当前品牌色 (SwiftUI Color)。
-    var brandColor: Color { Color(hex: brandColorHex) }
+    private(set) var artworkBrandColor: Color? = nil
+
+    /// 固定回退色与当前生效色分开，自动模式下全套 Mac 自绘控件会随封面更新。
+    var fixedBrandColor: Color { Color(hex: brandColorHex) }
+    var brandColor: Color {
+        themeColorMode == .automatic ? artworkBrandColor ?? fixedBrandColor : fixedBrandColor
+    }
+
+    func updateArtworkBrandColor(_ color: Color?) {
+        artworkBrandColor = color
+    }
 
     private static let keyAppearance   = "pm.mac.appearance"
     private static let keyLyricsScale  = "pm.mac.lyricsScale"
@@ -1320,6 +1334,7 @@ final class MacUIPreferences {
         lyricsFontScale = CGFloat(max(0.7, min(1.8, scale)))
         let width = d.object(forKey: Self.keySidebarWidth) as? Double ?? Double(PMSize.sidebarDefault)
         sidebarWidth = CGFloat(max(Double(PMSize.sidebarMin), min(Double(PMSize.sidebarMax), width)))
+        themeColorMode = AppThemePreferences.colorMode(in: d)
         ambientStrength = AppThemePreferences.normalizedAmbientStrength(
             d.object(forKey: AppThemePreferences.ambientStrengthKey) as? Double
                 ?? AppThemePreferences.defaultAmbientStrength
@@ -1339,6 +1354,7 @@ final class MacUIPreferences {
             d.removeObject(forKey: Self.keyAppIcon)
         }
         d.set(ambientStrength, forKey: AppThemePreferences.ambientStrengthKey)
+        d.set(themeColorMode.rawValue, forKey: AppThemePreferences.colorModeKey)
         d.set(coverDrivenAmbient, forKey: AppThemePreferences.coverDrivenAmbientKey)
         d.set(brandColorHex, forKey: AppThemePreferences.accentHexKey)
     }

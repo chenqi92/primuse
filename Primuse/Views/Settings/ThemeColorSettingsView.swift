@@ -90,6 +90,23 @@ struct ThemeColorSettingsView: View {
             }
 
             Section {
+                modeRow(
+                    .automatic,
+                    title: "theme_color_mode_auto",
+                    hint: "theme_color_mode_auto_hint",
+                    icon: "photo.on.rectangle.angled"
+                )
+                modeRow(
+                    .fixed,
+                    title: "theme_color_mode_fixed",
+                    hint: "theme_color_mode_fixed_hint",
+                    icon: "paintpalette"
+                )
+            } header: {
+                Text("theme_color_mode")
+            }
+
+            Section {
                 LazyVGrid(columns: columns, spacing: 18) {
                     ForEach(ThemeColorSettings.swatches) { swatch in
                         swatchCell(swatch)
@@ -211,8 +228,8 @@ struct ThemeColorSettingsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("theme_color_current")
                     .font(.subheadline.weight(.medium))
-                Text(settings.coverDrivenAmbient
-                     ? PMString("ext.tv.settings.coverColor")
+                Text(settings.mode == .automatic
+                     ? String(localized: "theme_color_mode_auto")
                      : String(localized: "theme_color_mode_fixed"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -223,8 +240,45 @@ struct ThemeColorSettingsView: View {
         .animation(.easeInOut(duration: 0.35), value: themeService.colorID)
     }
 
+    private func modeRow(
+        _ mode: AppThemeColorMode,
+        title: LocalizedStringKey,
+        hint: LocalizedStringKey,
+        icon: String
+    ) -> some View {
+        Button {
+            apply(mode)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.body)
+                    .foregroundStyle(themeService.uiAccentColor)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .foregroundStyle(.primary)
+                    Text(hint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                if settings.mode == mode {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(themeService.uiAccentColor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(settings.mode == mode ? [.isButton, .isSelected] : .isButton)
+    }
+
     private func swatchCell(_ swatch: ThemeColorSettings.Swatch) -> some View {
-        let isSelected = settings.fixedColorHex == swatch.id
+        let isSelected = settings.mode == .fixed && settings.fixedColorHex == swatch.id
 
         return Button {
             select(swatch)
@@ -331,9 +385,10 @@ struct ThemeColorSettingsView: View {
             get: { settings.coverDrivenAmbient },
             set: { enabled in
                 settings.coverDrivenAmbient = enabled
+                themeService.setCoverDrivenAmbient(enabled)
                 if enabled {
                     refreshFromCurrentSong()
-                } else {
+                } else if settings.mode == .fixed {
                     themeService.resetToDefault()
                 }
             }
@@ -350,13 +405,32 @@ struct ThemeColorSettingsView: View {
     private func applyCustomColor(committing: Bool) {
         let hex = ThemeColorSettings.hex(fromHSB: custom)
         settings.fixedColorHex = hex
+        activateFixedMode(animated: committing)
         applyBaseAccent(Color(hex: hex), animated: committing, publish: committing)
     }
 
     private func select(_ swatch: ThemeColorSettings.Swatch) {
         settings.fixedColorHex = swatch.id
         custom = ThemeColorSettings.hsb(fromHex: swatch.id)
+        activateFixedMode(animated: true)
         applyBaseAccent(Color(hex: swatch.id), animated: true)
+    }
+
+    private func apply(_ mode: AppThemeColorMode) {
+        guard settings.mode != mode else { return }
+        settings.mode = mode
+        themeService.setColorMode(mode)
+        if mode == .automatic {
+            refreshFromCurrentSong()
+        } else if !settings.coverDrivenAmbient {
+            themeService.resetToDefault()
+        }
+    }
+
+    private func activateFixedMode(animated: Bool) {
+        guard settings.mode != .fixed else { return }
+        settings.mode = .fixed
+        themeService.setColorMode(.fixed, animated: animated)
     }
 
     private func applyBaseAccent(_ color: Color, animated: Bool, publish: Bool = true) {

@@ -208,6 +208,7 @@
 "ext.tv.settings.appearance.light"         = "Clair";
 "ext.tv.settings.appearance.dark"          = "Sombre";
 "ext.tv.settings.themeColor"               = "Couleur du thème";
+"theme_color_mode_auto"                    = "D’après la pochette";
 "ext.tv.settings.coverColor"               = "Ambiance de la pochette";
 "ext.tv.settings.ambientIntensity"          = "Intensité ambiante";
 "ext.tv.settings.intensity.low"             = "Faible";
