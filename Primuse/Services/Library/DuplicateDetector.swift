@@ -1,9 +1,9 @@
 import Foundation
 import PrimuseKit
 
-/// 检测 library 内同首歌的多个版本 (NAS 上同时存放 mp3 + flac, 或者
-/// 不同目录里相同文件)。按 (title, artist, duration±2s) 作为 fingerprint
-/// 分组, 每组超过 1 首即视为重复。
+/// 检测 library 内可能属于同首歌的多个版本 (NAS 上同时存放 mp3 + flac,
+/// 或者不同目录里相同文件)。按标准化标题、艺术家和 2 秒时长桶进行元数据
+/// 分组；这里不计算 AcoustID/音频内容指纹，因此结果仍需要用户复核。
 ///
 /// 用法:
 /// ```
@@ -17,8 +17,8 @@ import PrimuseKit
 /// 在主线程跑会卡 1-3s 让 UI 冻住。改成 nonisolated 后调用方用
 /// `Task.detached` 丢到后台跑, 主线程只负责 ProgressView 显示。
 enum DuplicateDetector {
-    /// duration ±2s 容差: 同一首歌不同 encoder 转出来 duration 可能差几百
-    /// 毫秒, 取 2s bucket (实际 ±1s) 容错。
+    /// 同一首歌不同 encoder 的时长可能相差几百毫秒，用 2 秒桶降低轻微差异
+    /// 带来的漏报。桶边界仍可能产生漏报，但不会扩大单个桶的匹配跨度。
     private static let durationBucketSec: Int = 2
 
     /// 扫描 library 找重复歌曲分组。

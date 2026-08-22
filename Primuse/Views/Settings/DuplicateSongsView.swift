@@ -23,6 +23,7 @@ struct DuplicateSongsView: View {
     @State private var scanGeneration = 0
     #if os(macOS)
     @State private var retentionStrategy: MacDuplicateRetentionStrategy = .highestBitrate
+    @State private var macKeptSongIDsByGroup: [String: Set<String>] = [:]
     #endif
 
     /// 一次性最多渲染多少个 Section, 超过后下面给个「显示全部」按钮。
@@ -30,6 +31,12 @@ struct DuplicateSongsView: View {
     /// 100 是经验值: 用户该清的早就用「一键清理」按钮处理了, 看完整列表
     /// 是相对边缘的需求, 显式展开避免默认 paint 卡。
     private static let initialGroupRenderCap = 100
+
+    #if os(macOS)
+    private static let macVisibleDuplicateColumns = 3
+    private static let macDuplicateCardSpacing: CGFloat = 10
+    private static let macDuplicateCardMinWidth: CGFloat = 224
+    #endif
 
     #if os(macOS)
     private enum MacDuplicateRetentionStrategy: String, CaseIterable, Hashable {
@@ -161,12 +168,16 @@ struct DuplicateSongsView: View {
                 "dup_clean_all_confirm",
                 isPresented: $showCleanAllConfirm
             ) {
-                Button("dup_keep_best_action_short", role: .destructive) {
+                Button("dup_mac_delete", role: .destructive) {
                     cleanAll()
                 }
                 Button("cancel", role: .cancel) {}
             } message: {
-                Text(String(format: String(localized: "dup_clean_all_message_format"), totalRedundantCount))
+                Text(String(
+                    format: String(localized: "dup_mac_delete_footer_format"),
+                    totalRedundantCount,
+                    recoverableSizeText
+                ))
             }
             .overlay(alignment: .bottom) {
                 if let msg = lastActionMessage {
@@ -181,6 +192,9 @@ struct DuplicateSongsView: View {
             .onChange(of: cleaner.completionRevision) { _, _ in
                 showCleanupResult()
                 Task { await rescan() }
+            }
+            .onChange(of: retentionStrategy) { _, _ in
+                macKeptSongIDsByGroup.removeAll(keepingCapacity: true)
             }
     }
 
@@ -232,8 +246,8 @@ struct DuplicateSongsView: View {
         ScrollView(.vertical, showsIndicators: true) {
             duplicateGroupsContent
                 .padding(.horizontal, 20)
-                .padding(.top, 6)
-                .padding(.bottom, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .refreshable { await rescan() }
@@ -251,7 +265,7 @@ struct DuplicateSongsView: View {
         } else if groups.isEmpty {
             emptyMacCard
         } else {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 16) {
                 ForEach(visibleGroups) { group in
                     macGroupRow(group)
                 }
@@ -292,7 +306,7 @@ struct DuplicateSongsView: View {
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
 
-                Text(verbatim: String(format: String(localized: "dup_mac_match_hint_format"), recoverableSizeText))
+                Text(verbatim: duplicateMatchCriteriaText)
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -358,7 +372,7 @@ struct DuplicateSongsView: View {
             Button(role: .destructive) {
                 showCleanAllConfirm = true
             } label: {
-                Text(verbatim: String(localized: "dup_mac_cleanup_action"))
+                Text(verbatim: String(localized: "dup_clean_all_action"))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
@@ -449,25 +463,25 @@ struct DuplicateSongsView: View {
     }
 
     private func macGroupRow(_ group: DuplicateGroup) -> some View {
-        let keepID = preferredSong(in: group).id
         let deletableSourceIDs = deletableSourceIDsSnapshot
-        let containsReadOnlySong = group.songs.contains {
-            !deletableSourceIDs.contains($0.sourceID)
-        }
-        return VStack(alignment: .leading, spacing: 0) {
+        let keptSongIDs = macKeptSongIDs(
+            in: group,
+            deletableSourceIDs: deletableSourceIDs
+        )
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 CachedArtworkView(
                     coverRef: group.bestSong.coverArtFileName,
                     songID: group.bestSong.id,
-                    size: 28,
-                    cornerRadius: 5,
+                    size: 34,
+                    cornerRadius: 6,
                     sourceID: group.bestSong.sourceID,
                     filePath: group.bestSong.filePath,
                     fileFormat: group.bestSong.fileFormat
                 )
 
                 Text(group.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
 
@@ -485,87 +499,202 @@ struct DuplicateSongsView: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 6)
 
-            VStack(spacing: 0) {
-                ForEach(Array(group.songs.enumerated()), id: \.element.id) { index, song in
-                    let isReadOnly = !deletableSourceIDs.contains(song.sourceID)
-                    // Cleanup always keeps read-only catalogue entries. When a
-                    // group mixes read-only and writable sources, every writable
-                    // copy is removable; otherwise preserve the selected winner.
-                    let isKept = isReadOnly || (!containsReadOnlySong && song.id == keepID)
-                    macSongRow(song: song, isKept: isKept, isReadOnly: isReadOnly)
-                    if index < group.songs.count - 1 {
-                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            GeometryReader { proxy in
+                let cardWidth = macDuplicateCardWidth(
+                    availableWidth: proxy.size.width,
+                    songCount: group.songs.count
+                )
+
+                if group.songs.count <= Self.macVisibleDuplicateColumns {
+                    HStack(alignment: .top, spacing: Self.macDuplicateCardSpacing) {
+                        macSongCards(
+                            in: group,
+                            deletableSourceIDs: deletableSourceIDs,
+                            keptSongIDs: keptSongIDs,
+                            cardWidth: cardWidth
+                        )
+                    }
+                } else {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        LazyHStack(alignment: .top, spacing: Self.macDuplicateCardSpacing) {
+                            macSongCards(
+                                in: group,
+                                deletableSourceIDs: deletableSourceIDs,
+                                keptSongIDs: keptSongIDs,
+                                cardWidth: cardWidth
+                            )
+                        }
                     }
                 }
             }
-            .background(PMColor.bgElev, in: .rect(cornerRadius: 10))
-            .clipShape(.rect(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-            }
+            .frame(height: 104)
+        }
+        .padding(12)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
     }
 
-    private func macSongRow(song: Song, isKept: Bool, isReadOnly: Bool) -> some View {
+    private func macDuplicateCardWidth(availableWidth: CGFloat, songCount: Int) -> CGFloat {
+        let visibleColumns = min(max(songCount, 1), Self.macVisibleDuplicateColumns)
+        let spacing = CGFloat(max(visibleColumns - 1, 0)) * Self.macDuplicateCardSpacing
+        let fittedWidth = (availableWidth - spacing) / CGFloat(visibleColumns)
+        return max(Self.macDuplicateCardMinWidth, fittedWidth)
+    }
+
+    @ViewBuilder
+    private func macSongCards(
+        in group: DuplicateGroup,
+        deletableSourceIDs: Set<String>,
+        keptSongIDs: Set<String>,
+        cardWidth: CGFloat
+    ) -> some View {
+        ForEach(group.songs, id: \.id) { song in
+            let isReadOnly = !deletableSourceIDs.contains(song.sourceID)
+            macSongCard(
+                song: song,
+                group: group,
+                isKept: keptSongIDs.contains(song.id),
+                isReadOnly: isReadOnly
+            )
+            .frame(width: cardWidth, height: 104)
+        }
+    }
+
+    @ViewBuilder
+    private func macSongCard(
+        song: Song,
+        group: DuplicateGroup,
+        isKept: Bool,
+        isReadOnly: Bool
+    ) -> some View {
         let action = isReadOnly
             ? String(localized: "dup_mac_keep_read_only")
             : String(localized: isKept ? "dup_mac_keep" : "dup_mac_delete")
-        return HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .strokeBorder(isKept ? Color.clear : PMColor.dividerStrong, lineWidth: 1.5)
-                    .background {
-                        Circle().fill(isKept ? PMColor.brand : Color.clear)
-                    }
-                if isKept {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                }
+        let accessibilityLabel = Text(verbatim: "\(action) · \(duplicateSourceName(song))")
+
+        if isReadOnly {
+            macSongCardContent(
+                song: song,
+                action: action,
+                isKept: true,
+                isReadOnly: true
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+        } else {
+            Button {
+                toggleMacSongKept(song, in: group)
+            } label: {
+                macSongCardContent(
+                    song: song,
+                    action: action,
+                    isKept: isKept,
+                    isReadOnly: false
+                )
             }
-            .frame(width: 16, height: 16)
-            .frame(width: 22, alignment: .leading)
-
-            Text(verbatim: "\(action) · \(duplicateSourceName(song))")
-                .font(.system(size: 12, weight: isKept ? .semibold : .regular))
-                .foregroundStyle(isKept ? PMColor.text : PMColor.textMuted)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            macFormatLabel(song)
-                .frame(width: 80, alignment: .leading)
-
-            Text(bitrateText(song))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textMuted)
-                .frame(width: 70, alignment: .leading)
-
-            Text(sampleRateText(song))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textMuted)
-                .frame(width: 70, alignment: .leading)
-
-            Text(fileSizeText(song))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textMuted)
-                .frame(width: 80, alignment: .trailing)
+            .buttonStyle(.plain)
+            .disabled(cleaner.progress != nil)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityValue(Text(verbatim: action))
+            .accessibilityAddTraits(isKept ? [] : .isSelected)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(isKept ? PMColor.brand.opacity(0.12) : Color.clear)
+    }
+
+    private func macSongCardContent(
+        song: Song,
+        action: String,
+        isKept: Bool,
+        isReadOnly: Bool
+    ) -> some View {
+        let statusColor = isReadOnly ? PMColor.textMuted : (isKept ? PMColor.brand : PMColor.bad)
+        let statusIcon = isReadOnly
+            ? "lock.fill"
+            : (isKept ? "circle" : "checkmark.circle.fill")
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: statusIcon)
+                    .font(.system(size: 11, weight: .semibold))
+
+                Text(verbatim: action)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                macFormatLabel(song)
+            }
+            .foregroundStyle(statusColor)
+
+            HStack(spacing: 6) {
+                Image(systemName: isReadOnly ? "music.note" : "externaldrive.fill")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(PMColor.textFaint)
+
+                Text(verbatim: duplicateSourceName(song))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                macQualityMetric("smart_field_bitRate", value: bitrateText(song))
+                macQualityMetric("sample_rate_label", value: sampleRateText(song))
+                macQualityMetric("file_size_label", value: fileSizeText(song))
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(PMColor.bg, in: .rect(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .overlay(alignment: .top) {
+            if !isKept && !isReadOnly {
+                Capsule()
+                    .fill(PMColor.bad)
+                    .frame(width: 34, height: 2)
+                    .padding(.top, 1)
+            }
+        }
+        .contentShape(Rectangle())
+        .help(Text(verbatim: sourceDescription(song)))
+    }
+
+    private func macQualityMetric(_ title: LocalizedStringKey, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(PMColor.textFaint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            Text(verbatim: value)
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func macFormatLabel(_ song: Song) -> some View {
         let format = song.fileFormat.displayName.uppercased()
         let text = format.isEmpty ? "—" : format
         let isLossless = ["FLAC", "ALAC", "APE", "WAV", "AIFF"].contains(format)
+        let foreground = isLossless ? PMColor.flac : PMColor.textMuted
         return Text(verbatim: text)
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(isLossless ? PMColor.flac : PMColor.textMuted)
+            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 6)
+            .frame(height: 18)
+            .background(foreground.opacity(0.10), in: .capsule)
     }
     #endif
 
@@ -622,10 +751,11 @@ struct DuplicateSongsView: View {
     @ViewBuilder
     private func groupSection(_ group: DuplicateGroup) -> some View {
         let writableSourceIDs = deletableSourceIDsSnapshot
-        let removableCount = removableSongs(
+        let groupRemovableSongs = removableSongs(
             in: group,
             deletableSourceIDs: writableSourceIDs
-        ).count
+        )
+        let removableSongIDs = Set(groupRemovableSongs.map(\.id))
         Section {
             DisclosureGroup(
                 isExpanded: Binding(
@@ -638,7 +768,7 @@ struct DuplicateSongsView: View {
                         song: song,
                         isBest: song.id == group.bestSong.id,
                         group: group,
-                        canDelete: writableSourceIDs.contains(song.sourceID)
+                        canDelete: removableSongIDs.contains(song.id)
                     )
                 }
 
@@ -647,12 +777,12 @@ struct DuplicateSongsView: View {
                 } label: {
                     HStack {
                         Image(systemName: "sparkles")
-                        Text(String(format: String(localized: "dup_keep_best_action_format"), removableCount))
+                        Text(String(format: String(localized: "dup_keep_best_action_format"), groupRemovableSongs.count))
                     }
                     .font(.subheadline.weight(.medium))
                 }
                 .padding(.vertical, 4)
-                .disabled(removableCount == 0 || cleaner.progress != nil)
+                .disabled(groupRemovableSongs.isEmpty || cleaner.progress != nil)
             } label: {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -698,7 +828,7 @@ struct DuplicateSongsView: View {
             Spacer()
 
             Button(role: .destructive) {
-                deleteSingle(song: song)
+                deleteSingle(song: song, in: group)
             } label: {
                 Image(systemName: "trash")
                     .font(.subheadline)
@@ -734,6 +864,9 @@ struct DuplicateSongsView: View {
         groups = detected
         expandedGroupID = nil
         showAllGroups = false
+        #if os(macOS)
+        macKeptSongIDsByGroup.removeAll(keepingCapacity: true)
+        #endif
     }
 
     private func keepBest(of group: DuplicateGroup) {
@@ -745,7 +878,12 @@ struct DuplicateSongsView: View {
         startCleanup(toRemove)
     }
 
-    private func deleteSingle(song: Song) {
+    private func deleteSingle(song: Song, in group: DuplicateGroup) {
+        let removableSongIDs = Set(removableSongs(
+            in: group,
+            deletableSourceIDs: deletableSourceIDsSnapshot
+        ).map(\.id))
+        guard removableSongIDs.contains(song.id) else { return }
         startCleanup([song])
     }
 
@@ -805,6 +943,14 @@ struct DuplicateSongsView: View {
         groups.reduce(0) { $0 + $1.songs.count }
     }
 
+    private var duplicateMatchCriteriaText: String {
+        [
+            String(localized: "title"),
+            String(localized: "artist_label"),
+            String(localized: "duration_label"),
+        ].joined(separator: " + ")
+    }
+
     private var recoverableBytes: Int64 {
         let writableSourceIDs = deletableSourceIDsSnapshot
         return groups
@@ -816,34 +962,101 @@ struct DuplicateSongsView: View {
         ByteCountFormatter.string(fromByteCount: recoverableBytes, countStyle: .file)
     }
 
-    private func preferredSong(in group: DuplicateGroup) -> Song {
+    private func preferredSong(in songs: [Song]) -> Song? {
+        guard !songs.isEmpty else { return nil }
         switch retentionStrategy {
         case .highestBitrate:
-            return group.songs.sorted { lhs, rhs in
-                let leftBitRate = lhs.bitRate ?? 0
-                let rightBitRate = rhs.bitRate ?? 0
-                if leftBitRate != rightBitRate { return leftBitRate > rightBitRate }
-
-                let leftSampleRate = lhs.sampleRate ?? 0
-                let rightSampleRate = rhs.sampleRate ?? 0
-                if leftSampleRate != rightSampleRate { return leftSampleRate > rightSampleRate }
-
-                let leftBitDepth = lhs.bitDepth ?? 0
-                let rightBitDepth = rhs.bitDepth ?? 0
-                if leftBitDepth != rightBitDepth { return leftBitDepth > rightBitDepth }
-
-                return lhs.fileSize > rhs.fileSize
-            }.first ?? group.bestSong
+            return songs.max { lhs, rhs in
+                let leftQuality = (
+                    lhs.bitRate ?? 0,
+                    lhs.sampleRate ?? 0,
+                    lhs.bitDepth ?? 0,
+                    lhs.fileSize
+                )
+                let rightQuality = (
+                    rhs.bitRate ?? 0,
+                    rhs.sampleRate ?? 0,
+                    rhs.bitDepth ?? 0,
+                    rhs.fileSize
+                )
+                return leftQuality < rightQuality
+            }
         case .largestFile:
-            return group.songs.max { $0.fileSize < $1.fileSize } ?? group.bestSong
+            return songs.max { $0.fileSize < $1.fileSize }
         case .newest:
-            return group.songs.max { newestDate($0) < newestDate($1) } ?? group.bestSong
+            return songs.max { newestDate($0) < newestDate($1) }
         }
     }
 
-    private func macRedundantSongs(in group: DuplicateGroup) -> [Song] {
-        let keepID = preferredSong(in: group).id
-        return group.songs.filter { $0.id != keepID }
+    private func macKeptSongIDs(
+        in group: DuplicateGroup,
+        deletableSourceIDs: Set<String>
+    ) -> Set<String> {
+        let readOnlySongIDs = Set(group.songs.lazy
+            .filter { !deletableSourceIDs.contains($0.sourceID) }
+            .map(\.id))
+        let writableSongs = group.songs.filter {
+            deletableSourceIDs.contains($0.sourceID)
+        }
+        let writableSongIDs = writableSongs.map(\.id)
+        let writableSongIDSet = Set(writableSongIDs)
+
+        if let overriddenSongIDs = macKeptSongIDsByGroup[group.id] {
+            let validSongIDs = readOnlySongIDs.union(writableSongIDSet)
+            var normalizedSongIDs = overriddenSongIDs.intersection(validSongIDs)
+            normalizedSongIDs.formUnion(readOnlySongIDs)
+            if !writableSongIDs.isEmpty,
+               writableSongIDSet.isDisjoint(with: normalizedSongIDs),
+               let fallbackSongID = preferredSong(in: writableSongs)?.id {
+                normalizedSongIDs.insert(fallbackSongID)
+            }
+            return normalizedSongIDs
+        }
+
+        return DuplicateCleanupSelectionPolicy.defaultKeptSongIDs(
+            readOnlySongIDs: readOnlySongIDs,
+            writableSongIDs: writableSongIDs,
+            preferredWritableSongID: preferredSong(in: writableSongs)?.id
+        )
+    }
+
+    private func toggleMacSongKept(_ song: Song, in group: DuplicateGroup) {
+        let deletableSourceIDs = deletableSourceIDsSnapshot
+        guard deletableSourceIDs.contains(song.sourceID) else { return }
+
+        let readOnlySongIDs = Set(group.songs.lazy
+            .filter { !deletableSourceIDs.contains($0.sourceID) }
+            .map(\.id))
+        let writableSongIDs = group.songs.lazy
+            .filter { deletableSourceIDs.contains($0.sourceID) }
+            .map(\.id)
+        let currentKeptSongIDs = macKeptSongIDs(
+            in: group,
+            deletableSourceIDs: deletableSourceIDs
+        )
+        macKeptSongIDsByGroup[group.id] = DuplicateCleanupSelectionPolicy.toggledKeptSongIDs(
+            currentKeptSongIDs: currentKeptSongIDs,
+            toggledSongID: song.id,
+            readOnlySongIDs: readOnlySongIDs,
+            writableSongIDs: Array(writableSongIDs)
+        )
+    }
+
+    private func macRemovableSongs(
+        in group: DuplicateGroup,
+        deletableSourceIDs: Set<String>
+    ) -> [Song] {
+        let writableSongIDs = group.songs.lazy
+            .filter { deletableSourceIDs.contains($0.sourceID) }
+            .map(\.id)
+        let removableSongIDs = DuplicateCleanupSelectionPolicy.removableSongIDs(
+            writableSongIDs: Array(writableSongIDs),
+            keptSongIDs: macKeptSongIDs(
+                in: group,
+                deletableSourceIDs: deletableSourceIDs
+            )
+        )
+        return group.songs.filter { removableSongIDs.contains($0.id) }
     }
 
     private func newestDate(_ song: Song) -> Date {
@@ -889,9 +1102,9 @@ struct DuplicateSongsView: View {
     }
     #endif
 
-    /// If a group contains a read-only source, that file must remain and all
-    /// writable copies are removable. When every source is writable, preserve
-    /// the normal quality/strategy-selected winner.
+    /// Read-only catalogues are never candidates for source deletion. Every
+    /// group also preserves at least one writable copy so a streaming catalogue
+    /// entry can never cause the user's only local/NAS copy to be removed.
     private var deletableSourceIDsSnapshot: Set<String> {
         Set(sourcesStore.sources.lazy
             .filter { $0.type.supportsFileDeletion }
@@ -903,11 +1116,14 @@ struct DuplicateSongsView: View {
         deletableSourceIDs: Set<String>
     ) -> [Song] {
         let writable = group.songs.filter { deletableSourceIDs.contains($0.sourceID) }
-        guard writable.count == group.songs.count else { return writable }
         #if os(macOS)
-        return macRedundantSongs(in: group)
+        return macRemovableSongs(in: group, deletableSourceIDs: deletableSourceIDs)
         #else
-        return group.redundantSongs
+        guard writable.count > 1,
+              let keptWritableID = group.songs.first(where: {
+                  deletableSourceIDs.contains($0.sourceID)
+              })?.id else { return [] }
+        return writable.filter { $0.id != keptWritableID }
         #endif
     }
 

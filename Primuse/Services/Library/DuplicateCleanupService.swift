@@ -43,8 +43,20 @@ final class DuplicateCleanupService {
     /// 串行删除 songs (按源端逐首)。已有任务进行中时忽略再次触发。
     /// 返回的 Task 不需要 await — 调用方只关心 progress 字段。
     @discardableResult
-    func cleanup(_ songs: [Song]) -> Task<Void, Never>? {
-        guard activeTask == nil, !songs.isEmpty else { return activeTask }
+    func cleanup(_ requestedSongs: [Song]) -> Task<Void, Never>? {
+        guard activeTask == nil else { return activeTask }
+
+        // Views filter read-only catalogues before calling this service, but
+        // enforce the same boundary here so a future caller can never send an
+        // Apple Music/UPnP/server-catalogue row into a source delete attempt.
+        let deletableSourceIDs = Set(sourcesStore.sources.lazy
+            .filter { $0.type.supportsFileDeletion }
+            .map(\.id))
+        let songs = requestedSongs.filter { deletableSourceIDs.contains($0.sourceID) }
+        if songs.count != requestedSongs.count {
+            plog("⚠️ Duplicate cleanup ignored \(requestedSongs.count - songs.count) read-only song(s)")
+        }
+        guard !songs.isEmpty else { return nil }
         progress = Progress(done: 0, total: songs.count)
 
         let task = Task { @MainActor in
