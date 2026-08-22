@@ -292,7 +292,8 @@ struct TVImmersivePlayerView: View {
     private func tvShowcaseControlSurface(metrics: ImmersiveStageMetrics) -> some View {
         ImmersiveGlassPill(
             horizontalPadding: metrics.s(22),
-            verticalPadding: metrics.s(10)
+            verticalPadding: metrics.s(10),
+            clipsContent: false
         ) {
             HStack(spacing: metrics.s(18)) {
                 transportControls(surface: .bare)

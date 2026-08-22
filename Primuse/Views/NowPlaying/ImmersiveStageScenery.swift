@@ -686,9 +686,20 @@ struct ImmersiveGlassPill<Content: View>: View {
     var verticalPadding: CGFloat
     /// 液态铬用亮色玻璃,其余风格用深色玻璃
     var isLight: Bool = false
+    /// tvOS 焦点层需要越过胶囊边界，避免放大、上抬后的描边被裁切。
+    var clipsContent: Bool = true
     @ViewBuilder var content: () -> Content
 
+    @ViewBuilder
     var body: some View {
+        if clipsContent {
+            surface.clipShape(Capsule(style: .continuous))
+        } else {
+            surface
+        }
+    }
+
+    private var surface: some View {
         content()
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
@@ -719,7 +730,6 @@ struct ImmersiveGlassPill<Content: View>: View {
                         lineWidth: 0.8
                     )
             }
-            .clipShape(Capsule(style: .continuous))
     }
 }
 

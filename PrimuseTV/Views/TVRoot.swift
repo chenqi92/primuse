@@ -9,6 +9,7 @@ import PrimuseKit
 enum TVContentFocusTab: Equatable, Sendable {
     case library
     case nowPlaying
+    case search
     case other
 }
 
@@ -28,6 +29,7 @@ enum TVNowPlayingFocusTarget: Hashable, Sendable {
 enum TVContentFocusTarget: Equatable, Sendable {
     case libraryDefault
     case nowPlaying(TVNowPlayingFocusTarget)
+    case searchField
 }
 
 struct TVContentFocusRequest: Equatable, Sendable {
@@ -52,6 +54,8 @@ enum TVContentFocusRoutingPolicy {
             case .song:
                 return .nowPlaying(.songPrimary)
             }
+        case .search:
+            return .searchField
         case .other:
             return nil
         }
@@ -144,6 +148,7 @@ struct TVRoot: View {
     @State private var showOptions = false
     @State private var libraryFocusRequest = 0
     @State private var nowPlayingFocusRequest: TVContentFocusRequest?
+    @State private var searchFocusRequest: TVContentFocusRequest?
     @State private var contentFocusRouting = TVContentFocusRoutingState()
     @State private var tabFocusRequest = 0
     @State private var isTabBarFocused = true
@@ -214,24 +219,25 @@ struct TVRoot: View {
     }
 
     private var rootContent: some View {
-        ZStack {
-            TVColor.bg.ignoresSafeArea()
+        GeometryReader { _ in
+            ZStack {
+                TVColor.bg.ignoresSafeArea()
 
-            content
-                .transition(.opacity)
+                content
+                    .transition(.opacity)
 
-            VStack(spacing: 0) {
-                TVTabBar(
-                    active: tab,
-                    onSelect: { tab = $0 },
-                    onContentDown: requestContentFocus,
-                    focusRequest: tabFocusRequest,
-                    onFocusChanged: { isTabBarFocused = $0 },
-                    onSettings: { showSettings = true }
-                )
-                Spacer(minLength: 0)
+                VStack(spacing: 0) {
+                    TVTabBar(
+                        active: tab,
+                        onSelect: { tab = $0 },
+                        onContentDown: requestContentFocus,
+                        focusRequest: tabFocusRequest,
+                        onFocusChanged: { isTabBarFocused = $0 },
+                        onSettings: { showSettings = true }
+                    )
+                    Spacer(minLength: 0)
+                }
             }
-
         }
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
@@ -306,7 +312,11 @@ struct TVRoot: View {
             )
         case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
         case .sources:   TVSourcesView()
-        case .search:    TVSearchView(openPlayer: { tab = .nowPlaying })
+        case .search:
+            TVSearchView(
+                openPlayer: { tab = .nowPlaying },
+                focusRequest: searchFocusRequest
+            )
         }
     }
 
@@ -342,6 +352,7 @@ struct TVRoot: View {
     private func returnFocusToTabs() {
         contentFocusRouting.returnToTabs()
         nowPlayingFocusRequest = nil
+        searchFocusRequest = nil
         tabFocusRequest &+= 1
     }
 
@@ -351,6 +362,8 @@ struct TVRoot: View {
             libraryFocusRequest = request.id
         case .nowPlaying:
             nowPlayingFocusRequest = request
+        case .searchField:
+            searchFocusRequest = request
         }
     }
 
@@ -358,6 +371,7 @@ struct TVRoot: View {
         switch tab {
         case .library: return .library
         case .nowPlaying: return .nowPlaying
+        case .search: return .search
         default: return .other
         }
     }

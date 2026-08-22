@@ -6,6 +6,7 @@ import SwiftUI
 struct TVSearchView: View {
     @Environment(TVStore.self) private var store
     var openPlayer: () -> Void = {}
+    var focusRequest: TVContentFocusRequest? = nil
 
     @State private var query: String = ""
     @State private var results: (top: TVArtist?, songs: [TVStore.TVSearchHit]) = (nil, [])
@@ -25,6 +26,12 @@ struct TVSearchView: View {
             .tvPage()
         }
         .onChange(of: query) { _, q in results = store.searchHits(q) }
+        .task(id: focusRequest?.id) {
+            guard let request = focusRequest, request.target == .searchField else { return }
+            await Task.yield()
+            guard !Task.isCancelled, focusRequest == request else { return }
+            inputActive = true
+        }
     }
 
     // MARK: 左列 — 搜索框(单层玻璃盒) + 建议(常驻)

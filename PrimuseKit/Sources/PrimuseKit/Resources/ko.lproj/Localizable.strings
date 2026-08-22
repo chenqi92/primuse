@@ -204,7 +204,7 @@
 "ext.tv.settings.icloudSync"               = "iCloud 동기화";
 "ext.tv.settings.autoSync"                 = "실행 시 자동 동기화";
 "ext.tv.settings.appearance"               = "외관";
-"ext.tv.settings.appearance.system"        = "Apple TV 설정 따르기";
+"ext.tv.settings.appearance.system"        = "따르기";
 "ext.tv.settings.appearance.light"         = "라이트";
 "ext.tv.settings.appearance.dark"          = "다크";
 "ext.tv.settings.themeColor"               = "테마 색상";
