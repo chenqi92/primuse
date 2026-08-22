@@ -19,9 +19,22 @@ actor S3Source: MusicSourceConnector {
     /// 长生命周期 session, fetchRange / localURL 复用 HTTP keep-alive。
     /// S3 协议天然支持 Range header (GetObject with Range), 不需要签名。
     /// disconnect() 中 finishTasksAndInvalidate(), 避免 session/线程/fd 泄漏。
+    private var _directorySession: URLSession?
+    private var directorySession: URLSession {
+        if let session = _directorySession { return session }
+        let session = Self.makeSession()
+        _directorySession = session
+        return session
+    }
     private var _rangeSession: URLSession?
     private var rangeSession: URLSession {
         if let session = _rangeSession { return session }
+        let session = Self.makeSession()
+        _rangeSession = session
+        return session
+    }
+
+    private static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
@@ -31,7 +44,6 @@ actor S3Source: MusicSourceConnector {
             delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
             delegateQueue: nil
         )
-        _rangeSession = session
         return session
     }
 
@@ -63,6 +75,8 @@ actor S3Source: MusicSourceConnector {
     func disconnect() async {
         // 自建 session 必须显式 invalidate, 否则其内部工作队列/连接缓存
         // 在进程退出前不会释放 (connector 反复重建时累积线程/fd)。
+        _directorySession?.finishTasksAndInvalidate()
+        _directorySession = nil
         _rangeSession?.finishTasksAndInvalidate()
         _rangeSession = nil
     }
@@ -76,6 +90,7 @@ actor S3Source: MusicSourceConnector {
         // ConnectorScanner treats the missing songs as deleted. Follow the
         // continuation token until the listing is complete.
         var continuationToken: String? = nil
+        var seenContinuationTokens: Set<String> = []
         repeat {
             guard var components = URLComponents(url: try bucketURL(), resolvingAgainstBaseURL: false) else {
                 throw SourceError.connectionFailed("Invalid S3 URL")
@@ -94,7 +109,16 @@ actor S3Source: MusicSourceConnector {
 
             let page = try await loadListPage(url: url, prefix: prefix)
             items.append(contentsOf: page.items)
-            continuationToken = page.isTruncated ? page.nextContinuationToken : nil
+            if page.isTruncated, let nextToken = page.nextContinuationToken {
+                guard seenContinuationTokens.insert(nextToken).inserted else {
+                    throw SourceError.connectionFailed(
+                        "S3 list response repeated its continuation token"
+                    )
+                }
+                continuationToken = nextToken
+            } else {
+                continuationToken = nil
+            }
         } while continuationToken != nil
 
         return items
@@ -106,7 +130,11 @@ actor S3Source: MusicSourceConnector {
         while true {
             do {
                 try Task.checkCancellation()
-                let (data, http) = try await performDataRequest(url: url, method: "GET")
+                let (data, http) = try await performDataRequest(
+                    url: url,
+                    method: "GET",
+                    session: directorySession
+                )
                 switch http.statusCode {
                 case 200:
                     return try parseListResponse(data: data, prefix: prefix)
@@ -122,7 +150,7 @@ actor S3Source: MusicSourceConnector {
                 }
             } catch {
                 if OperationCancellationPolicy.isCancellation(error) {
-                    resetRangeSession()
+                    resetDirectorySession()
                     throw CancellationError()
                 }
 
@@ -135,13 +163,13 @@ actor S3Source: MusicSourceConnector {
                 ) {
                 case .retryFreshConnection:
                     completedRetryAttempts += 1
-                    resetRangeSession()
+                    resetDirectorySession()
                 case .accept:
                     assertionFailure("An S3 list error cannot be accepted")
                     throw error
                 case .fail:
                     if outcome == .retryableFailure {
-                        resetRangeSession()
+                        resetDirectorySession()
                     }
                     throw error
                 }
@@ -292,7 +320,8 @@ actor S3Source: MusicSourceConnector {
         method: String,
         rangeHeader: String? = nil,
         timeout: TimeInterval = 30,
-        maxBytes: Int = PlainHTTPClient.defaultMaxBytes
+        maxBytes: Int = PlainHTTPClient.defaultMaxBytes,
+        session explicitSession: URLSession? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         for attempt in 0..<2 {
             var request = try signedRequest(url: url, method: method)
@@ -304,7 +333,7 @@ actor S3Source: MusicSourceConnector {
 
             let (data, response) = try await TrustedHTTPTransport.data(
                 for: request,
-                session: rangeSession,
+                session: explicitSession ?? rangeSession,
                 maxBytes: maxBytes
             )
             guard let http = response as? HTTPURLResponse else {
@@ -319,9 +348,9 @@ actor S3Source: MusicSourceConnector {
         throw SourceError.connectionFailed("S3 clock correction retry failed")
     }
 
-    private func resetRangeSession() {
-        _rangeSession?.invalidateAndCancel()
-        _rangeSession = nil
+    private func resetDirectorySession() {
+        _directorySession?.invalidateAndCancel()
+        _directorySession = nil
     }
 
     private static func rangeResponseLimit(for length: Int64) -> Int {

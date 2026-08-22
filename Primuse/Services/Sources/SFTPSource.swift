@@ -135,6 +135,20 @@ actor SFTPSource: MusicSourceConnector {
     }
 
     private nonisolated static func connectionError(_ error: Error) -> Error {
+        if error is AuthenticationFailed {
+            return SourceError.authenticationFailed
+        }
+        if let clientError = error as? SSHClientError {
+            switch clientError {
+            case .unsupportedPasswordAuthentication,
+                 .unsupportedPrivateKeyAuthentication,
+                 .unsupportedHostBasedAuthentication,
+                 .allAuthenticationOptionsFailed:
+                return SourceError.authenticationFailed
+            case .channelCreationFailed:
+                break
+            }
+        }
         if let sshError = error as? NIOSSHError {
             if sshError.type == .keyExchangeNegotiationFailure {
                 return SourceError.connectionFailed(
@@ -159,18 +173,18 @@ actor SFTPSource: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         var completedRetryAttempts = 0
+        var previousAttemptWasEmpty = false
 
         while true {
-            try await connect()
-            guard let sftp else {
-                throw SourceError.connectionFailed("Not connected")
-            }
-
             do {
+                try await connect()
+                guard let sftp else {
+                    throw SourceError.connectionFailed("Not connected")
+                }
                 let remotePath = try resolvedRemotePath(for: path)
                 let listings = try await sftp.listDirectory(atPath: remotePath)
                 let allComponents = listings.flatMap { $0.components }
-                return allComponents.compactMap { item -> RemoteFileItem? in
+                let items = allComponents.compactMap { item -> RemoteFileItem? in
                     guard item.filename != ".", item.filename != ".." else { return nil }
 
                     guard let childPath = RemotePathScopePolicy(rootPath: rootPath)
@@ -187,6 +201,27 @@ actor SFTPSource: MusicSourceConnector {
                     )
                 }
                 .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+                let outcome: RemoteDirectoryListingOutcome = items.isEmpty ? .empty : .populated
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    // Citadel collapses every terminal READDIR status into an
+                    // empty result. Confirm emptiness on a new SSH connection.
+                    emptyNeedsFreshConfirmation: true,
+                    previousAttemptWasEmpty: previousAttemptWasEmpty
+                ) {
+                case .accept:
+                    return items
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    previousAttemptWasEmpty = true
+                    await closeCurrentConnection()
+                case .fail:
+                    await closeCurrentConnection()
+                    throw SourceError.connectionFailed(
+                        "SFTP directory returned an unconfirmed empty response"
+                    )
+                }
             } catch {
                 if OperationCancellationPolicy.isCancellation(error) {
                     await closeCurrentConnection()
@@ -203,6 +238,7 @@ actor SFTPSource: MusicSourceConnector {
                 ) {
                 case .retryFreshConnection:
                     completedRetryAttempts += 1
+                    previousAttemptWasEmpty = false
                     await closeCurrentConnection()
                 case .accept:
                     assertionFailure("A directory error cannot be accepted")
@@ -247,6 +283,20 @@ actor SFTPSource: MusicSourceConnector {
             case .authenticationFailed, .credentialUnavailable, .pathNotFound, .fileNotFound:
                 return true
             case .connectionFailed, .timeout:
+                return false
+            }
+        }
+        if error is SourceConnectionTerminalError || error is AuthenticationFailed {
+            return true
+        }
+        if let clientError = error as? SSHClientError {
+            switch clientError {
+            case .unsupportedPasswordAuthentication,
+                 .unsupportedPrivateKeyAuthentication,
+                 .unsupportedHostBasedAuthentication,
+                 .allAuthenticationOptionsFailed:
+                return true
+            case .channelCreationFailed:
                 return false
             }
         }
@@ -507,8 +557,8 @@ actor SFTPSource: MusicSourceConnector {
         // 暂未接入解析,绝不能把私钥文本塞进 password 字段当 SSH 密码发出去
         // (认证必败 + 明文私钥泄露给远端)。直接报错引导用户转成 OpenSSH 格式。
         if trimmedKey.contains("BEGIN RSA PRIVATE KEY") || trimmedKey.contains("BEGIN PRIVATE KEY") {
-            throw SourceError.connectionFailed(
-                "Unsupported SSH key format. Please convert to OpenSSH format: ssh-keygen -p -m RFC4716 -f <keyfile>"
+            throw SourceConnectionTerminalError(
+                message: "Unsupported SSH key format. Please convert to OpenSSH format: ssh-keygen -p -m RFC4716 -f <keyfile>"
             )
         }
 
@@ -521,7 +571,7 @@ actor SFTPSource: MusicSourceConnector {
             let privateKey = try Curve25519.Signing.PrivateKey(sshEd25519: trimmedKey)
             return .ed25519(username: username, privateKey: privateKey)
         default:
-            throw SourceError.connectionFailed("Unsupported SSH key type")
+            throw SourceConnectionTerminalError(message: "Unsupported SSH key type")
         }
     }
 }

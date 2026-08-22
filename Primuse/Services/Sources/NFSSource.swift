@@ -170,6 +170,10 @@ actor NFSSource: MusicSourceConnector {
                 exportPath: configuredExportPath,
                 relativePath: "/"
             )
+        } else {
+            // Cached export names are likewise not proof that rpcbind/NFS is
+            // still reachable. A connection preflight must perform real I/O.
+            _ = try await loadExports(forceRefresh: true)
         }
     }
 
@@ -409,11 +413,17 @@ actor NFSSource: MusicSourceConnector {
                 throw originalError
             }
             do {
-                let loaded = try await candidate.client.listExports()
+                let loaded = try await discoverExports(
+                    using: candidate.client,
+                    version: candidate.version
+                )
                 guard loaded.isEmpty == false else {
                     throw SourceError.connectionFailed("No NFS exports found")
                 }
-                await commitFallback(candidate)
+                await commitFallback(
+                    candidate,
+                    connectedTo: candidate.version == .v4 ? "/" : nil
+                )
                 exports = loaded
             } catch {
                 await candidate.client.disconnect()
@@ -601,7 +611,14 @@ actor NFSSource: MusicSourceConnector {
         while true {
             do {
                 try Task.checkCancellation()
-                let exports = try await activeClient.listExports()
+                let version = activeVersion ?? nfsVersion.connectionAttemptOrder[0]
+                let exports = try await discoverExports(
+                    using: activeClient,
+                    version: version
+                )
+                if version == .v4 {
+                    connectedExportPath = "/"
+                }
                 try Task.checkCancellation()
                 return exports
             } catch {
@@ -630,6 +647,21 @@ actor NFSSource: MusicSourceConnector {
                 }
             }
         }
+    }
+
+    private func discoverExports(
+        using client: any NFSClientBackend,
+        version: NFSVersion
+    ) async throws -> [String] {
+        let exports = try await client.listExports()
+        if version == .v4 {
+            // NFSv4 has no MOUNT export enumeration; its backend's ["/"] is
+            // synthetic. Mount and enumerate the pseudo-root so it cannot be
+            // mistaken for a successful network preflight while offline.
+            try await client.connect(exportPath: "/")
+            _ = try await client.listDirectory(path: "/")
+        }
+        return exports
     }
 
     @discardableResult

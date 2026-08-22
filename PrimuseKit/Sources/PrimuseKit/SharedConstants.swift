@@ -2596,17 +2596,22 @@ public enum RemoteDirectoryRecoveryPolicy {
     public static func decision(
         outcome: RemoteDirectoryListingOutcome,
         completedRetryAttempts: Int,
-        emptyNeedsFreshConfirmation: Bool
+        emptyNeedsFreshConfirmation: Bool,
+        previousAttemptWasEmpty: Bool = false
     ) -> RemoteDirectoryRecoveryDecision {
         switch outcome {
         case .populated:
             return .accept
         case .empty:
-            guard emptyNeedsFreshConfirmation,
-                  completedRetryAttempts < maximumRetryAttempts else {
+            guard emptyNeedsFreshConfirmation else {
                 return .accept
             }
-            return .retryFreshConnection
+            if previousAttemptWasEmpty {
+                return .accept
+            }
+            return completedRetryAttempts < maximumRetryAttempts
+                ? .retryFreshConnection
+                : .fail
         case .retryableFailure:
             return completedRetryAttempts < maximumRetryAttempts
                 ? .retryFreshConnection

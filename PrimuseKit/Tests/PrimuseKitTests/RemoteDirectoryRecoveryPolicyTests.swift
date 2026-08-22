@@ -36,8 +36,19 @@ struct RemoteDirectoryRecoveryPolicyTests {
         #expect(RemoteDirectoryRecoveryPolicy.decision(
             outcome: .empty,
             completedRetryAttempts: 1,
-            emptyNeedsFreshConfirmation: true
+            emptyNeedsFreshConfirmation: true,
+            previousAttemptWasEmpty: true
         ) == .accept)
+    }
+
+    @Test("An empty response after a failed first attempt is not authoritative")
+    func emptyAfterFailureIsRejected() {
+        #expect(RemoteDirectoryRecoveryPolicy.decision(
+            outcome: .empty,
+            completedRetryAttempts: 1,
+            emptyNeedsFreshConfirmation: true,
+            previousAttemptWasEmpty: false
+        ) == .fail)
     }
 
     @Test("Protocol-validated empty listings remain valid")

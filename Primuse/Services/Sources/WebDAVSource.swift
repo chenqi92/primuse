@@ -156,6 +156,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             try Task.checkCancellation()
         } catch {
             self.provider = nil
+            provider.session.invalidateAndCancel()
             guard useSsl, SSLTrustStore.sslErrorDomain(from: error) != nil else {
                 throw error
             }

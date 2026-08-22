@@ -355,6 +355,7 @@ actor FTPSource: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         var completedRetryAttempts = 0
+        var previousAttemptWasEmpty = false
 
         while true {
             guard let currentProvider = provider else {
@@ -369,7 +370,8 @@ actor FTPSource: MusicSourceConnector {
                     completedRetryAttempts: completedRetryAttempts,
                     // FilesProvider can report a zero-byte LIST data channel as
                     // a successful empty array. Confirm emptiness independently.
-                    emptyNeedsFreshConfirmation: true
+                    emptyNeedsFreshConfirmation: true,
+                    previousAttemptWasEmpty: previousAttemptWasEmpty
                 ) {
                 case .accept:
                     for item in items where !item.isDirectory && item.size >= 0 {
@@ -378,6 +380,7 @@ actor FTPSource: MusicSourceConnector {
                     return items
                 case .retryFreshConnection:
                     completedRetryAttempts += 1
+                    previousAttemptWasEmpty = true
                     try replaceDirectoryProvider(currentProvider)
                 case .fail:
                     invalidateConnectionState()
@@ -399,6 +402,7 @@ actor FTPSource: MusicSourceConnector {
                 ) {
                 case .retryFreshConnection:
                     completedRetryAttempts += 1
+                    previousAttemptWasEmpty = false
                     try replaceDirectoryProvider(currentProvider)
                 case .accept:
                     assertionFailure("A directory error cannot be accepted")

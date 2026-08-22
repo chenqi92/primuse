@@ -37,7 +37,9 @@ actor UPnPSource: SongScanningConnector {
     }
 
     func connect() async throws {
-        _ = try await discoverServers(forceRefresh: false)
+        // SSDP cache is presentation state, not a liveness signal. Connection
+        // preflight must rediscover the server after sleep/network changes.
+        _ = try await discoverServers(forceRefresh: true)
     }
 
     func disconnect() async {
