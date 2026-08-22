@@ -325,6 +325,47 @@ struct SongListSnapshotTests {
         ])
     }
 
+    @Test("Section index hit testing clamps drags and rejects invalid geometry")
+    func sectionIndexHitTestingIsSafe() {
+        #expect(SongListSectionIndexHitTesting.index(
+            at: -50,
+            railOriginY: 10,
+            railHeight: 520,
+            entryCount: 26
+        ) == 0)
+        #expect(SongListSectionIndexHitTesting.index(
+            at: 30,
+            railOriginY: 10,
+            railHeight: 520,
+            entryCount: 26
+        ) == 1)
+        #expect(SongListSectionIndexHitTesting.index(
+            at: 1_000,
+            railOriginY: 10,
+            railHeight: 520,
+            entryCount: 26
+        ) == 25)
+
+        #expect(SongListSectionIndexHitTesting.index(
+            at: .nan,
+            railOriginY: 0,
+            railHeight: 520,
+            entryCount: 26
+        ) == nil)
+        #expect(SongListSectionIndexHitTesting.index(
+            at: 100,
+            railOriginY: 0,
+            railHeight: 0,
+            entryCount: 26
+        ) == nil)
+        #expect(SongListSectionIndexHitTesting.index(
+            at: 100,
+            railOriginY: 0,
+            railHeight: 520,
+            entryCount: 0
+        ) == nil)
+    }
+
     @Test("Delayed feedback follows the latest generation without flicker")
     func feedbackUsesLatestGeneration() {
         var state = SongListSortProgressState()

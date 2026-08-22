@@ -4343,11 +4343,14 @@ final class MusicLibrary {
     private(set) var songReplacementToken = UUID()
 
     func replaceSong(_ updatedSong: Song) {
-        guard let index = songIndexByID[updatedSong.id] else { return }
-        let oldCoverRef = songs[index].coverArtFileName
+        let currentSongs = songs
+        guard let index = validatedSongIndex(for: updatedSong.id, in: currentSongs) else { return }
+        let oldCoverRef = currentSongs[index].coverArtFileName
         var s = updatedSong
         MusicLibrary.fillDerivedIDs(&s)
-        songs[index] = s
+        var nextSongs = currentSongs
+        nextSongs[index] = s
+        songs = nextSongs
         rebuildVisibleCache()
         lastReplacedSong = s
         lastReplacedSongIDs = [s.id]
@@ -4374,14 +4377,27 @@ final class MusicLibrary {
         guard !updatedSongs.isEmpty else { return }
         let originalSongs = songs
         var nextSongs = originalSongs
-        let idToIndex = songIndexByID
+        var idToIndex = songIndexByID
 
         var lastApplied: Song?
         var appliedIDs: Set<String> = []
         var missedIDs: [String] = []
         var artworkChanges: [(songID: String, oldRef: String?, newRef: String?)] = []
+        var repairedIndexLookup = false
         for updated in updatedSongs {
-            guard let index = idToIndex[updated.id] else {
+            var index = idToIndex[updated.id]
+            if index.map({
+                !nextSongs.indices.contains($0) || nextSongs[$0].id != updated.id
+            }) ?? true {
+                if !repairedIndexLookup {
+                    idToIndex = Self.makeSongIndex(nextSongs)
+                    repairedIndexLookup = true
+                }
+                index = idToIndex[updated.id]
+            }
+            guard let index,
+                  nextSongs.indices.contains(index),
+                  nextSongs[index].id == updated.id else {
                 missedIDs.append(updated.id)
                 continue
             }
@@ -4394,6 +4410,9 @@ final class MusicLibrary {
             if oldCoverRef != s.coverArtFileName {
                 artworkChanges.append((s.id, oldCoverRef, s.coverArtFileName))
             }
+        }
+        if repairedIndexLookup {
+            songIndexByID = idToIndex
         }
         plog("📚 replaceSongs: requested=\(updatedSongs.count) applied=\(appliedIDs.count) missed=\(missedIDs.count) librarySongs=\(nextSongs.count) missedSampleID=\(missedIDs.first ?? "-") sampleLibID=\(nextSongs.first?.id ?? "-")")
         guard let lastApplied else { return }
@@ -4427,6 +4446,22 @@ final class MusicLibrary {
         persistSongChanges(
             upserts: appliedIDs.compactMap { idToIndex[$0].map { nextSongs[$0] } }
         )
+    }
+
+    private func validatedSongIndex(for id: String, in snapshot: [Song]) -> Int? {
+        if let index = songIndexByID[id],
+           snapshot.indices.contains(index),
+           snapshot[index].id == id {
+            return index
+        }
+
+        songIndexByID = Self.makeSongIndex(snapshot)
+        guard let index = songIndexByID[id],
+              snapshot.indices.contains(index),
+              snapshot[index].id == id else {
+            return nil
+        }
+        return index
     }
 
     private func publishStableMembershipReplacements(

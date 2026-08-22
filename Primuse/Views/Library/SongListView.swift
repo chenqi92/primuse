@@ -2865,12 +2865,20 @@ struct SongListView: View {
 /// position up front. With a five-digit library that registration alone can
 /// block the main thread for several seconds when entering flat mode, even
 /// though only a screenful of rows is visible.
+private struct IOSSongIndexScrollRequest: Equatable {
+    let id = UUID()
+    let rowOffset: Int
+    let rowOrderRevision: Int
+}
+
 private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let rowOrderRevision: Int
     let sectionIndexEntries: [SongListSectionIndexEntry]
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
+
+    @State private var indexScrollRequest: IOSSongIndexScrollRequest?
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.cache === rhs.cache
@@ -2907,12 +2915,29 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
 
                 if showsSectionIndex {
                     IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
-                        proxy.scrollTo(entry.rowOffset, anchor: .top)
+                        guard (0..<cache.positionCount).contains(entry.rowOffset) else { return }
+                        indexScrollRequest = IOSSongIndexScrollRequest(
+                            rowOffset: entry.rowOffset,
+                            rowOrderRevision: rowOrderRevision
+                        )
                     }
-                    .frame(width: 92)
+                    .frame(width: 112)
                     .padding(.trailing, 2)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
                 }
+            }
+            .task(id: indexScrollRequest) {
+                guard let request = indexScrollRequest else { return }
+                await Task.yield()
+                guard !Task.isCancelled,
+                      request.rowOrderRevision == rowOrderRevision,
+                      (0..<cache.positionCount).contains(request.rowOffset) else {
+                    return
+                }
+                proxy.scrollTo(request.rowOffset, anchor: .top)
+            }
+            .onChange(of: rowOrderRevision) { _, _ in
+                indexScrollRequest = nil
             }
         }
         .animation(.easeOut(duration: 0.18), value: showsSectionIndex)
@@ -2939,30 +2964,37 @@ private struct IOSSongAlphabetIndex: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var focusedIndex: Int?
+    @State private var touchLocationY: CGFloat?
+    @State private var hapticTrigger = 0
+
+    private struct Metrics {
+        let railHeight: CGFloat
+        let itemHeight: CGFloat
+        let fontSize: CGFloat
+        let topInset: CGFloat
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let metrics = metrics(for: geometry.size)
             ZStack(alignment: .topTrailing) {
                 rail(itemHeight: metrics.itemHeight, fontSize: metrics.fontSize)
-                    .frame(width: 32, height: metrics.railHeight)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay {
-                        Capsule()
-                            .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.5)
-                    }
-                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                    .frame(width: 28, height: metrics.railHeight)
+                    .allowsHitTesting(false)
+                    .offset(y: metrics.topInset)
+
+                Color.clear
                     .contentShape(Rectangle())
-                    .highPriorityGesture(indexGesture(itemHeight: metrics.itemHeight))
+                    .frame(width: 48, height: metrics.railHeight)
+                    .gesture(indexGesture(metrics: metrics))
                     .offset(y: metrics.topInset)
 
                 if let focusedIndex, entries.indices.contains(focusedIndex) {
                     focusBubble(label: entries[focusedIndex].label)
                         .position(
-                            x: 4,
+                            x: 36,
                             y: bubbleY(
-                                for: focusedIndex,
-                                itemHeight: metrics.itemHeight,
+                                touchLocationY: touchLocationY,
                                 topInset: metrics.topInset,
                                 availableHeight: geometry.size.height
                             )
@@ -2972,37 +3004,36 @@ private struct IOSSongAlphabetIndex: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
-        .sensoryFeedback(.selection, trigger: focusedIndex) { oldValue, newValue in
-            newValue != nil && oldValue != newValue
+        .sensoryFeedback(.selection, trigger: hapticTrigger)
+        .accessibilityRepresentation {
+            VStack(spacing: 0) {
+                ForEach(entries) { entry in
+                    Button {
+                        onSelect(entry)
+                    } label: {
+                        Text(verbatim: entry.label)
+                    }
+                }
+            }
         }
-        .accessibilityElement(children: .contain)
+        .onChange(of: entries) { _, _ in
+            clearFocus()
+        }
     }
 
     private func rail(itemHeight: CGFloat, fontSize: CGFloat) -> some View {
         VStack(spacing: 0) {
             ForEach(entries.indices, id: \.self) { index in
-                Button {
-                    focus(on: index, announcesSelection: true)
-                    clearFocus()
-                } label: {
-                    Text(verbatim: entries[index].label)
-                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
-                        .foregroundStyle(index == focusedIndex ? Color.white : Color.accentColor)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background {
-                            if index == focusedIndex {
-                                Circle()
-                                    .fill(Color.accentColor)
-                                    .padding(1)
-                            }
-                        }
-                        .scaleEffect(scale(for: index), anchor: .trailing)
-                        .offset(x: horizontalOffset(for: index))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(height: itemHeight)
-                .accessibilityLabel(Text(verbatim: entries[index].label))
+                Text(verbatim: entries[index].label)
+                    .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .scaleEffect(
+                        scale(for: index, itemHeight: itemHeight),
+                        anchor: .trailing
+                    )
+                    .offset(x: horizontalOffset(for: index, itemHeight: itemHeight))
+                    .frame(height: itemHeight)
             }
         }
     }
@@ -3014,36 +3045,37 @@ private struct IOSSongAlphabetIndex: View {
             .frame(width: 50, height: 50)
             .background {
                 Circle()
-                    .fill(.ultraThinMaterial)
-                Circle()
-                    .fill(Color.accentColor.opacity(0.9))
-                Circle()
-                    .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.75)
+                    .fill(Color.accentColor.gradient)
             }
-            .shadow(color: Color.accentColor.opacity(0.3), radius: 12, y: 4)
+            .shadow(color: Color.accentColor.opacity(0.28), radius: 12, y: 5)
             .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 
-    private func indexGesture(itemHeight: CGFloat) -> some Gesture {
+    private func indexGesture(metrics: Metrics) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                let rawIndex = Int(value.location.y / max(itemHeight, 1))
-                let index = min(max(rawIndex, 0), entries.count - 1)
-                focus(on: index, announcesSelection: false)
+                guard let index = SongListSectionIndexHitTesting.index(
+                    at: Double(value.location.y),
+                    railOriginY: 0,
+                    railHeight: Double(metrics.railHeight),
+                    entryCount: entries.count
+                ) else {
+                    return
+                }
+                touchLocationY = min(max(value.location.y, 0), metrics.railHeight)
+                focus(on: index)
             }
             .onEnded { _ in
                 clearFocus()
             }
     }
 
-    private func focus(on index: Int, announcesSelection: Bool) {
+    private func focus(on index: Int) {
         guard entries.indices.contains(index) else { return }
         if focusedIndex != index {
-            withAnimation(focusAnimation) {
-                focusedIndex = index
-            }
-            onSelect(entries[index])
-        } else if announcesSelection {
+            focusedIndex = index
+            hapticTrigger &+= 1
             onSelect(entries[index])
         }
     }
@@ -3051,6 +3083,7 @@ private struct IOSSongAlphabetIndex: View {
     private func clearFocus() {
         withAnimation(focusAnimation) {
             focusedIndex = nil
+            touchLocationY = nil
         }
     }
 
@@ -3058,42 +3091,42 @@ private struct IOSSongAlphabetIndex: View {
         reduceMotion ? nil : .snappy(duration: 0.18, extraBounce: 0.08)
     }
 
-    private func scale(for index: Int) -> CGFloat {
-        guard let focusedIndex else { return 1 }
-        switch abs(index - focusedIndex) {
-        case 0: return 1.6
-        case 1: return 1.3
-        case 2: return 1.12
-        default: return 1
-        }
+    private func scale(for index: Int, itemHeight: CGFloat) -> CGFloat {
+        1 + 0.8 * focusInfluence(for: index, itemHeight: itemHeight)
     }
 
-    private func horizontalOffset(for index: Int) -> CGFloat {
-        guard let focusedIndex else { return 0 }
-        switch abs(index - focusedIndex) {
-        case 0: return -8
-        case 1: return -4
-        case 2: return -1.5
-        default: return 0
-        }
+    private func horizontalOffset(for index: Int, itemHeight: CGFloat) -> CGFloat {
+        -18 * focusInfluence(for: index, itemHeight: itemHeight)
+    }
+
+    private func focusInfluence(for index: Int, itemHeight: CGFloat) -> CGFloat {
+        guard let touchLocationY, itemHeight > 0 else { return 0 }
+        let itemCenter = (CGFloat(index) + 0.5) * itemHeight
+        let distance = abs(itemCenter - touchLocationY) / itemHeight
+        let proximity = max(0, 1 - distance / 2.75)
+        return proximity * proximity
     }
 
     private func bubbleY(
-        for index: Int,
-        itemHeight: CGFloat,
+        touchLocationY: CGFloat?,
         topInset: CGFloat,
         availableHeight: CGFloat
     ) -> CGFloat {
-        let target = topInset + (CGFloat(index) + 0.5) * itemHeight
-        return min(max(target, 28), max(28, availableHeight - 28))
+        let target = topInset + (touchLocationY ?? 0)
+        return min(max(target, 30), max(30, availableHeight - 30))
     }
 
-    private func metrics(for size: CGSize) -> (railHeight: CGFloat, itemHeight: CGFloat, fontSize: CGFloat, topInset: CGFloat) {
-        let availableHeight = max(0, size.height - 24)
-        let railHeight = min(availableHeight, CGFloat(entries.count) * 14)
+    private func metrics(for size: CGSize) -> Metrics {
+        let verticalInset: CGFloat = size.height >= 480 ? 10 : 6
+        let railHeight = max(0, size.height - verticalInset * 2)
         let itemHeight = railHeight / CGFloat(max(entries.count, 1))
-        let fontSize = min(10.5, max(8.5, itemHeight * 0.74))
-        return (railHeight, itemHeight, fontSize, max(12, (size.height - railHeight) / 2))
+        let fontSize = min(11, max(7.5, itemHeight * 0.68))
+        return Metrics(
+            railHeight: railHeight,
+            itemHeight: itemHeight,
+            fontSize: fontSize,
+            topInset: verticalInset
+        )
     }
 }
 

@@ -91,6 +91,34 @@ public struct SongListSectionIndexEntry: Identifiable, Equatable, Hashable, Send
     }
 }
 
+public enum SongListSectionIndexHitTesting {
+    public static func index(
+        at locationY: Double,
+        railOriginY: Double,
+        railHeight: Double,
+        entryCount: Int
+    ) -> Int? {
+        guard entryCount > 0,
+              locationY.isFinite,
+              railOriginY.isFinite,
+              railHeight.isFinite,
+              railHeight > 0 else {
+            return nil
+        }
+
+        let normalized = min(max((locationY - railOriginY) / railHeight, 0), 1)
+        guard normalized < 1 else { return entryCount - 1 }
+
+        let scaledIndex = normalized * Double(entryCount)
+        guard scaledIndex.isFinite,
+              scaledIndex >= 0,
+              scaledIndex < Double(Int.max) else {
+            return entryCount - 1
+        }
+        return min(Int(scaledIndex), entryCount - 1)
+    }
+}
+
 /// Generation-bound UI state for an explicit song-list sort. The state stays
 /// active after the worker finishes when publication is deferred by scrolling,
 /// and ignores stale callbacks from superseded requests.

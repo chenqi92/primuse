@@ -144,6 +144,50 @@ enum LibraryPinStorage {
     }
 }
 
+private struct LibraryArtworkPreviewSelection: Sendable {
+    var revision = ""
+    var songs: [Song] = []
+    var albums: [Album] = []
+    var artists: [Artist] = []
+    var playlists: [Playlist] = []
+    var radioStations: [RadioStation] = []
+    var albumFallbackSongs: [String: [Song]] = [:]
+    var artistFallbackSongs: [String: [Song]] = [:]
+}
+
+private enum LibraryArtworkPreviewBuilder {
+    static func hasReference(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func songHasArtworkHint(_ song: Song) -> Bool {
+        hasReference(song.coverArtFileName)
+            || (song.sourceID == AppleMusicLibraryIdentity.sourceID && !song.filePath.isEmpty)
+    }
+
+    static func select<Item>(
+        _ items: [Item],
+        maximumCount: Int = 3,
+        randomSeed: String,
+        id: (Item) -> String,
+        hasArtworkHint: (Item) -> Bool
+    ) -> [Item] {
+        let selectedIDs = LibraryArtworkPreviewSelectionPolicy.selectedIDs(
+            from: items.map {
+                LibraryArtworkPreviewCandidate(
+                    id: id($0),
+                    hasArtworkHint: hasArtworkHint($0)
+                )
+            },
+            maximumCount: maximumCount,
+            randomSeed: randomSeed
+        )
+        let itemsByID = Dictionary(items.map { (id($0), $0) }) { first, _ in first }
+        return selectedIDs.compactMap { itemsByID[$0] }
+    }
+}
+
 struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
@@ -158,6 +202,7 @@ struct LibraryView: View {
     private var sectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenSectionsRawValue = ""
+    @State private var artworkPreviewSelection = LibraryArtworkPreviewSelection()
 
     private var songs: [Song] { library.visibleSongs }
     private var albums: [Album] { library.visibleAlbums }
@@ -194,6 +239,24 @@ struct LibraryView: View {
             orderRawValue: sectionOrderRawValue,
             hiddenRawValue: hiddenSectionsRawValue
         )
+    }
+    private var artworkPreviewRevision: String {
+        let radioSignature = radioStationsStore.stations.map { station in
+            [
+                station.id,
+                station.logoFileName ?? "",
+                String(station.logoData?.count ?? 0),
+                String(station.modifiedAt.timeIntervalSinceReferenceDate),
+            ].joined(separator: "\u{1F}")
+        }.joined(separator: "\u{0}")
+        return [
+            String(library.visibleSongCollectionRevision),
+            library.songReplacementToken.uuidString,
+            String(library.playlistCollectionRevision),
+            String(library.artworkOverrideRevision),
+            quickAccessRawValue,
+            radioSignature,
+        ].joined(separator: "#")
     }
 
     init(deepLink: Binding<LibraryDeepLink?> = .constant(nil)) {
@@ -262,13 +325,17 @@ struct LibraryView: View {
     }
 
     private var libraryHub: some View {
-        ScrollView {
+        let previewRevision = artworkPreviewRevision
+        return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 quickAccessSection
                 browseLibrarySection
             }
             .padding(.top, 8)
             .padding(.bottom, 32)
+        }
+        .task(id: previewRevision) {
+            await refreshArtworkPreviews(for: previewRevision)
         }
     }
 
@@ -419,7 +486,12 @@ struct LibraryView: View {
                         title: album.title,
                         subtitle: album.artistName ?? String(localized: "unknown_artist")
                     ) {
-                        AlbumArtworkView(album: album, size: 116, cornerRadius: 16)
+                        libraryAlbumArtwork(
+                            album,
+                            size: 116,
+                            cornerRadius: 16,
+                            showsPlaceholder: true
+                        )
                     }
                 }
                 .buttonStyle(.plain)
@@ -431,12 +503,11 @@ struct LibraryView: View {
                         title: artist.name,
                         subtitle: countText(artist.albumCount, unitKey: "albums_count")
                     ) {
-                        CachedArtworkView(
-                            artistID: artist.id,
-                            artistName: artist.name,
-                            artworkReference: artist.thumbnailPath,
+                        libraryArtistArtwork(
+                            artist,
                             size: 116,
-                            cornerRadius: 58
+                            cornerRadius: 58,
+                            showsPlaceholder: true
                         )
                     }
                 }
@@ -514,7 +585,7 @@ struct LibraryView: View {
     private func categoryPreview(_ section: LibrarySection) -> some View {
         switch section {
         case .songs:
-            overlappingPreview(Array(songs.prefix(3))) { song in
+            overlappingPreview(previewSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -527,12 +598,12 @@ struct LibraryView: View {
             }
         case .albums:
             artworkPreview(
-                Array(albums.prefix(3)),
+                previewAlbums,
                 placeholderIcon: "square.stack",
                 cornerRadius: 7
             ) { album in
-                AlbumArtworkView(
-                    album: album,
+                libraryAlbumArtwork(
+                    album,
                     size: 36,
                     cornerRadius: 7,
                     showsPlaceholder: false
@@ -540,28 +611,162 @@ struct LibraryView: View {
             }
         case .artists:
             artworkPreview(
-                Array(artists.prefix(3)),
+                previewArtists,
                 placeholderIcon: "music.mic",
                 cornerRadius: 18
             ) { artist in
-                CachedArtworkView(
-                    artistID: artist.id,
-                    artistName: artist.name,
-                    artworkReference: artist.thumbnailPath,
+                libraryArtistArtwork(
+                    artist,
                     size: 36,
                     cornerRadius: 18,
                     showsPlaceholder: false
                 )
             }
         case .playlists:
-            overlappingPreview(Array(regularPlaylists.prefix(3))) { playlist in
+            overlappingPreview(previewPlaylists) { playlist in
                 playlistArtwork(playlist, size: 36, cornerRadius: 7)
             }
         case .radio:
-            overlappingPreview(Array(radioStationsStore.stations.prefix(3))) { station in
+            overlappingPreview(previewRadioStations) { station in
                 RadioStationArtworkView(station: station, size: 36, cornerRadius: 7)
             }
         }
+    }
+
+    private var hasCurrentArtworkPreviewSelection: Bool {
+        artworkPreviewSelection.revision == artworkPreviewRevision
+    }
+
+    private var previewSongs: [Song] {
+        hasCurrentArtworkPreviewSelection
+            ? artworkPreviewSelection.songs
+            : Array(songs.prefix(3))
+    }
+
+    private var previewAlbums: [Album] {
+        hasCurrentArtworkPreviewSelection
+            ? artworkPreviewSelection.albums
+            : Array(albums.prefix(3))
+    }
+
+    private var previewArtists: [Artist] {
+        hasCurrentArtworkPreviewSelection
+            ? artworkPreviewSelection.artists
+            : Array(artists.prefix(3))
+    }
+
+    private var previewPlaylists: [Playlist] {
+        hasCurrentArtworkPreviewSelection
+            ? artworkPreviewSelection.playlists
+            : Array(regularPlaylists.prefix(3))
+    }
+
+    private var previewRadioStations: [RadioStation] {
+        hasCurrentArtworkPreviewSelection
+            ? artworkPreviewSelection.radioStations
+            : Array(radioStationsStore.stations.prefix(3))
+    }
+
+    private func albumFallbackSongs(_ album: Album) -> [Song] {
+        if hasCurrentArtworkPreviewSelection {
+            return artworkPreviewSelection.albumFallbackSongs[album.id] ?? []
+        }
+        return library.preferredArtworkSong(forAlbumID: album.id).map { [$0] } ?? []
+    }
+
+    private func artistFallbackSongs(_ artist: Artist) -> [Song] {
+        guard hasCurrentArtworkPreviewSelection else { return [] }
+        return artworkPreviewSelection.artistFallbackSongs[artist.id] ?? []
+    }
+
+    private func libraryAlbumArtwork(
+        _ album: Album,
+        size: CGFloat,
+        cornerRadius: CGFloat,
+        showsPlaceholder: Bool
+    ) -> some View {
+        ZStack {
+            if showsPlaceholder {
+                artworkPlaceholder(
+                    size: size,
+                    cornerRadius: cornerRadius,
+                    icon: "square.stack"
+                )
+            }
+
+            ForEach(Array(albumFallbackSongs(album).reversed())) { song in
+                fallbackSongArtwork(song, size: size)
+            }
+
+            AlbumArtworkView(
+                album: album,
+                size: size,
+                cornerRadius: cornerRadius,
+                showsPlaceholder: false
+            )
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private func libraryArtistArtwork(
+        _ artist: Artist,
+        size: CGFloat,
+        cornerRadius: CGFloat,
+        showsPlaceholder: Bool
+    ) -> some View {
+        ZStack {
+            if showsPlaceholder {
+                artworkPlaceholder(
+                    size: size,
+                    cornerRadius: cornerRadius,
+                    icon: "music.mic"
+                )
+            }
+
+            ForEach(Array(artistFallbackSongs(artist).reversed())) { song in
+                fallbackSongArtwork(song, size: size)
+            }
+
+            CachedArtworkView(
+                artistID: artist.id,
+                artistName: artist.name,
+                artworkReference: artist.thumbnailPath,
+                size: size,
+                cornerRadius: cornerRadius,
+                showsPlaceholder: false
+            )
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private func artworkPlaceholder(
+        size: CGFloat,
+        cornerRadius: CGFloat,
+        icon: String
+    ) -> some View {
+        CachedArtworkView(
+            coverRef: nil,
+            songID: nil,
+            size: size,
+            cornerRadius: cornerRadius,
+            placeholderIcon: icon,
+            showsPlaceholder: true
+        )
+    }
+
+    private func fallbackSongArtwork(_ song: Song, size: CGFloat) -> some View {
+        CachedArtworkView(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: size,
+            cornerRadius: 0,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat,
+            showsPlaceholder: false
+        )
     }
 
     private func overlappingPreview<Item: Identifiable, Content: View>(
@@ -614,6 +819,138 @@ struct LibraryView: View {
     @ViewBuilder
     private func playlistArtwork(_ playlist: Playlist, size: CGFloat, cornerRadius: CGFloat) -> some View {
         PlaylistArtworkView(playlist: playlist, size: size, cornerRadius: cornerRadius)
+    }
+
+    @MainActor
+    private func refreshArtworkPreviews(for revision: String) async {
+        guard artworkPreviewSelection.revision != revision else { return }
+        let songsSnapshot = songs
+        let albumsSnapshot = albums
+        let artistsSnapshot = artists
+        let playlistsSnapshot = regularPlaylists
+        let radioSnapshot = radioStationsStore.stations
+        let randomSeed = UUID().uuidString
+        let pinnedAlbumIDs = Set(visiblePins.compactMap { pin in
+            pin.kind == .album ? pin.itemID : nil
+        })
+        let pinnedArtistIDs = Set(visiblePins.compactMap { pin in
+            pin.kind == .artist ? pin.itemID : nil
+        })
+
+        let albumOverrideIDs = Set(albumsSnapshot.compactMap { album -> String? in
+            let presentation = library.artworkPresentation(
+                for: LibraryArtworkOwner(kind: .album, id: album.id)
+            )
+            return presentation.uploadedContentID != nil || presentation.selectedSong != nil
+                ? album.id
+                : nil
+        })
+        let playlistOverrideIDs = Set(playlistsSnapshot.compactMap { playlist -> String? in
+            let presentation = library.artworkPresentation(
+                for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
+            )
+            return presentation.uploadedContentID != nil || presentation.selectedSong != nil
+                ? playlist.id
+                : nil
+        })
+        let playlistIDsWithMemberArtworkHint = Set(playlistsSnapshot.compactMap { playlist -> String? in
+            library.songs(forPlaylist: playlist.id).contains(
+                where: LibraryArtworkPreviewBuilder.songHasArtworkHint
+            ) ? playlist.id : nil
+        })
+
+        let selection = await Task.detached(priority: .utility) {
+            let songsWithArtworkHint = songsSnapshot.filter(
+                LibraryArtworkPreviewBuilder.songHasArtworkHint
+            )
+            let albumIDsWithSongArtworkHint = Set(songsWithArtworkHint.compactMap(\.albumID))
+            let artistIDsWithSongArtworkHint = Set(songsWithArtworkHint.compactMap(\.artistID))
+
+            let selectedSongs = LibraryArtworkPreviewBuilder.select(
+                songsSnapshot,
+                randomSeed: "\(randomSeed)#songs",
+                id: \Song.id,
+                hasArtworkHint: LibraryArtworkPreviewBuilder.songHasArtworkHint
+            )
+            let selectedAlbums = LibraryArtworkPreviewBuilder.select(
+                albumsSnapshot,
+                randomSeed: "\(randomSeed)#albums",
+                id: \Album.id
+            ) { album in
+                albumOverrideIDs.contains(album.id)
+                    || MetadataAssetStore.shared.hasAlbumCover(forAlbumID: album.id)
+                    || albumIDsWithSongArtworkHint.contains(album.id)
+            }
+            let selectedArtists = LibraryArtworkPreviewBuilder.select(
+                artistsSnapshot,
+                randomSeed: "\(randomSeed)#artists",
+                id: \Artist.id
+            ) { artist in
+                LibraryArtworkPreviewBuilder.hasReference(artist.thumbnailPath)
+                    || MetadataAssetStore.shared.hasArtistImage(forArtistID: artist.id)
+                    || artistIDsWithSongArtworkHint.contains(artist.id)
+            }
+            let selectedPlaylists = LibraryArtworkPreviewBuilder.select(
+                playlistsSnapshot,
+                randomSeed: "\(randomSeed)#playlists",
+                id: \Playlist.id
+            ) { playlist in
+                playlistOverrideIDs.contains(playlist.id)
+                    || (
+                        playlist.hasDedicatedCoverArt
+                            && LibraryArtworkPreviewBuilder.hasReference(playlist.coverArtPath)
+                    )
+                    || playlistIDsWithMemberArtworkHint.contains(playlist.id)
+            }
+            let selectedRadioStations = LibraryArtworkPreviewBuilder.select(
+                radioSnapshot,
+                randomSeed: "\(randomSeed)#radio",
+                id: \RadioStation.id
+            ) { station in
+                station.logoData.map(ArtworkImageCompatibility.isCompleteImage) == true
+                    || LibraryArtworkPreviewBuilder.hasReference(station.logoFileName)
+            }
+
+            let fallbackAlbumIDs = pinnedAlbumIDs.union(selectedAlbums.map(\.id))
+            let albumGroups = Dictionary(grouping: songsSnapshot.filter { song in
+                song.albumID.map(fallbackAlbumIDs.contains) == true
+            }) { $0.albumID ?? "" }
+            let albumFallbackSongs = albumGroups.mapValues { albumSongs in
+                LibraryArtworkPreviewBuilder.select(
+                    albumSongs,
+                    randomSeed: "\(randomSeed)#album#\(albumSongs.first?.albumID ?? "")",
+                    id: \Song.id,
+                    hasArtworkHint: LibraryArtworkPreviewBuilder.songHasArtworkHint
+                )
+            }
+
+            let fallbackArtistIDs = pinnedArtistIDs.union(selectedArtists.map(\.id))
+            let artistGroups = Dictionary(grouping: songsSnapshot.filter { song in
+                song.artistID.map(fallbackArtistIDs.contains) == true
+            }) { $0.artistID ?? "" }
+            let artistFallbackSongs = artistGroups.mapValues { artistSongs in
+                LibraryArtworkPreviewBuilder.select(
+                    artistSongs,
+                    randomSeed: "\(randomSeed)#artist#\(artistSongs.first?.artistID ?? "")",
+                    id: \Song.id,
+                    hasArtworkHint: LibraryArtworkPreviewBuilder.songHasArtworkHint
+                )
+            }
+
+            return LibraryArtworkPreviewSelection(
+                revision: revision,
+                songs: selectedSongs,
+                albums: selectedAlbums,
+                artists: selectedArtists,
+                playlists: selectedPlaylists,
+                radioStations: selectedRadioStations,
+                albumFallbackSongs: albumFallbackSongs,
+                artistFallbackSongs: artistFallbackSongs
+            )
+        }.value
+
+        guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
+        artworkPreviewSelection = selection
     }
 
     private func categoryCountText(_ section: LibrarySection) -> String {

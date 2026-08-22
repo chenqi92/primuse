@@ -4058,6 +4058,61 @@ public enum VisibleLibraryPresencePolicy {
     }
 }
 
+public struct LibraryArtworkPreviewCandidate: Equatable, Hashable, Sendable {
+    public let id: String
+    public let hasArtworkHint: Bool
+
+    public init(id: String, hasArtworkHint: Bool) {
+        self.id = id
+        self.hasArtworkHint = hasArtworkHint
+    }
+}
+
+/// Picks a small visual sample without treating a missing metadata reference as
+/// proof that artwork cannot be resolved from a cache, embedded tag, or MusicKit.
+public enum LibraryArtworkPreviewSelectionPolicy {
+    public static func selectedIDs(
+        from candidates: [LibraryArtworkPreviewCandidate],
+        maximumCount: Int,
+        randomSeed: String
+    ) -> [String] {
+        guard maximumCount > 0 else { return [] }
+
+        var hintsByID: [String: Bool] = [:]
+        for candidate in candidates where !candidate.id.isEmpty {
+            hintsByID[candidate.id, default: false] =
+                hintsByID[candidate.id, default: false] || candidate.hasArtworkHint
+        }
+
+        let ranked = hintsByID.map { id, hasArtworkHint in
+            (
+                id: id,
+                hasArtworkHint: hasArtworkHint,
+                rank: stableHash("\(randomSeed)\u{0}\(id)")
+            )
+        }.sorted { lhs, rhs in
+            if lhs.hasArtworkHint != rhs.hasArtworkHint {
+                return lhs.hasArtworkHint
+            }
+            if lhs.rank != rhs.rank {
+                return lhs.rank < rhs.rank
+            }
+            return lhs.id < rhs.id
+        }
+
+        return ranked.prefix(maximumCount).map(\.id)
+    }
+
+    private static func stableHash(_ value: String) -> UInt64 {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return hash
+    }
+}
+
 /// Chooses a tvOS home hero without assuming every playable song belongs to a
 /// visible album. Albumless libraries use a song-backed whole-library hero so
 /// the title, artist, count, and play-all controls remain meaningful.
