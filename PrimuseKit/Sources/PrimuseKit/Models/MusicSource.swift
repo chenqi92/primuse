@@ -223,8 +223,9 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// Primuse's local metadata cache instead.
     public var supportsSidecarWriting: Bool {
         switch self {
-        case .synology, .webdav, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
-             .aliyunDrive, .pan123, .drime:
+        case .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
+             .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
+             .pan123, .drime:
             return true
         default:
             return false

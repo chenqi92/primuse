@@ -218,7 +218,10 @@ enum RangeFetchPriority: Sendable {
 struct EmbeddedMetadataWritebackResult: Sendable, Equatable {
     let fileSize: Int64
     let modifiedDate: Date?
-    let revision: String
+    /// Provider-native revision after replacement. Filesystems that do not
+    /// expose a durable revision token leave this nil and rely on size/mtime
+    /// conflict checks plus the mandatory byte-for-byte remote readback.
+    let revision: String?
     let fileSHA256: String
     let verification: EmbeddedMetadataVerification
 }
@@ -233,15 +236,15 @@ enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupported:
-            return "This source does not support embedded metadata writeback."
+            return String(localized: "metadata_writeback_error_unsupported")
         case .missingStrongRevision:
-            return "The WebDAV server did not provide a strong ETag, so the file cannot be replaced safely."
+            return String(localized: "metadata_writeback_error_missing_revision")
         case .conflict:
-            return "The WebDAV file changed while it was being edited. Scan again before retrying."
+            return String(localized: "metadata_writeback_error_conflict")
         case .invalidResponse:
-            return "The WebDAV server returned an invalid writeback response."
+            return String(localized: "metadata_writeback_error_invalid_state")
         case .remoteVerificationFailed:
-            return "The file downloaded after WebDAV writeback did not match the verified upload."
+            return String(localized: "metadata_writeback_error_remote_verification")
         }
     }
 }
@@ -278,6 +281,11 @@ protocol MusicSourceConnector: Sendable {
         to path: String,
         priority: RangeFetchPriority
     ) async throws
+    /// Confirms that a completed sidecar upload resolves to the exact bytes
+    /// requested by the caller. Path-addressed connectors use the shared
+    /// readback implementation; opaque-ID providers may verify inside
+    /// `writeFile` and acknowledge that verification here.
+    func verifySidecarWrite(data: Data, at path: String) async throws
 
     /// Rewrites selected embedded metadata in the media object and replaces it
     /// on the source with optimistic concurrency and a post-write byte check.
@@ -506,6 +514,21 @@ extension MusicSourceConnector {
         priority: RangeFetchPriority
     ) async throws {
         try await writeFile(data: data, to: path)
+    }
+
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        guard !data.isEmpty else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        let readback = try await fetchRange(
+            path: path,
+            offset: 0,
+            length: Int64(data.count),
+            priority: .background
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
     }
 
     func writeEmbeddedMetadata(
@@ -747,6 +770,7 @@ struct MediaServerWritebackResult: Sendable {
     var lyricsRemoved = false
     var unsupported: [String] = []
     var errors: [String] = []
+    var fieldResults: [TagMetadataFieldWritebackResult] = []
 
     var succeeded: Bool {
         errors.isEmpty

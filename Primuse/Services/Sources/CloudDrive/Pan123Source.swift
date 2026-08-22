@@ -162,8 +162,33 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
                 data: data
             )
         }
-        invalidateDownloadURL(for: fileID)
-        plog("📁 123 sidecar uploaded: \(sidecarName)")
+        let expectedMD5 = Insecure.MD5.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let matches = try await listFiles(at: String(parentID)).filter {
+            !$0.isDirectory
+                && $0.name == sidecarName
+                && $0.size == Int64(data.count)
+                && $0.revision?.caseInsensitiveCompare(expectedMD5) == .orderedSame
+        }
+        guard matches.count == 1, let sidecar = matches.first else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        invalidateDownloadURL(for: sidecar.path)
+        helper.invalidateCachedFile(path: sidecar.path)
+        let readback = try await fetchRange(
+            path: sidecar.path,
+            offset: 0,
+            length: Int64(data.count)
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        plog("📁 123 sidecar uploaded and verified: \(sidecarName)")
+    }
+
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        // `writeFile` resolves the resulting file id and performs exact readback.
     }
 
     func deleteFile(at path: String) async throws {

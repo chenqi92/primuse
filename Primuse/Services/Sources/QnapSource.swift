@@ -1,8 +1,9 @@
 import Foundation
 import PrimuseKit
 
-actor QnapSource: MusicSourceConnector {
+actor QnapSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
     private let api: QnapAPI
     private let username: String
     private let password: String
@@ -84,8 +85,14 @@ actor QnapSource: MusicSourceConnector {
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         try await connect()
         return try await api.listDirectory(path: path).map {
-            RemoteFileItem(name: $0.name, path: $0.path.isEmpty ? "\(path)/\($0.name)" : $0.path,
-                          isDirectory: $0.isDirectory, size: $0.size, modifiedDate: nil)
+            RemoteFileItem(
+                name: $0.name,
+                path: $0.path.isEmpty ? "\(path)/\($0.name)" : $0.path,
+                isDirectory: $0.isDirectory,
+                size: $0.size,
+                modifiedDate: $0.modifiedDate,
+                revision: Self.fileRevision(size: $0.size, modifiedDate: $0.modifiedDate)
+            )
         }
     }
 
@@ -129,6 +136,93 @@ actor QnapSource: MusicSourceConnector {
         try? FileManager.default.removeItem(at: fileURL)
         try FileManager.default.moveItem(at: tempURL, to: fileURL)
         return fileURL
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        try await connect()
+        let parent = Self.parentPath(of: path)
+        let name = (path as NSString).lastPathComponent
+        try await api.uploadFile(
+            data: data,
+            toDirectory: parent,
+            fileName: name,
+            overwrite: true
+        )
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        try await listedMetadataWritebackState(for: path)
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        try await connect()
+        let parent = Self.parentPath(of: path)
+        let name = (path as NSString).lastPathComponent
+        let stagingName = ".primuse-writeback-\(UUID().uuidString)"
+        let stagingPath = (parent as NSString).appendingPathComponent(stagingName)
+
+        try await api.createDirectory(name: stagingName, at: parent)
+        do {
+            try await api.uploadFile(
+                localURL: localURL,
+                toDirectory: stagingPath,
+                fileName: name,
+                overwrite: false
+            )
+            let current = try await metadataWritebackState(for: path)
+            guard expected.matches(current) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            try await api.moveFile(
+                named: name,
+                from: stagingPath,
+                to: parent,
+                overwrite: true
+            )
+            try await waitForMoveCompletion(fileName: name, stagingPath: stagingPath)
+        } catch {
+            try? await api.deleteTemporaryItem(path: stagingPath)
+            throw error
+        }
+        try? await api.deleteTemporaryItem(path: stagingPath)
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        let sanitized = path.replacingOccurrences(of: "/", with: "_")
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(sanitized)
+        )
+    }
+
+    private func waitForMoveCompletion(
+        fileName: String,
+        stagingPath: String
+    ) async throws {
+        for _ in 0..<120 {
+            try Task.checkCancellation()
+            let remaining = try await api.listDirectory(path: stagingPath)
+            if !remaining.contains(where: { $0.name == fileName }) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        throw SourceError.timeout
+    }
+
+    private nonisolated static func parentPath(of path: String) -> String {
+        let parent = (path as NSString).deletingLastPathComponent
+        return parent.isEmpty ? "/" : parent
+    }
+
+    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "qnap:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
     }
 
     func streamingURL(for path: String) async throws -> URL? {

@@ -160,8 +160,9 @@ import Testing
 
 @Test func sidecarWritingCapabilityExcludesReadOnlyCatalogues() {
     let writable: Set<MusicSourceType> = [
-        .synology, .webdav, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
-        .aliyunDrive, .pan123, .drime,
+        .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
+        .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
+        .pan123, .drime,
     ]
 
     for sourceType in MusicSourceType.allCases {
@@ -171,12 +172,25 @@ import Testing
 }
 
 @Test func embeddedMetadataWritebackCapabilityCoversVerifiedFormats() {
-    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .mp3) == .embedded)
-    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .flac) == .embedded)
-    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .m4a) == .embedded)
+    let expectedEmbeddedSources: Set<MusicSourceType> = [
+        .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
+        .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+    ]
+    #expect(AudioMetadataWritebackPolicy.embeddedSourceTypes == expectedEmbeddedSources)
+
+    for sourceType in AudioMetadataWritebackPolicy.embeddedSourceTypes {
+        #expect(AudioMetadataWritebackPolicy.capability(sourceType: sourceType, format: .mp3) == .embedded)
+        #expect(AudioMetadataWritebackPolicy.capability(sourceType: sourceType, format: .flac) == .embedded)
+        #expect(AudioMetadataWritebackPolicy.capability(sourceType: sourceType, format: .m4a) == .embedded)
+    }
+
+    for sourceType in AudioMetadataWritebackPolicy.serverAPISourceTypes {
+        #expect(AudioMetadataWritebackPolicy.capability(sourceType: sourceType, format: .mp3) == .serverAPI)
+        #expect(AudioMetadataWritebackPolicy.capability(sourceType: sourceType, format: .wav) == .serverAPI)
+    }
 
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .wav) == .sidecarOnly)
-    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .smb, format: .mp3) == .sidecarOnly)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .pan123, format: .mp3) == .sidecarOnly)
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .upnp, format: .mp3) == .localOnly)
 }
 

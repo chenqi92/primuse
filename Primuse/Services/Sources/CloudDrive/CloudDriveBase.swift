@@ -426,6 +426,10 @@ struct CloudDriveHelper: Sendable {
         FileManager.default.fileExists(atPath: cachedURL(for: path).path)
     }
 
+    func invalidateCachedFile(path: String) {
+        try? FileManager.default.removeItem(at: cachedURL(for: path))
+    }
+
     /// Streams a complete remote file to URLSession's temporary file and only
     /// publishes the cache entry after a successful HTTP response.
     func downloadToCache(request: URLRequest, for path: String) async throws -> URL {

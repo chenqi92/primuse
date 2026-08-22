@@ -421,77 +421,274 @@ actor SynologyAPI {
 
     // MARK: - Upload file (for sidecar writing)
 
-    func uploadFile(data: Data, toDirectory directory: String, fileName: String) async throws {
+    func createDirectory(name: String, at directory: String) async throws {
         guard let sid else { throw SynologyError.notLoggedIn }
+        let data = try await request(path: "/webapi/entry.cgi", params: [
+            "api": "SYNO.FileStation.CreateFolder",
+            "version": "2",
+            "method": "create",
+            "folder_path": directory.isEmpty ? "/" : directory,
+            "name": try validatedUploadFileName(name),
+            "force_parent": "true",
+            "_sid": sid,
+        ], usePost: true)
+        try confirmedResponse(data, operation: "Create folder")
+    }
 
-        let boundary = "Boundary-\(UUID().uuidString)"
+    func uploadFile(
+        data: Data,
+        toDirectory directory: String,
+        fileName: String,
+        overwrite: Bool = true
+    ) async throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-synology-upload-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try data.write(to: sourceURL, options: .atomic)
+        try await uploadFile(
+            localURL: sourceURL,
+            toDirectory: directory,
+            fileName: fileName,
+            overwrite: overwrite
+        )
+    }
+
+    func uploadFile(
+        localURL: URL,
+        toDirectory directory: String,
+        fileName: String,
+        overwrite: Bool
+    ) async throws {
+        guard let sid else { throw SynologyError.notLoggedIn }
+        let safeName = try validatedUploadFileName(fileName)
+        let boundary = "primuse-synology-\(UUID().uuidString)"
+        let multipartURL = try makeMultipartUploadFile(
+            sourceURL: localURL,
+            directory: directory.isEmpty ? "/" : directory,
+            fileName: safeName,
+            overwrite: overwrite,
+            boundary: boundary
+        )
+        defer { try? FileManager.default.removeItem(at: multipartURL) }
+
         let baseURL = try await resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
-        components.queryItems = [
-            URLQueryItem(name: "_sid", value: sid),
-        ]
+        components.queryItems = [URLQueryItem(name: "_sid", value: sid)]
         guard let url = components.url else { throw SynologyError.invalidURL }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60
+        var uploadRequest = URLRequest(url: url)
+        uploadRequest.httpMethod = "POST"
+        uploadRequest.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        uploadRequest.timeoutInterval = 3_600
 
-        // Build multipart body
-        var body = Data()
-        let params: [(String, String)] = [
-            ("api", "SYNO.FileStation.Upload"),
-            ("version", "2"),
-            ("method", "upload"),
-            ("path", directory),
-            ("create_parents", "true"),
-            ("overwrite", "true"),
-        ]
-        for (key, value) in params {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(value)\r\n".data(using: .utf8)!)
+        let responseData: Data
+        let response: URLResponse
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            uploadRequest.httpBody = try Data(contentsOf: multipartURL, options: .mappedIfSafe)
+            (responseData, response) = try await TrustedHTTPTransport.data(
+                for: uploadRequest,
+                session: sharedSession,
+                maxBytes: 1024 * 1024
+            )
+        } else {
+            (responseData, response) = try await sharedSession.upload(
+                for: uploadRequest,
+                fromFile: multipartURL
+            )
         }
-        // File part
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
-
-        let (responseData, response) = try await TrustedHTTPTransport.data(for: request, session: sharedSession)
-
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        guard let http = response as? HTTPURLResponse else {
+            throw SynologyError.invalidResponse
         }
-
-        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] ?? [:]
-        guard json["success"] as? Bool == true else {
-            let err = json["error"] as? [String: Any]
-            throw SynologyError.apiError("Upload failed: \(synologyErrorMessage(code: intValue(err?["code"])))")
+        guard (200...299).contains(http.statusCode) else {
+            throw SynologyError.httpError(http.statusCode)
         }
+        try confirmedResponse(responseData, operation: "Upload")
+    }
+
+    func moveFile(
+        at sourcePath: String,
+        toDirectory destinationDirectory: String,
+        overwrite: Bool
+    ) async throws {
+        guard let sid else { throw SynologyError.notLoggedIn }
+        let pathJSON = try jsonString([sourcePath])
+        let data = try await request(path: "/webapi/entry.cgi", params: [
+            "api": "SYNO.FileStation.CopyMove",
+            "version": "3",
+            "method": "start",
+            "path": pathJSON,
+            "dest_folder_path": destinationDirectory.isEmpty ? "/" : destinationDirectory,
+            "overwrite": overwrite ? "true" : "false",
+            "remove_src": "true",
+            "accurate_progress": "true",
+            "_sid": sid,
+        ], usePost: true)
+        let taskID = try startedTaskID(responseData: data, operation: "Move")
+        try await waitForTask(
+            api: "SYNO.FileStation.CopyMove",
+            version: "3",
+            taskID: taskID,
+            operation: "Move"
+        )
+    }
+
+    func deleteTemporaryItem(path: String) async throws {
+        try await deleteFile(path: path, recursive: true)
     }
 
     func deleteFile(path: String) async throws {
-        guard let sid else { throw SynologyError.notLoggedIn }
-        let pathData = try SafeJSONSerialization.data(withJSONObject: [path])
-        let pathJSON = String(data: pathData, encoding: .utf8) ?? "[\"\(path)\"]"
+        try await deleteFile(path: path, recursive: false)
+    }
 
+    private func deleteFile(path: String, recursive: Bool) async throws {
+        guard let sid else { throw SynologyError.notLoggedIn }
         let data = try await request(path: "/webapi/entry.cgi", params: [
             "api": "SYNO.FileStation.Delete",
             "version": "2",
             "method": "start",
-            "path": pathJSON,
-            "recursive": "false",
+            "path": try jsonString([path]),
+            "recursive": recursive ? "true" : "false",
             "_sid": sid,
-        ])
+        ], usePost: true)
+        let taskID = try startedTaskID(responseData: data, operation: "Delete")
+        try await waitForTask(
+            api: "SYNO.FileStation.Delete",
+            version: "2",
+            taskID: taskID,
+            operation: "Delete"
+        )
+    }
 
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+    private func waitForTask(
+        api: String,
+        version: String,
+        taskID: String,
+        operation: String
+    ) async throws {
+        guard let sid else { throw SynologyError.notLoggedIn }
+        for attempt in 0..<240 {
+            if attempt > 0 {
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            let data = try await request(path: "/webapi/entry.cgi", params: [
+                "api": api,
+                "version": version,
+                "method": "status",
+                "taskid": taskID,
+                "_sid": sid,
+            ])
+            let json = try responseJSON(data, operation: operation)
+            let taskData = json["data"] as? [String: Any] ?? [:]
+            if taskData["finished"] as? Bool == true {
+                if let error = taskData["error"] as? [String: Any] {
+                    throw SynologyError.apiError(
+                        "\(operation) failed: \(synologyErrorMessage(code: intValue(error["code"])))"
+                    )
+                }
+                return
+            }
+        }
+        throw SynologyError.apiError("\(operation) timed out")
+    }
+
+    private func confirmedResponse(_ data: Data, operation: String) throws {
+        _ = try responseJSON(data, operation: operation)
+    }
+
+    private func responseJSON(_ data: Data, operation: String) throws -> [String: Any] {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SynologyError.apiError("\(operation) returned an invalid response")
+        }
         guard json["success"] as? Bool == true else {
-            let err = json["error"] as? [String: Any]
-            throw SynologyError.apiError("Delete failed: \(synologyErrorMessage(code: intValue(err?["code"])))")
+            let error = json["error"] as? [String: Any]
+            throw SynologyError.apiError(
+                "\(operation) failed: \(synologyErrorMessage(code: intValue(error?["code"])))"
+            )
+        }
+        return json
+    }
+
+    private func startedTaskID(responseData: Data, operation: String) throws -> String {
+        let json = try responseJSON(responseData, operation: operation)
+        let data = json["data"] as? [String: Any]
+        if let taskID = data?["taskid"] as? String, !taskID.isEmpty {
+            return taskID
+        }
+        if let taskID = data?["taskid"] as? NSNumber {
+            return taskID.stringValue
+        }
+        throw SynologyError.apiError("\(operation) did not return a task identifier")
+    }
+
+    private func jsonString(_ value: Any) throws -> String {
+        let data = try SafeJSONSerialization.data(withJSONObject: value)
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw SynologyError.invalidResponse
+        }
+        return string
+    }
+
+    private func validatedUploadFileName(_ value: String) throws -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed == (trimmed as NSString).lastPathComponent,
+              !trimmed.contains("\r"),
+              !trimmed.contains("\n"),
+              trimmed.utf8.count <= 255 else {
+            throw SynologyError.apiError("Invalid upload file name")
+        }
+        return trimmed
+    }
+
+    private func makeMultipartUploadFile(
+        sourceURL: URL,
+        directory: String,
+        fileName: String,
+        overwrite: Bool,
+        boundary: String
+    ) throws -> URL {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-synology-multipart-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
+            throw SynologyError.apiError("Unable to create upload body")
+        }
+        let output = try FileHandle(forWritingTo: outputURL)
+        let input = try FileHandle(forReadingFrom: sourceURL)
+        do {
+            let fields: [(String, String)] = [
+                ("api", "SYNO.FileStation.Upload"),
+                ("version", "2"),
+                ("method", "upload"),
+                ("path", directory),
+                ("create_parents", "true"),
+                ("overwrite", overwrite ? "true" : "false"),
+            ]
+            for (name, value) in fields {
+                try output.write(contentsOf: Data(
+                    "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8
+                ))
+            }
+            let quotedName = fileName.replacingOccurrences(of: "\"", with: "_")
+            try output.write(contentsOf: Data(
+                "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(quotedName)\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8
+            ))
+            while true {
+                let chunk = try input.read(upToCount: 1024 * 1024) ?? Data()
+                if chunk.isEmpty { break }
+                try output.write(contentsOf: chunk)
+            }
+            try output.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+            try input.close()
+            try output.close()
+            return outputURL
+        } catch {
+            try? input.close()
+            try? output.close()
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
         }
     }
 

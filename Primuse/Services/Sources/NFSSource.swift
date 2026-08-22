@@ -122,8 +122,10 @@ private struct NFSFallbackCandidate {
     let client: any NFSClientBackend
 }
 
-actor NFSSource: MusicSourceConnector {
+actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
+    LyricsSidecarTargetResolving {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
 
     private let host: String
     private let port: Int?
@@ -255,6 +257,137 @@ actor NFSSource: MusicSourceConnector {
         let client = try await ensureConnected(to: selection.exportPath)
 
         try await client.remove(path: selection.relativePath)
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        let selection = try await sidecarAwareWriteSelection(for: path)
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-nfs-write-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: localURL) }
+        try data.write(to: localURL, options: .atomic)
+
+        let activeClient = try await ensureConnected(to: selection.exportPath)
+        let stagingPath = Self.stagingPath(for: selection.relativePath)
+        do {
+            try await activeClient.upload(localURL: localURL, to: stagingPath)
+            try await activeClient.rename(path: stagingPath, to: selection.relativePath)
+        } catch {
+            try? await activeClient.remove(path: stagingPath)
+            throw error
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        let selection = try await sidecarAwareWriteSelection(for: path)
+        let resolvedPath = NFSSelectionPathCodec.makeSelectionPath(
+            exportPath: selection.exportPath,
+            relativePath: selection.relativePath
+        )
+        await invalidateMetadataWritebackCache(for: resolvedPath)
+        let readback = try await fetchRange(
+            path: resolvedPath,
+            offset: 0,
+            length: Int64(data.count)
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+    }
+
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        let source = try await resolveSelectionPath(for: song.filePath)
+        let directory = (source.relativePath as NSString).deletingLastPathComponent
+        let baseName = ((source.relativePath as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+        let existingItems = try await listDirectory(
+            exportPath: source.exportPath,
+            relativePath: directory.isEmpty ? "/" : directory
+        )
+
+        var candidateNames: [String] = []
+        if let reference = song.lyricsFileName, !reference.isEmpty {
+            let referencedName: String?
+            if reference.hasPrefix("nfs::"),
+               let selection = try? NFSSelectionPathCodec.parse(
+                    reference,
+                    constrainedToExport: source.exportPath
+               ),
+               (selection.relativePath as NSString).deletingLastPathComponent == directory {
+                referencedName = (selection.relativePath as NSString).lastPathComponent
+            } else if !reference.contains("/") {
+                referencedName = reference
+            } else {
+                referencedName = nil
+            }
+            if let referencedName,
+               (referencedName as NSString).deletingPathExtension
+                .caseInsensitiveCompare(baseName) == .orderedSame,
+               PrimuseConstants.supportedLyricsExtensions.contains(
+                    (referencedName as NSString).pathExtension.lowercased()
+               ) {
+                candidateNames.append(referencedName)
+            }
+        }
+        candidateNames.append("\(baseName).lrc")
+        candidateNames.append("\(baseName).ttml")
+
+        let existing = candidateNames.lazy.compactMap { candidate in
+            existingItems.first {
+                !$0.isDirectory && $0.name.caseInsensitiveCompare(candidate) == .orderedSame
+            }
+        }.first
+        let fileName = existing?.name ?? "\(baseName).lrc"
+        let relativePath = ((directory.isEmpty ? "/" : directory) as NSString)
+            .appendingPathComponent(fileName)
+        return LyricsSidecarTarget(
+            targetPath: NFSSelectionPathCodec.makeSelectionPath(
+                exportPath: source.exportPath,
+                relativePath: relativePath
+            ),
+            fileName: fileName,
+            exists: existing != nil
+        )
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let selection = try await resolveSelectionPath(for: path)
+        let activeClient = try await ensureConnected(to: selection.exportPath)
+        return try await remoteState(for: selection, using: activeClient)
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        let selection = try await resolveSelectionPath(for: path)
+        let activeClient = try await ensureConnected(to: selection.exportPath)
+        let stagingPath = Self.stagingPath(for: selection.relativePath)
+        do {
+            try await activeClient.upload(localURL: localURL, to: stagingPath)
+            let current = try await remoteState(for: selection, using: activeClient)
+            guard expected.matches(current) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            // NFS RENAME replaces an existing non-directory destination in one
+            // server operation, so readers never observe a partially uploaded
+            // audio object.
+            try await activeClient.rename(path: stagingPath, to: selection.relativePath)
+        } catch {
+            try? await activeClient.remove(path: stagingPath)
+            throw error
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        guard let cacheName = NFSSelectionPathCodec.cacheFileName(for: path) else { return }
+        localFileTasks[cacheName]?.cancel()
+        localFileTasks[cacheName] = nil
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(cacheName)
+        )
     }
 
     /// NFSv3/v4 都通过 libnfs 执行 NFS_READ (offset + count)，协议级支持
@@ -541,6 +674,28 @@ actor NFSSource: MusicSourceConnector {
         throw SourceError.pathNotFound(path)
     }
 
+    /// Generic sidecar naming operates on Song.filePath. NFS stores that path
+    /// as an opaque selection token, so translate the synthetic suffix back to
+    /// a real sibling path before uploading the file.
+    private func sidecarAwareWriteSelection(
+        for path: String
+    ) async throws -> NFSSelectionPathCodec.SelectionPath {
+        let suffixes = ["-cover.jpg", ".lrc"]
+        if let suffix = suffixes.first(where: { path.hasSuffix($0) }) {
+            let sourcePath = String(path.dropLast(suffix.count))
+            let source = try await resolveSelectionPath(for: sourcePath)
+            let directory = (source.relativePath as NSString).deletingLastPathComponent
+            let baseName = ((source.relativePath as NSString).lastPathComponent as NSString)
+                .deletingPathExtension
+            return .init(
+                exportPath: source.exportPath,
+                relativePath: ((directory.isEmpty ? "/" : directory) as NSString)
+                    .appendingPathComponent(baseName + suffix)
+            )
+        }
+        return try await resolveSelectionPath(for: path)
+    }
+
     private func listDirectory(
         exportPath: String,
         relativePath: String
@@ -567,7 +722,11 @@ actor NFSSource: MusicSourceConnector {
                             ),
                             isDirectory: entry.isDirectory,
                             size: entry.size,
-                            modifiedDate: entry.modifiedDate
+                            modifiedDate: entry.modifiedDate,
+                            revision: Self.fileRevision(
+                                size: entry.size,
+                                modifiedDate: entry.modifiedDate
+                            )
                         )
                     }
                     .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -600,6 +759,39 @@ actor NFSSource: MusicSourceConnector {
                 }
             }
         }
+    }
+
+    private func remoteState(
+        for selection: NFSSelectionPathCodec.SelectionPath,
+        using client: any NFSClientBackend
+    ) async throws -> EmbeddedMetadataRemoteFileState {
+        let relativePath = NFSSelectionPathCodec.normalizedRelativePath(selection.relativePath)
+        let parent = (relativePath as NSString).deletingLastPathComponent
+        let directory = parent.isEmpty ? "/" : parent
+        guard let entry = try await client.listDirectory(path: directory).first(where: {
+            NFSSelectionPathCodec.normalizedRelativePath($0.path) == relativePath
+        }), !entry.isDirectory else {
+            throw SourceError.fileNotFound(selection.relativePath)
+        }
+        return EmbeddedMetadataRemoteFileState(
+            fileSize: entry.size,
+            modifiedDate: entry.modifiedDate,
+            revision: Self.fileRevision(size: entry.size, modifiedDate: entry.modifiedDate)
+        )
+    }
+
+    private nonisolated static func stagingPath(for path: String) -> String {
+        let normalized = NFSSelectionPathCodec.normalizedRelativePath(path)
+        let directory = (normalized as NSString).deletingLastPathComponent
+        let fileName = (normalized as NSString).lastPathComponent
+        let stagingName = ".\(fileName).primuse-writeback-\(UUID().uuidString)"
+        return ((directory.isEmpty ? "/" : directory) as NSString)
+            .appendingPathComponent(stagingName)
+    }
+
+    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "nfs:\(size):\(Int64(modifiedDate.timeIntervalSince1970 * 1_000_000))"
     }
 
     private func listExportsWithRecovery(

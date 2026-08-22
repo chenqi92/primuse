@@ -5,8 +5,9 @@ import NIOCore
 @preconcurrency import NIOSSH
 import PrimuseKit
 
-actor SFTPSource: MusicSourceConnector {
+actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
 
     private let host: String
     private let port: Int
@@ -192,12 +193,15 @@ actor SFTPSource: MusicSourceConnector {
                         return nil
                     }
                     let isDir = item.attributes.permissions.map { $0 & 0o40000 != 0 } ?? false
+                    let modifiedDate = item.attributes.accessModificationTime?.modificationTime
+                    let size = Int64(item.attributes.size ?? 0)
                     return RemoteFileItem(
                         name: item.filename,
                         path: childPath,
                         isDirectory: isDir,
-                        size: Int64(item.attributes.size ?? 0),
-                        modifiedDate: nil
+                        size: size,
+                        modifiedDate: modifiedDate,
+                        revision: Self.fileRevision(size: size, modifiedDate: modifiedDate)
                     )
                 }
                 .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -364,6 +368,123 @@ actor SFTPSource: MusicSourceConnector {
             try? FileManager.default.removeItem(at: tempURL)
             throw error
         }
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        guard let sftp else {
+            throw SourceError.connectionFailed("Not connected")
+        }
+        let destination = try resolvedRemotePath(for: path)
+        let staging = Self.stagingPath(for: destination)
+        do {
+            try await upload(data: data, to: staging, using: sftp)
+            try await sftp.rename(at: staging, to: destination, flags: 1)
+        } catch {
+            try? await sftp.remove(at: staging)
+            throw error
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        guard let sftp else {
+            throw SourceError.connectionFailed("Not connected")
+        }
+        let attributes = try await sftp.getAttributes(at: resolvedRemotePath(for: path))
+        let size = Int64(attributes.size ?? 0)
+        let modifiedDate = attributes.accessModificationTime?.modificationTime
+        return EmbeddedMetadataRemoteFileState(
+            fileSize: size,
+            modifiedDate: modifiedDate,
+            revision: Self.fileRevision(size: size, modifiedDate: modifiedDate)
+        )
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        guard let sftp else {
+            throw SourceError.connectionFailed("Not connected")
+        }
+        let destination = try resolvedRemotePath(for: path)
+        let staging = Self.stagingPath(for: destination)
+        do {
+            try await upload(localURL: localURL, to: staging, using: sftp)
+            let current = try await metadataWritebackState(for: path)
+            guard expected.matches(current) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            // Citadel serializes the SFTP rename-overwrite flag when the
+            // server supports it. Servers that reject replacement leave the
+            // original untouched and surface a replace-stage error.
+            try await sftp.rename(at: staging, to: destination, flags: 1)
+        } catch {
+            try? await sftp.remove(at: staging)
+            throw error
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        guard let remotePath = try? resolvedRemotePath(for: path) else { return }
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(safeCacheFileName(for: remotePath))
+        )
+    }
+
+    private func upload(data: Data, to remotePath: String, using sftp: SFTPClient) async throws {
+        let file = try await sftp.openFile(
+            filePath: remotePath,
+            flags: [.write, .create, .forceCreate]
+        )
+        do {
+            var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+            buffer.writeBytes(data)
+            try await file.write(buffer)
+            try await file.close()
+        } catch {
+            try? await file.close()
+            throw error
+        }
+    }
+
+    private func upload(localURL: URL, to remotePath: String, using sftp: SFTPClient) async throws {
+        let remoteFile = try await sftp.openFile(
+            filePath: remotePath,
+            flags: [.write, .create, .forceCreate]
+        )
+        let localFile = try FileHandle(forReadingFrom: localURL)
+        do {
+            defer { try? localFile.close() }
+            var offset: UInt64 = 0
+            while true {
+                let data = try localFile.read(upToCount: 256 * 1024) ?? Data()
+                if data.isEmpty { break }
+                var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+                buffer.writeBytes(data)
+                try await remoteFile.write(buffer, at: offset)
+                offset += UInt64(data.count)
+            }
+            try await remoteFile.close()
+        } catch {
+            try? await remoteFile.close()
+            throw error
+        }
+    }
+
+    private nonisolated static func stagingPath(for destination: String) -> String {
+        let parent = (destination as NSString).deletingLastPathComponent
+        let name = (destination as NSString).lastPathComponent
+        return (parent as NSString).appendingPathComponent(
+            ".\(name).primuse-writeback-\(UUID().uuidString)"
+        )
+    }
+
+    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "sftp:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
     }
 
     func deleteFile(at path: String) async throws {

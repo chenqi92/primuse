@@ -42,6 +42,8 @@ struct TagEditorView: View {
     @State private var tagMetadataPersistenceMode: TagMetadataPersistenceMode?
     @State private var lyricsErrorMessage: String?
     @State private var writebackErrorMessage: String?
+    @State private var writebackNoticeMessage: String?
+    @State private var savedSongPendingNotice: Song?
     @State private var isSaving = false
     @State private var showLyricsDeleteConfirm = false
     @State private var showLyricsEditor = false
@@ -113,6 +115,22 @@ struct TagEditorView: View {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
             Text(writebackErrorMessage ?? "")
+        }
+        .alert(
+            String(localized: "tag_editor_writeback_notice_title"),
+            isPresented: Binding(
+                get: { writebackNoticeMessage != nil },
+                set: { if !$0 { writebackNoticeMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {
+                guard let savedSongPendingNotice else { return }
+                self.savedSongPendingNotice = nil
+                onSave?(savedSongPendingNotice)
+                dismiss()
+            }
+        } message: {
+            Text(writebackNoticeMessage ?? "")
         }
         .confirmationDialog(
             String(localized: "tag_editor_lyrics_delete_confirm_title"),
@@ -1303,6 +1321,8 @@ struct TagEditorView: View {
             return String(localized: "tag_editor_metadata_writeback_checking")
         case .embedded:
             return String(localized: "tag_editor_metadata_writeback_embedded")
+        case .serverAPI:
+            return String(localized: "tag_editor_metadata_writeback_server_api")
         case .sidecarOnly:
             return String(localized: "tag_editor_metadata_writeback_sidecar_only")
         case .localOnly:
@@ -1386,17 +1406,23 @@ struct TagEditorView: View {
             || SongUserMetadataPolicy.editableFieldsChanged(from: song, to: updated)
         if tagOrCoverChanged { updated.userMetadataEditedAt = Date() }
 
-        var wroteEmbeddedMetadata = false
+        var sourceMutationOccurred = false
+        var metadataWritebackNotice: String?
         if tagOrCoverChanged {
             do {
-                if let sourceUpdated = try await sourceManager.writeEmbeddedMetadataIfSupported(
+                let report = try await sourceManager.writeTagMetadata(
                     original: song,
                     updated: updated,
                     coverData: pickedCoverData
-                ) {
-                    updated = sourceUpdated
-                    wroteEmbeddedMetadata = true
+                )
+                if report.shouldAbortLocalSave {
+                    writebackErrorMessage = report.issueMessage
+                        ?? String(localized: "metadata_writeback_error_invalid_state")
+                    return
                 }
+                updated = report.updatedSong
+                sourceMutationOccurred = report.remoteMutationOccurred
+                metadataWritebackNotice = report.issueMessage
             } catch {
                 writebackErrorMessage = error.localizedDescription
                 return
@@ -1411,7 +1437,7 @@ struct TagEditorView: View {
                 // Embedded writeback may already have succeeded. Keep the
                 // durable library fields aligned with the verified media file,
                 // but never leave the previous local cover reference visible.
-                if wroteEmbeddedMetadata {
+                if sourceMutationOccurred {
                     updated.coverArtFileName = nil
                     library.replaceSong(updated)
                     invalidateSelectedCoverIfNeeded()
@@ -1438,7 +1464,7 @@ struct TagEditorView: View {
                 // The media object may already have been atomically replaced.
                 // Keep the library aligned with that verified source state even
                 // if the independent lyrics sidecar operation failed afterward.
-                if wroteEmbeddedMetadata {
+                if sourceMutationOccurred {
                     library.replaceSong(updated)
                     invalidateSelectedCoverIfNeeded()
                 }
@@ -1455,6 +1481,11 @@ struct TagEditorView: View {
             library.replaceSong(updated)
         }
         invalidateSelectedCoverIfNeeded()
+        if let metadataWritebackNotice {
+            savedSongPendingNotice = updated
+            writebackNoticeMessage = metadataWritebackNotice
+            return
+        }
         onSave?(updated)
         dismiss()
     }

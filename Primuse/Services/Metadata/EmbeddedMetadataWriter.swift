@@ -30,10 +30,13 @@ enum EmbeddedMetadataWriterError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedFormat(let fileExtension):
-            return "Embedded metadata writeback is not supported for .\(fileExtension) files."
+        case .unsupportedFormat:
+            return String(localized: "metadata_writeback_error_unsupported")
         case .verificationFailed(let field):
-            return "The updated media file failed embedded metadata verification (\(field))."
+            return String(
+                format: String(localized: "metadata_writeback_error_embedded_verification_format"),
+                field
+            )
         }
     }
 }

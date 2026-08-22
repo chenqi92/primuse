@@ -2,8 +2,9 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor LocalFileSource: ExistingSongAwareScanningConnector {
+actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
     private let basePath: URL
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
@@ -101,6 +102,145 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
             throw SourceError.fileNotFound(path)
         }
         return fileURL
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let fileURL = try resolvedURL(for: path, allowRoot: false)
+        let values = try fileURL.resourceValues(forKeys: [
+            .isRegularFileKey,
+            .fileSizeKey,
+            .contentModificationDateKey,
+        ])
+        guard values.isRegularFile == true else { throw SourceError.fileNotFound(path) }
+        let size = Int64(values.fileSize ?? 0)
+        let revision = try localCompositeRevision(
+            for: fileURL,
+            size: size,
+            modifiedDate: values.contentModificationDate
+        )
+        return EmbeddedMetadataRemoteFileState(
+            fileSize: size,
+            modifiedDate: values.contentModificationDate,
+            revision: revision
+        )
+    }
+
+    /// Local scans intentionally fold same-name cover/lyrics/MV revisions into
+    /// Song.revision. Reproduce that exact fingerprint for writeback conflict
+    /// checks so an unchanged audio file with sidecars is not reported as a
+    /// false conflict, while a concurrently changed sidecar still blocks the
+    /// transaction.
+    private func localCompositeRevision(
+        for fileURL: URL,
+        size: Int64,
+        modifiedDate: Date?
+    ) throws -> String? {
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey,
+            .fileSizeKey,
+            .contentModificationDateKey,
+        ]
+        let siblingURLs = try FileManager.default.contentsOfDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        )
+        let siblings: [RemoteFileItem] = siblingURLs.compactMap { url in
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { return nil }
+            let siblingSize = Int64(values.fileSize ?? 0)
+            return RemoteFileItem(
+                name: url.lastPathComponent,
+                path: relativePath(for: url),
+                isDirectory: false,
+                size: siblingSize,
+                modifiedDate: values.contentModificationDate,
+                revision: Self.localRevision(
+                    size: siblingSize,
+                    modifiedDate: values.contentModificationDate
+                )
+            )
+        }
+        let targetPath = relativePath(for: fileURL)
+        guard let item = siblings.first(where: { $0.path == targetPath }) else {
+            throw SourceError.fileNotFound(targetPath)
+        }
+        let index = SidecarHintResolver.DirectoryIndex(siblings)
+        guard let decorated = SidecarHintResolver.scannableItem(item, index: index) else {
+            throw SourceError.fileNotFound(targetPath)
+        }
+        let revisionsByPath = Dictionary(
+            siblings.map { ($0.path, $0.revision) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let sidecarRevisions = [
+            decorated.sidecarHints?.coverPath,
+            decorated.sidecarHints?.lyricsPath,
+            decorated.sidecarHints?.mvPath,
+        ].compactMap { $0 }.compactMap { revisionsByPath[$0] ?? nil }
+        let audioRevision = Self.localRevision(size: size, modifiedDate: modifiedDate)
+        return Self.compositeRevision([audioRevision].compactMap { $0 } + sidecarRevisions)
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        let destination = try resolvedURL(for: path, allowRoot: false)
+        let current = try await metadataWritebackState(for: path)
+        guard expected.matches(current) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let stagingURL = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).primuse-writeback-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+        try FileManager.default.copyItem(at: localURL, to: stagingURL)
+        _ = try FileManager.default.replaceItemAt(
+            destination,
+            withItemAt: stagingURL,
+            backupItemName: nil,
+            options: []
+        )
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        let destination = try resolvedURL(for: path, allowRoot: false)
+        let parent = destination.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: parent.path,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            throw SourceError.pathNotFound(parent.path)
+        }
+
+        let resolvedBase = basePath.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedParent = parent.resolvingSymlinksInPath().standardizedFileURL
+        let basePrefix = resolvedBase.path.hasSuffix("/")
+            ? resolvedBase.path
+            : resolvedBase.path + "/"
+        guard resolvedParent.path == resolvedBase.path
+                || resolvedParent.path.hasPrefix(basePrefix) else {
+            throw SourceError.connectionFailed("Refusing to write outside source root: \(path)")
+        }
+
+        let stagingURL = parent.appendingPathComponent(
+            ".\(destination.lastPathComponent).primuse-sidecar-\(UUID().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+        try data.write(to: stagingURL, options: .atomic)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(
+                destination,
+                withItemAt: stagingURL,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try FileManager.default.moveItem(at: stagingURL, to: destination)
+        }
     }
 
     func deleteFile(at path: String) async throws {

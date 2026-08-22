@@ -143,6 +143,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
 /// metadata.
 public enum AudioMetadataWritebackCapability: Sendable, Equatable {
     case embedded
+    case serverAPI
     case sidecarOnly
     case localOnly
 }
@@ -152,11 +153,41 @@ public enum AudioMetadataWritebackPolicy {
     /// writer: ID3v2/APIC, FLAC Vorbis comments/PICTURE, and MP4 `ilst`/`covr`.
     public static let embeddedFormats: Set<AudioFormat> = [.mp3, .flac, .m4a]
 
+    /// File-addressed sources whose connectors implement the common guarded
+    /// replace transaction. Providers that replace an object by assigning a
+    /// new opaque ID are intentionally excluded until their library identity
+    /// can be migrated atomically with the remote object.
+    public static let embeddedSourceTypes: Set<MusicSourceType> = [
+        .local,
+        .synology,
+        .qnap,
+        .webdav,
+        .smb,
+        .ftp,
+        .sftp,
+        .nfs,
+        .s3,
+        .baiduPan,
+        .aliyunDrive,
+        .googleDrive,
+        .oneDrive,
+        .dropbox,
+    ]
+
+    public static let serverAPISourceTypes: Set<MusicSourceType> = [
+        .jellyfin,
+        .emby,
+        .plex,
+    ]
+
     public static func capability(
         sourceType: MusicSourceType,
         format: AudioFormat
     ) -> AudioMetadataWritebackCapability {
-        if sourceType == .webdav, embeddedFormats.contains(format) {
+        if serverAPISourceTypes.contains(sourceType) {
+            return .serverAPI
+        }
+        if embeddedSourceTypes.contains(sourceType), embeddedFormats.contains(format) {
             return .embedded
         }
         if sourceType.supportsSidecarWriting {

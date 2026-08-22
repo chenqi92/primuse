@@ -39,6 +39,7 @@ struct SongFileDeletionOutcome: Sendable {
 
 enum TagMetadataPersistenceMode: Sendable, Equatable {
     case embedded
+    case serverAPI
     case sidecarOnly
     case localOnly
 }
@@ -707,6 +708,12 @@ private extension RoutedConnectorProxy {
     func writeFile(data: Data, to path: String, priority: RangeFetchPriority) async throws {
         try await routing.withMutation {
             try await $0.writeFile(data: data, to: path, priority: priority)
+        }
+    }
+
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        try await routing.withRead {
+            try await $0.verifySidecarWrite(data: data, at: path)
         }
     }
 
@@ -5161,6 +5168,8 @@ final class SourceManager {
         ) {
         case .embedded:
             return song.isCueTrack || song.isStreamDescriptor ? .sidecarOnly : .embedded
+        case .serverAPI:
+            return .serverAPI
         case .sidecarOnly:
             return .sidecarOnly
         case .localOnly:
@@ -5168,30 +5177,40 @@ final class SourceManager {
         }
     }
 
-    /// Returns nil when this editor is explicitly operating in local-only or
-    /// sidecar-only mode. A non-nil result has already been downloaded and
-    /// byte-verified after the server replacement.
-    func writeEmbeddedMetadataIfSupported(
+    /// The tag editor's only source-write entry point. Capability routing,
+    /// per-field outcomes, optimistic replacement, and provider/API error
+    /// reporting all stay behind this boundary.
+    func writeTagMetadata(
         original: Song,
         updated: Song,
         coverData: Data?
-    ) async throws -> Song? {
-        guard await tagMetadataPersistenceMode(for: original) == .embedded else {
-            return nil
-        }
+    ) async throws -> TagMetadataWritebackReport {
+        let mode = await tagMetadataPersistenceMode(for: original)
         let connector = try await connectorForSong(original)
-        let result = try await connector.writeEmbeddedMetadata(
+        let report = await TagMetadataWritebackCoordinator.write(
+            mode: mode,
+            connector: connector,
             original: original,
             updated: updated,
             coverData: coverData
         )
-        var sourceUpdated = updated
-        sourceUpdated.fileSize = result.fileSize
-        sourceUpdated.lastModified = result.modifiedDate
-        sourceUpdated.revision = result.revision
-        deleteAudioCache(for: original)
-        plog("WebDAV embedded metadata writeback verified for songID=\(original.id) sha256=\(result.fileSHA256)")
-        return sourceUpdated
+        if mode == .embedded {
+            // The file may already have reached the replace stage even when a
+            // mandatory readback later reports an error. Never retain bytes
+            // cached under the pre-write revision in either outcome.
+            deleteAudioCache(for: original)
+        }
+        if report.remoteMutationOccurred {
+            let writtenFields = report.fields.compactMap { result -> String? in
+                if case .written = result.disposition { return result.field.rawValue }
+                return nil
+            }
+            plog(
+                "Metadata writeback completed for songID=\(original.id) "
+                    + "mode=\(String(describing: mode)) fields=\(writtenFields.joined(separator: ","))"
+            )
+        }
+        return report
     }
 
     func supportsMediaServerWriteback(for song: Song) async -> Bool {

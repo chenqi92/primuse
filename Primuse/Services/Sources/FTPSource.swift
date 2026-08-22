@@ -248,8 +248,9 @@ private func startFTPRangeAttempt(
     request.updateProgress(progress)
 }
 
-actor FTPSource: MusicSourceConnector {
+actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
     private let host: String
     private let port: Int?
     private let pathPolicy: FTPPathPolicy
@@ -454,7 +455,11 @@ actor FTPSource: MusicSourceConnector {
                                 path: sourcePath,
                                 isDirectory: file.isDirectory,
                                 size: file.size,
-                                modifiedDate: file.modifiedDate
+                                modifiedDate: file.modifiedDate,
+                                revision: Self.fileRevision(
+                                    size: file.size,
+                                    modifiedDate: file.modifiedDate
+                                )
                             )
                         }
                         .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -604,6 +609,141 @@ actor FTPSource: MusicSourceConnector {
             throw error
         }
         return localURL
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        let generation = try connectedGeneration()
+        let transferProvider = try makeProvider()
+        let providerPath = pathPolicy.providerPath(forSourcePath: path)
+        let _: Void = try await performIsolatedRequest(
+            provider: transferProvider,
+            generation: generation
+        ) { request in
+            let progress = request.provider.writeContents(
+                path: providerPath,
+                contents: data,
+                atomically: false,
+                overwrite: true
+            ) { error in
+                guard !request.isResolved else { return }
+                if let error {
+                    request.resolve(.failure(error))
+                } else {
+                    request.resolve(.success(()))
+                }
+            }
+            request.updateProgress(progress)
+        }
+        fileSizeCache[fileSizeCacheKey(for: path)] = Int64(data.count)
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        try await listedMetadataWritebackState(for: path)
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        let generation = try connectedGeneration()
+        let destinationPath = pathPolicy.providerPath(forSourcePath: path)
+        let parent = (path as NSString).deletingLastPathComponent
+        let fileName = (path as NSString).lastPathComponent
+        let stagingSourcePath = (parent as NSString).appendingPathComponent(
+            ".\(fileName).primuse-writeback-\(UUID().uuidString)"
+        )
+        let stagingPath = pathPolicy.providerPath(forSourcePath: stagingSourcePath)
+
+        let uploadProvider = try makeProvider()
+        do {
+            let _: Void = try await performIsolatedRequest(
+                provider: uploadProvider,
+                generation: generation
+            ) { request in
+                let progress = request.provider.copyItem(
+                    localFile: localURL,
+                    to: stagingPath,
+                    overwrite: false
+                ) { error in
+                    guard !request.isResolved else { return }
+                    if let error {
+                        request.resolve(.failure(error))
+                    } else {
+                        request.resolve(.success(()))
+                    }
+                }
+                request.updateProgress(progress)
+            }
+
+            let current = try await metadataWritebackState(for: path)
+            guard expected.matches(current) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+
+            let renameProvider = try makeProvider()
+            let _: Void = try await performIsolatedRequest(
+                provider: renameProvider,
+                generation: generation
+            ) { request in
+                let progress = request.provider.moveItem(
+                    path: stagingPath,
+                    to: destinationPath,
+                    overwrite: true
+                ) { error in
+                    guard !request.isResolved else { return }
+                    if let error {
+                        request.resolve(.failure(error))
+                    } else {
+                        request.resolve(.success(()))
+                    }
+                }
+                request.updateProgress(progress)
+            }
+        } catch {
+            await removeStagingFileIfPresent(
+                providerPath: stagingPath,
+                generation: generation
+            )
+            throw error
+        }
+
+        fileSizeCache[fileSizeCacheKey(for: path)] = nil
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path))
+        )
+        fileSizeCache[fileSizeCacheKey(for: path)] = nil
+    }
+
+    private func removeStagingFileIfPresent(
+        providerPath: String,
+        generation: ConnectionScopedOperationRegistry.Generation
+    ) async {
+        guard let cleanupProvider = try? makeProvider() else { return }
+        let _: Void? = try? await performIsolatedRequest(
+            provider: cleanupProvider,
+            generation: generation
+        ) { request in
+            let progress = request.provider.removeItem(path: providerPath) { error in
+                guard !request.isResolved else { return }
+                if let error {
+                    request.resolve(.failure(error))
+                } else {
+                    request.resolve(.success(()))
+                }
+            }
+            request.updateProgress(progress)
+        }
+    }
+
+    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "ftp:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
     }
 
     func deleteFile(at path: String) async throws {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 actor QnapAPI {
@@ -121,7 +122,11 @@ actor QnapAPI {
     // MARK: - Files
 
     struct FileItem: Sendable {
-        let name: String; let path: String; let isDirectory: Bool; let size: Int64
+        let name: String
+        let path: String
+        let isDirectory: Bool
+        let size: Int64
+        let modifiedDate: Date?
     }
 
     func listDirectory(path: String, offset: Int = 0, limit: Int = 500) async throws -> [FileItem] {
@@ -190,7 +195,10 @@ actor QnapAPI {
                 name: d["filename"] as? String ?? "",
                 path: d["path"] as? String ?? "",
                 isDirectory: (d["isfolder"] as? Int) == 1,
-                size: Int64(d["filesize"] as? Int ?? 0)
+                size: qnapInt64(d["filesize"]) ?? 0,
+                modifiedDate: qnapInt64(d["epochmt"]).flatMap {
+                    $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
+                }
             )
         }, total)
     }
@@ -210,9 +218,154 @@ actor QnapAPI {
         return comps.url
     }
 
+    func createDirectory(name: String, at path: String) async throws {
+        guard let sid else { throw SourceError.connectionFailed("Not logged in") }
+        var components = URLComponents(
+            string: "\(baseURLString)/cgi-bin/filemanager/utilRequest.cgi"
+        )!
+        components.queryItems = [
+            .init(name: "func", value: "createdir"),
+            .init(name: "sid", value: sid),
+            .init(name: "dest_folder", value: name),
+            .init(name: "dest_path", value: path.isEmpty ? "/" : path),
+        ]
+        let json = try await confirmedJSONRequest(url: components.url!, operation: "create directory")
+        guard qnapStatus(json) == 1 else {
+            throw SourceError.connectionFailed(
+                "QNAP create directory failed: status \(qnapStatus(json) ?? -1)"
+            )
+        }
+    }
+
+    func uploadFile(
+        data: Data,
+        toDirectory directory: String,
+        fileName: String,
+        overwrite: Bool
+    ) async throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-qnap-upload-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try data.write(to: sourceURL, options: .atomic)
+        try await uploadFile(
+            localURL: sourceURL,
+            toDirectory: directory,
+            fileName: fileName,
+            overwrite: overwrite
+        )
+    }
+
+    func uploadFile(
+        localURL: URL,
+        toDirectory directory: String,
+        fileName: String,
+        overwrite: Bool
+    ) async throws {
+        guard let sid else { throw SourceError.connectionFailed("Not logged in") }
+        let safeName = try validatedUploadFileName(fileName)
+        let boundary = "primuse-qnap-\(UUID().uuidString)"
+        let multipart = try makeMultipartUploadFile(
+            sourceURL: localURL,
+            fileName: safeName,
+            boundary: boundary
+        )
+        defer { try? FileManager.default.removeItem(at: multipart.url) }
+
+        let normalizedDirectory = directory.isEmpty ? "/" : directory
+        let destination = (normalizedDirectory as NSString).appendingPathComponent(safeName)
+        var components = URLComponents(
+            string: "\(baseURLString)/cgi-bin/filemanager/utilRequest.cgi"
+        )!
+        components.queryItems = [
+            .init(name: "func", value: "upload"),
+            .init(name: "type", value: "standard"),
+            .init(name: "sid", value: sid),
+            .init(name: "dest_path", value: normalizedDirectory),
+            .init(name: "overwrite", value: overwrite ? "1" : "0"),
+            .init(name: "progress", value: destination.replacingOccurrences(of: "/", with: "-")),
+            .init(name: "check_sum", value: "1"),
+            .init(name: "md5", value: multipart.md5),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.timeoutInterval = 3_600
+
+        let responseData: Data
+        let response: URLResponse
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            request.httpBody = try Data(contentsOf: multipart.url, options: .mappedIfSafe)
+            (responseData, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: session(),
+                maxBytes: 1024 * 1024
+            )
+        } else {
+            (responseData, response) = try await session().upload(
+                for: request,
+                fromFile: multipart.url
+            )
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid QNAP upload response")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
+        guard (200...299).contains(http.statusCode),
+              let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              qnapStatus(json) == 1 else {
+            let detail = String(data: responseData.prefix(4_096), encoding: .utf8) ?? ""
+            throw SourceError.connectionFailed(
+                "QNAP upload not confirmed: HTTP \(http.statusCode) \(detail)"
+            )
+        }
+    }
+
+    func moveFile(
+        named fileName: String,
+        from sourceDirectory: String,
+        to destinationDirectory: String,
+        overwrite: Bool
+    ) async throws {
+        guard let sid else { throw SourceError.connectionFailed("Not logged in") }
+        var components = URLComponents(
+            string: "\(baseURLString)/cgi-bin/filemanager/utilRequest.cgi"
+        )!
+        components.queryItems = [
+            .init(name: "func", value: "move"),
+            .init(name: "sid", value: sid),
+            .init(name: "source_file", value: fileName),
+            .init(name: "source_total", value: "1"),
+            .init(name: "source_path", value: sourceDirectory),
+            .init(name: "dest_path", value: destinationDirectory),
+            .init(name: "mode", value: overwrite ? "0" : "1"),
+            .init(name: "checksum", value: "1"),
+        ]
+        let json = try await confirmedJSONRequest(url: components.url!, operation: "move")
+        guard qnapStatus(json) == 1 else {
+            throw SourceError.connectionFailed(
+                "QNAP move failed: status \(qnapStatus(json) ?? -1)"
+            )
+        }
+    }
+
+    func deleteTemporaryItem(path: String) async throws {
+        try await deleteFile(path: path, force: true)
+    }
+
     /// File Station API v5 delete. `force=0` preserves QNAP's recycle-bin
     /// semantics. Only status=1/success=true is accepted as server confirmation.
     func deleteFile(path: String) async throws {
+        try await deleteFile(path: path, force: false)
+    }
+
+    private func deleteFile(path: String, force: Bool) async throws {
         guard let sid else { throw SourceError.connectionFailed("Not logged in") }
         let normalized = path.isEmpty ? "/" : path
         let parent = (normalized as NSString).deletingLastPathComponent
@@ -227,7 +380,7 @@ actor QnapAPI {
             .init(name: "file_total", value: "1"),
             .init(name: "file_name", value: name),
             .init(name: "v", value: "1"),
-            .init(name: "force", value: "0"),
+            .init(name: "force", value: force ? "1" : "0"),
         ]
         let (data, response) = try await TrustedHTTPTransport.data(
             from: comps.url!,
@@ -279,6 +432,90 @@ actor QnapAPI {
         if let number = value as? NSNumber { return number.intValue }
         if let string = value as? String, let int = Int(string) { return int }
         return nil
+    }
+
+    private func qnapInt64(_ value: Any?) -> Int64? {
+        if let int = value as? Int { return Int64(int) }
+        if let int64 = value as? Int64 { return int64 }
+        if let number = value as? NSNumber { return number.int64Value }
+        if let string = value as? String { return Int64(string) }
+        return nil
+    }
+
+    private func confirmedJSONRequest(
+        url: URL,
+        operation: String
+    ) async throws -> [String: Any] {
+        let (data, response) = try await TrustedHTTPTransport.data(
+            from: url,
+            session: session()
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid QNAP \(operation) response")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
+        guard (200...299).contains(http.statusCode),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SourceError.connectionFailed(
+                "QNAP \(operation) returned an invalid response"
+            )
+        }
+        return json
+    }
+
+    private func validatedUploadFileName(_ value: String) throws -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed == (trimmed as NSString).lastPathComponent,
+              !trimmed.contains("\r"),
+              !trimmed.contains("\n"),
+              trimmed.utf8.count <= 255 else {
+            throw SourceError.connectionFailed("Invalid QNAP upload file name")
+        }
+        return trimmed
+    }
+
+    private func makeMultipartUploadFile(
+        sourceURL: URL,
+        fileName: String,
+        boundary: String
+    ) throws -> (url: URL, md5: String) {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-qnap-multipart-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
+            throw SourceError.connectionFailed("Unable to create QNAP upload body")
+        }
+        let output = try FileHandle(forWritingTo: outputURL)
+        let input = try FileHandle(forReadingFrom: sourceURL)
+        var digest = Insecure.MD5()
+        do {
+            let quotedName = fileName.replacingOccurrences(of: "\"", with: "_")
+            try output.write(contentsOf: Data(
+                "--\(boundary)\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n\(fileName)\r\n".utf8
+            ))
+            try output.write(contentsOf: Data(
+                "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(quotedName)\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8
+            ))
+            while true {
+                let data = try input.read(upToCount: 1024 * 1024) ?? Data()
+                if data.isEmpty { break }
+                digest.update(data: data)
+                try output.write(contentsOf: data)
+            }
+            try output.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+            try input.close()
+            try output.close()
+        } catch {
+            try? input.close()
+            try? output.close()
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
+        let md5 = digest.finalize().map { String(format: "%02x", $0) }.joined()
+        return (outputURL, md5)
     }
 
     private func qnapError(_ code: Int) -> String {

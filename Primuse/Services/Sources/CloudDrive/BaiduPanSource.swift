@@ -9,7 +9,7 @@ import PrimuseKit
 actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     ResumableSnapshotMusicSourceConnector,
     StableProviderSongIdentityConnector, PersistentRootIdentityConnector,
-    SnapshotReconciliationBudgetConnector {
+    SnapshotReconciliationBudgetConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回百度网盘同目录
     nonisolated var preferredDeleteBatchSize: Int { 100 }
@@ -93,7 +93,13 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         guard (crJSON["errno"] as? Int ?? -1) == 0 else {
             throw CloudDriveError.apiError(crJSON["errno"] as? Int ?? 0, "Baidu create failed")
         }
-        plog("📁 Baidu sidecar uploaded: \((path as NSString).lastPathComponent)")
+        await invalidateMetadataWritebackCache(for: path)
+        let final = try await freshMetadataState(for: path)
+        guard final.fileSize == Int64(size),
+              final.revision?.caseInsensitiveCompare(md5) == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        plog("📁 Baidu sidecar uploaded and verified: \((path as NSString).lastPathComponent)")
     }
 
     /// 百度 filemanager 支持一次删除多个路径。旧实现没有覆写协议默认方法，
@@ -437,7 +443,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                 path: p,
                 isDirectory: isDir,
                 size: size,
-                modifiedDate: nil,
+                modifiedDate: Self.unixDate(item["server_mtime"]),
                 revision: md5,
                 providerID: BaiduSnapshotIdentity.stableKey(fsID: fsID),
                 parentPath: dir
@@ -463,6 +469,296 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             request.setValue(Self.dlinkReferer, forHTTPHeaderField: "Referer")
             return try await self.helper.downloadToCache(request: request, for: path)
         }
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        try await freshMetadataState(for: path)
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        guard expected.revision?.isEmpty == false else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        let prepared = try await prepareUpload(localURL: localURL, path: path)
+        try await uploadPreparedBlocks(prepared, localURL: localURL, path: path)
+
+        // Baidu's create(rtype=3) does not accept an If-Match token. Keep the
+        // uploaded chunks detached, re-read the authoritative path immediately
+        // before the single create/replace operation, and never call create if
+        // the source changed while chunks were transferring.
+        let current = try await freshMetadataState(for: path)
+        guard expected.matches(current) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let response = try await callFormAPI(
+            base: "\(Self.apiBase)/rest/2.0/xpan/file",
+            queryItems: [.init(name: "method", value: "create")],
+            formItems: [
+                .init(name: "path", value: path),
+                .init(name: "size", value: String(prepared.size)),
+                .init(name: "isdir", value: "0"),
+                .init(name: "uploadid", value: prepared.uploadID),
+                .init(name: "rtype", value: "3"),
+                .init(name: "block_list", value: prepared.blockListJSON),
+            ]
+        )
+        guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any],
+              Self.int64(json["fs_id"]) > 0 else {
+            throw CloudDriveError.invalidResponse
+        }
+        if let returnedSize = Self.optionalInt64(json["size"]), returnedSize != prepared.size {
+            throw CloudDriveError.invalidResponse
+        }
+        if let returnedMD5 = json["md5"] as? String,
+           returnedMD5.caseInsensitiveCompare(prepared.fileMD5) != .orderedSame {
+            throw CloudDriveError.invalidResponse
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        invalidateDlink(for: path)
+        invalidateCdnURL(for: path)
+        dlinkRetryCooldownUntil.removeValue(forKey: path)
+        helper.invalidateCachedFile(path: path)
+        let directory = (path as NSString).deletingLastPathComponent
+        dirListingCache.removeValue(forKey: directory.isEmpty ? "/" : directory)
+        snapshotReconciliationListings.removeValue(forKey: directory.isEmpty ? "/" : directory)
+    }
+
+    private struct PreparedUpload: Sendable {
+        let uploadID: String
+        let size: Int64
+        let fileMD5: String
+        let blockMD5s: [String]
+        let missingBlockIndexes: Set<Int>
+        let blockListJSON: String
+    }
+
+    private func freshMetadataState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let parent = (path as NSString).deletingLastPathComponent
+        let directory = parent.isEmpty ? "/" : parent
+        var start = 0
+        while true {
+            let json = try await callAPI(
+                base: "\(Self.apiBase)/rest/2.0/xpan/file",
+                queryItems: [
+                    .init(name: "method", value: "list"),
+                    .init(name: "dir", value: directory),
+                    .init(name: "start", value: String(start)),
+                    .init(name: "limit", value: String(Self.pageSize)),
+                ]
+            )
+            guard let entries = json["list"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
+            if let entry = entries.first(where: { $0["path"] as? String == path }) {
+                guard (entry["isdir"] as? NSNumber)?.intValue != 1,
+                      let md5 = entry["md5"] as? String,
+                      !md5.isEmpty else {
+                    throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+                }
+                return EmbeddedMetadataRemoteFileState(
+                    fileSize: Self.int64(entry["size"]),
+                    modifiedDate: Self.unixDate(entry["server_mtime"]),
+                    revision: md5
+                )
+            }
+            guard entries.count == Self.pageSize else { break }
+            start += entries.count
+        }
+        throw CloudDriveError.fileNotFound(path)
+    }
+
+    private func prepareUpload(localURL: URL, path: String) async throws -> PreparedUpload {
+        let handle = try FileHandle(forReadingFrom: localURL)
+        defer { try? handle.close() }
+        let blockSize = 4 * 1024 * 1024
+        var wholeDigest = Insecure.MD5()
+        var blockMD5s: [String] = []
+        var size: Int64 = 0
+        while true {
+            let block = try handle.read(upToCount: blockSize) ?? Data()
+            if block.isEmpty { break }
+            wholeDigest.update(data: block)
+            blockMD5s.append(Self.md5Hex(block))
+            size += Int64(block.count)
+        }
+        guard size > 0, !blockMD5s.isEmpty, blockMD5s.count <= 1_024 else {
+            throw CloudDriveError.apiError(0, "Baidu upload exceeds the supported block count")
+        }
+        let listData = try SafeJSONSerialization.data(withJSONObject: blockMD5s)
+        guard let blockListJSON = String(data: listData, encoding: .utf8) else {
+            throw CloudDriveError.invalidResponse
+        }
+        let response = try await callFormAPI(
+            base: "\(Self.apiBase)/rest/2.0/xpan/file",
+            queryItems: [.init(name: "method", value: "precreate")],
+            formItems: [
+                .init(name: "path", value: path),
+                .init(name: "size", value: String(size)),
+                .init(name: "isdir", value: "0"),
+                .init(name: "autoinit", value: "1"),
+                .init(name: "rtype", value: "3"),
+                .init(name: "block_list", value: blockListJSON),
+            ]
+        )
+        guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any],
+              let uploadID = json["uploadid"] as? String,
+              !uploadID.isEmpty else {
+            throw CloudDriveError.invalidResponse
+        }
+        let missing: Set<Int>
+        if let values = json["block_list"] as? [Any] {
+            missing = Set(values.compactMap(Self.intIndex))
+            guard missing.allSatisfy({ blockMD5s.indices.contains($0) }) else {
+                throw CloudDriveError.invalidResponse
+            }
+        } else {
+            missing = Set(blockMD5s.indices)
+        }
+        let fileMD5 = wholeDigest.finalize().map { String(format: "%02x", $0) }.joined()
+        return PreparedUpload(
+            uploadID: uploadID,
+            size: size,
+            fileMD5: fileMD5,
+            blockMD5s: blockMD5s,
+            missingBlockIndexes: missing,
+            blockListJSON: blockListJSON
+        )
+    }
+
+    private func uploadPreparedBlocks(
+        _ prepared: PreparedUpload,
+        localURL: URL,
+        path: String
+    ) async throws {
+        let handle = try FileHandle(forReadingFrom: localURL)
+        defer { try? handle.close() }
+        let blockSize = 4 * 1024 * 1024
+        for index in prepared.blockMD5s.indices {
+            let block = try handle.read(upToCount: blockSize) ?? Data()
+            guard !block.isEmpty,
+                  Self.md5Hex(block).caseInsensitiveCompare(prepared.blockMD5s[index]) == .orderedSame else {
+                throw CloudDriveError.invalidResponse
+            }
+            guard prepared.missingBlockIndexes.contains(index) else { continue }
+            try await uploadBlock(
+                block,
+                expectedMD5: prepared.blockMD5s[index],
+                path: path,
+                uploadID: prepared.uploadID,
+                index: index
+            )
+        }
+    }
+
+    private func uploadBlock(
+        _ block: Data,
+        expectedMD5: String,
+        path: String,
+        uploadID: String,
+        index: Int
+    ) async throws {
+        var rateLimitAttempt = 0
+        while true {
+            let token = try await getToken()
+            do {
+                try await helper.withTokenRetry(
+                    initialToken: token,
+                    refresh: refreshToken
+                ) { @Sendable accessToken in
+                    var components = URLComponents(
+                        string: "https://d.pcs.baidu.com/rest/2.0/pcs/superfile2"
+                    )!
+                    components.queryItems = [
+                        .init(name: "method", value: "upload"),
+                        .init(name: "access_token", value: accessToken),
+                        .init(name: "type", value: "tmpfile"),
+                        .init(name: "path", value: path),
+                        .init(name: "uploadid", value: uploadID),
+                        .init(name: "partseq", value: String(index)),
+                    ]
+                    let boundary = "primuse-baidu-\(UUID().uuidString)"
+                    var body = Data()
+                    body.append(Data(
+                        "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"part-\(index)\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8
+                    ))
+                    body.append(block)
+                    body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+                    var request = URLRequest(url: components.url!)
+                    request.httpMethod = "POST"
+                    request.setValue(
+                        "multipart/form-data; boundary=\(boundary)",
+                        forHTTPHeaderField: "Content-Type"
+                    )
+                    request.timeoutInterval = 300
+                    let (data, response) = try await URLSession.shared.upload(
+                        for: request,
+                        from: body
+                    )
+                    guard let http = response as? HTTPURLResponse else {
+                        throw CloudDriveError.invalidResponse
+                    }
+                    if http.statusCode == 401 || http.statusCode == 403 {
+                        throw CloudDriveError.tokenExpired
+                    }
+                    guard http.statusCode == 200,
+                          let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        throw CloudDriveError.apiError(
+                            http.statusCode,
+                            String(data: data.prefix(4_096), encoding: .utf8) ?? "Baidu block upload failed"
+                        )
+                    }
+                    if let errno = Self.optionalInt64(json["errno"]), errno != 0 {
+                        if errno == 111 || errno == -6 { throw CloudDriveError.tokenExpired }
+                        if errno == 31_034 { throw CloudDriveError.rateLimited }
+                        throw CloudDriveError.apiError(Int(errno), "Baidu block upload failed")
+                    }
+                    guard let returnedMD5 = json["md5"] as? String,
+                          returnedMD5.caseInsensitiveCompare(expectedMD5) == .orderedSame else {
+                        throw CloudDriveError.invalidResponse
+                    }
+                }
+                return
+            } catch CloudDriveError.rateLimited where rateLimitAttempt < Self.rateLimitMaxRetries {
+                rateLimitAttempt += 1
+                try await Task.sleep(for: .seconds(pow(2, Double(rateLimitAttempt - 1))))
+            }
+        }
+    }
+
+    private nonisolated static func md5Hex(_ data: Data) -> String {
+        Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func optionalInt64(_ value: Any?) -> Int64? {
+        if let value = value as? Int64 { return value }
+        if let value = value as? Int { return Int64(value) }
+        if let value = value as? NSNumber { return value.int64Value }
+        if let value = value as? String { return Int64(value) }
+        return nil
+    }
+
+    private nonisolated static func int64(_ value: Any?) -> Int64 {
+        optionalInt64(value) ?? 0
+    }
+
+    private nonisolated static func intIndex(_ value: Any) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private nonisolated static func unixDate(_ value: Any?) -> Date? {
+        guard let seconds = optionalInt64(value), seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(seconds))
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

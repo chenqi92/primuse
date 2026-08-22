@@ -1,7 +1,7 @@
 import Foundation
 import PrimuseKit
 
-actor SynologySource: MusicSourceConnector {
+actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
 
@@ -154,7 +154,14 @@ actor SynologySource: MusicSourceConnector {
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         try await connect()
         return try await api.listDirectory(path: path).map {
-            RemoteFileItem(name: $0.name, path: $0.path, isDirectory: $0.isDirectory, size: $0.size, modifiedDate: nil)
+            RemoteFileItem(
+                name: $0.name,
+                path: $0.path,
+                isDirectory: $0.isDirectory,
+                size: $0.size,
+                modifiedDate: $0.modifiedTime,
+                revision: Self.fileRevision(size: $0.size, modifiedDate: $0.modifiedTime)
+            )
         }
     }
 
@@ -422,9 +429,59 @@ actor SynologySource: MusicSourceConnector {
         try await api.uploadFile(data: data, toDirectory: directory, fileName: fileName)
     }
 
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        try await listedMetadataWritebackState(for: path)
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        try await connect()
+        let directory = (path as NSString).deletingLastPathComponent
+        let fileName = (path as NSString).lastPathComponent
+        let stagingName = ".primuse-writeback-\(UUID().uuidString)"
+        let stagingPath = (directory as NSString).appendingPathComponent(stagingName)
+
+        try await api.createDirectory(name: stagingName, at: directory)
+        do {
+            try await api.uploadFile(
+                localURL: localURL,
+                toDirectory: stagingPath,
+                fileName: fileName,
+                overwrite: false
+            )
+            let current = try await metadataWritebackState(for: path)
+            guard expected.matches(current) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            try await api.moveFile(
+                at: (stagingPath as NSString).appendingPathComponent(fileName),
+                toDirectory: directory,
+                overwrite: true
+            )
+            try? await api.deleteTemporaryItem(path: stagingPath)
+        } catch {
+            try? await api.deleteTemporaryItem(path: stagingPath)
+            throw error
+        }
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(CacheFileNamePolicy.make(path: path))
+        )
+    }
+
     func deleteFile(at path: String) async throws {
         try await connect()
         try await api.deleteFile(path: path)
+    }
+
+    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "synology:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
     }
 
     /// 在 HTTP 200 的 Range 响应里识别 Synology JSON 错误包。仅当确信是

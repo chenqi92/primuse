@@ -2,12 +2,18 @@ import Foundation
 import PrimuseKit
 
 /// Google Drive Source — Drive API v3
-actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding, IncrementalMusicSourceConnector, LyricsSidecarTargetResolving {
+actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding,
+    IncrementalMusicSourceConnector, LyricsSidecarTargetResolving,
+    EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Google Drive 同目录
     private let helper: CloudDriveHelper
     private static let apiBase = "https://www.googleapis.com/drive/v3"
     private static let uploadBase = "https://www.googleapis.com/upload/drive/v3"
+    // Drive v3 deliberately removed File.etag. Keep normal browsing on v3,
+    // but use the still-supported v2 File ETag for atomic If-Match replacement.
+    private static let metadataWritebackAPIBase = "https://www.googleapis.com/drive/v2"
+    private static let metadataWritebackUploadBase = "https://www.googleapis.com/upload/drive/v2"
     private static let tokenURL = "https://oauth2.googleapis.com/token"
     private static let reversedClientIdKey = "PrimuseGoogleReversedClientID"
 
@@ -187,7 +193,121 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         // ISO8601DateFormatter isn't Sendable under strict concurrency.
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.date(from: s)
+        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
+
+    private struct MetadataDetail: Sendable {
+        let state: EmbeddedMetadataRemoteFileState
+        let eTag: String?
+    }
+
+    private static func metadataDetail(
+        fileID: String,
+        accessToken: String
+    ) async throws -> MetadataDetail {
+        var components = URLComponents(
+            string: "\(metadataWritebackAPIBase)/files/\(fileID)"
+        )!
+        components.queryItems = [
+            .init(
+                name: "fields",
+                value: "id,fileSize,modifiedDate,md5Checksum,headRevisionId,mimeType,labels/trashed,etag"
+            ),
+            .init(name: "supportsAllDrives", value: "true"),
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 60
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.invalidResponse
+        }
+        if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if http.statusCode == 404 { throw CloudDriveError.fileNotFound(fileID) }
+        guard http.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (json["labels"] as? [String: Any])?["trashed"] as? Bool != true,
+              (json["mimeType"] as? String) != "application/vnd.google-apps.folder" else {
+            throw CloudDriveError.apiError(
+                http.statusCode,
+                String(data: data.prefix(4_096), encoding: .utf8)
+                    ?? "Google Drive file lookup failed"
+            )
+        }
+        let revision = (json["md5Checksum"] as? String)
+            ?? (json["headRevisionId"] as? String)
+        let eTag = json["etag"] as? String
+        guard revision?.isEmpty == false, eTag?.isEmpty == false else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        return MetadataDetail(
+            state: EmbeddedMetadataRemoteFileState(
+                fileSize: int64(json["fileSize"]),
+                modifiedDate: (json["modifiedDate"] as? String).flatMap(parseISO8601),
+                revision: revision,
+                replacementToken: eTag
+            ),
+            eTag: eTag
+        )
+    }
+
+    private static func uploadMetadataFile(
+        localURL: URL,
+        fileID: String,
+        expectedETag: String,
+        accessToken: String
+    ) async throws {
+        let size = Int64(
+            try localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        )
+        var components = URLComponents(
+            string: "\(metadataWritebackUploadBase)/files/\(fileID)"
+        )!
+        components.queryItems = [
+            .init(name: "uploadType", value: "media"),
+            .init(name: "supportsAllDrives", value: "true"),
+            .init(
+                name: "fields",
+                value: "id,fileSize,modifiedDate,md5Checksum,headRevisionId,etag"
+            ),
+        ]
+        var uploadRequest = URLRequest(url: components.url!)
+        uploadRequest.httpMethod = "PUT"
+        uploadRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        uploadRequest.setValue(expectedETag, forHTTPHeaderField: "If-Match")
+        uploadRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        uploadRequest.setValue(String(size), forHTTPHeaderField: "Content-Length")
+        uploadRequest.timeoutInterval = 3_600
+        let (data, response) = try await URLSession.shared.upload(
+            for: uploadRequest,
+            fromFile: localURL
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.invalidResponse
+        }
+        if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if http.statusCode == 409 || http.statusCode == 412 {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        guard http.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["id"] as? String == fileID,
+              ((json["md5Checksum"] as? String)?.isEmpty == false
+                || (json["headRevisionId"] as? String)?.isEmpty == false) else {
+            throw CloudDriveError.apiError(
+                http.statusCode,
+                String(data: data.prefix(4_096), encoding: .utf8)
+                    ?? "Google Drive upload was not confirmed"
+            )
+        }
+    }
+
+    private static func int64(_ value: Any?) -> Int64 {
+        if let value = value as? Int64 { return value }
+        if let value = value as? Int { return Int64(value) }
+        if let value = value as? NSNumber { return value.int64Value }
+        if let value = value as? String, let parsed = Int64(value) { return parsed }
+        return 0
     }
 
     init(sourceID: String) {
@@ -493,6 +613,55 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             request.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             return try await self.helper.downloadToCache(request: request, for: path)
         }
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let token = try await getToken()
+        let detail = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable accessToken in
+            try await Self.metadataDetail(fileID: path, accessToken: accessToken)
+        }
+        return detail.state
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        guard expected.revision?.isEmpty == false,
+              expected.replacementToken?.isEmpty == false else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        let token = try await getToken()
+        try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable accessToken in
+            let detail = try await Self.metadataDetail(
+                fileID: path,
+                accessToken: accessToken
+            )
+            guard expected.matches(detail.state) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            guard let eTag = detail.eTag, !eTag.isEmpty else {
+                throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+            }
+            try await Self.uploadMetadataFile(
+                localURL: localURL,
+                fileID: path,
+                expectedETag: eTag,
+                accessToken: accessToken
+            )
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        helper.invalidateCachedFile(path: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

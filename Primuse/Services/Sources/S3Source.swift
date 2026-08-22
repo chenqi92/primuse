@@ -4,8 +4,9 @@ import CryptoKit
 
 /// S3-compatible storage source (AWS S3 / MinIO / Cloudflare R2 / Backblaze B2)
 /// Uses AWS Signature V4 for authentication — pure Swift, no SDK dependency.
-actor S3Source: MusicSourceConnector {
+actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
     private let endpoint: String  // e.g. "s3.amazonaws.com" or "minio.example.com:9000"
     private let port: Int?
     private let region: String
@@ -203,6 +204,65 @@ actor S3Source: MusicSourceConnector {
         return cachedURL
     }
 
+    func writeFile(data: Data, to path: String) async throws {
+        guard !path.isEmpty else { throw SourceError.fileNotFound(path) }
+        try await uploadData(data, to: path, expectedETag: nil)
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        guard !path.isEmpty else { throw SourceError.fileNotFound(path) }
+        let (_, http) = try await performDataRequest(
+            url: objectURL(for: path),
+            method: "HEAD"
+        )
+        switch http.statusCode {
+        case 200...299:
+            guard let size = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                  let etag = Self.normalizedETag(
+                    http.value(forHTTPHeaderField: "ETag")
+                  ) else {
+                throw EmbeddedMetadataCoordinatedWritebackError.invalidRemoteState
+            }
+            return EmbeddedMetadataRemoteFileState(
+                fileSize: size,
+                modifiedDate: Self.httpDate(
+                    http.value(forHTTPHeaderField: "Last-Modified")
+                ),
+                revision: etag
+            )
+        case 401, 403:
+            throw SourceError.authenticationFailed
+        case 404:
+            throw SourceError.fileNotFound(path)
+        default:
+            throw SourceError.connectionFailed(
+                "S3 object inspection failed: HTTP \(http.statusCode)"
+            )
+        }
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        guard let etag = Self.normalizedETag(expected.revision) else {
+            throw EmbeddedMetadataCoordinatedWritebackError.invalidRemoteState
+        }
+        try await uploadFile(localURL, to: path, expectedETag: etag)
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(CacheFileNamePolicy.make(path: path))
+        )
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(CacheFileNamePolicy.legacySanitized(path: path))
+        )
+    }
+
     /// HTTP Range GET on S3 GetObject。S3 协议规范支持 Range header
     /// (RFC 7233), 不算 signed header 不影响签名。让 CloudPlaybackSource
     /// 边下边播替代整文件下载。
@@ -348,6 +408,96 @@ actor S3Source: MusicSourceConnector {
         throw SourceError.connectionFailed("S3 clock correction retry failed")
     }
 
+    private func uploadData(
+        _ data: Data,
+        to path: String,
+        expectedETag: String?
+    ) async throws {
+        let payloadHash = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        try await performUpload(
+            path: path,
+            payloadHash: payloadHash,
+            expectedETag: expectedETag
+        ) { request in
+            var request = request
+            request.httpBody = data
+            return try await TrustedHTTPTransport.data(
+                for: request,
+                session: self.rangeSession,
+                maxBytes: 1024 * 1024
+            )
+        }
+    }
+
+    private func uploadFile(
+        _ localURL: URL,
+        to path: String,
+        expectedETag: String?
+    ) async throws {
+        let payloadHash = try SHA256FileDigest.hexDigest(at: localURL)
+        try await performUpload(
+            path: path,
+            payloadHash: payloadHash,
+            expectedETag: expectedETag
+        ) { request in
+            if TrustedHTTPTransport.requiresPlainSocket(for: request.url!) {
+                var request = request
+                request.httpBody = try Data(contentsOf: localURL, options: .mappedIfSafe)
+                return try await TrustedHTTPTransport.data(
+                    for: request,
+                    session: self.rangeSession,
+                    maxBytes: 1024 * 1024
+                )
+            }
+            return try await self.rangeSession.upload(for: request, fromFile: localURL)
+        }
+    }
+
+    private func performUpload(
+        path: String,
+        payloadHash: String,
+        expectedETag: String?,
+        operation: (URLRequest) async throws -> (Data, URLResponse)
+    ) async throws {
+        let url = try objectURL(for: path)
+        for attempt in 0..<2 {
+            var headers: [String: String] = [:]
+            if let expectedETag { headers["If-Match"] = expectedETag }
+            var request = try signedRequest(
+                url: url,
+                method: "PUT",
+                payloadHash: payloadHash,
+                signedHeaders: headers
+            )
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 3_600
+            let (data, response) = try await operation(request)
+            guard let http = response as? HTTPURLResponse else {
+                throw SourceError.connectionFailed("Invalid S3 upload response")
+            }
+            if attempt == 0, updateClockOffsetIfNeeded(from: http, body: data) {
+                continue
+            }
+            synchronizeClockOffset(from: http)
+            switch http.statusCode {
+            case 200...299:
+                return
+            case 409, 412:
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            case 401, 403:
+                throw SourceError.authenticationFailed
+            default:
+                let detail = String(data: data.prefix(4_096), encoding: .utf8) ?? ""
+                throw SourceError.connectionFailed(
+                    "S3 upload failed: HTTP \(http.statusCode) \(detail)"
+                )
+            }
+        }
+        throw SourceError.connectionFailed("S3 clock correction retry failed")
+    }
+
     private func resetDirectorySession() {
         _directorySession?.invalidateAndCancel()
         _directorySession = nil
@@ -416,7 +566,12 @@ actor S3Source: MusicSourceConnector {
         S3ClockSkewPolicy.store(offset: offset, for: sourceID)
     }
 
-    private func signedRequest(url: URL, method: String) throws -> URLRequest {
+    private func signedRequest(
+        url: URL,
+        method: String,
+        payloadHash explicitPayloadHash: String? = nil,
+        signedHeaders additionalSignedHeaders: [String: String] = [:]
+    ) throws -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
@@ -432,15 +587,30 @@ actor S3Source: MusicSourceConnector {
         request.setValue(amzDate, forHTTPHeaderField: "x-amz-date")
         let hostHeader = Self.hostHeader(for: url, fallback: endpoint)
         request.setValue(hostHeader, forHTTPHeaderField: "Host")
-        let payloadHash = SHA256.hash(data: Data()).compactMap { String(format: "%02x", $0) }.joined()
+        let payloadHash = explicitPayloadHash
+            ?? SHA256.hash(data: Data()).map { String(format: "%02x", $0) }.joined()
         request.setValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
+        for (name, value) in additionalSignedHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
 
         // Canonical request — must follow SigV4 byte-for-byte, otherwise the
         // server recomputes a different signature → SignatureDoesNotMatch (403).
         let path = canonicalURI(for: url)
         let query = canonicalQueryString(for: url)
-        let signedHeaders = "host;x-amz-content-sha256;x-amz-date"
-        let canonicalHeaders = "host:\(hostHeader)\nx-amz-content-sha256:\(payloadHash)\nx-amz-date:\(amzDate)\n"
+        var canonicalHeaderValues = [
+            "host": hostHeader,
+            "x-amz-content-sha256": payloadHash,
+            "x-amz-date": amzDate,
+        ]
+        for (name, value) in additionalSignedHeaders {
+            canonicalHeaderValues[name.lowercased()] = Self.normalizedHeaderValue(value)
+        }
+        let signedHeaderNames = canonicalHeaderValues.keys.sorted()
+        let signedHeaders = signedHeaderNames.joined(separator: ";")
+        let canonicalHeaders = signedHeaderNames
+            .map { "\($0):\(Self.normalizedHeaderValue(canonicalHeaderValues[$0] ?? ""))\n" }
+            .joined()
         let canonicalRequest = "\(method)\n\(path)\n\(query)\n\(canonicalHeaders)\n\(signedHeaders)\n\(payloadHash)"
         let canonicalHash = SHA256.hash(data: Data(canonicalRequest.utf8)).compactMap { String(format: "%02x", $0) }.joined()
 
@@ -460,6 +630,27 @@ actor S3Source: MusicSourceConnector {
         request.setValue(auth, forHTTPHeaderField: "Authorization")
 
         return request
+    }
+
+    private nonisolated static func normalizedHeaderValue(_ value: String) -> String {
+        value
+            .split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\r" || $0 == "\n" })
+            .joined(separator: " ")
+    }
+
+    private nonisolated static func normalizedETag(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private nonisolated static func httpDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: value)
     }
 
     /// SigV4 的 canonical host 必须包含非默认端口，否则 MinIO 等自建端点会
@@ -586,6 +777,8 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     private var currentElement = ""
     private var currentKey = ""
     private var currentSize: Int64 = 0
+    private var currentETag = ""
+    private var currentLastModified = ""
     private var currentPrefix = ""
     private var currentScalar = ""
     private var inContents = false
@@ -608,6 +801,8 @@ private class S3ListParser: NSObject, XMLParserDelegate {
             inContents = true
             currentKey = ""
             currentSize = 0
+            currentETag = ""
+            currentLastModified = ""
         }
         if element == "CommonPrefixes" {
             if inCommonPrefix { isStructurallyValid = false }
@@ -620,6 +815,8 @@ private class S3ListParser: NSObject, XMLParserDelegate {
         if inContents {
             if currentElement == "Key" { currentKey += string }
             if currentElement == "Size" { currentScalar += string }
+            if currentElement == "ETag" { currentETag += string }
+            if currentElement == "LastModified" { currentLastModified += string }
         }
         if inCommonPrefix && currentElement == "Prefix" {
             currentPrefix += string
@@ -655,7 +852,18 @@ private class S3ListParser: NSObject, XMLParserDelegate {
                 isStructurallyValid = false
             } else {
                 let name = (currentKey as NSString).lastPathComponent
-                items.append(RemoteFileItem(name: name, path: currentKey, isDirectory: false, size: currentSize, modifiedDate: nil))
+                let modifiedDate = ISO8601DateFormatter().date(
+                    from: currentLastModified.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                let etag = currentETag.trimmingCharacters(in: .whitespacesAndNewlines)
+                items.append(RemoteFileItem(
+                    name: name,
+                    path: currentKey,
+                    isDirectory: false,
+                    size: currentSize,
+                    modifiedDate: modifiedDate,
+                    revision: etag.isEmpty ? nil : etag
+                ))
             }
             inContents = false
         }

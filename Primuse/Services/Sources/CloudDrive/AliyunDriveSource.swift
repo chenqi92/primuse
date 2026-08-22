@@ -3,15 +3,16 @@ import Foundation
 import PrimuseKit
 
 /// 阿里云盘 Source — PDS API
-actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding {
+actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
+    RemoteFileDisplayNameProviding, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回阿里云盘同目录
     private let helper: CloudDriveHelper
     private var driveId: String?
 
-    /// 写 sidecar 到阿里云盘:openFile/get 查父目录 → create(sha1 content_hash + proof_code v1
-    /// 尝试秒传) →(未秒传则 PUT 内容) → complete。filePath 是 file_id,`to` 形如
-    /// "{fileID}-cover.jpg" / "{fileID}.lrc"。同名已存在则视为已完成(check_name_mode=refuse)。
+    /// 写 sidecar 到阿里云盘。已有同名文件时沿用原 file_id 覆盖内容；新文件
+    /// 才走 create。两条路径都校验最终 size/SHA-1，不能把 `exist=true` 当成
+    /// “新内容已写入”。
     func writeFile(data: Data, to path: String) async throws {
         let suffix: String
         if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
@@ -26,73 +27,462 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         }
         guard let driveId else { throw CloudDriveError.notAuthenticated }
 
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-aliyun-sidecar-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: localURL) }
+        try data.write(to: localURL, options: .atomic)
+        let descriptor = try Self.uploadDescriptor(localURL: localURL)
+
         // 整段写流程套 withTokenRetry:服务端提前失效 token(401)时一次性强制刷新 +
         // 重跑(get → create → 可选 PUT → complete),而不是等本地 expiresAt 过期。
-        try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
-            // 1. 查源文件的父目录 + 真实文件名
-            let getBody = try SafeJSONSerialization.data(withJSONObject: ["drive_id": driveId, "file_id": fileID])
-            let (dData, dHTTP) = try await self.helper.makeAuthorizedRequest(
-                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/get")!,
-                method: "POST", body: getBody, contentType: "application/json", accessToken: tok)
-            guard dHTTP.statusCode == 200 else { throw CloudDriveError.apiError(dHTTP.statusCode, "aliyun file get") }
-            let dJSON = (try? JSONSerialization.jsonObject(with: dData)) as? [String: Any] ?? [:]
-            guard let name = dJSON["name"] as? String,
-                  let parentFileId = dJSON["parent_file_id"] as? String else { throw CloudDriveError.invalidResponse }
-            let sidecarName = (name as NSString).deletingPathExtension + suffix
+        let writtenFileID: String = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            let source = try await Self.metadataDetail(
+                driveID: driveId,
+                fileID: fileID,
+                accessToken: tok
+            )
+            let sidecarName = (source.name as NSString).deletingPathExtension + suffix
 
-            let sha1 = Insecure.SHA1.hash(data: data).map { String(format: "%02X", $0) }.joined()
-            // 2. create(带 proof_code 尝试秒传)
-            let createBody = try SafeJSONSerialization.data(withJSONObject: [
-                "drive_id": driveId, "parent_file_id": parentFileId, "name": sidecarName,
-                "type": "file", "check_name_mode": "refuse", "size": data.count,
-                "content_hash_name": "sha1", "content_hash": sha1,
-                "proof_version": "v1", "proof_code": Self.proofCode(token: tok, data: data),
-                "part_info_list": [["part_number": 1]],
-            ])
-            let (cData, cHTTP) = try await self.helper.makeAuthorizedRequest(
-                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
-                method: "POST", body: createBody, contentType: "application/json", accessToken: tok)
-            guard (200...201).contains(cHTTP.statusCode) else { throw CloudDriveError.apiError(cHTTP.statusCode, "aliyun create") }
-            let cJSON = (try? JSONSerialization.jsonObject(with: cData)) as? [String: Any] ?? [:]
-            if cJSON["exist"] as? Bool == true { return }   // 同名 sidecar 已在,视为完成
-            let rapid = cJSON["rapid_upload"] as? Bool ?? false
-            guard let newFileId = cJSON["file_id"] as? String,
-                  let uploadId = cJSON["upload_id"] as? String else {
-                // 秒传命中且无 upload_id 也算成功
-                if rapid { plog("📁 Aliyun sidecar rapid-uploaded: \(sidecarName)"); return }
-                throw CloudDriveError.apiError(0, "aliyun create no upload_id: \(cJSON)")
+            if let existingID = try await Self.existingFileID(
+                driveID: driveId,
+                parentFileID: source.parentFileID,
+                name: sidecarName,
+                accessToken: tok
+            ) {
+                let existing = try await Self.metadataDetail(
+                    driveID: driveId,
+                    fileID: existingID,
+                    accessToken: tok
+                )
+                try await Self.uploadReplacement(
+                    localURL: localURL,
+                    descriptor: descriptor,
+                    detail: existing,
+                    driveID: driveId,
+                    expected: existing.state,
+                    accessToken: tok
+                )
+                try await Self.verifyUploadedFile(
+                    driveID: driveId,
+                    fileID: existingID,
+                    descriptor: descriptor,
+                    accessToken: tok
+                )
+                return existingID
             }
 
-            // 3. 未秒传则 PUT 内容到分片上传地址
-            if !rapid, let uploadURL = (cJSON["part_info_list"] as? [[String: Any]])?.first?["upload_url"] as? String,
-               let put = URL(string: uploadURL) {
+            let proof = try Self.proofCode(
+                token: tok,
+                localURL: localURL,
+                size: descriptor.size
+            )
+            let createBody = try SafeJSONSerialization.data(withJSONObject: [
+                "drive_id": driveId,
+                "parent_file_id": source.parentFileID,
+                "name": sidecarName,
+                "type": "file",
+                "check_name_mode": "refuse",
+                "size": descriptor.size,
+                "content_hash_name": "sha1",
+                "content_hash": descriptor.sha1,
+                "proof_version": "v1",
+                "proof_code": proof,
+                "part_info_list": [["part_number": 1]],
+            ])
+            let created = try await Self.authorizedJSONRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
+                body: createBody,
+                accessToken: tok,
+                operation: "create sidecar upload"
+            )
+            if created["exist"] as? Bool == true {
+                // Another client created the name after our listing. Retrying
+                // will take the guarded existing-file branch.
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            guard let newFileID = created["file_id"] as? String, !newFileID.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            let rapid = created["rapid_upload"] as? Bool ?? false
+
+            if !rapid {
+                guard let uploadID = created["upload_id"] as? String,
+                      !uploadID.isEmpty,
+                      let uploadURL = (created["part_info_list"] as? [[String: Any]])?
+                        .first?["upload_url"] as? String,
+                      let put = URL(string: uploadURL) else {
+                    throw CloudDriveError.invalidResponse
+                }
                 var putReq = URLRequest(url: put)
                 putReq.httpMethod = "PUT"
                 let (_, pResp) = try await URLSession.shared.upload(for: putReq, from: data)
                 guard let ph = pResp as? HTTPURLResponse, (200...299).contains(ph.statusCode) else {
                     throw CloudDriveError.apiError((pResp as? HTTPURLResponse)?.statusCode ?? 0, "aliyun part PUT")
                 }
+                let completeBody = try SafeJSONSerialization.data(withJSONObject: [
+                    "drive_id": driveId,
+                    "file_id": newFileID,
+                    "upload_id": uploadID,
+                ])
+                let completed = try await Self.authorizedJSONRequest(
+                    url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
+                    body: completeBody,
+                    accessToken: tok,
+                    operation: "complete sidecar upload"
+                )
+                guard completed["file_id"] as? String == newFileID else {
+                    throw CloudDriveError.invalidResponse
+                }
             }
+            try await Self.verifyUploadedFile(
+                driveID: driveId,
+                fileID: newFileID,
+                descriptor: descriptor,
+                accessToken: tok
+            )
+            return newFileID
+        }
+        await invalidateMetadataWritebackCache(for: writtenFileID)
+        plog("📁 Aliyun sidecar uploaded and verified")
+    }
 
-            // 4. complete
-            let completeBody = try SafeJSONSerialization.data(withJSONObject: [
-                "drive_id": driveId, "file_id": newFileId, "upload_id": uploadId,
-            ])
-            _ = try await self.helper.makeAuthorizedRequest(
-                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
-                method: "POST", body: completeBody, contentType: "application/json", accessToken: tok)
-            plog("📁 Aliyun sidecar uploaded: \(sidecarName)")
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        // `writeFile` verifies the provider file_id's final size and SHA-1.
+    }
+
+    private struct MetadataDetail: Sendable {
+        let state: EmbeddedMetadataRemoteFileState
+        let name: String
+        let parentFileID: String
+        let fileID: String
+    }
+
+    private static func existingFileID(
+        driveID: String,
+        parentFileID: String,
+        name: String,
+        accessToken: String
+    ) async throws -> String? {
+        var marker: String?
+        var seenMarkers: Set<String> = []
+        repeat {
+            var object: [String: Any] = [
+                "drive_id": driveID,
+                "parent_file_id": parentFileID,
+                "limit": 200,
+            ]
+            if let marker, !marker.isEmpty { object["marker"] = marker }
+            let body = try SafeJSONSerialization.data(withJSONObject: object)
+            let response = try await authorizedJSONRequest(
+                url: URL(string: "\(apiBase)/adrive/v1.0/openFile/list")!,
+                body: body,
+                accessToken: accessToken,
+                operation: "list sidecars"
+            )
+            guard let items = response["items"] as? [[String: Any]] else {
+                throw CloudDriveError.invalidResponse
+            }
+            if let item = items.first(where: {
+                $0["type"] as? String == "file" && $0["name"] as? String == name
+            }), let fileID = item["file_id"] as? String, !fileID.isEmpty {
+                return fileID
+            }
+            marker = response["next_marker"] as? String
+            if let marker, !marker.isEmpty,
+               !seenMarkers.insert(marker).inserted {
+                throw CloudDriveError.invalidResponse
+            }
+        } while marker?.isEmpty == false
+        return nil
+    }
+
+    private static func verifyUploadedFile(
+        driveID: String,
+        fileID: String,
+        descriptor: UploadDescriptor,
+        accessToken: String
+    ) async throws {
+        let final = try await metadataDetail(
+            driveID: driveID,
+            fileID: fileID,
+            accessToken: accessToken
+        )
+        guard final.state.fileSize == descriptor.size,
+              final.state.revision?.caseInsensitiveCompare(descriptor.sha1) == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
         }
     }
 
-    /// 阿里云盘秒传 proof_code v1:取 md5(access_token) 前 16 个 hex 当 UInt64,对文件大小取模
-    /// 得起点,取该处 8 字节做 base64。
-    private static func proofCode(token: String, data: Data) -> String {
-        let md5hex = Insecure.MD5.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
-        guard data.count > 0, let num = UInt64(md5hex.prefix(16), radix: 16) else { return "" }
-        let start = Int(num % UInt64(data.count))
-        let end = min(start + 8, data.count)
-        return data.subdata(in: start..<end).base64EncodedString()
+    private struct UploadDescriptor: Sendable {
+        let size: Int64
+        let sha1: String
+        let partSize: Int
+        let partCount: Int
+    }
+
+    private static func metadataDetail(
+        driveID: String,
+        fileID: String,
+        accessToken: String
+    ) async throws -> MetadataDetail {
+        let body = try SafeJSONSerialization.data(withJSONObject: [
+            "drive_id": driveID,
+            "file_id": fileID,
+        ])
+        var request = URLRequest(
+            url: URL(string: "\(apiBase)/adrive/v1.0/openFile/get")!
+        )
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.timeoutInterval = 60
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.invalidResponse
+        }
+        if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if http.statusCode == 404 { throw CloudDriveError.fileNotFound(fileID) }
+        guard http.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["type"] as? String == "file",
+              let returnedID = json["file_id"] as? String,
+              returnedID == fileID,
+              let name = json["name"] as? String,
+              let parentFileID = json["parent_file_id"] as? String,
+              let hash = (json["content_hash"] as? String)?.uppercased(),
+              !hash.isEmpty else {
+            throw CloudDriveError.apiError(
+                http.statusCode,
+                String(data: data.prefix(4_096), encoding: .utf8)
+                    ?? "Aliyun Drive file lookup failed"
+            )
+        }
+        return MetadataDetail(
+            state: EmbeddedMetadataRemoteFileState(
+                fileSize: int64(json["size"]),
+                modifiedDate: (json["updated_at"] as? String).flatMap(parseISO8601),
+                revision: hash
+            ),
+            name: name,
+            parentFileID: parentFileID,
+            fileID: returnedID
+        )
+    }
+
+    private static func uploadDescriptor(localURL: URL) throws -> UploadDescriptor {
+        let handle = try FileHandle(forReadingFrom: localURL)
+        defer { try? handle.close() }
+        var digest = Insecure.SHA1()
+        var size: Int64 = 0
+        while true {
+            let chunk = try handle.read(upToCount: 1024 * 1024) ?? Data()
+            if chunk.isEmpty { break }
+            digest.update(data: chunk)
+            size += Int64(chunk.count)
+        }
+        guard size > 0 else { throw CloudDriveError.invalidResponse }
+        let partSize = 10 * 1024 * 1024
+        let partCount = Int((size + Int64(partSize) - 1) / Int64(partSize))
+        guard partCount <= 10_000 else {
+            throw CloudDriveError.apiError(0, "Aliyun upload exceeds the supported part count")
+        }
+        return UploadDescriptor(
+            size: size,
+            sha1: digest.finalize().map { String(format: "%02X", $0) }.joined(),
+            partSize: partSize,
+            partCount: partCount
+        )
+    }
+
+    private static func uploadReplacement(
+        localURL: URL,
+        descriptor: UploadDescriptor,
+        detail: MetadataDetail,
+        driveID: String,
+        expected: EmbeddedMetadataRemoteFileState,
+        accessToken: String
+    ) async throws {
+        let proof = try proofCode(
+            token: accessToken,
+            localURL: localURL,
+            size: descriptor.size
+        )
+        let partInfo = (1...descriptor.partCount).map { ["part_number": $0] }
+        let createBody = try SafeJSONSerialization.data(withJSONObject: [
+            "drive_id": driveID,
+            "file_id": detail.fileID,
+            "parent_file_id": detail.parentFileID,
+            "name": detail.name,
+            "type": "file",
+            "size": descriptor.size,
+            "content_hash_name": "sha1",
+            "content_hash": descriptor.sha1,
+            "proof_version": "v1",
+            "proof_code": proof,
+            "part_info_list": partInfo,
+        ])
+        let create = try await authorizedJSONRequest(
+            url: URL(string: "\(apiBase)/adrive/v1.0/openFile/create")!,
+            body: createBody,
+            accessToken: accessToken,
+            operation: "create replacement upload"
+        )
+        guard create["file_id"] as? String == detail.fileID else {
+            throw CloudDriveError.invalidResponse
+        }
+        if create["rapid_upload"] as? Bool == true {
+            return
+        }
+        guard let uploadID = create["upload_id"] as? String,
+              !uploadID.isEmpty,
+              let returnedParts = create["part_info_list"] as? [[String: Any]],
+              returnedParts.count == descriptor.partCount else {
+            throw CloudDriveError.invalidResponse
+        }
+        let uploadURLs: [Int: URL] = try Dictionary(
+            uniqueKeysWithValues: returnedParts.map { part in
+                guard let number = optionalInt(part["part_number"]),
+                      let value = part["upload_url"] as? String,
+                      let url = URL(string: value) else {
+                    throw CloudDriveError.invalidResponse
+                }
+                return (number, url)
+            }
+        )
+
+        let handle = try FileHandle(forReadingFrom: localURL)
+        defer { try? handle.close() }
+        for partNumber in 1...descriptor.partCount {
+            guard let uploadURL = uploadURLs[partNumber] else {
+                throw CloudDriveError.invalidResponse
+            }
+            let chunk = try handle.read(upToCount: descriptor.partSize) ?? Data()
+            guard !chunk.isEmpty else { throw CloudDriveError.invalidResponse }
+            var request = URLRequest(url: uploadURL)
+            request.httpMethod = "PUT"
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 600
+            let (data, response) = try await URLSession.shared.upload(for: request, from: chunk)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                throw CloudDriveError.apiError(
+                    (response as? HTTPURLResponse)?.statusCode ?? 0,
+                    String(data: data.prefix(4_096), encoding: .utf8)
+                        ?? "Aliyun part upload failed"
+                )
+            }
+        }
+
+        let current = try await metadataDetail(
+            driveID: driveID,
+            fileID: detail.fileID,
+            accessToken: accessToken
+        )
+        guard expected.matches(current.state) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let completeBody = try SafeJSONSerialization.data(withJSONObject: [
+            "drive_id": driveID,
+            "file_id": detail.fileID,
+            "upload_id": uploadID,
+        ])
+        let completed = try await authorizedJSONRequest(
+            url: URL(string: "\(apiBase)/adrive/v1.0/openFile/complete")!,
+            body: completeBody,
+            accessToken: accessToken,
+            operation: "complete replacement upload"
+        )
+        guard completed["file_id"] as? String == detail.fileID else {
+            throw CloudDriveError.invalidResponse
+        }
+        if let size = optionalInt64(completed["size"]), size != descriptor.size {
+            throw CloudDriveError.invalidResponse
+        }
+        if let hash = (completed["content_hash"] as? String)?.uppercased(),
+           hash != descriptor.sha1 {
+            throw CloudDriveError.invalidResponse
+        }
+    }
+
+    private static func authorizedJSONRequest(
+        url: URL,
+        body: Data,
+        accessToken: String,
+        operation: String
+    ) async throws -> [String: Any] {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.timeoutInterval = 60
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.invalidResponse
+        }
+        if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if http.statusCode == 409 || http.statusCode == 412 {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        guard (200...201).contains(http.statusCode),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CloudDriveError.apiError(
+                http.statusCode,
+                String(data: data.prefix(4_096), encoding: .utf8) ?? "Aliyun \(operation) failed"
+            )
+        }
+        if let code = json["code"] as? String, !code.isEmpty {
+            throw CloudDriveError.apiError(
+                http.statusCode,
+                "\(code): \(json["message"] as? String ?? operation)"
+            )
+        }
+        return json
+    }
+
+    private static func proofCode(
+        token: String,
+        localURL: URL,
+        size: Int64
+    ) throws -> String {
+        let md5 = Insecure.MD5.hash(data: Data(token.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard size > 0, let value = UInt64(md5.prefix(16), radix: 16) else { return "" }
+        let offset = value % UInt64(size)
+        let handle = try FileHandle(forReadingFrom: localURL)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: offset)
+        return (try handle.read(upToCount: 8) ?? Data()).base64EncodedString()
+    }
+
+    private static func parseISO8601(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func optionalInt(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private static func optionalInt64(_ value: Any?) -> Int64? {
+        if let value = value as? Int64 { return value }
+        if let value = value as? Int { return Int64(value) }
+        if let value = value as? NSNumber { return value.int64Value }
+        if let value = value as? String { return Int64(value) }
+        return nil
+    }
+
+    private static func int64(_ value: Any?) -> Int64 {
+        optionalInt64(value) ?? 0
     }
     /// path → (downloadURL, expiry). Aliyun signed URLs are good for ~4
     /// hours; we cache for 30min to skip the getDownloadUrl round-trip on
@@ -177,13 +567,13 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 // Aliyun returns content_hash (sha1 by default) for files;
                 // use it as the revision so re-scan catches same-size,
                 // same-mtime overwrites.
-                let hash = item["content_hash"] as? String
+                let hash = (item["content_hash"] as? String)?.uppercased()
                 return RemoteFileItem(
                     name: name,
                     path: fileId,
                     isDirectory: type == "folder",
-                    size: item["size"] as? Int64 ?? 0,
-                    modifiedDate: nil,
+                    size: Self.int64(item["size"]),
+                    modifiedDate: (item["updated_at"] as? String).flatMap(Self.parseISO8601),
                     revision: hash,
                     providerID: fileId,
                     parentPath: parentFileId
@@ -209,6 +599,61 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
         let url = try await getDownloadURL(for: path)
         return try await helper.downloadToCache(request: URLRequest(url: url), for: path)
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        guard let driveId else { throw CloudDriveError.notAuthenticated }
+        let token = try await getToken()
+        return try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable accessToken in
+            try await Self.metadataDetail(
+                driveID: driveId,
+                fileID: path,
+                accessToken: accessToken
+            ).state
+        }
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        guard let driveId else { throw CloudDriveError.notAuthenticated }
+        guard expected.revision?.isEmpty == false else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        let descriptor = try Self.uploadDescriptor(localURL: localURL)
+        let token = try await getToken()
+        try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable accessToken in
+            let current = try await Self.metadataDetail(
+                driveID: driveId,
+                fileID: path,
+                accessToken: accessToken
+            )
+            guard expected.matches(current.state) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            try await Self.uploadReplacement(
+                localURL: localURL,
+                descriptor: descriptor,
+                detail: current,
+                driveID: driveId,
+                expected: expected,
+                accessToken: accessToken
+            )
+        }
+        await invalidateMetadataWritebackCache(for: path)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        downloadURLCache.removeValue(forKey: path)
+        helper.invalidateCachedFile(path: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

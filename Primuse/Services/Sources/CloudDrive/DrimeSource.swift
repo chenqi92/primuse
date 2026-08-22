@@ -150,23 +150,29 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         for oldEntry in existingEntries where oldEntry.id != uploadedEntry.id {
             entriesByID.removeValue(forKey: oldEntry.id)
         }
-        guard !replacedIDs.isEmpty else {
-            plog(existingEntries.isEmpty
-                ? "📁 Drime sidecar uploaded: \(targetName)"
-                : "📁 Drime sidecar replaced: \(targetName)")
-            return
+        if !replacedIDs.isEmpty {
+            do {
+                try await deleteEntryIDs(replacedIDs, token: token)
+            } catch {
+                // Deletion is recoverable by design. Restore any old entries that
+                // were partially moved to trash before removing the replacement.
+                try? await restoreEntryIDs(replacedIDs, token: token)
+                try? await deleteEntryIDs([uploadedEntry.id], token: token)
+                throw error
+            }
         }
-
-        do {
-            try await deleteEntryIDs(replacedIDs, token: token)
-        } catch {
-            // Deletion is recoverable by design. Restore any old entries that
-            // were partially moved to trash before removing the replacement.
-            try? await restoreEntryIDs(replacedIDs, token: token)
-            try? await deleteEntryIDs([uploadedEntry.id], token: token)
-            throw error
+        helper.invalidateCachedFile(path: uploadedEntry.id)
+        let readback = try await fetchRange(
+            path: uploadedEntry.id,
+            offset: 0,
+            length: Int64(data.count)
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
         }
-        plog("📁 Drime sidecar replaced: \(targetName)")
+        plog(existingEntries.isEmpty
+            ? "📁 Drime sidecar uploaded and verified: \(targetName)"
+            : "📁 Drime sidecar replaced and verified: \(targetName)")
     }
 
     func deleteFile(at path: String) async throws {

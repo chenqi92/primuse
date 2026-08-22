@@ -1,9 +1,7 @@
 import Foundation
 import PrimuseKit
 #if os(iOS)
-#if os(iOS)
 import UIKit
-#endif
 #else
 import AppKit
 #endif
@@ -19,6 +17,8 @@ actor SidecarWriteService {
         var coverWritten: Bool = false
         var lyricsWritten: Bool = false
         var lyricsRemoved: Bool = false
+        var coverError: String?
+        var lyricsError: String?
         /// A credential/permission failure applies to the whole source, not
         /// only this asset. Batch scraping uses this to stop the remaining
         /// queued writes while keeping the locally cached metadata.
@@ -85,9 +85,11 @@ actor SidecarWriteService {
                     to: coverPath,
                     priority: .background
                 )
+                try await connector.verifySidecarWrite(data: jpegData, at: coverPath)
                 result.coverWritten = true
                 plog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
+                result.coverError = error.localizedDescription
                 result.errors.append("Cover: \(error.localizedDescription)")
                 result.sourceUnavailable = Self.isSourceUnavailable(error)
                 // Never pass user-controlled paths or remote error descriptions
@@ -110,9 +112,14 @@ actor SidecarWriteService {
                         to: target.targetPath,
                         priority: .background
                     )
+                    try await connector.verifySidecarWrite(
+                        data: sidecarData,
+                        at: target.targetPath
+                    )
                     result.lyricsWritten = true
                     plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
                 } catch {
+                    result.lyricsError = error.localizedDescription
                     result.errors.append("Lyrics: \(error.localizedDescription)")
                     result.sourceUnavailable = Self.isSourceUnavailable(error)
                     plog("⚠️ Sidecar: Failed to write lyrics: \(error)")
@@ -143,6 +150,7 @@ actor SidecarWriteService {
             result.lyricsRemoved = true
             plog("📁 Sidecar: \(target.fileName) removed")
         } catch {
+            result.lyricsError = error.localizedDescription
             result.errors.append("Lyrics: \(error.localizedDescription)")
             result.sourceUnavailable = Self.isSourceUnavailable(error)
             plog("⚠️ Sidecar: Failed to remove lyrics: \(error)")

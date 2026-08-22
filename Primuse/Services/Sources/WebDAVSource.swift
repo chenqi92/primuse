@@ -3,7 +3,8 @@ import Foundation
 import FilesProvider
 import PrimuseKit
 
-actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
+actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
+    EmbeddedMetadataWritebackAdapter {
     nonisolated let supportsSidecarWriting = true
     let sourceID: String
     private let host: String
@@ -414,48 +415,28 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         invalidateLocalCache(for: path)
     }
 
-    func writeEmbeddedMetadata(
-        original: Song,
-        updated: Song,
-        coverData: Data?
-    ) async throws -> EmbeddedMetadataWritebackResult {
-        guard AudioMetadataWritebackPolicy.embeddedFormats.contains(updated.fileFormat),
-              !updated.isCueTrack,
-              !updated.isStreamDescriptor else {
-            throw EmbeddedMetadataWritebackSourceError.unsupported
-        }
-
-        let path = updated.filePath
-        guard let before = try await resourceMetadata(at: path),
-              let originalETag = WebDAVWritebackPolicy.strongETag(before.etag),
-              let scannedETag = WebDAVWritebackPolicy.strongETag(original.revision) else {
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        guard let metadata = try await resourceMetadata(at: path),
+              let eTag = WebDAVWritebackPolicy.strongETag(metadata.etag),
+              let size = metadata.contentLength,
+              size >= 0 else {
             throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
         }
-        if scannedETag != originalETag {
-            throw EmbeddedMetadataWritebackSourceError.conflict
+        return EmbeddedMetadataRemoteFileState(
+            fileSize: size,
+            modifiedDate: Self.webDAVDate(metadata.lastModified),
+            revision: eTag
+        )
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        guard let originalETag = WebDAVWritebackPolicy.strongETag(expected.revision) else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
         }
-
-        let localURL = try await materializeCurrentResource(
-            at: path,
-            expectedETag: originalETag
-        )
-        defer { try? FileManager.default.removeItem(at: localURL) }
-
-        let edits = EmbeddedMetadataEdits(
-            title: updated.title,
-            artist: updated.artistName,
-            albumTitle: updated.albumTitle,
-            genre: updated.genre,
-            year: updated.year,
-            trackNumber: updated.trackNumber,
-            discNumber: updated.discNumber,
-            coverData: coverData
-        )
-        let verification = try await Task.detached(priority: .userInitiated) {
-            try await EmbeddedMetadataWriter.writeAndVerify(edits, to: localURL)
-        }.value
-        let editedSHA256 = try Self.sha256(fileAt: localURL)
-
         let temporaryPath = Self.temporaryWritebackPath(for: path)
         do {
             var put = try makeWebDAVRequest(url: fileURL(for: temporaryPath), method: "PUT")
@@ -485,27 +466,11 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             try? await deleteFile(at: temporaryPath)
             throw error
         }
-
         invalidateLocalCache(for: path)
+    }
 
-        guard let after = try await resourceMetadata(at: path),
-              let newETag = WebDAVWritebackPolicy.strongETag(after.etag) else {
-            throw EmbeddedMetadataWritebackSourceError.invalidResponse
-        }
-        let downloaded = try await materializeCurrentResource(at: path, expectedETag: newETag)
-        defer { try? FileManager.default.removeItem(at: downloaded) }
-        let downloadedSHA256 = try Self.sha256(fileAt: downloaded)
-        guard downloadedSHA256 == editedSHA256 else {
-            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
-        }
-
-        return EmbeddedMetadataWritebackResult(
-            fileSize: after.contentLength ?? Int64(clamping: Self.fileSize(at: downloaded)),
-            modifiedDate: Self.webDAVDate(after.lastModified),
-            revision: newETag,
-            fileSHA256: downloadedSHA256,
-            verification: verification
-        )
+    func invalidateMetadataWritebackCache(for path: String) async {
+        invalidateLocalCache(for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

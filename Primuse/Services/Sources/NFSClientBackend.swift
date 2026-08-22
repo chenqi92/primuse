@@ -21,6 +21,8 @@ protocol NFSClientBackend: AnyObject, Sendable {
     func read(path: String, offset: Int64, length: Int64) async throws -> Data
     func remove(path: String) async throws
     func download(path: String, to localURL: URL) async throws
+    func upload(localURL: URL, to path: String) async throws
+    func rename(path: String, to newPath: String) async throws
 }
 
 /// Adapts the existing callback-based NFSKit client. NFSKit currently creates
@@ -153,6 +155,30 @@ final class NFSKitClientBackend: NFSClientBackend, @unchecked Sendable {
     func download(path: String, to localURL: URL) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             client.downloadItem(atPath: path, to: localURL, progress: { _, _ in true }) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    func upload(localURL: URL, to path: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            client.uploadItem(at: localURL, toPath: path, progress: { _ in true }) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    func rename(path: String, to newPath: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            client.moveItem(atPath: path, toPath: newPath) { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
@@ -354,6 +380,65 @@ final class NFSv4ClientBackend: NFSClientBackend, @unchecked Sendable {
 
                 try localHandle.write(contentsOf: buffer.prefix(Int(readStatus)))
                 offset += UInt64(readStatus)
+            }
+        }
+    }
+
+    func upload(localURL: URL, to path: String) async throws {
+        try await perform {
+            let context = try self.requireContext()
+            let input = try FileHandle(forReadingFrom: localURL)
+            defer { try? input.close() }
+
+            var remoteHandle: UnsafeMutablePointer<nfsfh>?
+            let createStatus = path.withCString {
+                nfs_creat(context, $0, 0o600, &remoteHandle)
+            }
+            guard createStatus == 0, let remoteHandle else {
+                throw self.makeError(
+                    context: context,
+                    status: createStatus,
+                    operation: "create upload file"
+                )
+            }
+            defer { _ = nfs_close(context, remoteHandle) }
+
+            var offset: UInt64 = 0
+            while true {
+                let chunk = try input.read(upToCount: 1_048_576) ?? Data()
+                if chunk.isEmpty { break }
+                let written = chunk.withUnsafeBytes { bytes in
+                    nfs_pwrite(
+                        context,
+                        remoteHandle,
+                        offset,
+                        UInt64(chunk.count),
+                        bytes.baseAddress
+                    )
+                }
+                guard written == chunk.count else {
+                    let status = Int32(clamping: written)
+                    throw self.makeError(
+                        context: context,
+                        status: status,
+                        operation: "upload"
+                    )
+                }
+                offset += UInt64(written)
+            }
+        }
+    }
+
+    func rename(path: String, to newPath: String) async throws {
+        try await perform {
+            let context = try self.requireContext()
+            let status = path.withCString { sourcePointer in
+                newPath.withCString { destinationPointer in
+                    nfs_rename(context, sourcePointer, destinationPointer)
+                }
+            }
+            guard status == 0 else {
+                throw self.makeError(context: context, status: status, operation: "rename")
             }
         }
     }

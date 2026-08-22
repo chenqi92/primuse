@@ -29,7 +29,7 @@ private actor SMBOperationGate {
     }
 }
 
-actor SMBSource: MusicSourceConnector {
+actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
     private let host: String
@@ -134,7 +134,8 @@ actor SMBSource: MusicSourceConnector {
                             path: Self.appendPathComponent(name, to: normalizedPath),
                             isDirectory: isDir,
                             size: size,
-                            modifiedDate: modified
+                            modifiedDate: modified,
+                            revision: Self.fileRevision(size: size, modifiedDate: modified)
                         )
                     }
                     .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -353,6 +354,107 @@ actor SMBSource: MusicSourceConnector {
         }
     }
 
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let normalizedPath = Self.normalizeRemotePath(path)
+        guard case let .share(shareName, relativePath) = try resolve(path: normalizedPath) else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+        return try await runWithRetry {
+            let client = try await self.ensureConnectedShare(named: shareName)
+            let attributes = try await client.attributesOfItem(atPath: relativePath)
+            let size = (attributes[.fileSizeKey] as? Int64)
+                ?? (attributes[.fileSizeKey] as? Int).map(Int64.init)
+                ?? 0
+            let modifiedDate = attributes[.contentModificationDateKey] as? Date
+            return EmbeddedMetadataRemoteFileState(
+                fileSize: size,
+                modifiedDate: modifiedDate,
+                revision: Self.fileRevision(size: size, modifiedDate: modifiedDate)
+            )
+        }
+    }
+
+    func replaceMetadataFile(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        let normalizedPath = Self.normalizeRemotePath(path)
+        guard case let .share(shareName, relativePath) = try resolve(path: normalizedPath) else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+        try await withSerializedOperation {
+            let client = try await self.ensureConnectedShare(named: shareName)
+            let directory = (relativePath as NSString).deletingLastPathComponent
+            let fileName = (relativePath as NSString).lastPathComponent
+            let nonce = UUID().uuidString
+            let stagingName = ".\(fileName).primuse-writeback-\(nonce)"
+            let backupName = ".\(fileName).primuse-backup-\(nonce)"
+            let stagingPath = ((directory.isEmpty ? "/" : directory) as NSString)
+                .appendingPathComponent(stagingName)
+            let backupPath = ((directory.isEmpty ? "/" : directory) as NSString)
+                .appendingPathComponent(backupName)
+
+            var originalMoved = false
+            do {
+                try await client.uploadItem(at: localURL, toPath: stagingPath) { _ in true }
+                let attributes = try await client.attributesOfItem(atPath: relativePath)
+                let size = (attributes[.fileSizeKey] as? Int64)
+                    ?? (attributes[.fileSizeKey] as? Int).map(Int64.init)
+                    ?? 0
+                let modifiedDate = attributes[.contentModificationDateKey] as? Date
+                let current = EmbeddedMetadataRemoteFileState(
+                    fileSize: size,
+                    modifiedDate: modifiedDate,
+                    revision: Self.fileRevision(size: size, modifiedDate: modifiedDate)
+                )
+                guard expected.matches(current) else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+
+                // libsmb2's public rename intentionally refuses to replace an
+                // existing target. Move the original to a recoverable
+                // same-folder backup, publish the fully uploaded staging file,
+                // then remove the backup.
+                try await client.moveItem(atPath: relativePath, toPath: backupPath)
+                originalMoved = true
+                do {
+                    try await client.moveItem(atPath: stagingPath, toPath: relativePath)
+                    originalMoved = false
+                } catch {
+                    do {
+                        try await client.moveItem(atPath: backupPath, toPath: relativePath)
+                        originalMoved = false
+                    } catch let restoreError {
+                        throw SourceError.connectionFailed(
+                            "SMB publish failed and the original remains at \(backupPath): \(restoreError.localizedDescription)"
+                        )
+                    }
+                    throw error
+                }
+                do {
+                    try await client.removeFile(atPath: backupPath)
+                } catch {
+                    // Publication is already complete; a hidden recovery copy
+                    // is preferable to reporting a failed write and retrying it.
+                    plog("⚠️ SMB metadata writeback left recovery backup at \(backupPath): \(error.localizedDescription)")
+                }
+            } catch {
+                if !originalMoved {
+                    try? await client.removeFile(atPath: stagingPath)
+                }
+                throw error
+            }
+        }
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        let normalizedPath = Self.normalizeRemotePath(path)
+        try? FileManager.default.removeItem(
+            at: cacheDirectory.appendingPathComponent(Self.cacheFileName(for: normalizedPath))
+        )
+    }
+
     /// AMSMB2's `uploadItem` intentionally uses create-exclusive semantics,
     /// so writing a scraped sidecar for a second time fails with EEXIST /
     /// STATUS_OBJECT_NAME_COLLISION. Create first to keep the normal path
@@ -379,6 +481,11 @@ actor SMBSource: MusicSourceConnector {
                 progress: { _ in true }
             )
         }
+    }
+
+    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "smb:\(size):\(Int64(modifiedDate.timeIntervalSince1970 * 1_000))"
     }
 
     func deleteFile(at path: String) async throws {
@@ -664,6 +771,7 @@ actor SMBSource: MusicSourceConnector {
     private nonisolated func mapSMBError(_ error: Error) -> Error {
         if error is CancellationError { return error }
         if error is SourceError { return error }
+        if error is EmbeddedMetadataWritebackSourceError { return error }
         let ns = error as NSError
         if ns.domain == NSPOSIXErrorDomain {
             switch ns.code {

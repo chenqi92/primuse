@@ -611,36 +611,100 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         lyricsContent: String?
     ) async -> MediaServerWritebackResult {
         var result = MediaServerWritebackResult()
+        let requestedFields = TagMetadataWritebackField.changedFields(
+            from: original,
+            to: updated,
+            includesCover: coverData?.isEmpty == false
+        )
+        let requestedMetadataFields = requestedFields.intersection(
+            TagMetadataWritebackField.metadataFields
+        )
 
         do {
             try await connect()
         } catch {
             result.errors.append("Connection: \(error.localizedDescription)")
+            result.fieldResults = requestedFields.map {
+                TagMetadataFieldWritebackResult(
+                    field: $0,
+                    disposition: .failed(error.localizedDescription)
+                )
+            }
             return result
         }
 
         guard let itemID = itemID(from: updated.filePath) else {
-            result.errors.append("Invalid media-server item path: \(updated.filePath)")
+            let detail = String(localized: "metadata_writeback_media_invalid_item")
+            result.errors.append(detail)
+            result.fieldResults = requestedFields.map {
+                TagMetadataFieldWritebackResult(field: $0, disposition: .failed(detail))
+            }
             return result
         }
 
-        if metadataChanged(from: original, to: updated) {
-            do {
-                switch kind {
-                case .jellyfin, .emby:
+        if !requestedMetadataFields.isEmpty {
+            switch kind {
+            case .jellyfin, .emby:
+                do {
                     try await updateJellyfinOrEmbyItem(itemID: itemID, song: updated)
-                    result.metadataWritten = true
-                case .plex:
-                    let plexResult = try await updatePlexMetadata(
-                        ratingKey: itemID,
-                        original: original,
-                        updated: updated
+                    let mismatched = try await jellyfinOrEmbyReadbackMismatches(
+                        itemID: itemID,
+                        expected: updated,
+                        fields: requestedMetadataFields
                     )
-                    result.metadataWritten = plexResult.written
-                    result.unsupported.append(contentsOf: plexResult.unsupported)
+                    result.fieldResults.append(contentsOf: requestedMetadataFields.map { field in
+                        TagMetadataFieldWritebackResult(
+                            field: field,
+                            disposition: mismatched.contains(field)
+                                ? .failed(String(localized: "metadata_writeback_media_readback_mismatch"))
+                                : .written
+                        )
+                    })
+                    result.metadataWritten = mismatched.count < requestedMetadataFields.count
+                    if !mismatched.isEmpty {
+                        result.errors.append(
+                            String(localized: "metadata_writeback_media_readback_mismatch")
+                        )
+                    }
+                } catch {
+                    result.errors.append("Metadata: \(error.localizedDescription)")
+                    result.fieldResults.append(contentsOf: requestedMetadataFields.map {
+                        TagMetadataFieldWritebackResult(
+                            field: $0,
+                            disposition: .failed(error.localizedDescription)
+                        )
+                    })
                 }
-            } catch {
-                result.errors.append("Metadata: \(error.localizedDescription)")
+            case .plex:
+                let plexResults = await updatePlexMetadata(
+                    ratingKey: itemID,
+                    original: original,
+                    updated: updated
+                )
+                let verifiedPlexResults = await verifyPlexMetadataReadback(
+                    ratingKey: itemID,
+                    expected: updated,
+                    results: plexResults
+                )
+                result.fieldResults.append(contentsOf: verifiedPlexResults)
+                result.metadataWritten = verifiedPlexResults.contains {
+                    if case .written = $0.disposition { return true }
+                    return false
+                }
+                for fieldResult in verifiedPlexResults {
+                    switch fieldResult.disposition {
+                    case .failed(let detail):
+                        result.errors.append(
+                            "\(fieldResult.field.localizedName): \(detail)"
+                        )
+                    case .unsupported(let detail):
+                        result.unsupported.append(
+                            "\(fieldResult.field.localizedName): \(detail)"
+                        )
+                    case .unchanged, .written, .localOnly:
+                        break
+                    }
+                }
             }
         }
 
@@ -648,8 +712,17 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             do {
                 try await uploadCover(itemID: itemID, data: coverData)
                 result.coverWritten = true
+                result.fieldResults.append(
+                    TagMetadataFieldWritebackResult(field: .cover, disposition: .written)
+                )
             } catch {
                 result.errors.append("Cover: \(error.localizedDescription)")
+                result.fieldResults.append(
+                    TagMetadataFieldWritebackResult(
+                        field: .cover,
+                        disposition: .failed(error.localizedDescription)
+                    )
+                )
             }
         }
 
@@ -1253,16 +1326,6 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return SSLTrustStore.isTrustedSync(domain: endpoint.key)
     }
 
-    private func metadataChanged(from original: Song, to updated: Song) -> Bool {
-        original.title != updated.title
-            || original.albumTitle != updated.albumTitle
-            || original.artistName != updated.artistName
-            || original.trackNumber != updated.trackNumber
-            || original.discNumber != updated.discNumber
-            || original.genre != updated.genre
-            || original.year != updated.year
-    }
-
     private func updateJellyfinOrEmbyItem(itemID: String, song: Song) async throws {
         let itemPath: String
         switch kind {
@@ -1279,121 +1342,341 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             throw SourceError.connectionFailed("Invalid item metadata response")
         }
 
+        let artist = normalizedMetadataText(song.artistName)
+        let albumArtist = normalizedMetadataText(song.albumArtistName) ?? artist
         item["Name"] = song.title
-        if let artist = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !artist.isEmpty {
-            item["AlbumArtist"] = artist
-            item["Artists"] = [artist]
-        }
-        if let album = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !album.isEmpty {
-            item["Album"] = album
-        }
-        if let trackNumber = song.trackNumber { item["IndexNumber"] = trackNumber }
-        if let discNumber = song.discNumber { item["ParentIndexNumber"] = discNumber }
-        if let year = song.year { item["ProductionYear"] = year }
-        if let genre = song.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !genre.isEmpty {
-            item["Genres"] = genre
-                .split(separator: ",")
+        item["AlbumArtist"] = albumArtist ?? ""
+        item["Artists"] = artist.map { [$0] } ?? []
+        item["Album"] = normalizedMetadataText(song.albumTitle) ?? ""
+        item["IndexNumber"] = song.trackNumber.map { $0 as Any } ?? NSNull()
+        item["ParentIndexNumber"] = song.discNumber.map { $0 as Any } ?? NSNull()
+        item["ProductionYear"] = song.year.map { $0 as Any } ?? NSNull()
+        item["Genres"] = normalizedMetadataText(song.genre).map {
+            $0.split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-        }
+        } ?? []
 
         let body = try SafeJSONSerialization.data(withJSONObject: item)
         _ = try await performRequest(path: "/Items/\(itemID)", method: "POST", body: body)
+    }
+
+    private func jellyfinOrEmbyReadbackMismatches(
+        itemID: String,
+        expected: Song,
+        fields: Set<TagMetadataWritebackField>
+    ) async throws -> Set<TagMetadataWritebackField> {
+        var lastMismatch = fields
+        for attempt in 0..<2 {
+            if attempt > 0 { try await Task.sleep(for: .milliseconds(300)) }
+            let path: String
+            switch kind {
+            case .jellyfin:
+                path = "/Items/\(itemID)"
+            case .emby:
+                guard let userID else { throw SourceError.authenticationFailed }
+                path = "/Users/\(userID)/Items/\(itemID)"
+            case .plex:
+                throw SourceError.connectionFailed("Invalid media-server readback route")
+            }
+            let data = try await performRequest(path: path)
+            let item = try decoder.decode(AudioItem.self, from: data)
+            lastMismatch = Set(fields.filter {
+                !jellyfinOrEmbyItem(item, matches: $0, expected: expected)
+            })
+            if lastMismatch.isEmpty { return [] }
+        }
+        return lastMismatch
+    }
+
+    private func jellyfinOrEmbyItem(
+        _ item: AudioItem,
+        matches field: TagMetadataWritebackField,
+        expected: Song
+    ) -> Bool {
+        switch field {
+        case .title:
+            return normalizedMetadataText(item.name) == normalizedMetadataText(expected.title)
+        case .artist:
+            let actual = item.artists?.first ?? item.albumArtist
+            return normalizedMetadataText(actual) == normalizedMetadataText(expected.artistName)
+        case .album:
+            return normalizedMetadataText(item.album) == normalizedMetadataText(expected.albumTitle)
+        case .genre:
+            return normalizedGenreSet(item.genres?.joined(separator: ","))
+                == normalizedGenreSet(expected.genre)
+        case .year:
+            return item.productionYear == expected.year
+        case .trackNumber:
+            return item.indexNumber == expected.trackNumber
+        case .discNumber:
+            return item.parentIndexNumber == expected.discNumber
+        case .cover:
+            return true
+        }
     }
 
     private func updatePlexMetadata(
         ratingKey: String,
         original: Song,
         updated: Song
-    ) async throws -> (written: Bool, unsupported: [String]) {
+    ) async -> [TagMetadataFieldWritebackResult] {
+        let changed = TagMetadataWritebackField.changedFields(
+            from: original,
+            to: updated,
+            includesCover: false
+        )
+        var results: [TagMetadataFieldWritebackResult] = []
         let item: PlexAudioItem
-        if let cached = plexItems[ratingKey] {
-            item = cached
-        } else {
-            item = try await fetchPlexTrack(ratingKey: ratingKey)
+        do {
+            if let cached = plexItems[ratingKey] {
+                item = cached
+            } else {
+                item = try await fetchPlexTrack(ratingKey: ratingKey)
+            }
+        } catch {
+            return changed.map {
+                TagMetadataFieldWritebackResult(
+                    field: $0,
+                    disposition: .failed(error.localizedDescription)
+                )
+            }
         }
 
-        var didWrite = false
-        var unsupported: [String] = []
         var trackFields: [URLQueryItem] = []
+        var trackResultFields: Set<TagMetadataWritebackField> = []
         if original.title != updated.title {
             trackFields += [
                 URLQueryItem(name: "title", value: updated.title),
                 URLQueryItem(name: "title.locked", value: "1")
             ]
+            trackResultFields.insert(.title)
         }
-        if original.trackNumber != updated.trackNumber, let track = updated.trackNumber {
+        if original.trackNumber != updated.trackNumber {
             trackFields += [
-                URLQueryItem(name: "index", value: String(track)),
+                URLQueryItem(name: "index", value: updated.trackNumber.map(String.init) ?? ""),
                 URLQueryItem(name: "index.locked", value: "1")
             ]
+            trackResultFields.insert(.trackNumber)
         }
-        if original.discNumber != updated.discNumber, let disc = updated.discNumber {
+        if original.discNumber != updated.discNumber {
             trackFields += [
-                URLQueryItem(name: "parentIndex", value: String(disc)),
+                URLQueryItem(name: "parentIndex", value: updated.discNumber.map(String.init) ?? ""),
                 URLQueryItem(name: "parentIndex.locked", value: "1")
             ]
+            trackResultFields.insert(.discNumber)
         }
         if !trackFields.isEmpty {
-            _ = try await performRequest(
-                path: "/library/metadata/\(ratingKey)",
-                method: "PUT",
-                queryItems: trackFields,
-                contentType: "application/octet-stream",
-                accept: "*/*"
-            )
-            didWrite = true
+            do {
+                _ = try await performRequest(
+                    path: "/library/metadata/\(ratingKey)",
+                    method: "PUT",
+                    queryItems: trackFields,
+                    contentType: "application/octet-stream",
+                    accept: "*/*"
+                )
+                results.append(contentsOf: trackResultFields.map {
+                    TagMetadataFieldWritebackResult(field: $0, disposition: .written)
+                })
+            } catch {
+                results.append(contentsOf: trackResultFields.map {
+                    TagMetadataFieldWritebackResult(
+                        field: $0,
+                        disposition: .failed(error.localizedDescription)
+                    )
+                })
+            }
         }
 
         var albumFields: [URLQueryItem] = []
-        if original.albumTitle != updated.albumTitle,
-           let album = updated.albumTitle, !album.isEmpty {
+        var albumResultFields: Set<TagMetadataWritebackField> = []
+        if original.albumTitle != updated.albumTitle {
             albumFields += [
-                URLQueryItem(name: "title", value: album),
+                URLQueryItem(name: "title", value: normalizedMetadataText(updated.albumTitle) ?? ""),
                 URLQueryItem(name: "title.locked", value: "1")
             ]
+            albumResultFields.insert(.album)
         }
-        if original.year != updated.year, let year = updated.year {
+        if original.year != updated.year {
             albumFields += [
-                URLQueryItem(name: "year", value: String(year)),
+                URLQueryItem(name: "year", value: updated.year.map(String.init) ?? ""),
                 URLQueryItem(name: "year.locked", value: "1")
             ]
+            albumResultFields.insert(.year)
         }
-        if !albumFields.isEmpty, let albumID = item.parentRatingKey {
-            _ = try await performRequest(
-                path: "/library/metadata/\(albumID)",
-                method: "PUT",
-                queryItems: albumFields,
-                contentType: "application/octet-stream",
-                accept: "*/*"
-            )
-            didWrite = true
+        if !albumFields.isEmpty {
+            if let albumID = item.parentRatingKey {
+                do {
+                    _ = try await performRequest(
+                        path: "/library/metadata/\(albumID)",
+                        method: "PUT",
+                        queryItems: albumFields,
+                        contentType: "application/octet-stream",
+                        accept: "*/*"
+                    )
+                    results.append(contentsOf: albumResultFields.map {
+                        TagMetadataFieldWritebackResult(field: $0, disposition: .written)
+                    })
+                } catch {
+                    results.append(contentsOf: albumResultFields.map {
+                        TagMetadataFieldWritebackResult(
+                            field: $0,
+                            disposition: .failed(error.localizedDescription)
+                        )
+                    })
+                }
+            } else {
+                let reason = String(localized: "metadata_writeback_plex_missing_album")
+                results.append(contentsOf: albumResultFields.map {
+                    TagMetadataFieldWritebackResult(field: $0, disposition: .unsupported(reason))
+                })
+            }
         }
 
-        if original.artistName != updated.artistName,
-           let artistID = item.grandparentRatingKey,
-           let artist = updated.artistName, !artist.isEmpty {
-            _ = try await performRequest(
-                path: "/library/metadata/\(artistID)",
-                method: "PUT",
-                queryItems: [
-                    URLQueryItem(name: "title", value: artist),
-                    URLQueryItem(name: "title.locked", value: "1")
-                ],
-                contentType: "application/octet-stream",
-                accept: "*/*"
-            )
-            didWrite = true
+        if original.artistName != updated.artistName {
+            if let artistID = item.grandparentRatingKey {
+                do {
+                    _ = try await performRequest(
+                        path: "/library/metadata/\(artistID)",
+                        method: "PUT",
+                        queryItems: [
+                            URLQueryItem(
+                                name: "title",
+                                value: normalizedMetadataText(updated.artistName) ?? ""
+                            ),
+                            URLQueryItem(name: "title.locked", value: "1")
+                        ],
+                        contentType: "application/octet-stream",
+                        accept: "*/*"
+                    )
+                    results.append(
+                        TagMetadataFieldWritebackResult(field: .artist, disposition: .written)
+                    )
+                } catch {
+                    results.append(
+                        TagMetadataFieldWritebackResult(
+                            field: .artist,
+                            disposition: .failed(error.localizedDescription)
+                        )
+                    )
+                }
+            } else {
+                results.append(
+                    TagMetadataFieldWritebackResult(
+                        field: .artist,
+                        disposition: .unsupported(
+                            String(localized: "metadata_writeback_plex_missing_artist")
+                        )
+                    )
+                )
+            }
         }
 
         if original.genre != updated.genre {
-            unsupported.append("Plex music genre writeback is not available through the stable API")
+            results.append(
+                TagMetadataFieldWritebackResult(
+                    field: .genre,
+                    disposition: .unsupported(
+                        String(localized: "metadata_writeback_plex_genre_unsupported")
+                    )
+                )
+            )
         }
 
-        return (didWrite, unsupported)
+        return results
+    }
+
+    private func normalizedMetadataText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func normalizedGenreSet(_ value: String?) -> Set<String> {
+        guard let value else { return [] }
+        return Set(
+            value.split(separator: ",")
+                .map {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    private func verifyPlexMetadataReadback(
+        ratingKey: String,
+        expected: Song,
+        results: [TagMetadataFieldWritebackResult]
+    ) async -> [TagMetadataFieldWritebackResult] {
+        let writtenFields = Set(results.compactMap { result -> TagMetadataWritebackField? in
+            if case .written = result.disposition { return result.field }
+            return nil
+        })
+        guard !writtenFields.isEmpty else { return results }
+
+        var readback: PlexAudioItem?
+        var readbackError: Error?
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(for: .milliseconds(300)) }
+            do {
+                let item = try await fetchPlexTrack(ratingKey: ratingKey)
+                readbackError = nil
+                readback = item
+                if writtenFields.allSatisfy({ plexItem(item, matches: $0, expected: expected) }) {
+                    break
+                }
+            } catch {
+                readbackError = error
+            }
+        }
+
+        return results.map { result in
+            guard case .written = result.disposition else { return result }
+            let detail: String?
+            if let readbackError {
+                detail = readbackError.localizedDescription
+            } else if let readback,
+                      !plexItem(readback, matches: result.field, expected: expected) {
+                detail = String(localized: "metadata_writeback_media_readback_mismatch")
+            } else if readback == nil {
+                detail = String(localized: "metadata_writeback_media_readback_mismatch")
+            } else {
+                detail = nil
+            }
+            guard let detail else { return result }
+            return TagMetadataFieldWritebackResult(
+                field: result.field,
+                disposition: .failed(detail)
+            )
+        }
+    }
+
+    private func plexItem(
+        _ item: PlexAudioItem,
+        matches field: TagMetadataWritebackField,
+        expected: Song
+    ) -> Bool {
+        switch field {
+        case .title:
+            return normalizedMetadataText(item.title) == normalizedMetadataText(expected.title)
+        case .artist:
+            return normalizedMetadataText(item.grandparentTitle)
+                == normalizedMetadataText(expected.artistName)
+        case .album:
+            return normalizedMetadataText(item.parentTitle)
+                == normalizedMetadataText(expected.albumTitle)
+        case .year:
+            return item.year == expected.year
+        case .trackNumber:
+            return item.index == expected.trackNumber
+        case .discNumber:
+            return item.parentIndex == expected.discNumber
+        case .genre:
+            return normalizedGenreSet(item.genres?.joined(separator: ","))
+                == normalizedGenreSet(expected.genre)
+        case .cover:
+            return true
+        }
     }
 
     private func uploadCover(itemID: String, data: Data) async throws {
