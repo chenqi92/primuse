@@ -2879,6 +2879,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     let onPlay: (Song) -> Void
 
     @State private var indexScrollRequest: IOSSongIndexScrollRequest?
+    @State private var scrollPosition = ScrollPosition(idType: Int.self)
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.cache === rhs.cache
@@ -2888,57 +2889,54 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ZStack(alignment: .trailing) {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(0..<cache.positionCount, id: \.self) { position in
-                            IOSSongListPositionRow(
-                                position: position,
-                                cache: cache,
-                                selection: selection,
-                                onPlay: onPlay
-                            )
-                            .padding(.leading, 16)
-                            .padding(.trailing, showsSectionIndex ? 42 : 16)
-                            .padding(.vertical, 4)
-                            .id(position)
-
-                            if position < cache.positionCount - 1 {
-                                Divider()
-                                    .padding(.leading, 66)
-                            }
-                        }
-                    }
-                }
-                .background(songListBackground)
-
-                if showsSectionIndex {
-                    IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
-                        guard (0..<cache.positionCount).contains(entry.rowOffset) else { return }
-                        indexScrollRequest = IOSSongIndexScrollRequest(
-                            rowOffset: entry.rowOffset,
-                            rowOrderRevision: rowOrderRevision
+        ZStack(alignment: .trailing) {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(0..<cache.positionCount, id: \.self) { position in
+                        IOSSongListPositionSlot(
+                            position: position,
+                            isLast: position == cache.positionCount - 1,
+                            trailingPadding: showsSectionIndex ? 42 : 16,
+                            cache: cache,
+                            selection: selection,
+                            onPlay: onPlay
                         )
                     }
-                    .frame(width: 112)
-                    .padding(.trailing, 2)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
                 }
+                // Keeping a strict one-item-to-one-scroll-target mapping lets
+                // the lazy stack resolve a distant ID directly. If a ForEach
+                // element expands into both a row and a divider, SwiftUI may
+                // walk thousands of intermediate children.
+                .scrollTargetLayout()
             }
-            .task(id: indexScrollRequest) {
-                guard let request = indexScrollRequest else { return }
-                await Task.yield()
-                guard !Task.isCancelled,
-                      request.rowOrderRevision == rowOrderRevision,
-                      (0..<cache.positionCount).contains(request.rowOffset) else {
-                    return
+            .scrollPosition($scrollPosition)
+            .background(songListBackground)
+
+            if showsSectionIndex {
+                IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
+                    guard (0..<cache.positionCount).contains(entry.rowOffset) else { return }
+                    indexScrollRequest = IOSSongIndexScrollRequest(
+                        rowOffset: entry.rowOffset,
+                        rowOrderRevision: rowOrderRevision
+                    )
                 }
-                proxy.scrollTo(request.rowOffset, anchor: .top)
+                .frame(width: 112)
+                .padding(.trailing, 2)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
             }
-            .onChange(of: rowOrderRevision) { _, _ in
-                indexScrollRequest = nil
+        }
+        .task(id: indexScrollRequest) {
+            guard let request = indexScrollRequest else { return }
+            await Task.yield()
+            guard !Task.isCancelled,
+                  request.rowOrderRevision == rowOrderRevision,
+                  (0..<cache.positionCount).contains(request.rowOffset) else {
+                return
             }
+            scrollPosition.scrollTo(id: request.rowOffset, anchor: .top)
+        }
+        .onChange(of: rowOrderRevision) { _, _ in
+            indexScrollRequest = nil
         }
         .animation(.easeOut(duration: 0.18), value: showsSectionIndex)
     }
@@ -2955,6 +2953,37 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         #else
         Color(UIColor.systemBackground)
         #endif
+    }
+}
+
+/// The outer lazy stack must see one stable child for every position. Keeping
+/// the separator inside the slot preserves constant target cardinality and
+/// allows far-away alphabet jumps without resolving all preceding rows.
+private struct IOSSongListPositionSlot: View {
+    let position: Int
+    let isLast: Bool
+    let trailingPadding: CGFloat
+    let cache: SongListCache
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            IOSSongListPositionRow(
+                position: position,
+                cache: cache,
+                selection: selection,
+                onPlay: onPlay
+            )
+            .padding(.leading, 16)
+            .padding(.trailing, trailingPadding)
+            .padding(.vertical, 4)
+
+            Divider()
+                .padding(.leading, 66)
+                .opacity(isLast ? 0 : 1)
+                .accessibilityHidden(true)
+        }
     }
 }
 
