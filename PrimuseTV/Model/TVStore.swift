@@ -284,6 +284,11 @@ final class TVStore {
         guard let currentRadioStationID else { return nil }
         return radioStations.first { $0.id == currentRadioStationID }
     }
+    var nowPlayingPresentationColors: (primary: Color, secondary: Color) {
+        isLiveRadio
+            ? (TVColor.brand, TVColor.brandSecondary)
+            : (nowPlaying.tint, nowPlaying.tint2)
+    }
     var canPlayMusicVideo: Bool {
         guard !isLiveRadio else { return false }
         guard let id = currentSongID,
@@ -1539,7 +1544,7 @@ final class TVStore {
         radioMetadataTitle = ""
         engine.prepareForSelection(startAt: 0)
 
-        let fallback = Self.tint(station.id)
+        let fallback = nowPlayingPresentationColors
         nowPlaying = TVNowPlaying(
             songID: "radio:\(station.id)",
             coverRef: nil,
@@ -1547,8 +1552,8 @@ final class TVStore {
             artist: station.playbackSubtitle,
             album: "",
             albumID: "",
-            tint: fallback.0,
-            tint2: fallback.1,
+            tint: fallback.primary,
+            tint2: fallback.secondary,
             glyph: "radio",
             duration: 0,
             currentTime: 0,

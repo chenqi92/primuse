@@ -165,6 +165,7 @@ struct HomeView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(RadioStationsStore.self) private var radioStationsStore
+    @Environment(ThemeService.self) private var theme
 
     /// 音乐态是否有内容可展示。电台不再计入 —— 它有独立模式，光有电台
     /// 不该让音乐态藏起"去添加音乐源"的引导。
@@ -574,7 +575,7 @@ struct HomeView: View {
                                 .frame(width: 38, height: 38)
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(theme.uiDarkAccent)
                         .background(.white, in: Circle())
                         .accessibilityLabel(isPlaying ? "radio_stop" : "play")
 
@@ -595,7 +596,10 @@ struct HomeView: View {
         .foregroundStyle(.white)
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 142, alignment: .leading)
-        .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: 22))
+        .background {
+            radioSpotlightBackdrop
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
         .contentShape(RoundedRectangle(cornerRadius: 22))
         .simultaneousGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
@@ -606,12 +610,16 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: station.id)
     }
 
-    private var radioSpotlightGradient: LinearGradient {
-        LinearGradient(
-            colors: [.purple.opacity(0.92), .blue.opacity(0.78)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+    private var radioSpotlightBackdrop: some View {
+        ZStack {
+            theme.uiDarkAccent
+            LinearGradient(
+                colors: [theme.uiAccentColor.opacity(0.76), .clear],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Color.black.opacity(0.08)
+        }
     }
 
     // MARK: - 模式切换
@@ -876,16 +884,7 @@ struct HomeView: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            ZStack {
-                LinearGradient(
-                    colors: [.purple.opacity(0.85), .blue.opacity(0.7)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                Image(systemName: "radio.fill")
-                    .font(.system(size: 34, weight: .medium))
-                    .foregroundStyle(.white)
-            }
+            RadioStationPlaceholderArtwork()
         }
     }
 

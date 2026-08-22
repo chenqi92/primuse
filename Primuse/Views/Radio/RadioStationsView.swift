@@ -517,14 +517,7 @@ struct RadioStationArtworkView: View {
                     .scaledToFill()
             } else {
                 ZStack {
-                    LinearGradient(
-                        colors: [.purple.opacity(0.85), .blue.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Image(systemName: "radio.fill")
-                        .font(.system(size: size * 0.34, weight: .medium))
-                        .foregroundStyle(.white)
+                    RadioStationPlaceholderArtwork()
                     if station.logoFileName?.isEmpty == false {
                         CachedArtworkView(
                             coverRef: station.logoFileName,
@@ -543,6 +536,44 @@ struct RadioStationArtworkView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+/// 无台标时用当前主题色构成单色信号场，避免固定紫蓝色从整套外观里跳出来。
+/// 同心环只承担“广播信号”的识别，不参与播放状态表达。
+struct RadioStationPlaceholderArtwork: View {
+    @Environment(ThemeService.self) private var theme
+
+    var body: some View {
+        GeometryReader { proxy in
+            let side = max(min(proxy.size.width, proxy.size.height), 1)
+
+            ZStack {
+                theme.uiDarkAccent
+
+                LinearGradient(
+                    colors: [
+                        theme.uiAccentColor.opacity(0.82),
+                        theme.uiAccentColor.opacity(0.10)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Circle()
+                    .stroke(.white.opacity(0.10), lineWidth: max(1, side * 0.008))
+                    .frame(width: side * 0.82, height: side * 0.82)
+
+                Circle()
+                    .stroke(.white.opacity(0.14), lineWidth: max(1, side * 0.009))
+                    .frame(width: side * 0.58, height: side * 0.58)
+
+                Image(systemName: "radio.fill")
+                    .font(.system(size: side * 0.31, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.94))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 

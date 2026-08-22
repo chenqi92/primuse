@@ -131,9 +131,9 @@ struct TVNowPlayingView: View {
     }
 
     private var player: some View {
-        let np = store.nowPlaying
+        let colors = store.nowPlayingPresentationColors
         return ZStack {
-            TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 1)
+            TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 1)
             if store.isLiveRadio {
                 liveRadioPlayer
             } else if store.isMusicVideoPlaybackActive {
@@ -167,8 +167,8 @@ struct TVNowPlayingView: View {
                         .shadow(color: .black.opacity(0.55), radius: 42, y: 22)
                 } else {
                     TVMusicPlaceholder(
-                        tint: store.nowPlaying.tint,
-                        tint2: store.nowPlaying.tint2,
+                        tint: store.nowPlayingPresentationColors.primary,
+                        tint2: store.nowPlayingPresentationColors.secondary,
                         size: 500,
                         radius: 30
                     )

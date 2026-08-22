@@ -21,9 +21,10 @@ struct TVQueueView: View {
 
     var body: some View {
         let np = store.nowPlaying
+        let colors = store.nowPlayingPresentationColors
         let rows = upNextRows
         ZStack {
-            TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 0.55)
+            TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 0.55)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
 
             HStack(alignment: .center, spacing: 80) {
@@ -31,7 +32,8 @@ struct TVQueueView: View {
                     TVEyebrow(text: PMString("ext.tv.queue.nowPlaying")).padding(.bottom, 20)
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                                   songID: np.songID, coverRef: np.coverRef,
-                                  tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 340, radius: 18)
+                                  tint: colors.primary, tint2: colors.secondary,
+                                  glyph: np.glyph, size: 340, radius: 18)
                         .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
                     Text(np.title).font(.system(size: 42, weight: .bold)).tracking(-0.6)
                         .foregroundStyle(TVColor.text).padding(.top, 26)

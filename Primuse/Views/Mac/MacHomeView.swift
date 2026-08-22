@@ -643,12 +643,7 @@ struct MacHomeView: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            ZStack {
-                radioSpotlightGradient
-                Image(systemName: "radio.fill")
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.92))
-            }
+            RadioStationPlaceholderArtwork()
         }
     }
 
@@ -672,14 +667,6 @@ struct MacHomeView: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(.black.opacity(0.38), in: Capsule())
-    }
-
-    private var radioSpotlightGradient: LinearGradient {
-        LinearGradient(
-            colors: [PMColor.brand.opacity(0.95), Color.purple.opacity(0.78)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 
     private func toggleRadio(_ station: RadioStation) {

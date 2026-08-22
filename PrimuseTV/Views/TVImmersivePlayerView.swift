@@ -58,9 +58,10 @@ struct TVImmersivePlayerView: View {
     }
 
     private var artworkPalette: ImmersiveArtworkPalette {
-        ImmersiveArtworkPalette(
-            primary: coverDrivenAmbient ? store.nowPlaying.tint : TVColor.brand(hex: accentHex),
-            secondary: coverDrivenAmbient ? store.nowPlaying.tint2 : TVColor.brandSecondary(hex: accentHex)
+        let playbackColors = store.nowPlayingPresentationColors
+        return ImmersiveArtworkPalette(
+            primary: coverDrivenAmbient ? playbackColors.primary : TVColor.brand(hex: accentHex),
+            secondary: coverDrivenAmbient ? playbackColors.secondary : TVColor.brandSecondary(hex: accentHex)
         )
     }
 

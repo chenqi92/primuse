@@ -138,23 +138,45 @@ struct TVRadioArtworkView: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                LinearGradient(
-                    colors: [TVColor.brand.opacity(0.88), Color.black.opacity(0.88)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .overlay {
-                    Image(systemName: "radio.fill")
-                        .font(.system(size: size * 0.34, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.92))
-                }
+                TVRadioPlaceholderArtwork()
             }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                .strokeBorder(TVColor.cardBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct TVRadioPlaceholderArtwork: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let side = max(min(proxy.size.width, proxy.size.height), 1)
+
+            ZStack {
+                TVColor.brandSecondary
+
+                LinearGradient(
+                    colors: [TVColor.brand.opacity(0.84), TVColor.brand.opacity(0.10)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Circle()
+                    .stroke(.white.opacity(0.10), lineWidth: max(1, side * 0.008))
+                    .frame(width: side * 0.82, height: side * 0.82)
+
+                Circle()
+                    .stroke(.white.opacity(0.14), lineWidth: max(1, side * 0.009))
+                    .frame(width: side * 0.58, height: side * 0.58)
+
+                Image(systemName: "radio.fill")
+                    .font(.system(size: side * 0.31, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.94))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

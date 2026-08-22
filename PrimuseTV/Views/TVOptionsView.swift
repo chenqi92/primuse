@@ -33,15 +33,17 @@ struct TVOptionsView: View {
 
     var body: some View {
         let np = store.nowPlaying
+        let colors = store.nowPlayingPresentationColors
         ZStack {
-            TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 0.5)
+            TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 0.5)
             TVColor.bg.opacity(0.52).ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 28) {
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                                   songID: np.songID, coverRef: np.coverRef,
-                                  tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 140, radius: 14)
+                                  tint: colors.primary, tint2: colors.secondary,
+                                  glyph: np.glyph, size: 140, radius: 14)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(np.title).font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
                         Text(np.artist).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
@@ -107,9 +109,10 @@ struct TVFullscreenEffectPicker: View {
     }
 
     private var previewPalette: ImmersiveArtworkPalette {
-        ImmersiveArtworkPalette(
-            primary: coverDrivenAmbient ? store.nowPlaying.tint : TVColor.brand(hex: accentHex),
-            secondary: coverDrivenAmbient ? store.nowPlaying.tint2 : TVColor.brandSecondary(hex: accentHex)
+        let playbackColors = store.nowPlayingPresentationColors
+        return ImmersiveArtworkPalette(
+            primary: coverDrivenAmbient ? playbackColors.primary : TVColor.brand(hex: accentHex),
+            secondary: coverDrivenAmbient ? playbackColors.secondary : TVColor.brandSecondary(hex: accentHex)
         )
     }
 
