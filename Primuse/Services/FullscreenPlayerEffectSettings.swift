@@ -7,6 +7,56 @@ enum PlayerAppearancePreferences {
     static let showsVolumeBarByDefault = true
 }
 
+/// 三端共用的主题偏好键与色板。主题色只负责应用控件与无封面时的回退色；
+/// 封面取色是独立开关，避免“选了绿色就再也没有封面氛围”这类耦合行为。
+enum AppThemePreferences {
+    struct Swatch: Identifiable, Equatable, Sendable {
+        /// 大写、无 `#` 的 RRGGBB，同时作为稳定存储值。
+        let id: String
+        let localizationKey: String
+    }
+
+    static let accentHexKey = "primuse.theme.fixedColorHex"
+    static let coverDrivenAmbientKey = "primuse.theme.coverDrivenAmbient"
+    static let ambientStrengthKey = "primuse.theme.ambientStrength"
+    static let iOSAppearanceKey = "primuse.appearance"
+
+    static let defaultAccentHex = "C96442"
+    static let defaultCoverDrivenAmbient = true
+    static let defaultAmbientStrength = 0.70
+
+    static let swatches: [Swatch] = [
+        Swatch(id: "147D8A", localizationKey: "theme_color_teal"),
+        Swatch(id: "2AAA8A", localizationKey: "theme_color_turquoise"),
+        Swatch(id: "1F8A5B", localizationKey: "theme_color_forest"),
+        Swatch(id: "0A84FF", localizationKey: "theme_color_blue"),
+        Swatch(id: "5E5CE6", localizationKey: "theme_color_indigo"),
+        Swatch(id: "AF52DE", localizationKey: "theme_color_purple"),
+        Swatch(id: "FF2D55", localizationKey: "theme_color_rose"),
+        Swatch(id: "E8453C", localizationKey: "theme_color_red"),
+        Swatch(id: "C96442", localizationKey: "theme_color_terracotta"),
+        Swatch(id: "FF9500", localizationKey: "theme_color_orange"),
+        Swatch(id: "D4A017", localizationKey: "theme_color_amber"),
+        Swatch(id: "5E6B87", localizationKey: "theme_color_slate"),
+    ]
+
+    static func normalizedHex(_ value: String, fallback: String = defaultAccentHex) -> String {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+            .uppercased()
+        return isValidHex(normalized) ? normalized : fallback
+    }
+
+    static func isValidHex(_ value: String) -> Bool {
+        value.count == 6 && value.allSatisfy(\.isHexDigit)
+    }
+
+    static func normalizedAmbientStrength(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+}
+
 /// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverFlow

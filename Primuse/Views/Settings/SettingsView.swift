@@ -93,6 +93,12 @@ struct SettingsView: View {
                 Section("appearance") {
                     #if os(iOS)
                     NavigationLink {
+                        AppearanceSettingsView()
+                    } label: {
+                        Label("appearance", systemImage: "circle.lefthalf.filled")
+                    }
+
+                    NavigationLink {
                         ThemeColorSettingsView()
                     } label: {
                         Label("theme_color_title", systemImage: "paintpalette")

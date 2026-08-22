@@ -36,14 +36,52 @@ enum TVColor {
                                      dark: UIColor.black.withAlphaComponent(0.24))
     static let focusShadow = adaptive(light: UIColor.black.withAlphaComponent(0.26),
                                       dark: UIColor.black.withAlphaComponent(0.54))
-    static let focusRing = adaptive(light: rgb(0x8E351F), dark: rgb(0xED9A7B))
+    static var focusRing: Color { brand }
     /// 品牌底色在浅色外观中加深、深色外观中提亮，并提供对应前景色，
     /// 让 16pt 普通文本和焦点图标都达到稳定对比度。
-    static let brand = adaptive(light: rgb(0xA74429), dark: rgb(0xD97A58))
-    static let onBrand = adaptive(light: rgb(0xFFFFFF), dark: rgb(0x1B1816))
+    static var brand: Color {
+        brand(hex: UserDefaults.standard.string(forKey: AppThemePreferences.accentHexKey)
+              ?? AppThemePreferences.defaultAccentHex)
+    }
+    static var brandSecondary: Color {
+        brandSecondary(hex: UserDefaults.standard.string(forKey: AppThemePreferences.accentHexKey)
+                       ?? AppThemePreferences.defaultAccentHex)
+    }
+    static var onBrand: Color {
+        onBrand(
+            hex: UserDefaults.standard.string(forKey: AppThemePreferences.accentHexKey)
+                ?? AppThemePreferences.defaultAccentHex
+        )
+    }
     static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))
     static let warn = adaptive(light: rgb(0x9A551F), dark: rgb(0xF0B078))
     static let bad = adaptive(light: rgb(0xB8322B), dark: rgb(0xFF7565))
+
+    static func brand(hex: String) -> Color {
+        let source = color(hex: hex)
+        return adaptive(
+            light: adjusted(source, saturation: 0.32...0.88, brightness: 0.34...0.58),
+            dark: adjusted(source, saturation: 0.28...0.76, brightness: 0.78...0.92)
+        )
+    }
+
+    static func brandSecondary(hex: String) -> Color {
+        let source = color(hex: hex)
+        return adaptive(
+            light: adjusted(source, saturation: 0.24...0.68, brightness: 0.30...0.44),
+            dark: adjusted(source, saturation: 0.24...0.68, brightness: 0.24...0.38)
+        )
+    }
+
+    static func onBrand(hex: String) -> Color {
+        let source = color(hex: hex)
+        let lightBrand = adjusted(source, saturation: 0.32...0.88, brightness: 0.34...0.58)
+        let darkBrand = adjusted(source, saturation: 0.28...0.76, brightness: 0.78...0.92)
+        return adaptive(
+            light: contrastingForeground(for: lightBrand),
+            dark: contrastingForeground(for: darkBrand)
+        )
+    }
 
     private static func adaptive(light: UIColor, dark: UIColor) -> Color {
         Color(uiColor: UIColor { traits in
@@ -58,6 +96,57 @@ enum TVColor {
             blue: CGFloat(value & 0xFF) / 255,
             alpha: 1
         )
+    }
+
+    private static func color(hex: String) -> UIColor {
+        let normalized = AppThemePreferences.normalizedHex(hex)
+        guard let value = UInt32(normalized, radix: 16) else {
+            return rgb(0xC96442)
+        }
+        return rgb(value)
+    }
+
+    private static func adjusted(
+        _ source: UIColor,
+        saturation: ClosedRange<CGFloat>,
+        brightness: ClosedRange<CGFloat>
+    ) -> UIColor {
+        var hue: CGFloat = 0
+        var sourceSaturation: CGFloat = 0
+        var sourceBrightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard source.getHue(
+            &hue,
+            saturation: &sourceSaturation,
+            brightness: &sourceBrightness,
+            alpha: &alpha
+        ) else { return source }
+        return UIColor(
+            hue: hue,
+            saturation: min(max(sourceSaturation, saturation.lowerBound), saturation.upperBound),
+            brightness: min(max(sourceBrightness, brightness.lowerBound), brightness.upperBound),
+            alpha: alpha
+        )
+    }
+
+    private static func contrastingForeground(for background: UIColor) -> UIColor {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard background.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return .white
+        }
+
+        func linearized(_ component: CGFloat) -> CGFloat {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linearized(red)
+            + 0.7152 * linearized(green)
+            + 0.0722 * linearized(blue)
+        return luminance > 0.179 ? .black : .white
     }
 }
 
@@ -241,9 +330,17 @@ struct TVAmbientBackdrop: View {
     var strength: Double = 0.7
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppThemePreferences.accentHexKey)
+    private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
+    private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
+    @AppStorage(AppThemePreferences.ambientStrengthKey)
+    private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
     var body: some View {
-        let s = max(0, min(1, strength))
+        let primary = coverDrivenAmbient ? tint : TVColor.brand(hex: accentHex)
+        let secondary = coverDrivenAmbient ? tint2 : TVColor.brandSecondary(hex: accentHex)
+        let s = AppThemePreferences.normalizedAmbientStrength(strength * ambientStrength)
         ZStack {
             TVColor.bgDeep
             GeometryReader { geo in
@@ -251,13 +348,13 @@ struct TVAmbientBackdrop: View {
                 let h = geo.size.height
                 ZStack {
                     Circle()
-                        .fill(tint)
+                        .fill(primary)
                         .frame(width: w * 1.1, height: w * 1.1)
                         .blur(radius: 220)
                         .opacity((colorScheme == .dark ? 0.82 : 0.42) * s)
                         .offset(x: -w * 0.18, y: -h * 0.28)
                     Circle()
-                        .fill(tint2)
+                        .fill(secondary)
                         .frame(width: w * 0.95, height: w * 0.95)
                         .blur(radius: 240)
                         .opacity((colorScheme == .dark ? 0.72 : 0.34) * s)

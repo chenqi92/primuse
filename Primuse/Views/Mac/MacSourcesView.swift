@@ -133,7 +133,7 @@ struct MacSourcesView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
-                        .background(theme.accentColor, in: .rect(cornerRadius: 8))
+                        .background(theme.uiAccentColor, in: .rect(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
@@ -247,7 +247,7 @@ struct MacSourcesView: View {
                     .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(source.isEnabled ? theme.accentColor.gradient : Color.gray.gradient,
+                    .background(source.isEnabled ? theme.uiAccentColor.gradient : Color.gray.gradient,
                                 in: .rect(cornerRadius: 9))
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -343,7 +343,7 @@ struct MacSourcesView: View {
                             .font(.system(size: 10.5, weight: .semibold))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(theme.accentColor)
+                    .foregroundStyle(theme.uiAccentColor)
                 }
                 Text(failureMessage)
                     .font(.system(size: 10.5))
@@ -446,7 +446,7 @@ struct MacSourcesView: View {
                     .truncationMode(.middle)
             }
             if scan.totalCount > 0 {
-                ProgressView(value: min(scan.progress, 1.0)).tint(theme.accentColor)
+                ProgressView(value: min(scan.progress, 1.0)).tint(theme.uiAccentColor)
             } else {
                 ProgressView().controlSize(.small)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -491,7 +491,7 @@ struct MacSourcesView: View {
                 scanPill(source, scanning: scanning)
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {
-                pill("connect_select_dirs", systemImage: "link", tint: theme.accentColor) { connectingSource = source }
+                pill("connect_select_dirs", systemImage: "link", tint: theme.uiAccentColor) { connectingSource = source }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else {
                 scanPill(source, scanning: scanning)

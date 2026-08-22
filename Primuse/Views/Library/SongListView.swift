@@ -3483,7 +3483,7 @@ private struct MacLibraryFolderInlineContent: View {
                         Label("library_browse_folder", systemImage: "folder")
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(theme.accentColor)
+                    .foregroundStyle(theme.uiAccentColor)
 
                     ForEach(folderPath.indices, id: \.self) { index in
                         if let pathNode = folderCache.node(withID: folderPath[index]) {
@@ -3503,7 +3503,7 @@ private struct MacLibraryFolderInlineContent: View {
                                     Text(verbatim: LibraryFolderNodePresentation.title(for: pathNode))
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundStyle(theme.accentColor)
+                                .foregroundStyle(theme.uiAccentColor)
                             }
                         }
                     }
@@ -3525,7 +3525,7 @@ private struct MacLibraryFolderInlineContent: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .frame(height: 28)
-                    .background(theme.accentColor, in: Capsule())
+                    .background(theme.uiAccentColor, in: Capsule())
             }
             .buttonStyle(.plain)
             .disabled(actionSongIDs.isEmpty || selection.isActive)
@@ -3836,7 +3836,7 @@ private struct LibraryFolderNodeLabel: View {
             if let selectionState {
                 Image(systemName: selectionIcon(for: selectionState))
                     .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(selectionState == .none ? Color.secondary : theme.accentColor)
+                    .foregroundStyle(selectionState == .none ? Color.secondary : theme.uiAccentColor)
                     .frame(width: 28, height: 44)
                     .accessibilityHidden(true)
             }
@@ -3880,7 +3880,7 @@ private struct LibraryFolderNodeLabel: View {
         .background {
             if let selectionState, selectionState != .none {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(theme.accentColor.opacity(selectionState == .all ? 0.11 : 0.07))
+                    .fill(theme.uiAccentColor.opacity(selectionState == .all ? 0.11 : 0.07))
                     .padding(.vertical, 2)
             }
         }
@@ -3902,7 +3902,7 @@ private struct LibraryFolderNodeLabel: View {
     }
 
     private var folderTint: Color {
-        node.kind == .other ? Color.secondary : theme.accentColor
+        node.kind == .other ? Color.secondary : theme.uiAccentColor
     }
 
     private var accessibilityValue: String {

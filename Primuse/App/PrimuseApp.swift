@@ -822,6 +822,10 @@ struct PrimuseApp: App {
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
     /// DLNA 接收器持久开关。打开后启动时自动 start, 不需要进 Settings 触发。
     @AppStorage("dlna.rendererEnabled") private var dlnaRendererEnabled: Bool = false
+    #if os(iOS)
+    @AppStorage(AppThemePreferences.iOSAppearanceKey)
+    private var iOSAppearanceRawValue = IOSAppearancePreference.system.rawValue
+    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     /// 后台 connect() 失败时弹的 "登录失败" 提示。点 "重新输入" 后会把 source
@@ -870,11 +874,8 @@ struct PrimuseApp: App {
     }
 
     private func injectServices<V: View>(@ViewBuilder _ content: () -> V) -> some View {
-        // On macOS we deliberately don't force the global tint to the brand
-        // purple — letting SwiftUI fall through to the user's system accent
-        // makes Toggle / Checkbox / standard buttons look native instead of
-        // blanketed in iOS purple. Hand-built UI elements that need brand
-        // tinting keep `themeService.accentColor` directly.
+        // 三端普通控件统一使用固定主题色；播放器仍直接读取动态
+        // accentColor 展示封面氛围。
         let injected = content()
             .environment(themeService)
             .environment(playerService)
@@ -899,17 +900,21 @@ struct PrimuseApp: App {
             .environment(visualizer)
             .environment(duplicateCleanup)
             .environment(batchRemoval)
-        #if os(iOS)
-        return injected.tint(themeService.accentColor)
-        #else
-        return injected
-        #endif
+        return injected.tint(themeService.uiAccentColor)
     }
+
+    #if os(iOS)
+    private var iOSAppearance: IOSAppearancePreference {
+        IOSAppearancePreference(rawValue: iOSAppearanceRawValue) ?? .system
+    }
+    #endif
 
     @ViewBuilder
     private var platformRootContent: some View {
         #if os(iOS)
         ContentView()
+            .preferredColorScheme(iOSAppearance.colorScheme)
+            .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
             .automaticAppReviewPrompt()
         #else
         MacContentView()
@@ -1354,3 +1359,38 @@ struct PrimuseApp: App {
 
     }
 }
+
+#if os(iOS)
+/// SwiftUI 的 preferredColorScheme 负责环境值；同步覆盖 UIWindow，确保 UIKit
+/// 控件、sheet 和外接显示窗口也在同一帧切换外观。
+private struct IOSWindowAppearanceModifier: ViewModifier {
+    let preference: IOSAppearancePreference
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: apply)
+            .onChange(of: preference) { _, _ in apply() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { apply() }
+            }
+    }
+
+    @MainActor
+    private func apply() {
+        let style: UIUserInterfaceStyle
+        switch preference {
+        case .system: style = .unspecified
+        case .light: style = .light
+        case .dark: style = .dark
+        }
+
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.overrideUserInterfaceStyle = style
+            }
+        }
+    }
+}
+#endif

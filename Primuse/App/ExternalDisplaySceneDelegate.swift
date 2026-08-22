@@ -31,15 +31,24 @@ final class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         let window = UIWindow(windowScene: windowScene)
         let services = AppServices.shared
+        let appearance = IOSAppearancePreference(
+            rawValue: UserDefaults.standard.string(forKey: AppThemePreferences.iOSAppearanceKey) ?? ""
+        ) ?? .system
         let rootView = ExternalDisplayNowPlayingView()
             .environment(services.playerService)
             .environment(services.themeService)
             .environment(services.musicLibrary)
             .environment(services.sourceManager)
             .environment(services.scraperService)
+            .tint(services.themeService.uiAccentColor)
         let host = UIHostingController(rootView: rootView)
-        host.view.backgroundColor = UIColor(red: 0.035, green: 0.043, blue: 0.055, alpha: 1)
+        host.view.backgroundColor = .clear
         window.rootViewController = host
+        switch appearance {
+        case .system: window.overrideUserInterfaceStyle = .unspecified
+        case .light: window.overrideUserInterfaceStyle = .light
+        case .dark: window.overrideUserInterfaceStyle = .dark
+        }
         window.makeKeyAndVisible()
         self.window = window
     }

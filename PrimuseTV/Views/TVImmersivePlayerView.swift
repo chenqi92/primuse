@@ -17,6 +17,10 @@ struct TVImmersivePlayerView: View {
     private var effectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(AppThemePreferences.accentHexKey)
+    private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
+    private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
 
     @State private var showsChrome = true
     @State private var chromeTask: Task<Void, Never>?
@@ -55,8 +59,8 @@ struct TVImmersivePlayerView: View {
 
     private var artworkPalette: ImmersiveArtworkPalette {
         ImmersiveArtworkPalette(
-            primary: store.nowPlaying.tint,
-            secondary: store.nowPlaying.tint2
+            primary: coverDrivenAmbient ? store.nowPlaying.tint : TVColor.brand(hex: accentHex),
+            secondary: coverDrivenAmbient ? store.nowPlaying.tint2 : TVColor.brandSecondary(hex: accentHex)
         )
     }
 

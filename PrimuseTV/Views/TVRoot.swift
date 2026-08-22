@@ -270,7 +270,7 @@ struct TVRoot: View {
                 await waitForDemoContent()
                 await store.loadDemoNowPlaying()
                 tab = .nowPlaying
-            case "settings", "effectPicker": showSettings = true
+            case "settings", "effectPicker", "themePicker": showSettings = true
             default: break
             }
             #endif

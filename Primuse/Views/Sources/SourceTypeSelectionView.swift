@@ -170,7 +170,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         .frame(minWidth: 560, idealWidth: 620, minHeight: 560, idealHeight: 680)
         .background(PMColor.bg.ignoresSafeArea())
         .foregroundStyle(PMColor.text)
-        .tint(theme.accentColor)
+        .tint(theme.uiAccentColor)
     }
 
     private var macSheetChrome: some View {
@@ -251,9 +251,9 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             HStack(spacing: 10) {
                 Text(String(type.rawValue.prefix(2)).uppercased())
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.accentColor)
+                    .foregroundStyle(theme.uiAccentColor)
                     .frame(width: 28, height: 28)
-                    .background(theme.accentColor.opacity(0.16), in: .rect(cornerRadius: 6))
+                    .background(theme.uiAccentColor.opacity(0.16), in: .rect(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(type.displayName)
@@ -288,7 +288,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             .background(tileBackground(selected: pendingType == type), in: .rect(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(pendingType == type ? theme.accentColor.opacity(0.55) : PMColor.cardBorder, lineWidth: 0.5)
+                    .strokeBorder(pendingType == type ? theme.uiAccentColor.opacity(0.55) : PMColor.cardBorder, lineWidth: 0.5)
             }
         }
         .buttonStyle(.plain)
@@ -369,7 +369,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(height: 28)
-                    .background((pendingType == nil || pendingType?.isAwaitingPublicAPI == true ? PMColor.textFaint : theme.accentColor), in: .rect(cornerRadius: 6))
+                    .background((pendingType == nil || pendingType?.isAwaitingPublicAPI == true ? PMColor.textFaint : theme.uiAccentColor), in: .rect(cornerRadius: 6))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
@@ -400,7 +400,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     }
 
     private func tileBackground(selected: Bool) -> Color {
-        selected ? theme.accentColor.opacity(0.14) : PMColor.card
+        selected ? theme.uiAccentColor.opacity(0.14) : PMColor.card
     }
 
     /// Legacy grouped form kept as a reference for iOS parity; macOS now uses

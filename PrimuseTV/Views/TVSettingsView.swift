@@ -10,6 +10,14 @@ private var tvDebugShowsEffectPicker: Bool {
     #endif
 }
 
+private var tvDebugShowsThemePicker: Bool {
+    #if DEBUG
+    TVDebugLaunch.screen == "themePicker"
+    #else
+    false
+    #endif
+}
+
 /// tvOS 设置 — 左列常用清单,右列 Siri Remote 图示(对应 TVSettingsArtboard)。
 /// 刻意精简:无 EQ 推子 / 刮削源 / SSL 信任,这些留在 macOS / iOS。
 struct TVSettingsView: View {
@@ -20,11 +28,18 @@ struct TVSettingsView: View {
     @AppStorage("tvAutoSync") private var autoSync = true
     @AppStorage(TVAppearancePreference.storageKey)
     private var appearanceRawValue = TVAppearancePreference.system.rawValue
+    @AppStorage(AppThemePreferences.accentHexKey)
+    private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
+    private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
+    @AppStorage(AppThemePreferences.ambientStrengthKey)
+    private var ambientStrength = AppThemePreferences.defaultAmbientStrength
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var immersiveEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
+    @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var isSyncing = false
     @State private var syncMsg: String?
 
@@ -64,6 +79,21 @@ struct TVSettingsView: View {
                             toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
                             settingDivider
                             appearanceRow()
+                            settingDivider
+                            navRow(
+                                "paintpalette.fill",
+                                PMString("ext.tv.settings.themeColor"),
+                                currentThemeTitle,
+                                action: { showsThemePicker = true }
+                            )
+                            settingDivider
+                            toggleRow(
+                                "photo.on.rectangle.angled",
+                                PMString("ext.tv.settings.coverColor"),
+                                isOn: $coverDrivenAmbient
+                            )
+                            settingDivider
+                            ambientIntensityRow()
                             settingDivider
                             navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
                                    immersiveEffect.localizedTitle,
@@ -119,10 +149,22 @@ struct TVSettingsView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(10)
             }
+
+            if showsThemePicker {
+                TVThemeColorPicker(
+                    selectedHex: $accentHex,
+                    onDismiss: { showsThemePicker = false }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(11)
+            }
         }
         .animation(.easeInOut(duration: 0.24), value: showsEffectPicker)
+        .animation(.easeInOut(duration: 0.24), value: showsThemePicker)
         .onExitCommand {
-            if showsEffectPicker {
+            if showsThemePicker {
+                showsThemePicker = false
+            } else if showsEffectPicker {
                 showsEffectPicker = false
             } else {
                 dismiss()
@@ -149,6 +191,13 @@ struct TVSettingsView: View {
 
     private var appearance: TVAppearancePreference {
         TVAppearancePreference(rawValue: appearanceRawValue) ?? .system
+    }
+
+    private var currentThemeTitle: String {
+        guard let swatch = AppThemePreferences.swatches.first(where: { $0.id == accentHex }) else {
+            return "#\(accentHex)"
+        }
+        return PMString(swatch.localizationKey)
     }
 
     private func appearanceTitle(_ preference: TVAppearancePreference) -> String {
@@ -193,6 +242,53 @@ struct TVSettingsView: View {
         .padding(.horizontal, 22).padding(.vertical, 12)
         .frame(maxWidth: .infinity)
         .background(Color.clear)
+    }
+
+    private func ambientIntensityRow() -> some View {
+        let choices: [(value: Double, key: String)] = [
+            (0.40, "ext.tv.settings.intensity.low"),
+            (0.70, "ext.tv.settings.intensity.medium"),
+            (1.00, "ext.tv.settings.intensity.high"),
+        ]
+        let selectedValue = choices.min {
+            abs(ambientStrength - $0.value) < abs(ambientStrength - $1.value)
+        }?.value ?? 0.70
+
+        return HStack(spacing: 18) {
+            settingIcon("sun.haze.fill", focused: false)
+            Text(PMString("ext.tv.settings.ambientIntensity"))
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(TVColor.text)
+            Spacer(minLength: 12)
+            HStack(spacing: 8) {
+                ForEach(choices, id: \.value) { choice in
+                    let isSelected = choice.value == selectedValue
+                    TVFocusButton(radius: 10, scale: 1.04, lift: 0) {
+                        ambientStrength = choice.value
+                    } label: { focused in
+                        Text(PMString(choice.key))
+                            .font(.system(size: 16, weight: isSelected ? .bold : .semibold))
+                            .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.textMuted)
+                            .frame(width: 94)
+                            .padding(.vertical, 11)
+                            .background(
+                                isSelected ? TVColor.brand : TVColor.cardElev,
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(
+                                        TVColor.brand.opacity(focused || isSelected ? 0.9 : 0),
+                                        lineWidth: 2
+                                    )
+                            }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
     }
 
     private func settingIcon(_ icon: String, focused: Bool) -> some View {
@@ -264,6 +360,102 @@ struct TVSettingsView: View {
             .fill(TVColor.divider)
             .frame(height: 1)
             .padding(.leading, 80)
+    }
+}
+
+private struct TVThemeColorPicker: View {
+    @Binding var selectedHex: String
+    let onDismiss: () -> Void
+
+    @FocusState private var focusedHex: String?
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(
+                tint: TVColor.brand(hex: selectedHex),
+                tint2: TVColor.brandSecondary(hex: selectedHex),
+                strength: 0.65
+            )
+            TVColor.bg.opacity(0.48).ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 28) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TVEyebrow(text: PMString("ext.tv.settings.eyebrow"))
+                        Text(PMString("ext.tv.settings.themeColor"))
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundStyle(TVColor.text)
+                    }
+                    Spacer()
+                    Text("#\(selectedHex)")
+                        .font(.system(size: 18, design: .monospaced))
+                        .foregroundStyle(TVColor.textMuted)
+                }
+
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 6),
+                    spacing: 18
+                ) {
+                    ForEach(AppThemePreferences.swatches) { swatch in
+                        swatchButton(swatch)
+                    }
+                }
+            }
+            .padding(42)
+            .frame(maxWidth: 1500)
+            .tvPanel(radius: 26)
+            .padding(.horizontal, 84)
+        }
+        .focusSection()
+        .onAppear { focusedHex = selectedHex }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private func swatchButton(_ swatch: AppThemePreferences.Swatch) -> some View {
+        let focused = focusedHex == swatch.id
+        let selected = selectedHex == swatch.id
+
+        return Button {
+            selectedHex = swatch.id
+            onDismiss()
+        } label: {
+            VStack(spacing: 12) {
+                Circle()
+                    .fill(Color(hex: swatch.id))
+                    .frame(width: 66, height: 66)
+                    .overlay {
+                        if selected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.42), radius: 2)
+                        }
+                    }
+                Text(PMString(swatch.localizationKey))
+                    .font(.system(size: 17, weight: selected ? .bold : .semibold))
+                    .foregroundStyle(TVColor.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+            .background(
+                focused ? TVColor.surfaceStrong : TVColor.card,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        selected ? TVColor.brand(hex: swatch.id) : TVColor.cardBorder,
+                        lineWidth: selected ? 3 : 1
+                    )
+            }
+            .tvFocusRing(focused, radius: 16, accent: TVColor.brand(hex: swatch.id), scale: 1.05, lift: 6)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedHex, equals: swatch.id)
+        .focusEffectDisabled()
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 

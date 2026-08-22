@@ -40,6 +40,8 @@ struct PrimuseTVApp: App {
     @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
     @AppStorage(TVAppearancePreference.storageKey)
     private var appearanceRawValue = TVAppearancePreference.system.rawValue
+    @AppStorage(AppThemePreferences.accentHexKey)
+    private var accentHex = AppThemePreferences.defaultAccentHex
 
     private var store: TVStore { appDelegate.store }
 
@@ -53,7 +55,7 @@ struct PrimuseTVApp: App {
                 .environment(store)
                 .preferredColorScheme(appearance.colorScheme)
                 .modifier(TVWindowAppearanceModifier(preference: appearance))
-                .tint(TVColor.brand)
+                .tint(TVColor.brand(hex: accentHex))
                 .onOpenURL { store.handleDeepLink($0) }
                 .task {
                     FullscreenPlayerEffectSync.shared.install()

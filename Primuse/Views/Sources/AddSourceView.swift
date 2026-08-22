@@ -346,7 +346,7 @@ struct AddSourceView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(height: 28)
-                    .background((canSave ? theme.accentColor : PMColor.textFaint), in: .rect(cornerRadius: 6))
+                    .background((canSave ? theme.uiAccentColor : PMColor.textFaint), in: .rect(cornerRadius: 6))
             }
             .padding(.horizontal, 24)
             .frame(height: 64)
@@ -358,7 +358,7 @@ struct AddSourceView: View {
         .frame(minWidth: 560, idealWidth: 620, minHeight: 500, idealHeight: 660)
         .background(PMColor.bg.ignoresSafeArea())
         .foregroundStyle(PMColor.text)
-        .tint(theme.accentColor)
+        .tint(theme.uiAccentColor)
         .onAppear { initializeFields() }
     }
 

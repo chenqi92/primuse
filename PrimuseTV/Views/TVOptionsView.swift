@@ -94,6 +94,11 @@ struct TVFullscreenEffectPicker: View {
     @Binding var lyricsMotionEnabled: Bool
     let onDismiss: () -> Void
 
+    @AppStorage(AppThemePreferences.accentHexKey)
+    private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
+    private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
+
     @FocusState private var focusedEffect: FullscreenPlayerEffect?
     @FocusState private var lyricsToggleFocused: Bool
 
@@ -103,8 +108,8 @@ struct TVFullscreenEffectPicker: View {
 
     private var previewPalette: ImmersiveArtworkPalette {
         ImmersiveArtworkPalette(
-            primary: store.nowPlaying.tint,
-            secondary: store.nowPlaying.tint2
+            primary: coverDrivenAmbient ? store.nowPlaying.tint : TVColor.brand(hex: accentHex),
+            secondary: coverDrivenAmbient ? store.nowPlaying.tint2 : TVColor.brandSecondary(hex: accentHex)
         )
     }
 

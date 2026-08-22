@@ -43,6 +43,7 @@ struct MacNowPlayingView: View {
     @State private var showsNativeFullscreenEffectPicker = false
     /// 全屏时是否切到「沉浸展示」(共享的 ImmersiveStageView),而非常规播放页。
     @State private var showsImmersiveStage = false
+    @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -398,13 +399,13 @@ struct MacNowPlayingView: View {
             if usesLightPlayerAppearance {
                 PMColor.bg
                 RadialGradient(
-                    colors: [theme.accentColor.opacity(0.28), .clear],
+                    colors: [theme.accentColor.opacity(0.28 * preferences.ambientStrength), .clear],
                     center: .topLeading,
                     startRadius: 20,
                     endRadius: 720
                 )
                 RadialGradient(
-                    colors: [theme.darkAccent.opacity(0.14), .clear],
+                    colors: [theme.darkAccent.opacity(0.14 * preferences.ambientStrength), .clear],
                     center: .bottomTrailing,
                     startRadius: 40,
                     endRadius: 760
@@ -419,7 +420,7 @@ struct MacNowPlayingView: View {
                 AmbientBackdrop(
                     accent: theme.accentColor,
                     darkAccent: theme.darkAccent,
-                    strength: 0.85,
+                    strength: preferences.ambientStrength,
                     forceDark: true
                 )
             }
@@ -440,7 +441,7 @@ struct MacNowPlayingView: View {
             Spacer(minLength: 0)
             ZStack {
                 RadialGradient(
-                    colors: [theme.accentColor.opacity(0.36), .clear],
+                    colors: [theme.accentColor.opacity(0.36 * preferences.ambientStrength), .clear],
                     center: .center,
                     startRadius: 0,
                     endRadius: coverSize * 0.62

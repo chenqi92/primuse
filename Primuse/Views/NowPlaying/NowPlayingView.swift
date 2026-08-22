@@ -205,6 +205,8 @@ struct NowPlayingView: View {
     #endif
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
+    @AppStorage(AppThemePreferences.ambientStrengthKey)
+    private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -2249,12 +2251,13 @@ struct NowPlayingView: View {
         GeometryReader { geo in
             let radius = max(geo.size.width, geo.size.height) * 0.82
             let hasArtworkTheme = theme.colorID != "default"
-            let accentOpacity = hasArtworkTheme
+            let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
+            let accentOpacity = (hasArtworkTheme
                 ? appearance.artworkAccentOpacity
-                : appearance.fallbackAccentOpacity
-            let lowerAccentOpacity = hasArtworkTheme
+                : appearance.fallbackAccentOpacity) * strength
+            let lowerAccentOpacity = (hasArtworkTheme
                 ? appearance.artworkLowerAccentOpacity
-                : appearance.fallbackLowerAccentOpacity
+                : appearance.fallbackLowerAccentOpacity) * strength
 
             ZStack {
                 appearance.backgroundBase

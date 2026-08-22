@@ -3471,13 +3471,16 @@ private struct MacSTThemeView: View {
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
-    private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
-        ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
-        ("#0a84ff", "macOS Blue", String(localized: "appearance_system_blue"), Color(red: 0.04, green: 0.52, blue: 1.0)),
-        ("#1f8a5b", Lz("Forest"), Lz("Tranquil Woods"), Color(red: 0.12, green: 0.54, blue: 0.36)),
-        ("#5e6b87", Lz("Slate"), Lz("Minimal Data Look"), Color(red: 0.37, green: 0.42, blue: 0.53)),
-        ("#a0522d", Lz("Mahogany"), Lz("Vintage Vinyl"), Color(red: 0.63, green: 0.32, blue: 0.18)),
-    ]
+    private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
+        AppThemePreferences.swatches.map { swatch in
+            (
+                hex: "#\(swatch.id.lowercased())",
+                name: PMString(swatch.localizationKey),
+                sub: "",
+                color: Color(hex: swatch.id)
+            )
+        }
+    }
 
     /// 把色板 hex ("#c96442") 归一成存储用格式 (大写无 #)。
     private func normHex(_ hex: String) -> String {
@@ -3517,13 +3520,13 @@ private struct MacSTThemeView: View {
             MacSTGroup {
                 MacSTRow(Lz("Theme"), block: true) {
                     HStack(spacing: 8) {
-                        MacThemeChoiceCard(title: Lz("Light"), icon: "sun.max", selected: preferences.colorScheme == .light) {
+                        MacThemeChoiceCard(title: PMString("ext.tv.settings.appearance.light"), icon: "sun.max", selected: preferences.colorScheme == .light) {
                             preferences.colorScheme = .light
                         }
-                        MacThemeChoiceCard(title: Lz("Dark"), icon: "moon", selected: preferences.colorScheme == .dark) {
+                        MacThemeChoiceCard(title: PMString("ext.tv.settings.appearance.dark"), icon: "moon", selected: preferences.colorScheme == .dark) {
                             preferences.colorScheme = .dark
                         }
-                        MacThemeChoiceCard(title: Lz("System"), icon: "desktopcomputer", selected: preferences.colorScheme == .system) {
+                        MacThemeChoiceCard(title: PMString("ext.tv.settings.appearance.system"), icon: "desktopcomputer", selected: preferences.colorScheme == .system) {
                             preferences.colorScheme = .system
                         }
                     }
@@ -3606,9 +3609,9 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(Lz("Cover Color")) {
+        MacSTSection(PMString("ext.tv.settings.coverColor")) {
             MacSTGroup {
-                MacSTRow(Lz("Cover Color Drives Ambient"), hint: Lz("Use artwork palette for NowPlaying / Mini / Desktop Lyrics"), divider: false) {
+                MacSTRow(PMString("ext.tv.settings.coverColor"), hint: Lz("Use artwork palette for NowPlaying / Mini / Desktop Lyrics"), divider: false) {
                     MacSTToggle(isOn: Binding(
                         get: { preferences.coverDrivenAmbient },
                         set: {
@@ -3627,7 +3630,7 @@ private struct MacSTThemeView: View {
                         }
                     ))
                 }
-                MacSTRow(Lz("Ambient Intensity"), divider: true) {
+                MacSTRow(PMString("ext.tv.settings.ambientIntensity"), divider: true) {
                     MacSTSlider(
                         value: Binding(
                             get: { preferences.ambientStrength * 100 },
@@ -3897,9 +3900,11 @@ private struct MacBrandSwatchRow: View {
                         Text(verbatim: swatch.name)
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(PMColor.text)
-                        Text(verbatim: swatch.sub)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(PMColor.textFaint)
+                        if !swatch.sub.isEmpty {
+                            Text(verbatim: swatch.sub)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textFaint)
+                        }
                     }
 
                     Spacer()

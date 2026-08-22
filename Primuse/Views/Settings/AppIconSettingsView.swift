@@ -3,7 +3,6 @@ import SwiftUI
 
 struct AppIconSettingsView: View {
     private let service = AppIconService.shared
-    @Environment(ThemeService.self) private var themeService
 
     private let columns = [
         GridItem(.adaptive(minimum: 96), spacing: 16)
@@ -37,10 +36,6 @@ struct AppIconSettingsView: View {
         return Button {
             Task {
                 await service.setIcon(option)
-                // A theme pinned to a fixed color must not follow the icon.
-                if !ThemeColorSettings.shared.usesFixedColor {
-                    themeService.setBaseAccent(option.tint)
-                }
             }
         } label: {
             VStack(spacing: 8) {

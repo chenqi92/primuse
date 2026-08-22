@@ -26,6 +26,8 @@ struct ExternalDisplayNowPlayingView: View {
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentLyricIndex = 0
+    @AppStorage(AppThemePreferences.ambientStrengthKey)
+    private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
     private var lyricsWritingDirection: LyricWritingDirection {
         LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
@@ -62,12 +64,13 @@ struct ExternalDisplayNowPlayingView: View {
     private func externalBackdrop(size: CGSize) -> some View {
         let radius = max(size.width, size.height) * 0.78
         let hasArtworkTheme = theme.colorID != "default"
-        let accentOpacity = hasArtworkTheme
+        let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
+        let accentOpacity = (hasArtworkTheme
             ? AmbientBackdropTuning.artworkAccentOpacity
-            : AmbientBackdropTuning.fallbackAccentOpacity
-        let lowerAccentOpacity = hasArtworkTheme
+            : AmbientBackdropTuning.fallbackAccentOpacity) * strength
+        let lowerAccentOpacity = (hasArtworkTheme
             ? AmbientBackdropTuning.artworkLowerAccentOpacity
-            : AmbientBackdropTuning.fallbackLowerAccentOpacity
+            : AmbientBackdropTuning.fallbackLowerAccentOpacity) * strength
 
         return ZStack {
             AmbientBackdropTuning.neutralBase

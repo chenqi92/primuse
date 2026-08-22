@@ -1196,6 +1196,7 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     @MainActor
     static func dockIconImage(previewAsset asset: String) -> NSImage? {
         guard let src = NSImage(named: asset) else { return nil }
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let side: CGFloat = 512
         let inset = side * 0.0977          // ≈ macOS 图标网格留白 (100 / 1024)
         let body = side - inset * 2
@@ -1206,6 +1207,7 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
             .frame(width: body, height: body)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .frame(width: side, height: side)   // 居中 + 四周透明留白
+            .environment(\.colorScheme, isDark ? .dark : .light)
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
         return renderer.nsImage
@@ -1236,21 +1238,37 @@ final class MacUIPreferences {
         didSet { UserDefaults.standard.set(Double(sidebarWidth), forKey: Self.keySidebarWidth) }
     }
     var ambientStrength: Double {
-        didSet { UserDefaults.standard.set(ambientStrength, forKey: Self.keyAmbient) }
+        didSet {
+            UserDefaults.standard.set(
+                AppThemePreferences.normalizedAmbientStrength(ambientStrength),
+                forKey: AppThemePreferences.ambientStrengthKey
+            )
+        }
     }
     var coverDrivenAmbient: Bool {
-        didSet { UserDefaults.standard.set(coverDrivenAmbient, forKey: Self.keyCoverDrivenAmbient) }
+        didSet {
+            UserDefaults.standard.set(
+                coverDrivenAmbient,
+                forKey: AppThemePreferences.coverDrivenAmbientKey
+            )
+        }
     }
 
     /// 品牌色十六进制 (无 #)。驱动 `PMColor.brand`。
     var brandColorHex: String {
-        didSet { UserDefaults.standard.set(brandColorHex, forKey: Self.keyBrand) }
+        didSet {
+            UserDefaults.standard.set(
+                AppThemePreferences.normalizedHex(brandColorHex, fallback: Self.defaultBrandHex),
+                forKey: AppThemePreferences.accentHexKey
+            )
+        }
     }
     /// 明暗模式覆盖。didSet 立即应用到 NSApp.appearance。
     var colorScheme: PMColorSchemeOverride {
         didSet {
             UserDefaults.standard.set(colorScheme.rawValue, forKey: Self.keyColorScheme)
             applyColorScheme()
+            applyAppIcon()
         }
     }
     /// 当前 App 图标 id ("" = 默认)。didSet 立即换 dock 图标。
@@ -1267,9 +1285,9 @@ final class MacUIPreferences {
     private static let keyAppearance   = "pm.mac.appearance"
     private static let keyLyricsScale  = "pm.mac.lyricsScale"
     private static let keySidebarWidth = "pm.mac.sidebarWidth"
-    private static let keyAmbient      = "pm.mac.ambientStrength"
-    private static let keyCoverDrivenAmbient = "pm.mac.coverDrivenAmbient"
-    private static let keyBrand        = "pm.mac.brandColor"
+    private static let legacyAmbientKey = "pm.mac.ambientStrength"
+    private static let legacyCoverDrivenAmbientKey = "pm.mac.coverDrivenAmbient"
+    private static let legacyBrandKey = "pm.mac.brandColor"
     private static let keyColorScheme  = "pm.mac.colorScheme"
     private static let keyAppIcon      = "pm.mac.appIcon"
 
@@ -1277,14 +1295,41 @@ final class MacUIPreferences {
 
     private init() {
         let d = UserDefaults.standard
+        if d.object(forKey: AppThemePreferences.ambientStrengthKey) == nil {
+            d.set(
+                d.object(forKey: Self.legacyAmbientKey) as? Double
+                    ?? AppThemePreferences.defaultAmbientStrength,
+                forKey: AppThemePreferences.ambientStrengthKey
+            )
+        }
+        if d.object(forKey: AppThemePreferences.coverDrivenAmbientKey) == nil {
+            d.set(
+                d.object(forKey: Self.legacyCoverDrivenAmbientKey) as? Bool
+                    ?? AppThemePreferences.defaultCoverDrivenAmbient,
+                forKey: AppThemePreferences.coverDrivenAmbientKey
+            )
+        }
+        if d.object(forKey: AppThemePreferences.accentHexKey) == nil {
+            d.set(
+                d.string(forKey: Self.legacyBrandKey) ?? Self.defaultBrandHex,
+                forKey: AppThemePreferences.accentHexKey
+            )
+        }
         appearance = PMAppearanceMode(rawValue: d.string(forKey: Self.keyAppearance) ?? "") ?? .glass
         let scale = d.object(forKey: Self.keyLyricsScale) as? Double ?? 1.0
         lyricsFontScale = CGFloat(max(0.7, min(1.8, scale)))
         let width = d.object(forKey: Self.keySidebarWidth) as? Double ?? Double(PMSize.sidebarDefault)
         sidebarWidth = CGFloat(max(Double(PMSize.sidebarMin), min(Double(PMSize.sidebarMax), width)))
-        ambientStrength = d.object(forKey: Self.keyAmbient) as? Double ?? 0.7
-        coverDrivenAmbient = d.object(forKey: Self.keyCoverDrivenAmbient) as? Bool ?? true
-        brandColorHex = d.string(forKey: Self.keyBrand) ?? Self.defaultBrandHex
+        ambientStrength = AppThemePreferences.normalizedAmbientStrength(
+            d.object(forKey: AppThemePreferences.ambientStrengthKey) as? Double
+                ?? AppThemePreferences.defaultAmbientStrength
+        )
+        coverDrivenAmbient = d.object(forKey: AppThemePreferences.coverDrivenAmbientKey) as? Bool
+            ?? AppThemePreferences.defaultCoverDrivenAmbient
+        brandColorHex = AppThemePreferences.normalizedHex(
+            d.string(forKey: AppThemePreferences.accentHexKey) ?? Self.defaultBrandHex,
+            fallback: Self.defaultBrandHex
+        )
         colorScheme = PMColorSchemeOverride(rawValue: d.string(forKey: Self.keyColorScheme) ?? "") ?? .system
         let persistedAppIconID = d.string(forKey: Self.keyAppIcon) ?? ""
         appIconID = MacAppIcon.all.contains(where: { $0.id == persistedAppIconID })
@@ -1293,6 +1338,9 @@ final class MacUIPreferences {
         if appIconID != persistedAppIconID {
             d.removeObject(forKey: Self.keyAppIcon)
         }
+        d.set(ambientStrength, forKey: AppThemePreferences.ambientStrengthKey)
+        d.set(coverDrivenAmbient, forKey: AppThemePreferences.coverDrivenAmbientKey)
+        d.set(brandColorHex, forKey: AppThemePreferences.accentHexKey)
     }
 
     /// 启动时把持久化的明暗模式 + App 图标重放一遍 (didSet 在 init 期不触发,
@@ -1311,16 +1359,14 @@ final class MacUIPreferences {
         }
     }
 
-    /// 换运行时 dock 图标。"" 时清空, 回退到 bundle 自带图标; 否则把预览图渲染成
-    /// 标准 macOS 图标外形再设上去。完事广播一条通知, 让菜单栏图标也跟着换。
+    /// 换运行时 Dock 图标。默认与备选图标都从带 luminosity 变体的预览资源
+    /// 渲染，因此切换系统明暗时不会退回静态 bundle 图标。
     func applyAppIcon() {
-        if appIconID.isEmpty {
-            NSApp.applicationIconImage = nil
+        let asset = MacAppIcon.option(for: appIconID).previewAsset
+        if let shaped = MacAppIcon.dockIconImage(previewAsset: asset) {
+            NSApp.applicationIconImage = shaped
         } else {
-            let asset = MacAppIcon.option(for: appIconID).previewAsset
-            if let shaped = MacAppIcon.dockIconImage(previewAsset: asset) {
-                NSApp.applicationIconImage = shaped
-            }
+            NSApp.applicationIconImage = nil
         }
         NotificationCenter.default.post(name: .primuseAppIconChanged, object: nil)
     }

@@ -28,10 +28,6 @@ final class AppIconService {
         let previewAsset: String
         let displayName: String
 
-        /// Brand tint that the chosen icon paints across the rest of the UI as
-        /// the fallback accent (when no song's cover art is driving the theme).
-        let tint: Color
-
         /// True if the design ships a separate dark artwork variant — used by
         /// the settings UI to render the "auto-switch" badge.
         let supportsAppearance: Bool
@@ -45,15 +41,6 @@ final class AppIconService {
     /// the asset catalog). Add a theme index here when no dark image exists.
     private static let singleVariantThemes: Set<Int> = []
 
-    /// Brand tints sampled from the shared flat icon palette.
-    private static let iconTints: [String: Color] = [
-        "":         Color(red: 0.914, green: 0.314, blue: 0.263), // folded note — coral underside
-        "AppIcon12": Color(red: 0.965, green: 0.251, blue: 0.424), // Pikaqiu — gradient pink
-        "AppIcon11": Color(red: 0.176, green: 0.651, blue: 0.890), // color brush — cyan-blue stroke
-        "AppIcon6": Color(red: 0.251, green: 0.835, blue: 0.784), // restored soft note — mint
-        "AppIcon9": Color(red: 0.078, green: 0.490, blue: 0.541), // classic record — cyan teal
-    ]
-
     let options: [IconOption] = {
         var list: [IconOption] = [
             IconOption(
@@ -61,7 +48,6 @@ final class AppIconService {
                 alternateName: nil,
                 previewAsset: "AppIconPreview",
                 displayName: NSLocalizedString("icon_default", comment: ""),
-                tint: AppIconService.iconTints[""] ?? Color.accentColor,
                 supportsAppearance: true
             )
         ]
@@ -72,19 +58,11 @@ final class AppIconService {
                 alternateName: name,
                 previewAsset: "AppIcon\(i)Preview",
                 displayName: NSLocalizedString("icon_theme_\(i)", comment: ""),
-                tint: AppIconService.iconTints[name] ?? Color.accentColor,
                 supportsAppearance: !AppIconService.singleVariantThemes.contains(i)
             ))
         }
         return list
     }()
-
-    /// Tint for the currently-selected icon — drives the theme accent.
-    var currentTint: Color {
-        options.first { $0.id == currentIconID }?.tint
-            ?? options.first?.tint
-            ?? Color.accentColor
-    }
 
     /// Persisted user choice — the option's `id`. Survives launches.
     @ObservationIgnored
@@ -156,15 +134,11 @@ final class AppIconService {
         }
     }
 
-    /// Push the current tint into the App Group so the widget's next render
-    /// picks it up, then ask WidgetKit to refresh timelines now (without this,
-    /// the home-screen widget keeps its stale color until iOS happens to wake
-    /// it on its own schedule).
-    /// A theme pinned to a fixed color outranks the icon tint, so resolve
-    /// through the theme settings rather than publishing `currentTint` directly.
+    /// 图标选择和应用主题色相互独立。切换图标时仍刷新 widget，确保它立即
+    /// 读取当前固定主题色，而不是把图标自身配色误写回主题。
     private func publishTintToWidget() {
         ThemeColorSettings.publishBaseAccentToWidget(
-            ThemeColorSettings.shared.baseAccent(iconTint: currentTint)
+            ThemeColorSettings.shared.baseAccent
         )
     }
 }

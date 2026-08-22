@@ -40,6 +40,7 @@ struct MacContentView: View {
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
 
     var body: some View {
@@ -182,6 +183,11 @@ struct MacContentView: View {
                 hasSeenOnboarding = true
                 showInitialOnboarding = true
             }
+        }
+        .onChange(of: colorScheme, initial: true) { _, _ in
+            // `.system` 下 AppKit 不会重新调用偏好 setter；由根视图监听实际
+            // effective appearance，重绘带明暗资源变体的 Dock 图标。
+            preferences.applyAppIcon()
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewPlaylist)) { _ in
             newPlaylistName = ""

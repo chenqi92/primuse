@@ -23,6 +23,7 @@ struct DesktopLyricsView: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(ThemeService.self) private var theme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
@@ -31,6 +32,7 @@ struct DesktopLyricsView: View {
     @State private var isHovering = false
     @State private var colorPaletteShown = false
     @State private var settingsShown = false
+    @State private var preferences = MacUIPreferences.shared
 
     @AppStorage("desktopLyricsFontScale") private var fontScale: Double = 1.0
     /// 排版模式:single / dual / vertical。旧版本只有 showNext bool,
@@ -41,6 +43,7 @@ struct DesktopLyricsView: View {
     @AppStorage("desktopLyricsShowBackground") private var showBackground: Bool = true
     /// 歌词主色调 (hex 字符串方便存 AppStorage)。默认白。
     @AppStorage("desktopLyricsColor") private var colorHex: String = "#FFFFFF"
+    @AppStorage("desktopLyricsUsesArtworkColor") private var usesArtworkColor = true
 
     private var layout: DesktopLyricsLayout {
         DesktopLyricsLayout(rawValue: layoutRaw) ?? .dual
@@ -50,7 +53,10 @@ struct DesktopLyricsView: View {
     private let maxScale: Double = 1.8
 
     private var lyricsColor: Color {
-        Color.fromHexString(colorHex) ?? .white
+        if usesArtworkColor {
+            return preferences.coverDrivenAmbient ? theme.accentColor : theme.uiAccentColor
+        }
+        return Color.fromHexString(colorHex) ?? .white
     }
 
     private var lyricsWritingDirection: LyricWritingDirection {
@@ -444,6 +450,13 @@ struct DesktopLyricsView: View {
                 showBackground.toggle()
             }
 
+            settingsRow(
+                icon: usesArtworkColor ? "checkmark.circle.fill" : "circle",
+                title: "cover"
+            ) {
+                usesArtworkColor.toggle()
+            }
+
             Button { colorPaletteShown.toggle() } label: {
                 settingsRowLabel(icon: "paintpalette", title: "lyrics_color")
             }
@@ -556,6 +569,7 @@ struct DesktopLyricsView: View {
                 ForEach(Self.presetColors, id: \.self) { hex in
                     Button {
                         colorHex = hex
+                        usesArtworkColor = false
                         colorPaletteShown = false
                     } label: {
                         Circle()
@@ -566,7 +580,7 @@ struct DesktopLyricsView: View {
                                     .stroke(.primary.opacity(0.2), lineWidth: 1)
                             }
                             .overlay {
-                                if colorHex == hex {
+                                if !usesArtworkColor && colorHex == hex {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundStyle(.black)

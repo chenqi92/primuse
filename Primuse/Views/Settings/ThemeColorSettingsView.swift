@@ -1,26 +1,87 @@
 #if os(iOS)
 import SwiftUI
+import PrimuseKit
 
-/// Lets the accent either follow the playing song's cover art (default) or stay
-/// pinned to a color the user picks from a predefined palette.
+enum IOSAppearancePreference: String, CaseIterable, Sendable {
+    case system
+    case light
+    case dark
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .system: PMString("ext.tv.settings.appearance.system")
+        case .light: PMString("ext.tv.settings.appearance.light")
+        case .dark: PMString("ext.tv.settings.appearance.dark")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max.fill"
+        case .dark: "moon.fill"
+        }
+    }
+}
+
+struct AppearanceSettingsView: View {
+    @AppStorage(AppThemePreferences.iOSAppearanceKey)
+    private var appearanceRawValue = IOSAppearancePreference.system.rawValue
+
+    private var selection: IOSAppearancePreference {
+        IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(IOSAppearancePreference.allCases, id: \.self) { option in
+                    Button {
+                        appearanceRawValue = option.rawValue
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: option.symbolName)
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 28)
+                            Text(option.title)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if selection == option {
+                                Image(systemName: "checkmark")
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selection == option ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+        }
+        .navigationTitle("appearance")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct ThemeColorSettingsView: View {
     @State private var settings = ThemeColorSettings.shared
     @Environment(ThemeService.self) private var themeService
     @Environment(AudioPlayerService.self) private var player
 
-    /// Live position of the custom picker. Seeded from the stored hex so
-    /// reopening the page puts the knobs back where the user left them.
     @State private var custom = ThemeColorSettings.hsb(
         fromHex: ThemeColorSettings.shared.fixedColorHex
     )
 
-    /// Keeping the accent above near-black and below near-white ensures it stays
-    /// visible against both the light and dark chrome.
     private static let brightnessRange: ClosedRange<CGFloat> = 0.25...0.92
-
-    private let columns = [
-        GridItem(.adaptive(minimum: 68), spacing: 16)
-    ]
+    private let columns = [GridItem(.adaptive(minimum: 68), spacing: 16)]
 
     var body: some View {
         List {
@@ -29,98 +90,106 @@ struct ThemeColorSettingsView: View {
             }
 
             Section {
-                modeRow(
-                    .auto,
-                    title: "theme_color_mode_auto",
-                    hint: "theme_color_mode_auto_hint",
-                    icon: "photo.on.rectangle.angled"
-                )
-                modeRow(
-                    .fixed,
-                    title: "theme_color_mode_fixed",
-                    hint: "theme_color_mode_fixed_hint",
-                    icon: "paintpalette"
-                )
+                LazyVGrid(columns: columns, spacing: 18) {
+                    ForEach(ThemeColorSettings.swatches) { swatch in
+                        swatchCell(swatch)
+                    }
+                }
+                .padding(.vertical, 8)
             } header: {
-                Text("theme_color_mode")
+                Text("theme_color_palette")
             }
 
-            if settings.mode == .fixed {
-                Section {
-                    LazyVGrid(columns: columns, spacing: 18) {
-                        ForEach(ThemeColorSettings.swatches) { swatch in
-                            swatchCell(swatch)
-                        }
+            Section {
+                channelSlider(
+                    title: "theme_color_hue",
+                    value: $custom.hue,
+                    range: 0...1,
+                    track: LinearGradient(
+                        colors: stride(from: 0.0, through: 1.0, by: 1.0 / 12.0).map {
+                            Color(hue: $0, saturation: 0.85, brightness: 0.85)
+                        },
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+
+                channelSlider(
+                    title: "theme_color_saturation",
+                    value: $custom.saturation,
+                    range: 0.15...1,
+                    track: LinearGradient(
+                        colors: [
+                            Color(hue: custom.hue, saturation: 0.15, brightness: custom.brightness),
+                            Color(hue: custom.hue, saturation: 1, brightness: custom.brightness)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+
+                channelSlider(
+                    title: "theme_color_brightness",
+                    value: $custom.brightness,
+                    range: Self.brightnessRange,
+                    track: LinearGradient(
+                        colors: [
+                            Color(
+                                hue: custom.hue,
+                                saturation: custom.saturation,
+                                brightness: Self.brightnessRange.lowerBound
+                            ),
+                            Color(
+                                hue: custom.hue,
+                                saturation: custom.saturation,
+                                brightness: Self.brightnessRange.upperBound
+                            )
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+
+                HStack {
+                    Text("theme_color_hex")
+                    Spacer()
+                    Text(verbatim: "#\(settings.fixedColorHex)")
+                        .font(.subheadline.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("theme_color_custom")
+            } footer: {
+                Text("theme_color_custom_footer")
+            }
+
+            Section {
+                Toggle(isOn: coverDrivenAmbientBinding) {
+                    Label {
+                        Text(PMString("ext.tv.settings.coverColor"))
+                    } icon: {
+                        Image(systemName: "photo.on.rectangle.angled")
                     }
-                    .padding(.vertical, 8)
-                } header: {
-                    Text("theme_color_palette")
-                } footer: {
-                    Text("theme_color_palette_footer")
                 }
 
-                Section {
-                    channelSlider(
-                        title: "theme_color_hue",
-                        value: $custom.hue,
-                        range: 0...1,
-                        track: LinearGradient(
-                            colors: stride(from: 0.0, through: 1.0, by: 1.0 / 12.0).map {
-                                Color(hue: $0, saturation: 0.85, brightness: 0.85)
-                            },
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-
-                    channelSlider(
-                        title: "theme_color_saturation",
-                        value: $custom.saturation,
-                        range: 0.15...1,
-                        track: LinearGradient(
-                            colors: [
-                                Color(hue: custom.hue, saturation: 0.15, brightness: custom.brightness),
-                                Color(hue: custom.hue, saturation: 1, brightness: custom.brightness)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-
-                    channelSlider(
-                        title: "theme_color_brightness",
-                        value: $custom.brightness,
-                        range: Self.brightnessRange,
-                        track: LinearGradient(
-                            colors: [
-                                Color(
-                                    hue: custom.hue,
-                                    saturation: custom.saturation,
-                                    brightness: Self.brightnessRange.lowerBound
-                                ),
-                                Color(
-                                    hue: custom.hue,
-                                    saturation: custom.saturation,
-                                    brightness: Self.brightnessRange.upperBound
-                                )
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("theme_color_hex")
+                        Label {
+                            Text(PMString("ext.tv.settings.ambientIntensity"))
+                        } icon: {
+                            Image(systemName: "sun.haze.fill")
+                        }
                         Spacer()
-                        Text(verbatim: "#\(settings.fixedColorHex)")
-                            .font(.subheadline.monospaced())
+                        Text(verbatim: "\(Int(round(settings.ambientStrength * 100)))%")
+                            .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
-                } header: {
-                    Text("theme_color_custom")
-                } footer: {
-                    Text("theme_color_custom_footer")
+                    Slider(value: ambientStrengthBinding, in: 0...1, step: 0.05)
+                        .tint(themeService.uiAccentColor)
                 }
+                .padding(.vertical, 4)
+            } header: {
+                Text(PMString("ext.tv.settings.coverColor"))
             }
         }
         .navigationTitle("theme_color_title")
@@ -132,7 +201,7 @@ struct ThemeColorSettingsView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [themeService.accentColor, themeService.darkAccent],
+                        colors: [themeService.uiAccentColor, themeService.accentColor],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -142,10 +211,9 @@ struct ThemeColorSettingsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("theme_color_current")
                     .font(.subheadline.weight(.medium))
-                let modeKey: LocalizedStringKey = settings.mode == .fixed
-                    ? "theme_color_mode_fixed"
-                    : "theme_color_mode_auto"
-                Text(modeKey)
+                Text(settings.coverDrivenAmbient
+                     ? PMString("ext.tv.settings.coverColor")
+                     : String(localized: "theme_color_mode_fixed"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -155,52 +223,15 @@ struct ThemeColorSettingsView: View {
         .animation(.easeInOut(duration: 0.35), value: themeService.colorID)
     }
 
-    private func modeRow(
-        _ mode: ThemeColorSettings.Mode,
-        title: LocalizedStringKey,
-        hint: LocalizedStringKey,
-        icon: String
-    ) -> some View {
-        Button {
-            apply(mode)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.body)
-                    .foregroundStyle(themeService.accentColor)
-                    .frame(width: 26)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .foregroundStyle(.primary)
-                    Text(hint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                if settings.mode == mode {
-                    Image(systemName: "checkmark")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(themeService.accentColor)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(settings.mode == mode ? [.isButton, .isSelected] : .isButton)
-    }
-
     private func swatchCell(_ swatch: ThemeColorSettings.Swatch) -> some View {
-        let isSelected = settings.mode == .fixed && settings.fixedColorHex == swatch.id
+        let isSelected = settings.fixedColorHex == swatch.id
 
         return Button {
             select(swatch)
         } label: {
             VStack(spacing: 6) {
                 Circle()
-                    .fill(swatch.color)
+                    .fill(Color(hex: swatch.id))
                     .frame(width: 44, height: 44)
                     .overlay {
                         if isSelected {
@@ -213,13 +244,13 @@ struct ThemeColorSettingsView: View {
                     .overlay {
                         Circle()
                             .strokeBorder(
-                                isSelected ? swatch.color : Color.primary.opacity(0.12),
+                                isSelected ? Color(hex: swatch.id) : Color.primary.opacity(0.12),
                                 lineWidth: isSelected ? 3 : 0.5
                             )
                             .padding(isSelected ? -4 : 0)
                     }
 
-                Text(swatch.nameKey)
+                Text(PMString(swatch.localizationKey))
                     .font(.caption2)
                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                     .lineLimit(1)
@@ -230,8 +261,6 @@ struct ThemeColorSettingsView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// A drag-anywhere color channel track. The whole bar is the control — the
-    /// knob only marks the position — so a tap or a drag both land the value.
     private func channelSlider(
         title: LocalizedStringKey,
         value: Binding<CGFloat>,
@@ -297,58 +326,47 @@ struct ThemeColorSettingsView: View {
         }
     }
 
-    // MARK: - Applying
+    private var coverDrivenAmbientBinding: Binding<Bool> {
+        Binding(
+            get: { settings.coverDrivenAmbient },
+            set: { enabled in
+                settings.coverDrivenAmbient = enabled
+                if enabled {
+                    refreshFromCurrentSong()
+                } else {
+                    themeService.resetToDefault()
+                }
+            }
+        )
+    }
 
-    /// Repaints the app from the live picker position. Mid-drag updates skip the
-    /// crossfade and the widget write; `committing` does both once on release.
+    private var ambientStrengthBinding: Binding<Double> {
+        Binding(
+            get: { settings.ambientStrength },
+            set: { settings.ambientStrength = AppThemePreferences.normalizedAmbientStrength($0) }
+        )
+    }
+
     private func applyCustomColor(committing: Bool) {
         let hex = ThemeColorSettings.hex(fromHSB: custom)
         settings.fixedColorHex = hex
-        if settings.mode != .fixed {
-            settings.mode = .fixed
-        }
-
-        let color = Color(hex: hex)
-        themeService.setBaseAccent(color, animated: committing)
-        themeService.resetToDefault(animated: committing)
-        if committing {
-            ThemeColorSettings.publishBaseAccentToWidget(color)
-        }
-    }
-
-    private func apply(_ mode: ThemeColorSettings.Mode) {
-        guard settings.mode != mode else { return }
-        settings.mode = mode
-        switch mode {
-        case .fixed:
-            pinAccent(settings.fixedColor)
-        case .auto:
-            // Hand the accent back to the app icon tint, then let the playing
-            // song's artwork take over again if it has any.
-            themeService.setBaseAccent(AppIconService.shared.currentTint)
-            ThemeColorSettings.publishBaseAccentToWidget(AppIconService.shared.currentTint)
-            refreshFromCurrentSong()
-        }
+        applyBaseAccent(Color(hex: hex), animated: committing, publish: committing)
     }
 
     private func select(_ swatch: ThemeColorSettings.Swatch) {
         settings.fixedColorHex = swatch.id
-        if settings.mode != .fixed {
-            settings.mode = .fixed
-        }
-        // Move the custom sliders onto the swatch so the two controls always
-        // describe the same color.
         custom = ThemeColorSettings.hsb(fromHex: swatch.id)
-        pinAccent(swatch.color)
+        applyBaseAccent(Color(hex: swatch.id), animated: true)
     }
 
-    /// `setBaseAccent` only repaints immediately while the theme sits on its
-    /// fallback, so drop any artwork-derived color first to make a fixed pick
-    /// visible even mid-song.
-    private func pinAccent(_ color: Color) {
-        themeService.setBaseAccent(color)
-        themeService.resetToDefault()
-        ThemeColorSettings.publishBaseAccentToWidget(color)
+    private func applyBaseAccent(_ color: Color, animated: Bool, publish: Bool = true) {
+        themeService.setBaseAccent(color, animated: animated)
+        if !settings.coverDrivenAmbient {
+            themeService.resetToDefault(animated: animated)
+        }
+        if publish {
+            ThemeColorSettings.publishBaseAccentToWidget(color)
+        }
     }
 
     private func refreshFromCurrentSong() {

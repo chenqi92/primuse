@@ -27,6 +27,7 @@ struct MacMiniPlayerView: View {
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
     @State private var airPlayShown = false
+    @State private var preferences = MacUIPreferences.shared
 
     private var lyricsWritingDirection: LyricWritingDirection {
         LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
@@ -164,9 +165,13 @@ struct MacMiniPlayerView: View {
             .overlay(
                 LinearGradient(
                     colors: [
-                        theme.accentColor.opacity(colorScheme == .dark ? 0.28 : 0.18),
+                        theme.accentColor.opacity(
+                            (colorScheme == .dark ? 0.28 : 0.18) * preferences.ambientStrength
+                        ),
                         .clear,
-                        theme.darkAccent.opacity(colorScheme == .dark ? 0.22 : 0.12),
+                        theme.darkAccent.opacity(
+                            (colorScheme == .dark ? 0.22 : 0.12) * preferences.ambientStrength
+                        ),
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing

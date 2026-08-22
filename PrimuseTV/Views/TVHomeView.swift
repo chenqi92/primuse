@@ -6,6 +6,10 @@ import PrimuseKit
 struct TVHomeView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppThemePreferences.accentHexKey)
+    private var accentHex = AppThemePreferences.defaultAccentHex
+    @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
+    private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
     var openPlayer: () -> Void = {}
 
     private var candidateAlbum: TVAlbum? {
@@ -86,7 +90,7 @@ struct TVHomeView: View {
             TVAmbientBackdrop(tint: hero.tint, tint2: hero.tint2, strength: 0.7)
             GeometryReader { geo in
                 ZStack {
-                    RadialGradient(colors: [hero.tint.opacity(0.4), .clear],
+                    RadialGradient(colors: [heroAmbientTint.opacity(0.4), .clear],
                                    center: UnitPoint(x: 0.8, y: 0.3),
                                    startRadius: 0, endRadius: geo.size.width * 0.5)
                     LinearGradient(colors: heroScrim,
@@ -209,6 +213,10 @@ struct TVHomeView: View {
         }
         return [TVColor.bg.opacity(0.98), TVColor.bg.opacity(0.82),
                 TVColor.bg.opacity(0.26), .clear]
+    }
+
+    private var heroAmbientTint: Color {
+        coverDrivenAmbient ? hero.tint : TVColor.brand(hex: accentHex)
     }
 }
 #endif

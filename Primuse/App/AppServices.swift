@@ -114,9 +114,9 @@ final class AppServices {
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
         let theme = ThemeService()
-        // Seed the accent the user configured. Cover-art-derived colors
-        // override it later while a song with artwork plays, unless the theme
-        // is pinned to a fixed color.
+        // Seed the accent the user configured. Cover-art-derived colors only
+        // override playback ambience while the independent cover-color switch
+        // is enabled.
         #if os(iOS)
         theme.setBaseAccent(ThemeColorSettings.shared.baseAccent)
         #else

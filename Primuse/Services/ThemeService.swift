@@ -34,11 +34,17 @@ final class ThemeService {
     /// can arrive after a download or decode has already completed.
     private var artworkUpdateTask: Task<Void, Never>?
 
-    /// User-chosen base accent (driven by selected app icon). When set, this
+    /// User-chosen base accent. When set, this
     /// replaces the static brand color as the fallback whenever a song's
     /// cover art isn't actively driving the theme.
     private(set) var baseAccent: Color = ThemeService.defaultAccent
     private(set) var baseDarkAccent: Color = ThemeService.defaultDarkAccent
+
+    /// 固定的应用主题色。普通按钮、选择态与系统 tint 读这里；播放页仍可读
+    /// `accentColor` / `darkAccent` 展示当前封面的动态色。
+    var uiAccentColor: Color { baseAccent }
+    var uiDarkAccent: Color { baseDarkAccent }
+    var uiOnAccent: Color { Self.contrastingForeground(for: baseAccent) }
 
     // MARK: - Defaults
 
@@ -78,7 +84,7 @@ final class ThemeService {
             return
         }
         #else
-        guard !ThemeColorSettings.shared.usesFixedColor else {
+        guard ThemeColorSettings.shared.coverDrivenAmbient else {
             applyFallbackTheme()
             return
         }
@@ -336,7 +342,7 @@ final class ThemeService {
         }
     }
 
-    /// Set the user-chosen base accent (typically from the selected app icon).
+    /// Set the user-chosen base accent from the shared appearance preference.
     /// If the theme is currently sitting on the default (no cover art driving
     /// it), the live accent updates immediately too. Otherwise the new base
     /// kicks in next time `resetToDefault` runs.
