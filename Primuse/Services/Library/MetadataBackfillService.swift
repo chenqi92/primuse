@@ -121,7 +121,9 @@ final class MetadataBackfillService {
         guard pausedForCellular != presented else { return }
         pausedForCellular = presented
         if presented {
+            #if os(iOS)
             AppAlertCoordinator.shared.enqueue(.cellularBackfill)
+            #endif
         } else {
             AppAlertCoordinator.shared.cancel(.cellularBackfill)
         }

@@ -4,6 +4,10 @@ import PrimuseKit
 import Security
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 /// Serializes the app-wide alert classes that can be raised by background
 /// networking. UIKit cannot safely attach two alert controllers to the same
 /// presentation hierarchy while one of them is still dismissing.
@@ -1018,36 +1022,47 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
 
 private struct TransportTrustAlertsModifier: ViewModifier {
     @State private var presenterID = UUID()
+    @State private var store = SSLTrustStore.shared
+    @State private var coordinator = AppAlertCoordinator.shared
+    @State private var presentedPrompt: SSLTrustStore.TransportPrompt?
+    #if os(macOS)
+    @State private var macOSPresentedPromptID: UUID?
+    #endif
 
     func body(content: Content) -> some View {
-        let store = SSLTrustStore.shared
-        let coordinator = AppAlertCoordinator.shared
-        let activePrompt: Binding<SSLTrustStore.TransportPrompt?> = Binding(
+        let swiftUIPrompt = Binding<SSLTrustStore.TransportPrompt?>(
             get: {
-                guard coordinator.activeTransportPresenterID == presenterID,
-                      case .transport(let requestID) = coordinator.activeRequest else {
-                    return nil
-                }
-                return store.transportPrompt(id: requestID)
+                #if os(macOS)
+                // Descendant alerts can suppress a scene-level SwiftUI alert
+                // on macOS, so transport prompts use the window sheet below.
+                return nil
+                #else
+                return presentedPrompt
+                #endif
             },
-            // Alerts are modal and all actions below resolve the exact
-            // request ID. Ignoring SwiftUI's nil write prevents a late
-            // dismissal from rejecting the next queued endpoint.
-            set: { _, _ in }
+            set: { presentedPrompt = $0 }
         )
 
         content
             .onAppear {
                 coordinator.registerTransportPresenter(presenterID)
+                synchronizePrompt()
+            }
+            .onChange(of: coordinator.activeRequest) { _, _ in
+                synchronizePrompt()
+            }
+            .onChange(of: coordinator.activeTransportPresenterID) { _, _ in
+                synchronizePrompt()
             }
             .onDisappear {
+                presentedPrompt = nil
                 if coordinator.activeTransportPresenterID == presenterID,
                    case .transport(let requestID) = coordinator.activeRequest {
                     store.resolveTransportPrompt(id: requestID, approved: false)
                 }
                 coordinator.unregisterTransportPresenter(presenterID)
             }
-            .alert(item: activePrompt) { prompt in
+            .alert(item: swiftUIPrompt) { prompt in
                 switch prompt {
                 case .certificate(let id, let domain):
                     return Alert(
@@ -1077,6 +1092,71 @@ private struct TransportTrustAlertsModifier: ViewModifier {
                 }
             }
     }
+
+    @MainActor
+    private func synchronizePrompt() {
+        guard coordinator.activeTransportPresenterID == presenterID,
+              case .transport(let requestID) = coordinator.activeRequest else {
+            presentedPrompt = nil
+            return
+        }
+        presentedPrompt = store.transportPrompt(id: requestID)
+        #if os(macOS)
+        if let presentedPrompt {
+            presentMacOSPrompt(presentedPrompt)
+        }
+        #endif
+    }
+
+    #if os(macOS)
+    @MainActor
+    private func presentMacOSPrompt(_ prompt: SSLTrustStore.TransportPrompt) {
+        guard macOSPresentedPromptID != prompt.id else { return }
+        macOSPresentedPromptID = prompt.id
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch prompt {
+        case .certificate(_, let domain):
+            alert.messageText = String(localized: "ssl_trust_title")
+            alert.informativeText = String(
+                format: String(localized: "ssl_trust_message %@"),
+                domain
+            )
+            alert.addButton(withTitle: String(localized: "dont_trust"))
+            alert.addButton(withTitle: String(localized: "trust_domain"))
+        case .insecureHTTP(_, let endpoint):
+            alert.messageText = String(localized: "insecure_http_warning_title")
+            alert.informativeText = String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                endpoint
+            )
+            alert.addButton(withTitle: String(localized: "cancel"))
+            alert.addButton(withTitle: String(localized: "insecure_http_continue"))
+        }
+        if alert.buttons.count > 1 {
+            alert.buttons[1].hasDestructiveAction = true
+        }
+        alert.buttons.first?.keyEquivalent = "\u{1b}"
+
+        let requestID = prompt.id
+        let completion: @Sendable (NSApplication.ModalResponse) -> Void = { response in
+            Task { @MainActor in
+                SSLTrustStore.shared.resolveTransportPrompt(
+                    id: requestID,
+                    approved: response == .alertSecondButtonReturn
+                )
+            }
+        }
+        if let window = NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first(where: \.isVisible) {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(alert.runModal())
+        }
+    }
+    #endif
 }
 
 extension View {
