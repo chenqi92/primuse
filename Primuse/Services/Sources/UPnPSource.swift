@@ -8,7 +8,8 @@ actor UPnPSource: SongScanningConnector {
 
     let sourceID: String
 
-    private let session: URLSession
+    private var mediaSession: URLSession?
+    private var catalogSession: URLSession?
     private let cacheDirectory: URL
     private var discoveredServers: [String: UPnPMediaServer] = [:]
     private var lastDiscoveryAt: Date?
@@ -16,15 +17,14 @@ actor UPnPSource: SongScanningConnector {
     init(sourceID: String) {
         self.sourceID = sourceID
 
-        let configuration = URLSessionConfiguration.default
-        // Browse walks the whole container tree over this one session, so the
-        // budget has to cover a full catalogue enumeration rather than a single
-        // LAN request. Matches Subsonic / WebDAV / MediaServer.
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 600
-        configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        self.session = URLSession(
+        let configuration = Self.makeSessionConfiguration()
+        self.mediaSession = URLSession(
             configuration: configuration,
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+        self.catalogSession = URLSession(
+            configuration: Self.makeSessionConfiguration(),
             delegate: SmartSSLDelegate(),
             delegateQueue: nil
         )
@@ -43,6 +43,52 @@ actor UPnPSource: SongScanningConnector {
     func disconnect() async {
         discoveredServers.removeAll()
         lastDiscoveryAt = nil
+        mediaSession?.invalidateAndCancel()
+        mediaSession = nil
+        catalogSession?.invalidateAndCancel()
+        catalogSession = nil
+    }
+
+    private static func makeSessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.default
+        // Browse walks the whole container tree over this one session, so the
+        // budget has to cover a full catalogue enumeration rather than a single
+        // LAN request. Matches Subsonic / WebDAV / MediaServer.
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
+        configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
+        return configuration
+    }
+
+    private func resetCatalogSession() {
+        catalogSession?.invalidateAndCancel()
+        catalogSession = URLSession(
+            configuration: Self.makeSessionConfiguration(),
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+    }
+
+    private func activeMediaSession() -> URLSession {
+        if let mediaSession { return mediaSession }
+        let session = URLSession(
+            configuration: Self.makeSessionConfiguration(),
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+        mediaSession = session
+        return session
+    }
+
+    private func activeCatalogSession() -> URLSession {
+        if let catalogSession { return catalogSession }
+        let session = URLSession(
+            configuration: Self.makeSessionConfiguration(),
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+        catalogSession = session
+        return session
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -125,7 +171,7 @@ actor UPnPSource: SongScanningConnector {
 
         let (temporaryURL, response) = try await TrustedHTTPTransport.download(
             from: remoteURL,
-            session: session,
+            session: activeMediaSession(),
             timeout: 300
         )
         do {
@@ -169,7 +215,7 @@ actor UPnPSource: SongScanningConnector {
             : max(PlainHTTPClient.defaultMaxBytes, requestedBytes + 64 * 1_024)
         let (data, response) = try await TrustedHTTPTransport.data(
             for: request,
-            session: session,
+            session: activeMediaSession(),
             maxBytes: responseLimit
         )
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -412,28 +458,58 @@ actor UPnPSource: SongScanningConnector {
         startIndex: Int,
         requestedCount: Int
     ) async throws -> BrowsePage {
-        let server = try await server(for: serverID)
-        let request = makeBrowseRequest(
-            controlURL: server.controlURL,
-            objectID: objectID,
-            startIndex: startIndex,
-            requestedCount: requestedCount
-        )
+        var completedRetryAttempts = 0
+        while true {
+            do {
+                let server = try await server(for: serverID)
+                let request = makeBrowseRequest(
+                    controlURL: server.controlURL,
+                    objectID: objectID,
+                    startIndex: startIndex,
+                    requestedCount: requestedCount
+                )
 
-        let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session)
-        try validate(response)
+                let (data, response) = try await TrustedHTTPTransport.data(
+                    for: request,
+                    session: activeCatalogSession()
+                )
+                try validateDirectoryResponse(response)
+                let soapResult = try SOAPBrowseResponseParser.parse(data: data)
+                let nodes = try DIDLParser.parse(
+                    xmlString: soapResult.resultXML,
+                    baseURL: server.baseURL
+                )
 
-        let soapResult = try SOAPBrowseResponseParser.parse(data: data)
-        let nodes = try DIDLParser.parse(
-            xmlString: soapResult.resultXML,
-            baseURL: server.baseURL
-        )
-
-        return BrowsePage(
-            nodes: nodes,
-            numberReturned: soapResult.numberReturned,
-            totalMatches: soapResult.totalMatches
-        )
+                return BrowsePage(
+                    nodes: nodes,
+                    numberReturned: soapResult.numberReturned,
+                    totalMatches: soapResult.totalMatches
+                )
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    throw CancellationError()
+                }
+                let outcome: RemoteDirectoryListingOutcome = RemoteDirectoryTransportErrorPolicy
+                    .isRetryable(error) ? .retryableFailure : .permanentFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    resetCatalogSession()
+                case .accept:
+                    assertionFailure("A browse error cannot be accepted")
+                    throw error
+                case .fail:
+                    if outcome == .retryableFailure {
+                        resetCatalogSession()
+                    }
+                    throw error
+                }
+            }
+        }
     }
 
     private func nextStartIndex(
@@ -515,7 +591,7 @@ actor UPnPSource: SongScanningConnector {
             return discoveredServers.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
 
-        let responses = try await discoverSSDPResponses()
+        let responses = try await discoverSSDPResponsesWithRecovery()
         var servers: [String: UPnPMediaServer] = [:]
 
         for response in responses {
@@ -541,21 +617,115 @@ actor UPnPSource: SongScanningConnector {
     }
 
     private func fetchServer(at location: URL) async throws -> UPnPMediaServer {
-        let (data, response) = try await TrustedHTTPTransport.data(from: location, session: session)
-        try validate(response)
+        var completedRetryAttempts = 0
+        while true {
+            do {
+                let (data, response) = try await TrustedHTTPTransport.data(
+                    from: location,
+                    session: activeCatalogSession()
+                )
+                try validateDirectoryResponse(response)
 
-        let description = try UPnPDeviceDescriptionParser.parse(data: data, location: location)
-        guard let contentDirectory = description.services.first(where: { $0.serviceType.contains("ContentDirectory") }) else {
-            throw SourceError.connectionFailed("UPnP server does not expose ContentDirectory")
+                let description = try UPnPDeviceDescriptionParser.parse(data: data, location: location)
+                guard let contentDirectory = description.services.first(where: {
+                    $0.serviceType.contains("ContentDirectory")
+                }) else {
+                    throw SourceError.connectionFailed(
+                        "UPnP server does not expose ContentDirectory"
+                    )
+                }
+
+                let serverID = description.udn.isEmpty == false
+                    ? description.udn
+                    : location.absoluteString
+                return UPnPMediaServer(
+                    id: serverID,
+                    name: description.friendlyName.isEmpty
+                        ? (location.host ?? "UPnP Server")
+                        : description.friendlyName,
+                    baseURL: description.baseURL ?? location.deletingLastPathComponent(),
+                    controlURL: contentDirectory.controlURL
+                )
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    throw CancellationError()
+                }
+                let outcome: RemoteDirectoryListingOutcome = RemoteDirectoryTransportErrorPolicy
+                    .isRetryable(error) ? .retryableFailure : .permanentFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    resetCatalogSession()
+                case .accept:
+                    assertionFailure("A device-description error cannot be accepted")
+                    throw error
+                case .fail:
+                    if outcome == .retryableFailure {
+                        resetCatalogSession()
+                    }
+                    throw error
+                }
+            }
         }
+    }
 
-        let serverID = description.udn.isEmpty == false ? description.udn : location.absoluteString
-        return UPnPMediaServer(
-            id: serverID,
-            name: description.friendlyName.isEmpty ? (location.host ?? "UPnP Server") : description.friendlyName,
-            baseURL: description.baseURL ?? location.deletingLastPathComponent(),
-            controlURL: contentDirectory.controlURL
-        )
+    private func validateDirectoryResponse(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid UPnP directory response")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw RemoteDirectoryHTTPStatusError(
+                service: "UPnP",
+                statusCode: http.statusCode
+            )
+        }
+    }
+
+    private func discoverSSDPResponsesWithRecovery() async throws -> [SSDPDiscoveryResponse] {
+        var completedRetryAttempts = 0
+        while true {
+            do {
+                try Task.checkCancellation()
+                let responses = try await discoverSSDPResponses()
+                try Task.checkCancellation()
+                let outcome: RemoteDirectoryListingOutcome = responses.isEmpty
+                    ? .empty
+                    : .populated
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: true
+                ) {
+                case .accept:
+                    return responses
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                case .fail:
+                    return responses
+                }
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    throw CancellationError()
+                }
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: .retryableFailure,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                case .accept:
+                    assertionFailure("A discovery error cannot be accepted")
+                    throw error
+                case .fail:
+                    throw error
+                }
+            }
+        }
     }
 
     private func makeBrowseRequest(
@@ -1031,7 +1201,7 @@ private enum SOAPBrowseResponseParser {
         parser.shouldProcessNamespaces = true
         parser.delegate = parserDelegate
 
-        guard parser.parse() else {
+        guard parser.parse(), parserDelegate.hasCompleteBrowseEnvelope else {
             throw parser.parserError ?? SourceError.connectionFailed("Invalid UPnP browse response")
         }
 
@@ -1050,6 +1220,16 @@ private final class SOAPBrowseResponseParserDelegate: NSObject, XMLParserDelegat
     var resultXML = ""
     var numberReturned = 0
     var totalMatches = 0
+    private var sawResult = false
+    private var sawNumberReturned = false
+    private var sawTotalMatches = false
+    private var scalarValuesAreValid = true
+
+    var hasCompleteBrowseEnvelope: Bool {
+        sawResult && !resultXML.isEmpty
+            && sawNumberReturned && sawTotalMatches
+            && scalarValuesAreValid
+    }
 
     func parser(
         _ parser: XMLParser,
@@ -1075,11 +1255,22 @@ private final class SOAPBrowseResponseParserDelegate: NSObject, XMLParserDelegat
         let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         switch elementName {
         case "Result":
+            sawResult = true
             resultXML = text
         case "NumberReturned":
-            numberReturned = Int(text) ?? 0
+            sawNumberReturned = true
+            if let value = Int(text), value >= 0 {
+                numberReturned = value
+            } else {
+                scalarValuesAreValid = false
+            }
         case "TotalMatches":
-            totalMatches = Int(text) ?? 0
+            sawTotalMatches = true
+            if let value = Int(text), value >= 0 {
+                totalMatches = value
+            } else {
+                scalarValuesAreValid = false
+            }
         default:
             break
         }
@@ -1098,7 +1289,7 @@ private enum DIDLParser {
         parser.shouldProcessNamespaces = true
         parser.delegate = delegate
 
-        guard parser.parse() else {
+        guard parser.parse(), delegate.sawDIDLLiteRoot else {
             throw parser.parserError ?? SourceError.connectionFailed("Invalid DIDL-Lite response")
         }
 
@@ -1136,8 +1327,10 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
     private var currentNode: Builder?
     private var currentResource: ResourceBuilder?
     private var currentArtistRole: String?
+    private var depth = 0
 
     private(set) var nodes: [UPnPNode] = []
+    private(set) var sawDIDLLiteRoot = false
 
     init(baseURL: URL) {
         self.baseURL = baseURL
@@ -1150,6 +1343,10 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
+        if depth == 0, elementName == "DIDL-Lite" {
+            sawDIDLLiteRoot = true
+        }
+        depth += 1
         currentElement = elementName
         currentText = ""
 
@@ -1190,6 +1387,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        defer { depth = max(0, depth - 1) }
         let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var node = currentNode else {
             currentText = ""

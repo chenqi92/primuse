@@ -21,6 +21,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
     /// 避免每次 chunk fetch 都重新 SSL handshake。
     /// 8 路并发: 配合 CloudPlaybackSource 小文件全 prefetch 时多 chunk 并发。
+    private var directorySession: URLSession!
     private var rangeSession: URLSession!
     private var redirectedMediaSession: URLSession!
 
@@ -48,6 +49,13 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             .appendingPathComponent(sourceID)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
+        self.directorySession = Self.makeRangeSession(
+            host: host,
+            port: port,
+            useSsl: useSsl,
+            username: username,
+            password: password
+        )
         self.rangeSession = Self.makeRangeSession(
             host: host,
             port: port,
@@ -99,6 +107,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
     }
 
     func connect() async throws {
+        ensureTransportSessions()
         if let connectTask {
             try await connectTask.value
             return
@@ -165,14 +174,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         } catch {
             usesTrustedURLSession = false
             if useSsl, SSLTrustStore.sslErrorDomain(from: error) != nil {
-                rangeSession.invalidateAndCancel()
-                rangeSession = Self.makeRangeSession(
-                    host: host,
-                    port: port,
-                    useSsl: useSsl,
-                    username: username,
-                    password: password
-                )
+                resetDirectorySession()
             }
             throw error
         }
@@ -182,55 +184,91 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
     func disconnect() async {
         connectTask?.cancel()
         connectTask = nil
+        provider?.session.invalidateAndCancel()
         provider = nil
         usesTrustedURLSession = false
+        directorySession?.invalidateAndCancel()
+        directorySession = nil
+        rangeSession?.invalidateAndCancel()
+        rangeSession = nil
+        redirectedMediaSession?.invalidateAndCancel()
+        redirectedMediaSession = nil
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        if usesTrustedURLSession {
-            return try await listFilesUsingTrustedTransport(at: path)
-        }
-        guard let provider else { throw SourceError.connectionFailed("Not connected") }
-
-        let pathPolicy = WebDAVPathPolicy(basePath: try serverURL().path)
-        guard let currentSourcePath = RemotePathScopePolicy(rootPath: "/")
-            .resolvedPath(forStoredPath: path) else {
-            throw SourceError.connectionFailed("Invalid WebDAV directory path")
+        guard provider != nil || usesTrustedURLSession else {
+            throw SourceError.connectionFailed("Not connected")
         }
 
-        let providerPath = providerRelativePath(path)
-
-        return try await withCheckedThrowingContinuation { continuation in
-            provider.contentsOfDirectory(path: providerPath) { contents, error in
-                if let error {
-                    // Re-throw the underlying NSError so SSLTrustStore can detect
-                    // certificate errors and prompt the user. Wrapping it in
-                    // SourceError.connectionFailed(_:) loses domain/code/userInfo.
-                    continuation.resume(throwing: error)
-                    return
+        var completedRetryAttempts = 0
+        while true {
+            do {
+                return try await listFilesUsingTrustedTransport(at: path)
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    resetDirectorySession()
+                    throw CancellationError()
                 }
 
-                let items = contents
-                    .compactMap { file -> RemoteFileItem? in
-                        guard !file.name.hasPrefix("."),
-                              let sourcePath = pathPolicy.sourcePath(forProviderPath: file.path),
-                              sourcePath != currentSourcePath else {
-                            return nil
-                        }
-                        return RemoteFileItem(
-                            name: file.name,
-                            path: sourcePath,
-                            isDirectory: file.isDirectory,
-                            size: file.size,
-                            modifiedDate: file.modifiedDate,
-                            revision: file.allValues[.entryTagKey] as? String
-                        )
+                let outcome: RemoteDirectoryListingOutcome = RemoteDirectoryTransportErrorPolicy
+                    .isRetryable(error) ? .retryableFailure : .permanentFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    resetDirectorySession()
+                case .accept:
+                    assertionFailure("A directory error cannot be accepted")
+                    throw error
+                case .fail:
+                    if outcome == .retryableFailure {
+                        resetDirectorySession()
                     }
-                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-
-                continuation.resume(returning: items)
+                    if let status = error as? RemoteDirectoryHTTPStatusError {
+                        throw SourceError.connectionFailed(status.localizedDescription)
+                    }
+                    throw error
+                }
             }
         }
+    }
+
+    private func ensureTransportSessions() {
+        if directorySession == nil {
+            directorySession = Self.makeRangeSession(
+                host: host,
+                port: port,
+                useSsl: useSsl,
+                username: username,
+                password: password
+            )
+        }
+        if rangeSession == nil {
+            rangeSession = Self.makeRangeSession(
+                host: host,
+                port: port,
+                useSsl: useSsl,
+                username: username,
+                password: password
+            )
+        }
+        if redirectedMediaSession == nil {
+            redirectedMediaSession = Self.makeRedirectedMediaSession()
+        }
+    }
+
+    private func resetDirectorySession() {
+        directorySession?.invalidateAndCancel()
+        directorySession = Self.makeRangeSession(
+            host: host,
+            port: port,
+            useSsl: useSsl,
+            username: username,
+            password: password
+        )
     }
 
     private static func cacheFileName(for path: String) -> String {
@@ -902,7 +940,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         )
         let (data, response) = try await TrustedHTTPTransport.data(
             for: request,
-            session: rangeSession,
+            session: directorySession,
             maxBytes: 16 * 1024 * 1024
         )
         guard let http = response as? HTTPURLResponse else {
@@ -911,8 +949,14 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
         if http.statusCode == 401 || http.statusCode == 403 {
             throw SourceError.authenticationFailed
         }
+        if http.statusCode == 404 {
+            throw SourceError.pathNotFound(path)
+        }
         guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
-            throw SourceError.connectionFailed("WebDAV directory request failed: HTTP \(http.statusCode)")
+            throw RemoteDirectoryHTTPStatusError(
+                service: "WebDAV",
+                statusCode: http.statusCode
+            )
         }
 
         let entries = try WebDAVMultistatusParser.parse(data)
@@ -921,11 +965,21 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
             throw SourceError.connectionFailed("Invalid WebDAV directory path")
         }
 
-        let items = entries.compactMap { entry -> RemoteFileItem? in
-            guard let sourcePath = sourcePath(forWebDAVHref: entry.href, baseURL: baseURL),
-                  sourcePath != currentSourcePath else {
+        let resolvedEntries = entries.compactMap { entry -> (WebDAVMultistatusEntry, String)? in
+            guard let sourcePath = sourcePath(forWebDAVHref: entry.href, baseURL: baseURL) else {
                 return nil
             }
+            return (entry, sourcePath)
+        }
+        guard resolvedEntries.contains(where: { $0.1 == currentSourcePath }) else {
+            throw SourceError.connectionFailed(
+                "WebDAV directory response did not describe the requested resource"
+            )
+        }
+
+        let items = resolvedEntries.compactMap { resolved -> RemoteFileItem? in
+            let (entry, sourcePath) = resolved
+            guard sourcePath != currentSourcePath else { return nil }
             let fallbackName = (sourcePath as NSString).lastPathComponent
             let name = entry.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
             let resolvedName = (name?.isEmpty == false ? name : nil) ?? fallbackName
@@ -938,9 +992,6 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
                 modifiedDate: Self.webDAVDate(entry.lastModified),
                 revision: entry.etag
             )
-        }
-        guard !entries.isEmpty else {
-            throw SourceError.connectionFailed("WebDAV directory response contained no resources")
         }
         return items.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
@@ -1274,6 +1325,8 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
     private var response: ResponseBuilder?
     private var propstat: PropstatBuilder?
     private var textBuffer = ""
+    private var depth = 0
+    private var sawMultistatusRoot = false
     private(set) var entries: [WebDAVMultistatusEntry] = []
 
     static func parse(_ data: Data) throws -> [WebDAVMultistatusEntry] {
@@ -1286,6 +1339,9 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
                 parser.parserError?.localizedDescription ?? "Invalid WebDAV XML response"
             )
         }
+        guard delegate.sawMultistatusRoot else {
+            throw SourceError.connectionFailed("Invalid WebDAV multistatus response")
+        }
         return delegate.entries
     }
 
@@ -1297,6 +1353,10 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         let element = Self.localName(qName ?? elementName)
+        if depth == 0, element == "multistatus" {
+            sawMultistatusRoot = true
+        }
+        depth += 1
         textBuffer = ""
         switch element {
         case "response":
@@ -1320,6 +1380,7 @@ private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        defer { depth = max(0, depth - 1) }
         let element = Self.localName(qName ?? elementName)
         let value = textBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         switch element {

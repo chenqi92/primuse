@@ -163,21 +163,18 @@ actor NFSSource: MusicSourceConnector {
     func connect() async throws {
         _ = try resolveClient()
         if let configuredExportPath {
-            _ = try await ensureConnected(to: configuredExportPath)
+            // A cached export path is not a liveness signal after sleep or a
+            // network handoff. Probe the mounted root through the same bounded
+            // fresh-client recovery used by scans.
+            _ = try await listDirectory(
+                exportPath: configuredExportPath,
+                relativePath: "/"
+            )
         }
     }
 
     func disconnect() async {
-        guard let client else {
-            return
-        }
-
-        await client.disconnect()
-
-        self.client = nil
-        self.activeVersion = nil
-        self.connectedExportPath = nil
-        self.cachedExports = nil
+        await invalidateActiveClient()
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -397,13 +394,20 @@ actor NFSSource: MusicSourceConnector {
         let activeClient = try resolveClient()
         let exports: [String]
         do {
-            let loaded = try await activeClient.listExports()
+            let loaded = try await listExportsWithRecovery(startingWith: activeClient)
             guard loaded.isEmpty == false else {
                 throw SourceError.connectionFailed("No NFS exports found")
             }
             exports = loaded
         } catch {
-            let candidate = try makeFallbackCandidateForAuto(after: error)
+            let originalError = error
+            let candidate: NFSFallbackCandidate
+            do {
+                candidate = try makeFallbackCandidateForAuto(after: originalError)
+            } catch {
+                await invalidateActiveClient()
+                throw originalError
+            }
             do {
                 let loaded = try await candidate.client.listExports()
                 guard loaded.isEmpty == false else {
@@ -413,6 +417,7 @@ actor NFSSource: MusicSourceConnector {
                 exports = loaded
             } catch {
                 await candidate.client.disconnect()
+                await invalidateActiveClient()
                 throw error
             }
         }
@@ -530,26 +535,140 @@ actor NFSSource: MusicSourceConnector {
         exportPath: String,
         relativePath: String
     ) async throws -> [RemoteFileItem] {
-        let client = try await ensureConnected(to: exportPath)
+        var completedRetryAttempts = 0
 
-        return try await client.listDirectory(path: relativePath)
-            .compactMap { entry in
-                guard let normalizedPath = RemotePathScopePolicy(rootPath: "/")
-                    .resolvedPath(forStoredPath: entry.path) else {
-                    return nil
+        while true {
+            do {
+                let activeClient = try await ensureConnected(to: exportPath)
+                try Task.checkCancellation()
+                let entries = try await activeClient.listDirectory(path: relativePath)
+                try Task.checkCancellation()
+                return entries
+                    .compactMap { entry in
+                        guard let normalizedPath = RemotePathScopePolicy(rootPath: "/")
+                            .resolvedPath(forStoredPath: entry.path) else {
+                            return nil
+                        }
+                        return RemoteFileItem(
+                            name: entry.name,
+                            path: NFSSelectionPathCodec.makeSelectionPath(
+                                exportPath: exportPath,
+                                relativePath: normalizedPath
+                            ),
+                            isDirectory: entry.isDirectory,
+                            size: entry.size,
+                            modifiedDate: entry.modifiedDate
+                        )
+                    }
+                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    await invalidateActiveClient()
+                    throw CancellationError()
                 }
-                return RemoteFileItem(
-                    name: entry.name,
-                    path: NFSSelectionPathCodec.makeSelectionPath(
-                        exportPath: exportPath,
-                        relativePath: normalizedPath
-                    ),
-                    isDirectory: entry.isDirectory,
-                    size: entry.size,
-                    modifiedDate: entry.modifiedDate
-                )
+
+                let outcome: RemoteDirectoryListingOutcome = Self.isPermanentDirectoryError(error)
+                    ? .permanentFailure
+                    : .retryableFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    try await replaceActiveClientPreservingVersion()
+                case .accept:
+                    assertionFailure("A directory error cannot be accepted")
+                    throw error
+                case .fail:
+                    if outcome == .retryableFailure {
+                        await invalidateActiveClient()
+                        throw SourceError.connectionFailed(error.localizedDescription)
+                    }
+                    throw error
+                }
             }
-            .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    private func listExportsWithRecovery(
+        startingWith initialClient: any NFSClientBackend
+    ) async throws -> [String] {
+        var activeClient = initialClient
+        var completedRetryAttempts = 0
+
+        while true {
+            do {
+                try Task.checkCancellation()
+                let exports = try await activeClient.listExports()
+                try Task.checkCancellation()
+                return exports
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    await invalidateActiveClient()
+                    throw CancellationError()
+                }
+                let outcome: RemoteDirectoryListingOutcome = Self.isPermanentDirectoryError(error)
+                    ? .permanentFailure
+                    : .retryableFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    activeClient = try await replaceActiveClientPreservingVersion()
+                case .accept:
+                    assertionFailure("An export-list error cannot be accepted")
+                    throw error
+                case .fail:
+                    // Keep the attempted version long enough for loadExports
+                    // to choose the configured automatic protocol fallback.
+                    throw error
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func replaceActiveClientPreservingVersion() async throws -> any NFSClientBackend {
+        let version = activeVersion ?? nfsVersion.connectionAttemptOrder[0]
+        let staleClient = client
+        client = nil
+        activeVersion = nil
+        connectedExportPath = nil
+        cachedExports = nil
+        await staleClient?.disconnect()
+
+        let replacement = try makeClient(version: version)
+        client = replacement
+        activeVersion = version
+        return replacement
+    }
+
+    private func invalidateActiveClient() async {
+        let staleClient = client
+        client = nil
+        activeVersion = nil
+        connectedExportPath = nil
+        cachedExports = nil
+        await staleClient?.disconnect()
+    }
+
+    private nonisolated static func isPermanentDirectoryError(_ error: Error) -> Bool {
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .authenticationFailed, .credentialUnavailable, .pathNotFound, .fileNotFound:
+                return true
+            case .connectionFailed, .timeout:
+                return false
+            }
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSPOSIXErrorDomain
+            && [Int(EACCES), Int(EPERM), Int(ENOENT)].contains(nsError.code)
     }
 
 }

@@ -1459,6 +1459,7 @@ final class SourceManager {
             ))
         } catch {
             if OperationCancellationPolicy.isCancellation(error) {
+                retireDiagnosticConnector(connector, sourceID: source.id)
                 checks.append(diagnosticCheck(
                     for: error,
                     source: source,
@@ -1484,6 +1485,7 @@ final class SourceManager {
                     ))
                 } catch {
                     if OperationCancellationPolicy.isCancellation(error) {
+                        retireDiagnosticConnector(connector, sourceID: source.id)
                         checks.append(diagnosticCheck(
                             for: error,
                             source: source,
@@ -1496,12 +1498,12 @@ final class SourceManager {
                             wasCancelled: true
                         )
                     }
-                    await connector.disconnect()
+                    retireDiagnosticConnector(connector, sourceID: source.id)
                     checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_connection_title")))
                     return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
                 }
             } else {
-                await connector.disconnect()
+                retireDiagnosticConnector(connector, sourceID: source.id)
                 checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_connection_title")))
                 return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
             }
@@ -1521,6 +1523,7 @@ final class SourceManager {
                     message: String(localized: "source_diag_scan_ready_ok")
                 ))
             } catch {
+                retireDiagnosticConnector(connector, sourceID: source.id)
                 checks.append(diagnosticCheck(
                     for: error,
                     source: source,
@@ -1565,6 +1568,7 @@ final class SourceManager {
                     suggestion: visibleItems == 0 ? String(localized: "source_diag_directory_empty_suggestion") : ""
                 ))
             } catch {
+                retireDiagnosticConnector(connector, sourceID: source.id)
                 checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_directory_title")))
                 return SourceDiagnosticReport(
                     source: source,
@@ -1581,6 +1585,33 @@ final class SourceManager {
             message: String(localized: checks.contains(where: { $0.status == .warning }) ? "source_diag_scan_ready_warning" : "source_diag_scan_ready_ok")
         ))
         return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
+    }
+
+    /// A failed or timed-out preflight must never leave its connector in the
+    /// reusable cache. Disconnect asynchronously because the same transport
+    /// that ignored operation cancellation may also delay cleanup.
+    private func retireDiagnosticConnector(
+        _ connector: any MusicSourceConnector,
+        sourceID: String
+    ) {
+        if let cached = connectors[sourceID], Self.isSameConnector(cached, connector) {
+            connectors.removeValue(forKey: sourceID)
+            activeConnectionRoutes.removeValue(forKey: sourceID)
+        }
+        Task.detached(priority: .utility) {
+            await connector.disconnect()
+        }
+    }
+
+    private nonisolated static func isSameConnector(
+        _ lhs: any MusicSourceConnector,
+        _ rhs: any MusicSourceConnector
+    ) -> Bool {
+        if let lhs = lhs as? any RoutedConnectorProxy,
+           let rhs = rhs as? any RoutedConnectorProxy {
+            return lhs.routing === rhs.routing
+        }
+        return (lhs as AnyObject) === (rhs as AnyObject)
     }
 
     func scanFailureMessage(for error: Error, source: MusicSource) -> String {
@@ -2007,22 +2038,41 @@ final class SourceManager {
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
+        let race = CancellableResultRace<T>()
+        let operationTask = Task<Void, Never> {
+            do {
+                _ = race.resolve(.success(try await operation()))
+            } catch {
+                _ = race.resolve(.failure(error))
             }
-            group.addTask {
+        }
+        let timeoutTask = Task<Void, Never> {
+            do {
                 let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
                     .finiteUInt64(or: 100_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
-                throw SourceError.timeout
+            } catch {
+                return
             }
+            if race.resolve(.failure(SourceError.timeout)) {
+                operationTask.cancel()
+            }
+        }
 
-            guard let result = try await group.next() else {
-                throw SourceError.timeout
+        return try await withTaskCancellationHandler {
+            defer { timeoutTask.cancel() }
+            return try await withCheckedThrowingContinuation { continuation in
+                race.install(continuation)
+                if Task.isCancelled, race.cancel() {
+                    operationTask.cancel()
+                    timeoutTask.cancel()
+                }
             }
-            group.cancelAll()
-            return result
+        } onCancel: {
+            if race.cancel() {
+                operationTask.cancel()
+                timeoutTask.cancel()
+            }
         }
     }
 

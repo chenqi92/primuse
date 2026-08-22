@@ -46,8 +46,11 @@ actor SFTPSource: MusicSourceConnector {
     }
 
     func connect() async throws {
-        if sftp != nil {
+        if let sftp, sftp.isActive {
             return
+        }
+        if sftp != nil || client != nil {
+            await closeCurrentConnection()
         }
         if let connectTask {
             try await connectTask.value
@@ -151,44 +154,103 @@ actor SFTPSource: MusicSourceConnector {
     func disconnect() async {
         connectTask?.cancel()
         connectTask = nil
-        if let sftp {
-            try? await sftp.close()
-        }
-        if let client {
-            try? await client.close()
-        }
-
-        sftp = nil
-        client = nil
-        rootPath = "/"
+        await closeCurrentConnection()
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        guard let sftp else {
-            throw SourceError.connectionFailed("Not connected")
-        }
+        var completedRetryAttempts = 0
 
-        let remotePath = try resolvedRemotePath(for: path)
-        let listings = try await sftp.listDirectory(atPath: remotePath)
-
-        let allComponents = listings.flatMap { $0.components }
-        return allComponents.compactMap { item -> RemoteFileItem? in
-            guard item.filename != ".", item.filename != ".." else { return nil }
-
-            guard let childPath = RemotePathScopePolicy(rootPath: rootPath)
-                .resolvedPath(forStoredPath: joinedPath(parent: remotePath, child: item.filename)) else {
-                return nil
+        while true {
+            try await connect()
+            guard let sftp else {
+                throw SourceError.connectionFailed("Not connected")
             }
-            let isDir = item.attributes.permissions.map { $0 & 0o40000 != 0 } ?? false
-            return RemoteFileItem(
-                name: item.filename,
-                path: childPath,
-                isDirectory: isDir,
-                size: Int64(item.attributes.size ?? 0),
-                modifiedDate: nil
-            )
+
+            do {
+                let remotePath = try resolvedRemotePath(for: path)
+                let listings = try await sftp.listDirectory(atPath: remotePath)
+                let allComponents = listings.flatMap { $0.components }
+                return allComponents.compactMap { item -> RemoteFileItem? in
+                    guard item.filename != ".", item.filename != ".." else { return nil }
+
+                    guard let childPath = RemotePathScopePolicy(rootPath: rootPath)
+                        .resolvedPath(forStoredPath: joinedPath(parent: remotePath, child: item.filename)) else {
+                        return nil
+                    }
+                    let isDir = item.attributes.permissions.map { $0 & 0o40000 != 0 } ?? false
+                    return RemoteFileItem(
+                        name: item.filename,
+                        path: childPath,
+                        isDirectory: isDir,
+                        size: Int64(item.attributes.size ?? 0),
+                        modifiedDate: nil
+                    )
+                }
+                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    await closeCurrentConnection()
+                    throw CancellationError()
+                }
+
+                let outcome: RemoteDirectoryListingOutcome = Self.isPermanentDirectoryError(error)
+                    ? .permanentFailure
+                    : .retryableFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    await closeCurrentConnection()
+                case .accept:
+                    assertionFailure("A directory error cannot be accepted")
+                    throw Self.connectionError(error)
+                case .fail:
+                    if outcome == .retryableFailure {
+                        await closeCurrentConnection()
+                    }
+                    throw Self.connectionError(error)
+                }
+            }
         }
-        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+
+    private func closeCurrentConnection() async {
+        let staleSFTP = sftp
+        let staleClient = client
+        sftp = nil
+        client = nil
+        rootPath = "/"
+        if let staleSFTP {
+            try? await staleSFTP.close()
+        }
+        if let staleClient {
+            try? await staleClient.close()
+        }
+    }
+
+    private nonisolated static func isPermanentDirectoryError(_ error: Error) -> Bool {
+        if error is SFTPHostKeyMismatch {
+            return true
+        }
+        if let status = error as? SFTPMessage.Status {
+            return status.errorCode == .noSuchFile || status.errorCode == .permissionDenied
+        }
+        if let sshError = error as? NIOSSHError,
+           sshError.type == .keyExchangeNegotiationFailure {
+            return true
+        }
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .authenticationFailed, .credentialUnavailable, .pathNotFound, .fileNotFound:
+                return true
+            case .connectionFailed, .timeout:
+                return false
+            }
+        }
+        return false
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -341,9 +403,11 @@ actor SFTPSource: MusicSourceConnector {
         at path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
         let sidecarIndex = SidecarHintResolver.DirectoryIndex(items)
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory {
                 try await scanDirectory(at: item.path, continuation: continuation)
                 continue

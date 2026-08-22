@@ -699,7 +699,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector {
     }
 }
 
-enum SourceError: Error, LocalizedError {
+enum SourceError: Error, LocalizedError, Sendable {
     case pathNotFound(String)
     case fileNotFound(String)
     case connectionFailed(String)

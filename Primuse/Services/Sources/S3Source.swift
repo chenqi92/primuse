@@ -92,17 +92,61 @@ actor S3Source: MusicSourceConnector {
             components.queryItems = queryItems
             guard let url = components.url else { throw SourceError.connectionFailed("Invalid URL") }
 
-            let (data, http) = try await performDataRequest(url: url, method: "GET")
-            guard http.statusCode == 200 else {
-                throw SourceError.connectionFailed("S3 list failed: \(http.statusCode)")
-            }
-
-            let page = parseListResponse(data: data, prefix: prefix)
+            let page = try await loadListPage(url: url, prefix: prefix)
             items.append(contentsOf: page.items)
             continuationToken = page.isTruncated ? page.nextContinuationToken : nil
         } while continuationToken != nil
 
         return items
+    }
+
+    private func loadListPage(url: URL, prefix: String) async throws -> S3ListPage {
+        var completedRetryAttempts = 0
+
+        while true {
+            do {
+                try Task.checkCancellation()
+                let (data, http) = try await performDataRequest(url: url, method: "GET")
+                switch http.statusCode {
+                case 200:
+                    return try parseListResponse(data: data, prefix: prefix)
+                case 401, 403:
+                    throw SourceError.authenticationFailed
+                case 404:
+                    throw SourceError.pathNotFound(bucket)
+                default:
+                    throw RemoteDirectoryHTTPStatusError(
+                        service: "S3",
+                        statusCode: http.statusCode
+                    )
+                }
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    resetRangeSession()
+                    throw CancellationError()
+                }
+
+                let outcome: RemoteDirectoryListingOutcome = RemoteDirectoryTransportErrorPolicy
+                    .isRetryable(error) ? .retryableFailure : .permanentFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: false
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    resetRangeSession()
+                case .accept:
+                    assertionFailure("An S3 list error cannot be accepted")
+                    throw error
+                case .fail:
+                    if outcome == .retryableFailure {
+                        resetRangeSession()
+                    }
+                    throw error
+                }
+            }
+        }
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -273,6 +317,11 @@ actor S3Source: MusicSourceConnector {
             return (data, http)
         }
         throw SourceError.connectionFailed("S3 clock correction retry failed")
+    }
+
+    private func resetRangeSession() {
+        _rangeSession?.invalidateAndCancel()
+        _rangeSession = nil
     }
 
     private static func rangeResponseLimit(for length: Int64) -> Int {
@@ -446,11 +495,24 @@ actor S3Source: MusicSourceConnector {
         let nextContinuationToken: String?
     }
 
-    private func parseListResponse(data: Data, prefix: String) -> S3ListPage {
+    private func parseListResponse(data: Data, prefix: String) throws -> S3ListPage {
         let parser = S3ListParser(prefix: prefix)
         let xmlParser = XMLParser(data: data)
+        xmlParser.shouldProcessNamespaces = true
         xmlParser.delegate = parser
-        xmlParser.parse()
+        let parsed = xmlParser.parse()
+        guard parser.isStructurallyValid,
+              S3ListResponseValidationPolicy.isValid(
+                xmlParsed: parsed,
+                sawListBucketResult: parser.sawListBucketResult,
+                hasValidIsTruncatedMarker: parser.sawValidIsTruncatedMarker,
+                isTruncated: parser.isTruncated,
+                hasContinuationToken: parser.nextContinuationToken != nil
+              ) else {
+            let detail = xmlParser.parserError?.localizedDescription
+                ?? "incomplete ListBucketResult"
+            throw SourceError.connectionFailed("Invalid S3 list response: \(detail)")
+        }
         return S3ListPage(
             items: parser.items,
             isTruncated: parser.isTruncated,
@@ -488,6 +550,9 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     var items: [RemoteFileItem] = []
     var isTruncated = false
     var nextContinuationToken: String?
+    var sawListBucketResult = false
+    var sawValidIsTruncatedMarker = false
+    var isStructurallyValid = true
 
     private var currentElement = ""
     private var currentKey = ""
@@ -496,16 +561,30 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     private var currentScalar = ""
     private var inContents = false
     private var inCommonPrefix = false
+    private var depth = 0
 
     init(prefix: String) {
         self.prefix = prefix
     }
 
     func parser(_ parser: XMLParser, didStartElement element: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String] = [:]) {
+        if depth == 0, element == "ListBucketResult" {
+            sawListBucketResult = true
+        }
+        depth += 1
         currentElement = element
         currentScalar = ""
-        if element == "Contents" { inContents = true; currentKey = ""; currentSize = 0 }
-        if element == "CommonPrefixes" { inCommonPrefix = true; currentPrefix = "" }
+        if element == "Contents" {
+            if inContents { isStructurallyValid = false }
+            inContents = true
+            currentKey = ""
+            currentSize = 0
+        }
+        if element == "CommonPrefixes" {
+            if inCommonPrefix { isStructurallyValid = false }
+            inCommonPrefix = true
+            currentPrefix = ""
+        }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -526,19 +605,39 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didEndElement element: String, namespaceURI: String?, qualifiedName: String?) {
+        defer { depth = max(0, depth - 1) }
         let scalar = currentScalar.trimmingCharacters(in: .whitespacesAndNewlines)
         if element == "Size" { currentSize = Int64(scalar) ?? 0 }
-        if element == "IsTruncated" { isTruncated = scalar.lowercased() == "true" }
+        if element == "IsTruncated" {
+            switch scalar.lowercased() {
+            case "true":
+                isTruncated = true
+                sawValidIsTruncatedMarker = true
+            case "false":
+                isTruncated = false
+                sawValidIsTruncatedMarker = true
+            default:
+                isStructurallyValid = false
+            }
+        }
         if element == "NextContinuationToken" { nextContinuationToken = scalar.isEmpty ? nil : scalar }
-        if element == "Contents" && !currentKey.isEmpty {
-            let name = (currentKey as NSString).lastPathComponent
-            items.append(RemoteFileItem(name: name, path: currentKey, isDirectory: false, size: currentSize, modifiedDate: nil))
+        if element == "Contents" {
+            if currentKey.isEmpty {
+                isStructurallyValid = false
+            } else {
+                let name = (currentKey as NSString).lastPathComponent
+                items.append(RemoteFileItem(name: name, path: currentKey, isDirectory: false, size: currentSize, modifiedDate: nil))
+            }
             inContents = false
         }
-        if element == "CommonPrefixes" && !currentPrefix.isEmpty {
-            let trimmedPrefix = currentPrefix.hasSuffix("/") ? String(currentPrefix.dropLast()) : currentPrefix
-            let name = (trimmedPrefix as NSString).lastPathComponent
-            items.append(RemoteFileItem(name: name, path: currentPrefix, isDirectory: true, size: 0, modifiedDate: nil))
+        if element == "CommonPrefixes" {
+            if currentPrefix.isEmpty {
+                isStructurallyValid = false
+            } else {
+                let trimmedPrefix = currentPrefix.hasSuffix("/") ? String(currentPrefix.dropLast()) : currentPrefix
+                let name = (trimmedPrefix as NSString).lastPathComponent
+                items.append(RemoteFileItem(name: name, path: currentPrefix, isDirectory: true, size: 0, modifiedDate: nil))
+            }
             inCommonPrefix = false
         }
     }

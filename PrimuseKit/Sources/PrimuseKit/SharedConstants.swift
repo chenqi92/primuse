@@ -2573,6 +2573,69 @@ public enum CloudHTTPRetryPolicy {
     }
 }
 
+public enum RemoteDirectoryListingOutcome: Equatable, Sendable {
+    case populated
+    case empty
+    case retryableFailure
+    case permanentFailure
+}
+
+public enum RemoteDirectoryRecoveryDecision: Equatable, Sendable {
+    case accept
+    case retryFreshConnection
+    case fail
+}
+
+/// Keeps directory recovery bounded and makes protocols explicitly opt into
+/// confirming an ambiguous empty response on a fresh transport. A protocol-
+/// validated empty listing (for example WebDAV XML containing the directory's
+/// own response) remains a normal success.
+public enum RemoteDirectoryRecoveryPolicy {
+    public static let maximumRetryAttempts = 1
+
+    public static func decision(
+        outcome: RemoteDirectoryListingOutcome,
+        completedRetryAttempts: Int,
+        emptyNeedsFreshConfirmation: Bool
+    ) -> RemoteDirectoryRecoveryDecision {
+        switch outcome {
+        case .populated:
+            return .accept
+        case .empty:
+            guard emptyNeedsFreshConfirmation,
+                  completedRetryAttempts < maximumRetryAttempts else {
+                return .accept
+            }
+            return .retryFreshConnection
+        case .retryableFailure:
+            return completedRetryAttempts < maximumRetryAttempts
+                ? .retryFreshConnection
+                : .fail
+        case .permanentFailure:
+            return .fail
+        }
+    }
+}
+
+/// ListObjectsV2 may legitimately contain no objects, but it must still be a
+/// complete, well-formed ListBucketResult. A truncated page without a token is
+/// never authoritative because accepting it can turn missing pages into song
+/// deletions during reconciliation.
+public enum S3ListResponseValidationPolicy {
+    public static func isValid(
+        xmlParsed: Bool,
+        sawListBucketResult: Bool,
+        hasValidIsTruncatedMarker: Bool,
+        isTruncated: Bool,
+        hasContinuationToken: Bool
+    ) -> Bool {
+        guard xmlParsed, sawListBucketResult, hasValidIsTruncatedMarker else {
+            return false
+        }
+        return !isTruncated || hasContinuationToken
+    }
+}
+
 /// Decides whether an SMB transport failure should discard the current
 /// session and repeat the operation on a fresh connection.
 public enum SMBConnectionRecoveryPolicy {

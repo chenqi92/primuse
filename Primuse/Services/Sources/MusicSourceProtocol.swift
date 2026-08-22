@@ -335,6 +335,43 @@ protocol MusicSourceConnector: Sendable {
     func prefetchMetadata(paths: [String]) async
 }
 
+struct RemoteDirectoryHTTPStatusError: Error, LocalizedError, Sendable {
+    let service: String
+    let statusCode: Int
+
+    var errorDescription: String? {
+        "\(service) directory request failed: HTTP \(statusCode)"
+    }
+}
+
+enum RemoteDirectoryTransportErrorPolicy {
+    static func isRetryable(_ error: Error) -> Bool {
+        if OperationCancellationPolicy.isCancellation(error) { return false }
+        if let status = error as? RemoteDirectoryHTTPStatusError {
+            return CloudHTTPRetryPolicy.shouldRetry(statusCode: status.statusCode)
+        }
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .connectionFailed, .timeout:
+                return true
+            case .authenticationFailed, .credentialUnavailable, .pathNotFound, .fileNotFound:
+                return false
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code)
+        }
+        if nsError.domain == NSPOSIXErrorDomain {
+            return [
+                Int(ECONNRESET), Int(EPIPE), Int(ENOTCONN), Int(ETIMEDOUT),
+                Int(ENETRESET), Int(ECONNABORTED),
+            ].contains(nsError.code)
+        }
+        return false
+    }
+}
+
 struct LyricsSidecarTarget: Sendable, Equatable {
     let targetPath: String
     let fileName: String

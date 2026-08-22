@@ -94,6 +94,33 @@ private final class FTPRequestBox<Value: Sendable>: @unchecked Sendable {
     }
 }
 
+/// Directory enumeration reuses the source provider, so successful completion
+/// must not tear its session down. It still needs the same exactly-once and
+/// cancellation guarantees as isolated transfer requests.
+private final class FTPDirectoryRequestBox: @unchecked Sendable {
+    let provider: FTPFileProvider
+    private let race = CancellableResultRace<[RemoteFileItem]>()
+
+    init(provider: FTPFileProvider) {
+        self.provider = provider
+        _ = provider.session
+    }
+
+    func install(_ continuation: CheckedContinuation<[RemoteFileItem], any Error>) {
+        race.install(continuation)
+    }
+
+    @discardableResult
+    func resolve(_ result: Result<[RemoteFileItem], any Error>) -> Bool {
+        race.resolve(result)
+    }
+
+    func cancel() {
+        provider.session.invalidateAndCancel()
+        _ = race.cancel()
+    }
+}
+
 private func ftpLocalFileSize(at url: URL) -> Int64? {
     guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
           let size = attributes[.size] as? NSNumber else {
@@ -286,16 +313,7 @@ actor FTPSource: MusicSourceConnector {
     }
 
     func disconnect() async {
-        let disconnectedProvider = provider
-        let disconnectedGeneration = connectionGeneration
-        provider = nil
-        connectionGeneration = nil
-        if let disconnectedGeneration {
-            _ = activeRequests.close(disconnectedGeneration)
-        }
-        disconnectedProvider?.session.invalidateAndCancel()
-        // A reconnect may observe files changed by another FTP client.
-        fileSizeCache.removeAll(keepingCapacity: true)
+        invalidateConnectionState()
     }
 
     private func makeProvider() throws -> FTPFileProvider {
@@ -336,44 +354,166 @@ actor FTPSource: MusicSourceConnector {
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        guard let provider else { throw SourceError.connectionFailed("Not connected") }
-        let pathPolicy = self.pathPolicy
-        let providerDirectoryPath = pathPolicy.providerPath(forSourcePath: path)
+        var completedRetryAttempts = 0
 
-        let items: [RemoteFileItem] = try await withCheckedThrowingContinuation { continuation in
-            provider.contentsOfDirectory(path: providerDirectoryPath) { contents, error in
-                if let error {
-                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
-                    return
+        while true {
+            guard let currentProvider = provider else {
+                throw SourceError.connectionFailed("Not connected")
+            }
+
+            do {
+                let items = try await rawListFiles(at: path, provider: currentProvider)
+                let outcome: RemoteDirectoryListingOutcome = items.isEmpty ? .empty : .populated
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    // FilesProvider can report a zero-byte LIST data channel as
+                    // a successful empty array. Confirm emptiness independently.
+                    emptyNeedsFreshConfirmation: true
+                ) {
+                case .accept:
+                    for item in items where !item.isDirectory && item.size >= 0 {
+                        fileSizeCache[fileSizeCacheKey(for: item.path)] = item.size
+                    }
+                    return items
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    try replaceDirectoryProvider(currentProvider)
+                case .fail:
+                    invalidateConnectionState()
+                    throw SourceError.connectionFailed("FTP directory listing failed")
+                }
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) {
+                    invalidateConnectionState()
+                    throw CancellationError()
                 }
 
-                let items = contents
-                    .filter { !$0.name.hasPrefix(".") }
-                    .compactMap { file -> RemoteFileItem? in
-                        guard let sourcePath = pathPolicy.sourcePath(
-                            forProviderPath: file.path
-                        ) else {
-                            return nil
-                        }
-                        return RemoteFileItem(
-                            name: file.name,
-                            path: sourcePath,
-                            isDirectory: file.isDirectory,
-                            size: file.size,
-                            modifiedDate: file.modifiedDate
-                        )
+                let outcome: RemoteDirectoryListingOutcome = Self.isPermanentDirectoryError(error)
+                    ? .permanentFailure
+                    : .retryableFailure
+                switch RemoteDirectoryRecoveryPolicy.decision(
+                    outcome: outcome,
+                    completedRetryAttempts: completedRetryAttempts,
+                    emptyNeedsFreshConfirmation: true
+                ) {
+                case .retryFreshConnection:
+                    completedRetryAttempts += 1
+                    try replaceDirectoryProvider(currentProvider)
+                case .accept:
+                    assertionFailure("A directory error cannot be accepted")
+                    invalidateConnectionState()
+                    throw SourceError.connectionFailed(error.localizedDescription)
+                case .fail:
+                    invalidateConnectionState()
+                    if let ftpError = error as? FileProviderFTPError,
+                       ftpError.code == 530 || ftpError.code == 532 {
+                        throw SourceError.authenticationFailed
                     }
-                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-
-                continuation.resume(returning: items)
+                    throw SourceError.connectionFailed(error.localizedDescription)
+                }
             }
         }
-        // The FilesProvider callback is outside this actor. Populate the cache
-        // only after the continuation resumes on the actor executor.
-        for item in items where !item.isDirectory && item.size >= 0 {
-            fileSizeCache[fileSizeCacheKey(for: item.path)] = item.size
+    }
+
+    private func rawListFiles(
+        at path: String,
+        provider: FTPFileProvider
+    ) async throws -> [RemoteFileItem] {
+        let pathPolicy = self.pathPolicy
+        let providerDirectoryPath = pathPolicy.providerPath(forSourcePath: path)
+        let request = FTPDirectoryRequestBox(provider: provider)
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                request.install(continuation)
+                guard !Task.isCancelled else {
+                    request.cancel()
+                    return
+                }
+                provider.contentsOfDirectory(path: providerDirectoryPath) { contents, error in
+                    if let error {
+                        request.resolve(.failure(error))
+                        return
+                    }
+
+                    let items = contents
+                        .filter { !$0.name.hasPrefix(".") }
+                        .compactMap { file -> RemoteFileItem? in
+                            guard let sourcePath = pathPolicy.sourcePath(
+                                forProviderPath: file.path
+                            ) else {
+                                return nil
+                            }
+                            return RemoteFileItem(
+                                name: file.name,
+                                path: sourcePath,
+                                isDirectory: file.isDirectory,
+                                size: file.size,
+                                modifiedDate: file.modifiedDate
+                            )
+                        }
+                        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+                    request.resolve(.success(items))
+                }
+            }
+        } onCancel: {
+            request.cancel()
         }
-        return items
+    }
+
+    private func replaceDirectoryProvider(_ failedProvider: FTPFileProvider) throws {
+        if provider === failedProvider {
+            provider = nil
+        }
+        failedProvider.session.invalidateAndCancel()
+        do {
+            provider = try makeProvider()
+        } catch {
+            // Do not leave an open connection generation pointing at a nil
+            // provider when rebuilding the transport itself fails.
+            invalidateConnectionState()
+            throw error
+        }
+    }
+
+    private func invalidateConnectionState() {
+        let disconnectedProvider = provider
+        let disconnectedGeneration = connectionGeneration
+        provider = nil
+        connectionGeneration = nil
+        if let disconnectedGeneration {
+            _ = activeRequests.close(disconnectedGeneration)
+        }
+        disconnectedProvider?.session.invalidateAndCancel()
+        fileSizeCache.removeAll(keepingCapacity: true)
+    }
+
+    private nonisolated static func isPermanentDirectoryError(_ error: Error) -> Bool {
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .authenticationFailed, .credentialUnavailable, .pathNotFound, .fileNotFound:
+                return true
+            case .connectionFailed, .timeout:
+                return false
+            }
+        }
+        if let ftpError = error as? FileProviderFTPError {
+            return [530, 532, 550, 553].contains(ftpError.code)
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain {
+            return [Int(EACCES), Int(EPERM), Int(ENOENT)].contains(nsError.code)
+        }
+        if nsError.domain == NSURLErrorDomain {
+            return [
+                NSURLErrorUserAuthenticationRequired,
+                NSURLErrorUserCancelledAuthentication,
+                NSURLErrorNoPermissionsToReadFile,
+                NSURLErrorFileDoesNotExist,
+            ].contains(nsError.code)
+        }
+        return false
     }
 
     /// 缓存文件名用 path 的 SHA256 哈希: 朴素地把 '/' 换 '_' 会让 "/A/B.mp3" 与
