@@ -24,16 +24,38 @@ struct SendToTVSheet: View {
     /// 局域网直传不依赖 iCloud;仅旧的 iCloud 上传模式才需要开关开启。
     private var blocked: Bool { lanTarget == nil && !iCloudSyncEnabled }
 
+    @ViewBuilder
     var body: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            macHeader
+            Divider()
+            panel
+        }
+        .frame(minWidth: 460, idealWidth: 520, minHeight: 500, idealHeight: 580)
+        #else
         NavigationStack {
-            VStack(spacing: 20) {
+            panel
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("done") { dismiss() }
+                    }
+                }
+        }
+        #endif
+    }
+
+    private var panel: some View {
+        VStack(spacing: 20) {
                 Spacer(minLength: 8)
 
                 Image(systemName: "appletv.fill")
                     .font(.system(size: 54))
                     .foregroundStyle(.tint)
+                #if !os(macOS)
                 Text("send_to_tv_title")
                     .font(.title2.weight(.bold))
+                #endif
                 Text(lanTarget == nil ? "send_to_tv_message" : "send_to_tv_lan_message")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -112,11 +134,6 @@ struct SendToTVSheet: View {
                 Spacer()
             }
             .padding(24)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") { dismiss() }
-                }
-            }
             .sheet(isPresented: $showAddSource) {
                 SourceTypeSelectionView { source in
                     if source.type == .local,
@@ -127,8 +144,23 @@ struct SendToTVSheet: View {
                     }
                 }
             }
-        }
     }
+
+    #if os(macOS)
+    private var macHeader: some View {
+        HStack(spacing: 12) {
+            Text("send_to_tv_title")
+                .font(.system(size: 13.5, weight: .semibold))
+            Spacer()
+            Button("done") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier("sendToTVDone")
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+    }
+    #endif
 
     private func send() {
         guard !sending else { return }

@@ -16,6 +16,7 @@ struct MacDetailContainer: View {
         NavigationStack(path: $path) {
             content
                 .id(route.stableID)
+                .navigationBarBackButtonHidden(true)
                 .transaction { transaction in
                     transaction.animation = nil
                 }
@@ -27,7 +28,17 @@ struct MacDetailContainer: View {
                     ArtistDetailView(artist: artist, onMacInlineBack: popDetail)
                         .navigationBarBackButtonHidden(true)
                 }
-                .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
+                .navigationDestination(for: Playlist.self) { playlist in
+                    PlaylistDetailView(playlist: playlist, onMacInlineBack: popDetail)
+                        .navigationBarBackButtonHidden(true)
+                }
+                .navigationDestination(for: SmartPlaylist.self) { smart in
+                    SmartPlaylistDetailView(
+                        smartPlaylistID: smart.id,
+                        onMacInlineBack: popDetail
+                    )
+                    .navigationBarBackButtonHidden(true)
+                }
                 // 隐藏 NavigationStack 顶部的原生 toolbar 区域 — 我们用 PMTitleBar
                 // 自定义了全局 titlebar, 子视图里的 .toolbar/.searchable 不应再
                 // 叠出第二条系统 bar (会出现 "搜索歌曲" + 排序按钮悬空在最顶)。

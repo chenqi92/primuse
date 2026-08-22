@@ -578,18 +578,32 @@ private struct OnboardingAddSourceCoverModifier: ViewModifier {
         #endif
     }
 
+    @ViewBuilder
     private var sheetContent: some View {
-        NavigationStack {
-            SourceTypeSelectionView { source in
-                if source.type == .local,
-                   source.id == LocalImportService.existingSourceID {
-                    try AppServices.shared.sourcesStore.addDurably(source)
-                } else {
-                    AppServices.shared.sourcesStore.add(source)
+        #if os(macOS)
+        addSourceContent
+            .overlay(alignment: .topTrailing) {
+                Button(String(localized: "skip")) {
+                    presentAddSource = false
+                    finish()
                 }
-                presentAddSource = false
-                finish()
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PMColor.textMuted)
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+                .padding(.top, 14)
+                .padding(.trailing, 18)
+                .accessibilityIdentifier("onboardingAddSourceSkip")
             }
+        #else
+        NavigationStack {
+            addSourceContent
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "skip")) {
@@ -598,6 +612,20 @@ private struct OnboardingAddSourceCoverModifier: ViewModifier {
                     }
                 }
             }
+        }
+        #endif
+    }
+
+    private var addSourceContent: some View {
+        SourceTypeSelectionView { source in
+            if source.type == .local,
+               source.id == LocalImportService.existingSourceID {
+                try AppServices.shared.sourcesStore.addDurably(source)
+            } else {
+                AppServices.shared.sourcesStore.add(source)
+            }
+            presentAddSource = false
+            finish()
         }
     }
 }

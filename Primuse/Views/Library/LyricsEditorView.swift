@@ -2070,19 +2070,29 @@ struct LyricsEditorView: View {
     }
     #else
     private var sourceEditorSheet: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text(String(localized: "lyrics_editor_mode_source"))
+                    .font(.system(size: 13.5, weight: .semibold))
+                Spacer()
+                Button(String(localized: "cancel")) { showSourceEditor = false }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("lyricsSourceEditorCancel")
+                Button(String(localized: "done")) { applySourceEditor() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("lyricsSourceEditorDone")
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 56)
+
+            Divider()
             TextEditor(text: $sourceText)
                 .font(.system(size: 12, design: .monospaced))
                 .padding(.horizontal, 8)
-                .navigationTitle(String(localized: "lyrics_editor_mode_source"))
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "cancel")) { showSourceEditor = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(String(localized: "done")) { applySourceEditor() }
-                    }
-                }
         }
         .frame(width: 560, height: 620)
     }

@@ -67,6 +67,38 @@ private struct NFSDirectoryBrowserView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        MacDirTreeBrowser(
+            title: String(
+                format: String(localized: "browse_source_format"),
+                source.type.displayName,
+                source.name
+            ),
+            subtitle: macConnectionString,
+            rootTitle: source.exportPath ?? source.name,
+            selectedDirectories: $selectedDirectories,
+            load: { path in
+                try await connector.connect()
+                return try await connector.listFiles(at: path)
+            },
+            rootPath: initialPath,
+            selectableRootPath: initialPath == "/" ? nil : initialPath
+        )
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macConnectionString: String {
+        let host = source.host ?? ""
+        guard !host.isEmpty else { return source.name }
+        let exportPath = source.exportPath ?? ""
+        guard !exportPath.isEmpty else { return "nfs://\(host)" }
+        return "nfs://\(host)\(exportPath.hasPrefix("/") ? exportPath : "/\(exportPath)")"
+    }
+    #else
+    private var iosBody: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 DirectoryBreadcrumb(
@@ -127,6 +159,7 @@ private struct NFSDirectoryBrowserView: View {
             loadDirectory()
         }
     }
+    #endif
 
     private var directoryList: some View {
         let directories = items.filter(\.isDirectory)

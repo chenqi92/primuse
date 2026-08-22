@@ -173,15 +173,19 @@ struct AlbumDetailView: View {
                     subtitle: albumSubtitle,
                     iconSystemName: "square.stack.fill",
                     coverAlbum: album,
+                    onBack: onMacInlineBack.map { onBack in
+                        {
+                            selection.deactivate()
+                            onBack()
+                        }
+                    },
+                    backAccessibilityIdentifier: "albumInlineBack",
                     onPlay: { playAll() },
                     onShuffle: shuffleAll,
                     moreMenu: albumMoreMenu
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
-                    if let onMacInlineBack {
-                        inlineNavigationBar(onBack: onMacInlineBack)
-                    }
                     albumInfoCard
                     macToolbar
 
@@ -204,43 +208,6 @@ struct AlbumDetailView: View {
         }
         .background(PMColor.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func inlineNavigationBar(onBack: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                selection.deactivate()
-                onBack()
-            } label: {
-                Label("tab_albums", systemImage: "chevron.left")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .padding(.horizontal, 11)
-                    .frame(height: 28)
-                    .background(PMColor.glassBtn, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("albumInlineBack")
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(PMColor.textFaint)
-                .accessibilityHidden(true)
-
-            Text(album.title)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-                .lineLimit(1)
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 48)
-        .background(PMColor.card, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
     }
 
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 离线 / 前往艺术家。

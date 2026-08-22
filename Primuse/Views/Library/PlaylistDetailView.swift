@@ -15,6 +15,12 @@ struct PlaylistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     let playlist: Playlist
+    private let onMacInlineBack: (() -> Void)?
+
+    init(playlist: Playlist, onMacInlineBack: (() -> Void)? = nil) {
+        self.playlist = playlist
+        self.onMacInlineBack = onMacInlineBack
+    }
 
     @State private var exportShareItem: ExportShareItem?
     @State private var exportError: String?
@@ -434,6 +440,13 @@ struct PlaylistDetailView: View {
                     subtitle: playlistSubtitle,
                     iconSystemName: coverPlaceholderIcon,
                     coverPlaylist: currentPlaylist ?? playlist,
+                    onBack: onMacInlineBack.map { onBack in
+                        {
+                            selection.deactivate()
+                            onBack()
+                        }
+                    },
+                    backAccessibilityIdentifier: "playlistInlineBack",
                     onPlay: { playAll() },
                     onShuffle: {
                         playAll(shuffled: true)

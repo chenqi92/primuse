@@ -4685,18 +4685,6 @@ private struct MacLicensesPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                if selected != nil {
-                    Button {
-                        selected = nil
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PMColor.textMuted)
-                            .frame(width: 26, height: 26)
-                            .background(PMColor.glassBtn, in: .circle)
-                    }
-                    .buttonStyle(.plain)
-                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(verbatim: selected?.name ?? Lz("Open-Source Licenses"))
                         .font(.system(size: 13.5, weight: .semibold))
@@ -4706,6 +4694,21 @@ private struct MacLicensesPanel: View {
                         .foregroundStyle(PMColor.textMuted)
                 }
                 Spacer()
+                if selected != nil {
+                    Button {
+                        selected = nil
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PMColor.textMuted)
+                            .frame(width: 26, height: 26)
+                            .background(PMColor.glassBtn, in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text("back_to_options"))
+                    .accessibilityLabel(Text("back_to_options"))
+                    .accessibilityIdentifier("licensesInlineBack")
+                }
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))

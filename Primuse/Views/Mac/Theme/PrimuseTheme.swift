@@ -540,7 +540,7 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.toolbar = nil
+        suppressInjectedToolbar(in: window)
         window.backgroundColor = .clear
 
         coordinator.observe(window: window)
@@ -550,8 +550,18 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         // title-bar container present but fully transparent.
         DispatchQueue.main.async { [weak window] in
             guard let window else { return }
+            suppressInjectedToolbar(in: window)
             revealStandardWindowButtonContainer(in: window)
         }
+    }
+
+    /// A macOS NavigationStack may install its history control after the host
+    /// view's first update, recreating a top-leading back button even though
+    /// this window uses fully custom chrome. Reassert the window contract when
+    /// AppKit reports an update; assigning only when needed avoids a loop.
+    private static func suppressInjectedToolbar(in window: NSWindow) {
+        guard window.toolbar != nil else { return }
+        window.toolbar = nil
     }
 
     private static func revealStandardWindowButtonContainer(in window: NSWindow) {
@@ -601,6 +611,7 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
 
         @objc private func windowDidUpdate(_ notification: Notification) {
             guard let window else { return }
+            PMWindowChromeConfigurator.suppressInjectedToolbar(in: window)
             PMWindowChromeConfigurator.revealStandardWindowButtonContainer(in: window)
         }
 

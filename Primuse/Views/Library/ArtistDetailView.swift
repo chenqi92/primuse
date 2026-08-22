@@ -98,10 +98,6 @@ struct ArtistDetailView: View {
                 macHero
 
                 VStack(alignment: .leading, spacing: 24) {
-                    if let onMacInlineBack {
-                        inlineNavigationBar(onBack: onMacInlineBack)
-                    }
-
                     if albums.isEmpty && songs.isEmpty {
                         EmptyStateView(
                             titleKey: "no_songs",
@@ -138,47 +134,17 @@ struct ArtistDetailView: View {
             coverArtist: artist,
             accent: Color(red: 0.78, green: 0.43, blue: 0.34),
             darkAccent: Color(red: 0.18, green: 0.13, blue: 0.20),
+            onBack: onMacInlineBack.map { onBack in
+                {
+                    selection.deactivate()
+                    onBack()
+                }
+            },
+            backAccessibilityIdentifier: "artistInlineBack",
             onPlay: { playAll() },
             onShuffle: shuffleAll,
             showsMoreButton: false
         )
-    }
-
-    private func inlineNavigationBar(onBack: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                selection.deactivate()
-                onBack()
-            } label: {
-                Label("tab_artists", systemImage: "chevron.left")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .padding(.horizontal, 11)
-                    .frame(height: 28)
-                    .background(PMColor.glassBtn, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("artistInlineBack")
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(PMColor.textFaint)
-                .accessibilityHidden(true)
-
-            Text(displayArtistName)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-                .lineLimit(1)
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 48)
-        .background(PMColor.card, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
     }
 
     private var macTopSongs: some View {

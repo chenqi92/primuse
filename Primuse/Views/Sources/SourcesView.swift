@@ -1855,30 +1855,46 @@ struct SourceDiagnosticsView: View {
     @State private var report: SourceDiagnosticReport?
     @State private var isRunning = false
 
+    @ViewBuilder
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    if isRunning {
-                        HStack(spacing: 12) {
-                            ProgressView()
-                            Text("source_diag_running")
-                                .font(.body)
-                        }
-                        .padding(.vertical, 4)
-                    } else if let report {
-                        summaryRow(report)
-                    }
+        #if os(macOS)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("source_diagnostics")
+                        .font(.system(size: 13.5, weight: .semibold))
+                    Text(source.name)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                Spacer()
+                Button {
+                    Task { await runDiagnostics() }
+                } label: {
+                    Label("source_diag_run_again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isRunning)
+                .accessibilityIdentifier("sourceDiagnosticsRunAgain")
 
-                if let report {
-                    Section("source_diag_checks") {
-                        ForEach(report.checks) { check in
-                            diagnosticRow(check)
-                        }
-                    }
-                }
+                Button("done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("sourceDiagnosticsDone")
             }
+            .padding(.horizontal, 18)
+            .frame(height: 56)
+
+            Divider()
+            diagnosticsList
+        }
+        .frame(minWidth: 560, idealWidth: 620, minHeight: 460, idealHeight: 540)
+        #else
+        NavigationStack {
+            diagnosticsList
             .navigationTitle("source_diagnostics")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
@@ -1894,14 +1910,40 @@ struct SourceDiagnosticsView: View {
                     .disabled(isRunning)
                 }
             }
-            .task {
-                if report == nil {
-                    await runDiagnostics()
+        }
+        #endif
+    }
+
+    private var diagnosticsList: some View {
+        List {
+            Section {
+                if isRunning {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("source_diag_running")
+                            .font(.body)
+                    }
+                    .padding(.vertical, 4)
+                } else if let report {
+                    summaryRow(report)
                 }
             }
-            .refreshable {
+
+            if let report {
+                Section("source_diag_checks") {
+                    ForEach(report.checks) { check in
+                        diagnosticRow(check)
+                    }
+                }
+            }
+        }
+        .task {
+            if report == nil {
                 await runDiagnostics()
             }
+        }
+        .refreshable {
+            await runDiagnostics()
         }
     }
 

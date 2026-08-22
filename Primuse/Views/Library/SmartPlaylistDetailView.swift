@@ -6,6 +6,12 @@ import PrimuseKit
 struct SmartPlaylistDetailView: View {
     /// 用 ID 查找而不是直接持值, 让规则编辑后 detail 能跟着 library 状态刷新。
     let smartPlaylistID: String
+    private let onMacInlineBack: (() -> Void)?
+
+    init(smartPlaylistID: String, onMacInlineBack: (() -> Void)? = nil) {
+        self.smartPlaylistID = smartPlaylistID
+        self.onMacInlineBack = onMacInlineBack
+    }
 
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -212,6 +218,8 @@ struct SmartPlaylistDetailView: View {
             coverSong: matched.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? matched.first,
             accent: Color(red: 0.62, green: 0.44, blue: 0.90),
             darkAccent: Color(red: 0.22, green: 0.24, blue: 0.42),
+            onBack: onMacInlineBack,
+            backAccessibilityIdentifier: "smartPlaylistInlineBack",
             onPlay: { playAll() },
             onShuffle: {
                 playAll(shuffled: true)

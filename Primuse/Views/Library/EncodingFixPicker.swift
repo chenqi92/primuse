@@ -16,28 +16,48 @@ struct EncodingFixPicker: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    @ViewBuilder
     var body: some View {
-        NavigationStack {
-            Group {
-                if fixes.isEmpty {
-                    emptyState
-                } else {
-                    fixList
-                }
+        #if os(macOS)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text(String(localized: "encoding_fix_title"))
+                    .font(.system(size: 13.5, weight: .semibold))
+                Spacer()
+                Button(String(localized: "cancel")) { dismiss() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("encodingFixPickerClose")
             }
+            .padding(.horizontal, 18)
+            .frame(height: 56)
+
+            Divider()
+            pickerContent
+        }
+        .frame(width: 460, height: 520)
+        #else
+        NavigationStack {
+            pickerContent
             .navigationTitle(String(localized: "encoding_fix_title"))
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "cancel")) { dismiss() }
                 }
             }
         }
-        #if os(macOS)
-        .frame(width: 460, height: 520)
         #endif
+    }
+
+    @ViewBuilder
+    private var pickerContent: some View {
+        if fixes.isEmpty {
+            emptyState
+        } else {
+            fixList
+        }
     }
 
     private var emptyState: some View {

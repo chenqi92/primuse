@@ -54,6 +54,7 @@ struct MacHomeView: View {
     // (searchRevision)或播放历史变化时重算一次, 跟 iOS HomeView / MacSimilarSongsPopover
     // 一致。
     @State private var derived = DerivedSnapshot()
+    @State private var activeSection: HomeSectionDestination?
     // 合并 searchRevision 风暴 —— MusicLibrary 在扫描的每个 upsert 批次都 bump
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
     // 一次 revision 落定后重算。
@@ -78,41 +79,14 @@ struct MacHomeView: View {
 
     private var hasContent: Bool { derived.songCount > 0 }
 
+    @ViewBuilder
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: PMSpace.xxl) {
-                if updateChecker.availableUpdate != nil {
-                    updateBanner
-                }
-
-                heroSection
-                if showRadio,
-                   player.isLiveRadio,
-                   let currentStation = player.currentRadioStation {
-                    radioNowPlayingStrip(currentStation)
-                }
-
-                if hasContent {
-                    statsRow
-                    pipelineSection
-                    recentlyAddedSection
-                    recentlyPlayedSection
-                    if showRadio, !radioStationsStore.stations.isEmpty {
-                        radioSpotlightSection
-                    }
-                    if !derived.artists.isEmpty {
-                        artistsSection
-                    }
-                } else {
-                    emptyState
-                    if showRadio, !radioStationsStore.stations.isEmpty {
-                        radioSpotlightSection
-                    }
-                }
+        Group {
+            if let activeSection {
+                sectionDestination(activeSection)
+            } else {
+                dashboard
             }
-            .padding(.horizontal, PMSpace.xxxl)
-            .padding(.top, PMSpace.l24)
-            .padding(.bottom, 104)
         }
         .background(PMColor.bg.ignoresSafeArea())
         .background {
@@ -147,6 +121,44 @@ struct MacHomeView: View {
                 format: String(localized: "insecure_http_warning_message %@"),
                 pendingInsecureStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
             ))
+        }
+    }
+
+    private var dashboard: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: PMSpace.xxl) {
+                if updateChecker.availableUpdate != nil {
+                    updateBanner
+                }
+
+                heroSection
+                if showRadio,
+                   player.isLiveRadio,
+                   let currentStation = player.currentRadioStation {
+                    radioNowPlayingStrip(currentStation)
+                }
+
+                if hasContent {
+                    statsRow
+                    pipelineSection
+                    recentlyAddedSection
+                    recentlyPlayedSection
+                    if showRadio, !radioStationsStore.stations.isEmpty {
+                        radioSpotlightSection
+                    }
+                    if !derived.artists.isEmpty {
+                        artistsSection
+                    }
+                } else {
+                    emptyState
+                    if showRadio, !radioStationsStore.stations.isEmpty {
+                        radioSpotlightSection
+                    }
+                }
+            }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.top, PMSpace.l24)
+            .padding(.bottom, 104)
         }
     }
 
@@ -1129,8 +1141,10 @@ struct MacHomeView: View {
             }
             Spacer()
             if let destination {
-                NavigationLink {
-                    sectionDestination(destination)
+                Button {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        activeSection = destination
+                    }
                 } label: {
                     HStack(spacing: 3) {
                         Text("home_section_view_all")
@@ -1151,18 +1165,15 @@ struct MacHomeView: View {
     private func sectionDestination(_ destination: HomeSectionDestination) -> some View {
         switch destination {
         case .recentlyAdded:
-            recentlyAddedAllView
-                .navigationTitle("recently_added")
+            recentlyAddedAllView(onBack: closeSection)
         case .recentlyPlayed:
-            recentlyPlayedAllView
-                .navigationTitle("recently_played")
+            recentlyPlayedAllView(onBack: closeSection)
         case .artists:
-            ArtistListView(artists: derived.artists)
-                .navigationTitle("tab_artists")
+            artistsAllView(onBack: closeSection)
         }
     }
 
-    private var recentlyAddedAllView: some View {
+    private func recentlyAddedAllView(onBack: @escaping () -> Void) -> some View {
         let albums = derived.recentlyAddedAlbums
 
         return ScrollView(.vertical, showsIndicators: false) {
@@ -1170,7 +1181,8 @@ struct MacHomeView: View {
                 homeCollectionHeader(
                     eyebrow: "library_title",
                     title: "recently_added",
-                    detail: "\(albums.count) \(String(localized: "albums_count"))"
+                    detail: "\(albums.count) \(String(localized: "albums_count"))",
+                    onBack: onBack
                 )
 
                 LazyVGrid(
@@ -1191,9 +1203,10 @@ struct MacHomeView: View {
             .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
     }
 
-    private var recentlyPlayedAllView: some View {
+    private func recentlyPlayedAllView(onBack: @escaping () -> Void) -> some View {
         let songs = derived.recentSongs
 
         return ScrollView(.vertical, showsIndicators: false) {
@@ -1201,7 +1214,8 @@ struct MacHomeView: View {
                 homeCollectionHeader(
                     eyebrow: "library_title",
                     title: "recently_played",
-                    detail: "\(songs.count) \(String(localized: "songs_count"))"
+                    detail: "\(songs.count) \(String(localized: "songs_count"))",
+                    onBack: onBack
                 )
 
                 LazyVGrid(
@@ -1224,25 +1238,64 @@ struct MacHomeView: View {
             .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
     }
 
-    private func homeCollectionHeader(eyebrow: LocalizedStringKey, title: LocalizedStringKey, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(eyebrow)
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(PMColor.textMuted)
-            HStack(alignment: .lastTextBaseline, spacing: 12) {
-                Text(title)
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(PMColor.text)
-                Text(verbatim: detail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textFaint)
+    private func artistsAllView(onBack: @escaping () -> Void) -> some View {
+        VStack(spacing: 0) {
+            homeCollectionHeader(
+                eyebrow: "library_title",
+                title: "tab_artists",
+                detail: "\(derived.artists.count) \(String(localized: "artists_count"))",
+                onBack: onBack
+            )
+            .padding(.vertical, 24)
+
+            Rectangle()
+                .fill(PMColor.divider)
+                .frame(height: 0.5)
+
+            ArtistListView(artists: derived.artists)
+        }
+        .background(PMColor.bg.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
+    }
+
+    private func homeCollectionHeader(
+        eyebrow: LocalizedStringKey,
+        title: LocalizedStringKey,
+        detail: String,
+        onBack: @escaping () -> Void
+    ) -> some View {
+        HStack(alignment: .bottom, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(eyebrow)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(PMColor.textMuted)
+                HStack(alignment: .lastTextBaseline, spacing: 12) {
+                    Text(title)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(PMColor.text)
+                    Text(verbatim: detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(PMColor.textFaint)
+                }
             }
+            Spacer(minLength: 16)
+            MacNavigationBackButton(
+                accessibilityIdentifier: "homeSectionInlineBack",
+                action: onBack
+            )
         }
         .padding(.horizontal, PMSpace.xxxl)
+    }
+
+    private func closeSection() {
+        withAnimation(.snappy(duration: 0.22)) {
+            activeSection = nil
+        }
     }
 
     // MARK: - Empty

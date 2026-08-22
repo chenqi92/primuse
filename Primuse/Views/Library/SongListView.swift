@@ -3739,13 +3739,17 @@ private struct LibraryFolderNodeBranch: View {
                 LibraryFolderNodeLabel(node: node, selectionState: nil)
             }
         } else {
-            folderNavigationLink(for: node)
+            // macOS folder navigation is state-driven and stays inside the
+            // song page. Never fall back to NavigationLink here: it injects a
+            // phone-style back control into the native window toolbar.
+            LibraryFolderNodeLabel(node: node, selectionState: nil)
         }
         #else
         folderNavigationLink(for: node)
         #endif
     }
 
+    #if os(iOS)
     private func folderNavigationLink(for node: LibraryFolderNode) -> some View {
         NavigationLink {
             LibraryFolderNodeView(
@@ -3759,6 +3763,7 @@ private struct LibraryFolderNodeBranch: View {
             LibraryFolderNodeLabel(node: node, selectionState: nil)
         }
     }
+    #endif
 
     private func actionSongIDs() -> [String] {
         folderCache.orderedSongIDs(

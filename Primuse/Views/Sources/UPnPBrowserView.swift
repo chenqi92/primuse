@@ -36,6 +36,33 @@ private struct UPnPDirectoryBrowserView: View {
     @State private var hasLoadedRoot = false
 
     var body: some View {
+        #if os(macOS)
+        MacDirTreeBrowser(
+            title: String(
+                format: String(localized: "browse_source_format"),
+                source.type.displayName,
+                source.name
+            ),
+            subtitle: macConnectionString,
+            rootTitle: String(localized: "shared_folders"),
+            selectedDirectories: $selectedDirectories,
+            load: { path in
+                try await connector.connect()
+                return try await connector.listFiles(at: path)
+            }
+        )
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macConnectionString: String {
+        let host = source.host ?? ""
+        return host.isEmpty ? source.name : "upnp://\(host)"
+    }
+    #else
+    private var iosBody: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 DirectoryBreadcrumb(
@@ -96,6 +123,7 @@ private struct UPnPDirectoryBrowserView: View {
             loadDirectory()
         }
     }
+    #endif
 
     private var directoryList: some View {
         let directories = items.filter(\.isDirectory)

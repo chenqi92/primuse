@@ -15,6 +15,8 @@ struct MacLibraryHeader: View {
     var coverArtist: Artist? = nil
     var accent: Color = PMColor.brand
     var darkAccent: Color = PMColor.brand.opacity(0.6)
+    var onBack: (() -> Void)? = nil
+    var backAccessibilityIdentifier = "macLibraryHeaderBack"
     var onPlay: () -> Void = {}
     var onShuffle: () -> Void = {}
     var onMore: () -> Void = {}
@@ -114,6 +116,17 @@ struct MacLibraryHeader: View {
             // rendering above the header when the view is reused in a split view.
             AmbientBackdrop(accent: accent, darkAccent: darkAccent, strength: 0.4)
         }
+        .overlay(alignment: .topTrailing) {
+            if let onBack {
+                MacNavigationBackButton(
+                    style: .onAccent,
+                    accessibilityIdentifier: backAccessibilityIdentifier,
+                    action: onBack
+                )
+                .padding(.top, 32)
+                .padding(.trailing, 36)
+            }
+        }
         .frame(height: 240)
         .clipped()
     }
@@ -163,6 +176,50 @@ struct MacLibraryHeader: View {
                 }
                 .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         }
+    }
+}
+
+/// Keeps desktop drill-down navigation inside the panel being navigated.
+/// The native window toolbar is reserved for window chrome, not phone-style
+/// leading back controls.
+struct MacNavigationBackButton: View {
+    enum Style {
+        case standard
+        case onAccent
+    }
+
+    var style: Style = .standard
+    var accessibilityIdentifier = "macInlineBack"
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("back_to_options", systemImage: "chevron.backward")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(backgroundColor, in: .rect(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(borderColor, lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .help(Text("back_to_options"))
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var foregroundColor: Color {
+        style == .onAccent ? .white : PMColor.text
+    }
+
+    private var backgroundColor: Color {
+        style == .onAccent ? .white.opacity(0.16) : PMColor.glassBtn
+    }
+
+    private var borderColor: Color {
+        style == .onAccent ? .white.opacity(0.22) : PMColor.cardBorder
     }
 }
 

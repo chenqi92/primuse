@@ -375,9 +375,6 @@ struct PlaylistListView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(PMColor.bg.ignoresSafeArea())
-        .navigationDestination(for: SmartPlaylist.self) { smart in
-            SmartPlaylistDetailView(smartPlaylistID: smart.id)
-        }
         .sheet(isPresented: $showNewPlaylist) {
             MacNewPlaylistSheet(
                 name: $newPlaylistName,
