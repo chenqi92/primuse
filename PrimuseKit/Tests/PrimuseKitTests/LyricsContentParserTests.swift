@@ -143,6 +143,16 @@ struct LyricsContentParserTests {
         #expect(lines.allSatisfy { !$0.isSynchronized })
     }
 
+    @Test("Plain-text sidecar survives serialize and rescan")
+    func plainTextSidecarRoundTrip() {
+        let firstScan = LyricsContentParser.parseText("First line\nSecond line\nThird line")
+        let written = LyricsContentParser.serialize(firstScan)
+        let rescanned = LyricsContentParser.parseText(written)
+
+        #expect(rescanned.map(\.text) == ["First line", "Second line", "Third line"])
+        #expect(rescanned.allSatisfy { !$0.isSynchronized })
+    }
+
     @Test("Plain, LRC and ELRC serialization keeps their synchronization level")
     func serializesEveryEditableFormat() throws {
         let plain = LyricsContentParser.parseText("First\nSecond")

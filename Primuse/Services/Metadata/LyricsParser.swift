@@ -3,7 +3,7 @@ import PrimuseKit
 
 enum LyricsParser {
     static func parse(_ content: String) -> [LyricLine] {
-        LyricsContentParser.parse(content)
+        LyricsContentParser.parseText(content)
     }
 
     static func parse(from url: URL) throws -> [LyricLine] {
