@@ -799,7 +799,6 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     private let httpPassword: String?
     private let httpCredentialEndpoint: NetworkEndpointIdentity?
     private let redirectPolicy: RedirectPolicy
-    private let defersUntrustedServerTrustToCaller: Bool
     /// Optional certificate identity for a direct connection whose URL host is
     /// a private address. Acceptance still requires ordinary system trust for
     /// this exact hostname; this never bypasses validation or changes routing.
@@ -812,7 +811,6 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         httpPassword: String? = nil,
         httpCredentialEndpoint: NetworkEndpointIdentity? = nil,
         redirectPolicy: RedirectPolicy = .system,
-        defersUntrustedServerTrustToCaller: Bool = false,
         alternateServerTrustHostname: String? = nil,
         alternateServerTrustEndpoint: NetworkEndpointIdentity? = nil
     ) {
@@ -821,7 +819,6 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         self.httpPassword = httpPassword
         self.httpCredentialEndpoint = httpCredentialEndpoint
         self.redirectPolicy = redirectPolicy
-        self.defersUntrustedServerTrustToCaller = defersUntrustedServerTrustToCaller
         self.alternateServerTrustHostname = alternateServerTrustHostname
         self.alternateServerTrustEndpoint = alternateServerTrustEndpoint
     }
@@ -871,59 +868,44 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
                 host: host,
                 port: challenge.protectionSpace.port > 0 ? challenge.protectionSpace.port : nil
             )?.key ?? host
-            if SSLTrustStore.isTrustedSync(domain: trustTarget) {
-                // TOFU 证书钉扎:比对当前 leaf 证书指纹与记录的指纹。
-                let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
-                let currentFingerprint = info?.fingerprintSHA256
-                let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: trustTarget)
-                if pinnedFingerprint == nil {
-                    // 首次接触:记录指纹并放行 (TOFU)。
-                    guard let credential = explicitlyTrustedCredential(for: trust) else {
-                        return (.cancelAuthenticationChallenge, nil)
-                    }
-                    scheduleCertificatePin(domain: trustTarget, certificateInfo: info)
-                    return (.useCredential, credential)
+            let endpointWasTrusted = SSLTrustStore.isTrustedSync(domain: trustTarget)
+            let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
+            let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: trustTarget)
+            var trustError: CFError?
+            let action = ServerCertificateTrustPolicy.action(
+                systemTrustSucceeded: SecTrustEvaluateWithError(trust, &trustError),
+                endpointWasTrusted: endpointWasTrusted,
+                currentFingerprint: info?.fingerprintSHA256,
+                pinnedFingerprint: pinnedFingerprint
+            )
+            switch action {
+            case .useSystemTrust:
+                return (.performDefaultHandling, nil)
+            case .usePinnedCertificate:
+                guard let credential = explicitlyTrustedCredential(for: trust) else {
+                    return (.cancelAuthenticationChallenge, nil)
                 }
-                if let current = currentFingerprint, current == pinnedFingerprint {
-                    // 指纹一致,放行；旧 host-only 记录会在这里按实际端点迁移。
-                    guard let credential = explicitlyTrustedCredential(for: trust) else {
-                        return (.cancelAuthenticationChallenge, nil)
-                    }
-                    scheduleCertificatePin(domain: trustTarget, certificateInfo: info)
-                    return (.useCredential, credential)
+                scheduleCertificatePin(domain: trustTarget, certificateInfo: info)
+                return (.useCredential, credential)
+            case .requestInitialTrust:
+                let approved = await SSLTrustStore.shared.requestTrust(
+                    domain: trustTarget,
+                    certificateInfo: info
+                )
+                guard approved, let credential = explicitlyTrustedCredential(for: trust) else {
+                    return (.cancelAuthenticationChallenge, nil)
                 }
-                // 指纹不一致 (证书轮换/被替换):重新征询用户确认,通过则更新指纹。
-                if defersUntrustedServerTrustToCaller {
-                    return (.performDefaultHandling, nil)
-                }
+                return (.useCredential, credential)
+            case .requestChangedCertificateTrust:
                 let approved = await SSLTrustStore.shared.requestTrustForChangedCertificate(
                     domain: trustTarget,
                     certificateInfo: info
                 )
-                if approved {
-                    guard let credential = explicitlyTrustedCredential(for: trust) else {
-                        return (.cancelAuthenticationChallenge, nil)
-                    }
-                    return (.useCredential, credential)
-                }
-                return (.cancelAuthenticationChallenge, nil)
-            }
-            var trustError: CFError?
-            if SecTrustEvaluateWithError(trust, &trustError) {
-                return (.performDefaultHandling, nil)
-            }
-            if defersUntrustedServerTrustToCaller {
-                return (.performDefaultHandling, nil)
-            }
-            let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
-            let approved = await SSLTrustStore.shared.requestTrust(domain: trustTarget, certificateInfo: info)
-            if approved {
-                guard let credential = explicitlyTrustedCredential(for: trust) else {
+                guard approved, let credential = explicitlyTrustedCredential(for: trust) else {
                     return (.cancelAuthenticationChallenge, nil)
                 }
                 return (.useCredential, credential)
             }
-            return (.cancelAuthenticationChallenge, nil)
         }
         let supportedHTTPMethods: Set<String> = [
             NSURLAuthenticationMethodDefault,

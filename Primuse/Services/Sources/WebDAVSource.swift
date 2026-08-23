@@ -95,7 +95,6 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                     port: port
                 ),
                 redirectPolicy: .sameEndpoint,
-                defersUntrustedServerTrustToCaller: true,
                 alternateServerTrustHostname: alternateTLSValidationHostname,
                 alternateServerTrustEndpoint: NetworkEndpointIdentity(
                     scheme: useSsl ? "https" : "http",
