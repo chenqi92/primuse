@@ -4532,6 +4532,9 @@ final class SourceManager {
         if song.isStreamDescriptor {
             switch try await resolveSTRMTarget(for: song, connector: connector) {
             case .remote(let url):
+                guard CompleteFileTransferPolicy.route(for: .externalURL) == .genericHTTP else {
+                    throw SourceError.connectionFailed("External stream transfer route unavailable")
+                }
                 let config = URLSessionConfiguration.default
                 config.timeoutIntervalForRequest = 300
                 config.timeoutIntervalForResource = 60 * 60
@@ -4550,63 +4553,21 @@ final class SourceManager {
                     try Self.installCacheFile(from: tempURL, to: target, move: true)
                 }.value
             case .sourcePath(let path):
-                if let streamURL = try await connector.streamingURL(for: path) {
-                    let config = URLSessionConfiguration.default
-                    config.timeoutIntervalForRequest = 300
-                    config.timeoutIntervalForResource = 60 * 60
-                    let session = URLSession(
-                        configuration: config,
-                        delegate: SmartSSLDelegate(),
-                        delegateQueue: nil
-                    )
-                    defer { session.finishTasksAndInvalidate() }
-                    let (tempURL, response) = try await TrustedHTTPTransport.download(
-                        from: streamURL,
-                        session: session,
-                        timeout: 300
-                    )
-                    if let http = response as? HTTPURLResponse,
-                       !(200...299).contains(http.statusCode) {
-                        throw SourceError.connectionFailed("HTTP \(http.statusCode)")
-                    }
-                    try await Task.detached(priority: .utility) {
-                        try Self.installCacheFile(from: tempURL, to: target, move: true)
-                    }.value
-                } else {
-                    let localURL = try await connector.localURL(for: path)
-                    try await Task.detached(priority: .utility) {
-                        try Self.installCacheFile(from: localURL, to: target, move: false)
-                    }.value
+                guard CompleteFileTransferPolicy.route(for: .connectorPath) == .connector else {
+                    throw SourceError.connectionFailed("Connector transfer route unavailable")
                 }
-            }
-        } else if let streamURL = try await connector.streamingURL(for: song.filePath) {
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = 300
-            config.timeoutIntervalForResource = 60 * 60
-            config.networkServiceType = .background
-            let session = URLSession(
-                configuration: config,
-                delegate: SmartSSLDelegate(),
-                delegateQueue: nil
-            )
-            defer { session.finishTasksAndInvalidate() }
-            let (tempURL, response) = try await TrustedHTTPTransport.download(
-                from: streamURL,
-                session: session,
-                timeout: 300
-            )
-            if let http = response as? HTTPURLResponse,
-               !(200...299).contains(http.statusCode) {
-                throw SourceError.connectionFailed("HTTP \(http.statusCode)")
-            }
-            try Task.checkCancellation()
-            try Self.validateCompleteCacheFile(at: tempURL, expectedSize: song.fileSize)
-            if cachedURL(for: song) == nil {
+                plog("⬇️ Cache: connector-owned complete transfer for '\(song.title)'")
+                let localURL = try await connector.localURL(for: path)
+                try Task.checkCancellation()
                 try await Task.detached(priority: .utility) {
-                    try Self.installCacheFile(from: tempURL, to: target, move: true)
+                    try Self.installCacheFile(from: localURL, to: target, move: false)
                 }.value
             }
         } else {
+            guard CompleteFileTransferPolicy.route(for: .connectorPath) == .connector else {
+                throw SourceError.connectionFailed("Connector transfer route unavailable")
+            }
+            plog("⬇️ Cache: connector-owned complete transfer for '\(song.title)'")
             let localURL = try await connector.localURL(for: song.filePath)
             try Task.checkCancellation()
             try Self.validateCompleteCacheFile(at: localURL, expectedSize: song.fileSize)

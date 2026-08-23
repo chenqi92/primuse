@@ -63,3 +63,20 @@ struct FullDownloadSeekPolicyTests {
         ) == .tryRangeWithoutMaterialization)
     }
 }
+
+@Suite("Complete File Transfer Policy")
+struct CompleteFileTransferPolicyTests {
+    @Test("Configured source paths retain connector transport")
+    func sourcePathsUseConnectorTransport() {
+        #expect(
+            CompleteFileTransferPolicy.route(for: .connectorPath) == .connector
+        )
+    }
+
+    @Test("Only external stream URLs use generic HTTP transport")
+    func externalURLsUseGenericHTTPTransport() {
+        #expect(
+            CompleteFileTransferPolicy.route(for: .externalURL) == .genericHTTP
+        )
+    }
+}

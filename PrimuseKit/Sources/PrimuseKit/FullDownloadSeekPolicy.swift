@@ -48,3 +48,31 @@ public enum RemoteSeekPreparationPolicy {
         return .materializeCompleteFile
     }
 }
+
+public enum CompleteFileTransferOrigin: Sendable, Equatable {
+    /// A path owned by a configured music-source connector. Authentication,
+    /// redirects, certificate identity and endpoint trust remain connector
+    /// responsibilities for the complete transfer as well as Range reads.
+    case connectorPath
+    /// An external URL embedded in a stream descriptor has no connector path
+    /// that can materialize it, so it uses the generic trusted HTTP transport.
+    case externalURL
+}
+
+public enum CompleteFileTransferRoute: Sendable, Equatable {
+    case connector
+    case genericHTTP
+}
+
+public enum CompleteFileTransferPolicy {
+    public static func route(
+        for origin: CompleteFileTransferOrigin
+    ) -> CompleteFileTransferRoute {
+        switch origin {
+        case .connectorPath:
+            return .connector
+        case .externalURL:
+            return .genericHTTP
+        }
+    }
+}
