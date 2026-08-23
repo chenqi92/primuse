@@ -12,19 +12,30 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     let onAdd: (MusicSource) throws -> Void
     let onConnectionStart: (MusicSource) -> Void
     let onConnectionFinish: (MusicSource) -> Void
-    let connectionContent: (MusicSource) -> ConnectionContent
+    let onConnectionCancel: (MusicSource) -> Void
+    let connectionContent: (
+        MusicSource,
+        Binding<[String]>?,
+        ((Bool) -> Void)?
+    ) -> ConnectionContent
 
     init(
         submitIntent: AddSourceSubmitIntent = .save,
         onAdd: @escaping (MusicSource) throws -> Void,
         onConnectionStart: @escaping (MusicSource) -> Void,
         onConnectionFinish: @escaping (MusicSource) -> Void,
-        @ViewBuilder connectionContent: @escaping (MusicSource) -> ConnectionContent
+        onConnectionCancel: @escaping (MusicSource) -> Void,
+        @ViewBuilder connectionContent: @escaping (
+            MusicSource,
+            Binding<[String]>?,
+            ((Bool) -> Void)?
+        ) -> ConnectionContent
     ) {
         self.submitIntent = submitIntent
         self.onAdd = onAdd
         self.onConnectionStart = onConnectionStart
         self.onConnectionFinish = onConnectionFinish
+        self.onConnectionCancel = onConnectionCancel
         self.connectionContent = connectionContent
     }
 
@@ -51,6 +62,8 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     }
     @State private var addTarget: AddSourceTarget?
     @State private var connectionSource: MusicSource?
+    @State private var connectionCommitIsDeferred = false
+    @State private var connectionWasCommitted = false
     @State private var discoveryService = NetworkDiscoveryService()
     #if os(macOS)
     @State private var pendingType: MusicSourceType?
@@ -94,7 +107,17 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     @ViewBuilder
     private func addFlowStep(for target: AddSourceTarget) -> some View {
         if let connectionSource {
-            connectionContent(connectionSource)
+            if connectionCommitIsDeferred {
+                connectionContent(
+                    connectionSource,
+                    deferredSelectedDirectories,
+                    { connectionValidated in
+                        commitDeferredConnection(connectionValidated: connectionValidated)
+                    }
+                )
+            } else {
+                connectionContent(connectionSource, nil, nil)
+            }
         } else {
             switch target {
             case .type(let type):
@@ -538,12 +561,18 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
 
     private func addSourceAndAdvance(_ source: MusicSource) {
         do {
-            try onAdd(source)
-            if submitIntent == .continueToConnection,
-               source.type.continuesToDirectorySelectionAfterCreation {
-                // Persist first, then move the same presented sheet to the
-                // existing connection flow. Everything after this point is
-                // optional setup and cannot undo the saved source.
+            let continuesToConnection = submitIntent == .continueToConnection
+                && source.type.continuesToDirectorySelectionAfterCreation
+            let defersCommit = continuesToConnection
+                && SourceCreationPersistencePolicy
+                    .defersUntilValidatedDirectorySelection(for: source.type)
+
+            if !defersCommit {
+                try onAdd(source)
+            }
+            if continuesToConnection {
+                connectionCommitIsDeferred = defersCommit
+                connectionWasCommitted = !defersCommit
                 onConnectionStart(source)
                 connectionSource = source
             } else {
@@ -562,10 +591,61 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         }
     }
 
+    private var deferredSelectedDirectories: Binding<[String]> {
+        Binding(
+            get: { connectionSource?.scannedDirectories ?? [] },
+            set: { newDirectories in
+                guard var source = connectionSource else { return }
+                source.extraConfig = MusicSource.encodeScannedDirectories(
+                    newDirectories,
+                    into: source.extraConfig,
+                    type: source.type
+                )
+                connectionSource = source
+            }
+        )
+    }
+
+    private func commitDeferredConnection(connectionValidated: Bool) {
+        guard connectionCommitIsDeferred,
+              !connectionWasCommitted,
+              let source = connectionSource,
+              SourceCreationPersistencePolicy.canCommitDeferredCreation(
+                  for: source.type,
+                  connectionValidated: connectionValidated,
+                  selectedDirectories: source.scannedDirectories
+              ) else { return }
+
+        do {
+            try onAdd(source)
+            connectionWasCommitted = true
+            addTarget = nil
+        } catch {
+            #if os(iOS)
+            localImportAlert = LocalImportAlert(
+                title: String(localized: "credential_save_failed_title"),
+                message: error.localizedDescription,
+                dismissAfterOK: false
+            )
+            #else
+            plog("⛔ Source persistence failed — \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     private func finishConnectionFlowIfNeeded() {
         guard let source = connectionSource else { return }
         connectionSource = nil
-        onConnectionFinish(source)
+        if connectionCommitIsDeferred, !connectionWasCommitted {
+            if !KeychainService.deletePassword(for: source.id) {
+                plog("⛔ Draft source credential rollback failed id=\(source.id.prefix(8))…")
+            }
+            onConnectionCancel(source)
+        } else {
+            onConnectionFinish(source)
+        }
+        connectionCommitIsDeferred = false
+        connectionWasCommitted = false
         dismiss()
     }
 
@@ -1106,7 +1186,8 @@ extension SourceTypeSelectionView where ConnectionContent == EmptyView {
             onAdd: onAdd,
             onConnectionStart: { _ in },
             onConnectionFinish: { _ in },
-            connectionContent: { _ in EmptyView() }
+            onConnectionCancel: { _ in },
+            connectionContent: { _, _, _ in EmptyView() }
         )
     }
 }

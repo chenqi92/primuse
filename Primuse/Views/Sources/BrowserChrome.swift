@@ -506,6 +506,7 @@ struct MacDirTreeBrowser: View {
     let load: (String) async throws -> [RemoteFileItem]
     var rootPath: String = "/"
     var selectableRootPath: String? = nil
+    var onConfirm: ((Bool) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [MacDirTreeRow] = []
@@ -515,6 +516,7 @@ struct MacDirTreeBrowser: View {
     @State private var rootLoaded = false
     @State private var rootLoading = false
     @State private var errorMessage: String?
+    @State private var rootConnectionValidated = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -610,7 +612,7 @@ struct MacDirTreeBrowser: View {
             }
             .buttonStyle(.plain)
 
-            Button { dismiss() } label: {
+            Button { confirmSelection() } label: {
                 Text(verbatim: selectedDirectories.isEmpty
                     ? String(localized: "done")
                     : String(format: String(localized: "done_count_format"), selectedDirectories.count))
@@ -621,6 +623,7 @@ struct MacDirTreeBrowser: View {
                     .background(PMColor.brand, in: .rect(cornerRadius: 7))
             }
             .buttonStyle(.plain)
+            .disabled(deferredConfirmationDisabled)
         }
         .padding(.horizontal, 16)
         .frame(height: 56)
@@ -786,9 +789,11 @@ struct MacDirTreeBrowser: View {
     private func loadRoot() async {
         rootLoading = true
         errorMessage = nil
+        rootConnectionValidated = false
         do {
             let items = try await listing(rootPath)
             rows = dirRows(from: items, depth: 0)
+            rootConnectionValidated = true
             if selectableRootPath != nil {
                 focusedItems = items
             }
@@ -796,6 +801,24 @@ struct MacDirTreeBrowser: View {
             errorMessage = error.localizedDescription
         }
         rootLoading = false
+    }
+
+    private var deferredConfirmationDisabled: Bool {
+        guard onConfirm != nil else { return false }
+        return !SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .smb,
+            connectionValidated: rootConnectionValidated,
+            selectedDirectories: selectedDirectories
+        )
+    }
+
+    private func confirmSelection() {
+        guard let onConfirm else {
+            dismiss()
+            return
+        }
+        guard !deferredConfirmationDisabled else { return }
+        onConfirm(rootConnectionValidated)
     }
 
     private func dirRows(from items: [RemoteFileItem], depth: Int) -> [MacDirTreeRow] {
@@ -873,6 +896,7 @@ struct MacDirTreeBrowser: View {
 struct DirectoryBrowserToolbar: ToolbarContent {
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    var confirmationDisabled = false
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
@@ -883,6 +907,7 @@ struct DirectoryBrowserToolbar: ToolbarContent {
             Button("done", action: onConfirm)
                 .fontWeight(.semibold)
                 .keyboardShortcut(.defaultAction)
+                .disabled(confirmationDisabled)
         }
     }
 }

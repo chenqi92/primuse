@@ -16,6 +16,33 @@ struct SourceDirectorySelectionPolicyTests {
         #expect(actual == expected)
     }
 
+    @Test
+    func smbCreationWaitsForValidatedDirectorySelection() {
+        #expect(SourceCreationPersistencePolicy.defersUntilValidatedDirectorySelection(for: .smb))
+        #expect(!SourceCreationPersistencePolicy.defersUntilValidatedDirectorySelection(for: .webdav))
+
+        #expect(!SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .smb,
+            connectionValidated: false,
+            selectedDirectories: ["/Music"]
+        ))
+        #expect(!SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .smb,
+            connectionValidated: true,
+            selectedDirectories: []
+        ))
+        #expect(SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .smb,
+            connectionValidated: true,
+            selectedDirectories: ["/Music"]
+        ))
+        #expect(SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .webdav,
+            connectionValidated: false,
+            selectedDirectories: []
+        ))
+    }
+
     @Test("S3 browser root maps to the bucket prefix")
     func mapsS3RootToEmptyPrefix() {
         #expect(SourceDirectorySelectionPolicy.connectorPath(

@@ -4454,6 +4454,28 @@ public enum SourceDirectorySelectionPolicy {
     }
 }
 
+/// Controls when a newly configured source is allowed to become durable.
+/// SMB credentials and endpoints must be exercised by the directory browser
+/// before an empty or unauthenticated source can enter the library.
+public enum SourceCreationPersistencePolicy {
+    public static func defersUntilValidatedDirectorySelection(
+        for sourceType: MusicSourceType
+    ) -> Bool {
+        sourceType == .smb
+    }
+
+    public static func canCommitDeferredCreation(
+        for sourceType: MusicSourceType,
+        connectionValidated: Bool,
+        selectedDirectories: [String]
+    ) -> Bool {
+        guard defersUntilValidatedDirectorySelection(for: sourceType) else {
+            return true
+        }
+        return connectionValidated && !selectedDirectories.isEmpty
+    }
+}
+
 /// Keeps the selected immersive group stable. Missing lyrics or artwork are
 /// handled inside the scene so choosing one group never opens another group.
 public enum ImmersivePresentationFallbackPolicy {

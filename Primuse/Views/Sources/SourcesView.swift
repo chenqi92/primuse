@@ -310,9 +310,17 @@ struct SourcesContentView: View {
                     },
                     onConnectionFinish: { _ in
                         finishDirectorySelectionSession()
+                    },
+                    onConnectionCancel: { source in
+                        cancelDirectorySelectionSession()
+                        Task { await sourceManager.removeConnector(for: source.id) }
                     }
-                ) { source in
-                    connectionSheet(for: currentSource(for: source))
+                ) { source, stagedDirectories, onConfirm in
+                    connectionSheet(
+                        for: currentSource(for: source),
+                        stagedDirectories: stagedDirectories,
+                        onConfirm: onConfirm
+                    )
                 }
             }
             .sheet(item: $editingSource) { source in
@@ -1517,8 +1525,12 @@ struct SourcesContentView: View {
     }
 
     @ViewBuilder
-    private func connectionSheet(for source: MusicSource) -> some View {
-        let selectedDirectories = Binding(
+    private func connectionSheet(
+        for source: MusicSource,
+        stagedDirectories: Binding<[String]>? = nil,
+        onConfirm: ((Bool) -> Void)? = nil
+    ) -> some View {
+        let persistedDirectories = Binding(
             get: { currentSource(for: source).scannedDirectories },
             set: { newDirs in
                 updateSource(source.id) {
@@ -1526,6 +1538,7 @@ struct SourcesContentView: View {
                 }
             }
         )
+        let selectedDirectories = stagedDirectories ?? persistedDirectories
 
         switch source.type {
         case .local:
@@ -1564,7 +1577,8 @@ struct SourcesContentView: View {
             SMBBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onConfirm: onConfirm
             )
         case .webdav:
             WebDAVBrowserView(
@@ -1643,6 +1657,10 @@ struct SourcesContentView: View {
             sourceStore: sourceStore,
             scraperService: scraperService
         )
+    }
+
+    private func cancelDirectorySelectionSession() {
+        directorySelectionSession = nil
     }
 
     private func toggleSourceEnabled(_ source: MusicSource) {

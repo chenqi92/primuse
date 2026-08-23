@@ -10,6 +10,7 @@ struct ConnectorDirectoryBrowserView: View {
     let source: MusicSource
     let connector: any MusicSourceConnector
     @Binding var selectedDirectories: [String]
+    var onConfirm: ((Bool) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(SourcesStore.self) private var sourcesStore
@@ -21,6 +22,7 @@ struct ConnectorDirectoryBrowserView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var hasLoadedRoot = false
+    @State private var rootConnectionValidated = false
     @State private var loadTask: Task<Void, Never>?
 
     var body: some View {
@@ -51,7 +53,8 @@ struct ConnectorDirectoryBrowserView: View {
                 selectableRootPath: SourceDirectorySelectionPolicy.selectableRootPath(
                     for: source.type,
                     browserPath: "/"
-                )
+                ),
+                onConfirm: onConfirm
             )
             #else
             iosBody
@@ -117,7 +120,8 @@ struct ConnectorDirectoryBrowserView: View {
             .toolbar {
                 DirectoryBrowserToolbar(
                     onCancel: { dismiss() },
-                    onConfirm: { dismiss() }
+                    onConfirm: confirmSelection,
+                    confirmationDisabled: deferredConfirmationDisabled
                 )
             }
         }
@@ -250,6 +254,9 @@ struct ConnectorDirectoryBrowserView: View {
                 let loaded = try await loadItems(at: requestPath)
                 guard !Task.isCancelled, requestPath == currentPath else { return }
                 applyLoadedItems(loaded)
+                if requestPath == "/" {
+                    rootConnectionValidated = true
+                }
                 isLoading = false
             } catch {
                 guard !Task.isCancelled, requestPath == currentPath else { return }
@@ -260,6 +267,9 @@ struct ConnectorDirectoryBrowserView: View {
                         let loaded = try await loadItems(at: requestPath)
                         guard !Task.isCancelled, requestPath == currentPath else { return }
                         applyLoadedItems(loaded)
+                        if requestPath == "/" {
+                            rootConnectionValidated = true
+                        }
                     } catch {
                         guard !Task.isCancelled, requestPath == currentPath else { return }
                         errorMessage = error.localizedDescription
@@ -270,6 +280,24 @@ struct ConnectorDirectoryBrowserView: View {
                 isLoading = false
             }
         }
+    }
+
+    private var deferredConfirmationDisabled: Bool {
+        guard onConfirm != nil else { return false }
+        return !SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: source.type,
+            connectionValidated: rootConnectionValidated,
+            selectedDirectories: selectedDirectories
+        )
+    }
+
+    private func confirmSelection() {
+        guard let onConfirm else {
+            dismiss()
+            return
+        }
+        guard !deferredConfirmationDisabled else { return }
+        onConfirm(rootConnectionValidated)
     }
 
     private func loadItems(at path: String) async throws -> [RemoteFileItem] {

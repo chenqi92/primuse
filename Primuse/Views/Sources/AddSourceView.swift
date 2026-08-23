@@ -1495,9 +1495,9 @@ struct AddSourceView: View {
     private func completeSave(_ source: MusicSource) {
         onSave(source)
         // The main Sources flow keeps this sheet alive and replaces the form
-        // with the existing connection / OTP / directory UI. The source has
-        // already been persisted by onSave, so connection or scan failures do
-        // not roll it back and the user can adjust it later from Sources.
+        // with the existing connection / OTP / directory UI. Sources whose
+        // creation is transactional decide there whether to commit or roll
+        // back the credentials written for this temporary source ID.
         if !continuesToConnectionAfterSave {
             dismiss()
         }
