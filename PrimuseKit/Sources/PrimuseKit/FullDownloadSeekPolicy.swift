@@ -54,6 +54,9 @@ public enum CompleteFileTransferOrigin: Sendable, Equatable {
     /// redirects, certificate identity and endpoint trust remain connector
     /// responsibilities for the complete transfer as well as Range reads.
     case connectorPath
+    /// A source-relative descriptor resolved to a URL by its connector. Its
+    /// authentication, redirect and TLS context still belong to that source.
+    case connectorResolvedURL
     /// An external URL embedded in a stream descriptor has no connector path
     /// that can materialize it, so it uses the generic trusted HTTP transport.
     case externalURL
@@ -69,10 +72,26 @@ public enum CompleteFileTransferPolicy {
         for origin: CompleteFileTransferOrigin
     ) -> CompleteFileTransferRoute {
         switch origin {
-        case .connectorPath:
+        case .connectorPath, .connectorResolvedURL:
             return .connector
         case .externalURL:
             return .genericHTTP
         }
+    }
+}
+
+/// A configured source URL may leave its connector only when the player can
+/// consume it without losing required transport context or forcing another
+/// complete download through a generic session.
+public enum ConfiguredSourceDirectURLPolicy {
+    public static func permitsDirectURL(
+        requiresCompleteLocalFile: Bool,
+        usesServerTranscodedStream: Bool,
+        hasMultipleConnectionRoutes: Bool,
+        usesAlternateTLSIdentity: Bool
+    ) -> Bool {
+        !hasMultipleConnectionRoutes
+            && !usesAlternateTLSIdentity
+            && (!requiresCompleteLocalFile || usesServerTranscodedStream)
     }
 }

@@ -534,6 +534,20 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             return Data()
         }
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
+        return try await fetchMetadataRange(
+            request: request,
+            mediaPath: path,
+            offset: offset,
+            length: length
+        )
+    }
+
+    private func fetchMetadataRange(
+        request: URLRequest,
+        mediaPath path: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
         if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
             let requestedBodyBytes = Int(clamping: max(length, 0))
             let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
@@ -743,7 +757,11 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     private func makeRangeRequest(path: String, rangeHeader: String) throws -> URLRequest {
-        var request = URLRequest(url: try fileURL(for: path))
+        try makeRangeRequest(url: fileURL(for: path), rangeHeader: rangeHeader)
+    }
+
+    private func makeRangeRequest(url: URL, rangeHeader: String) throws -> URLRequest {
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
@@ -1253,6 +1271,72 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     /// ordinary absolute source paths must continue to stay under `basePath`.
     func openListSTRMURL(for reference: String) throws -> URL? {
         OpenListSTRMTargetResolver.resolve(reference, wrapperURL: try serverURL())
+    }
+
+    func localOpenListSTRMURL(for reference: String) async throws -> URL {
+        guard let remoteURL = try openListSTRMURL(for: reference) else {
+            throw SourceError.fileNotFound(reference)
+        }
+
+        let baseName = CacheFileNamePolicy.make(
+            path: remoteURL.absoluteString,
+            preferredExtension: remoteURL.pathExtension
+        )
+        let localURL = cacheDirectory.appendingPathComponent(baseName)
+        if FileManager.default.fileExists(atPath: localURL.path) {
+            return localURL
+        }
+
+        let temporaryTarget = cacheDirectory.appendingPathComponent(
+            "\(baseName).part-\(UUID().uuidString)"
+        )
+        let request = try makeWebDAVRequest(url: remoteURL, method: "GET")
+        let (downloadedURL, response) = try await downloadFollowingMediaRedirects(
+            for: request
+        )
+        do {
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                if let status = (response as? HTTPURLResponse)?.statusCode,
+                   status == 401 || status == 403 {
+                    throw SourceError.authenticationFailed
+                }
+                throw SourceError.connectionFailed(
+                    "OpenList STRM download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                )
+            }
+            try FileManager.default.moveItem(at: downloadedURL, to: temporaryTarget)
+            if FileManager.default.fileExists(atPath: localURL.path) {
+                try? FileManager.default.removeItem(at: temporaryTarget)
+            } else {
+                try FileManager.default.moveItem(at: temporaryTarget, to: localURL)
+            }
+            return localURL
+        } catch {
+            try? FileManager.default.removeItem(at: downloadedURL)
+            try? FileManager.default.removeItem(at: temporaryTarget)
+            throw error
+        }
+    }
+
+    func fetchOpenListSTRMMetadataRange(
+        for reference: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        guard let remoteURL = try openListSTRMURL(for: reference) else {
+            throw SourceError.fileNotFound(reference)
+        }
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
+        let request = try makeRangeRequest(url: remoteURL, rangeHeader: rangeHeader)
+        return try await fetchMetadataRange(
+            request: request,
+            mediaPath: reference,
+            offset: offset,
+            length: length
+        )
     }
 
     private func fileURL(for path: String) throws -> URL {

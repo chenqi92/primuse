@@ -638,6 +638,12 @@ protocol SongScanningConnector: MusicSourceConnector {
 /// behavior when WebDAV is wrapped by adaptive route selection.
 protocol OpenListSTRMResolvingConnector: MusicSourceConnector {
     func openListSTRMURL(for reference: String) async throws -> URL?
+    func localOpenListSTRMURL(for reference: String) async throws -> URL
+    func fetchOpenListSTRMMetadataRange(
+        for reference: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data
 }
 
 /// Lets local and mounted-file connectors compare cheap fingerprints before

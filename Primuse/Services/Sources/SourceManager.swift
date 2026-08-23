@@ -880,6 +880,32 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
             return try await resolver.openListSTRMURL(for: reference)
         }
     }
+
+    func localOpenListSTRMURL(for reference: String) async throws -> URL {
+        try await routing.withRead { connector in
+            guard let resolver = connector as? any OpenListSTRMResolvingConnector else {
+                throw SourceError.connectionFailed("OpenList STRM transport unavailable")
+            }
+            return try await resolver.localOpenListSTRMURL(for: reference)
+        }
+    }
+
+    func fetchOpenListSTRMMetadataRange(
+        for reference: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        try await routing.withRead { connector in
+            guard let resolver = connector as? any OpenListSTRMResolvingConnector else {
+                throw SourceError.connectionFailed("OpenList STRM transport unavailable")
+            }
+            return try await resolver.fetchOpenListSTRMMetadataRange(
+                for: reference,
+                offset: offset,
+                length: length
+            )
+        }
+    }
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
@@ -2209,6 +2235,7 @@ final class SourceManager {
     private enum ResolvedSTRMTarget: Sendable {
         case remote(URL)
         case sourcePath(String)
+        case openListSourcePath(String, URL)
     }
 
     private func resolveSTRMTarget(
@@ -2225,7 +2252,7 @@ final class SourceManager {
             }
             if let webDAV = connector as? any OpenListSTRMResolvingConnector,
                let originURL = try await webDAV.openListSTRMURL(for: path) {
-                return .remote(originURL)
+                return .openListSourcePath(path, originURL)
             }
             return .sourcePath(path)
         }
@@ -2251,8 +2278,18 @@ final class SourceManager {
             switch try await resolveSTRMTarget(for: song, connector: conn) {
             case .remote(let url):
                 return url
+            case .openListSourcePath(let path, let url):
+                if permitsConfiguredDirectURL(for: source, song: song),
+                   !requiresConnectorBackedHTTPTransport(for: source) {
+                    return url
+                }
+                guard let webDAV = conn as? any OpenListSTRMResolvingConnector else {
+                    throw SourceError.connectionFailed("OpenList STRM transport unavailable")
+                }
+                return try await webDAV.localOpenListSTRMURL(for: path)
             case .sourcePath(let path):
-                if let streamURL = try await conn.streamingURL(for: path) {
+                if permitsConfiguredDirectURL(for: source, song: song),
+                   let streamURL = try await conn.streamingURL(for: path) {
                     return streamURL
                 }
                 return try await conn.localURL(for: path)
@@ -2273,6 +2310,17 @@ final class SourceManager {
                 return url
             }
         }
+
+        // Complete-file formats and projected LAN endpoints cannot safely
+        // escape to a generic player session: the former would repeat the
+        // download there, while the latter would lose its public TLS identity.
+        // Subsonic-family formats that are deliberately transcoded to a
+        // progressive MP3 stream retain that existing direct-stream behavior
+        // unless their endpoint needs connector-owned TLS handling.
+        if !permitsConfiguredDirectURL(for: source, song: song) {
+            return try await conn.localURL(for: song.filePath)
+        }
+
         // Priority 3: plain HTTP streaming URL. For known-size audio the
         // player now wraps it in an HTTP Range InputSource; unknown-size
         // legacy rows still fall back to StreamingDownloadDecoder.
@@ -2283,9 +2331,9 @@ final class SourceManager {
         return try await conn.localURL(for: song.filePath)
     }
 
-    /// Resolves a connector URL without selecting the generic Range playback
-    /// scheme. The caller must fully download an HTTP(S) result before decode;
-    /// connectors without a direct URL return their complete local file.
+    /// Resolves a complete-file playback source without losing connector
+    /// transport context. Only a genuinely external STRM target may remain an
+    /// HTTP(S) URL; configured source paths are materialized by their connector.
     func resolveFullDownloadSourceURL(for song: Song) async throws -> URL {
         if let cached = cachedURL(for: song) {
             return cached
@@ -2296,17 +2344,17 @@ final class SourceManager {
             switch try await resolveSTRMTarget(for: song, connector: connector) {
             case .remote(let url):
                 return url
-            case .sourcePath(let path):
-                if let streamURL = try await connector.streamingURL(for: path) {
-                    return streamURL
+            case .openListSourcePath(let path, _):
+                guard CompleteFileTransferPolicy.route(for: .connectorResolvedURL) == .connector,
+                      let webDAV = connector as? any OpenListSTRMResolvingConnector else {
+                    throw SourceError.connectionFailed("OpenList STRM transport unavailable")
                 }
+                return try await webDAV.localOpenListSTRMURL(for: path)
+            case .sourcePath(let path):
                 return try await connector.localURL(for: path)
             }
         }
 
-        if let streamURL = try await connector.streamingURL(for: song.filePath) {
-            return streamURL
-        }
         return try await connector.localURL(for: song.filePath)
     }
 
@@ -2356,7 +2404,8 @@ final class SourceManager {
         let conn = connector(for: source)
         try await conn.connect()
 
-        if let streamURL = try await conn.streamingURL(for: mvPath) {
+        if !requiresConnectorBackedHTTPTransport(for: source),
+           let streamURL = try await conn.streamingURL(for: mvPath) {
             return .url(streamURL)
         }
 
@@ -3189,13 +3238,15 @@ final class SourceManager {
                 switch try await resolveSTRMTarget(for: song, connector: connector) {
                 case .remote(let url):
                     try await downloadOfflineFromURL(url, song: song, target: target)
-                case .sourcePath(let path):
-                    if let streamURL = try await connector.streamingURL(for: path) {
-                        try await downloadOfflineFromURL(streamURL, song: song, target: target)
-                    } else {
-                        let localURL = try await connector.localURL(for: path)
-                        try copyOfflineFile(from: localURL, to: target)
+                case .openListSourcePath(let path, _):
+                    guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
+                        throw SourceError.connectionFailed("OpenList STRM transport unavailable")
                     }
+                    let localURL = try await webDAV.localOpenListSTRMURL(for: path)
+                    try copyOfflineFile(from: localURL, to: target)
+                case .sourcePath(let path):
+                    let localURL = try await connector.localURL(for: path)
+                    try copyOfflineFile(from: localURL, to: target)
                 }
             } else if let oneDrive = connector as? OneDriveSource {
                 do {
@@ -3213,8 +3264,6 @@ final class SourceManager {
                 try await cacheCompleteFile(song: song, connector: connector)
             } else if source.supportsRangeStreaming, song.fileSize > 0 {
                 try await downloadOfflineByRanges(song: song, connector: connector, target: target)
-            } else if let streamURL = try await connector.streamingURL(for: song.filePath) {
-                try await downloadOfflineFromURL(streamURL, song: song, target: target)
             } else {
                 let localURL = try await connector.localURL(for: song.filePath)
                 try copyOfflineFile(from: localURL, to: target)
@@ -3372,6 +3421,9 @@ final class SourceManager {
     }
 
     private func downloadOfflineFromURL(_ url: URL, song: Song, target: URL) async throws {
+        guard CompleteFileTransferPolicy.route(for: .externalURL) == .genericHTTP else {
+            throw SourceError.connectionFailed("External stream transfer route unavailable")
+        }
         setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
             progress: nil,
@@ -4552,6 +4604,16 @@ final class SourceManager {
                 try await Task.detached(priority: .utility) {
                     try Self.installCacheFile(from: tempURL, to: target, move: true)
                 }.value
+            case .openListSourcePath(let path, _):
+                guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
+                    throw SourceError.connectionFailed("OpenList STRM transport unavailable")
+                }
+                plog("⬇️ Cache: connector-owned OpenList STRM transfer for '\(song.title)'")
+                let localURL = try await webDAV.localOpenListSTRMURL(for: path)
+                try Task.checkCancellation()
+                try await Task.detached(priority: .utility) {
+                    try Self.installCacheFile(from: localURL, to: target, move: false)
+                }.value
             case .sourcePath(let path):
                 guard CompleteFileTransferPolicy.route(for: .connectorPath) == .connector else {
                     throw SourceError.connectionFailed("Connector transfer route unavailable")
@@ -4872,6 +4934,15 @@ final class SourceManager {
                 offset: offset,
                 length: length
             )
+        case .openListSourcePath(let path, _):
+            guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
+                throw SourceError.connectionFailed("OpenList STRM transport unavailable")
+            }
+            return try await webDAV.fetchOpenListSTRMMetadataRange(
+                for: path,
+                offset: offset,
+                length: length
+            )
         case .remote(let url):
             return try await Self.fetchRemoteMetadataRange(
                 url: url,
@@ -5053,7 +5124,29 @@ final class SourceManager {
         .ugreen,
     ]
 
+    private func permitsConfiguredDirectURL(
+        for source: MusicSource,
+        song: Song
+    ) -> Bool {
+        let usesServerTranscodedStream = source.type.isSubsonicFamily
+            && SubsonicSource.requiresServerTranscode(song.fileFormat)
+        return ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
+            usesServerTranscodedStream: usesServerTranscodedStream,
+            hasMultipleConnectionRoutes: source.connectionConfiguration != nil
+                && source.connectionCandidates.count > 1,
+            usesAlternateTLSIdentity: source.alternateTLSValidationHostname != nil
+        )
+    }
+
     private func requiresConnectorBackedHTTPTransport(for source: MusicSource) -> Bool {
+        if source.connectionConfiguration != nil,
+           source.connectionCandidates.count > 1 {
+            return true
+        }
+        if source.alternateTLSValidationHostname != nil {
+            return true
+        }
         guard let host = source.host,
               let url = NetworkURLBuilder.baseURL(
                   host: host,

@@ -73,10 +73,77 @@ struct CompleteFileTransferPolicyTests {
         )
     }
 
+    @Test("Connector-resolved URLs retain connector transport")
+    func connectorResolvedURLsUseConnectorTransport() {
+        #expect(
+            CompleteFileTransferPolicy.route(for: .connectorResolvedURL) == .connector
+        )
+    }
+
     @Test("Only external stream URLs use generic HTTP transport")
     func externalURLsUseGenericHTTPTransport() {
         #expect(
             CompleteFileTransferPolicy.route(for: .externalURL) == .genericHTTP
         )
+    }
+
+    @Test("Complete-file formats retain connector transport")
+    func completeFormatsDoNotExposeDirectURLs() {
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: true,
+            usesServerTranscodedStream: false,
+            hasMultipleConnectionRoutes: false,
+            usesAlternateTLSIdentity: false
+        ))
+    }
+
+    @Test("Server-transcoded complete formats retain progressive playback")
+    func serverTranscodedFormatsMayUseDirectURLs() {
+        #expect(ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: true,
+            usesServerTranscodedStream: true,
+            hasMultipleConnectionRoutes: false,
+            usesAlternateTLSIdentity: false
+        ))
+    }
+
+    @Test("Adaptive routes keep transcoded streams in the connector")
+    func adaptiveRoutesOverrideServerTranscoding() {
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: true,
+            usesServerTranscodedStream: true,
+            hasMultipleConnectionRoutes: true,
+            usesAlternateTLSIdentity: false
+        ))
+    }
+
+    @Test("LAN endpoints using a public TLS identity retain connector transport")
+    func alternateTLSIdentityDoesNotEscapeConnector() {
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: false,
+            usesServerTranscodedStream: false,
+            hasMultipleConnectionRoutes: false,
+            usesAlternateTLSIdentity: true
+        ))
+    }
+
+    @Test("Alternate TLS identity keeps transcoded streams in the connector")
+    func alternateTLSIdentityOverridesServerTranscoding() {
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: true,
+            usesServerTranscodedStream: true,
+            hasMultipleConnectionRoutes: false,
+            usesAlternateTLSIdentity: true
+        ))
+    }
+
+    @Test("Ordinary public streams may retain direct range playback")
+    func ordinaryPublicStreamsMayUseDirectURLs() {
+        #expect(ConfiguredSourceDirectURLPolicy.permitsDirectURL(
+            requiresCompleteLocalFile: false,
+            usesServerTranscodedStream: false,
+            hasMultipleConnectionRoutes: false,
+            usesAlternateTLSIdentity: false
+        ))
     }
 }
