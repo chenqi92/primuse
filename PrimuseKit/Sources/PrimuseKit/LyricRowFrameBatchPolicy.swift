@@ -30,6 +30,32 @@ public enum LyricRowLayoutPolicy {
     }
 }
 
+public enum LyricDepthEffectPolicy {
+    private static let radiusStep = 1.25
+    private static let maximumRadius = 5.0
+    private static let passedLineDepthOffset = 1
+
+    /// Keeps the upcoming lyric readable while pushing already-sung rows one
+    /// depth step farther away. The linear progression gives every takeover a
+    /// visible focus change, then caps the cost for distant rows.
+    public static func blurRadius(
+        forRow rowIndex: Int,
+        activeRow activeIndex: Int,
+        isEnabled: Bool,
+        isSynchronized: Bool
+    ) -> Double {
+        guard isEnabled,
+              isSynchronized,
+              rowIndex >= 0,
+              activeIndex >= 0,
+              rowIndex != activeIndex else { return 0 }
+
+        let distance = abs(rowIndex - activeIndex)
+        let depth = distance + (rowIndex < activeIndex ? passedLineDepthOffset : 0)
+        return min(maximumRadius, Double(depth) * radiusStep)
+    }
+}
+
 public enum LyricPlaybackPositionPolicy {
     public enum ScrollTarget: Equatable, Sendable {
         case line(Int)

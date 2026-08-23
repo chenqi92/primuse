@@ -4217,6 +4217,7 @@ struct LyricsScrollView: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
@@ -4229,6 +4230,7 @@ struct LyricsScrollView: View {
     @State private var activeInterludeAfterLineIndex: Int? = nil
     @State private var visualPlaybackTime: TimeInterval = 0
     @State private var isRestoringVisualPosition = false
+    @State private var isManuallyBrowsingLyrics = false
     /// Row taps and the surface tap are simultaneous gestures. Remember the
     /// row event briefly so tapping lyrics seeks only, while tapping unused
     /// space can switch the normal Now Playing surface back to artwork.
@@ -4536,10 +4538,12 @@ struct LyricsScrollView: View {
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
+                    isManuallyBrowsingLyrics = false
                 }
             }
         }
         .clipped()
+        .mask(lyricsViewportFadeMask)
     }
 
     private var smoothWordLyricsView: some View {
@@ -4632,25 +4636,12 @@ struct LyricsScrollView: View {
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
+                    isManuallyBrowsingLyrics = false
                 }
             }
         }
         .clipped()
-        // 顶/底 fade mask: viewport 边缘的歌词不要硬切, 用 LinearGradient 让它
-        // 自然渐隐 ── 像歌词从黑暗中浮现 / 退去, 没有"切边"的廉价感。Apple Music
-        // 同款手法。clear 区域占 12%, 内部 88% 全显示。
-        .mask(
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: .black, location: 0.12),
-                    .init(color: .black, location: 0.88),
-                    .init(color: .clear, location: 1.0),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .mask(lyricsViewportFadeMask)
         .simultaneousGesture(
             MagnifyGesture()
                 .onChanged { value in
@@ -4709,6 +4700,10 @@ struct LyricsScrollView: View {
     private func beginLineManualBrowsing() {
         lineAutoFollowResumeTask?.cancel()
         lastUserScrollTime = Date()
+        guard !isManuallyBrowsingLyrics else { return }
+        withAnimation(.easeOut(duration: 0.18)) {
+            isManuallyBrowsingLyrics = true
+        }
     }
 
     private func endLineManualBrowsing(proxy: ScrollViewProxy) {
@@ -4732,9 +4727,25 @@ struct LyricsScrollView: View {
                   isSceneActive,
                   !isPinchingLyrics,
                   Date().timeIntervalSince(lastUserScrollTime) >= delay else { return }
+            withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
+                isManuallyBrowsingLyrics = false
+            }
             guard let target = playbackScrollTarget else { return }
             scroll(to: target, proxy: proxy, animated: true)
         }
+    }
+
+    private var lyricsViewportFadeMask: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: .black, location: 0.12),
+                .init(color: .black, location: 0.88),
+                .init(color: .clear, location: 1.0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private func scroll(
@@ -5002,10 +5013,15 @@ struct LyricsScrollView: View {
     }
 
     private func inactiveLyricBlurRadius(for index: Int) -> CGFloat {
-        guard blursInactiveLyrics,
-              hasSynchronizedLyrics,
-              index != currentLineIndex else { return 0 }
-        return Self.inactiveLyricsBlurRadius
+        CGFloat(LyricDepthEffectPolicy.blurRadius(
+            forRow: index,
+            activeRow: currentLineIndex,
+            isEnabled: blursInactiveLyrics
+                && !reduceTransparency
+                && !isManuallyBrowsingLyrics
+                && !isPinchingLyrics,
+            isSynchronized: hasSynchronizedLyrics
+        ))
     }
 
     private func shouldRenderWordTimeline(line: LyricLine, index: Int, isActive: Bool, dimmedByAmbient: Bool = false) -> Bool {
@@ -5048,8 +5064,6 @@ struct LyricsScrollView: View {
     /// Active rows render larger without changing their measured layout.
     /// LyricRowLayoutPolicy reserves this scale horizontally to prevent overflow.
     private static let lyricsActiveVisualScale: CGFloat = 1.08
-    private static let inactiveLyricsBlurRadius: CGFloat = 1.5
-
     @discardableResult
     private func updateCurrentLine(
         disableAnimations: Bool = false

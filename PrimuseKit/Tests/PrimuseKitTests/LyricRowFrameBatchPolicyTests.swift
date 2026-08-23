@@ -62,3 +62,66 @@ struct LyricRowLayoutPolicyTests {
         ) == 0)
     }
 }
+
+@Suite("Lyric row depth effect")
+struct LyricDepthEffectPolicyTests {
+    @Test("Current, disabled, and unsynchronized lyrics stay sharp")
+    func sharpStates() {
+        #expect(LyricDepthEffectPolicy.blurRadius(
+            forRow: 3,
+            activeRow: 3,
+            isEnabled: true,
+            isSynchronized: true
+        ) == 0)
+        #expect(LyricDepthEffectPolicy.blurRadius(
+            forRow: 4,
+            activeRow: 3,
+            isEnabled: false,
+            isSynchronized: true
+        ) == 0)
+        #expect(LyricDepthEffectPolicy.blurRadius(
+            forRow: 4,
+            activeRow: 3,
+            isEnabled: true,
+            isSynchronized: false
+        ) == 0)
+    }
+
+    @Test("Upcoming blur grows linearly with distance and then reaches a cap")
+    func progressiveDepth() {
+        let radii = (1...5).map { distance in
+            LyricDepthEffectPolicy.blurRadius(
+                forRow: 10 + distance,
+                activeRow: 10,
+                isEnabled: true,
+                isSynchronized: true
+            )
+        }
+
+        #expect(abs(radii[0] - 1.25) < 0.000_001)
+        #expect(abs(radii[1] - 2.5) < 0.000_001)
+        #expect(abs(radii[2] - 3.75) < 0.000_001)
+        #expect(abs(radii[3] - 5.0) < 0.000_001)
+        #expect(radii[4] == radii[3])
+    }
+
+    @Test("Passed rows recede one depth step beyond upcoming rows")
+    func directionalDepth() {
+        let past = LyricDepthEffectPolicy.blurRadius(
+            forRow: 7,
+            activeRow: 8,
+            isEnabled: true,
+            isSynchronized: true
+        )
+        let future = LyricDepthEffectPolicy.blurRadius(
+            forRow: 9,
+            activeRow: 8,
+            isEnabled: true,
+            isSynchronized: true
+        )
+
+        #expect(abs(past - 2.5) < 0.000_001)
+        #expect(abs(future - 1.25) < 0.000_001)
+        #expect(past > future)
+    }
+}
