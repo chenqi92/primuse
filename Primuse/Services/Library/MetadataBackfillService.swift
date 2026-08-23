@@ -893,13 +893,13 @@ final class MetadataBackfillService {
     /// work parked by transport failures, without resetting its persisted retry
     /// budget. Stalled state-application snapshots remain parked because a route
     /// change cannot make an in-memory library write start sticking.
-    func networkPathChanged() {
+    func networkPathChanged(startImmediately: Bool = true) {
         guard NetworkMonitor.shared.isReachable, !shouldBlockForCellular() else {
             updateWaitingForWiFiState(presentPrompt: true)
             return
         }
         resumeNetworkParkedWork()
-        if worker == nil { start() }
+        if startImmediately, worker == nil { start() }
     }
 
     private func resumeNetworkParkedWork() {
@@ -920,7 +920,6 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(retryableIDs)
         refreshRemainingCounts(force: true)
         plog("📥 Backfill: network path changed; resumed \(retryableIDs.count) deferred inspections")
-        start()
     }
 
     /// Called by scanners for IDs whose title source was already inspected in
@@ -1224,10 +1223,11 @@ final class MetadataBackfillService {
     /// Large cloud libraries need far fewer whole-library cache/index rebuilds.
     /// Network requests still complete continuously; only the observable
     /// library publication is coalesced.
-    private static let flushBatchSize = 100
-    /// Even with a partial batch, flush at least every N seconds so the
-    /// user sees progress without having to wait for 10 songs.
-    private static let flushInterval: TimeInterval = 2
+    private static let flushBatchSize = 250
+    /// Even with a partial batch, flush at least every N seconds. Five seconds
+    /// keeps progress visible while avoiding observable full-library publishes
+    /// several times inside one interaction gesture.
+    private static let flushInterval: TimeInterval = 5
     /// 并发处理 worker 数。百度网盘 actor 内的 throttle 把 callAPI 串行化
     /// (避免 errno 31034 限流), 但 Range fetch 走 actor 外 URLSession 能真
     /// 并发。3 个 worker 实测下吞吐量翻倍多, 再多会撞 throttle 等待 + 触发

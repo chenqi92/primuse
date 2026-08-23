@@ -147,9 +147,11 @@ final class MusicScraperService {
     private var pendingEnrichmentSongIDSet: Set<String> = []
     private var isPausedForSceneTransition = false
     /// Bound both observable full-library publications and checkpoint replay.
-    /// Eight items is large enough to collapse the repeated 10K-song array
-    /// churn while remaining a small, idempotent unit after interruption.
-    private static let songPublicationBatchSize = 8
+    /// A large library cannot afford a complete observable-array publication
+    /// every few songs. Forty still bounds idempotent checkpoint replay, while
+    /// the time gate below publishes slow network work at least every 5 seconds.
+    private static let songPublicationBatchSize = 40
+    private static let songPublicationInterval: TimeInterval = 5
     private let scrapeCheckpointURL: URL
     private var scrapeCheckpoint: ScrapeCheckpoint?
     #if os(iOS)
@@ -1015,6 +1017,7 @@ final class MusicScraperService {
             let sidecarCircuitBreaker = self.sidecarCircuitBreaker
             var lastCompletedSongID: String?
             var completedSongCountInBatch = 0
+            var lastSongPublicationAt = ProcessInfo.processInfo.systemUptime
 
             // The checkpoint is committed only after every library mutation up
             // to that song has been published. Cancellation therefore replays
@@ -1032,6 +1035,7 @@ final class MusicScraperService {
                 pendingSidecarOperations.removeAll(keepingCapacity: true)
                 lastCompletedSongID = nil
                 completedSongCountInBatch = 0
+                lastSongPublicationAt = ProcessInfo.processInfo.systemUptime
                 advanceScrapeCheckpoint(afterCompleting: completedSongID)
             }
 
@@ -1051,7 +1055,9 @@ final class MusicScraperService {
                             lastCompletedSongID = song.id
                             completedSongCountInBatch += 1
                             if pendingSongUpdates.count >= Self.songPublicationBatchSize
-                                || completedSongCountInBatch >= Self.songPublicationBatchSize {
+                                || completedSongCountInBatch >= Self.songPublicationBatchSize
+                                || ProcessInfo.processInfo.systemUptime - lastSongPublicationAt
+                                    >= Self.songPublicationInterval {
                                 publishPendingSongBatch()
                             }
                         }

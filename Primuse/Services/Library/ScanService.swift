@@ -611,6 +611,7 @@ final class ScanService {
     func scheduleBackgroundResumeIfNeeded(
         backfillPending: Bool = false,
         scrapePending: Bool = false,
+        localImportPending: Bool = false,
         sourceStore: SourcesStore? = nil
     ) {
         #if os(iOS)
@@ -621,13 +622,24 @@ final class ScanService {
             // wake that would enumerate the cloud tree behind the user's back.
             return sourceStore?.source(id: sourceID)?.type != .baiduPan
         }
+        let hasNetworkScanWork = scanStates.contains { sourceID, state in
+            guard state.canResume || state.isScanning else { return false }
+            guard let type = sourceStore?.source(id: sourceID)?.type else { return true }
+            return type != .baiduPan && type != .local
+        }
         let periodicDate = sourceStore.flatMap { nextPeriodicSyncDate(sourceStore: $0) }
-        guard hasScanWork || backfillPending || scrapePending || periodicDate != nil else { return }
+        guard hasScanWork || backfillPending || scrapePending
+                || localImportPending || periodicDate != nil else { return }
 
         let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
-        request.requiresNetworkConnectivity = true
+        // An interrupted iOS local import can finish entirely from the app
+        // sandbox. Do not make that recovery wait for network availability
+        // when it is the only reason for this background request.
+        request.requiresNetworkConnectivity = hasNetworkScanWork || backfillPending
+            || scrapePending || periodicDate != nil
         request.requiresExternalPower = false
         let immediateWork = hasScanWork || backfillPending || scrapePending
+            || localImportPending
         let earliestUsefulWake = Date(timeIntervalSinceNow: 60)
         request.earliestBeginDate = immediateWork
             ? earliestUsefulWake

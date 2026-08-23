@@ -434,7 +434,10 @@ actor LibrarySearchIndex {
     private static let baseSchemaVersion = "v1_persistent_original_pinyin"
     private static let substringSchemaVersion = "v2_compact_pinyin_substring"
     private static let externalContentSchemaVersion = "v3_external_lyrics_content"
-    private static let lyricsBatchSize = 12
+    /// FTS5 external-content triggers touch several indexes per transaction.
+    /// Larger utility batches drastically reduce WAL checkpoints/write
+    /// amplification while the short inter-batch pause keeps reads responsive.
+    private static let lyricsBatchSize = 96
     private static let lyricQueryMinimumLength = 3
 
     private let dbPool: DatabasePool?
@@ -590,17 +593,25 @@ actor LibrarySearchIndex {
     /// is being prepared replace the pending snapshot instead of starting a
     /// second transliteration job.
     func prepare(songs: [Song]) async {
-        guard dbPool != nil else { return }
+        guard dbPool != nil, !Task.isCancelled else { return }
         if isPreparing {
             pendingPreparationSongs = songs
             return
         }
 
         isPreparing = true
+        defer {
+            isPreparing = false
+            if Task.isCancelled {
+                pendingPreparationSongs = nil
+            }
+        }
         var currentSongs = songs
         while true {
             await synchronizeMetadata(songs: currentSongs, revisionKey: nil)
+            guard !Task.isCancelled else { return }
             await synchronizeLyrics(songs: currentSongs)
+            guard !Task.isCancelled else { return }
 
             if let pending = pendingPreparationSongs {
                 pendingPreparationSongs = nil
@@ -609,7 +620,6 @@ actor LibrarySearchIndex {
                 break
             }
         }
-        isPreparing = false
 
         await MainActor.run {
             NotificationCenter.default.post(
@@ -625,16 +635,27 @@ actor LibrarySearchIndex {
         guard let pool = dbPool else { return }
         let store = MetadataAssetStore.shared
         let signature = store.cachedLyricsSearchSignature(songID: songID, lyricsFileName: nil)
-        let lines = store.cachedLyricsForSearch(songID: songID, lyricsFileName: nil)
-            ?? Self.lines(fromPlainText: fallbackText)
-        guard let lines, !lines.isEmpty else { return }
-        let resolvedSignature = signature ?? "inline:\(Self.digest(fallbackText ?? ""))"
-        let document = Self.makeLyricsDocument(
-            songID: songID,
-            signature: resolvedSignature,
-            lines: lines
-        )
+        // Keep the signature namespace identical to the background indexer.
+        // Without the `file:` prefix, an immediate scraper notification and
+        // the next library pass alternated between two signatures for the same
+        // lyric and rewrote every FTS posting list each time.
+        let resolvedSignature = signature.map { "file:\($0)" }
+            ?? "inline:\(Self.digest(fallbackText ?? ""))"
         do {
+            // Scrapers may publish the same cached lyric more than once while
+            // metadata is being merged. Updating an unchanged external-content
+            // row makes all FTS triggers rewrite their posting lists.
+            if try Self.lyricsSignature(songID: songID, in: pool) == resolvedSignature {
+                return
+            }
+            let lines = store.cachedLyricsForSearch(songID: songID, lyricsFileName: nil)
+                ?? Self.lines(fromPlainText: fallbackText)
+            guard let lines, !lines.isEmpty else { return }
+            let document = Self.makeLyricsDocument(
+                songID: songID,
+                signature: resolvedSignature,
+                lines: lines
+            )
             try Self.upsertLyricsDocuments([document], in: pool)
         } catch {
             plog("🔎 Failed to refresh lyrics index: \(error.localizedDescription)")
@@ -842,24 +863,32 @@ actor LibrarySearchIndex {
             let songIDs = Set(songs.map(\.id))
             var changed: [(song: Song, fingerprint: String, stateID: Int64?)] = []
             changed.reserveCapacity(min(songs.count, 256))
-            for song in songs {
+            for (offset, song) in songs.enumerated() {
+                if offset.isMultiple(of: 128), Task.isCancelled { return }
                 let fingerprint = Self.metadataFingerprint(song)
                 if existing[song.id]?.fingerprint != fingerprint {
                     changed.append((song, fingerprint, existing[song.id]?.id))
                 }
             }
+            guard !Task.isCancelled else { return }
             let removed = existing.filter { !songIDs.contains($0.key) }.map(\.value.id)
             let metadataChanges = changed
 
             if !metadataChanges.isEmpty || !removed.isEmpty {
                 try await pool.write { db in
-                    for id in removed {
+                    for (offset, id) in removed.enumerated() {
+                        if offset.isMultiple(of: 64), Task.isCancelled {
+                            throw CancellationError()
+                        }
                         try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [id])
                         try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [id])
                         try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [id])
                         try db.execute(sql: "DELETE FROM metadataSearchState WHERE id = ?", arguments: [id])
                     }
-                    for change in metadataChanges {
+                    for (offset, change) in metadataChanges.enumerated() {
+                        if offset.isMultiple(of: 32), Task.isCancelled {
+                            throw CancellationError()
+                        }
                         let document = Self.makeMetadataDocument(change.song)
                         let stateID: Int64
                         if let existingID = change.stateID {
@@ -959,12 +988,15 @@ actor LibrarySearchIndex {
                     try Self.upsertLyricsDocuments(documents, in: pool)
                 }
 
+                if Task.isCancelled { return }
+
                 // Let interactive FTS reads interleave with the first build,
                 // and keep one-time indexing from becoming sustained CPU load.
                 await Task.yield()
                 try? await Task.sleep(for: .milliseconds(18))
             }
 
+            guard !Task.isCancelled else { return }
             let staleIDs = existing
                 .filter { !visibleIDs.contains($0.key) }
                 .map(\.value.id)
@@ -1038,6 +1070,19 @@ actor LibrarySearchIndex {
                 let signature: String = row["signature"]
                 return (songID, StoredLyricsState(id: id, signature: signature))
             })
+        }
+    }
+
+    private static func lyricsSignature(
+        songID: String,
+        in pool: DatabasePool
+    ) throws -> String? {
+        try pool.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT signature FROM lyricsSearchDocuments WHERE songID = ?",
+                arguments: [songID]
+            )
         }
     }
 
@@ -1975,6 +2020,12 @@ final class MusicLibrary {
     /// catches up. Pruned after 30 days to bound the persistent state.
     private var pendingPlaylistIdentities: [String: [PendingSongIdentity]] = [:]
     private var pendingHistoryIdentities: [PendingSongIdentity] = []
+    @ObservationIgnored private var pendingIdentityFlushTask: Task<Void, Never>?
+    #if os(iOS)
+    @ObservationIgnored private var allowsPendingIdentityFlush = false
+    #else
+    @ObservationIgnored private var allowsPendingIdentityFlush = true
+    #endif
     /// 30 days. Pending identities older than this are considered
     /// permanently unresolvable (user removed the song, or the source
     /// was never re-added) and dropped on the next flush.
@@ -2059,6 +2110,10 @@ final class MusicLibrary {
     /// counts here avoids one full-library filter per source on every sidebar
     /// body evaluation.
     @ObservationIgnored private var visibleSongCountBySourceID: [String: Int] = [:]
+    /// Device-local source counts include disabled sources as well. Keep the
+    /// aggregate beside the other immutable snapshot lookups so source-card
+    /// reconciliation never groups the complete library on the main actor.
+    @ObservationIgnored private var songCountBySourceID: [String: Int] = [:]
     /// Album grids ask for one deterministic song fallback per card. Keep the
     /// selection beside the other visible lookups so scrolling never scans and
     /// sorts the complete library from a card body.
@@ -2074,6 +2129,7 @@ final class MusicLibrary {
         let songsBySourceID: [String: [Song]]
         let playableBySourceID: [String: [Song]]
         let countBySourceID: [String: Int]
+        let allCountBySourceID: [String: Int]
         let preferredArtworkSongIDByAlbumID: [String: String]
         let orderedIDsChanged: Bool
     }
@@ -2142,6 +2198,7 @@ final class MusicLibrary {
         visibleSongsBySourceID = prepared.songsBySourceID
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
         visibleSongCountBySourceID = prepared.countBySourceID
+        songCountBySourceID = prepared.allCountBySourceID
         preferredArtworkSongIDByAlbumID = prepared.preferredArtworkSongIDByAlbumID
         albumArtworkLookupRevision &+= 1
         if prepared.orderedIDsChanged {
@@ -2171,6 +2228,9 @@ final class MusicLibrary {
             nextVisibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
         }
         let lookups = makeVisibleLookups(songs: nextVisibleSongs)
+        let allCounts = disabledSourceIDs.isEmpty
+            ? lookups.countBySourceID
+            : makeSongCountsBySourceID(songs)
         return PreparedVisibleCache(
             songs: nextVisibleSongs,
             albums: nextVisibleAlbums,
@@ -2183,6 +2243,7 @@ final class MusicLibrary {
             songsBySourceID: lookups.songsBySourceID,
             playableBySourceID: lookups.playableBySourceID,
             countBySourceID: lookups.countBySourceID,
+            allCountBySourceID: allCounts,
             preferredArtworkSongIDByAlbumID: makePreferredArtworkSongLookup(
                 songs: nextVisibleSongs
             ),
@@ -2219,6 +2280,16 @@ final class MusicLibrary {
             }
         }
         return (indexByID, songByID, songsBySourceID, playableBySourceID, countBySourceID)
+    }
+
+    private nonisolated static func makeSongCountsBySourceID(
+        _ songs: [Song]
+    ) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for song in songs {
+            counts[song.sourceID, default: 0] += 1
+        }
+        return counts
     }
 
     private nonisolated static func makePreferredArtworkSongLookup(
@@ -2745,7 +2816,7 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         // Newly-added songs may resolve identities that were stashed when
         // a CloudKit playlist/history record arrived before the local scan.
-        flushPendingIdentities()
+        schedulePendingIdentityFlush()
         invalidateSearchCaches()
         rebuildIndex()
         let persistedIncoming = persistedSongIDs.compactMap { id in
@@ -2996,6 +3067,15 @@ final class MusicLibrary {
     func visibleSongCount(forSourceID sourceID: String) -> Int {
         _ = visibleSongsReference
         return visibleSongCountBySourceID[sourceID, default: 0]
+    }
+
+    /// Snapshot-sized dictionary (normally only a handful of sources), backed
+    /// by the cached all-library aggregate prepared with the song lookups.
+    func songCountsBySourceID() -> [String: Int] {
+        guard songCountBySourceID.values.reduce(0, +) == songs.count else {
+            return Self.makeSongCountsBySourceID(songs)
+        }
+        return songCountBySourceID
     }
 
     /// Backward-compatible synchronous search. Keep it metadata-only so older
@@ -4260,6 +4340,42 @@ final class MusicLibrary {
         pendingHistoryIdentities = stillPendingHistory
     }
 
+    /// Scan/backfill can publish several library snapshots a second. Resolving
+    /// CloudKit identities after every publication repeatedly rebuilds a large
+    /// lookup on the main actor. Resolve once after the mutation burst settles;
+    /// the pending entries are durable, so this changes latency rather than
+    /// correctness.
+    private func schedulePendingIdentityFlush() {
+        guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return }
+        guard allowsPendingIdentityFlush else { return }
+        pendingIdentityFlushTask?.cancel()
+        pendingIdentityFlushTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(8))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingIdentityFlushTask = nil
+            self.flushPendingIdentities()
+            self.persistSnapshot()
+        }
+    }
+
+    /// Pending CloudKit identities are opportunistic reconciliation. Keep its
+    /// whole-library lookup out of the interactive iOS foreground, including
+    /// the delayed launch window that previously fired several seconds later.
+    func suspendPendingIdentityResolution() {
+        allowsPendingIdentityFlush = false
+        pendingIdentityFlushTask?.cancel()
+        pendingIdentityFlushTask = nil
+    }
+
+    func resumePendingIdentityResolution() {
+        allowsPendingIdentityFlush = true
+        schedulePendingIdentityFlush()
+    }
+
     /// Convert a legacy CloudKit hard deletion into a durable tombstone. The
     /// caller re-uploads it so old offline clients cannot later recreate it.
     @discardableResult
@@ -4364,7 +4480,7 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         // Backfill may have just filled in title/artist/duration that lets
         // a stale pending identity finally match.
-        flushPendingIdentities()
+        schedulePendingIdentityFlush()
         persistSongChanges(upserts: [s])
     }
 
@@ -4442,7 +4558,7 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         // Batch backfill may have surfaced enough metadata for a chunk of
         // pending identities to resolve at once.
-        flushPendingIdentities()
+        schedulePendingIdentityFlush()
         persistSongChanges(
             upserts: appliedIDs.compactMap { idToIndex[$0].map { nextSongs[$0] } }
         )
@@ -4632,17 +4748,20 @@ final class MusicLibrary {
                 return nil
             }
         }()
-        let startupCache = initialStoreState?.isAuthoritative == true
+        let portableStartupCache = initialStoreState?.isAuthoritative == true
             ? loadStartupCache(
-                songStoreRevision: initialStoreState?.contentRevision,
                 snapshotFingerprint: compatibilityFingerprint
             )
             : nil
+        let startupCache = portableStartupCache.flatMap { cache in
+            cache.songStoreRevision == initialStoreState?.contentRevision ? cache : nil
+        }
 
         var canonicalSongs: [Song]?
         var resolvedSnapshot: Snapshot?
         var snapshotByteCount = 0
         var canRefreshStartupCache = false
+        var usedPortableStartupCache = false
         var readFinishedAt = ProcessInfo.processInfo.systemUptime
         var decodeFinishedAt = readFinishedAt
         if let startupCache {
@@ -4653,7 +4772,32 @@ final class MusicLibrary {
             decodeFinishedAt = readFinishedAt
             persistenceBlockedByCorruption = false
         } else {
-            if initialStoreState?.isAuthoritative == true, let songStore {
+            // Ordinary metadata batches commit to SQLite immediately while the
+            // portable JSON snapshot is intentionally coalesced. The cached
+            // snapshot still exactly mirrors that JSON (playlists, tombstones,
+            // etc.), so reuse it and replace only its stale song array from the
+            // authoritative store. This avoids decoding a multi-megabyte JSON
+            // document on every launch during a long-running backfill.
+            if let portableStartupCache,
+               initialStoreState?.isAuthoritative == true,
+               let songStore {
+                do {
+                    canonicalSongs = try songStore.loadSongs()
+                    resolvedSnapshot = portableStartupCache.snapshot
+                    canRefreshStartupCache = true
+                    usedPortableStartupCache = true
+                    persistenceBlockedByCorruption = false
+                    readFinishedAt = ProcessInfo.processInfo.systemUptime
+                    decodeFinishedAt = readFinishedAt
+                } catch {
+                    plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                }
+            }
+
+            if resolvedSnapshot == nil,
+               initialStoreState?.isAuthoritative == true,
+               let songStore,
+               canonicalSongs == nil {
                 do {
                     canonicalSongs = try songStore.loadSongs()
                 } catch {
@@ -4661,7 +4805,10 @@ final class MusicLibrary {
                 }
             }
 
-            if !hasCompatibilitySnapshot {
+            if resolvedSnapshot != nil {
+                // The portable startup cache path above already supplied the
+                // non-song snapshot and canonical SQLite rows.
+            } else if !hasCompatibilitySnapshot {
                 persistenceBlockedByCorruption = false
                 if let canonicalSongs {
                     resolvedSnapshot = Snapshot(
@@ -4779,7 +4926,7 @@ final class MusicLibrary {
         // Songs may already include matches for pending entries from a
         // previous launch (e.g. user added the right cloud source between
         // sessions). Try resolving them once on load.
-        flushPendingIdentities()
+        schedulePendingIdentityFlush()
         let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
         let usedDerivedIndexCache: Bool
         if let startupCache, migration.changedSongs.isEmpty {
@@ -4823,7 +4970,7 @@ final class MusicLibrary {
             (migrationFinishedAt - decodeFinishedAt) * 1_000,
             (cleanupFinishedAt - migrationFinishedAt) * 1_000,
             (indexFinishedAt - cleanupFinishedAt) * 1_000,
-            startupCache == nil ? "miss" : "hit",
+            startupCache != nil ? "hit" : (usedPortableStartupCache ? "partial" : "miss"),
             usedDerivedIndexCache ? "hit" : "miss",
             snapshotByteCount,
             loadedSongs.count
@@ -4949,13 +5096,11 @@ final class MusicLibrary {
     }
 
     private func loadStartupCache(
-        songStoreRevision: Int64?,
         snapshotFingerprint: SnapshotFileFingerprint?
     ) -> StartupCache? {
         guard let data = try? Data(contentsOf: startupCacheURL),
               let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
               cache.formatVersion == Self.startupCacheFormatVersion,
-              cache.songStoreRevision == songStoreRevision,
               cache.snapshotFingerprint == snapshotFingerprint else {
             return nil
         }
@@ -5572,9 +5717,10 @@ final class MusicLibrary {
     }
 
     /// Disposable binary mirror used only for local launch. The portable JSON
-    /// remains the interchange and recovery format; matching both the SQLite
-    /// content revision and JSON file identity prevents this accelerator from
-    /// ever overriding newer durable state.
+    /// remains the interchange and recovery format. A matching JSON identity
+    /// makes the non-song snapshot reusable; a matching SQLite revision also
+    /// makes the cached song/derived arrays reusable. Otherwise authoritative
+    /// songs are reloaded from SQLite and replace only the stale cached array.
     private struct StartupCache: Codable, Sendable {
         let formatVersion: Int
         let songStoreRevision: Int64?

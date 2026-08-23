@@ -41,6 +41,7 @@ final class AppServices {
     private var pendingSourceCloudCleanups: [String: SourceCloudCleanupIntent] = [:]
     private var sourceCloudCleanupPropagationTask: Task<Void, Never>?
     private var didCompleteDeferredStartup = false
+    private var sourceCountReconciliationTask: Task<Void, Never>?
 
     private struct StartupLibraryReconciliation: Sendable {
         let sourceSongCounts: [String: Int]
@@ -310,7 +311,6 @@ final class AppServices {
             sourcesStore: sourcesStore,
             library: musicLibrary
         )
-        rescanLocalImportIfNeeded()
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         let finishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
@@ -342,7 +342,11 @@ final class AppServices {
         #endif
     }
 
-    private func rescanLocalImportIfNeeded() {
+    /// Resume interrupted local-import recovery only from an iOS background
+    /// execution window. Cold-start recovery used to launch a complete local
+    /// scan a moment after the first frame, which reproduced the apparent
+    /// "freezes later" behavior on libraries with unfinished imports.
+    func resumePendingLocalImportScanIfNeeded() {
         #if os(iOS)
         guard let sourceID = LocalImportService.existingSourceID else { return }
         let hasPendingCheckpoint = scanService.scanStates[sourceID]?.hasPendingWork == true
@@ -374,6 +378,7 @@ final class AppServices {
         plog("📥 LocalImport: scheduling pending/interrupted local import scan")
         scanService.scanSource(
             source,
+            snapshotExecutionContext: .background,
             sourceManager: sourceManager,
             library: musicLibrary,
             sourceStore: sourcesStore,
@@ -697,8 +702,7 @@ final class AppServices {
     private func reconcileDeletedSourceSongs() {
         let knownSourceIDs = Set(sourcesStore.allSources.map(\.id))
         let deletedSourceIDs = Set(sourcesStore.allSources.lazy.filter(\.isDeleted).map(\.id))
-        let sourceSongCounts = Dictionary(grouping: musicLibrary.songs, by: \.sourceID)
-            .mapValues(\.count)
+        let sourceSongCounts = musicLibrary.songCountsBySourceID()
         let missingSourceIDs = Set(sourceSongCounts.keys).subtracting(knownSourceIDs)
         let staleSourceIDs = deletedSourceIDs.union(missingSourceIDs)
         let staleSourceIDsWithSongs = staleSourceIDs.filter { (sourceSongCounts[$0] ?? 0) > 0 }
@@ -716,9 +720,21 @@ final class AppServices {
     /// library snapshot/replacement lands so an old scan count cannot masquerade
     /// as the number of songs currently available on this device.
     private func reconcileSourceSongCounts() {
-        let counts = Dictionary(grouping: musicLibrary.songs, by: \.sourceID)
-            .mapValues(\.count)
-        sourcesStore.reconcileLocalSongCounts(counts)
+        sourcesStore.reconcileLocalSongCounts(musicLibrary.songCountsBySourceID())
+    }
+
+    private func scheduleSourceSongCountReconciliation() {
+        sourceCountReconciliationTask?.cancel()
+        sourceCountReconciliationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.sourceCountReconciliationTask = nil
+            self.reconcileSourceSongCounts()
+        }
     }
 
     /// 启动时核对一次 Spotlight manifest；之后 library token 翻动只提交
@@ -746,7 +762,7 @@ final class AppServices {
             Task { @MainActor [weak self] in
                 guard let library, let index else { return }
                 index.scheduleSynchronization(library: library)
-                self?.reconcileSourceSongCounts()
+                self?.scheduleSourceSongCountReconciliation()
                 self?.observeLibraryToken(library: library, index: index)
             }
         }

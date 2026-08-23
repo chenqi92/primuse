@@ -74,6 +74,13 @@ final class SpotlightIndexService {
     private var pendingGeneration: UUID?
     private var queuedSnapshot: LibrarySnapshot?
     private var needsSynchronization = true
+    #if os(iOS)
+    /// Keep opportunistic full-library indexing out of the interactive
+    /// foreground. The scene lifecycle resumes it in the background.
+    private var isSynchronizationSuspended = true
+    #else
+    private var isSynchronizationSuspended = false
+    #endif
 
     init(fileManager: FileManager = .default) {
         #if os(tvOS)
@@ -90,8 +97,9 @@ final class SpotlightIndexService {
     /// running, the latest snapshot is queued instead of overlapping two batch
     /// sessions on the same named index.
     func scheduleSynchronization(library: MusicLibrary) {
-        let snapshot = makeLibrarySnapshot(library: library)
         needsSynchronization = true
+        guard !isSynchronizationSuspended else { return }
+        let snapshot = makeLibrarySnapshot(library: library)
 
         switch workPhase {
         case .idle:
@@ -107,8 +115,17 @@ final class SpotlightIndexService {
     /// Restarts work canceled for an iOS scene transition without performing a
     /// redundant full-library comparison after every foreground activation.
     func resumePendingSynchronization(library: MusicLibrary) {
+        isSynchronizationSuspended = false
         guard needsSynchronization else { return }
         scheduleSynchronization(library: library)
+    }
+
+    /// Retain only the dirty bit while the user is interacting. The next
+    /// background resume snapshots the latest library instead of retaining a
+    /// large stale copy from an earlier publication.
+    func suspendSynchronization() {
+        isSynchronizationSuspended = true
+        cancelPendingSynchronization()
     }
 
     /// Stops opportunistic CPU/file work while the app is resigning active.
@@ -202,6 +219,12 @@ final class SpotlightIndexService {
         pendingTask = nil
         pendingGeneration = nil
         workPhase = .idle
+
+        if isSynchronizationSuspended {
+            queuedSnapshot = nil
+            needsSynchronization = true
+            return
+        }
 
         if let queuedSnapshot {
             self.queuedSnapshot = nil

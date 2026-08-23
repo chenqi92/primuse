@@ -112,6 +112,8 @@ private enum BackgroundScanResumeTask {
             // Resume any interrupted scans, then run backfill until the
             // task expires or work runs out. Both phases use HTTP Range
             // / list-only API calls — safe for iOS background quotas.
+            services.musicLibrary.resumePendingIdentityResolution()
+            services.resumePendingLocalImportScanIfNeeded()
             scanService.resumePendingScans(
                 context: .background,
                 sourceManager: services.sourceManager,
@@ -141,6 +143,7 @@ private enum BackgroundScanResumeTask {
             scanService.scheduleBackgroundResumeIfNeeded(
                 backfillPending: backfill.hasPendingWork,
                 scrapePending: scraper.hasPendingScrape,
+                localImportPending: LocalImportService.hasPendingScan,
                 sourceStore: services.sourcesStore
             )
             completion.complete(success: true)
@@ -654,9 +657,9 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 }
 #endif
 
-/// Keeps automatic full-library uploads in a settled foreground window. A
-/// lifecycle upload used to start while UIKit was committing the background
-/// scene, competing with scraping and SwiftUI for the same watchdog budget.
+/// Coordinates automatic full-library uploads with scene activity. iOS runs
+/// them only after the UI has entered background; macOS keeps its settled
+/// foreground behavior because a window losing focus does not suspend the app.
 @MainActor
 private final class LifecycleSnapshotUploadCoordinator {
     static let shared = LifecycleSnapshotUploadCoordinator()
@@ -681,7 +684,22 @@ private final class LifecycleSnapshotUploadCoordinator {
         }
     }
 
-    func sceneWillResignActive() {
+    func sceneDidEnterBackground(syncEnabled: Bool, library: MusicLibrary) {
+        scheduledTask?.cancel()
+        guard syncEnabled else { return }
+        scheduledTask = Task(priority: .utility) {
+            do {
+                try await Task.sleep(for: .seconds(8))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard case .success = await library.persistNowAndWait() else { return }
+            _ = await LibrarySnapshotSync.shared.uploadNow()
+        }
+    }
+
+    func cancelScheduledUpload() {
         scheduledTask?.cancel()
         scheduledTask = nil
         Task {
@@ -690,12 +708,59 @@ private final class LifecycleSnapshotUploadCoordinator {
     }
 }
 
+#if os(iOS)
+/// Owns cancellable maintenance that is useful but not required for the
+/// current foreground interaction. Returning to the app cancels the tasks;
+/// the next background/BGProcessing window retries from durable state.
+@MainActor
+private final class BackgroundLibraryMaintenanceCoordinator {
+    static let shared = BackgroundLibraryMaintenanceCoordinator()
+
+    private var searchIndexTask: Task<Void, Never>?
+    private var cacheCleanupTask: Task<Void, Never>?
+
+    func sceneDidEnterBackground(library: MusicLibrary) {
+        cancel()
+        let songs = library.visibleSongs
+        searchIndexTask = Task.detached(priority: .utility) {
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await LibrarySearchIndex.shared.prepare(songs: songs)
+        }
+        cacheCleanupTask = Task.detached(priority: .background) {
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            SourceManager.pruneStalePartialFiles()
+            guard !Task.isCancelled else { return }
+            await MetadataAssetStore.shared.evictArtworkContentIfNeeded()
+        }
+    }
+
+    func cancel() {
+        searchIndexTask?.cancel()
+        searchIndexTask = nil
+        cacheCleanupTask?.cancel()
+        cacheCleanupTask = nil
+    }
+}
+#endif
+
 /// Keep network-path Observation out of the scene's root modifier chain.
 /// A path update used to invalidate `ContentView` itself, which made SwiftUI
 /// revisit every instantiated song row in a large library before running the
 /// two side effects below.
 @MainActor
 private struct NetworkPathChangeObserver: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     let metadataBackfill: MetadataBackfillService
     let sourcesStore: SourcesStore
     let scanService: ScanService
@@ -704,11 +769,10 @@ private struct NetworkPathChangeObserver: View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
-            .onChange(of: NetworkMonitor.shared.isOnUnmeteredNetwork) { _, onWifi in
-                if onWifi { metadataBackfill.start() }
-            }
             .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
-                metadataBackfill.networkPathChanged()
+                metadataBackfill.networkPathChanged(
+                    startImmediately: scenePhase == .background
+                )
                 Task {
                     for source in sourcesStore.sources where source.type == .synology {
                         scanService.removeSynologyAPI(for: source.id)
@@ -948,11 +1012,9 @@ struct PrimuseApp: App {
                 }
                 #endif
                 .task {
-                    // Let SwiftUI commit the first interactive frame before
-                    // restoring a potentially 10K+ queue or running launch
-                    // maintenance. The pause is deliberately short: users still
-                    // see their previous Now Playing context almost immediately.
-                    try? await Task.sleep(for: .milliseconds(150))
+                    // Let SwiftUI commit and accept input before restoring a
+                    // potentially 10K+ queue or starting network maintenance.
+                    try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
                     await AppServices.shared.completeDeferredStartup()
 
@@ -979,15 +1041,20 @@ struct PrimuseApp: App {
                         )
                         dlnaRenderer.start()
                     }
-                    // Apple Music user library 启动自动 sync 一次 ── songCache
-                    // 是 in-memory, 重启后空; 没 cache → play 走 catalog lookup,
-                    // 用 user library 的 i.* id 查 catalog 必失败 → 卡 loading。
-                    // 同时填上 cache 后 ArtworkImage 才能拉到 user library 歌的
-                    // 封面 (musicKit:// scheme 必须走 framework 内部解码)。
+                    // macOS can refresh MusicKit while its window is active.
+                    // On iOS a full request is reserved for explicit source
+                    // sync or the playback cache-miss path, so launch never
+                    // invalidates Home a few seconds after interaction starts.
+                    #if !os(iOS)
                     if appleMusic.authState == .authorized,
                        AppleMusicFeatureSettings.syncUserLibraryEnabled {
-                        appleMusicLibrary.sync()
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(2))
+                            guard !Task.isCancelled else { return }
+                            appleMusicLibrary.sync()
+                        }
                     }
+                    #endif
                     // Stage 4c migration: deduplicate legacy
                     // duplicate-OAuth sources by upstream account UID.
                     // Runs once (gated by UserDefaults flag); needs
@@ -999,14 +1066,25 @@ struct PrimuseApp: App {
                         sourceManager: sourceManager,
                         library: musicLibrary
                     )
-                    // Catch up on any songs that were left "bare" by a previous
-                    // scan (cloud sources only download metadata in the
-                    // background after Phase A completes).
-                    metadataBackfill.start()
+                    #if os(iOS)
+                    // Submit durable work, but do not execute it merely because
+                    // the scene is interactive. Background/BGProcessing owns
+                    // scans, scrape checkpoint replay, indexing and backfill.
+                    scanService.scheduleBackgroundResumeIfNeeded(
+                        backfillPending: metadataBackfill.hasPendingWork,
+                        scrapePending: scraperService.hasPendingScrape,
+                        localImportPending: LocalImportService.hasPendingScan,
+                        sourceStore: sourcesStore
+                    )
+                    #else
                     // 一次性把已缓存的 .lrc 解析成纯文本写回 Song.lyricsText,
                     // 让 FTS5 全文歌词搜索可用 (v5 migration 加了列但留空)。
                     // 完成后自带 UserDefaults flag, 后续启动直接 noop。
-                    AppServices.shared.lyricsTextBackfill.startIfNeeded()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(8))
+                        guard !Task.isCancelled else { return }
+                        AppServices.shared.lyricsTextBackfill.startIfNeeded()
+                    }
                     // Build/update the persistent original+pinyin search index
                     // after launch has settled. The actor processes lyrics in
                     // throttled utility batches and skips unchanged files by
@@ -1014,13 +1092,15 @@ struct PrimuseApp: App {
                     // transliterate the whole library.
                     let searchSongs = musicLibrary.visibleSongs
                     Task(priority: .utility) {
-                        try? await Task.sleep(for: .seconds(3))
+                        try? await Task.sleep(for: .seconds(12))
                         guard !Task.isCancelled else { return }
                         await LibrarySearchIndex.shared.prepare(songs: searchSongs)
                     }
                     // 清掉 7 天没动的 .partial 半成品。即使只读取 mtime,
                     // 大缓存目录的枚举也不能占用首屏后的 main actor。
                     Task.detached(priority: .background) {
+                        try? await Task.sleep(for: .seconds(10))
+                        guard !Task.isCancelled else { return }
                         SourceManager.pruneStalePartialFiles()
                     }
                     // 把内容寻址的封面 content/ 目录限定在 500MB 以内。
@@ -1028,8 +1108,11 @@ struct PrimuseApp: App {
                     // miss → CachedArtworkView 自动重新拉。运行在 background
                     // 优先级 detached, 不阻塞启动序列。
                     Task.detached(priority: .background) {
+                        try? await Task.sleep(for: .seconds(15))
+                        guard !Task.isCancelled else { return }
                         await MetadataAssetStore.shared.evictArtworkContentIfNeeded()
                     }
+                    #endif
                     // 启动 prewarm —— 只覆盖 currentSong + queue 接下来 5 首。
                     // 之前还会接着 prewarm 整个 library, 一首歌 1MB head +
                     // 256KB tail = 1.25MB, 818 首 ≈ 1GB 后台流量, 用户开
@@ -1039,6 +1122,8 @@ struct PrimuseApp: App {
                     // 路径里的 cacheInBackground 会按需 prewarm 用户实际
                     // 点的歌, 行为退化为「点啥热啥」, 总体盘可控。
                     Task.detached(priority: .background) {
+                        try? await Task.sleep(for: .seconds(1))
+                        guard !Task.isCancelled else { return }
                         // 1. currentSong (resume): 优先级最高,提到 .userInitiated
                         //    用户立刻按 play 时大概率就是这首
                         let resumeSong = await MainActor.run { playerService.currentSong }
@@ -1143,8 +1228,11 @@ struct PrimuseApp: App {
                         // active → inactive → background commit. The work is
                         // resumed below after the background scene has settled;
                         // background scraping itself remains enabled.
-                        LifecycleSnapshotUploadCoordinator.shared.sceneWillResignActive()
-                        AppServices.shared.spotlightIndex.cancelPendingSynchronization()
+                        LifecycleSnapshotUploadCoordinator.shared.cancelScheduledUpload()
+                        BackgroundLibraryMaintenanceCoordinator.shared.cancel()
+                        AppServices.shared.spotlightIndex.suspendSynchronization()
+                        AppServices.shared.lyricsTextBackfill.stop()
+                        musicLibrary.suspendPendingIdentityResolution()
                         musicLibrary.beginSceneTransitionQuiescence()
                         scraperService.pauseForSceneTransition()
                         scanService.cancelAllActiveScans()
@@ -1168,6 +1256,7 @@ struct PrimuseApp: App {
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
                             scrapePending: scraperService.hasPendingScrape,
+                            localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
                         )
 
@@ -1184,7 +1273,16 @@ struct PrimuseApp: App {
                             }
                             guard self.scenePhase == .background else { return }
                             musicLibrary.endSceneTransitionQuiescence()
+                            musicLibrary.resumePendingIdentityResolution()
                             musicLibrary.persistNow()
+                            AppServices.shared.spotlightIndex.resumePendingSynchronization(
+                                library: musicLibrary
+                            )
+                            LifecycleSnapshotUploadCoordinator.shared.sceneDidEnterBackground(
+                                syncEnabled: iCloudSyncEnabled,
+                                library: musicLibrary
+                            )
+                            AppServices.shared.resumePendingLocalImportScanIfNeeded()
                             scanService.resumePendingScans(
                                 context: .background,
                                 sourceManager: sourceManager,
@@ -1194,6 +1292,15 @@ struct PrimuseApp: App {
                             )
                             scraperService.resumeBackgroundContinuation(in: musicLibrary)
                             metadataBackfill.start()
+                            AppServices.shared.lyricsTextBackfill.startIfNeeded()
+                            BackgroundLibraryMaintenanceCoordinator.shared
+                                .sceneDidEnterBackground(library: musicLibrary)
+                            scanService.scheduleBackgroundResumeIfNeeded(
+                                backfillPending: metadataBackfill.hasPendingWork,
+                                scrapePending: scraperService.hasPendingScrape,
+                                localImportPending: LocalImportService.hasPendingScan,
+                                sourceStore: sourcesStore
+                            )
                         }
                         #else
                         if iCloudSyncEnabled {
@@ -1209,43 +1316,39 @@ struct PrimuseApp: App {
                     case .active:
                         #if os(iOS)
                         musicLibrary.endSceneTransitionQuiescence()
-                        #endif
+                        LifecycleSnapshotUploadCoordinator.shared.cancelScheduledUpload()
+                        BackgroundLibraryMaintenanceCoordinator.shared.cancel()
+                        AppServices.shared.spotlightIndex.suspendSynchronization()
+                        AppServices.shared.lyricsTextBackfill.stop()
+                        musicLibrary.suspendPendingIdentityResolution()
+                        scanService.scheduleBackgroundResumeIfNeeded(
+                            backfillPending: metadataBackfill.hasPendingWork,
+                            scrapePending: scraperService.hasPendingScrape,
+                            localImportPending: LocalImportService.hasPendingScan,
+                            sourceStore: sourcesStore
+                        )
+                        #else
                         LifecycleSnapshotUploadCoordinator.shared.sceneDidBecomeActive(
                             syncEnabled: iCloudSyncEnabled,
                             library: musicLibrary
                         )
-                        playerService.handleAppDidBecomeActive()
                         AppServices.shared.spotlightIndex.resumePendingSynchronization(
                             library: musicLibrary
                         )
+                        #endif
+                        playerService.handleAppDidBecomeActive()
                         Task { await updateChecker.checkForUpdate() }
-                        // Auto-resume any scan that was interrupted (app killed,
-                        // backgrounded past the begin/endBackgroundTask window, or
-                        // crashed mid-scan). Idempotent.
-                        scanService.resumePendingScans(
-                            sourceManager: sourceManager,
-                            library: musicLibrary,
-                            sourceStore: sourcesStore,
-                            scraperService: scraperService
-                        )
-                        scanService.startPeriodicQuickSyncIfNeeded(
-                            sourceManager: sourceManager,
-                            library: musicLibrary,
-                            sourceStore: sourcesStore,
-                            scraperService: scraperService
-                        )
-                        scraperService.resumeAfterSceneTransition(in: musicLibrary)
-                        // Pick up any bare songs left behind by an earlier scan.
-                        metadataBackfill.start()
                     @unknown default:
                         break
                     }
                 }
-                // After every library write (scan progress, replaceSong, etc.)
-                // re-evaluate whether there's bare-song work to do. This
-                // ensures backfill kicks in the moment Phase A produces its
-                // first batch instead of waiting for app foreground.
+                // Continue a background scan/backfill pipeline as new bare
+                // rows arrive. On iOS, an ordinary foreground publication only
+                // marks durable pending work; it must not start maintenance.
                 .onChange(of: musicLibrary.songs.count) { _, _ in
+                    #if os(iOS)
+                    guard scenePhase == .background else { return }
+                    #endif
                     metadataBackfill.refreshQueue()
                 }
                 // Network changes are observed in a separate, zero-size view.

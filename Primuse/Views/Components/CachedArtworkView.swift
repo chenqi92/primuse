@@ -89,7 +89,7 @@ struct CachedArtworkView: View {
         Self.bucket(for: size)
     }
 
-    private static func bucket(for size: CGFloat?) -> Bucket {
+    private nonisolated static func bucket(for size: CGFloat?) -> Bucket {
         guard let size else { return .full }
         if size <= 96 { return .thumb }
         if size <= 320 { return .card }
@@ -98,15 +98,15 @@ struct CachedArtworkView: View {
 
     /// 96pt × 3x display scale. ImageIO downsamples in the GPU and the
     /// resulting CGImage is fed to PlatformImage at scale 1, so cost stays small.
-    private static let thumbMaxPixel: Int = 288
+    private nonisolated static let thumbMaxPixel: Int = 288
 
     /// Grid cards need enough pixels for a 3x display without paying the
     /// roughly 9 MiB decoded cost of a 1536px square for every visible album.
-    private static let cardMaxPixel: Int = 768
+    private nonisolated static let cardMaxPixel: Int = 768
 
     /// Cap full-resolution decodes so a pathological 4000×4000 source can't
     /// blow the cache budget by itself. Larger than any device's hero art.
-    private static let fullMaxPixel: Int = 1536
+    private nonisolated static let fullMaxPixel: Int = 1536
 
     /// Shared session for source-side cover fetches. A delegate-backed
     /// URLSession strongly retains its delegate and never deallocates until
@@ -158,7 +158,8 @@ struct CachedArtworkView: View {
         self.onResolutionChange = onResolutionChange
     }
 
-    // Album cover init — fetches via ArtworkFetchService if not cached
+    // Album cover init. Rendering reads cache only; multi-provider online
+    // scraping is maintenance work and must never be started by a view mount.
     init(albumID: String, albumTitle: String, artistName: String?,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          showsPlaceholder: Bool = true,
@@ -174,7 +175,8 @@ struct CachedArtworkView: View {
         self.onResolutionChange = onResolutionChange
     }
 
-    // Artist image init — fetches via ArtworkFetchService if not cached
+    // Artist image init. Source-owned references may be fetched directly, but
+    // a missing image does not fan out into an online scraper chain here.
     init(artistID: String, artistName: String, artworkReference: String? = nil,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          showsPlaceholder: Bool = true,
@@ -458,7 +460,7 @@ struct CachedArtworkView: View {
     /// goes through the same memory cache, MetadataAssetStore mirror, connector
     /// routing, bounded remote fetch, embedded extraction, and decode validation
     /// as an ordinary `CachedArtworkView`.
-    static func resolveImage(
+    nonisolated static func resolveImage(
         coverRef: String?,
         songID: String?,
         size: CGFloat,
@@ -501,7 +503,7 @@ struct CachedArtworkView: View {
     /// Top-level loader: tries memory cache, disk cache, then falls back to
     /// the source. Decodes via ImageIO, writes both layers of cache, returns
     /// the decoded PlatformImage. Runs on the cooperative pool.
-    private static func loadAndDecode(
+    private nonisolated static func loadAndDecode(
         cacheKey: String,
         bucket: Bucket,
         ref: String?,
@@ -518,16 +520,11 @@ struct CachedArtworkView: View {
         let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: ref, filePath: filePath)
         let effectiveRef = ignoredGenericFolderCover ? nil : ref
 
-        // Album path — ArtworkFetchService
-        if let albumID, let albumTitle {
-            let data: Data?
-            if let cached = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: albumID) {
-                data = cached
-            } else {
-                data = await ArtworkFetchService.shared.fetchAlbumCover(
-                    albumTitle: albumTitle, artistName: artistName, albumID: albumID
-                )
-            }
+        // Album path. A SwiftUI card must not implicitly launch JavaScript
+        // searches against every enabled provider. Background/manual scraping
+        // fills this cache; the deterministic song layer remains the fallback.
+        if let albumID, albumTitle != nil {
+            let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: albumID)
             guard let data else { return nil }
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
@@ -535,7 +532,7 @@ struct CachedArtworkView: View {
         // Artist path — prefer the originating server, then fall back to the
         // existing name-based artwork provider. Source artwork gets its own
         // disk namespace so an older scraped image cannot mask a server image.
-        if let artistID, let artistName {
+        if let artistID, artistName != nil {
             let data: Data?
             let owned = SourceOwnedArtworkReference.resolve(effectiveRef)
             let sourceCacheID = owned.map { _ in
@@ -560,9 +557,7 @@ struct CachedArtworkView: View {
             } else if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID) {
                 data = cached
             } else {
-                data = await ArtworkFetchService.shared.fetchArtistImage(
-                    artistName: artistName, artistID: artistID
-                )
+                data = nil
             }
             guard let data else { return nil }
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
@@ -620,7 +615,11 @@ struct CachedArtworkView: View {
 
     /// Decode + write to memory cache. NSCache is thread-safe so this can
     /// happen on the cooperative pool.
-    private static func finalize(data: Data, bucket: Bucket, cacheKey: String) -> PlatformImage? {
+    private nonisolated static func finalize(
+        data: Data,
+        bucket: Bucket,
+        cacheKey: String
+    ) -> PlatformImage? {
         guard let decoded = decode(data, bucket: bucket) else { return nil }
         memoryCache.setObject(decoded, forKey: cacheKey as NSString, cost: imageCost(decoded))
         return decoded
@@ -628,7 +627,7 @@ struct CachedArtworkView: View {
 
     // MARK: - Disk Cache
 
-    private static func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
+    private nonisolated static func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
         // 始终先尝试 songID-hash disk cache。它由刮削写回路径 (cacheCover) 维护,
         // 是 NAS sidecar 的可信 mirror。只要存在就用 —— 即使 ref 是 NAS path。
         //
@@ -656,7 +655,10 @@ struct CachedArtworkView: View {
         return nil
     }
 
-    private static func shouldIgnoreGenericFolderCover(ref: String?, filePath: String?) -> Bool {
+    private nonisolated static func shouldIgnoreGenericFolderCover(
+        ref: String?,
+        filePath: String?
+    ) -> Bool {
         guard let ref, let filePath, ref.contains("/") else { return false }
         let refName = (ref as NSString).lastPathComponent
         let refBase = (refName as NSString).deletingPathExtension.lowercased()
@@ -674,7 +676,7 @@ struct CachedArtworkView: View {
 
     // MARK: - Source Fetch
 
-    private static func loadFromSource(
+    private nonisolated static func loadFromSource(
         ref: String?, songID: String?,
         sourceID: String?, filePath: String?,
         fileFormat: AudioFormat?,
@@ -738,7 +740,7 @@ struct CachedArtworkView: View {
     /// pool, not the main thread. Uses ImageIO's thumbnail API which both
     /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
     /// at draw time.
-    private static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
+    private nonisolated static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
         guard ArtworkImageCompatibility.isCompleteImage(data),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
             return nil
@@ -765,7 +767,7 @@ struct CachedArtworkView: View {
         return nil
     }
 
-    private static func imageCost(_ image: PlatformImage) -> Int {
+    private nonisolated static func imageCost(_ image: PlatformImage) -> Int {
         if let cg = image.platformCGImage {
             return cg.bytesPerRow * cg.height
         }
