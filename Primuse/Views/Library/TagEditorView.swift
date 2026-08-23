@@ -3,6 +3,7 @@ import PhotosUI
 import PrimuseKit
 #if os(iOS)
 import UIKit
+import UniformTypeIdentifiers
 #elseif os(macOS)
 import AppKit
 #endif
@@ -249,11 +250,9 @@ struct TagEditorView: View {
                     .frame(width: 76, height: 76)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                PhotosPicker(
-                    selection: $coverPickerItem,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
+                Button {
+                    presentCoverPicker()
+                } label: {
                     Image(systemName: "pencil")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Color.accentColor)
@@ -261,6 +260,7 @@ struct TagEditorView: View {
                         .background(.background, in: Circle())
                         .overlay { Circle().stroke(.primary.opacity(0.12), lineWidth: 0.5) }
                 }
+                .buttonStyle(.plain)
                 .offset(x: 5, y: 5)
             }
 
@@ -1571,4 +1571,88 @@ struct TagEditorView: View {
         genre = fix.fields[3]
     }
 
+    private func presentCoverPicker() {
+        #if os(iOS)
+        TagEditorCoverPickerSession.present { data in
+            pickedCoverData = downscale(data: data, maxLongSide: 1024) ?? data
+        }
+        #endif
+    }
+
 }
+
+#if os(iOS)
+@MainActor
+private final class TagEditorCoverPickerSession: NSObject,
+    PHPickerViewControllerDelegate,
+    @unchecked Sendable {
+    private static var activeSessions: [ObjectIdentifier: TagEditorCoverPickerSession] = [:]
+
+    private let onPick: @MainActor (Data) -> Void
+
+    private init(onPick: @escaping @MainActor (Data) -> Void) {
+        self.onPick = onPick
+    }
+
+    static func present(onPick: @escaping @MainActor (Data) -> Void) {
+        guard let presenter = activePresenter() else { return }
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+
+        let picker = PHPickerViewController(configuration: configuration)
+        let session = TagEditorCoverPickerSession(onPick: onPick)
+        picker.delegate = session
+        picker.modalPresentationStyle = .fullScreen
+        activeSessions[ObjectIdentifier(picker)] = session
+        presenter.present(picker, animated: true)
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        guard let provider = results.first?.itemProvider else {
+            finish(picker: picker, data: nil)
+            return
+        }
+
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self, weak picker] data, _ in
+            Task { @MainActor [weak self, weak picker] in
+                guard let self, let picker else { return }
+                finish(picker: picker, data: data)
+            }
+        }
+    }
+
+    private func finish(picker: PHPickerViewController, data: Data?) {
+        if let data {
+            onPick(data)
+        }
+        picker.dismiss(animated: true) {
+            Self.activeSessions[ObjectIdentifier(picker)] = nil
+        }
+    }
+
+    private static func activePresenter() -> UIViewController? {
+        let keyWindow = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+        guard let root = keyWindow?.rootViewController else { return nil }
+        return topmostViewController(from: root)
+    }
+
+    private static func topmostViewController(from controller: UIViewController) -> UIViewController {
+        if let presented = controller.presentedViewController {
+            return topmostViewController(from: presented)
+        }
+        if let navigation = controller as? UINavigationController,
+           let visible = navigation.visibleViewController {
+            return topmostViewController(from: visible)
+        }
+        if let tab = controller as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topmostViewController(from: selected)
+        }
+        return controller
+    }
+}
+#endif
