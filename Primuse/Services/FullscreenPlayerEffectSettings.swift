@@ -19,14 +19,14 @@ enum PlayerLyricsAlignment: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var localizedTitle: String {
+    var localizedTitle: LocalizedStringKey {
         switch self {
         case .leading:
-            PMString("player_lyrics_alignment_left")
+            "player_lyrics_alignment_left"
         case .center:
-            PMString("player_lyrics_alignment_center")
+            "player_lyrics_alignment_center"
         case .trailing:
-            PMString("player_lyrics_alignment_right")
+            "player_lyrics_alignment_right"
         }
     }
 

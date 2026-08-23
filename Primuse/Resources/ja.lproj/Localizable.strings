@@ -2868,10 +2868,10 @@
 "player_appearance_title" = "プレーヤー";
 "player_volume_bar" = "音量スライダー";
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
-"player_lyrics_section" = "Lyrics";
-"player_lyrics_alignment" = "Lyrics Alignment";
-"player_lyrics_alignment_left" = "Left";
-"player_lyrics_alignment_center" = "Center";
-"player_lyrics_alignment_right" = "Right";
-"player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
-"player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";
+"player_lyrics_section" = "歌詞";
+"player_lyrics_alignment" = "歌詞の配置";
+"player_lyrics_alignment_left" = "左揃え";
+"player_lyrics_alignment_center" = "中央揃え";
+"player_lyrics_alignment_right" = "右揃え";
+"player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
+"player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";

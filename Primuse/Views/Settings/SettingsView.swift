@@ -288,7 +288,7 @@ private struct PlayerAppearanceSettingsView: View {
             Section {
                 Picker("player_lyrics_alignment", selection: lyricsAlignment) {
                     ForEach(PlayerLyricsAlignment.allCases) { alignment in
-                        Text(verbatim: alignment.localizedTitle)
+                        Text(alignment.localizedTitle)
                             .tag(alignment)
                     }
                 }
