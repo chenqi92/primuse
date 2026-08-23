@@ -2167,23 +2167,12 @@ final class MusicScraperService {
         sourceManager: SourceManager,
         for song: Song
     ) async throws -> SidecarWriteService.LyricsPreflightResult {
-        try await withThrowingTaskGroup(of: SidecarWriteService.LyricsPreflightResult.self) { group in
-            defer { group.cancelAll() }
-            group.addTask {
-                let connector = try await sourceManager.sidecarWriteConnector(for: song)
-                return try await SidecarWriteService.shared.preflightLyricsWrite(
-                    for: song,
-                    using: connector
-                )
-            }
-            group.addTask {
-                let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
-                    .finiteUInt64(or: 100_000_000)
-                try await Task.sleep(nanoseconds: nanoseconds)
-                throw CancellationError()
-            }
-            guard let result = try await group.next() else { throw CancellationError() }
-            return result
+        try await AsyncOperationTimeout.run(seconds: seconds) {
+            let connector = try await sourceManager.sidecarWriteConnector(for: song)
+            return try await SidecarWriteService.shared.preflightLyricsWrite(
+                for: song,
+                using: connector
+            )
         }
     }
 
