@@ -82,3 +82,27 @@ import Testing
         ) == nil
     )
 }
+
+@Test func lyricsSnapshotEncoderIncludesOnlyAllowedSongFiles() throws {
+    let fm = FileManager.default
+    let directory = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: directory) }
+
+    let allowed = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+    let localOnly = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.json"
+    try Data("allowed".utf8).write(to: directory.appendingPathComponent(allowed))
+    try Data("local".utf8).write(to: directory.appendingPathComponent(localOnly))
+
+    let result = try #require(LyricsSnapshotEncoder.encodeDirectory(
+        directory,
+        maximumOutputBytes: 1_024,
+        maximumFileBytes: 1_024,
+        allowedFileNames: [allowed],
+        fileManager: fm
+    ))
+    let decoded = try JSONDecoder().decode([String: String].self, from: result.data)
+
+    #expect(Set(decoded.keys) == [allowed])
+    #expect(result.skippedFileCount == 0)
+}

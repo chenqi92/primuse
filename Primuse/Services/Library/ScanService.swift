@@ -413,7 +413,11 @@ final class ScanService {
     /// gate so entering the background does not manufacture a scan task just
     /// to discover that the checkpoint store is empty.
     var hasResumableScanWork: Bool {
-        scanStates.values.contains(where: \.canResume)
+        let now = Date()
+        return scanStates.contains { sourceID, state in
+            state.canResume
+                && (checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true)
+        }
     }
 
     /// 扫描期间向 library 批量提交的阈值。改大可以显著降低 main actor 上
@@ -439,8 +443,12 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?
     ) {
+        let now = Date()
         for (sourceID, state) in Array(scanStates) where state.canResume {
             guard activeTasks[sourceID] == nil else { continue }
+            guard checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true else {
+                continue
+            }
             let source = sourceStore.source(id: sourceID)
             switch ScanCheckpointSourcePolicy.disposition(
                 sourceExists: source != nil,
@@ -611,15 +619,22 @@ final class ScanService {
         sourceStore: SourcesStore? = nil
     ) {
         #if os(iOS)
+        let now = Date()
         let hasScanWork = scanStates.contains { sourceID, state in
-            guard state.canResume || state.isScanning else { return false }
+            guard state.isScanning || (state.canResume
+                    && (checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true)) else {
+                return false
+            }
             // Baidu has no native delta feed. Its resumable tree snapshot is
             // foreground-only and must never be the reason for a BGProcessing
             // wake that would enumerate the cloud tree behind the user's back.
             return sourceStore?.source(id: sourceID)?.type != .baiduPan
         }
         let hasNetworkScanWork = scanStates.contains { sourceID, state in
-            guard state.canResume || state.isScanning else { return false }
+            guard state.isScanning || (state.canResume
+                    && (checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true)) else {
+                return false
+            }
             guard let type = sourceStore?.source(id: sourceID)?.type else { return true }
             return type != .baiduPan && type != .local
         }
@@ -1810,6 +1825,10 @@ final class ScanService {
         scannedCount: Int? = nil,
         totalCount: Int? = nil
     ) {
+        if let checkpoint = checkpoints[sourceID] {
+            checkpoints[sourceID] = checkpoint.recordingAutomaticResumeFailure()
+            persistCheckpoints(force: true)
+        }
         var state = scanStates[sourceID] ?? ScanState()
         state.isScanning = false
         state.failureMessage = message
@@ -1922,6 +1941,7 @@ final class ScanService {
         checkpoint.resolvedDirectories = effectiveDirectories
         checkpoint.baiduSnapshotState = resumeState
         checkpoint.baiduTelemetry = telemetry
+        checkpoint = checkpoint.clearingAutomaticResumeFailure()
         let progress = BaiduSnapshotProgressPolicy.progress(for: resumeState)
         checkpoint.totalCount = progress.totalCount
         checkpoints[sourceID] = checkpoint
@@ -1961,7 +1981,9 @@ final class ScanService {
             directoryState: directoryState ?? existing?.directoryState,
             baselineCursors: baselineCursors ?? existing?.baselineCursors,
             baiduSnapshotState: existing?.baiduSnapshotState,
-            baiduTelemetry: existing?.baiduTelemetry
+            baiduTelemetry: existing?.baiduTelemetry,
+            automaticResumeFailureCount: 0,
+            automaticResumeAfter: nil
         )
         persistCheckpoints()
     }
@@ -2034,6 +2056,7 @@ final class ScanService {
         let previous = updated
         updated.baselineCursors = baselineCursors
         updated.updatedAt = Date()
+        updated = updated.clearingAutomaticResumeFailure()
         checkpoints[sourceID] = updated
         do {
             try await waitForCheckpointPersistence()

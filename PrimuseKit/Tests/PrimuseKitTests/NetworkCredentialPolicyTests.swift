@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -59,5 +60,19 @@ struct NetworkCredentialPolicyTests {
             loginSucceeded: true,
             browserReady: true
         ) == candidate)
+    }
+
+    @Test("Unavailable connector retries are coalesced without becoming permanent")
+    func unavailableConnectorRetryIsBounded() {
+        let capturedAt = Date(timeIntervalSince1970: 1_000)
+
+        #expect(NetworkCredentialPolicy.shouldReuseUnavailableConnector(
+            capturedAt: capturedAt,
+            now: capturedAt.addingTimeInterval(4.999)
+        ))
+        #expect(!NetworkCredentialPolicy.shouldReuseUnavailableConnector(
+            capturedAt: capturedAt,
+            now: capturedAt.addingTimeInterval(5)
+        ))
     }
 }

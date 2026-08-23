@@ -40,6 +40,7 @@ final class AppServices {
     private var sourceCleanupTask: Task<Void, Never>?
     private var pendingSourceCloudCleanups: [String: SourceCloudCleanupIntent] = [:]
     private var sourceCloudCleanupPropagationTask: Task<Void, Never>?
+    private var sourceCloudCleanupFailureStreak = 0
     private var didCompleteDeferredStartup = false
     private var sourceCountReconciliationTask: Task<Void, Never>?
 
@@ -448,6 +449,12 @@ final class AppServices {
 
     private func enqueueSourceCloudCleanup(_ tombstone: MusicSource) {
         sourcesStore.registerDeletionTombstone(tombstone)
+        guard MusicSourceCloudSyncPolicy.isEligible(tombstone) else {
+            if pendingSourceCloudCleanups.removeValue(forKey: tombstone.id) != nil {
+                persistPendingSourceCloudCleanups()
+            }
+            return
+        }
         guard let intent = SourceCloudCleanupPolicy.coalescing(
             current: pendingSourceCloudCleanups[tombstone.id],
             tombstone: tombstone
@@ -465,7 +472,12 @@ final class AppServices {
             plog("⛔ Source cloud cleanup journal is unreadable; preserving file for recovery")
             return
         }
+        var removedDeviceLocalIntent = false
         for intent in intents where intent.tombstone.isDeleted {
+            guard MusicSourceCloudSyncPolicy.isEligible(intent.tombstone) else {
+                removedDeviceLocalIntent = true
+                continue
+            }
             sourcesStore.registerDeletionTombstone(intent.tombstone)
             if let current = pendingSourceCloudCleanups[intent.tombstone.id] {
                 let currentClock = max(
@@ -487,6 +499,9 @@ final class AppServices {
             } else {
                 pendingSourceCloudCleanups[intent.tombstone.id] = intent
             }
+        }
+        if removedDeviceLocalIntent {
+            persistPendingSourceCloudCleanups()
         }
         if !pendingSourceCloudCleanups.isEmpty {
             plog("⏳ Restored \(pendingSourceCloudCleanups.count) pending source cloud cleanup(s)")
@@ -523,10 +538,26 @@ final class AppServices {
                 return
             }
             guard let self, !Task.isCancelled else { return }
-            await self.propagatePendingSourceCloudCleanups()
+            let madeProgress = await self.propagatePendingSourceCloudCleanups()
             self.sourceCloudCleanupPropagationTask = nil
             if !self.pendingSourceCloudCleanups.isEmpty {
-                self.schedulePendingSourceCloudCleanupPropagation(delay: .seconds(30))
+                if madeProgress {
+                    self.sourceCloudCleanupFailureStreak = 0
+                } else {
+                    self.sourceCloudCleanupFailureStreak = min(
+                        self.sourceCloudCleanupFailureStreak + 1,
+                        6
+                    )
+                }
+                let retrySeconds = min(
+                    30 * 60,
+                    30 * (1 << self.sourceCloudCleanupFailureStreak)
+                )
+                self.schedulePendingSourceCloudCleanupPropagation(
+                    delay: .seconds(retrySeconds)
+                )
+            } else {
+                self.sourceCloudCleanupFailureStreak = 0
             }
         }
     }
@@ -542,7 +573,8 @@ final class AppServices {
         persistPendingSourceCloudCleanups()
     }
 
-    private func propagatePendingSourceCloudCleanups() async {
+    private func propagatePendingSourceCloudCleanups() async -> Bool {
+        let original = pendingSourceCloudCleanups
         let snapshot = pendingSourceCloudCleanups.values.sorted {
             $0.tombstone.id < $1.tombstone.id
         }
@@ -596,9 +628,12 @@ final class AppServices {
                 credentialRemoved: credentialRemoved,
                 to: current
             )
-            pendingSourceCloudCleanups[sourceID] = updated
-            persistPendingSourceCloudCleanups()
+            if updated != current {
+                pendingSourceCloudCleanups[sourceID] = updated
+                persistPendingSourceCloudCleanups()
+            }
         }
+        return pendingSourceCloudCleanups != original
     }
 
     private func removeSourceLibraryData(

@@ -1090,6 +1090,15 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
 @Observable
 final class SourceManager {
     private var connectors: [String: any MusicSourceConnector] = [:]
+    private struct UnavailableConnectorCacheEntry {
+        let connector: any MusicSourceConnector
+        let capturedAt: Date
+    }
+    /// Credential failures are intentionally not kept in the durable connector
+    /// cache, but callers such as an artwork grid can request the same source
+    /// many times in one render pass. Coalesce that short burst and retry after
+    /// a bounded delay so unlocking the device still recovers automatically.
+    private var unavailableConnectors: [String: UnavailableConnectorCacheEntry] = [:]
     /// Sidecar I/O uses a connector separate from playback, but it must remain
     /// retained. AMSMB2 4.0.3 can crash in its C-context deinitializer after a
     /// server rejects a write; creating one throwaway connector per song made
@@ -1202,12 +1211,26 @@ final class SourceManager {
         if cache, let existing = connectors[source.id] {
             return existing
         }
+        if cache, let unavailable = unavailableConnectors[source.id] {
+            if NetworkCredentialPolicy.shouldReuseUnavailableConnector(
+                capturedAt: unavailable.capturedAt,
+                now: Date()
+            ) {
+                return unavailable.connector
+            }
+            unavailableConnectors.removeValue(forKey: source.id)
+        }
 
         let connector = routedConnector(for: source)
-        if cache,
-           !(connector is CredentialUnavailableSourceConnector),
-           !(connector is NoAvailableConnectionSourceConnector) {
-            connectors[source.id] = connector
+        if cache {
+            if connector is CredentialUnavailableSourceConnector {
+                unavailableConnectors[source.id] = UnavailableConnectorCacheEntry(
+                    connector: connector,
+                    capturedAt: Date()
+                )
+            } else if !(connector is NoAvailableConnectionSourceConnector) {
+                connectors[source.id] = connector
+            }
         }
         return connector
     }
@@ -1679,6 +1702,10 @@ final class SourceManager {
         if let cached = connectors[sourceID], Self.isSameConnector(cached, connector) {
             connectors.removeValue(forKey: sourceID)
             activeConnectionRoutes.removeValue(forKey: sourceID)
+        }
+        if let cached = unavailableConnectors[sourceID],
+           Self.isSameConnector(cached.connector, connector) {
+            unavailableConnectors.removeValue(forKey: sourceID)
         }
         Task.detached(priority: .utility) {
             await connector.disconnect()
@@ -4299,19 +4326,23 @@ final class SourceManager {
     ///
     /// 只清 mtime 超过阈值的, 现在正在 streaming 的 `.partial` (mtime
     /// 是新的) 不会被误删。
-    nonisolated static func pruneStalePartialFiles(olderThanDays days: Int = 7) {
+    @discardableResult
+    nonisolated static func pruneStalePartialFiles(olderThanDays days: Int = 7) -> Bool {
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         guard let enumerator = FileManager.default.enumerator(
             at: basePath,
             includingPropertiesForKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey],
             options: [.skipsHiddenFiles]
-        ) else { return }
+        ) else { return true }
 
         let cutoff = Date().addingTimeInterval(-Double(days) * 86400)
         var removedBytes: Int64 = 0
         var removedCount = 0
         while let fileURL = enumerator.nextObject() as? URL {
+            guard !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) else {
+                return false
+            }
             let name = fileURL.lastPathComponent
             guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
             guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey]),
@@ -4327,6 +4358,7 @@ final class SourceManager {
             let mb = Double(removedBytes) / 1_048_576
             plog("🧹 pruned \(removedCount) stale .partial files (\(String(format: "%.1f", mb)) MB)")
         }
+        return true
     }
 
     /// 删除指定 source 的整个 audio cache 子目录 + LRU 里属于这个源的记录。
@@ -5375,6 +5407,7 @@ final class SourceManager {
         await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
         activeConnectionRoutes.removeValue(forKey: sourceID)
         lastSuccessfulConnectionRoutes.removeValue(forKey: sourceID)
+        unavailableConnectors.removeValue(forKey: sourceID)
         if let connector = connectors.removeValue(forKey: sourceID) {
             await connector.disconnect()
         }
@@ -5396,6 +5429,7 @@ final class SourceManager {
             await connector.disconnect()
         }
         connectors.removeAll()
+        unavailableConnectors.removeAll()
 
         for (_, connector) in sidecarConnectors {
             if connector is SMBSource {

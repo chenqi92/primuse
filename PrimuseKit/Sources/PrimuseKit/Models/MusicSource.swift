@@ -1298,6 +1298,21 @@ public enum MusicSourceCloudSyncPolicy {
         sources.filter(isEligible)
     }
 
+    public static func deviceLocalSourceIDs(in sources: [MusicSource]) -> Set<String> {
+        Set(sources.lazy.filter(isDeviceLocal).map(\.id))
+    }
+
+    /// Cross-device library snapshots must not carry songs whose backing path
+    /// exists only inside one device's sandbox, security scope, or media DB.
+    public static func eligibleSongs(
+        _ songs: [Song],
+        sources: [MusicSource]
+    ) -> [Song] {
+        let excludedSourceIDs = deviceLocalSourceIDs(in: sources)
+        guard !excludedSourceIDs.isEmpty else { return songs }
+        return songs.filter { !excludedSourceIDs.contains($0.sourceID) }
+    }
+
     public static func foreignDeviceLocalSourceIDs(
         in sources: [MusicSource],
         ownedSourceIDs: Set<String>
@@ -1305,6 +1320,27 @@ public enum MusicSourceCloudSyncPolicy {
         Set(sources.lazy.filter { source in
             isDeviceLocal(source) && !ownedSourceIDs.contains(source.id)
         }.map(\.id))
+    }
+}
+
+/// Keeps best-effort file maintenance from turning every scene transition
+/// into a directory walk. Callers persist `lastCompletedAt` only after the
+/// entire maintenance pass finishes successfully.
+public enum AutomaticMaintenanceCadencePolicy {
+    public static func isDue(
+        lastCompletedAt: Date?,
+        now: Date = Date(),
+        minimumInterval: TimeInterval
+    ) -> Bool {
+        guard minimumInterval > 0 else { return true }
+        guard let lastCompletedAt else { return true }
+
+        let elapsed = now.timeIntervalSince(lastCompletedAt)
+        if elapsed < 0 {
+            // A large clock rollback should not park cleanup indefinitely.
+            return abs(elapsed) >= minimumInterval
+        }
+        return elapsed >= minimumInterval
     }
 }
 

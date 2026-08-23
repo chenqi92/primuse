@@ -2407,6 +2407,7 @@ final class MusicLibrary {
         startupCacheURL = directory.appendingPathComponent("library-startup-cache.plist")
         derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
         playlistDurabilityURL = directory.appendingPathComponent("playlist-durability.json")
+        portableSnapshotNeedsInitialWrite = !fileManager.fileExists(atPath: snapshotURL.path)
         let writerDefaultsKey = "primuse.playlist.syncWriterID"
         if let existingWriterID = UserDefaults.standard.string(forKey: writerDefaultsKey),
            !existingWriterID.isEmpty {
@@ -2505,7 +2506,7 @@ final class MusicLibrary {
         }
         if deferredPersistRequested {
             deferredPersistRequested = false
-            persistSnapshot()
+            persistSnapshot(marksMutation: false)
         }
     }
 
@@ -5033,6 +5034,7 @@ final class MusicLibrary {
         if migration.repairedTextCount > 0
             || migration.filledDerivedIDCount > 0
             || migration.correctedLegacyDTSDurationCount > 0 {
+            markPortableSnapshotDirty()
             persistNow()
         }
     }
@@ -5127,6 +5129,13 @@ final class MusicLibrary {
     /// onto the previous write so the JSON encode + atomic write happen in
     /// order off the main thread, and the latest snapshot always wins.
     private var persistWriteTask: Task<Bool, Never>?
+    /// A lifecycle flush may be requested many times without any library
+    /// mutation. Track the latest mutation written to the portable JSON so an
+    /// unchanged 10K+ song library is never re-encoded just for backgrounding.
+    @ObservationIgnored private var portableSnapshotMutationGeneration: UInt64 = 0
+    @ObservationIgnored private var portableSnapshotPersistedGeneration: UInt64 = 0
+    @ObservationIgnored private var portableSnapshotEnqueuedGeneration: UInt64?
+    @ObservationIgnored private var portableSnapshotNeedsInitialWrite = false
     private var derivedIndexCacheWriteTask: Task<Void, Never>?
     private var startupCacheWriteTask: Task<Void, Never>?
 
@@ -5265,7 +5274,11 @@ final class MusicLibrary {
         persistSnapshot(after: delay)
     }
 
-    private func persistSnapshot(after delay: TimeInterval = 2) {
+    private func persistSnapshot(
+        after delay: TimeInterval = 2,
+        marksMutation: Bool = true
+    ) {
+        if marksMutation { markPortableSnapshotDirty() }
         if isDeferringSceneTransitionPublications {
             deferredPersistRequested = true
             return
@@ -5291,10 +5304,28 @@ final class MusicLibrary {
         _ = enqueueSnapshotWrite()
     }
 
+    var hasPendingPortableSnapshotChanges: Bool {
+        portableSnapshotNeedsInitialWrite
+            || portableSnapshotMutationGeneration != portableSnapshotPersistedGeneration
+            || portableSnapshotEnqueuedGeneration != nil
+    }
+
+    private func markPortableSnapshotDirty() {
+        portableSnapshotMutationGeneration &+= 1
+    }
+
     private func enqueueSnapshotWrite() -> Task<Bool, Never>? {
         guard !persistenceBlockedByCorruption else {
             plog("⛔ Library persistence skipped because the on-disk snapshot is corrupt")
             return nil
+        }
+        let generation = portableSnapshotMutationGeneration
+        let needsWrite = portableSnapshotNeedsInitialWrite
+            || generation != portableSnapshotPersistedGeneration
+        guard needsWrite else { return nil }
+        if portableSnapshotEnqueuedGeneration == generation,
+           let persistWriteTask {
+            return persistWriteTask
         }
         let snapshot = makeSnapshot()
         let url = snapshotURL
@@ -5332,7 +5363,28 @@ final class MusicLibrary {
             return true
         }
         persistWriteTask = task
+        portableSnapshotEnqueuedGeneration = generation
+        Task { @MainActor [weak self] in
+            let succeeded = await task.value
+            self?.recordPortableSnapshotWriteCompletion(
+                generation: generation,
+                succeeded: succeeded
+            )
+        }
         return task
+    }
+
+    private func recordPortableSnapshotWriteCompletion(
+        generation: UInt64,
+        succeeded: Bool
+    ) {
+        if succeeded, generation == portableSnapshotMutationGeneration {
+            portableSnapshotPersistedGeneration = generation
+            portableSnapshotNeedsInitialWrite = false
+        }
+        if portableSnapshotEnqueuedGeneration == generation {
+            portableSnapshotEnqueuedGeneration = nil
+        }
     }
 
     private func makeSnapshot() -> Snapshot {
@@ -5361,10 +5413,16 @@ final class MusicLibrary {
         guard await flushIncrementalSongStore() else {
             return .failure(.snapshotPreparationFailed)
         }
-        guard let task = enqueueSnapshotWrite() else {
+        if persistenceBlockedByCorruption {
             return .failure(.snapshotPreparationFailed)
         }
+        guard let task = enqueueSnapshotWrite() else { return .success(()) }
+        let generation = portableSnapshotMutationGeneration
         let succeeded = await task.value
+        recordPortableSnapshotWriteCompletion(
+            generation: generation,
+            succeeded: succeeded
+        )
         guard !Task.isCancelled else { return .failure(.cancelled) }
         guard succeeded else {
             plog("⛔ Library snapshot persistence failed before transfer")
@@ -5459,15 +5517,55 @@ final class MusicLibrary {
         return isValidSnapshotData(data)
     }
 
+    struct PortableSnapshotTransferData: Sendable {
+        let data: Data
+        /// Nil keeps the LAN transfer's historical all-lyrics behavior. A set
+        /// limits CloudKit to songs retained after device-local filtering.
+        let eligibleLyricsFileNames: Set<String>?
+    }
+
     /// Adds bounded transport copies of active uploads to an otherwise normal
     /// library snapshot. The local canonical snapshot remains metadata-only;
     /// this augmented value is used solely by CloudKit/LAN transfer to tvOS.
-    nonisolated static func portableSnapshotDataIncludingArtworkAssets(
-        _ data: Data
-    ) -> Data? {
+    nonisolated static func preparePortableSnapshotDataIncludingArtworkAssets(
+        _ data: Data,
+        cloudSources: [MusicSource]? = nil
+    ) -> PortableSnapshotTransferData? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard var snapshot = try? decoder.decode(Snapshot.self, from: data) else { return nil }
+
+        var eligibleLyricsFileNames: Set<String>?
+        if let cloudSources {
+            snapshot.songs = MusicSourceCloudSyncPolicy.eligibleSongs(
+                snapshot.songs,
+                sources: cloudSources
+            )
+            let retainedSongIDs = Set(snapshot.songs.map(\.id))
+            if var playlistSongIDs = snapshot.playlistSongIDs {
+                for playlistID in playlistSongIDs.keys {
+                    playlistSongIDs[playlistID]?.removeAll {
+                        !retainedSongIDs.contains($0)
+                    }
+                }
+                snapshot.playlistSongIDs = playlistSongIDs
+            }
+            snapshot.recentPlaybackSongIDs?.removeAll {
+                !retainedSongIDs.contains($0)
+            }
+            var names = Set<String>()
+            names.reserveCapacity(snapshot.songs.count * 2)
+            for song in snapshot.songs {
+                names.insert(
+                    MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+                )
+                if let legacyName = song.lyricsFileName,
+                   LyricsSnapshotEncoder.isValidFileName(legacyName) {
+                    names.insert(legacyName)
+                }
+            }
+            eligibleLyricsFileNames = names
+        }
 
         let maximumEncodedSnapshotBytes = 60 * 1024 * 1024
         let availableEncodedBytes = max(0, maximumEncodedSnapshotBytes - data.count)
@@ -5494,9 +5592,33 @@ final class MusicLibrary {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
+        if let encoded = try? encoder.encode(snapshot),
+           encoded.count <= maximumEncodedSnapshotBytes {
+            return PortableSnapshotTransferData(
+                data: encoded,
+                eligibleLyricsFileNames: eligibleLyricsFileNames
+            )
+        }
+
+        // Artwork is optional. Never fall back to the unfiltered raw snapshot
+        // for CloudKit, because that would reintroduce device-local songs.
+        snapshot.artworkAssets = nil
         guard let encoded = try? encoder.encode(snapshot),
-              encoded.count <= maximumEncodedSnapshotBytes else { return nil }
-        return encoded
+              encoded.count <= 64 * 1024 * 1024 else { return nil }
+        return PortableSnapshotTransferData(
+            data: encoded,
+            eligibleLyricsFileNames: eligibleLyricsFileNames
+        )
+    }
+
+    nonisolated static func portableSnapshotDataIncludingArtworkAssets(
+        _ data: Data,
+        cloudSources: [MusicSource]? = nil
+    ) -> Data? {
+        preparePortableSnapshotDataIncludingArtworkAssets(
+            data,
+            cloudSources: cloudSources
+        )?.data
     }
 
     private nonisolated static func restorePortableArtworkAssets(

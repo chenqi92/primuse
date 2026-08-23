@@ -16,6 +16,22 @@ struct SourceCloudCleanupPolicyTests {
         #expect(intent?.needsCredentialRemoval == true)
     }
 
+    @Test("Device-local source deletion never creates remote cleanup work")
+    func deviceLocalDeletionStaysOnItsOwningDevice() {
+        var tombstone = makeSource(
+            id: "iphone-local",
+            deletedAt: Date(timeIntervalSince1970: 100)
+        )
+        tombstone.type = .local
+
+        let intent = SourceCloudCleanupPolicy.coalescing(
+            current: SourceCloudCleanupIntent(tombstone: tombstone),
+            tombstone: tombstone
+        )
+
+        #expect(intent == nil)
+    }
+
     @Test("Partial remote success retains only the failed operation for retry")
     func partialSuccessIsDurable() {
         let intent = SourceCloudCleanupIntent(

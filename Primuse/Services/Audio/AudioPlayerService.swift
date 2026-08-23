@@ -248,6 +248,23 @@ struct QueueEntry: Sendable, Identifiable {
     }
 }
 
+#if os(iOS)
+/// Compact projection used by the Watch bridge. It hashes the complete queue
+/// in one pass but retains only the prefix that fits WatchConnectivity's
+/// payload budget, avoiding several full `[Song]` and string-array copies on
+/// the main actor for large queues.
+struct WatchQueueDigestSnapshot: Sendable {
+    let songIDs: [String]
+    let titles: [String]
+    let artists: [String]
+    let totalCount: Int
+    let digest: Int
+    let estimatedPayloadBytes: Int
+
+    var isTruncated: Bool { songIDs.count < totalCount }
+}
+#endif
+
 private struct PreparedPlaybackSessionRestore: Sendable {
     let plan: PlaybackSessionRestorationPlan
     let entries: [QueueEntry]
@@ -670,7 +687,10 @@ final class AudioPlayerService {
     /// stable UUID — see `QueueEntry`. Mutate via `setQueue`,
     /// `clearQueue`, `moveQueueItems`, or `syncSongMetadata`; do NOT
     /// hand-edit from outside.
-    private(set) var queueEntries: [QueueEntry] = []
+    @ObservationIgnored private var queueSnapshotRevision = 0
+    private(set) var queueEntries: [QueueEntry] = [] {
+        didSet { queueSnapshotRevision &+= 1 }
+    }
     /// Backward-compatible read-only view over the queue's songs.
     /// Internal callers and observers keep using `player.queue` —
     /// the @Observable macro tracks reads through `queueEntries`,
@@ -679,6 +699,58 @@ final class AudioPlayerService {
     /// Queue metadata accessors for views that only need a count or one row.
     /// Avoid materializing a complete `[Song]` on every playback-time update.
     var queueCount: Int { queueEntries.count }
+    /// Lets non-UI bridges skip materializing the complete queue until its
+    /// rows or metadata have actually changed.
+    var watchQueueSnapshotRevision: Int { queueSnapshotRevision }
+    #if os(iOS)
+    func makeWatchQueueDigestSnapshot(
+        byteBudget: Int,
+        perItemOverhead: Int
+    ) -> WatchQueueDigestSnapshot {
+        let safeBudget = max(0, byteBudget)
+        let safeOverhead = max(0, perItemOverhead)
+        let expectedPrefixCount = min(queueEntries.count, safeBudget / 64)
+        var songIDs: [String] = []
+        var titles: [String] = []
+        var artists: [String] = []
+        songIDs.reserveCapacity(expectedPrefixCount)
+        titles.reserveCapacity(expectedPrefixCount)
+        artists.reserveCapacity(expectedPrefixCount)
+
+        var hasher = Hasher()
+        var retainedBytes = 0
+        var acceptsMoreRows = safeBudget > 0
+        for entry in queueEntries {
+            let songID = entry.song.id
+            let title = entry.song.title
+            let artist = entry.song.artistName ?? ""
+            hasher.combine(songID)
+            hasher.combine(title)
+            hasher.combine(artist)
+
+            guard acceptsMoreRows else { continue }
+            let rowBytes = songID.utf8.count + title.utf8.count
+                + artist.utf8.count + safeOverhead
+            guard retainedBytes + rowBytes < safeBudget else {
+                acceptsMoreRows = false
+                continue
+            }
+            songIDs.append(songID)
+            titles.append(title)
+            artists.append(artist)
+            retainedBytes += rowBytes
+        }
+
+        return WatchQueueDigestSnapshot(
+            songIDs: songIDs,
+            titles: titles,
+            artists: artists,
+            totalCount: queueEntries.count,
+            digest: hasher.finalize(),
+            estimatedPayloadBytes: retainedBytes
+        )
+    }
+    #endif
     func queuedSong(at index: Int) -> Song? {
         guard queueEntries.indices.contains(index) else { return nil }
         return queueEntries[index].song

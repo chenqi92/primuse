@@ -54,6 +54,9 @@ final class WatchSessionBridge: NSObject {
     private var lastCoverJPEGSongID: String?
     /// 最近播放列表 hash, 不变就不重发。
     private var lastLibraryHash: Int = 0
+    private var lastQueueSnapshotRevision: Int?
+    private var queueDeliveryRetryNotBefore: Date?
+    private var queueDeliveryFailureCount = 0
     /// 当前歌曲的歌词缓存 (换歌时异步刷新, tick 从这里 sync 查找)。
     /// MetadataAssetStore.lyrics(named:) 是 actor-isolated 不能 sync 调,
     /// 所以预读到 bridge 自己的内存里。
@@ -72,23 +75,38 @@ final class WatchSessionBridge: NSObject {
         session?.activate()
     }
 
-    /// App 启动时调用 ── 注入依赖, 启动 1Hz 状态推送。
+    /// App 启动时调用 ── 注入依赖；只有已安装 Watch app 时才保留 ticker。
     func attach(player: AudioPlayerService, library: MusicLibrary, theme: ThemeService) {
         self.player = player
         self.library = library
         self.theme = theme
+        refreshStateTicker()
+    }
+
+    private func refreshStateTicker() {
+        guard let session,
+              session.activationState == .activated,
+              session.isPaired,
+              session.isWatchAppInstalled else {
+            stateTickerTask?.cancel()
+            stateTickerTask = nil
+            lastLibraryHash = 0
+            lastQueueSnapshotRevision = nil
+            resetQueueDeliveryRetry()
+            return
+        }
+        guard stateTickerTask == nil else { return }
         startStateTicker()
     }
 
     private func startStateTicker() {
-        stateTickerTask?.cancel()
         // 0.5s tick ── 状态推送 (歌词行 / 播放状态变化) 和 队列推送 各自
         // 跑一遍。两者都有 hash 去重, 没变化就不发; 都独立检测, 互不
         // 阻塞 (queue 变化但 state 没变也能被推到)。
         stateTickerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 self.pushIfMeaningfulChange()
                 self.pushLibraryDigest()
             }
@@ -225,7 +243,7 @@ final class WatchSessionBridge: NSObject {
             "duration": player?.isLiveRadio == true ? 0 : (player?.duration ?? 0),
             "currentTime": player?.currentTime ?? 0,
             "currentTimeAnchor": Date().timeIntervalSince1970,
-            "queueCount": player?.isLiveRadio == true ? 0 : (player?.queue.count ?? 0),
+            "queueCount": player?.isLiveRadio == true ? 0 : (player?.queueCount ?? 0),
             "currentLyric": player?.isLiveRadio == true ? "" : lyric,
             "accentR": r, "accentG": g, "accentB": b,
         ]
@@ -283,17 +301,15 @@ final class WatchSessionBridge: NSObject {
         guard let session, session.activationState == .activated, session.isPaired,
               session.isWatchAppInstalled else { return }
         guard let player else { return }
+        if let retryNotBefore = queueDeliveryRetryNotBefore,
+           Date() < retryNotBefore {
+            return
+        }
 
-        let songs = player.queue
-        var ids = songs.map(\.id)
-        var titles = songs.map(\.title)
-        var artists = songs.map { $0.artistName ?? "" }
-
-        // 去重 hash 用整条队列算 (截断前), 这样队列任何变化都能触发重发。
-        var hasher = Hasher()
-        for id in ids { hasher.combine(id) }
-        let h = hasher.finalize()
-        if h == lastLibraryHash { return }
+        let queueRevision = player.watchQueueSnapshotRevision
+        guard lastLibraryHash == 0 || lastQueueSnapshotRevision != queueRevision else {
+            return
+        }
 
         // sendMessage 和 transferUserInfo 的 payload 上限都约 65KB ── 超大队列
         // (约 400 首以上) 走任一通道都会 payloadTooLarge 失败, 之前错误被吞,
@@ -303,43 +319,55 @@ final class WatchSessionBridge: NSObject {
         //  本簇可编辑范围; 截断是当前可安全落地的退路。)
         let byteBudget = 55_000
         let perItemOverhead = 24  // 字典 / NSArray 元数据估算
-        var running = 0
-        var keep = 0
-        for i in ids.indices {
-            running += ids[i].utf8.count + titles[i].utf8.count
-                + artists[i].utf8.count + perItemOverhead
-            if running >= byteBudget { break }
-            keep = i + 1
-        }
-        let totalCount = ids.count
-        let truncated = keep < totalCount
-        if truncated {
-            ids = Array(ids.prefix(keep))
-            titles = Array(titles.prefix(keep))
-            artists = Array(artists.prefix(keep))
+        let snapshot = player.makeWatchQueueDigestSnapshot(
+            byteBudget: byteBudget,
+            perItemOverhead: perItemOverhead
+        )
+        if snapshot.digest == lastLibraryHash {
+            // A duration/artwork-only Song mutation still advances the queue
+            // revision. Mark it observed so the 0.5s ticker does not rebuild
+            // the unchanged Watch projection forever.
+            lastQueueSnapshotRevision = queueRevision
+            return
         }
 
         let payload: [String: Any] = [
             "libraryKind": "queue",
-            "songIDs": ids,
-            "titles": titles,
-            "artists": artists,
-            "totalCount": totalCount,
-            "truncated": truncated,
+            "songIDs": snapshot.songIDs,
+            "titles": snapshot.titles,
+            "artists": snapshot.artists,
+            "totalCount": snapshot.totalCount,
+            "truncated": snapshot.isTruncated,
         ]
-        plog("⌚️ pushQueueDigest sent=\(ids.count)/\(totalCount) bytes~\(running) truncated=\(truncated) reachable=\(session.isReachable)")
+        plog("⌚️ pushQueueDigest sent=\(snapshot.songIDs.count)/\(snapshot.totalCount) bytes~\(snapshot.estimatedPayloadBytes) truncated=\(snapshot.isTruncated) reachable=\(session.isReachable)")
 
         // 投递确认前不更新 lastLibraryHash ── sendMessage 失败时回滚 (置 0,
         // 下个 tick 重发), 否则失败的这版队列永远不会重发。
         if session.isReachable {
             session.sendMessage(payload, replyHandler: nil,
                                 errorHandler: Self.libraryDigestErrorHandler)
+            queueDeliveryRetryNotBefore = nil
         } else {
             // 不可达: 排队投递。watch 端 didReceiveUserInfo 同样能消化。
             // transferUserInfo 失败由 session(_:didFinish:error:) 统一回滚重试。
             _ = session.transferUserInfo(payload)
         }
-        lastLibraryHash = h
+        lastLibraryHash = snapshot.digest
+        lastQueueSnapshotRevision = queueRevision
+    }
+
+    private func recordQueueDeliveryFailure() {
+        lastLibraryHash = 0
+        queueDeliveryFailureCount = min(queueDeliveryFailureCount + 1, 6)
+        let delaySeconds = min(60, 1 << min(queueDeliveryFailureCount, 5))
+        queueDeliveryRetryNotBefore = Date().addingTimeInterval(
+            TimeInterval(delaySeconds)
+        )
+    }
+
+    private func resetQueueDeliveryRetry() {
+        queueDeliveryFailureCount = 0
+        queueDeliveryRetryNotBefore = nil
     }
 
     /// 队列推送失败时把 lastLibraryHash 清零, 让下个 0.5s tick 自动重发这版
@@ -347,7 +375,7 @@ final class WatchSessionBridge: NSObject {
     nonisolated static let libraryDigestErrorHandler: @Sendable (Error) -> Void = { error in
         Task { @MainActor in
             plog("⌚️ pushQueueDigest sendMessage failed: \(error.localizedDescription) — will retry")
-            WatchSessionBridge.shared.lastLibraryHash = 0
+            WatchSessionBridge.shared.recordQueueDeliveryFailure()
         }
     }
 
@@ -376,11 +404,17 @@ final class WatchSessionBridge: NSObject {
         guard let song, song.id == cachedLyricsForSongID, !cachedLyrics.isEmpty else {
             return ""
         }
-        var lastIdx = 0
-        for (i, line) in cachedLyrics.enumerated() {
-            if line.timestamp <= time { lastIdx = i } else { break }
+        var lower = 0
+        var upper = cachedLyrics.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if cachedLyrics[middle].timestamp <= time {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
         }
-        return cachedLyrics[lastIdx].text
+        return cachedLyrics[max(0, lower - 1)].text
     }
 
     /// 换歌时调用 ── 异步把当前曲歌词读进 bridge 内部, 之后 1Hz tick 直接
@@ -463,9 +497,16 @@ extension WatchSessionBridge: WCSessionDelegate {
         } else {
             plog("⌚️ WCSession activated state=\(activationState.rawValue) paired=\(session.isPaired) installed=\(session.isWatchAppInstalled) reachable=\(session.isReachable)")
         }
+        Task { @MainActor in
+            Self.shared.refreshStateTicker()
+        }
     }
 
-    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {
+        Task { @MainActor in
+            Self.shared.refreshStateTicker()
+        }
+    }
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
@@ -477,11 +518,15 @@ extension WatchSessionBridge: WCSessionDelegate {
     nonisolated func session(_ session: WCSession,
                              didFinish userInfoTransfer: WCSessionUserInfoTransfer,
                              error: Error?) {
-        guard let error else { return }
         let isQueue = userInfoTransfer.userInfo["libraryKind"] as? String == "queue"
         Task { @MainActor in
-            plog("⌚️ transferUserInfo didFinish error: \(error.localizedDescription) isQueue=\(isQueue)")
-            if isQueue { Self.shared.lastLibraryHash = 0 }
+            guard isQueue else { return }
+            if let error {
+                plog("⌚️ transferUserInfo didFinish error: \(error.localizedDescription) isQueue=true")
+                Self.shared.recordQueueDeliveryFailure()
+            } else {
+                Self.shared.resetQueueDeliveryRetry()
+            }
         }
     }
 
@@ -489,6 +534,17 @@ extension WatchSessionBridge: WCSessionDelegate {
     /// 而不是等下一次 1Hz tick。这能让 watch 切回前台立刻看到当前曲目。
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor in
+            if session.isReachable {
+                Self.shared.resetQueueDeliveryRetry()
+            }
+            Self.shared.pushIfMeaningfulChange(force: true)
+            Self.shared.pushLibraryDigest()
+        }
+    }
+
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor in
+            Self.shared.refreshStateTicker()
             Self.shared.pushIfMeaningfulChange(force: true)
             Self.shared.pushLibraryDigest()
         }

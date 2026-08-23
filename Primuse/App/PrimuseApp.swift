@@ -677,6 +677,44 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 }
 #endif
 
+/// Serializes best-effort disk cleanup and remembers the last fully completed
+/// pass. A seven-day stale-file policy does not need to rescan every cache tree
+/// on every launch or background transition.
+private actor ScheduledFileMaintenance {
+    static let shared = ScheduledFileMaintenance()
+
+    private static let lastCompletedKey = "primuse.fileMaintenance.lastCompleted.v1"
+    private static let minimumInterval: TimeInterval = 24 * 60 * 60
+    private var isRunning = false
+
+    nonisolated static func isDue(
+        defaults: UserDefaults = .standard,
+        now: Date = Date()
+    ) -> Bool {
+        AutomaticMaintenanceCadencePolicy.isDue(
+            lastCompletedAt: defaults.object(forKey: lastCompletedKey) as? Date,
+            now: now,
+            minimumInterval: minimumInterval
+        )
+    }
+
+    func runIfDue() async {
+        guard !isRunning, Self.isDue() else { return }
+        isRunning = true
+        defer { isRunning = false }
+
+        plog("ScheduledFileMaintenance: starting scheduled file cleanup")
+        guard SourceManager.pruneStalePartialFiles() else { return }
+        guard !Task.isCancelled else { return }
+        guard await MetadataAssetStore.shared.performScheduledContentMaintenance() else {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        UserDefaults.standard.set(Date(), forKey: Self.lastCompletedKey)
+        plog("ScheduledFileMaintenance: completed scheduled file cleanup")
+    }
+}
+
 /// Coordinates automatic full-library uploads with scene activity. iOS runs
 /// them only after the UI has entered background; macOS keeps its settled
 /// foreground behavior because a window losing focus does not suspend the app.
@@ -688,7 +726,11 @@ private final class LifecycleSnapshotUploadCoordinator {
 
     func sceneDidBecomeActive(syncEnabled: Bool, library: MusicLibrary) {
         scheduledTask?.cancel()
-        guard syncEnabled else { return }
+        guard syncEnabled,
+              library.hasPendingPortableSnapshotChanges
+                || LibrarySnapshotSync.shared.shouldAttemptAutomaticUpload() else {
+            return
+        }
 
         scheduledTask = Task(priority: .utility) {
             do {
@@ -699,14 +741,21 @@ private final class LifecycleSnapshotUploadCoordinator {
                 return
             }
             guard !Task.isCancelled else { return }
-            guard case .success = await library.persistNowAndWait() else { return }
-            _ = await LibrarySnapshotSync.shared.uploadNow()
+            if library.hasPendingPortableSnapshotChanges,
+               case .failure = await library.persistNowAndWait() {
+                return
+            }
+            _ = await LibrarySnapshotSync.shared.uploadAutomaticallyIfNeeded()
         }
     }
 
     func sceneDidEnterBackground(syncEnabled: Bool, library: MusicLibrary) {
         scheduledTask?.cancel()
-        guard syncEnabled else { return }
+        guard syncEnabled,
+              library.hasPendingPortableSnapshotChanges
+                || LibrarySnapshotSync.shared.shouldAttemptAutomaticUpload() else {
+            return
+        }
         scheduledTask = Task(priority: .utility) {
             do {
                 try await Task.sleep(for: .seconds(8))
@@ -714,8 +763,11 @@ private final class LifecycleSnapshotUploadCoordinator {
                 return
             }
             guard !Task.isCancelled else { return }
-            guard case .success = await library.persistNowAndWait() else { return }
-            _ = await LibrarySnapshotSync.shared.uploadNow()
+            if library.hasPendingPortableSnapshotChanges,
+               case .failure = await library.persistNowAndWait() {
+                return
+            }
+            _ = await LibrarySnapshotSync.shared.uploadAutomaticallyIfNeeded()
         }
     }
 
@@ -753,16 +805,16 @@ private final class BackgroundLibraryMaintenanceCoordinator {
                 await LibrarySearchIndex.shared.prepare(songs: songs)
             }
         }
-        cacheCleanupTask = Task.detached(priority: .background) {
-            do {
-                try await Task.sleep(for: .seconds(10))
-            } catch {
-                return
+        if ScheduledFileMaintenance.isDue() {
+            cacheCleanupTask = Task.detached(priority: .background) {
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await ScheduledFileMaintenance.shared.runIfDue()
             }
-            guard !Task.isCancelled else { return }
-            SourceManager.pruneStalePartialFiles()
-            guard !Task.isCancelled else { return }
-            await MetadataAssetStore.shared.evictArtworkContentIfNeeded()
         }
     }
 
@@ -1118,21 +1170,12 @@ struct PrimuseApp: App {
                         guard !Task.isCancelled else { return }
                         await LibrarySearchIndex.shared.prepare(songs: searchSongs)
                     }
-                    // 清掉 7 天没动的 .partial 半成品。即使只读取 mtime,
-                    // 大缓存目录的枚举也不能占用首屏后的 main actor。
-                    Task.detached(priority: .background) {
-                        try? await Task.sleep(for: .seconds(10))
-                        guard !Task.isCancelled else { return }
-                        SourceManager.pruneStalePartialFiles()
-                    }
-                    // 把内容寻址的封面 content/ 目录限定在 500MB 以内。
-                    // 超过就按 mtime 删最老的物理 jpeg, ref 文件下次读
-                    // miss → CachedArtworkView 自动重新拉。运行在 background
-                    // 优先级 detached, 不阻塞启动序列。
-                    Task.detached(priority: .background) {
-                        try? await Task.sleep(for: .seconds(15))
-                        guard !Task.isCancelled else { return }
-                        await MetadataAssetStore.shared.evictArtworkContentIfNeeded()
+                    if ScheduledFileMaintenance.isDue() {
+                        Task.detached(priority: .background) {
+                            try? await Task.sleep(for: .seconds(10))
+                            guard !Task.isCancelled else { return }
+                            await ScheduledFileMaintenance.shared.runIfDue()
+                        }
                     }
                     #endif
                     // 启动 prewarm —— 只覆盖 currentSong + queue 接下来 5 首。
@@ -1156,10 +1199,30 @@ struct PrimuseApp: App {
                         }
 
                         // 2. queue 接下来的歌: 已经摆好播放队列时,继续往后跑很可能
-                        let queueSnapshot = await MainActor.run { playerService.queue }
-                        let prewarmCount = await MainActor.run { playerService.playbackSettings.prewarmQueueCount }
+                        // 只投影实际需要的几首，避免恢复超大队列后一秒在 main actor
+                        // 物化完整 [Song]，与 Watch 队列摘要形成第二个延迟卡顿点。
                         let resumeID = resumeSong?.id
-                        let queueOrder = queueSnapshot.filter { $0.id != resumeID }.prefix(prewarmCount)
+                        let queueOrder = await MainActor.run {
+                            let requested = max(
+                                0,
+                                playerService.playbackSettings.prewarmQueueCount
+                            )
+                            guard requested > 0 else { return [Song]() }
+
+                            var songs: [Song] = []
+                            songs.reserveCapacity(requested)
+                            let inspectionLimit = min(
+                                playerService.queueCount,
+                                max(16, requested * 4)
+                            )
+                            for index in 0..<inspectionLimit {
+                                guard songs.count < requested else { break }
+                                guard let song = playerService.queuedSong(at: index),
+                                      song.id != resumeID else { continue }
+                                songs.append(song)
+                            }
+                            return songs
+                        }
                         for song in queueOrder {
                             if Task.isCancelled { return }
                             let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
@@ -1341,10 +1404,11 @@ struct PrimuseApp: App {
                         }
                         #else
                         if iCloudSyncEnabled {
-                            Task { @MainActor in
-                                guard case .success = await musicLibrary.persistNowAndWait() else { return }
-                                _ = await LibrarySnapshotSync.shared.uploadNow()
-                            }
+                            LifecycleSnapshotUploadCoordinator.shared
+                                .sceneDidEnterBackground(
+                                    syncEnabled: true,
+                                    library: musicLibrary
+                                )
                         } else {
                             musicLibrary.persistNow()
                         }

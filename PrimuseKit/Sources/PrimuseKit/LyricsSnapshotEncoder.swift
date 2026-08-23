@@ -16,6 +16,7 @@ public enum LyricsSnapshotEncoder {
         _ directory: URL,
         maximumOutputBytes: Int,
         maximumFileBytes: Int,
+        allowedFileNames: Set<String>? = nil,
         fileManager: FileManager = .default
     ) -> Result? {
         guard maximumOutputBytes >= 2, maximumFileBytes > 0 else { return nil }
@@ -46,6 +47,9 @@ public enum LyricsSnapshotEncoder {
         for url in urls {
             guard !Task.isCancelled else { return nil }
             let name = url.lastPathComponent
+            if let allowedFileNames, !allowedFileNames.contains(name) {
+                continue
+            }
             guard isValidFileName(name),
                   let values = try? url.resourceValues(forKeys: keys),
                   values.isRegularFile == true else {

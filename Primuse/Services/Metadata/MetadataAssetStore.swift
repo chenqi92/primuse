@@ -66,18 +66,10 @@ actor MetadataAssetStore {
             .appendingPathComponent("primuse_metadata", isDirectory: true)
         migrateIfNeeded(from: oldRoot, fileManager: fileManager)
 
-        // 后台跑一次 dedup 迁移 —— 把已经存在的 raw JPEG 文件全部转成 redirect,
-        // 物理内容收拢到 content/。Idempotent (靠 .dedup_v1_done marker 文件
-        // + 单文件 prefix 检查), 中途被杀也能下次接着跑。低优先级, 不影响
-        // 启动速度。
-        let dirsToMigrate = [artworkDirectory, albumArtworkDirectory, artistArtworkDirectory]
-        let contentDir = artworkContentDirectory
-        Task.detached(priority: .background) {
-            Self.runDedupMigrationIfNeeded(targetDirs: dirsToMigrate, contentDir: contentDir)
-            // 顺手 GC 一下 content/ —— 删掉没人引用的内容文件 (用户清缓存
-            // 后偶尔产生孤儿)。
-            Self.collectOrphanedContent(targetDirs: dirsToMigrate, contentDir: contentDir)
-        }
+        // Dedup/GC can traverse every artwork reference. It is deliberately
+        // started by the scene's scheduled file-maintenance window instead of
+        // actor initialization, so merely opening the app never launches an
+        // unbounded directory walk.
     }
 
     /// Migrate files from old Caches path to new Application Support path.
@@ -665,18 +657,24 @@ actor MetadataAssetStore {
     /// 把 `targetDirs` 下的 raw JPEG 文件全部转成 redirect, 物理内容按
     /// SHA 收拢到 `contentDir`。靠 marker 文件保证只跑一次, 但单文件检查
     /// (`starts(with: prefix)`) 让中途被杀也能下次接着跑。
-    nonisolated private static func runDedupMigrationIfNeeded(targetDirs: [URL], contentDir: URL) {
+    @discardableResult
+    nonisolated private static func runDedupMigrationIfNeeded(
+        targetDirs: [URL],
+        contentDir: URL
+    ) -> Bool {
         let fm = FileManager.default
         let marker = contentDir.appendingPathComponent(".dedup_v1_done")
-        if fm.fileExists(atPath: marker.path) { return }
+        if fm.fileExists(atPath: marker.path) { return true }
 
         let prefix = MetadataAssetStore.redirectPrefixData
         var migrated = 0
         var skipped = 0
 
         for dir in targetDirs {
+            guard !currentTaskIsCancelled() else { return false }
             guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
             for file in files {
+                guard !currentTaskIsCancelled() else { return false }
                 let isRegular = (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
                 guard isRegular, file.pathExtension == "jpg" else { continue }
                 guard let data = try? Data(contentsOf: file), !data.isEmpty else { continue }
@@ -697,6 +695,7 @@ actor MetadataAssetStore {
 
         try? Data().write(to: marker, options: .atomic)
         plog("📦 MetadataAssetStore dedup v1: migrated=\(migrated) alreadyDone=\(skipped)")
+        return true
     }
 
     /// 删掉 content/ 下没人引用的 jpeg。在 dedup 跑完后调一次, 用户清缓存
@@ -708,7 +707,11 @@ actor MetadataAssetStore {
     /// 里, 会被误判成孤儿删掉, 随后写下的 redirect 就指向已删内容。所以只删
     /// mtime 早于本次 GC 启动前 5 分钟的孤儿, 给"内容已写、ref 待写"的在途
     /// 写入留足缓冲, 永不碰新近写入的 content 文件。
-    nonisolated private static func collectOrphanedContent(targetDirs: [URL], contentDir: URL) {
+    @discardableResult
+    nonisolated private static func collectOrphanedContent(
+        targetDirs: [URL],
+        contentDir: URL
+    ) -> Bool {
         let fm = FileManager.default
         let prefix = MetadataAssetStore.redirectPrefixData
         // 早于这个时刻写入的 content 文件才允许被当孤儿删除。
@@ -717,8 +720,10 @@ actor MetadataAssetStore {
         // 收集所有正在被引用的 SHA
         var referencedShas = Set<String>()
         for dir in targetDirs {
+            guard !currentTaskIsCancelled() else { return false }
             guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
             for case let fileURL as URL in enumerator {
+                guard !currentTaskIsCancelled() else { return false }
                 guard fileURL.pathExtension == "jpg" else { continue }
                 guard let raw = try? Data(contentsOf: fileURL), raw.starts(with: prefix) else { continue }
                 let shaBytes = raw.dropFirst(prefix.count)
@@ -732,9 +737,10 @@ actor MetadataAssetStore {
         guard let contents = try? fm.contentsOfDirectory(
             at: contentDir,
             includingPropertiesForKeys: [.contentModificationDateKey]
-        ) else { return }
+        ) else { return true }
         var removed = 0
         for file in contents where file.pathExtension == "jpg" {
+            guard !currentTaskIsCancelled() else { return false }
             let sha = file.deletingPathExtension().lastPathComponent
             guard !referencedShas.contains(sha) else { continue }
             let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -744,6 +750,7 @@ actor MetadataAssetStore {
         if removed > 0 {
             plog("🧹 MetadataAssetStore content GC: removed \(removed) orphan(s)")
         }
+        return true
     }
 
     // MARK: - Size cap / eviction
@@ -751,32 +758,55 @@ actor MetadataAssetStore {
     /// content/ 总大小超 `maxBytes` 时, 按 mtime 倒序(最老优先)删掉 content
     /// 文件直到回到上限以下。被驱逐的 SHA 对应的 ref 文件下次读会落到
     /// readContentAddressed → nil → CachedArtworkView 网络重新拉。
-    func evictArtworkContentIfNeeded(maxBytes: Int64 = 500 * 1024 * 1024) {
+    @discardableResult
+    func evictArtworkContentIfNeeded(maxBytes: Int64 = 500 * 1024 * 1024) -> Bool {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
             at: artworkContentDirectory,
             includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
-        ) else { return }
+        ) else { return true }
 
         struct Entry { let url: URL; let size: Int64; let mtime: Date }
         var entries: [Entry] = []
         var total: Int64 = 0
         for url in contents where url.pathExtension == "jpg" {
+            guard !Self.currentTaskIsCancelled() else { return false }
             let v = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             let size = Int64(v?.fileSize ?? 0)
             let mtime = v?.contentModificationDate ?? .distantPast
             entries.append(Entry(url: url, size: size, mtime: mtime))
             total += size
         }
-        guard total > maxBytes else { return }
+        guard total > maxBytes else { return true }
 
         entries.sort { $0.mtime < $1.mtime }  // 老的在前
         var freed: Int64 = 0
         for e in entries {
+            guard !Self.currentTaskIsCancelled() else { return false }
             if total - freed <= maxBytes { break }
             if (try? fm.removeItem(at: e.url)) != nil { freed += e.size }
         }
         plog("🧹 artwork content evict: freed=\(freed / 1024 / 1024)MB total=\(total / 1024 / 1024)MB cap=\(maxBytes / 1024 / 1024)MB")
+        return true
+    }
+
+    /// Runs all artwork migrations and cleanup in one cancellable maintenance
+    /// pass. The caller records cadence only when this returns true.
+    func performScheduledContentMaintenance() -> Bool {
+        let targetDirs = [artworkDirectory, albumArtworkDirectory, artistArtworkDirectory]
+        guard Self.runDedupMigrationIfNeeded(
+            targetDirs: targetDirs,
+            contentDir: artworkContentDirectory
+        ) else { return false }
+        guard Self.collectOrphanedContent(
+            targetDirs: targetDirs,
+            contentDir: artworkContentDirectory
+        ) else { return false }
+        return evictArtworkContentIfNeeded()
+    }
+
+    nonisolated private static func currentTaskIsCancelled() -> Bool {
+        withUnsafeCurrentTask { $0?.isCancelled ?? false }
     }
 }
 

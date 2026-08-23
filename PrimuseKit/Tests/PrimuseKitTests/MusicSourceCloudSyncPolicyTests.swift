@@ -30,6 +30,36 @@ struct MusicSourceCloudSyncPolicyTests {
                 ownedSourceIDs: [ownedImport.id]
             ) == [foreignImport.id]
         )
+
+        let songs = [
+            Song(
+                id: "phone-song",
+                title: "Phone",
+                fileFormat: .flac,
+                filePath: "phone.flac",
+                sourceID: filesImport.id
+            ),
+            Song(
+                id: "nas-song",
+                title: "NAS",
+                fileFormat: .flac,
+                filePath: "nas.flac",
+                sourceID: synology.id
+            ),
+            Song(
+                id: "legacy-song",
+                title: "Legacy",
+                fileFormat: .flac,
+                filePath: "legacy.flac",
+                sourceID: "missing-source"
+            ),
+        ]
+        #expect(
+            MusicSourceCloudSyncPolicy.eligibleSongs(
+                songs,
+                sources: [filesImport, synology]
+            ).map(\.id) == ["nas-song", "legacy-song"]
+        )
     }
 
     @Test func localHandshakeGetsDeadlineOnlyWhenRemoteFallbackExists() {

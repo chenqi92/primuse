@@ -110,6 +110,32 @@ struct ScanCheckpointPreparationTests {
         ) == .discard)
     }
 
+    @Test("Automatic resume failures back off durably and successful progress clears them")
+    func automaticResumeFailureBackoff() {
+        let start = Date(timeIntervalSince1970: 10_000)
+        let initial = makeCheckpoint(
+            phase: .initial,
+            intent: .automatic,
+            directories: ["/Music"],
+            pendingDirectories: ["/Music"]
+        )
+
+        let first = initial.recordingAutomaticResumeFailure(at: start)
+        #expect(first.automaticResumeFailureCount == 1)
+        #expect(!first.canAutomaticallyResume(at: start.addingTimeInterval(299)))
+        #expect(first.canAutomaticallyResume(at: start.addingTimeInterval(300)))
+
+        let second = first.recordingAutomaticResumeFailure(at: start)
+        #expect(second.automaticResumeFailureCount == 2)
+        #expect(!second.canAutomaticallyResume(at: start.addingTimeInterval(599)))
+        #expect(second.canAutomaticallyResume(at: start.addingTimeInterval(600)))
+
+        let cleared = second.clearingAutomaticResumeFailure()
+        #expect(cleared.automaticResumeFailureCount == 0)
+        #expect(cleared.automaticResumeAfter == nil)
+        #expect(cleared.canAutomaticallyResume(at: start))
+    }
+
     @Test("A cloud account switch never resumes the previous scope")
     func scopeMismatchRestartsCheckpoint() {
         let previous = makeCheckpoint(

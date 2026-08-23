@@ -1,5 +1,6 @@
 import CloudKit
 import Compression
+import CryptoKit
 import Foundation
 import PrimuseKit
 
@@ -75,6 +76,27 @@ final class LibrarySnapshotSync: Sendable {
     private let fullUploadSingleFlight = SnapshotUploadSingleFlight()
     private let cloudMutationLock = SnapshotMutationLock()
 
+    private struct FileIdentity: Codable, Equatable, Sendable {
+        let size: Int64
+        let modificationNanoseconds: Int64
+        let fileNumber: UInt64?
+    }
+
+    private struct AutomaticUploadFingerprint: Codable, Equatable, Sendable {
+        let formatVersion: Int
+        let library: FileIdentity
+        let cloudSourcesDigest: String?
+        let radioStations: FileIdentity?
+        let lyricsDirectory: FileIdentity?
+        let customArtworkDirectory: FileIdentity?
+    }
+
+    private static let automaticUploadFingerprintKey =
+        "primuse.librarySnapshot.automaticUploadFingerprint.v1"
+    private static let automaticUploadLastAttemptKey =
+        "primuse.librarySnapshot.automaticUploadLastAttempt.v1"
+    private static let automaticUploadRetryInterval: TimeInterval = 60 * 60
+
     private var database: CKDatabase? {
         CloudKitRuntime.makeContainer()?.privateCloudDatabase
     }
@@ -118,6 +140,88 @@ final class LibrarySnapshotSync: Sendable {
         directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
     }
     private var radioStationsURL: URL { directory.appendingPathComponent("radio-stations.json") }
+
+    func hasPendingAutomaticUpload() -> Bool {
+        guard let current = automaticUploadFingerprint() else { return false }
+        guard let data = UserDefaults.standard.data(
+            forKey: Self.automaticUploadFingerprintKey
+        ), let completed = try? PropertyListDecoder().decode(
+            AutomaticUploadFingerprint.self,
+            from: data
+        ) else {
+            return true
+        }
+        return completed != current
+    }
+
+    /// Automatic lifecycle retries are intentionally rate-limited. A CloudKit
+    /// outage must not make every foreground/background transition rebuild and
+    /// recompress the complete library. Explicit user-triggered uploads still
+    /// call `uploadNowResult()` directly and bypass this cadence.
+    func shouldAttemptAutomaticUpload(now: Date = Date()) -> Bool {
+        guard hasPendingAutomaticUpload() else { return false }
+        return AutomaticMaintenanceCadencePolicy.isDue(
+            lastCompletedAt: UserDefaults.standard.object(
+                forKey: Self.automaticUploadLastAttemptKey
+            ) as? Date,
+            now: now,
+            minimumInterval: Self.automaticUploadRetryInterval
+        )
+    }
+
+    @discardableResult
+    func uploadAutomaticallyIfNeeded(now: Date = Date()) async -> Bool {
+        guard shouldAttemptAutomaticUpload(now: now) else { return false }
+        UserDefaults.standard.set(now, forKey: Self.automaticUploadLastAttemptKey)
+        return await uploadNow()
+    }
+
+    private func automaticUploadFingerprint() -> AutomaticUploadFingerprint? {
+        guard let library = Self.fileIdentity(at: libraryCacheURL) else { return nil }
+        let cloudSourcesDigest = localSourcesData(including: []).flatMap {
+            Self.sanitizedSourcesData($0, includeDeviceLocalSources: false)
+        }.map(Self.sha256Hex)
+        return AutomaticUploadFingerprint(
+            formatVersion: 1,
+            library: library,
+            cloudSourcesDigest: cloudSourcesDigest,
+            radioStations: Self.fileIdentity(at: radioStationsURL),
+            lyricsDirectory: Self.fileIdentity(
+                at: MetadataAssetStore.shared.lyricsDirectoryURL
+            ),
+            customArtworkDirectory: Self.fileIdentity(
+                at: MetadataAssetStore.shared.customArtworkDirectoryURL
+            )
+        )
+    }
+
+    private func recordCompletedAutomaticUpload(
+        fingerprint: AutomaticUploadFingerprint?
+    ) {
+        guard let fingerprint,
+              let data = try? PropertyListEncoder().encode(fingerprint) else { return }
+        UserDefaults.standard.set(data, forKey: Self.automaticUploadFingerprintKey)
+    }
+
+    private static func fileIdentity(at url: URL) -> FileIdentity? {
+        guard let attributes = try? FileManager.default.attributesOfItem(
+            atPath: url.path
+        ), let size = (attributes[.size] as? NSNumber)?.int64Value,
+        let modifiedAt = attributes[.modificationDate] as? Date else {
+            return nil
+        }
+        return FileIdentity(
+            size: size,
+            modificationNanoseconds: Int64(
+                (modifiedAt.timeIntervalSince1970 * 1_000_000_000).rounded()
+            ),
+            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        )
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 
     private func validatedLibrarySnapshotData() -> Result<Data, AppleTVTransferFailure> {
         let fm = FileManager.default
@@ -174,6 +278,7 @@ final class LibrarySnapshotSync: Sendable {
 
     private func performUploadNowResult() async -> Result<Void, AppleTVTransferFailure> {
         guard !Task.isCancelled else { return .failure(.cancelled) }
+        let uploadedFingerprint = automaticUploadFingerprint()
         guard let database else {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip upload")
             return .failure(.cloudUnavailable)
@@ -185,9 +290,16 @@ final class LibrarySnapshotSync: Sendable {
         case .failure(let failure):
             return .failure(failure)
         }
-        let libraryData = MusicLibrary.portableSnapshotDataIncludingArtworkAssets(
-            rawLibraryData
-        ) ?? rawLibraryData
+        guard let cloudSources = cloudSnapshotSources(),
+              let preparedSnapshot = MusicLibrary
+                  .preparePortableSnapshotDataIncludingArtworkAssets(
+                      rawLibraryData,
+                      cloudSources: cloudSources
+                  ) else {
+            plog("LibrarySnapshotSync: cloud snapshot source filtering failed")
+            return .failure(.snapshotPreparationFailed)
+        }
+        let libraryData = preparedSnapshot.data
         let fm = FileManager.default
 
         let record: CKRecord
@@ -249,7 +361,9 @@ final class LibrarySnapshotSync: Sendable {
             }
         }
         // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
-        if let lyrics = Self.gatherInlineLyricsBlob() {
+        if let lyrics = Self.gatherInlineLyricsBlob(
+            allowedFileNames: preparedSnapshot.eligibleLyricsFileNames
+        ) {
             record["lyricsGz"] = lyrics.gz as CKRecordValue
             srcInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
         }
@@ -281,8 +395,13 @@ final class LibrarySnapshotSync: Sendable {
         }
         #if !os(tvOS)
         guard !Task.isCancelled else { return .failure(.cancelled) }
-        return await gatherAndUploadCredentialsResult()
+        let credentialResult = await gatherAndUploadCredentialsResult()
+        if case .success = credentialResult {
+            recordCompletedAutomaticUpload(fingerprint: uploadedFingerprint)
+        }
+        return credentialResult
         #else
+        recordCompletedAutomaticUpload(fingerprint: uploadedFingerprint)
         return .success(())
         #endif
     }
@@ -430,6 +549,16 @@ final class LibrarySnapshotSync: Sendable {
     private func localSourcesData(including tombstones: [MusicSource]) -> Data? {
         let local = try? Data(contentsOf: sourcesURL)
         return augmentedSourcesData(local, including: tombstones)
+    }
+
+    private func cloudSnapshotSources() -> [MusicSource]? {
+        // Without the source ledger there is no safe way to tell whether a
+        // song belongs to a device-local import. Abort instead of treating the
+        // missing file as an empty source list and leaking every local song.
+        guard let data = localSourcesData(including: []) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode([MusicSource].self, from: data)
     }
 
     private func augmentedSourcesData(
@@ -589,12 +718,14 @@ final class LibrarySnapshotSync: Sendable {
 
     /// 收集本机 MetadataAssetStore 的歌词文件 → {文件名: base64} 的 JSON。
     private static func gatherLyricsBlob(
-        maximumOutputBytes: Int = maxLyricsUploadRawBytes
+        maximumOutputBytes: Int = maxLyricsUploadRawBytes,
+        allowedFileNames: Set<String>? = nil
     ) -> LyricsSnapshotEncoder.Result? {
         LyricsSnapshotEncoder.encodeDirectory(
             MetadataAssetStore.shared.lyricsDirectoryURL,
             maximumOutputBytes: maximumOutputBytes,
-            maximumFileBytes: maxSingleLyricsFileBytes
+            maximumFileBytes: maxSingleLyricsFileBytes,
+            allowedFileNames: allowedFileNames
         )
     }
 
@@ -608,7 +739,9 @@ final class LibrarySnapshotSync: Sendable {
     /// example, base64-heavy translated lyrics), which previously made the
     /// whole lyrics snapshot disappear. Retry with progressively smaller raw
     /// budgets and keep the newest subset chosen by LyricsSnapshotEncoder.
-    private static func gatherInlineLyricsBlob() -> InlineLyricsBlob? {
+    private static func gatherInlineLyricsBlob(
+        allowedFileNames: Set<String>? = nil
+    ) -> InlineLyricsBlob? {
         let guaranteedRawBudget = max(2, inlineGzLimit - 64 * 1024)
         let budgets = [
             maxLyricsUploadRawBytes,
@@ -618,7 +751,10 @@ final class LibrarySnapshotSync: Sendable {
         ]
         var attempted = Set<Int>()
         for budget in budgets where attempted.insert(budget).inserted {
-            guard let snapshot = gatherLyricsBlob(maximumOutputBytes: budget),
+            guard let snapshot = gatherLyricsBlob(
+                maximumOutputBytes: budget,
+                allowedFileNames: allowedFileNames
+            ),
                   let gz = gzip(snapshot.data) else { continue }
             if gz.count < inlineGzLimit {
                 return InlineLyricsBlob(snapshot: snapshot, gz: gz)

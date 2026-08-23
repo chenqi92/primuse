@@ -45,6 +45,11 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     /// become authoritative for deletion, but the remaining queue can resume.
     public var baiduSnapshotState: BaiduSnapshotResumeState?
     public var baiduTelemetry: SourceSyncTelemetry?
+    /// Automatic lifecycle resume failures use a durable backoff. Explicit
+    /// user scans bypass this timestamp, while background transitions avoid
+    /// retrying the same unavailable source in a tight loop.
+    public var automaticResumeFailureCount: Int
+    public var automaticResumeAfter: Date?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -60,7 +65,9 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         directoryState: SourceScanResumeState? = nil,
         baselineCursors: [String: String]? = nil,
         baiduSnapshotState: BaiduSnapshotResumeState? = nil,
-        baiduTelemetry: SourceSyncTelemetry? = nil
+        baiduTelemetry: SourceSyncTelemetry? = nil,
+        automaticResumeFailureCount: Int = 0,
+        automaticResumeAfter: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.phase = phase
@@ -76,6 +83,8 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         self.baselineCursors = baselineCursors
         self.baiduSnapshotState = baiduSnapshotState
         self.baiduTelemetry = baiduTelemetry
+        self.automaticResumeFailureCount = automaticResumeFailureCount
+        self.automaticResumeAfter = automaticResumeAfter
     }
 
     public var isUsable: Bool {
@@ -94,6 +103,30 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
 
     public var isQuickOnly: Bool {
         phase == .initial && intent == .quickOnly
+    }
+
+    public func canAutomaticallyResume(at date: Date = Date()) -> Bool {
+        automaticResumeAfter.map { $0 <= date } ?? true
+    }
+
+    public func recordingAutomaticResumeFailure(at date: Date = Date()) -> Self {
+        var updated = self
+        let failureCount = min(max(0, automaticResumeFailureCount) + 1, 8)
+        let exponent = min(failureCount - 1, 6)
+        let delay = min(6 * 60 * 60, 5 * 60 * (1 << exponent))
+        updated.automaticResumeFailureCount = failureCount
+        updated.automaticResumeAfter = date.addingTimeInterval(TimeInterval(delay))
+        return updated
+    }
+
+    public func clearingAutomaticResumeFailure() -> Self {
+        guard automaticResumeFailureCount != 0 || automaticResumeAfter != nil else {
+            return self
+        }
+        var updated = self
+        updated.automaticResumeFailureCount = 0
+        updated.automaticResumeAfter = nil
+        return updated
     }
 
     public func promotedToFullScan(at date: Date = Date()) -> Self {
@@ -138,6 +171,8 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         case baselineCursors
         case baiduSnapshotState
         case baiduTelemetry
+        case automaticResumeFailureCount
+        case automaticResumeAfter
     }
 
     public init(from decoder: Decoder) throws {
@@ -178,6 +213,14 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         baiduTelemetry = try container.decodeIfPresent(
             SourceSyncTelemetry.self,
             forKey: .baiduTelemetry
+        )
+        automaticResumeFailureCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .automaticResumeFailureCount
+        ) ?? 0
+        automaticResumeAfter = try container.decodeIfPresent(
+            Date.self,
+            forKey: .automaticResumeAfter
         )
     }
 }

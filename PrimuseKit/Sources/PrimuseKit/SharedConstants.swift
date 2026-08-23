@@ -1719,6 +1719,18 @@ public enum NetworkCredentialPolicy {
         guard loginSucceeded, browserReady else { return nil }
         return candidate
     }
+
+    /// A failed Keychain lookup can be requested by dozens of artwork rows at
+    /// once. Keep that failure briefly so one unavailable credential does not
+    /// turn a scrolling view into a tight SecItemCopyMatching retry loop.
+    public static let unavailableConnectorRetryDelay: TimeInterval = 5
+
+    public static func shouldReuseUnavailableConnector(
+        capturedAt: Date,
+        now: Date
+    ) -> Bool {
+        now.timeIntervalSince(capturedAt) < unavailableConnectorRetryDelay
+    }
 }
 
 /// NIOSSH advertises only AES-GCM transport ciphers by default. Some NAS SSH

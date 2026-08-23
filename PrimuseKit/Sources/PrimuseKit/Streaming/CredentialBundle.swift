@@ -264,6 +264,7 @@ public enum SourceCloudCleanupPolicy {
         tombstone: MusicSource
     ) -> SourceCloudCleanupIntent? {
         guard tombstone.isDeleted else { return current }
+        guard MusicSourceCloudSyncPolicy.isEligible(tombstone) else { return nil }
         guard let current else {
             return SourceCloudCleanupIntent(tombstone: tombstone)
         }
