@@ -625,3 +625,4 @@
 "immersive_demo_album" = "Night Voyage";
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
 "immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
+"local_import_insufficient_space" = "空き容量が不足しています（必要：%lld バイト、利用可能：%lld バイト）。";

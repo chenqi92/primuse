@@ -625,3 +625,4 @@
 "immersive_demo_album" = "Night Voyage";
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
 "immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
+"local_import_insufficient_space" = "Espace libre insuffisant (%lld octets requis, %lld octets disponibles).";

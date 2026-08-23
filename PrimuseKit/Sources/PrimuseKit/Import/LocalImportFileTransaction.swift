@@ -53,7 +53,7 @@ public final class LocalImportFileTransaction: @unchecked Sendable {
             case .sourceIsNotRegularFile:
                 "The selected item is not a regular file."
             case .insufficientSpace(let required, let available):
-                "Not enough free space (required \(required) bytes, available \(available) bytes)."
+                PMString("local_import_insufficient_space", required, available)
             case .failedToCreateStagingFile:
                 "The import staging file could not be created."
             case .stagedFileMissing:

@@ -625,3 +625,4 @@
 "immersive_demo_album" = "Night Voyage";
 "immersive_lyrics_motion_title" = "몰입형 문자 모션";
 "immersive_lyrics_motion_subtitle" = "곡명 벽의 느린 이동과 가로 가사 흐름을 제어하며 끄면 문자가 정지합니다.";
+"local_import_insufficient_space" = "사용 가능한 공간이 부족합니다(필요: %lld바이트, 사용 가능: %lld바이트).";

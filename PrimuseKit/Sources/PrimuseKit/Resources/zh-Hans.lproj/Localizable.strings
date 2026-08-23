@@ -622,3 +622,4 @@
 "immersive_demo_album" = "夜航";
 "immersive_lyrics_motion_title" = "沉浸文字动效";
 "immersive_lyrics_motion_subtitle" = "控制曲名墙的缓慢漂移和歌词横向巡游；关闭后文字保持静态。";
+"local_import_insufficient_space" = "可用空间不足（需要 %lld 字节，可用 %lld 字节）。";

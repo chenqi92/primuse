@@ -92,7 +92,7 @@
 "tag_editor_disc" = "ディスク番号";
 "tag_editor_reset" = "元に戻す";
 "tag_editor_reset_confirm" = "編集内容を破棄しますか？";
-"tag_editor_footer" = "The status above shows whether tags, artwork, and lyrics are written back to the source. Successfully saved edits also remain in the Primuse library.";
+"tag_editor_footer" = "上のステータスには、タグ、アートワーク、歌詞がソースへ書き戻されるかどうかが表示されます。保存に成功した変更内容は Primuse ライブラリにも保持されます。";
 "tag_editor_metadata_writeback_checking" = "Checking where tags and cover art can be saved…";
 "tag_editor_metadata_writeback_embedded" = "Tags and cover art will be embedded in the source audio file. Primuse checks its revision first, then downloads and verifies the file after saving.";
 "tag_editor_metadata_writeback_server_api" = "Tags and cover art will be written through the media server API. Unsupported fields and individual failures will be reported separately.";
