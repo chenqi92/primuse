@@ -178,8 +178,8 @@ struct ContentView: View {
     }
 
     /// iPad 用的 sidebar + detail 双栏布局。sidebar 顶层就是 Home / 资料库 /
-    /// 搜索 / 设置,detail 直接挂对应的现有视图。底部 NowPlaying accessory
-    /// 走 body 的 ZStack overlay,不区分 iPhone/iPad。
+    /// 搜索 / 设置,detail 直接挂对应的现有视图。播放器收在 sidebar 底部并
+    /// 通过 safeAreaInset 为列表让位,避免覆盖 detail 内容。
     @ViewBuilder
     private var padRoot: some View {
         NavigationSplitView {
@@ -209,6 +209,12 @@ struct ContentView: View {
             .listStyle(.sidebar)
             .navigationTitle("Primuse")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if miniPlayerVisible {
+                    SidebarNowPlayingAccessory(onTap: presentNowPlaying)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         } detail: {
             padDetail(for: sidebarSelection)
         }
@@ -265,16 +271,8 @@ struct ContentView: View {
                 playerAwareTabRoot
             }
 
-            if miniPlayerVisible {
-                if sizeClass == .regular {
-                    // iPad split view 没有底部 tab bar, 直接钉一个紧凑的
-                    // mini player 到 detail pane 底部。padding 给 16 留出
-                    // 跟系统 home indicator 的呼吸空间。
-                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .zIndex(1)
-                } else if #available(iOS 26.1, *) {
+            if miniPlayerVisible && sizeClass != .regular {
+                if #available(iOS 26.1, *) {
                     EmptyView()
                 } else {
                     LegacyNowPlayingAccessory(onTap: presentNowPlaying)
@@ -727,6 +725,23 @@ struct LegacyNowPlayingAccessory: View {
         MiniPlayerView(onTap: onTap)
             .frame(maxWidth: .infinity)
             .background(.ultraThinMaterial)
+    }
+}
+
+struct SidebarNowPlayingAccessory: View {
+    var onTap: () -> Void
+
+    var body: some View {
+        MiniPlayerView(
+            onTap: onTap,
+            showsNextButton: false,
+            showsSubtitle: true
+        )
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Divider()
+        }
     }
 }
 

@@ -5,6 +5,8 @@ import UIKit
 
 struct MiniPlayerView: View {
     var onTap: (() -> Void)? = nil
+    var showsNextButton = true
+    var showsSubtitle = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -12,10 +14,11 @@ struct MiniPlayerView: View {
                 onTap: { onTap?() },
                 artworkSize: 36,
                 artworkCornerRadius: 7,
-                titleFont: .caption
+                titleFont: .caption,
+                showsSubtitle: showsSubtitle
             )
 
-            MiniPlayerTransportControls(showsNextButton: true)
+            MiniPlayerTransportControls(showsNextButton: showsNextButton)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -27,6 +30,7 @@ struct MiniPlayerSwipeContent: View {
     var artworkSize: CGFloat
     var artworkCornerRadius: CGFloat
     var titleFont: Font
+    var showsSubtitle = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -50,12 +54,23 @@ struct MiniPlayerSwipeContent: View {
                 )
                 .padding(.trailing, 10)
 
-                Text(player.currentSong?.title ?? "")
-                    .font(titleFont)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(player.currentSong?.title ?? "")
+                        .font(titleFont)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+
+                    if showsSubtitle,
+                       let artist = player.currentSong?.artistName,
+                       !artist.isEmpty {
+                        Text(artist)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .offset(x: feedbackOffset)
 
@@ -80,9 +95,7 @@ struct MiniPlayerSwipeContent: View {
         .onTapGesture(perform: onTap)
         .simultaneousGesture(swipeGesture(containerWidth: contentWidth))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(String(localized: "now_playing")): \(player.currentSong?.title ?? "")"
-        )
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onTap() }
         .accessibilityAction(named: Text("a11y_previous_track")) {
@@ -91,6 +104,19 @@ struct MiniPlayerSwipeContent: View {
         .accessibilityAction(named: Text("a11y_next_track")) {
             perform(.next)
         }
+    }
+
+    private var accessibilityLabel: String {
+        var parts = [
+            String(localized: "now_playing"),
+            player.currentSong?.title ?? ""
+        ]
+        if showsSubtitle,
+           let artist = player.currentSong?.artistName,
+           !artist.isEmpty {
+            parts.append(artist)
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: ": ")
     }
 
     private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
