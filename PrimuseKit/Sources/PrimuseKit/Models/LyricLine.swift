@@ -181,41 +181,82 @@ public struct LyricFlowItemPlacement: Equatable, Sendable {
     }
 }
 
+public enum LyricFlowHorizontalAlignment: Sendable {
+    case leading
+    case center
+    case trailing
+}
+
 /// Computes physical glyph positions without changing the logical syllable
-/// sequence. RTL starts each visual line at the right edge, while timestamps
-/// continue to address the same original item indexes.
+/// sequence. Leading/trailing alignment mirrors for RTL, while timestamps keep
+/// addressing the same original item indexes.
 public enum LyricFlowPlacementPolicy {
     public static func placements(
         itemSizes: [LyricFlowItemSize],
         containerWidth: Double,
         spacing: Double = 0,
-        isRightToLeft: Bool
+        isRightToLeft: Bool,
+        alignment: LyricFlowHorizontalAlignment = .leading
     ) -> [LyricFlowItemPlacement] {
         guard !itemSizes.isEmpty else { return [] }
 
         let availableWidth = max(0, containerWidth)
         let itemSpacing = max(0, spacing)
-        var usedWidth = 0.0
-        var y = 0.0
-        var lineHeight = 0.0
-        var result: [LyricFlowItemPlacement] = []
-        result.reserveCapacity(itemSizes.count)
+        var rows: [[Int]] = []
+        var currentRow: [Int] = []
+        var currentRowWidth = 0.0
 
         for (index, itemSize) in itemSizes.enumerated() {
             let width = max(0, itemSize.width)
-            let height = max(0, itemSize.height)
-            if usedWidth + width > availableWidth, usedWidth > 0 {
-                y += lineHeight
-                usedWidth = 0
-                lineHeight = 0
+            let proposedWidth = currentRowWidth
+                + (currentRow.isEmpty ? 0 : itemSpacing)
+                + width
+            if proposedWidth > availableWidth, !currentRow.isEmpty {
+                rows.append(currentRow)
+                currentRow = []
+                currentRowWidth = 0
             }
 
-            let x = isRightToLeft
-                ? availableWidth - usedWidth - width
-                : usedWidth
-            result.append(LyricFlowItemPlacement(itemIndex: index, x: x, y: y))
-            usedWidth += width + itemSpacing
-            lineHeight = max(lineHeight, height)
+            currentRowWidth += (currentRow.isEmpty ? 0 : itemSpacing) + width
+            currentRow.append(index)
+        }
+        if !currentRow.isEmpty {
+            rows.append(currentRow)
+        }
+
+        var y = 0.0
+        var result: [LyricFlowItemPlacement] = []
+        result.reserveCapacity(itemSizes.count)
+
+        for row in rows {
+            let rowWidth = row.enumerated().reduce(0.0) { partial, pair in
+                let itemWidth = max(0, itemSizes[pair.element].width)
+                return partial + (pair.offset == 0 ? 0 : itemSpacing) + itemWidth
+            }
+            let remainingWidth = max(0, availableWidth - rowWidth)
+            let originX: Double
+            switch alignment {
+            case .leading:
+                originX = isRightToLeft ? remainingWidth : 0
+            case .center:
+                originX = remainingWidth / 2
+            case .trailing:
+                originX = isRightToLeft ? 0 : remainingWidth
+            }
+
+            var advance = 0.0
+            var rowHeight = 0.0
+            for index in row {
+                let width = max(0, itemSizes[index].width)
+                let height = max(0, itemSizes[index].height)
+                let x = isRightToLeft
+                    ? originX + rowWidth - advance - width
+                    : originX + advance
+                result.append(LyricFlowItemPlacement(itemIndex: index, x: x, y: y))
+                advance += width + itemSpacing
+                rowHeight = max(rowHeight, height)
+            }
+            y += rowHeight
         }
         return result
     }

@@ -2844,3 +2844,10 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量列";
 "player_volume_bar_description" = "在播放器中顯示音量列。隱藏後，其他控制項會自然填滿空出的空間。";
+"player_lyrics_section" = "歌詞";
+"player_lyrics_alignment" = "歌詞對齊";
+"player_lyrics_alignment_left" = "靠左對齊";
+"player_lyrics_alignment_center" = "置中對齊";
+"player_lyrics_alignment_right" = "靠右對齊";
+"player_blur_inactive_lyrics" = "非目前歌詞模糊";
+"player_blur_inactive_lyrics_description" = "輕微模糊目前行以外的同步歌詞，突顯正在播放的歌詞。";

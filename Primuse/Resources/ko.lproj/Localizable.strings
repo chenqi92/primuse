@@ -2867,3 +2867,10 @@
 "player_appearance_title" = "플레이어";
 "player_volume_bar" = "음량 슬라이더";
 "player_volume_bar_description" = "플레이어에 음량 슬라이더를 표시합니다. 숨기면 다른 컨트롤이 사용 가능한 공간을 자연스럽게 채웁니다.";
+"player_lyrics_section" = "가사";
+"player_lyrics_alignment" = "가사 정렬";
+"player_lyrics_alignment_left" = "왼쪽";
+"player_lyrics_alignment_center" = "가운데";
+"player_lyrics_alignment_right" = "오른쪽";
+"player_blur_inactive_lyrics" = "현재 외 가사 흐리게";
+"player_blur_inactive_lyrics_description" = "현재 줄을 강조하도록 현재 줄 이외의 동기화된 가사를 살짝 흐리게 표시합니다.";

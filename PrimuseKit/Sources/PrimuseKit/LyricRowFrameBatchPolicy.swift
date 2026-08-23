@@ -14,6 +14,22 @@ public enum LyricRowFrameBatchPolicy {
     }
 }
 
+public enum LyricRowLayoutPolicy {
+    /// Returns the stable, unscaled text width that keeps a render-layer scale
+    /// inside the lyric viewport. Reserving this width for every row also keeps
+    /// line wrapping unchanged when playback emphasis moves between rows.
+    public static func unscaledContentWidth(
+        viewportWidth: Double,
+        horizontalPadding: Double,
+        maximumVisualScale: Double
+    ) -> Double {
+        let viewport = viewportWidth.isFinite ? max(0, viewportWidth) : 0
+        let padding = horizontalPadding.isFinite ? max(0, horizontalPadding) : 0
+        let scale = maximumVisualScale.isFinite ? max(1, maximumVisualScale) : 1
+        return max(0, viewport - padding * 2) / scale
+    }
+}
+
 public enum LyricPlaybackPositionPolicy {
     public enum ScrollTarget: Equatable, Sendable {
         case line(Int)

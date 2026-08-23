@@ -2971,3 +2971,10 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量条";
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
+"player_lyrics_section" = "歌词";
+"player_lyrics_alignment" = "歌词对齐";
+"player_lyrics_alignment_left" = "左对齐";
+"player_lyrics_alignment_center" = "居中对齐";
+"player_lyrics_alignment_right" = "右对齐";
+"player_blur_inactive_lyrics" = "非当前歌词模糊";
+"player_blur_inactive_lyrics_description" = "轻微模糊当前行以外的同步歌词，突出正在播放的歌词。";

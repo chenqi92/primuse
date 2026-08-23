@@ -2867,3 +2867,10 @@
 "player_appearance_title" = "Lecteur";
 "player_volume_bar" = "Curseur de volume";
 "player_volume_bar_description" = "Afficher le curseur de volume dans le lecteur. Les autres commandes occupent naturellement l’espace disponible lorsqu’il est masqué.";
+"player_lyrics_section" = "Paroles";
+"player_lyrics_alignment" = "Alignement des paroles";
+"player_lyrics_alignment_left" = "À gauche";
+"player_lyrics_alignment_center" = "Centré";
+"player_lyrics_alignment_right" = "À droite";
+"player_blur_inactive_lyrics" = "Flouter les paroles inactives";
+"player_blur_inactive_lyrics_description" = "Floute légèrement les paroles synchronisées sauf la ligne actuelle afin de mettre en valeur ce qui est chanté.";

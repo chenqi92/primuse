@@ -5,6 +5,66 @@ import SwiftUI
 enum PlayerAppearancePreferences {
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
+    static let lyricsAlignmentKey = "primuse.player.lyricsAlignment"
+    static let blursInactiveLyricsKey = "primuse.player.blursInactiveLyrics"
+    static let blursInactiveLyricsByDefault = false
+}
+
+enum PlayerLyricsAlignment: String, CaseIterable, Identifiable {
+    case leading
+    case center
+    case trailing
+
+    static let defaultValue = PlayerLyricsAlignment.leading
+
+    var id: String { rawValue }
+
+    var localizedTitle: String {
+        switch self {
+        case .leading:
+            PMString("player_lyrics_alignment_left")
+        case .center:
+            PMString("player_lyrics_alignment_center")
+        case .trailing:
+            PMString("player_lyrics_alignment_right")
+        }
+    }
+
+    var horizontalAlignment: HorizontalAlignment {
+        switch self {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    var textAlignment: TextAlignment {
+        switch self {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    func scaleAnchor(in layoutDirection: LayoutDirection) -> UnitPoint {
+        let isRightToLeft = layoutDirection == .rightToLeft
+        switch self {
+        case .leading:
+            return UnitPoint(x: isRightToLeft ? 1 : 0, y: 0.5)
+        case .center:
+            return .center
+        case .trailing:
+            return UnitPoint(x: isRightToLeft ? 0 : 1, y: 0.5)
+        }
+    }
 }
 
 enum AppThemeColorMode: String, CaseIterable, Sendable {

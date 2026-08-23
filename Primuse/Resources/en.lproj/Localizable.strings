@@ -2654,3 +2654,10 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
+"player_lyrics_section" = "Lyrics";
+"player_lyrics_alignment" = "Lyrics Alignment";
+"player_lyrics_alignment_left" = "Left";
+"player_lyrics_alignment_center" = "Center";
+"player_lyrics_alignment_right" = "Right";
+"player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
+"player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";

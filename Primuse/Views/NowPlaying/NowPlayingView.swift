@@ -4154,12 +4154,13 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
-/// Reserves the largest vertical footprint a lyric row can occupy while its
-/// render-layer emphasis animates. `scaleEffect` deliberately does not affect
-/// SwiftUI layout; without this stable envelope a wrapped active row can draw
-/// into the rows above and below even though its measured frame never moved.
+/// Reserves the largest footprint a lyric row can occupy while its render-layer
+/// emphasis animates. `scaleEffect` deliberately does not affect SwiftUI layout;
+/// without this stable envelope a wrapped active row can draw outside its
+/// measured frame even though its layout never moved.
 private struct LyricsScaleEnvelopeLayout: Layout {
     let maximumScale: CGFloat
+    let horizontalAnchor: UnitPoint
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -4185,9 +4186,12 @@ private struct LyricsScaleEnvelopeLayout: Layout {
         let childProposal = ProposedViewSize(width: bounds.width, height: nil)
         let childSize = subview.sizeThatFits(childProposal)
         subview.place(
-            at: CGPoint(x: bounds.midX, y: bounds.midY),
-            anchor: .center,
-            proposal: ProposedViewSize(width: bounds.width, height: childSize.height)
+            at: CGPoint(
+                x: bounds.minX + bounds.width * horizontalAnchor.x,
+                y: bounds.midY
+            ),
+            anchor: UnitPoint(x: horizontalAnchor.x, y: 0.5),
+            proposal: ProposedViewSize(width: childSize.width, height: childSize.height)
         )
     }
 }
@@ -4215,6 +4219,10 @@ struct LyricsScrollView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
+    private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
+    private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
@@ -4278,6 +4286,10 @@ struct LyricsScrollView: View {
         LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
     }
 
+    private var lyricsAlignment: PlayerLyricsAlignment {
+        PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue
+    }
+
     private var lyricLayoutDirection: LayoutDirection {
         switch lyricsWritingDirection {
         case .natural:
@@ -4287,6 +4299,10 @@ struct LyricsScrollView: View {
         case .rightToLeft:
             return .rightToLeft
         }
+    }
+
+    private var lyricsScaleAnchor: UnitPoint {
+        lyricsAlignment.scaleAnchor(in: lyricLayoutDirection)
     }
 
     var body: some View {
@@ -4397,7 +4413,8 @@ struct LyricsScrollView: View {
 
     private var lineLevelLyricsView: some View {
         GeometryReader { geo in
-            let contentWidth = lyricContentWidth(in: geo.size.width)
+            let layoutWidth = lyricLayoutWidth(in: geo.size.width)
+            let textWidth = lyricTextWidth(in: geo.size.width)
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
@@ -4409,18 +4426,20 @@ struct LyricsScrollView: View {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             let activity = lineLevelRowVisualActivity(index: index)
                             LyricsScaleEnvelopeLayout(
-                                maximumScale: Self.lyricsActiveVisualScale
+                                maximumScale: Self.lyricsActiveVisualScale,
+                                horizontalAnchor: lyricsScaleAnchor
                             ) {
                                 lyricsRow(
                                     line: line,
                                     index: index,
                                     dimmedByAmbient: true,
-                                    availableWidth: contentWidth,
+                                    availableWidth: textWidth,
                                     visualScale: CGFloat(activity.scale)
                                 )
                             }
                                 .id(LyricsScrollTarget.line(id: line.id))
                                 .opacity(activity.opacity)
+                                .blur(radius: inactiveLyricBlurRadius(for: index))
                                 // Match the word-level path: highlight, scale,
                                 // and scroll all travel on one curve instead of
                                 // snapping the row style before scrolling it.
@@ -4441,7 +4460,7 @@ struct LyricsScrollView: View {
 
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
                     }
-                    .frame(width: contentWidth, alignment: .topLeading)
+                    .frame(width: layoutWidth, alignment: .topLeading)
                     .padding(.horizontal, Self.lyricsHorizontalPadding)
                 }
                 .simultaneousGesture(
@@ -4520,11 +4539,13 @@ struct LyricsScrollView: View {
                 }
             }
         }
+        .clipped()
     }
 
     private var smoothWordLyricsView: some View {
         GeometryReader { geo in
-            let contentWidth = lyricContentWidth(in: geo.size.width)
+            let layoutWidth = lyricLayoutWidth(in: geo.size.width)
+            let textWidth = lyricTextWidth(in: geo.size.width)
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -4535,18 +4556,20 @@ struct LyricsScrollView: View {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             let activity = rowVisualActivity(index: index)
                             LyricsScaleEnvelopeLayout(
-                                maximumScale: Self.lyricsActiveVisualScale
+                                maximumScale: Self.lyricsActiveVisualScale,
+                                horizontalAnchor: lyricsScaleAnchor
                             ) {
                                 lyricsRow(
                                     line: line,
                                     index: index,
                                     dimmedByAmbient: true,
-                                    availableWidth: contentWidth,
+                                    availableWidth: textWidth,
                                     visualScale: CGFloat(activity.scale)
                                 )
                             }
                             .id(LyricsScrollTarget.line(id: line.id))
                             .opacity(activity.opacity)
+                            .blur(radius: inactiveLyricBlurRadius(for: index))
                             .animation(
                                 .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
                                 value: currentLineIndex
@@ -4564,7 +4587,7 @@ struct LyricsScrollView: View {
 
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
                     }
-                    .frame(width: contentWidth, alignment: .topLeading)
+                    .frame(width: layoutWidth, alignment: .topLeading)
                     .padding(.horizontal, Self.lyricsHorizontalPadding)
                 }
                 .simultaneousGesture(
@@ -4780,11 +4803,20 @@ struct LyricsScrollView: View {
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
         // 强调, weight 瞬时跳变只会让切句增加视觉颗粒感。
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
-        let alignment: HorizontalAlignment = line.voice == .secondary ? .trailing : .leading
-        let frameAlignment: Alignment = line.voice == .secondary ? .trailing : .leading
+        let alignment = lyricsAlignment.horizontalAlignment
+        let frameAlignment = lyricsAlignment.frameAlignment
 
         VStack(alignment: alignment, spacing: 4) {
-            singleLineContent(line: line, isActive: isActive, index: index, fontSize: fontSize, weight: weight, dimmedByAmbient: dimmedByAmbient, timelineTime: timelineTime)
+            singleLineContent(
+                line: line,
+                isActive: isActive,
+                index: index,
+                fontSize: fontSize,
+                weight: weight,
+                textAlignment: lyricsAlignment.textAlignment,
+                dimmedByAmbient: dimmedByAmbient,
+                timelineTime: timelineTime
+            )
                 .contentShape(Rectangle())
                 .onTapGesture { seekToLyricLine(line) }
                 .frame(width: availableWidth, alignment: frameAlignment)
@@ -4802,6 +4834,7 @@ struct LyricsScrollView: View {
                                 ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
                                 : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
                     )
+                    .multilineTextAlignment(lyricsAlignment.textAlignment)
                     // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
                     // 会优先单行 + 截断显示省略号。
                     .fixedSize(horizontal: false, vertical: true)
@@ -4812,7 +4845,16 @@ struct LyricsScrollView: View {
 
             if let bgs = line.background {
                 ForEach(bgs) { bg in
-                    singleLineContent(line: bg, isActive: isActive, index: index, fontSize: fontSize * 0.7, weight: .medium, dimmedByAmbient: dimmedByAmbient, timelineTime: timelineTime)
+                    singleLineContent(
+                        line: bg,
+                        isActive: isActive,
+                        index: index,
+                        fontSize: fontSize * 0.7,
+                        weight: .medium,
+                        textAlignment: lyricsAlignment.textAlignment,
+                        dimmedByAmbient: dimmedByAmbient,
+                        timelineTime: timelineTime
+                    )
                         .opacity(0.7)
                         .contentShape(Rectangle())
                         .onTapGesture { seekToLyricLine(line) }
@@ -4821,12 +4863,10 @@ struct LyricsScrollView: View {
             }
         }
         .frame(width: availableWidth, alignment: frameAlignment)
-        // active 行放大用 scaleEffect 而非改 fontSize: scaleEffect 是渲染层变换,
-        // 不改变 row 的布局占位 → 不会触发歌词行 geometry 重新测量,
-        // 也就不会和自动滚动形成反馈循环 (当年改 fontSize
-        // 导致卡死的根因)。anchor 跟行对齐方向一致, 让行从锚定边「长出来」,
-        // 左对齐行的左边缘 / 右对齐行的右边缘保持不动。
-        .scaleEffect(visualScale, anchor: line.voice == .secondary ? .trailing : .leading)
+        // Active emphasis stays a render-layer transform so playback changes
+        // never reflow surrounding rows. The stable text width reserves the
+        // maximum scale, and the anchor follows the selected alignment.
+        .scaleEffect(visualScale, anchor: lyricsScaleAnchor)
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
@@ -4843,6 +4883,7 @@ struct LyricsScrollView: View {
         index: Int,
         fontSize: CGFloat,
         weight: Font.Weight,
+        textAlignment: TextAlignment,
         dimmedByAmbient: Bool = false,
         timelineTime: TimeInterval? = nil
     ) -> some View {
@@ -4876,6 +4917,7 @@ struct LyricsScrollView: View {
                 weight: weight,
                 activeColor: appearance.primary.opacity(activeOpacity),
                 inactiveColor: appearance.primary.opacity(inactiveOpacity),
+                textAlignment: textAlignment,
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
                 fixedTime: fixedPlaybackTime,
@@ -4894,7 +4936,7 @@ struct LyricsScrollView: View {
                             ? appearance.primary.opacity(appearance.pastLyricOpacity)
                             : appearance.primary.opacity(appearance.futureLyricOpacity)
                 )
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(textAlignment)
                 // 长歌词在窄屏 / 放大字号下需要 wrap 多行。不加 fixedSize 时 SwiftUI
                 // 在某些 layout 约束下会单行 + 省略号; 而靠近当前行时切到 KaraokeLineView
                 // (它有 fixedSize) 会展开多行 → 视觉上"省略号展开收起"的跳动。
@@ -4947,8 +4989,23 @@ struct LyricsScrollView: View {
         )
     }
 
-    private func lyricContentWidth(in viewportWidth: CGFloat) -> CGFloat {
+    private func lyricLayoutWidth(in viewportWidth: CGFloat) -> CGFloat {
         max(0, viewportWidth - Self.lyricsHorizontalPadding * 2)
+    }
+
+    private func lyricTextWidth(in viewportWidth: CGFloat) -> CGFloat {
+        CGFloat(LyricRowLayoutPolicy.unscaledContentWidth(
+            viewportWidth: Double(viewportWidth),
+            horizontalPadding: Double(Self.lyricsHorizontalPadding),
+            maximumVisualScale: Double(Self.lyricsActiveVisualScale)
+        ))
+    }
+
+    private func inactiveLyricBlurRadius(for index: Int) -> CGFloat {
+        guard blursInactiveLyrics,
+              hasSynchronizedLyrics,
+              index != currentLineIndex else { return 0 }
+        return Self.inactiveLyricsBlurRadius
     }
 
     private func shouldRenderWordTimeline(line: LyricLine, index: Int, isActive: Bool, dimmedByAmbient: Bool = false) -> Bool {
@@ -4988,9 +5045,10 @@ struct LyricsScrollView: View {
     /// 42% left too little room for upcoming lyrics once the header and bottom
     /// controls were present, which made a missed follow update more obvious.
     private static let lyricsVisualAnchor: CGFloat = 0.36
-    /// active 行放大倍数。1.08 时一行满宽 (≈viewport-48) 向右长出约 7%,
-    /// 仍落在 24pt 水平 padding 内, 不会被外层 .clipped() 切到。再大就要防裁切。
+    /// Active rows render larger without changing their measured layout.
+    /// LyricRowLayoutPolicy reserves this scale horizontally to prevent overflow.
     private static let lyricsActiveVisualScale: CGFloat = 1.08
+    private static let inactiveLyricsBlurRadius: CGFloat = 1.5
 
     @discardableResult
     private func updateCurrentLine(

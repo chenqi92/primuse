@@ -20,6 +20,7 @@ struct KaraokeLineView: View {
     let weight: Font.Weight
     let activeColor: Color
     let inactiveColor: Color
+    let textAlignment: TextAlignment
     /// Presentation direction resolved from the document's `[la:...]` header.
     /// This only mirrors the lyric subtree; syllable storage and timestamps
     /// remain in their original order.
@@ -45,6 +46,7 @@ struct KaraokeLineView: View {
         weight: Font.Weight,
         activeColor: Color,
         inactiveColor: Color,
+        textAlignment: TextAlignment = .leading,
         writingDirection: LyricWritingDirection = .natural,
         timeAt: @escaping (Date) -> TimeInterval,
         fixedTime: TimeInterval? = nil,
@@ -57,6 +59,7 @@ struct KaraokeLineView: View {
         self.weight = weight
         self.activeColor = activeColor
         self.inactiveColor = inactiveColor
+        self.textAlignment = textAlignment
         self.writingDirection = writingDirection
         self.timeAt = timeAt
         self.fixedTime = fixedTime
@@ -128,7 +131,8 @@ struct KaraokeLineView: View {
         if let syllables = line.syllables, !syllables.isEmpty {
             LyricsFlowLayout(
                 measurementKey: fontSize,
-                layoutDirection: lyricLayoutDirection
+                layoutDirection: lyricLayoutDirection,
+                textAlignment: textAlignment
             ) {
                 ForEach(syllables.indices, id: \.self) { i in
                     syllableView(syllables[i], at: now)
@@ -142,7 +146,7 @@ struct KaraokeLineView: View {
             Text(line.text)
                 .font(.system(size: fontSize, weight: weight))
                 .foregroundStyle(inactiveColor)
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -152,7 +156,8 @@ struct KaraokeLineView: View {
         if let syllables = line.syllables, !syllables.isEmpty {
             LyricsFlowLayout(
                 measurementKey: fontSize,
-                layoutDirection: lyricLayoutDirection
+                layoutDirection: lyricLayoutDirection,
+                textAlignment: textAlignment
             ) {
                 ForEach(syllables.indices, id: \.self) { i in
                     Text(syllables[i].text)
@@ -167,7 +172,7 @@ struct KaraokeLineView: View {
             Text(line.text)
                 .font(.system(size: fontSize, weight: weight))
                 .foregroundStyle(inactiveColor)
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -264,6 +269,7 @@ struct LyricsFlowLayout: Layout {
     var spacing: CGFloat = 0
     var measurementKey: CGFloat = 0
     var layoutDirection: LayoutDirection = .leftToRight
+    var textAlignment: TextAlignment = .leading
 
     struct Cache {
         var sizes: [CGSize] = []
@@ -309,7 +315,8 @@ struct LyricsFlowLayout: Layout {
             },
             containerWidth: Double(bounds.width),
             spacing: Double(spacing),
-            isRightToLeft: layoutDirection == .rightToLeft
+            isRightToLeft: layoutDirection == .rightToLeft,
+            alignment: flowAlignment
         )
 
         for placement in placements {
@@ -336,5 +343,13 @@ struct LyricsFlowLayout: Layout {
 
     private func measure(_ subviews: Subviews) -> [CGSize] {
         subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    private var flowAlignment: LyricFlowHorizontalAlignment {
+        switch textAlignment {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
     }
 }

@@ -30,3 +30,35 @@ struct LyricRowFrameBatchPolicyTests {
         #expect(result == ["current": 20])
     }
 }
+
+@Suite("Lyric row layout")
+struct LyricRowLayoutPolicyTests {
+    @Test("Active lyric scaling remains inside the padded viewport")
+    func scaledWidthFitsViewport() {
+        let viewportWidth = 390.0
+        let padding = 24.0
+        let scale = 1.08
+
+        let width = LyricRowLayoutPolicy.unscaledContentWidth(
+            viewportWidth: viewportWidth,
+            horizontalPadding: padding,
+            maximumVisualScale: scale
+        )
+
+        #expect(abs(width * scale + padding * 2 - viewportWidth) < 0.000_001)
+    }
+
+    @Test("Invalid dimensions cannot produce a negative or non-finite width")
+    func invalidDimensionsAreClamped() {
+        #expect(LyricRowLayoutPolicy.unscaledContentWidth(
+            viewportWidth: -100,
+            horizontalPadding: 24,
+            maximumVisualScale: 1.08
+        ) == 0)
+        #expect(LyricRowLayoutPolicy.unscaledContentWidth(
+            viewportWidth: 100,
+            horizontalPadding: 80,
+            maximumVisualScale: .infinity
+        ) == 0)
+    }
+}

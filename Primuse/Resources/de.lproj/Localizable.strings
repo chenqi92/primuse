@@ -2867,3 +2867,10 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Lautstärkeregler";
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
+"player_lyrics_section" = "Liedtext";
+"player_lyrics_alignment" = "Liedtextausrichtung";
+"player_lyrics_alignment_left" = "Links";
+"player_lyrics_alignment_center" = "Zentriert";
+"player_lyrics_alignment_right" = "Rechts";
+"player_blur_inactive_lyrics" = "Inaktiven Liedtext weichzeichnen";
+"player_blur_inactive_lyrics_description" = "Synchronisierte Liedtexte außer der aktuellen Zeile werden leicht weichgezeichnet, damit die aktuelle Zeile hervorsticht.";

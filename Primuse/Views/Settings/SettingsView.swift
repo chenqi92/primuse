@@ -263,6 +263,19 @@ struct SettingsView: View {
 private struct PlayerAppearanceSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
+    private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
+    private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
+
+    private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
+        Binding(
+            get: {
+                PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue
+            },
+            set: { lyricsAlignmentRawValue = $0.rawValue }
+        )
+    }
 
     var body: some View {
         Form {
@@ -270,6 +283,22 @@ private struct PlayerAppearanceSettingsView: View {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
             } footer: {
                 Text("player_volume_bar_description")
+            }
+
+            Section {
+                Picker("player_lyrics_alignment", selection: lyricsAlignment) {
+                    ForEach(PlayerLyricsAlignment.allCases) { alignment in
+                        Text(verbatim: alignment.localizedTitle)
+                            .tag(alignment)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
+            } header: {
+                Text("player_lyrics_section")
+            } footer: {
+                Text("player_blur_inactive_lyrics_description")
             }
         }
         .navigationTitle("player_appearance_title")

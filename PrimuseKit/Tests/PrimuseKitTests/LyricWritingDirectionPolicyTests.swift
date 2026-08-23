@@ -101,4 +101,39 @@ struct LyricFlowPlacementPolicyTests {
             #expect(rtl[index].x == 80 - ltr[index].x - sizes[index].width)
         }
     }
+
+    @Test("Wrapped lines honor centered and trailing alignment")
+    func wrappedLineAlignment() {
+        let sizes = [
+            LyricFlowItemSize(width: 30, height: 10),
+            LyricFlowItemSize(width: 40, height: 12),
+            LyricFlowItemSize(width: 50, height: 8),
+        ]
+
+        let centered = LyricFlowPlacementPolicy.placements(
+            itemSizes: sizes,
+            containerWidth: 80,
+            spacing: 10,
+            isRightToLeft: false,
+            alignment: .center
+        )
+        let trailing = LyricFlowPlacementPolicy.placements(
+            itemSizes: sizes,
+            containerWidth: 80,
+            spacing: 10,
+            isRightToLeft: false,
+            alignment: .trailing
+        )
+        let rtlTrailing = LyricFlowPlacementPolicy.placements(
+            itemSizes: sizes,
+            containerWidth: 80,
+            spacing: 10,
+            isRightToLeft: true,
+            alignment: .trailing
+        )
+
+        #expect(centered.map(\.x) == [0, 40, 15])
+        #expect(trailing.map(\.x) == [0, 40, 30])
+        #expect(rtlTrailing.map(\.x) == [50, 0, 0])
+    }
 }
