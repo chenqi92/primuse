@@ -109,18 +109,34 @@ private enum BackgroundScanResumeTask {
             let backfill = services.metadataBackfill
             let scraper = services.scraperService
 
+            // Background audio is user-facing foreground work. Postpone every
+            // opportunistic scan/index/backfill job instead of competing with
+            // decoding, networking and audio-buffer delivery in the process.
+            if services.playerService.isPlaybackActive {
+                scanService.scheduleBackgroundResumeIfNeeded(
+                    backfillPending: backfill.hasPendingWork,
+                    scrapePending: scraper.hasPendingBackgroundContinuation,
+                    localImportPending: LocalImportService.hasPendingScan,
+                    sourceStore: services.sourcesStore
+                )
+                completion.complete(success: true)
+                return
+            }
+
             // Resume any interrupted scans, then run backfill until the
             // task expires or work runs out. Both phases use HTTP Range
             // / list-only API calls — safe for iOS background quotas.
             services.musicLibrary.resumePendingIdentityResolution()
             services.resumePendingLocalImportScanIfNeeded()
-            scanService.resumePendingScans(
-                context: .background,
-                sourceManager: services.sourceManager,
-                library: services.musicLibrary,
-                sourceStore: services.sourcesStore,
-                scraperService: services.scraperService
-            )
+            if scanService.hasResumableScanWork {
+                scanService.resumePendingScans(
+                    context: .background,
+                    sourceManager: services.sourceManager,
+                    library: services.musicLibrary,
+                    sourceStore: services.sourcesStore,
+                    scraperService: services.scraperService
+                )
+            }
             scanService.startPeriodicQuickSyncIfNeeded(
                 sourceManager: services.sourceManager,
                 library: services.musicLibrary,
@@ -129,20 +145,24 @@ private enum BackgroundScanResumeTask {
             )
             await scanService.waitForActiveScansToComplete()
 
-            scraper.resumePendingScrape(
-                in: services.musicLibrary,
-                allowBackgroundExecution: true
-            )
-            await scraper.waitUntilScrapeIdle()
+            if scraper.hasPendingBackgroundContinuation {
+                scraper.resumePendingScrape(
+                    in: services.musicLibrary,
+                    allowBackgroundExecution: true
+                )
+                await scraper.waitUntilScrapeIdle()
+            }
 
-            backfill.start()
-            await backfill.waitUntilIdle()
+            if backfill.hasPendingWork {
+                backfill.start()
+                await backfill.waitUntilIdle()
+            }
 
             // If anything still has a checkpoint or pending bare songs,
             // ask iOS to wake us again later.
             scanService.scheduleBackgroundResumeIfNeeded(
                 backfillPending: backfill.hasPendingWork,
-                scrapePending: scraper.hasPendingScrape,
+                scrapePending: scraper.hasPendingBackgroundContinuation,
                 localImportPending: LocalImportService.hasPendingScan,
                 sourceStore: services.sourcesStore
             )
@@ -721,15 +741,17 @@ private final class BackgroundLibraryMaintenanceCoordinator {
 
     func sceneDidEnterBackground(library: MusicLibrary) {
         cancel()
-        let songs = library.visibleSongs
-        searchIndexTask = Task.detached(priority: .utility) {
-            do {
-                try await Task.sleep(for: .seconds(3))
-            } catch {
-                return
+        if LibrarySearchIndex.hasPendingPreparation {
+            let songs = library.visibleSongs
+            searchIndexTask = Task.detached(priority: .utility) {
+                do {
+                    try await Task.sleep(for: .seconds(3))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await LibrarySearchIndex.shared.prepare(songs: songs)
             }
-            guard !Task.isCancelled else { return }
-            await LibrarySearchIndex.shared.prepare(songs: songs)
         }
         cacheCleanupTask = Task.detached(priority: .background) {
             do {
@@ -1072,7 +1094,7 @@ struct PrimuseApp: App {
                     // scans, scrape checkpoint replay, indexing and backfill.
                     scanService.scheduleBackgroundResumeIfNeeded(
                         backfillPending: metadataBackfill.hasPendingWork,
-                        scrapePending: scraperService.hasPendingScrape,
+                        scrapePending: scraperService.hasPendingBackgroundContinuation,
                         localImportPending: LocalImportService.hasPendingScan,
                         sourceStore: sourcesStore
                     )
@@ -1255,7 +1277,7 @@ struct PrimuseApp: App {
                         // on macOS — BGTaskScheduler doesn't exist there.)
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
-                            scrapePending: scraperService.hasPendingScrape,
+                            scrapePending: scraperService.hasPendingBackgroundContinuation,
                             localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
                         )
@@ -1273,8 +1295,17 @@ struct PrimuseApp: App {
                             }
                             guard self.scenePhase == .background else { return }
                             musicLibrary.endSceneTransitionQuiescence()
-                            musicLibrary.resumePendingIdentityResolution()
                             musicLibrary.persistNow()
+                            guard !playerService.isPlaybackActive else {
+                                scanService.scheduleBackgroundResumeIfNeeded(
+                                    backfillPending: metadataBackfill.hasPendingWork,
+                                    scrapePending: scraperService.hasPendingBackgroundContinuation,
+                                    localImportPending: LocalImportService.hasPendingScan,
+                                    sourceStore: sourcesStore
+                                )
+                                return
+                            }
+                            musicLibrary.resumePendingIdentityResolution()
                             AppServices.shared.spotlightIndex.resumePendingSynchronization(
                                 library: musicLibrary
                             )
@@ -1283,21 +1314,27 @@ struct PrimuseApp: App {
                                 library: musicLibrary
                             )
                             AppServices.shared.resumePendingLocalImportScanIfNeeded()
-                            scanService.resumePendingScans(
-                                context: .background,
-                                sourceManager: sourceManager,
-                                library: musicLibrary,
-                                sourceStore: sourcesStore,
-                                scraperService: scraperService
-                            )
-                            scraperService.resumeBackgroundContinuation(in: musicLibrary)
-                            metadataBackfill.start()
+                            if scanService.hasResumableScanWork {
+                                scanService.resumePendingScans(
+                                    context: .background,
+                                    sourceManager: sourceManager,
+                                    library: musicLibrary,
+                                    sourceStore: sourcesStore,
+                                    scraperService: scraperService
+                                )
+                            }
+                            if scraperService.hasPendingBackgroundContinuation {
+                                scraperService.resumeBackgroundContinuation(in: musicLibrary)
+                            }
+                            if metadataBackfill.hasPendingWork {
+                                metadataBackfill.start()
+                            }
                             AppServices.shared.lyricsTextBackfill.startIfNeeded()
                             BackgroundLibraryMaintenanceCoordinator.shared
                                 .sceneDidEnterBackground(library: musicLibrary)
                             scanService.scheduleBackgroundResumeIfNeeded(
                                 backfillPending: metadataBackfill.hasPendingWork,
-                                scrapePending: scraperService.hasPendingScrape,
+                                scrapePending: scraperService.hasPendingBackgroundContinuation,
                                 localImportPending: LocalImportService.hasPendingScan,
                                 sourceStore: sourcesStore
                             )
@@ -1323,7 +1360,7 @@ struct PrimuseApp: App {
                         musicLibrary.suspendPendingIdentityResolution()
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
-                            scrapePending: scraperService.hasPendingScrape,
+                            scrapePending: scraperService.hasPendingBackgroundContinuation,
                             localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
                         )
@@ -1347,9 +1384,12 @@ struct PrimuseApp: App {
                 // marks durable pending work; it must not start maintenance.
                 .onChange(of: musicLibrary.songs.count) { _, _ in
                     #if os(iOS)
-                    guard scenePhase == .background else { return }
-                    #endif
+                    metadataBackfill.refreshQueue(
+                        startImmediately: scenePhase == .background
+                    )
+                    #else
                     metadataBackfill.refreshQueue()
+                    #endif
                 }
                 // Network changes are observed in a separate, zero-size view.
                 // Keeping them on this scene root made every path callback

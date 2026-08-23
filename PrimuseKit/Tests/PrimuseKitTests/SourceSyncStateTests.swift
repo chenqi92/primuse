@@ -216,6 +216,16 @@ struct SourceSyncStateTests {
                 == committedAt.addingTimeInterval(SourcePeriodicSyncPolicy.interval)
         )
     }
+
+    @Test("Automatic refresh requires a native changes feed")
+    func automaticRefreshRequiresNativeChangesFeed() {
+        #expect(SourcePeriodicSyncPolicy.supportsAutomaticRefresh(.dropbox))
+        #expect(SourcePeriodicSyncPolicy.supportsAutomaticRefresh(.googleDrive))
+        #expect(SourcePeriodicSyncPolicy.supportsAutomaticRefresh(.oneDrive))
+        #expect(!SourcePeriodicSyncPolicy.supportsAutomaticRefresh(.baiduPan))
+        #expect(!SourcePeriodicSyncPolicy.supportsAutomaticRefresh(.synology))
+        #expect(!SourcePeriodicSyncPolicy.supportsAutomaticRefresh(.local))
+    }
 }
 
 @Suite("Baidu stable snapshot reconciliation")

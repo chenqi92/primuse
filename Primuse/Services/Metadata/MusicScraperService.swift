@@ -214,6 +214,16 @@ final class MusicScraperService {
         scrapeCheckpoint?.songIDs.isEmpty == false
     }
 
+    /// Includes the in-memory enrichment queue created by an explicit scrape.
+    /// Ordinary launches have neither form of work and must stay completely
+    /// silent when the scene moves to the background.
+    var hasPendingBackgroundContinuation: Bool {
+        hasPendingScrape
+            || !pendingEnrichmentSongIDs.isEmpty
+            || isScraping
+            || isBackgroundEnriching
+    }
+
     var isSingleScraping: Bool {
         activeSingleScrape != nil
     }
@@ -801,6 +811,7 @@ final class MusicScraperService {
     /// once the scene transition itself has settled. BGProcessingTask remains
     /// the longer-running continuation after that finite window expires.
     func resumeBackgroundContinuation(in library: MusicLibrary) {
+        guard hasPendingBackgroundContinuation else { return }
         isPausedForSceneTransition = false
         plog("MusicScraperService: continuing scrape after background scene settled")
         resumePendingScrape(in: library, allowBackgroundExecution: true)

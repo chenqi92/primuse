@@ -737,8 +737,8 @@ final class AppServices {
         }
     }
 
-    /// 启动时核对一次 Spotlight manifest；之后 library token 翻动只提交
-    /// 新增、修改和删除的条目。高频 backfill 变化由服务内部合并。
+    /// 启动时只恢复上次中断的 Spotlight 工作；已确认干净的 manifest 不再
+    /// 全库核对。之后 library token 翻动只提交新增、修改和删除的条目。
     /// Observation 自动 re-arm,跟 MacMenuBarController 的 observePlayerState
     /// 是同一个模式。
     private func observeSpotlightSynchronization() {
@@ -747,23 +747,49 @@ final class AppServices {
         // 等 CloudKit 先拉一拨远端歌单 / 设置，服务自身还会再做一次去抖。
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            index.scheduleSynchronization(library: library)
+            index.synchronizeIfNeeded(library: library)
         }
 
-        observeLibraryToken(library: library, index: index)
+        observeSpotlightLibraryToken(library: library, index: index)
+        observeSearchLibraryToken(library: library)
     }
 
-    private func observeLibraryToken(library: MusicLibrary, index: SpotlightIndexService) {
+    private func observeSpotlightLibraryToken(
+        library: MusicLibrary,
+        index: SpotlightIndexService
+    ) {
         withObservationTracking {
             _ = library.songReplacementToken
-            _ = library.songs.count
-            _ = library.playlists.count
+            _ = library.visibleSongCollectionRevision
+            _ = library.playlistCollectionRevision
         } onChange: { [weak library, weak index] in
+            SpotlightIndexService.persistLibraryChangePending()
             Task { @MainActor [weak self] in
                 guard let library, let index else { return }
                 index.scheduleSynchronization(library: library)
                 self?.scheduleSourceSongCountReconciliation()
-                self?.observeLibraryToken(library: library, index: index)
+                self?.observeSpotlightLibraryToken(library: library, index: index)
+            }
+        }
+    }
+
+    /// Search indexing follows only metadata/lyrics revisions. Playlist edits
+    /// still update Spotlight, but no longer dirty the 14K-row FTS database.
+    private func observeSearchLibraryToken(library: MusicLibrary) {
+        withObservationTracking {
+            _ = library.searchRevision
+            _ = library.lyricsSearchRevision
+        } onChange: { [weak library] in
+            LibrarySearchIndex.persistLibraryChangePending()
+            Task { @MainActor [weak self] in
+                guard let library else { return }
+                #if os(macOS)
+                let songs = library.visibleSongs
+                Task(priority: .utility) {
+                    await LibrarySearchIndex.shared.prepare(songs: songs)
+                }
+                #endif
+                self?.observeSearchLibraryToken(library: library)
             }
         }
     }

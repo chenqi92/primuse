@@ -66,6 +66,12 @@ final class SpotlightIndexService {
     private nonisolated static let maxItemsPerBatch = 100
     private nonisolated static let maxDeletesPerBatch = 250
     private nonisolated static let maxThumbnailCacheMissesPerBatch = 8
+    private nonisolated static let synchronizationPendingKey =
+        "primuse.spotlightIndex.synchronizationPending.v2"
+    private nonisolated static let synchronizationGenerationKey =
+        "primuse.spotlightIndex.synchronizationGeneration.v2"
+    private nonisolated static let completedSynchronizationGenerationKey =
+        "primuse.spotlightIndex.completedSynchronizationGeneration.v2"
 
     private let manifestURL: URL
     private let thumbnailDirectoryURL: URL
@@ -91,22 +97,60 @@ final class SpotlightIndexService {
         let directory = base.appendingPathComponent("Primuse/Spotlight", isDirectory: true)
         manifestURL = directory.appendingPathComponent("index-manifest-v1.json")
         thumbnailDirectoryURL = directory.appendingPathComponent("thumbnails-v1", isDirectory: true)
+        needsSynchronization = Self.isSynchronizationPending
+    }
+
+    /// Persist before hopping back to the main actor so a process termination
+    /// between a library mutation and Observation delivery cannot leave a
+    /// stale Spotlight manifest marked clean.
+    nonisolated static func persistLibraryChangePending() {
+        let defaults = UserDefaults.standard
+        let generation = defaults.integer(forKey: synchronizationGenerationKey)
+        defaults.set(
+            generation == .max ? 1 : generation + 1,
+            forKey: synchronizationGenerationKey
+        )
+        defaults.set(true, forKey: synchronizationPendingKey)
+    }
+
+    private nonisolated static var synchronizationGeneration: Int {
+        UserDefaults.standard.integer(forKey: synchronizationGenerationKey)
+    }
+
+    private nonisolated static var isSynchronizationPending: Bool {
+        let defaults = UserDefaults.standard
+        return (defaults.object(forKey: synchronizationPendingKey) as? Bool ?? true)
+            || defaults.integer(forKey: completedSynchronizationGenerationKey)
+                != defaults.integer(forKey: synchronizationGenerationKey)
     }
 
     /// Coalesces rapid library mutations. If a Core Spotlight batch is already
     /// running, the latest snapshot is queued instead of overlapping two batch
     /// sessions on the same named index.
     func scheduleSynchronization(library: MusicLibrary) {
-        needsSynchronization = true
+        markSynchronizationPending()
         guard !isSynchronizationSuspended else { return }
+        enqueueSynchronization(library: library, delay: Self.debounceDuration)
+    }
+
+    /// Reconcile an interrupted/first-run index without turning every process
+    /// launch into a new dirty event. On iOS this remains deferred until the
+    /// scene enters a non-playing background window.
+    func synchronizeIfNeeded(library: MusicLibrary) {
+        needsSynchronization = needsSynchronization || Self.isSynchronizationPending
+        guard needsSynchronization, !isSynchronizationSuspended else { return }
+        enqueueSynchronization(library: library, delay: Self.debounceDuration)
+    }
+
+    private func enqueueSynchronization(library: MusicLibrary, delay: Duration) {
         let snapshot = makeLibrarySnapshot(library: library)
 
         switch workPhase {
         case .idle:
-            beginDebouncedSynchronization(snapshot: snapshot, delay: Self.debounceDuration)
+            beginDebouncedSynchronization(snapshot: snapshot, delay: delay)
         case .debouncing:
             pendingTask?.cancel()
-            beginDebouncedSynchronization(snapshot: snapshot, delay: Self.debounceDuration)
+            beginDebouncedSynchronization(snapshot: snapshot, delay: delay)
         case .running:
             queuedSnapshot = snapshot
         }
@@ -116,8 +160,7 @@ final class SpotlightIndexService {
     /// redundant full-library comparison after every foreground activation.
     func resumePendingSynchronization(library: MusicLibrary) {
         isSynchronizationSuspended = false
-        guard needsSynchronization else { return }
-        scheduleSynchronization(library: library)
+        synchronizeIfNeeded(library: library)
     }
 
     /// Retain only the dirty bit while the user is interacting. The next
@@ -133,7 +176,7 @@ final class SpotlightIndexService {
     /// cancellation is observed before any subsequent batch or manifest save.
     func cancelPendingSynchronization() {
         guard workPhase != .idle else { return }
-        needsSynchronization = true
+        markSynchronizationPending()
         queuedSnapshot = nil
         pendingTask?.cancel()
 
@@ -170,7 +213,7 @@ final class SpotlightIndexService {
             PlaylistSummary(
                 id: playlist.id,
                 name: playlist.name,
-                songCount: library.songs(forPlaylist: playlist.id).count
+                songCount: library.songCount(forPlaylist: playlist.id)
             )
         }
         return LibrarySnapshot(
@@ -183,6 +226,7 @@ final class SpotlightIndexService {
 
     private func beginDebouncedSynchronization(snapshot: LibrarySnapshot, delay: Duration) {
         let generation = UUID()
+        let synchronizationRevision = Self.synchronizationGeneration
         let manifestURL = self.manifestURL
         let thumbnailDirectoryURL = self.thumbnailDirectoryURL
         pendingGeneration = generation
@@ -204,7 +248,11 @@ final class SpotlightIndexService {
                 manifestURL: manifestURL,
                 thumbnailDirectoryURL: thumbnailDirectoryURL
             )
-            await self?.finishSynchronization(generation: generation, succeeded: succeeded)
+            await self?.finishSynchronization(
+                generation: generation,
+                synchronizationRevision: synchronizationRevision,
+                succeeded: succeeded
+            )
         }
     }
 
@@ -214,7 +262,11 @@ final class SpotlightIndexService {
         return true
     }
 
-    private func finishSynchronization(generation: UUID, succeeded: Bool) {
+    private func finishSynchronization(
+        generation: UUID,
+        synchronizationRevision completedRevision: Int,
+        succeeded: Bool
+    ) {
         guard pendingGeneration == generation else { return }
         pendingTask = nil
         pendingGeneration = nil
@@ -222,7 +274,7 @@ final class SpotlightIndexService {
 
         if isSynchronizationSuspended {
             queuedSnapshot = nil
-            needsSynchronization = true
+            persistSynchronizationPending()
             return
         }
 
@@ -234,8 +286,26 @@ final class SpotlightIndexService {
                 delay: Self.followUpDebounceDuration
             )
         } else {
-            needsSynchronization = !succeeded
+            if succeeded, completedRevision == Self.synchronizationGeneration {
+                UserDefaults.standard.set(
+                    completedRevision,
+                    forKey: Self.completedSynchronizationGenerationKey
+                )
+                needsSynchronization = false
+                UserDefaults.standard.set(false, forKey: Self.synchronizationPendingKey)
+            } else {
+                persistSynchronizationPending()
+            }
         }
+    }
+
+    private func markSynchronizationPending() {
+        persistSynchronizationPending()
+    }
+
+    private func persistSynchronizationPending() {
+        needsSynchronization = true
+        Self.persistLibraryChangePending()
     }
 
     private nonisolated static func performSynchronization(

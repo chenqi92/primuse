@@ -409,6 +409,13 @@ final class ScanService {
     /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
     nonisolated static let backgroundTaskIdentifier = "com.welape.yuanyin.scan-resume"
 
+    /// A completed source has no continuation work. Lifecycle code uses this
+    /// gate so entering the background does not manufacture a scan task just
+    /// to discover that the checkpoint store is empty.
+    var hasResumableScanWork: Bool {
+        scanStates.values.contains(where: \.canResume)
+    }
+
     /// 扫描期间向 library 批量提交的阈值。改大可以显著降低 main actor 上
     /// rebuildIndex / persistSnapshot 的频率, 避免 1w+ 首库 scale 时出现
     /// "扫描期间 UI 卡顿"。1w 首库下从原本的每 10 首提交一次 (1000 次
@@ -541,18 +548,7 @@ final class ScanService {
     }
 
     private nonisolated static func supportsPeriodicNativeSync(_ type: MusicSourceType) -> Bool {
-        switch type {
-        case .dropbox, .googleDrive, .oneDrive:
-            return true
-        case .baiduPan:
-            // xpan has no changes feed, so the incremental path re-lists the
-            // selected tree. That is one `list` call per directory instead of
-            // Drive's single delta call, but it still reads no file bytes and
-            // no audio tags, which is what makes a background wake affordable.
-            return true
-        default:
-            return false
-        }
+        SourcePeriodicSyncPolicy.supportsAutomaticRefresh(type)
     }
 
     private nonisolated static var isLowPowerModeEnabled: Bool {
@@ -629,7 +625,15 @@ final class ScanService {
         }
         let periodicDate = sourceStore.flatMap { nextPeriodicSyncDate(sourceStore: $0) }
         guard hasScanWork || backfillPending || scrapePending
-                || localImportPending || periodicDate != nil else { return }
+                || localImportPending || periodicDate != nil else {
+            // A request submitted by an older build (or before the last item
+            // completed) otherwise survives indefinitely and can wake a clean
+            // library only to discover that there is no work left.
+            BGTaskScheduler.shared.cancel(
+                taskRequestWithIdentifier: Self.backgroundTaskIdentifier
+            )
+            return
+        }
 
         let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
         // An interrupted iOS local import can finish entirely from the app

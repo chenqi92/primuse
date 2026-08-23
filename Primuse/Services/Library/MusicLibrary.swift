@@ -439,12 +439,43 @@ actor LibrarySearchIndex {
     /// amplification while the short inter-batch pause keeps reads responsive.
     private static let lyricsBatchSize = 96
     private static let lyricQueryMinimumLength = 3
+    private static let preparationPendingKey =
+        "primuse.librarySearchIndex.preparationPending.v1"
+    private static let preparationGenerationKey =
+        "primuse.librarySearchIndex.preparationGeneration.v1"
+    private static let completedPreparationGenerationKey =
+        "primuse.librarySearchIndex.completedPreparationGeneration.v1"
 
     private let dbPool: DatabasePool?
     private var lastMetadataRevisionKey: String?
-    private var preparedSongIDs: Set<String> = []
     private var isPreparing = false
     private var pendingPreparationSongs: [Song]?
+
+    /// Set synchronously from the library Observation callback. Persisting the
+    /// generation closes the crash window between a song mutation and the next
+    /// background index pass, while still letting a clean index skip all 14K
+    /// metadata/lyrics fingerprint reads on later launches.
+    nonisolated static func persistLibraryChangePending() {
+        let defaults = UserDefaults.standard
+        let current = defaults.integer(forKey: preparationGenerationKey)
+        defaults.set(current == .max ? 1 : current + 1, forKey: preparationGenerationKey)
+        defaults.set(true, forKey: preparationPendingKey)
+    }
+
+    private nonisolated static var isPreparationPending: Bool {
+        let defaults = UserDefaults.standard
+        return (defaults.object(forKey: preparationPendingKey) as? Bool ?? true)
+            || defaults.integer(forKey: completedPreparationGenerationKey)
+                != defaults.integer(forKey: preparationGenerationKey)
+    }
+
+    nonisolated static var hasPendingPreparation: Bool {
+        isPreparationPending
+    }
+
+    private nonisolated static var preparationGeneration: Int {
+        UserDefaults.standard.integer(forKey: preparationGenerationKey)
+    }
 
     private init(fileManager: FileManager = .default) {
         do {
@@ -593,7 +624,7 @@ actor LibrarySearchIndex {
     /// is being prepared replace the pending snapshot instead of starting a
     /// second transliteration job.
     func prepare(songs: [Song]) async {
-        guard dbPool != nil, !Task.isCancelled else { return }
+        guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending else { return }
         if isPreparing {
             pendingPreparationSongs = songs
             return
@@ -608,15 +639,24 @@ actor LibrarySearchIndex {
         }
         var currentSongs = songs
         while true {
-            await synchronizeMetadata(songs: currentSongs, revisionKey: nil)
-            guard !Task.isCancelled else { return }
-            await synchronizeLyrics(songs: currentSongs)
-            guard !Task.isCancelled else { return }
+            let preparationGeneration = Self.preparationGeneration
+            guard await synchronizeMetadata(songs: currentSongs, revisionKey: nil),
+                  !Task.isCancelled,
+                  await synchronizeLyrics(songs: currentSongs),
+                  !Task.isCancelled else { return }
 
             if let pending = pendingPreparationSongs {
                 pendingPreparationSongs = nil
                 currentSongs = pending
             } else {
+                let defaults = UserDefaults.standard
+                defaults.set(
+                    preparationGeneration,
+                    forKey: Self.completedPreparationGenerationKey
+                )
+                if preparationGeneration == Self.preparationGeneration {
+                    defaults.set(false, forKey: Self.preparationPendingKey)
+                }
                 break
             }
         }
@@ -685,7 +725,14 @@ actor LibrarySearchIndex {
             )
         }
 
-        await synchronizeMetadata(songs: songs, revisionKey: metadataRevisionKey)
+        if Self.isPreparationPending {
+            _ = await synchronizeMetadata(songs: songs, revisionKey: metadataRevisionKey)
+        } else {
+            // The durable clean marker proves the persistent metadata index
+            // already matches this library. Avoid an O(librarySize) fingerprint
+            // comparison on the first search after every process launch.
+            lastMetadataRevisionKey = metadataRevisionKey
+        }
 
         do {
             let songByID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
@@ -838,8 +885,7 @@ actor LibrarySearchIndex {
                 if albumResults.count == albumLimit { break }
             }
 
-            let lyricsComplete = preparedSongIDs.count == songs.count
-                && songs.allSatisfy { preparedSongIDs.contains($0.id) }
+            let lyricsComplete = !Self.isPreparationPending
             return LibraryIndexedSearchOutput(
                 output: LibrarySearchOutput(
                     songResults: songResults,
@@ -854,9 +900,9 @@ actor LibrarySearchIndex {
         }
     }
 
-    private func synchronizeMetadata(songs: [Song], revisionKey: String?) async {
-        guard let pool = dbPool else { return }
-        if let revisionKey, lastMetadataRevisionKey == revisionKey { return }
+    private func synchronizeMetadata(songs: [Song], revisionKey: String?) async -> Bool {
+        guard let pool = dbPool else { return false }
+        if let revisionKey, lastMetadataRevisionKey == revisionKey { return true }
 
         do {
             let existing = try Self.metadataStates(in: pool)
@@ -864,13 +910,13 @@ actor LibrarySearchIndex {
             var changed: [(song: Song, fingerprint: String, stateID: Int64?)] = []
             changed.reserveCapacity(min(songs.count, 256))
             for (offset, song) in songs.enumerated() {
-                if offset.isMultiple(of: 128), Task.isCancelled { return }
+                if offset.isMultiple(of: 128), Task.isCancelled { return false }
                 let fingerprint = Self.metadataFingerprint(song)
                 if existing[song.id]?.fingerprint != fingerprint {
                     changed.append((song, fingerprint, existing[song.id]?.id))
                 }
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             let removed = existing.filter { !songIDs.contains($0.key) }.map(\.value.id)
             let metadataChanges = changed
 
@@ -923,26 +969,28 @@ actor LibrarySearchIndex {
                 }
             }
             lastMetadataRevisionKey = revisionKey
+            return true
         } catch is CancellationError {
             // Search requests and metadata snapshots are intentionally
             // replaceable. GRDB observes the parent task cancellation while
             // writing and rolls the transaction back; the next snapshot will
             // retry it. Do not report this normal hand-off as an index error.
-            return
+            return false
         } catch {
             plog("🔎 Metadata index sync failed: \(error.localizedDescription)")
+            return false
         }
     }
 
-    private func synchronizeLyrics(songs: [Song]) async {
-        guard let pool = dbPool else { return }
+    private func synchronizeLyrics(songs: [Song]) async -> Bool {
+        guard let pool = dbPool else { return false }
         do {
             var existing = try Self.lyricsStates(in: pool)
             let visibleIDs = Set(songs.map(\.id))
             let store = MetadataAssetStore.shared
 
             for start in stride(from: 0, to: songs.count, by: Self.lyricsBatchSize) {
-                if Task.isCancelled { return }
+                if Task.isCancelled { return false }
                 let end = min(start + Self.lyricsBatchSize, songs.count)
                 var documents: [LyricsDocument] = []
                 var removals: [Int64] = []
@@ -988,7 +1036,7 @@ actor LibrarySearchIndex {
                     try Self.upsertLyricsDocuments(documents, in: pool)
                 }
 
-                if Task.isCancelled { return }
+                if Task.isCancelled { return false }
 
                 // Let interactive FTS reads interleave with the first build,
                 // and keep one-time indexing from becoming sustained CPU load.
@@ -996,7 +1044,7 @@ actor LibrarySearchIndex {
                 try? await Task.sleep(for: .milliseconds(18))
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             let staleIDs = existing
                 .filter { !visibleIDs.contains($0.key) }
                 .map(\.value.id)
@@ -1004,9 +1052,10 @@ actor LibrarySearchIndex {
             if !staleIDs.isEmpty {
                 try Self.removeLyricsDocuments(ids: staleIDs, in: pool)
             }
-            preparedSongIDs = visibleIDs
+            return true
         } catch {
             plog("🔎 Lyrics index sync failed: \(error.localizedDescription)")
+            return false
         }
     }
 

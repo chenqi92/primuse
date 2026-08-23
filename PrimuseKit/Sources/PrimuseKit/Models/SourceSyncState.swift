@@ -349,6 +349,18 @@ public enum SourceSyncCommitPolicy {
 public enum SourcePeriodicSyncPolicy {
     public static let interval: TimeInterval = 6 * 60 * 60
 
+    /// Only providers with a durable native changes cursor qualify. A provider
+    /// that must re-list selected directories is performing a scan even if it
+    /// can reconcile the result incrementally afterward.
+    public static func supportsAutomaticRefresh(_ sourceType: MusicSourceType) -> Bool {
+        switch sourceType {
+        case .dropbox, .googleDrive, .oneDrive:
+            true
+        default:
+            false
+        }
+    }
+
     public static func nextSyncDate(
         for state: SourceSyncState,
         now: Date = Date()

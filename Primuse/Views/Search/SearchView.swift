@@ -105,10 +105,6 @@ struct SearchView: View {
         .background {
             SearchLibraryRevisionObserver {
                 workCoordinator.lyricsCache = LibrarySearchCache()
-                let songs = library.visibleSongs
-                Task(priority: .utility) {
-                    await LibrarySearchIndex.shared.prepare(songs: songs)
-                }
                 if !searchText.isEmpty {
                     performSearch(query: searchText)
                 }

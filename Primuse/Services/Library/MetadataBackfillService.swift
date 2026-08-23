@@ -12,8 +12,8 @@ import UIKit
 /// library with a fully-populated copy.
 ///
 /// Lifecycle:
-/// - App launch / foreground / BGProcessingTask wake → `start(...)` kicks off
-///   a worker if there's anything pending.
+/// - A real library/source mutation marks the durable queue dirty. iOS only
+///   evaluates and runs it in a non-playing background/BGProcessing window.
 /// - Worker drains the queue one song at a time. Each cloud-source connector
 ///   is an actor with its own throttle, so multiple workers per source don't
 ///   actually parallelize; one worker per source plus shared throttle is the
@@ -142,6 +142,23 @@ final class MetadataBackfillService {
     private let deferredRetryURL: URL
     private let retryCountsURL: URL
     private let sourceRetryCountsURL: URL
+    private let queueStateURL: URL
+    private nonisolated static let queueDirtyDefaultsKey =
+        "primuse.metadataBackfill.queueDirty.v1"
+    private nonisolated static let queueMutationGenerationDefaultsKey =
+        "primuse.metadataBackfill.queueMutationGeneration.v1"
+
+    private struct QueueState: Codable, Equatable, Sendable {
+        let needsRefresh: Bool
+        let reconciledGeneration: Int
+        let remainingCount: Int
+        let failedCount: Int
+        let deferredRetryCount: Int
+        let statusCount: Int
+        let remainingCountBySourceID: [String: Int]
+        let deferredRetryCountBySourceID: [String: Int]
+        let statusCountBySourceID: [String: Int]
+    }
 
     /// Songs currently being processed (for UI / cancellation).
     private(set) var pendingCount: Int = 0
@@ -167,6 +184,15 @@ final class MetadataBackfillService {
     private(set) var activeSourceIDs: Set<String> = []
     private var lastRemainingCountRefreshAt = Date.distantPast
     private static let remainingCountRefreshInterval: TimeInterval = 5
+    /// A durable dirty bit separates "the library changed" from "run a full
+    /// eligibility sweep on every lifecycle/network callback". The first run
+    /// after upgrading reconciles once; a proven-clean library then stays
+    /// silent across launches until a real song/source mutation marks it dirty.
+    private var queueNeedsRefresh = true
+    private var queueMutationGeneration: Int
+    private var reconciledQueueGeneration = -1
+    private var persistedQueueState: QueueState?
+    private var queueStatePersistenceTask: Task<Void, Never>?
 
     private var worker: Task<Void, Never>?
     /// Source lifecycle notifications can arrive from the view, CloudKit and
@@ -217,6 +243,26 @@ final class MetadataBackfillService {
         self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
         self.retryCountsURL = directory.appendingPathComponent("backfill-retry-counts.json")
         self.sourceRetryCountsURL = directory.appendingPathComponent("backfill-source-retry-counts.json")
+        self.queueStateURL = directory.appendingPathComponent("backfill-queue-state.json")
+        let defaults = UserDefaults.standard
+        queueMutationGeneration = defaults.integer(
+            forKey: Self.queueMutationGenerationDefaultsKey
+        )
+        if let data = try? Data(contentsOf: queueStateURL),
+           let state = try? JSONDecoder().decode(QueueState.self, from: data) {
+            persistedQueueState = state
+            reconciledQueueGeneration = state.reconciledGeneration
+            queueNeedsRefresh = state.needsRefresh
+                || (defaults.object(forKey: Self.queueDirtyDefaultsKey) as? Bool ?? true)
+                || state.reconciledGeneration != queueMutationGeneration
+            cachedRemainingCount = state.remainingCount
+            cachedFailedCount = state.failedCount
+            cachedDeferredRetryCount = state.deferredRetryCount
+            cachedStatusCount = state.statusCount
+            remainingCountBySourceID = state.remainingCountBySourceID
+            deferredRetryCountBySourceID = state.deferredRetryCountBySourceID
+            statusCountBySourceID = state.statusCountBySourceID
+        }
         loadFailed()
         loadIncomplete()
         loadSourceIssues()
@@ -638,7 +684,7 @@ final class MetadataBackfillService {
                 self.saveDeferredRetries()
                 self.saveInspectionState()
                 self.saveRetryCounts()
-                self.start()
+                self.refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
             }
         }
 
@@ -666,8 +712,8 @@ final class MetadataBackfillService {
     }
 
     /// Start (or resume) backfill. Idempotent — if a worker is already
-    /// running this is a no-op. Safe to call on every app foreground / BG
-    /// task wake.
+    /// running this is a no-op. A durable clean state returns before touching
+    /// the library array.
     ///
     /// Skips on cellular when "Wi-Fi only" is enabled (default). Returns
     /// early without scheduling work; caller can re-invoke later when the
@@ -681,7 +727,9 @@ final class MetadataBackfillService {
             plog("📥 Backfill: skip (worker already running, gen=\(workerGeneration))")
             return
         }
+        guard hasPendingWork else { return }
         refreshRemainingCounts(force: true)
+        guard cachedRemainingCount > 0 else { return }
 
         // Cellular gate. Backfill on a 2200-song cloud library is ~550MB —
         // enough to be a problem on metered connections. Instead of silently
@@ -815,7 +863,7 @@ final class MetadataBackfillService {
         sourceTransientFailureCounts[sourceID] = nil
         saveFailed()
         saveRetryCounts()
-        refreshQueue()
+        refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
     }
 
     /// Drop queued work for a source that was removed. The
@@ -881,12 +929,14 @@ final class MetadataBackfillService {
         saveDeferredRetries()
         saveInspectionState()
         saveRetryCounts()
+        markQueueDirty()
     }
 
     /// Re-evaluate the queue every time the library changes (e.g. a fresh
     /// scan added new bare songs). Call after scan completion or song add.
-    func refreshQueue() {
-        if worker == nil { start() }
+    func refreshQueue(startImmediately: Bool = true) {
+        markQueueDirty()
+        if startImmediately, worker == nil { start() }
     }
 
     /// A genuinely new usable network path grants one more automatic attempt to
@@ -894,6 +944,7 @@ final class MetadataBackfillService {
     /// budget. Stalled state-application snapshots remain parked because a route
     /// change cannot make an in-memory library write start sticking.
     func networkPathChanged(startImmediately: Bool = true) {
+        guard hasPendingWork || !sessionNetworkParkedIDs.isEmpty else { return }
         guard NetworkMonitor.shared.isReachable, !shouldBlockForCellular() else {
             updateWaitingForWiFiState(presentPrompt: true)
             return
@@ -903,6 +954,7 @@ final class MetadataBackfillService {
     }
 
     private func resumeNetworkParkedWork() {
+        guard !sessionNetworkParkedIDs.isEmpty else { return }
         let retryableIDs = Set(sessionNetworkParkedIDs.filter { songID in
             guard let song = library.song(id: songID) else { return false }
             return !Self.automaticRetriesExhausted(
@@ -912,10 +964,7 @@ final class MetadataBackfillService {
                 sourceRetryCounts: sourceTransientFailureCounts
             )
         })
-        guard !retryableIDs.isEmpty else {
-            refreshRemainingCounts(force: true)
-            return
-        }
+        guard !retryableIDs.isEmpty else { return }
         sessionNetworkParkedIDs.subtract(retryableIDs)
         sessionGivenUpIDs.subtract(retryableIDs)
         refreshRemainingCounts(force: true)
@@ -956,7 +1005,9 @@ final class MetadataBackfillService {
     /// `isRunning == false` but still has pending work that should keep
     /// BGProcessingTask scheduled.
     var hasPendingWork: Bool {
-        cachedRemainingCount > 0
+        queueNeedsRefresh
+            || reconciledQueueGeneration != queueMutationGeneration
+            || cachedRemainingCount > 0
     }
 
     var activityState: MetadataBackfillActivityState {
@@ -1142,10 +1193,66 @@ final class MetadataBackfillService {
         if cachedFailedCount != failedTotal {
             cachedFailedCount = failedTotal
         }
+        reconciledQueueGeneration = queueMutationGeneration
+        queueNeedsRefresh = false
+        persistQueueStateIfNeeded(needsRefresh: false)
         if total == 0 {
             isWaitingForWiFi = false
             setCellularPromptPresented(false)
         }
+    }
+
+    private func markQueueDirty() {
+        queueMutationGeneration = queueMutationGeneration == .max
+            ? 1
+            : queueMutationGeneration + 1
+        queueNeedsRefresh = true
+        let defaults = UserDefaults.standard
+        defaults.set(
+            queueMutationGeneration,
+            forKey: Self.queueMutationGenerationDefaultsKey
+        )
+        defaults.set(true, forKey: Self.queueDirtyDefaultsKey)
+        persistQueueStateIfNeeded(needsRefresh: true)
+    }
+
+    private func persistQueueStateIfNeeded(needsRefresh: Bool) {
+        let state = QueueState(
+            needsRefresh: needsRefresh,
+            reconciledGeneration: reconciledQueueGeneration,
+            remainingCount: cachedRemainingCount,
+            failedCount: cachedFailedCount,
+            deferredRetryCount: cachedDeferredRetryCount,
+            statusCount: cachedStatusCount,
+            remainingCountBySourceID: remainingCountBySourceID,
+            deferredRetryCountBySourceID: deferredRetryCountBySourceID,
+            statusCountBySourceID: statusCountBySourceID
+        )
+        guard persistedQueueState != state else { return }
+        persistedQueueState = state
+        let url = queueStateURL
+        let previous = queueStatePersistenceTask
+        queueStatePersistenceTask = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            guard let data = try? JSONEncoder().encode(state) else { return }
+            do {
+                try data.write(to: url, options: .atomic)
+                UserDefaults.standard.set(
+                    state.needsRefresh,
+                    forKey: Self.queueDirtyDefaultsKey
+                )
+            } catch {
+                UserDefaults.standard.set(true, forKey: Self.queueDirtyDefaultsKey)
+            }
+        }
+    }
+
+    private static var canRunAutomaticMaintenance: Bool {
+        #if os(iOS)
+        UIApplication.shared.applicationState == .background
+        #else
+        true
+        #endif
     }
 
     /// Number of songs whose remaining inspection work is currently blocked by
