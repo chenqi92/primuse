@@ -477,4 +477,28 @@ struct SourceFailureAdvancePolicyTests {
             candidateSourceID: "healthy-source"
         ))
     }
+
+    @Test("An identical song from a fallback provider remains eligible")
+    func identicalFallbackProviderRemainsEligible() {
+        #expect(!QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
+            queueCount: 3,
+            currentTitle: "Same Song",
+            currentArtist: "Same Artist",
+            candidateTitle: "Same Song",
+            candidateArtist: "Same Artist",
+            context: .sourceFailureRecovery
+        ))
+    }
+
+    @Test("Manual next still skips an adjacent duplicate")
+    func manualNextStillSkipsDuplicate() {
+        #expect(QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
+            queueCount: 3,
+            currentTitle: "Same Song",
+            currentArtist: "Same Artist",
+            candidateTitle: "Same Song",
+            candidateArtist: "Same Artist",
+            context: .userInitiated
+        ))
+    }
 }

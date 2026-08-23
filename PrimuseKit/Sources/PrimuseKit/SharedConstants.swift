@@ -2259,6 +2259,28 @@ public enum ManualQueueAdvancePolicy {
     }
 }
 
+public enum QueueAdvanceContext: Equatable, Sendable {
+    case userInitiated
+    case sourceFailureRecovery
+}
+
+/// Adjacent copies of the same recording are normally hidden from a manual
+/// "next" action. During source-failure recovery, however, an identical song
+/// from another provider is the fallback and must remain eligible.
+public enum QueueAdjacentDuplicatePolicy {
+    public static func shouldSkipCandidate(
+        queueCount: Int,
+        currentTitle: String,
+        currentArtist: String?,
+        candidateTitle: String,
+        candidateArtist: String?,
+        context: QueueAdvanceContext
+    ) -> Bool {
+        guard context == .userInitiated, queueCount > 2 else { return false }
+        return currentTitle == candidateTitle && currentArtist == candidateArtist
+    }
+}
+
 public enum MiniPlayerSwipeAction: Equatable, Sendable {
     case previous
     case next

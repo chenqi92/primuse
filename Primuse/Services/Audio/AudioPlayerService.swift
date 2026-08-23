@@ -5888,7 +5888,11 @@ final class AudioPlayerService {
     }
 
     @discardableResult
-    func next(caller: String = #fileID, callerLine: Int = #line) async -> Bool {
+    func next(
+        context: QueueAdvanceContext = .userInitiated,
+        caller: String = #fileID,
+        callerLine: Int = #line
+    ) async -> Bool {
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,
@@ -5924,9 +5928,16 @@ final class AudioPlayerService {
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
         // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
         // queue 全是同一首时死循环。
-        if let cur = currentSong, queue.count > 2 {
+        if let cur = currentSong {
             let candidate = queue[currentIndex]
-            if candidate.title == cur.title && candidate.artistName == cur.artistName {
+            if QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
+                queueCount: queue.count,
+                currentTitle: cur.title,
+                currentArtist: cur.artistName,
+                candidateTitle: candidate.title,
+                candidateArtist: candidate.artistName,
+                context: context
+            ) {
                 plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
                 advanceToNextIndex()
             }
@@ -8396,7 +8407,11 @@ final class AudioPlayerService {
                 plog("🛡️ cancelled failure advance after yield trigger=\(trigger)")
                 return
             }
-            await next(caller: "auto-failure:\(trigger)", callerLine: 0)
+            await next(
+                context: failedSourceID == nil ? .userInitiated : .sourceFailureRecovery,
+                caller: "auto-failure:\(trigger)",
+                callerLine: 0
+            )
         } else {
             stop()
         }
