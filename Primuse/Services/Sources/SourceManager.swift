@@ -559,7 +559,73 @@ private actor SourceConnectionRouter {
         // TCP reachability is deliberately not treated as success. Each
         // connector must still complete its authenticated, protocol-specific
         // handshake before the route is recorded or shown as active.
-        try await candidate.connector.connect()
+        if let timeout = SourceConnectionHandshakePolicy.timeout(
+            for: candidate.kind,
+            availableKinds: candidates.map(\.kind)
+        ) {
+            do {
+                try await Self.withHandshakeTimeout(seconds: timeout) {
+                    try await candidate.connector.connect()
+                }
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSURLErrorDomain,
+                   nsError.code == NSURLErrorTimedOut {
+                    plog(
+                        "⏱️ Source route handshake timed out source="
+                            + "\(sourceID.prefix(8))… kind=\(candidate.kind.rawValue)"
+                    )
+                }
+                throw error
+            }
+        } else {
+            try await candidate.connector.connect()
+        }
+    }
+
+    /// A task-group timeout waits for a non-cooperative losing child before it
+    /// can return. This one-shot race returns immediately, then cancellation and
+    /// the router's normal `disconnect()` path tear down the losing connector.
+    private nonisolated static func withHandshakeTimeout(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let race = CancellableResultRace<Void>()
+        let operationTask = Task<Void, Never> {
+            do {
+                _ = race.resolve(.success(try await operation()))
+            } catch {
+                _ = race.resolve(.failure(error))
+            }
+        }
+        let timeoutTask = Task<Void, Never> {
+            do {
+                let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                    .finiteUInt64(or: 100_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
+            } catch {
+                return
+            }
+            if race.resolve(.failure(URLError(.timedOut))) {
+                operationTask.cancel()
+            }
+        }
+
+        try await withTaskCancellationHandler {
+            defer { timeoutTask.cancel() }
+            return try await withCheckedThrowingContinuation { continuation in
+                race.install(continuation)
+                if Task.isCancelled, race.cancel() {
+                    operationTask.cancel()
+                    timeoutTask.cancel()
+                }
+            }
+        } onCancel: {
+            if race.cancel() {
+                operationTask.cancel()
+                timeoutTask.cancel()
+            }
+        }
     }
 
     private func attemptRead<T: Sendable>(

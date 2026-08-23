@@ -945,14 +945,16 @@ final class CloudKitSyncService {
 
     func sourceDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
-        enqueueSaves(recordType: RecordType.musicSource, ids: [id])
+        let resolved = resolveSourceIDsForSync([id])
+        enqueueSaves(recordType: RecordType.musicSource, ids: resolved.deleted)
     }
 
     @discardableResult
     func enqueueSourceTombstoneForCleanup(id: String) -> Bool {
         guard isStarted,
               CloudSyncChannel.isEnabled(.sources),
-              sourcesStore.sourceDeletionRecord(id: id)?.tombstone != nil else { return false }
+              let tombstone = sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
+              MusicSourceCloudSyncPolicy.isEligible(tombstone) else { return false }
         enqueueSaves(recordType: RecordType.musicSource, ids: [id])
         return true
     }
@@ -1047,12 +1049,14 @@ final class CloudKitSyncService {
         var deleted: [String] = []
         for id in ids where seen.insert(id).inserted {
             if let source = sourcesStore.allSources.first(where: { $0.id == id }) {
+                guard MusicSourceCloudSyncPolicy.isEligible(source) else { continue }
                 if source.isDeleted {
                     deleted.append(id)
                 } else {
                     active.append(id)
                 }
-            } else if sourcesStore.sourceDeletionRecord(id: id)?.tombstone != nil {
+            } else if let tombstone = sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
+                      MusicSourceCloudSyncPolicy.isEligible(tombstone) {
                 deleted.append(id)
             }
         }
@@ -1060,7 +1064,15 @@ final class CloudKitSyncService {
     }
 
     private func sourceIDsForCatchUp() -> [String] {
-        Array(Set(sourcesStore.allSources.map(\.id) + sourcesStore.sourceDeletionIDs))
+        let storedIDs = sourcesStore.allSources
+            .filter(MusicSourceCloudSyncPolicy.isEligible)
+            .map(\.id)
+        let tombstoneIDs: [String] = sourcesStore.sourceDeletionRecords.compactMap { record -> String? in
+            guard let tombstone = record.tombstone,
+                  MusicSourceCloudSyncPolicy.isEligible(tombstone) else { return nil }
+            return record.id
+        }
+        return Array(Set(storedIDs + tombstoneIDs))
     }
 
     private func resolveCloudAccountIDsForSync(_ ids: [String]) -> SyncIDResolution {
@@ -1202,6 +1214,12 @@ final class CloudKitSyncService {
            MirrorPlaylistIdentity.isMirrorPlaylist(metadata.localID) {
             return false
         }
+        if metadata.recordType == RecordType.musicSource {
+            let stored = sourcesStore.source(id: metadata.localID)
+            let tombstone = sourcesStore.sourceDeletionRecord(id: metadata.localID)?.tombstone
+            guard let source = stored ?? tombstone else { return false }
+            return MusicSourceCloudSyncPolicy.isEligible(source)
+        }
         return true
     }
 
@@ -1265,7 +1283,7 @@ final class CloudKitSyncService {
                     removeSystemFields(for: recordID)
                 }
             }
-            plog("CloudKitSync: dropped \(dropped.count) stale Apple Music mirror pending change(s)")
+            plog("CloudKitSync: dropped \(dropped.count) device-local/stale pending change(s)")
         }
 
         return kept
@@ -1481,6 +1499,12 @@ final class CloudKitSyncService {
     }
 
     fileprivate func applyRemoteRecord(_ record: CKRecord) {
+        if record.recordType == RecordType.musicSource,
+           let source = decodedSource(from: record),
+           !MusicSourceCloudSyncPolicy.isEligible(source) {
+            removeSystemFields(for: record.recordID)
+            return
+        }
         // 不论本 channel 是否启用,都先保留 system fields——禁用期间也可能后续
         // 又开启,届时如果没有 changeTag 还是会撞 "record to insert already exists"。
         storeSystemFields(record)
@@ -1522,6 +1546,12 @@ final class CloudKitSyncService {
     /// edit. Merge the set-like record types while their save is pending.
     @MainActor
     fileprivate func applyFetchedRecord(_ record: CKRecord, syncEngine: CKSyncEngine) {
+        if record.recordType == RecordType.musicSource,
+           let source = decodedSource(from: record),
+           !MusicSourceCloudSyncPolicy.isEligible(source) {
+            dropPendingRecordZoneChanges(for: record.recordID, syncEngine: syncEngine)
+            return
+        }
         if CloudSyncChannel.isEnabled(.sources), shouldReassertSourceTombstone(for: record) {
             // Preserve the fetched change tag, then overwrite this stale active
             // payload with the durable local tombstone in the same sync cycle.
@@ -1598,6 +1628,12 @@ final class CloudKitSyncService {
         }
 
         guard let id = parseLocalID(from: recordID, recordType: recordType) else { return }
+        if recordType == RecordType.musicSource,
+           let source = sourcesStore.source(id: id)
+                ?? sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
+           !MusicSourceCloudSyncPolicy.isEligible(source) {
+            return
+        }
         if recordType == RecordType.playlist,
            let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
             if allowLocalRestore, library.artworkOverride(for: owner) != nil {
@@ -1910,7 +1946,8 @@ final class CloudKitSyncService {
         } else {
             storedSource
         }
-        guard let source else { return false }
+        guard let source,
+              MusicSourceCloudSyncPolicy.isEligible(source) else { return false }
         do {
             let data = try JSONEncoder().encode(SyncableSource(source: source))
             record["payload"] = data
@@ -1923,7 +1960,8 @@ final class CloudKitSyncService {
     }
 
     private func applySourceRecord(_ record: CKRecord) {
-        guard var source = decodedSource(from: record) else { return }
+        guard var source = decodedSource(from: record),
+              MusicSourceCloudSyncPolicy.isEligible(source) else { return }
         // Older records may still contain a Synology trusted-device token.
         // Never import it onto a different physical device.
         source.deviceId = nil
@@ -1941,6 +1979,7 @@ final class CloudKitSyncService {
     private func shouldReassertSourceTombstone(for record: CKRecord) -> Bool {
         guard record.recordType == RecordType.musicSource,
               let source = decodedSource(from: record),
+              MusicSourceCloudSyncPolicy.isEligible(source),
               !source.isDeleted,
               let deletion = sourcesStore.sourceDeletionRecord(id: source.id),
               deletion.tombstone != nil else { return false }
@@ -2217,6 +2256,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     private func acknowledgeSavedSourceTombstone(_ record: CKRecord) {
         guard record.recordType == RecordType.musicSource,
               let source = decodedSource(from: record),
+              MusicSourceCloudSyncPolicy.isEligible(source),
               source.isDeleted else { return }
         NotificationCenter.default.post(
             name: .primuseSourceTombstoneDidSync,

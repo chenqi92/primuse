@@ -19,9 +19,8 @@ enum LocalImportService {
     private static let pendingScanKey = "local_import_pending_scan_v1"
 
     /// 本设备的「本地音乐」源 ID。每台设备独立(UUID 存 UserDefaults):
-    /// 同一设备多次导入复用同一个源往里追加; 不同设备各自独立, 即便源记录
-    /// 随 CloudKit 同步过去也不会因固定 ID 互相覆盖(basePath 是各自的沙箱
-    /// 路径, 在别的设备上本就无效, 会优雅降级为扫不到)。
+    /// 同一设备多次导入复用同一个源往里追加; 不同设备各自独立。设备本地源
+    /// 不进入 CloudKit；升级时 SourcesStore 也会清理旧版本误同步进来的外设备源。
     static var sourceID: String {
         if let existing = UserDefaults.standard.string(forKey: sourceIDKey) {
             return existing

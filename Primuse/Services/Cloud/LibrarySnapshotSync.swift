@@ -398,7 +398,11 @@ final class LibrarySnapshotSync: Sendable {
         }
         let payload: Data
         if let incoming = sourcesSnapshotData(from: record, fm: fm),
-           let merged = Self.mergeSourcesJSON(localData: localData, incomingData: incoming) {
+           let merged = mergeCloudSourcesJSON(
+               localData: localData,
+               incomingData: incoming,
+               preserveLocalDeviceSources: false
+           ) {
             payload = merged.data
             // Upload reconciliation must never mutate the user-facing local
             // store. The previous write-back path could inject unknown remote
@@ -464,6 +468,31 @@ final class LibrarySnapshotSync: Sendable {
         Self.mergeSourcesJSON(
             localData: augmentedSourcesData(localData, including: []),
             incomingData: incomingData
+        )
+    }
+
+    /// Old CloudKit snapshots may contain a source backed by another device's
+    /// sandbox or security-scoped bookmark. Incoming device-local rows are
+    /// always discarded; downloads preserve this device's existing local rows,
+    /// while uploads also remove them from the outgoing payload.
+    private func mergeCloudSourcesJSON(
+        localData: Data?,
+        incomingData: Data,
+        preserveLocalDeviceSources: Bool
+    ) -> SourcesMergeResult? {
+        guard let filteredIncoming = Self.sanitizedSourcesData(
+            incomingData,
+            includeDeviceLocalSources: false
+        ) else { return nil }
+        let augmentedLocal = augmentedSourcesData(localData, including: [])
+        let filteredLocal = preserveLocalDeviceSources
+            ? augmentedLocal
+            : augmentedLocal.flatMap {
+                Self.sanitizedSourcesData($0, includeDeviceLocalSources: false)
+            }
+        return Self.mergeSourcesJSON(
+            localData: filteredLocal,
+            incomingData: filteredIncoming
         )
     }
 
@@ -838,7 +867,10 @@ final class LibrarySnapshotSync: Sendable {
     ) -> String {
         guard let raw = rawData ?? (try? Data(contentsOf: sourcesURL)),
               raw.count <= Self.maxSourcesRawBytes,
-              let sanitized = Self.sanitizedSourcesData(raw) else {
+              let sanitized = Self.sanitizedSourcesData(
+                  raw,
+                  includeDeviceLocalSources: false
+              ) else {
             return "\(gzKey)=no-file"
         }
         if let gz = try? (sanitized as NSData).compressed(using: .zlib) as Data,
@@ -857,10 +889,16 @@ final class LibrarySnapshotSync: Sendable {
         }
     }
 
-    private static func sanitizedSourcesData(_ data: Data) -> Data? {
+    private static func sanitizedSourcesData(
+        _ data: Data,
+        includeDeviceLocalSources: Bool
+    ) -> Data? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard var sources = try? decoder.decode([MusicSource].self, from: data) else { return nil }
+        if !includeDeviceLocalSources {
+            sources = MusicSourceCloudSyncPolicy.eligibleSources(sources)
+        }
         for index in sources.indices {
             sources[index].deviceId = nil
         }
@@ -931,7 +969,20 @@ final class LibrarySnapshotSync: Sendable {
     private func extractSourcesSnapshot(_ record: CKRecord, to dest: URL, fm: FileManager) -> Bool {
         guard let incoming = sourcesSnapshotData(from: record, fm: fm) else { return false }
         let local = try? Data(contentsOf: dest)
-        guard let merged = mergeSourcesJSON(localData: local, incomingData: incoming) else {
+        guard let merged = mergeCloudSourcesJSON(
+            localData: local,
+            incomingData: incoming,
+            // tvOS cannot own a local filesystem/Music.app source. Dropping
+            // legacy local rows here affects CloudKit restore only; explicit
+            // LAN transfer continues through the unfiltered merge path.
+            preserveLocalDeviceSources: {
+                #if os(tvOS)
+                false
+                #else
+                true
+                #endif
+            }()
+        ) else {
             plog("LibrarySnapshotSync: sources merge failed; keeping local sources.json")
             return false
         }
@@ -978,7 +1029,11 @@ final class LibrarySnapshotSync: Sendable {
               let incoming = sourcesSnapshotData(from: record, fm: fm) else {
             return nil
         }
-        return Self.mergeSourcesJSON(localData: local, incomingData: incoming)
+        return mergeCloudSourcesJSON(
+            localData: local,
+            incomingData: incoming,
+            preserveLocalDeviceSources: false
+        )
     }
 
     private func sourcesSnapshotData(from record: CKRecord, fm: FileManager) -> Data? {
@@ -1600,7 +1655,10 @@ final class LibrarySnapshotSync: Sendable {
 
         var payload = LANSyncPayload(libraryGz: libraryGz)
         if let raw = try? Data(contentsOf: sourcesURL),
-           let sanitized = Self.sanitizedSourcesData(raw) {
+           let sanitized = Self.sanitizedSourcesData(
+               raw,
+               includeDeviceLocalSources: true
+           ) {
             payload.sourcesGz = Self.gzip(sanitized)
         }
         if let raw = validRadioStationsData(at: radioStationsURL) {

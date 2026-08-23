@@ -148,6 +148,16 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     }
 
     func disconnect() async {
+        let wasConnecting = loginTask != nil || reconnectTask != nil
+        loginTask?.cancel()
+        reconnectTask?.cancel()
+        if wasConnecting {
+            // A failed adaptive-route probe must not wait for a logout request
+            // on the same stalled endpoint. Cancelling the login task also
+            // cancels URLSession and any pending certificate-trust waiter.
+            await api.invalidateSession(ifMatches: nil)
+            return
+        }
         await api.logout()
     }
 

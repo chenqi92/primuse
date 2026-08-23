@@ -77,6 +77,7 @@ final class SourcesStore {
         loadSourceDeletions()
         migrateSourceTombstonesIntoDeletionLedger()
         reconcileSourcesWithDeletionLedger()
+        pruneForeignDeviceLocalSources()
         loadAccounts()
     }
 
@@ -90,6 +91,7 @@ final class SourcesStore {
         loadSourceDeletions()
         migrateSourceTombstonesIntoDeletionLedger()
         reconcileSourcesWithDeletionLedger()
+        pruneForeignDeviceLocalSources()
         loadAccounts()
     }
 
@@ -418,6 +420,7 @@ final class SourcesStore {
     /// The push path already does LWW (see `resolveServerRecordChanged`
     /// on the conflict path); the fetch path was the missing half.
     func upsertFromRemote(_ remote: MusicSource) {
+        guard MusicSourceCloudSyncPolicy.isEligible(remote) else { return }
         if remote.isDeleted {
             let incomingDeletion = MusicSourceDeletionRecord(tombstone: remote)
             if let existing = allSources.first(where: { $0.id == remote.id }),
@@ -637,6 +640,36 @@ final class SourcesStore {
             persist()
         }
         return changedSourceIDs
+    }
+
+    /// Removes rows that older CloudKit builds copied from another device.
+    /// This is intentionally a silent local migration: creating a tombstone or
+    /// posting a sync notification could delete the real source on its owner.
+    private func pruneForeignDeviceLocalSources() {
+        #if os(iOS)
+        let ownedSourceIDs = LocalImportService.existingSourceID
+            .map { Set([$0]) } ?? []
+        let foreignSourceIDs = MusicSourceCloudSyncPolicy.foreignDeviceLocalSourceIDs(
+            in: allSources,
+            ownedSourceIDs: ownedSourceIDs
+        )
+        let foreignDeletionIDs: Set<String> = Set(sourceDeletionRecords.lazy.compactMap { record -> String? in
+            guard let tombstone = record.tombstone,
+                  MusicSourceCloudSyncPolicy.isDeviceLocal(tombstone),
+                  !ownedSourceIDs.contains(record.id) else { return nil }
+            return record.id
+        })
+        let removedIDs = foreignSourceIDs.union(foreignDeletionIDs)
+        guard !removedIDs.isEmpty else { return }
+
+        allSources.removeAll { foreignSourceIDs.contains($0.id) }
+        sourceDeletionRecords.removeAll { foreignDeletionIDs.contains($0.id) }
+        persist()
+        if !foreignDeletionIDs.isEmpty {
+            _ = persistSourceDeletions()
+        }
+        plog("SourcesStore: pruned \(removedIDs.count) foreign device-local source(s)")
+        #endif
     }
 
     @discardableResult

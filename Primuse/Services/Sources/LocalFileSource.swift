@@ -33,9 +33,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         }
         #elseif os(iOS)
         // 本地导入源的文件固定在 <当前沙箱>/Documents/LocalMusic。app 数据容器 UUID
-        // 会随重装变化, 而持久化到源记录(并经 CloudKit 同步)的绝对 basePath 可能指向
-        // 已不存在的旧容器, 导致 connect()/路径解析 pathNotFound、歌曲无法播放。对本地
-        // 导入源始终按当前容器重算, 不信任存储的 basePath。
+        // 会随重装变化, 而持久化到源记录(旧版本还可能经 CloudKit 同步)的绝对 basePath
+        // 可能指向已不存在的旧容器, 导致 connect()/路径解析 pathNotFound、歌曲无法播放。
+        // 对本地导入源始终按当前容器重算, 不信任存储的 basePath。
         // The normal Files-import source is identified by both its persisted
         // ID and its reserved Documents/LocalMusic root. Older/demo fixtures
         // may reuse the stored ID for a different local directory; forcing

@@ -882,6 +882,25 @@ public enum SourceConnectionCandidateKind: String, Codable, Hashable, Sendable {
     case vendorRemote
 }
 
+/// Bounds the protocol/authentication handshake only when a route can safely
+/// fall back. TCP reachability alone does not prove that the private address is
+/// the user's server: another device on a different WLAN may accept the port
+/// and then stall during TLS or application login.
+public enum SourceConnectionHandshakePolicy {
+    public static let localFallbackTimeout: TimeInterval = 8
+
+    public static func timeout(
+        for candidate: SourceConnectionCandidateKind,
+        availableKinds: [SourceConnectionCandidateKind]
+    ) -> TimeInterval? {
+        guard candidate == .localAddress,
+              availableKinds.contains(where: { $0 != .localAddress }) else {
+            return nil
+        }
+        return localFallbackTimeout
+    }
+}
+
 /// Presentation state for one route card. A transient disconnect falls back
 /// to the last confirmed route instead of making the selected endpoint flash
 /// off while the router is attempting the same or another route.
@@ -1259,6 +1278,33 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         // cleanly with cloudAccountID = nil. The migration in stage 4
         // will populate this for existing OAuth sources.
         self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
+    }
+}
+
+/// Device-local libraries are backed by a sandbox path, security-scoped
+/// bookmark, or platform media database. Their configuration cannot be opened
+/// on another device, so it must stay out of both granular CloudKit records and
+/// the CloudKit library snapshot.
+public enum MusicSourceCloudSyncPolicy {
+    public static func isDeviceLocal(_ source: MusicSource) -> Bool {
+        source.type.category == .local
+    }
+
+    public static func isEligible(_ source: MusicSource) -> Bool {
+        !isDeviceLocal(source)
+    }
+
+    public static func eligibleSources(_ sources: [MusicSource]) -> [MusicSource] {
+        sources.filter(isEligible)
+    }
+
+    public static func foreignDeviceLocalSourceIDs(
+        in sources: [MusicSource],
+        ownedSourceIDs: Set<String>
+    ) -> Set<String> {
+        Set(sources.lazy.filter { source in
+            isDeviceLocal(source) && !ownedSourceIDs.contains(source.id)
+        }.map(\.id))
     }
 }
 
