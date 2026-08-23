@@ -800,6 +800,11 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     private let httpCredentialEndpoint: NetworkEndpointIdentity?
     private let redirectPolicy: RedirectPolicy
     private let defersUntrustedServerTrustToCaller: Bool
+    /// Optional certificate identity for a direct connection whose URL host is
+    /// a private address. Acceptance still requires ordinary system trust for
+    /// this exact hostname; this never bypasses validation or changes routing.
+    private let alternateServerTrustHostname: String?
+    private let alternateServerTrustEndpoint: NetworkEndpointIdentity?
 
     init(
         fnMusicRedirects: Bool = false,
@@ -807,7 +812,9 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         httpPassword: String? = nil,
         httpCredentialEndpoint: NetworkEndpointIdentity? = nil,
         redirectPolicy: RedirectPolicy = .system,
-        defersUntrustedServerTrustToCaller: Bool = false
+        defersUntrustedServerTrustToCaller: Bool = false,
+        alternateServerTrustHostname: String? = nil,
+        alternateServerTrustEndpoint: NetworkEndpointIdentity? = nil
     ) {
         self.fnMusicRedirects = fnMusicRedirects
         self.httpUsername = httpUsername
@@ -815,6 +822,8 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         self.httpCredentialEndpoint = httpCredentialEndpoint
         self.redirectPolicy = redirectPolicy
         self.defersUntrustedServerTrustToCaller = defersUntrustedServerTrustToCaller
+        self.alternateServerTrustHostname = alternateServerTrustHostname
+        self.alternateServerTrustEndpoint = alternateServerTrustEndpoint
     }
 
     func urlSession(
@@ -838,6 +847,25 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust {
             let host = challenge.protectionSpace.host
+            if let alternateServerTrustHostname,
+               let alternateServerTrustEndpoint,
+               alternateServerTrustEndpoint == NetworkEndpointIdentity(
+                   scheme: challenge.protectionSpace.protocol ?? "https",
+                   host: host,
+                   port: challenge.protectionSpace.port > 0
+                       ? challenge.protectionSpace.port
+                       : nil
+               ),
+               let credential = systemTrustedCredential(
+                   for: trust,
+                   hostname: alternateServerTrustHostname
+               ) {
+                // The socket and HTTP request still target `host`; only the
+                // certificate's DNS identity is evaluated against the public
+                // name explicitly paired with this LAN endpoint.
+                plog("TLS accepted LAN endpoint using its configured public certificate identity")
+                return (.useCredential, credential)
+            }
             let trustTarget = NetworkEndpointIdentity(
                 scheme: challenge.protectionSpace.protocol ?? "https",
                 host: host,
@@ -921,6 +949,36 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
             )
         }
         return (.performDefaultHandling, nil)
+    }
+
+    /// Builds an independent trust object so a failed alternate-name check
+    /// cannot mutate the challenge trust used by the endpoint-pin fallback.
+    private func systemTrustedCredential(
+        for trust: SecTrust,
+        hostname: String
+    ) -> URLCredential? {
+        guard let normalizedHostname = InsecureHTTPHostPolicy.normalizedHost(hostname),
+              let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              chain.isEmpty == false else {
+            return nil
+        }
+
+        let policy = SecPolicyCreateSSL(true, normalizedHostname as CFString)
+        var alternateTrust: SecTrust?
+        guard SecTrustCreateWithCertificates(
+            chain as CFArray,
+            policy,
+            &alternateTrust
+        ) == errSecSuccess,
+        let alternateTrust else {
+            return nil
+        }
+
+        var trustError: CFError?
+        guard SecTrustEvaluateWithError(alternateTrust, &trustError) else {
+            return nil
+        }
+        return URLCredential(trust: alternateTrust)
     }
 
     /// Convert an endpoint-scoped, fingerprint-checked user decision into a

@@ -721,7 +721,8 @@ final class ScanService {
                 host: source.host ?? "",
                 port: source.port ?? 5001,
                 useSsl: source.useSsl,
-                connectionMode: source.effectiveSynologyConnectionMode
+                connectionMode: source.effectiveSynologyConnectionMode,
+                alternateTLSValidationHostname: source.alternateTLSValidationHostname
             )
             synologyAPIs[source.id] = created
             api = created

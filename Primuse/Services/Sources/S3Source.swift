@@ -14,6 +14,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private let accessKey: String
     private let secretKey: String
     private let useSsl: Bool
+    private let alternateTLSValidationHostname: String?
     private let cacheDirectory: URL
     private var clockOffset: TimeInterval
 
@@ -23,26 +24,47 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private var _directorySession: URLSession?
     private var directorySession: URLSession {
         if let session = _directorySession { return session }
-        let session = Self.makeSession()
+        let session = Self.makeSession(
+            alternateTLSValidationHostname: alternateTLSValidationHostname,
+            alternateTLSValidationEndpoint: NetworkEndpointIdentity(
+                scheme: useSsl ? "https" : "http",
+                host: endpoint,
+                port: port
+            )
+        )
         _directorySession = session
         return session
     }
     private var _rangeSession: URLSession?
     private var rangeSession: URLSession {
         if let session = _rangeSession { return session }
-        let session = Self.makeSession()
+        let session = Self.makeSession(
+            alternateTLSValidationHostname: alternateTLSValidationHostname,
+            alternateTLSValidationEndpoint: NetworkEndpointIdentity(
+                scheme: useSsl ? "https" : "http",
+                host: endpoint,
+                port: port
+            )
+        )
         _rangeSession = session
         return session
     }
 
-    private static func makeSession() -> URLSession {
+    private static func makeSession(
+        alternateTLSValidationHostname: String?,
+        alternateTLSValidationEndpoint: NetworkEndpointIdentity?
+    ) -> URLSession {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
         let session = URLSession(
             configuration: config,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: alternateTLSValidationEndpoint
+            ),
             delegateQueue: nil
         )
         return session
@@ -50,7 +72,8 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
     init(
         sourceID: String, endpoint: String, port: Int?, region: String,
-        bucket: String, accessKey: String, secretKey: String, useSsl: Bool
+        bucket: String, accessKey: String, secretKey: String, useSsl: Bool,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.endpoint = endpoint
@@ -60,6 +83,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         self.accessKey = accessKey
         self.secretKey = secretKey
         self.useSsl = useSsl
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
         self.clockOffset = S3ClockSkewPolicy.storedOffset(for: sourceID)
 
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)

@@ -6,6 +6,8 @@ actor UgreenSource: MusicSourceConnector {
     private let api: UgreenAPI
     private let username: String
     private let password: String
+    private let alternateTLSValidationHostname: String?
+    private let alternateTLSValidationEndpoint: NetworkEndpointIdentity?
     private let cacheDirectory: URL
 
     /// In-flight login dedupe. 多个 connect() 被 8 路并发 chunk 预取/解码路径
@@ -21,16 +23,32 @@ actor UgreenSource: MusicSourceConnector {
         config.httpMaximumConnectionsPerHost = 8
         return URLSession(
             configuration: config,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: alternateTLSValidationEndpoint
+            ),
             delegateQueue: nil
         )
     }()
 
     init(sourceID: String, host: String, port: Int, useSsl: Bool,
-         username: String, password: String) {
+         username: String, password: String,
+         alternateTLSValidationHostname: String? = nil) {
         self.sourceID = sourceID
-        self.api = UgreenAPI(host: host, port: port, useSsl: useSsl)
+        self.api = UgreenAPI(
+            host: host,
+            port: port,
+            useSsl: useSsl,
+            alternateTLSValidationHostname: alternateTLSValidationHostname
+        )
         self.username = username; self.password = password
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
+        self.alternateTLSValidationEndpoint = NetworkEndpointIdentity(
+            scheme: useSsl ? "https" : "http",
+            host: host,
+            port: port
+        )
         let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_audio_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -98,7 +116,11 @@ actor UgreenSource: MusicSourceConnector {
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
         let session = URLSession(
             configuration: config,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: alternateTLSValidationEndpoint
+            ),
             delegateQueue: nil
         )
         defer { session.finishTasksAndInvalidate() }

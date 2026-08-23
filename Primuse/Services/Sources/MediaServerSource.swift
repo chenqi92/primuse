@@ -46,7 +46,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         basePath: String?,
         username: String,
         secret: String,
-        authType: SourceAuthType
+        authType: SourceAuthType,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.kind = kind
@@ -82,7 +83,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
         self.session = URLSession(
             configuration: configuration,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
             delegateQueue: nil
         )
 

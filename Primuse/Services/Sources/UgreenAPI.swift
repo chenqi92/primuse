@@ -6,6 +6,7 @@ actor UgreenAPI {
     private let host: String
     private let port: Int
     private let useSsl: Bool
+    private let alternateTLSValidationHostname: String?
     private(set) var token: String?
     private(set) var staticToken: String?
     private(set) var uid: String?
@@ -34,8 +35,16 @@ actor UgreenAPI {
     }
     var isLoggedIn: Bool { token != nil }
 
-    init(host: String, port: Int, useSsl: Bool) {
-        self.host = host; self.port = port; self.useSsl = useSsl
+    init(
+        host: String,
+        port: Int,
+        useSsl: Bool,
+        alternateTLSValidationHostname: String? = nil
+    ) {
+        self.host = host
+        self.port = port
+        self.useSsl = useSsl
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
     }
 
     struct LoginResult: Sendable {
@@ -528,7 +537,15 @@ actor UgreenAPI {
         config.timeoutIntervalForRequest = 15
         return URLSession(
             configuration: config,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
             delegateQueue: nil
         )
     }()

@@ -13,6 +13,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private let basePath: String?
     private let username: String
     private let password: String
+    private let alternateTLSValidationHostname: String?
     private var provider: WebDAVFileProvider?
     private var usesTrustedURLSession = false
     private var connectTask: Task<Void, Error>?
@@ -33,7 +34,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         useSsl: Bool,
         basePath: String? = nil,
         username: String,
-        password: String
+        password: String,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.host = host
@@ -42,6 +44,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         self.basePath = basePath
         self.username = username
         self.password = password
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
 
         // Per-source cache dir avoids file-name collisions when two WebDAV sources
         // happen to expose files with the same relative path.
@@ -55,14 +58,16 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             port: port,
             useSsl: useSsl,
             username: username,
-            password: password
+            password: password,
+            alternateTLSValidationHostname: alternateTLSValidationHostname
         )
         self.rangeSession = Self.makeRangeSession(
             host: host,
             port: port,
             useSsl: useSsl,
             username: username,
-            password: password
+            password: password,
+            alternateTLSValidationHostname: alternateTLSValidationHostname
         )
         self.redirectedMediaSession = Self.makeRedirectedMediaSession()
     }
@@ -72,7 +77,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         port: Int?,
         useSsl: Bool,
         username: String,
-        password: String
+        password: String,
+        alternateTLSValidationHostname: String?
     ) -> URLSession {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
@@ -89,7 +95,13 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                     port: port
                 ),
                 redirectPolicy: .sameEndpoint,
-                defersUntrustedServerTrustToCaller: true
+                defersUntrustedServerTrustToCaller: true,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                )
             ),
             delegateQueue: nil
         )
@@ -245,7 +257,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 port: port,
                 useSsl: useSsl,
                 username: username,
-                password: password
+                password: password,
+                alternateTLSValidationHostname: alternateTLSValidationHostname
             )
         }
         if rangeSession == nil {
@@ -254,7 +267,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 port: port,
                 useSsl: useSsl,
                 username: username,
-                password: password
+                password: password,
+                alternateTLSValidationHostname: alternateTLSValidationHostname
             )
         }
         if redirectedMediaSession == nil {
@@ -269,7 +283,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             port: port,
             useSsl: useSsl,
             username: username,
-            password: password
+            password: password,
+            alternateTLSValidationHostname: alternateTLSValidationHostname
         )
     }
 

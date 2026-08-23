@@ -19,7 +19,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
         useSSL: Bool,
         basePath: String?,
         username: String,
-        password: String
+        password: String,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.serverBaseURL = DaoLiYuAPIProtocol.serverBaseURL(
@@ -38,7 +39,15 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
         configuration.urlCredentialStorage = nil
         let session = URLSession(
             configuration: configuration,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSSL ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
             delegateQueue: nil
         )
         self.session = session

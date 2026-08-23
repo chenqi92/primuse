@@ -561,7 +561,8 @@ struct ConnectionFlowView: View {
             host: connectionSource.host ?? "",
             port: connectionSource.port ?? 5001,
             useSsl: connectionSource.useSsl,
-            connectionMode: connectionSource.effectiveSynologyConnectionMode
+            connectionMode: connectionSource.effectiveSynologyConnectionMode,
+            alternateTLSValidationHostname: connectionSource.alternateTLSValidationHostname
         )
         synologyAPI = api
 

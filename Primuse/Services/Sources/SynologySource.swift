@@ -9,6 +9,8 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private let username: String
     private let rememberDevice: Bool
     private let deviceId: String?
+    private let alternateTLSValidationHostname: String?
+    private let alternateTLSValidationEndpoint: NetworkEndpointIdentity?
     private let cacheDirectory: URL
     /// In-flight login dedupe. 多个 connect() 同时被预取/解码路径调起时,
     /// 让首个发起的登录跑,后面的全部 await 同一个 Task。否则 actor 重入
@@ -28,25 +30,40 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: alternateTLSValidationEndpoint
+            ),
+            delegateQueue: nil
+        )
     }()
 
     init(
         sourceID: String, host: String, port: Int, useSsl: Bool,
         connectionMode: SynologyConnectionMode,
         username: String,
-        rememberDevice: Bool, deviceId: String?
+        rememberDevice: Bool, deviceId: String?,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.api = SynologyAPI(
             host: host,
             port: port,
             useSsl: useSsl,
-            connectionMode: connectionMode
+            connectionMode: connectionMode,
+            alternateTLSValidationHostname: alternateTLSValidationHostname
         )
         self.username = username
         self.rememberDevice = rememberDevice
         self.deviceId = deviceId
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
+        self.alternateTLSValidationEndpoint = NetworkEndpointIdentity(
+            scheme: useSsl ? "https" : "http",
+            host: host,
+            port: port
+        )
 
         // Use Caches directory (survives app restarts, system can purge when low on storage)
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -191,7 +208,14 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300 // 5 min for large files
         config.timeoutIntervalForResource = 600 // 10 min total
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: alternateTLSValidationEndpoint
+            ),
+            delegateQueue: nil
+        )
         defer { session.finishTasksAndInvalidate() }
 
         let (tempURL, response) = try await TrustedHTTPTransport.download(
@@ -347,7 +371,14 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 600
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: alternateTLSValidationEndpoint
+            ),
+            delegateQueue: nil
+        )
         defer { session.finishTasksAndInvalidate() }
 
         let (tempURL, response) = try await TrustedHTTPTransport.download(

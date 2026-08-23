@@ -1546,6 +1546,37 @@ public extension MusicSource {
         return projected
     }
 
+    /// A LAN HTTPS endpoint is commonly reached by a private IP while the NAS
+    /// presents the publicly trusted certificate used by its Internet name.
+    /// For a projected LAN candidate, return that configured public identity so
+    /// the transport can validate the certificate without sending traffic over
+    /// the public route or pinning every routine certificate renewal to the IP.
+    ///
+    /// This is intentionally unavailable for vendor relay mode, cleartext
+    /// endpoints, public-to-public pairs, and legacy single-route records. The
+    /// transport must still pass normal system trust for this exact hostname.
+    var alternateTLSValidationHostname: String? {
+        guard useSsl,
+              let configuration = connectionConfiguration,
+              configuration.remoteAccessMode == .direct,
+              let local = configuration.localEndpoint?.normalized,
+              let remote = configuration.publicEndpoint?.normalized,
+              local.isUsable,
+              remote.isUsable,
+              local.useSsl,
+              remote.useSsl,
+              Self.isLikelyLocalEndpoint(local.host),
+              !Self.isLikelyLocalEndpoint(remote.host),
+              let currentHost = host.flatMap(InsecureHTTPHostPolicy.normalizedHost),
+              let localHost = InsecureHTTPHostPolicy.normalizedHost(local.host),
+              let remoteHost = InsecureHTTPHostPolicy.normalizedHost(remote.host),
+              currentHost == localHost,
+              (port ?? type.defaultPort(useSsl: useSsl)) == local.port else {
+            return nil
+        }
+        return remoteHost
+    }
+
     /// Keeps legacy consumers functional by mirroring the first enabled route
     /// into host/port/useSsl while retaining every configured route.
     func projectingPreferredConnectionForLegacy() -> MusicSource {

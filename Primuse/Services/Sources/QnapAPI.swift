@@ -1,10 +1,12 @@
 import CryptoKit
 import Foundation
+import PrimuseKit
 
 actor QnapAPI {
     private let host: String
     private let port: Int
     private let useSsl: Bool
+    private let alternateTLSValidationHostname: String?
     private(set) var sid: String?
 
     var baseURLString: String {
@@ -14,8 +16,16 @@ actor QnapAPI {
     }
     var isLoggedIn: Bool { sid != nil }
 
-    init(host: String, port: Int, useSsl: Bool) {
-        self.host = host; self.port = port; self.useSsl = useSsl
+    init(
+        host: String,
+        port: Int,
+        useSsl: Bool,
+        alternateTLSValidationHostname: String? = nil
+    ) {
+        self.host = host
+        self.port = port
+        self.useSsl = useSsl
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
     }
 
     // MARK: - Auth
@@ -413,7 +423,15 @@ actor QnapAPI {
         config.timeoutIntervalForRequest = 30
         return URLSession(
             configuration: config,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
             delegateQueue: nil
         )
     }()

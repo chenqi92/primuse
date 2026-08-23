@@ -6,6 +6,7 @@ actor SynologyAPI {
     private let port: Int
     private let useSsl: Bool
     private let connectionMode: SynologyConnectionMode
+    private let alternateTLSValidationHostname: String?
     private var resolvedEndpoint: SynologyResolvedEndpoint?
     private(set) var sid: String?
 
@@ -30,12 +31,14 @@ actor SynologyAPI {
         host: String,
         port: Int,
         useSsl: Bool,
-        connectionMode: SynologyConnectionMode = .address
+        connectionMode: SynologyConnectionMode = .address,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.host = host
         self.port = port
         self.useSsl = useSsl
         self.connectionMode = connectionMode
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
     }
 
     /// 长生命周期 session 复用所有 API 请求 (list / download / upload / head)。
@@ -47,7 +50,18 @@ actor SynologyAPI {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 600
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
+            delegateQueue: nil
+        )
     }()
 
     /// QuickConnect discovery itself always uses system TLS validation. A NAS

@@ -1315,7 +1315,8 @@ final class SourceManager {
                 connectionMode: source.effectiveSynologyConnectionMode,
                 username: source.username ?? "",
                 rememberDevice: source.rememberDevice,
-                deviceId: source.deviceId
+                deviceId: source.deviceId,
+                alternateTLSValidationHostname: source.alternateTLSValidationHostname
             )
         case .local:
             connector = LocalFileSource(
@@ -1351,7 +1352,8 @@ final class SourceManager {
                     useSsl: source.useSsl,
                     basePath: source.basePath,
                     username: source.username ?? "",
-                    password: password
+                    password: password,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .ftp:
@@ -1399,7 +1401,8 @@ final class SourceManager {
                     basePath: source.basePath,
                     username: source.username ?? "",
                     secret: secret,
-                    authType: source.authType
+                    authType: source.authType,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .subsonic, .navidrome, .airsonic, .gonic:
@@ -1412,7 +1415,8 @@ final class SourceManager {
                     useSsl: source.useSsl,
                     basePath: source.basePath,
                     username: source.username ?? "",
-                    password: password
+                    password: password,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .qnap:
@@ -1423,7 +1427,8 @@ final class SourceManager {
                     port: source.port ?? 8080,
                     useSsl: source.useSsl,
                     username: source.username ?? "",
-                    password: password
+                    password: password,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .ugreen:
@@ -1434,7 +1439,8 @@ final class SourceManager {
                     port: source.port ?? 9999,
                     useSsl: source.useSsl,
                     username: source.username ?? "",
-                    password: password
+                    password: password,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .fnos:
@@ -1456,7 +1462,8 @@ final class SourceManager {
                     connectionMode: source.effectiveFnMusicConnectionMode,
                     accessCode: accessCode,
                     username: source.username ?? "",
-                    password: password
+                    password: password,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .daoliyu:
@@ -1468,7 +1475,8 @@ final class SourceManager {
                     useSSL: source.useSsl,
                     basePath: source.basePath,
                     username: source.username ?? "",
-                    password: password
+                    password: password,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .baiduPan:
@@ -1500,7 +1508,8 @@ final class SourceManager {
                     bucket: source.basePath ?? "",
                     accessKey: source.username ?? "",
                     secretKey: secretKey,
-                    useSsl: source.useSsl
+                    useSsl: source.useSsl,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
         case .appleMusic:

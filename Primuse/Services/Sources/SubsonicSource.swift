@@ -50,7 +50,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         useSsl: Bool,
         basePath: String?,
         username: String,
-        password: String
+        password: String,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
@@ -76,7 +77,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         // 家用 Navidrome 常用自签 HTTPS, 复用全局 SmartSSLDelegate 放行受信任证书。
         self.session = URLSession(
             configuration: configuration,
-            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegate: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSsl ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
             delegateQueue: nil
         )
 

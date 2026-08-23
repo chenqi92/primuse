@@ -397,6 +397,75 @@ import Testing
     #expect(restored.connectionConfiguration == configuration)
 }
 
+@Test func projectedLANUsesConfiguredPublicHostnameForSystemTLSValidation() {
+    let source = MusicSource(
+        name: "Synology",
+        type: .synology,
+        connectionConfiguration: SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.0.50",
+                port: 5001,
+                useSsl: true
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "https://nas.example.com:5001/dsm",
+                port: 443,
+                useSsl: false
+            )
+        )
+    )
+
+    let local = source.applyingConnectionCandidate(source.connectionCandidates[0])
+    let remote = source.applyingConnectionCandidate(source.connectionCandidates[1])
+
+    #expect(local.host == "192.168.0.50")
+    #expect(local.alternateTLSValidationHostname == "nas.example.com")
+    #expect(remote.alternateTLSValidationHostname == nil)
+}
+
+@Test func alternateTLSIdentityRequiresSafeDirectHTTPSPair() {
+    func projectedLocal(
+        localSSL: Bool = true,
+        publicHost: String = "nas.example.com",
+        publicSSL: Bool = true,
+        remoteAccessMode: SourceRemoteAccessMode = .direct
+    ) -> MusicSource {
+        let source = MusicSource(
+            name: "Synology",
+            type: .synology,
+            connectionConfiguration: SourceConnectionConfiguration(
+                localEndpoint: SourceConnectionEndpoint(
+                    host: "10.0.0.8",
+                    port: 5001,
+                    useSsl: localSSL
+                ),
+                publicEndpoint: SourceConnectionEndpoint(
+                    host: publicHost,
+                    port: 5001,
+                    useSsl: publicSSL
+                ),
+                remoteAccessMode: remoteAccessMode,
+                vendorIdentifier: remoteAccessMode == .vendor ? "family-nas" : nil
+            )
+        )
+        return source.applyingConnectionCandidate(source.connectionCandidates[0])
+    }
+
+    #expect(projectedLocal(localSSL: false).alternateTLSValidationHostname == nil)
+    #expect(projectedLocal(publicSSL: false).alternateTLSValidationHostname == nil)
+    #expect(projectedLocal(publicHost: "192.168.0.9").alternateTLSValidationHostname == nil)
+    #expect(projectedLocal(remoteAccessMode: .vendor).alternateTLSValidationHostname == nil)
+
+    let legacy = MusicSource(
+        name: "Legacy Synology",
+        type: .synology,
+        host: "192.168.0.50",
+        port: 5001,
+        useSsl: true
+    )
+    #expect(legacy.alternateTLSValidationHostname == nil)
+}
+
 @Test func vendorRemoteSelectionRetainsDirectAddressAndLegacyProjection() {
     let configuration = SourceConnectionConfiguration(
         localEndpoint: SourceConnectionEndpoint(

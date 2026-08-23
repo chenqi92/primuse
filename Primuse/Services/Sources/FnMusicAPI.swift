@@ -22,7 +22,8 @@ actor FnMusicAPI {
         useSSL: Bool,
         basePath: String?,
         connectionMode: FnMusicConnectionMode,
-        accessCode: String?
+        accessCode: String?,
+        alternateTLSValidationHostname: String? = nil
     ) {
         self.sourceID = sourceID
         self.accessCode = accessCode
@@ -37,7 +38,15 @@ actor FnMusicAPI {
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
         let session = URLSession(
             configuration: configuration,
-            delegate: SmartSSLDelegate(fnMusicRedirects: true),
+            delegate: SmartSSLDelegate(
+                fnMusicRedirects: true,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                    scheme: useSSL ? "https" : "http",
+                    host: host,
+                    port: port
+                )
+            ),
             delegateQueue: nil
         )
         self.session = session
