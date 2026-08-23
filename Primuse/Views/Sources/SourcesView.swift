@@ -407,12 +407,12 @@ struct SourcesContentView: View {
     }
 
     private var sourceList: some View {
-        let downloadingIDs = downloadingSourceIDs
+        let activeSourceCacheIDs = sourceManager.activeOfflineSourceCacheSourceIDs
         return List {
             ForEach(groupedSources, id: \.0) { category, items in
                 Section(category.displayName) {
                     ForEach(items) { source in
-                        sourceCard(source, downloadingIDs: downloadingIDs)
+                        sourceCard(source, activeSourceCacheIDs: activeSourceCacheIDs)
                     }
                 }
             }
@@ -434,7 +434,7 @@ struct SourcesContentView: View {
 
     private func sourceCard(
         _ source: MusicSource,
-        downloadingIDs: Set<String>
+        activeSourceCacheIDs: Set<String>
     ) -> some View {
         let dirs = source.scannedDirectories
         let scanning = scanService.scanStates[source.id]
@@ -443,24 +443,16 @@ struct SourcesContentView: View {
         } else {
             source.songCount
         }
-        // A song can only ever be `.downloading` while it has an in-memory
-        // snapshot entry (written by SourceManager.performOfflineDownload); the
-        // disk-stat fallback in `offlineAudioSnapshot(for:)` never returns
-        // `.downloading`. So compute the set of currently-downloading source IDs
-        // straight from the observed snapshot dictionary instead of calling
-        // `offlineAudioSnapshot` per song — that fallback does a synchronous
-        // FileManager stat for every uncached song and, scanning the full
-        // library per card per frame, makes the Sources page stutter during
-        // scans / batch caching on large libraries.
-        let hasSourceDownloads = downloadingIDs.contains(source.id)
-        let hasOtherSourceDownloads = downloadingIDs.contains { $0 != source.id }
         let sourceSongs = playableSongs(for: source)
-        let isPreparingSourceCache = preparingCacheSourceID == source.id
-        let isSourceCaching = activeCacheRun?.sourceID == source.id || hasSourceDownloads
-        let isSourceCacheBusy = isPreparingSourceCache || isSourceCaching
-        let isAnotherSourceCaching = (activeCacheRun != nil && activeCacheRun?.sourceID != source.id)
-            || (preparingCacheSourceID != nil && preparingCacheSourceID != source.id)
-            || hasOtherSourceDownloads
+        let cachePresentation = SourceCachePresentationPolicy.resolve(
+            sourceID: source.id,
+            preparingSourceID: preparingCacheSourceID,
+            locallyTrackedBatchSourceID: activeCacheRun?.sourceID,
+            activeBatchSourceIDs: activeSourceCacheIDs
+        )
+        let isSourceCaching = cachePresentation.isCachingCurrentSource
+        let isSourceCacheBusy = cachePresentation.isCurrentSourceBusy
+        let isAnotherSourceCaching = cachePresentation.isBlockedByAnotherSource
         let cacheButtonTitle: LocalizedStringKey = isSourceCacheBusy ? "source_cache_all_loading" : "source_cache_all_short"
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -677,7 +669,7 @@ struct SourcesContentView: View {
 
             if let progress = sourceCacheProgress(
                 for: source,
-                hasDownloads: hasSourceDownloads
+                hasExplicitBatch: isSourceCaching
             ) {
                 sourceCacheProgressView(progress)
             }
@@ -1212,19 +1204,6 @@ struct SourcesContentView: View {
         library.playableSongs(forSourceID: source.id)
     }
 
-    /// Source IDs that currently have at least one song being downloaded for
-    /// offline use. SourceManager publishes only membership transitions here;
-    /// per-chunk progress remains scoped to the affected song row.
-    private var downloadingSourceIDs: Set<String> {
-        var ids = Set<String>()
-        for songID in sourceManager.offlineDownloadingSongIDs {
-            if let sourceID = library.song(id: songID)?.sourceID {
-                ids.insert(sourceID)
-            }
-        }
-        return ids
-    }
-
     private func presentCacheConfirmation(for source: MusicSource, songs: [Song]) {
         if let trustTarget = explicitHTTPTrustTarget(for: source),
            !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) {
@@ -1358,7 +1337,10 @@ struct SourcesContentView: View {
         activeCacheRun = run
 
         Task { @MainActor in
-            let result = await sourceManager.downloadForOfflineBatch(songs: request.songs)
+            let result = await sourceManager.downloadSourceForOffline(
+                sourceID: request.source.id,
+                songs: request.songs
+            )
             guard activeCacheRun?.id == run.id else { return }
             activeCacheRun = nil
             sourceAlert = .completed(SourceCacheCompletion(
@@ -1370,15 +1352,17 @@ struct SourcesContentView: View {
 
     private func sourceCacheProgress(
         for source: MusicSource,
-        hasDownloads: Bool
+        hasExplicitBatch: Bool
     ) -> SourceCacheProgressState? {
         if let run = activeCacheRun, run.sourceID == source.id {
             return sourceCacheProgress(songs: run.songs, estimate: run.estimate)
         }
 
-        // The caller already derived this from the small observed in-memory
-        // download dictionary. Avoid scanning every song in the source again.
-        guard hasDownloads else { return nil }
+        // A re-created source screen can recover a real user-confirmed batch
+        // from SourceManager. Incidental one-song playback downloads never
+        // enter that aggregate and therefore cannot fabricate whole-source
+        // progress.
+        guard hasExplicitBatch else { return nil }
 
         let songs = playableSongs(for: source)
         return sourceCacheProgress(songs: songs, estimate: sourceCacheEstimate(for: songs))

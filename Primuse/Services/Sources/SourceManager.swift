@@ -1116,6 +1116,10 @@ final class SourceManager {
     /// Lightweight aggregate used by the source cards. Download progress does
     /// not mutate this set; only entering/leaving the downloading state does.
     private(set) var offlineDownloadingSongIDs: Set<String> = []
+    /// Only user-confirmed whole-source offline batches appear here. Playback
+    /// recovery and per-song downloads share the same downloader, but must not
+    /// make a source card claim that the complete source is being cached.
+    private(set) var activeOfflineSourceCacheSourceIDs: Set<String> = []
     /// Changes only when a song enters or leaves the fully downloaded set.
     /// Song-list filters can observe this aggregate without subscribing to
     /// every row-level progress entry.
@@ -3035,6 +3039,15 @@ final class SourceManager {
         Task { [weak self] in
             _ = await self?.downloadForOfflineBatch(songs: songs)
         }
+    }
+
+    func downloadSourceForOffline(
+        sourceID: String,
+        songs: [Song]
+    ) async -> OfflineDownloadBatchResult {
+        activeOfflineSourceCacheSourceIDs.insert(sourceID)
+        defer { activeOfflineSourceCacheSourceIDs.remove(sourceID) }
+        return await downloadForOfflineBatch(songs: songs)
     }
 
     func downloadForOfflineBatch(songs: [Song]) async -> OfflineDownloadBatchResult {
