@@ -57,6 +57,15 @@ struct ArtworkImageCompatibilityTests {
         #expect(ArtworkImageCompatibility.hasRedundantJPEGSampling(jpeg))
     }
 
+    @Test func acceptsDecodableOneByTwoSampling() throws {
+        let jpeg = try #require(Data(base64Encoded:
+            "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjI4LjEwMAD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABNAAEBAAAAAAAAAAAAAAAAAAAABgEBAQEAAAAAAAAAAAAAAAAAAAYHEAEAAAAAAAAAAAAAAAAAAAAAEQEAAAAAAAAAAAAAAAAAAAAA/8AAEQgAEAAQAwESAAISAAMSAP/aAAwDAQACEQMRAD8AixJjfwAB/9k="
+        ))
+
+        #expect(ArtworkImageCompatibility.isCompleteImage(jpeg))
+        #expect(!ArtworkImageCompatibility.hasRedundantJPEGSampling(jpeg))
+    }
+
     @Test func acceptsStandardFourTwoZeroSampling() {
         let jpeg = jpegHeader(componentSamples: [0x22, 0x11, 0x11])
         #expect(!ArtworkImageCompatibility.hasRedundantJPEGSampling(jpeg))

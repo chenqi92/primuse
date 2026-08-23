@@ -3305,7 +3305,9 @@ public enum ArtworkImageCompatibility {
                     return false
                 }
                 let samples = (0..<componentCount).map { data[payload + 7 + $0 * 3] }
-                return samples.allSatisfy { $0 == samples[0] } && samples[0] != 0x11
+                let hasRedundantSampling = samples.allSatisfy { $0 == samples[0] }
+                    && samples[0] != 0x11
+                return hasRedundantSampling && !isCompleteImage(data)
             }
             marker += length
         }
