@@ -95,8 +95,11 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         }
         await invalidateMetadataWritebackCache(for: path)
         let final = try await freshMetadataState(for: path)
-        guard final.fileSize == Int64(size),
-              final.revision?.caseInsensitiveCompare(md5) == .orderedSame else {
+        guard BaiduMetadataReplacementVerificationPolicy.matchesCommittedFile(
+            remoteSize: final.fileSize,
+            remoteRevision: final.revision,
+            expectedSize: Int64(size)
+        ) else {
             throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
         }
         plog("📁 Baidu sidecar uploaded and verified: \((path as NSString).lastPathComponent)")
@@ -495,7 +498,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
 
-        let response = try await callFormAPI(
+        _ = try await callFormAPI(
             base: "\(Self.apiBase)/rest/2.0/xpan/file",
             queryItems: [.init(name: "method", value: "create")],
             formItems: [
@@ -507,18 +510,15 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                 .init(name: "block_list", value: prepared.blockListJSON),
             ]
         )
-        guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any],
-              Self.int64(json["fs_id"]) > 0 else {
-            throw CloudDriveError.invalidResponse
-        }
-        if let returnedSize = Self.optionalInt64(json["size"]), returnedSize != prepared.size {
-            throw CloudDriveError.invalidResponse
-        }
-        if let returnedMD5 = json["md5"] as? String,
-           returnedMD5.caseInsensitiveCompare(prepared.fileMD5) != .orderedSame {
-            throw CloudDriveError.invalidResponse
-        }
         await invalidateMetadataWritebackCache(for: path)
+        let committed = try await freshMetadataState(for: path)
+        guard BaiduMetadataReplacementVerificationPolicy.matchesCommittedFile(
+            remoteSize: committed.fileSize,
+            remoteRevision: committed.revision,
+            expectedSize: prepared.size
+        ) else {
+            throw CloudDriveError.invalidResponse
+        }
     }
 
     func invalidateMetadataWritebackCache(for path: String) async {

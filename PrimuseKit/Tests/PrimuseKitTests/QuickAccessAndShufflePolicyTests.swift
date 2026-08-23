@@ -466,3 +466,34 @@ struct CloudScanErrorClassificationTests {
         ))
     }
 }
+
+@Suite("Baidu metadata replacement verification")
+struct BaiduMetadataReplacementVerificationPolicyTests {
+    @Test("Authoritative size and opaque provider revision confirm the replacement")
+    func committedFileMatches() {
+        #expect(BaiduMetadataReplacementVerificationPolicy.matchesCommittedFile(
+            remoteSize: 496_538,
+            remoteRevision: "3c8be8999s78bd7d50b56ab2a757044d",
+            expectedSize: 496_538
+        ))
+    }
+
+    @Test("Missing revision or mismatched size rejects the replacement")
+    func committedFileDoesNotMatch() {
+        #expect(!BaiduMetadataReplacementVerificationPolicy.matchesCommittedFile(
+            remoteSize: 496_538,
+            remoteRevision: nil,
+            expectedSize: 496_538
+        ))
+        #expect(!BaiduMetadataReplacementVerificationPolicy.matchesCommittedFile(
+            remoteSize: 496_537,
+            remoteRevision: "3c8be8999s78bd7d50b56ab2a757044d",
+            expectedSize: 496_538
+        ))
+        #expect(!BaiduMetadataReplacementVerificationPolicy.matchesCommittedFile(
+            remoteSize: 496_538,
+            remoteRevision: "   ",
+            expectedSize: 496_538
+        ))
+    }
+}

@@ -2628,6 +2628,26 @@ public enum BaiduAPIErrorPolicy {
     }
 }
 
+/// Baidu's successful `create` acknowledgement is not a stable metadata
+/// representation across API versions, and the directory API can expose a
+/// provider-specific digest rather than the uploaded bytes' standard MD5.
+/// The connector therefore confirms the committed size and opaque revision;
+/// its callers then perform a byte-for-byte source readback.
+public enum BaiduMetadataReplacementVerificationPolicy {
+    public static func matchesCommittedFile(
+        remoteSize: Int64,
+        remoteRevision: String?,
+        expectedSize: Int64
+    ) -> Bool {
+        guard remoteSize == expectedSize,
+              let remoteRevision,
+              !remoteRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return true
+    }
+}
+
 public enum ScanDirectoryFailureDisposition: Equatable, Sendable {
     case retainForResume
     case discardMissingChild
