@@ -30,4 +30,36 @@ struct FullDownloadSeekPolicyTests {
             isInterruptionRecovery: true
         ) == .proceed)
     }
+
+    @Test("Cold remote restoration never blocks first Play on a complete download")
+    func coldRestorePrefersRangeRecovery() {
+        #expect(RemoteSeekPreparationPolicy.decision(
+            hasCachedFile: false,
+            cacheEnabled: true,
+            isColdSessionRestore: true
+        ) == .tryRangeWithoutMaterialization)
+    }
+
+    @Test("Runtime recovery retains exact complete-file materialization")
+    func runtimeRecoveryRetainsMaterialization() {
+        #expect(RemoteSeekPreparationPolicy.decision(
+            hasCachedFile: false,
+            cacheEnabled: true,
+            isColdSessionRestore: false
+        ) == .materializeCompleteFile)
+    }
+
+    @Test("A cached file and disabled cache keep their direct paths")
+    func cachedAndNonCachingPathsRemainStable() {
+        #expect(RemoteSeekPreparationPolicy.decision(
+            hasCachedFile: true,
+            cacheEnabled: true,
+            isColdSessionRestore: true
+        ) == .useExistingFile)
+        #expect(RemoteSeekPreparationPolicy.decision(
+            hasCachedFile: false,
+            cacheEnabled: false,
+            isColdSessionRestore: false
+        ) == .tryRangeWithoutMaterialization)
+    }
 }

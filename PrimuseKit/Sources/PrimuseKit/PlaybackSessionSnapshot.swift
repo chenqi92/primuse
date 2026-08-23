@@ -138,6 +138,12 @@ public struct PlaybackSessionRestorationPlan: Equatable, Sendable {
 }
 
 public enum PlaybackSessionRestorationPolicy {
+    /// Positions this close to the beginning are transport jitter, not useful
+    /// resume points. Keeping a fractional launch snapshot would send an
+    /// uncached remote track through exact-seek recovery and can block first
+    /// playback while the complete file is materialized.
+    public static let minimumMeaningfulResumeTime: TimeInterval = 3
+
     public static func plan(
         snapshot: PlaybackSessionSnapshot,
         availableSongIDs: Set<String>
@@ -201,11 +207,12 @@ public enum PlaybackSessionRestorationPolicy {
         let safeDuration = snapshot.duration.isFinite ? max(0, snapshot.duration) : 0
         let unclampedTime = snapshot.currentTime.isFinite ? max(0, snapshot.currentTime) : 0
         let safeTime = safeDuration > 0 ? min(unclampedTime, safeDuration) : unclampedTime
+        let restorableTime = safeTime > minimumMeaningfulResumeTime ? safeTime : 0
 
         return PlaybackSessionRestorationPlan(
             queueSongIDs: restoredIDs,
             currentIndex: restoredCurrentIndex,
-            currentTime: snapshot.isAtTrackEnd ? 0 : safeTime,
+            currentTime: snapshot.isAtTrackEnd ? 0 : restorableTime,
             duration: safeDuration,
             shuffleEnabled: snapshot.shuffleEnabled,
             shuffledIndices: shuffleOrder,

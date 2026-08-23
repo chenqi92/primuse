@@ -64,6 +64,32 @@ struct PlaybackSessionSnapshotTests {
         #expect(!plan.shouldStartPlayback)
     }
 
+    @Test("Near-start launch jitter restarts instead of exact-seek recovery")
+    func nearStartProgressRestartsFromBeginning() throws {
+        var snapshot = makeSnapshot()
+        snapshot.currentTime = 0.27698302268981934
+
+        let plan = try #require(PlaybackSessionRestorationPolicy.plan(
+            snapshot: snapshot,
+            availableSongIDs: Set(snapshot.queueSongIDs)
+        ))
+
+        #expect(plan.currentTime == 0)
+    }
+
+    @Test("Meaningful launch progress remains resumable")
+    func meaningfulProgressIsPreserved() throws {
+        var snapshot = makeSnapshot()
+        snapshot.currentTime = PlaybackSessionRestorationPolicy.minimumMeaningfulResumeTime + 0.001
+
+        let plan = try #require(PlaybackSessionRestorationPolicy.plan(
+            snapshot: snapshot,
+            availableSongIDs: Set(snapshot.queueSongIDs)
+        ))
+
+        #expect(plan.currentTime == snapshot.currentTime)
+    }
+
     @Test("An unavailable current track rejects the stale session")
     func rejectsMissingCurrentTrack() {
         let snapshot = makeSnapshot()

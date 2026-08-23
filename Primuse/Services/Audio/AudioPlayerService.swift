@@ -1026,6 +1026,10 @@ final class AudioPlayerService {
     @ObservationIgnored private var nowPlayingTransportRepublishGeneration: UInt64 = 0
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
+    /// A restored queue has no live decoder to preserve. Its first remote Play
+    /// may try a Range seek, but must never wait for complete-file
+    /// materialization merely to reconstruct a cold process.
+    private var pendingRecoveryIsColdSessionRestore = false
     /// 其他 app 的录音会话把蓝牙切到 HFP 时挂起的曲目。此刻
     /// startPlaying 会 setActive 抢回会话、打断对方录音, 只能等路由
     /// 离开 HFP 后由 attemptBluetoothHFPDeferredResume 消费。绑定曲目 ID
@@ -1732,6 +1736,7 @@ final class AudioPlayerService {
     private func clearPendingPlaybackRecovery() {
         needsPlaybackRecovery = false
         pendingRecoveryTime = 0
+        pendingRecoveryIsColdSessionRestore = false
         clearBluetoothHFPDeferredResume()
     }
 
@@ -5299,7 +5304,12 @@ final class AudioPlayerService {
             }
             return
         case .recoverFromInterruption:
-            seek(to: pendingRecoveryTime, startPlaying: true, isRecovery: true)
+            seek(
+                to: pendingRecoveryTime,
+                startPlaying: true,
+                isRecovery: true,
+                isColdSessionRestore: pendingRecoveryIsColdSessionRestore
+            )
             return
         case .resumePreparedAudio:
             let preparedTicket = playbackAdvancePolicy.activeTicket
@@ -5975,7 +5985,8 @@ final class AudioPlayerService {
         to time: TimeInterval,
         startPlaying: Bool? = nil,
         isRecovery: Bool = false,
-        isConfigurationRecovery: Bool = false
+        isConfigurationRecovery: Bool = false,
+        isColdSessionRestore: Bool = false
     ) {
         guard !isLiveRadio else { return }
         if isAppleMusicMode {
@@ -6156,11 +6167,14 @@ final class AudioPlayerService {
                 var seekDecoderKind = activeDecoderKind
                 if activeDecoderKind == .streaming {
                     var cached = sourceManager?.cachedURL(for: song)
-                    if cached == nil, isRecovery {
+                    if cached == nil, isRecovery, !isColdSessionRestore {
                         cached = await sourceManager?.materializeCachedURLForSeeking(for: song)
                     }
                     guard playID == id else { return }
                     guard let cached else {
+                        if isColdSessionRestore {
+                            throw AudioDecoderError.seekUnavailable
+                        }
                         plog("⚠️ Seek: streaming song could not be materialized for same-position recovery")
                         isLoading = false
                         isPlaying = false
@@ -6180,8 +6194,11 @@ final class AudioPlayerService {
                 // target. Complete the normal LRU cache once, then seek the
                 // local file with FFmpeg/native random access.
                 if (activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream),
-                   sourceManager?.cachedURL(for: song) == nil,
-                   playbackSettings.audioCacheEnabled,
+                   RemoteSeekPreparationPolicy.decision(
+                       hasCachedFile: sourceManager?.cachedURL(for: song) != nil,
+                       cacheEnabled: playbackSettings.audioCacheEnabled,
+                       isColdSessionRestore: isColdSessionRestore
+                   ) == .materializeCompleteFile,
                    let cached = await sourceManager?.materializeCachedURLForSeeking(for: song) {
                     guard !Task.isCancelled, playID == id else { return }
                     seekURL = cached
@@ -6263,6 +6280,9 @@ final class AudioPlayerService {
                             onResolveSourceLength: onResolveLength
                         )
                     } else {
+                        if isColdSessionRestore {
+                            throw AudioDecoderError.seekUnavailable
+                        }
                         plog("⚠️ Seek: failed to build HTTP streaming InputSource")
                         isLoading = false
                         isPlaying = false
@@ -6304,6 +6324,9 @@ final class AudioPlayerService {
                             onResolveSourceLength: onResolveLength
                         )
                     } else {
+                        if isColdSessionRestore {
+                            throw AudioDecoderError.seekUnavailable
+                        }
                         plog("⚠️ Seek: failed to build cloud streaming InputSource")
                         isLoading = false
                         isPlaying = false
@@ -6490,6 +6513,22 @@ final class AudioPlayerService {
             } catch {
                 plog("Seek error: \(error)")
                 guard !Task.isCancelled, playID == id else { return }
+                let canRestartColdRemoteStream = isRecovery
+                    && isColdSessionRestore
+                    && sourceManager?.cachedURL(for: song) == nil
+                    && (activeDecoderKind == .streaming
+                        || activeDecoderKind == .cloudStream
+                        || activeDecoderKind == .httpStream)
+                if canRestartColdRemoteStream {
+                    plog("↩️ Cold remote resume cannot seek through Range; restarting stream from beginning")
+                    isLoading = false
+                    isPlaying = false
+                    currentTime = 0
+                    clearPendingPlaybackRecovery()
+                    invalidateAutomaticAdvance(reason: "cold-remote-resume-fallback")
+                    await play(song: song)
+                    return
+                }
                 isLoading = false
                 isPlaying = false
                 currentTime = previousTime
@@ -9260,6 +9299,7 @@ final class AudioPlayerService {
         hasPreparedLocalPlayback = false
         pendingRecoveryTime = currentTime
         needsPlaybackRecovery = currentTime > 0 && !isAtTrackEnd
+        pendingRecoveryIsColdSessionRestore = needsPlaybackRecovery
         interruptionResumePolicy = PlaybackInterruptionResumePolicy()
         playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
         localPipelineAdvanceTicket = nil
@@ -9298,6 +9338,7 @@ final class AudioPlayerService {
         hasPreparedLocalPlayback = false
         pendingRecoveryTime = currentTime
         needsPlaybackRecovery = currentTime > 0
+        pendingRecoveryIsColdSessionRestore = needsPlaybackRecovery
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
