@@ -699,6 +699,11 @@ public enum BaiduSnapshotDiffPolicy {
                 legacyEntries: legacyEntries,
                 aliases: aliases,
                 claimedPreviousKeys: claimedPreviousKeys
+            ) ?? exactStrongIdentityReplacementMatch(
+                for: currentValue,
+                previousIndex: previousIndex,
+                currentByKey: currentByKey,
+                claimedPreviousKeys: claimedPreviousKeys
             )
 
             var current = currentValue
@@ -711,6 +716,18 @@ public enum BaiduSnapshotDiffPolicy {
                 if match.key != current.stableKey {
                     aliases[match.key] = current.stableKey
                     reconciledIndex[match.key] = nil
+                    if BaiduSnapshotIdentity.fsID(from: match.key) != nil {
+                        insertLiveParent(
+                            match.item.parentPath,
+                            into: &changedParents,
+                            live: liveDirectories
+                        )
+                        insertLiveParent(
+                            current.parentPath,
+                            into: &changedParents,
+                            live: liveDirectories
+                        )
+                    }
                 }
                 if entryChanged(previous: match.item, current: current) {
                     insertLiveParent(match.item.parentPath, into: &changedParents, live: liveDirectories)
@@ -822,6 +839,41 @@ public enum BaiduSnapshotDiffPolicy {
                 && normalizedRevision(item.revision) == revision
                 && item.size == current.size
                 && !item.songIDs.isEmpty
+        }
+        guard candidates.count == 1, let candidate = candidates.first else {
+            return nil
+        }
+        return (candidate.key, candidate.value)
+    }
+
+    /// Baidu can replace a file in place and assign it a new fs_id. A complete
+    /// snapshot proves that the old identity disappeared globally, so an
+    /// otherwise unique file at the exact same path can inherit the existing
+    /// Song ID. Ambiguous paths and directories remain fail-closed.
+    private static func exactStrongIdentityReplacementMatch(
+        for current: SourceSyncIndexedItem,
+        previousIndex: [String: SourceSyncIndexedItem],
+        currentByKey: [String: SourceSyncIndexedItem],
+        claimedPreviousKeys: Set<String>
+    ) -> (key: String, item: SourceSyncIndexedItem)? {
+        guard !current.isDirectory,
+              BaiduSnapshotIdentity.fsID(from: current.stableKey) != nil else {
+            return nil
+        }
+
+        let livePathMatches = currentByKey.values.filter {
+            !$0.isDirectory && $0.path == current.path
+        }
+        guard livePathMatches.count == 1 else { return nil }
+
+        let candidates = previousIndex.filter { key, item in
+            key != current.stableKey
+                && BaiduSnapshotIdentity.fsID(from: key) != nil
+                && currentByKey[key] == nil
+                && !claimedPreviousKeys.contains(key)
+                && !item.isDirectory
+                && !item.songIDs.isEmpty
+                && item.path == current.path
         }
         guard candidates.count == 1, let candidate = candidates.first else {
             return nil

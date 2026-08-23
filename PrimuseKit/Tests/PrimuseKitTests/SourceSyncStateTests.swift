@@ -371,6 +371,93 @@ struct BaiduSnapshotReconciliationTests {
         #expect(result.changedParentPaths.isEmpty)
     }
 
+    @Test("A unique in-place fs_id replacement keeps the existing Song ID")
+    func exactPathStrongIdentityReplacement() throws {
+        let previous = baiduIndexedItem(
+            key: "baidu:42",
+            path: "/Music/A.flac",
+            parent: "/Music",
+            songIDs: ["song-a"]
+        )
+        let replacement = baiduIndexedItem(
+            key: "baidu:99",
+            path: "/Music/A.flac",
+            parent: "/Music"
+        )
+
+        let result = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: [previous.stableKey: previous],
+            currentItems: [replacement],
+            liveDirectories: ["/Music"]
+        )
+
+        #expect(result.reconciledIndex[previous.stableKey] == nil)
+        #expect(result.reconciledIndex[replacement.stableKey]?.songIDs == ["song-a"])
+        #expect(result.identityAliases[previous.stableKey] == replacement.stableKey)
+        #expect(result.changedParentPaths == ["/Music"])
+        #expect(result.deletedStableKeys.isEmpty)
+        #expect(result.reconciliation == nil)
+    }
+
+    @Test("In-place identity replacement stays fail-closed when either side is ambiguous")
+    func ambiguousExactPathStrongIdentityReplacement() throws {
+        let previous = baiduIndexedItem(
+            key: "baidu:42",
+            path: "/Music/A.flac",
+            parent: "/Music",
+            songIDs: ["song-a"]
+        )
+        let first = baiduIndexedItem(
+            key: "baidu:98",
+            path: "/Music/A.flac",
+            parent: "/Music"
+        )
+        let second = baiduIndexedItem(
+            key: "baidu:99",
+            path: "/Music/A.flac",
+            parent: "/Music"
+        )
+
+        let result = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: [previous.stableKey: previous],
+            currentItems: [first, second],
+            liveDirectories: ["/Music"]
+        )
+
+        #expect(result.reconciledIndex[first.stableKey]?.songIDs.isEmpty == true)
+        #expect(result.reconciledIndex[second.stableKey]?.songIDs.isEmpty == true)
+        #expect(result.reconciledIndex[previous.stableKey]?.songIDs == ["song-a"])
+        #expect(result.identityAliases[previous.stableKey] == nil)
+        #expect(result.reconciliation?.unresolvedStableKeys == [previous.stableKey])
+    }
+
+    @Test("A still-live old fs_id cannot be reinterpreted as a replacement")
+    func liveStrongIdentityDoesNotMigrateByPath() throws {
+        let previous = baiduIndexedItem(
+            key: "baidu:42",
+            path: "/Music/A.flac",
+            parent: "/Music",
+            songIDs: ["song-a"]
+        )
+        var stillLive = previous
+        stillLive.songIDs = []
+        let additional = baiduIndexedItem(
+            key: "baidu:99",
+            path: "/Music/A.flac",
+            parent: "/Music"
+        )
+
+        let result = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: [previous.stableKey: previous],
+            currentItems: [stillLive, additional],
+            liveDirectories: ["/Music"]
+        )
+
+        #expect(result.reconciledIndex[previous.stableKey]?.songIDs == ["song-a"])
+        #expect(result.reconciledIndex[additional.stableKey]?.songIDs.isEmpty == true)
+        #expect(result.identityAliases[previous.stableKey] == nil)
+    }
+
     @Test("Unique strong fingerprint migrates a moved legacy path")
     func movedLegacyFingerprintMigration() throws {
         let legacy = baiduIndexedItem(
