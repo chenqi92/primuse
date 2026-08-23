@@ -147,6 +147,11 @@ final class SSLTrustStore {
         let trustedAt: Date
     }
 
+    enum CertificateTrustReason: Equatable {
+        case firstUse
+        case certificateChanged
+    }
+
     private struct TrustWaiter {
         let id: UUID
         let continuation: CheckedContinuation<Bool, Never>
@@ -156,8 +161,26 @@ final class SSLTrustStore {
         let id = UUID()
         let domain: String
         let certificateInfo: TrustedCertificateInfo?
+        let previousCertificateInfo: TrustedCertificateInfo?
+        let reason: CertificateTrustReason
         // 同一 domain 的并发请求合并到一次用户决策,共享同一个结果。
         var waiters: [TrustWaiter]
+
+        func matches(
+            domain: String,
+            certificateInfo: TrustedCertificateInfo?,
+            reason: CertificateTrustReason
+        ) -> Bool {
+            guard self.domain == domain, self.reason == reason else { return false }
+            switch (self.certificateInfo?.fingerprintSHA256, certificateInfo?.fingerprintSHA256) {
+            case (nil, nil):
+                return true
+            case let (lhs?, rhs?):
+                return lhs.caseInsensitiveCompare(rhs) == .orderedSame
+            default:
+                return false
+            }
+        }
     }
 
     private struct InsecureHTTPTrustRequest: Identifiable {
@@ -167,12 +190,18 @@ final class SSLTrustStore {
     }
 
     enum TransportPrompt: Identifiable {
-        case certificate(id: UUID, domain: String)
+        case certificate(
+            id: UUID,
+            domain: String,
+            certificateInfo: TrustedCertificateInfo?,
+            previousCertificateInfo: TrustedCertificateInfo?,
+            reason: CertificateTrustReason
+        )
         case insecureHTTP(id: UUID, endpoint: String)
 
         var id: UUID {
             switch self {
-            case .certificate(let id, _), .insecureHTTP(let id, _): id
+            case .certificate(let id, _, _, _, _), .insecureHTTP(let id, _): id
             }
         }
     }
@@ -457,27 +486,27 @@ final class SSLTrustStore {
 
         return await waitForTrustDecision(
             domain: normalized,
-            certificateInfo: certificateInfo
+            certificateInfo: certificateInfo,
+            previousCertificateInfo: nil,
+            reason: .firstUse
         )
     }
 
-    /// Record the leaf-certificate fingerprint for an already-trusted domain on first contact (TOFU).
-    /// Only fills in a missing pin — never overwrites an existing fingerprint (that path needs user
-    /// confirmation via `requestTrustForChangedCertificate`).
-    func pinCertificateIfNeeded(domain: String, certificateInfo: TrustedCertificateInfo?) {
+    /// Always asks the user to inspect the certificate that was actually
+    /// presented by the endpoint. This intentionally does not short-circuit
+    /// legacy host-only entries that have no certificate fingerprint.
+    func requestTrustForPresentedCertificate(
+        domain: String,
+        certificateInfo: TrustedCertificateInfo?
+    ) async -> Bool {
         let normalized = Self.normalizeDomain(domain)
-        guard !normalized.isEmpty else { return }
-        guard certificateInfo?.fingerprintSHA256 != nil else { return }
-        if let existing = trustedCertificates.first(where: { $0.domain == normalized })?.fingerprintSHA256,
-           !existing.isEmpty {
-            if migrateLegacyCertificateTrustIfNeeded(to: normalized) {
-                trustedDomains.sort()
-                trustedCertificates.sort { $0.domain < $1.domain }
-                saveToDefaults()
-            }
-            return
-        }
-        trust(domain: normalized, certificateInfo: certificateInfo)
+        guard !normalized.isEmpty else { return false }
+        return await waitForTrustDecision(
+            domain: normalized,
+            certificateInfo: certificateInfo,
+            previousCertificateInfo: nil,
+            reason: .firstUse
+        )
     }
 
     /// Ask the user to re-confirm a trusted domain whose leaf certificate no longer matches the
@@ -488,13 +517,17 @@ final class SSLTrustStore {
         guard !normalized.isEmpty else { return false }
         return await waitForTrustDecision(
             domain: normalized,
-            certificateInfo: certificateInfo
+            certificateInfo: certificateInfo,
+            previousCertificateInfo: self.certificateInfo(for: normalized),
+            reason: .certificateChanged
         )
     }
 
     private func waitForTrustDecision(
         domain: String,
-        certificateInfo: TrustedCertificateInfo?
+        certificateInfo: TrustedCertificateInfo?,
+        previousCertificateInfo: TrustedCertificateInfo?,
+        reason: CertificateTrustReason
     ) async -> Bool {
         let waiterID = UUID()
         return await withTaskCancellationHandler {
@@ -505,17 +538,30 @@ final class SSLTrustStore {
                 }
                 let waiter = TrustWaiter(id: waiterID, continuation: continuation)
                 // 同一 domain 的并发请求共享一次决策，但各自保留可取消的 waiter。
-                if pendingTrustRequest?.domain == domain {
-                    pendingTrustRequest?.waiters.append(waiter)
+                if let currentRequest = pendingTrustRequest,
+                   currentRequest.matches(
+                       domain: domain,
+                       certificateInfo: certificateInfo,
+                       reason: reason
+                   ) {
+                    self.pendingTrustRequest?.waiters.append(waiter)
                     return
                 }
-                if let index = waitingTrustRequests.firstIndex(where: { $0.domain == domain }) {
+                if let index = waitingTrustRequests.firstIndex(where: {
+                    $0.matches(
+                        domain: domain,
+                        certificateInfo: certificateInfo,
+                        reason: reason
+                    )
+                }) {
                     waitingTrustRequests[index].waiters.append(waiter)
                     return
                 }
                 let request = TrustRequest(
                     domain: domain,
                     certificateInfo: certificateInfo,
+                    previousCertificateInfo: previousCertificateInfo,
+                    reason: reason,
                     waiters: [waiter]
                 )
                 if pendingTrustRequest == nil {
@@ -581,7 +627,13 @@ final class SSLTrustStore {
 
     func transportPrompt(id: UUID) -> TransportPrompt? {
         if let request = pendingTrustRequest, request.id == id {
-            return .certificate(id: request.id, domain: request.domain)
+            return .certificate(
+                id: request.id,
+                domain: request.domain,
+                certificateInfo: request.certificateInfo,
+                previousCertificateInfo: request.previousCertificateInfo,
+                reason: request.reason
+            )
         }
         if let request = pendingInsecureHTTPTrustRequest, request.id == id {
             return .insecureHTTP(id: request.id, endpoint: request.endpoint)
@@ -885,10 +937,9 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
                 guard let credential = explicitlyTrustedCredential(for: trust) else {
                     return (.cancelAuthenticationChallenge, nil)
                 }
-                scheduleCertificatePin(domain: trustTarget, certificateInfo: info)
                 return (.useCredential, credential)
             case .requestInitialTrust:
-                let approved = await SSLTrustStore.shared.requestTrust(
+                let approved = await SSLTrustStore.shared.requestTrustForPresentedCertificate(
                     domain: trustTarget,
                     certificateInfo: info
                 )
@@ -963,49 +1014,17 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         return URLCredential(trust: alternateTrust)
     }
 
-    /// Convert an endpoint-scoped, fingerprint-checked user decision into a
-    /// trust object that Foundation can accept. Newer OS releases no longer
-    /// accept a credential whose SecTrust result is still invalid, even when
-    /// the URLSession delegate returns `.useCredential`.
+    /// The caller has already matched the leaf fingerprint to an
+    /// endpoint-scoped pin or obtained an explicit decision for this exact
+    /// certificate. Return the challenge's own trust object: CFNetwork binds
+    /// the credential to that object and may reject a separately-created or
+    /// policy-mutated trust even when its standalone evaluation succeeds.
     private func explicitlyTrustedCredential(for trust: SecTrust) -> URLCredential? {
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
-              let leaf = chain.first else {
-            return nil
-        }
-
-        // The caller has already scoped the decision to the exact
-        // scheme/host/port and verified (or just recorded) this leaf's SHA256
-        // fingerprint. Re-evaluate it as a server certificate without a DNS
-        // name requirement so a NAS reached by LAN IP can use the same
-        // certificate as its public hostname. The endpoint pin still prevents
-        // another certificate on that IP from being accepted silently.
-        let endpointPinnedSSLPolicy = SecPolicyCreateSSL(true, nil)
-        guard SecTrustSetPolicies(trust, endpointPinnedSSLPolicy) == errSecSuccess,
-              SecTrustSetAnchorCertificates(trust, [leaf] as CFArray) == errSecSuccess,
-              SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess else {
-            return nil
-        }
-
-        var trustError: CFError?
-        guard SecTrustEvaluateWithError(trust, &trustError) else {
-            if let trustError {
-                plog("Pinned certificate failed endpoint-scoped SSL evaluation: \(trustError)")
-            }
+              chain.first != nil else {
             return nil
         }
         return URLCredential(trust: trust)
-    }
-
-    private func scheduleCertificatePin(
-        domain: String,
-        certificateInfo: SSLTrustStore.TrustedCertificateInfo?
-    ) {
-        Task { @MainActor in
-            SSLTrustStore.shared.pinCertificateIfNeeded(
-                domain: domain,
-                certificateInfo: certificateInfo
-            )
-        }
     }
 
     func urlSession(
@@ -1104,10 +1123,20 @@ private struct TransportTrustAlertsModifier: ViewModifier {
             }
             .alert(item: swiftUIPrompt) { prompt in
                 switch prompt {
-                case .certificate(let id, let domain):
+                case .certificate(
+                    let id,
+                    _,
+                    _,
+                    _,
+                    let reason
+                ):
                     return Alert(
-                        title: Text("ssl_trust_title"),
-                        message: Text("ssl_trust_message \(domain)"),
+                        title: Text(
+                            reason == .certificateChanged
+                                ? "ssl_trust_changed_title"
+                                : "ssl_trust_title"
+                        ),
+                        message: Text(verbatim: certificatePromptMessage(prompt)),
                         primaryButton: .destructive(Text("trust_domain")) {
                             store.resolveTransportPrompt(id: id, approved: true)
                         },
@@ -1157,12 +1186,13 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         let alert = NSAlert()
         alert.alertStyle = .warning
         switch prompt {
-        case .certificate(_, let domain):
-            alert.messageText = String(localized: "ssl_trust_title")
-            alert.informativeText = String(
-                format: String(localized: "ssl_trust_message %@"),
-                domain
+        case .certificate(_, _, _, _, let reason):
+            alert.messageText = String(
+                localized: reason == .certificateChanged
+                    ? "ssl_trust_changed_title"
+                    : "ssl_trust_title"
             )
+            alert.informativeText = certificatePromptMessage(prompt)
             alert.addButton(withTitle: String(localized: "dont_trust"))
             alert.addButton(withTitle: String(localized: "trust_domain"))
         case .insecureHTTP(_, let endpoint):
@@ -1197,6 +1227,54 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         }
     }
     #endif
+
+    private func certificatePromptMessage(
+        _ prompt: SSLTrustStore.TransportPrompt
+    ) -> String {
+        guard case .certificate(
+            _,
+            let domain,
+            let certificateInfo,
+            let previousCertificateInfo,
+            let reason
+        ) = prompt else {
+            return ""
+        }
+
+        let subject = certificateInfo?.subjectSummary?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let fingerprint = ServerCertificateFingerprint.formatted(
+            certificateInfo?.fingerprintSHA256
+        )
+        var lines = [
+            String(localized: reason == .certificateChanged
+                ? "ssl_trust_changed_message"
+                : "ssl_trust_initial_message"),
+            String(
+                format: String(localized: "ssl_trust_endpoint %@"),
+                domain
+            ),
+            String(
+                format: String(localized: "ssl_trust_subject %@"),
+                (subject?.isEmpty == false ? subject : nil)
+                    ?? String(localized: "ssl_trust_unknown")
+            ),
+            String(
+                format: String(localized: "ssl_trust_fingerprint %@"),
+                fingerprint ?? String(localized: "ssl_trust_unknown")
+            ),
+        ]
+        if reason == .certificateChanged {
+            lines.append(String(
+                format: String(localized: "ssl_trust_previous_fingerprint %@"),
+                ServerCertificateFingerprint.formatted(
+                    previousCertificateInfo?.fingerprintSHA256
+                ) ?? String(localized: "ssl_trust_unknown")
+            ))
+        }
+        return lines.joined(separator: "\n")
+    }
 }
 
 extension View {

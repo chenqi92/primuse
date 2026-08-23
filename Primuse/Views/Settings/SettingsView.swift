@@ -1776,7 +1776,32 @@ struct TrustedDomainsView: View {
         List {
             Section {
                 ForEach(SSLTrustStore.shared.trustedDomains, id: \.self) { domain in
-                    Text(domain)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(domain)
+                        if let certificate = SSLTrustStore.shared.certificateInfo(for: domain) {
+                            if let subject = certificate.subjectSummary,
+                               !subject.isEmpty {
+                                Text(String(
+                                    format: String(localized: "ssl_trust_subject %@"),
+                                    subject
+                                ))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            if let fingerprint = ServerCertificateFingerprint.formatted(
+                                certificate.fingerprintSHA256
+                            ) {
+                                Text(String(
+                                    format: String(localized: "ssl_trust_fingerprint %@"),
+                                    fingerprint
+                                ))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .textSelection(.enabled)
                 }
                 .onDelete { indexSet in
                     let domains = SSLTrustStore.shared.trustedDomains

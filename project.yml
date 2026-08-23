@@ -226,8 +226,7 @@ targets:
                 UISceneConfigurationName: ExternalDisplay
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).ExternalDisplaySceneDelegate
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-          NSAllowsArbitraryLoadsForMedia: true
+          NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
         NSBonjourServices:
           - "_smb._tcp."
@@ -461,8 +460,7 @@ targets:
         PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
         PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-          NSAllowsArbitraryLoadsForMedia: true
+          NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources."
         NSBonjourServices:
           - "_smb._tcp."
@@ -564,10 +562,9 @@ targets:
           - INPlayMediaIntent
         INSupportedMediaCategories:
           - INMediaCategoryMusic
-        # 允许播放局域网明文 HTTP(iPhone 中继 / http NAS 直链),但不对公网全局关闭 ATS。
+        # 用户配置的 NAS 端点可能使用自签 HTTPS；实际放行仍由应用层端点指纹确认控制。
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-          NSAllowsArbitraryLoadsForMedia: true
+          NSAllowsArbitraryLoads: true
         # TV 起局域网监听接收 iPhone 扫码直传的源配置(TVConfigServer)+ Bonjour 发现 NAS,需声明本地网络用途
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。"
         # 内网自动发现要浏览的 Bonjour 服务类型(与 NetworkDiscoveryService.serviceTypes 一致)

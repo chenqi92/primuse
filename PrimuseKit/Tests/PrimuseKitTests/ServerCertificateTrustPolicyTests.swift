@@ -49,13 +49,20 @@ struct ServerCertificateTrustPolicyTests {
         ) == .requestInitialTrust)
     }
 
-    @Test("A legacy trusted endpoint without a pin records one on first contact")
-    func legacyTrustedEndpointUsesTOFU() {
+    @Test("A legacy trusted endpoint without a pin still needs certificate confirmation")
+    func legacyTrustedEndpointNeedsCertificateConfirmation() {
         #expect(ServerCertificateTrustPolicy.action(
             systemTrustSucceeded: false,
             endpointWasTrusted: true,
             currentFingerprint: "A1B2",
             pinnedFingerprint: nil
-        ) == .usePinnedCertificate)
+        ) == .requestInitialTrust)
+    }
+
+    @Test("Certificate fingerprints are displayed as uppercase byte pairs")
+    func fingerprintFormatting() {
+        #expect(ServerCertificateFingerprint.formatted("a1:b2 c3d4") == "A1:B2:C3:D4")
+        #expect(ServerCertificateFingerprint.formatted(nil) == nil)
+        #expect(ServerCertificateFingerprint.formatted("ABC") == nil)
     }
 }

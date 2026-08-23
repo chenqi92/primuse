@@ -576,9 +576,17 @@
 // MARK: - SSL Trust
 "trusted_domains" = "Trusted Domains";
 "no_trusted_domains" = "No trusted domains";
-"trusted_domains_footer" = "SSL certificate verification is skipped for these domains. Swipe to remove.";
+"trusted_domains_footer" = "Manually added endpoints still require certificate review on first connection. Confirmed entries are pinned to a certificate fingerprint and prompt again after a change. Swipe to remove.";
 "ssl_trust_title" = "SSL Certificate Error";
-"ssl_trust_message %@" = "SSL certificate verification failed for \"%@\". Do you want to trust this domain? Certificate verification will be skipped for future connections.";
+"ssl_trust_message %@" = "The SSL certificate for \"%@\" failed system validation. Connections are pinned to the certificate fingerprint you confirm.";
+"ssl_trust_changed_title" = "Server Certificate Changed";
+"ssl_trust_initial_message" = "This server certificate failed system validation. Continue only if the details below belong to your server.";
+"ssl_trust_changed_message" = "The server certificate differs from the one you previously confirmed. Verify the details before updating trust.";
+"ssl_trust_endpoint %@" = "Endpoint: %@";
+"ssl_trust_subject %@" = "Certificate: %@";
+"ssl_trust_fingerprint %@" = "SHA-256: %@";
+"ssl_trust_previous_fingerprint %@" = "Previous SHA-256: %@";
+"ssl_trust_unknown" = "Unavailable";
 "trust_domain" = "Trust";
 "dont_trust" = "Don't Trust";
 "add_trusted_domain" = "Add Trusted Domain";

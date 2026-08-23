@@ -577,9 +577,17 @@
 // MARK: - SSL Trust
 "trusted_domains" = "受信任的域名";
 "no_trusted_domains" = "没有受信任的域名";
-"trusted_domains_footer" = "这些域名将跳过 SSL 证书验证。左滑可移除。";
+"trusted_domains_footer" = "手动添加的端点仍会在首次连接时要求核对证书；已确认项固定到证书指纹，换证会再次询问。左滑可移除。";
 "ssl_trust_title" = "SSL 证书验证失败";
-"ssl_trust_message %@" = "域名「%@」的 SSL 证书无法验证。是否信任此域名？信任后将跳过该域名的证书验证。";
+"ssl_trust_message %@" = "端点「%@」的 SSL 证书无法通过系统验证。连接时会固定到你确认的证书指纹。";
+"ssl_trust_changed_title" = "服务器证书已更换";
+"ssl_trust_initial_message" = "该服务器证书未通过系统验证。仅当以下信息属于你的服务器时继续。";
+"ssl_trust_changed_message" = "服务器当前证书与上次确认的证书不同。请核对后再更新信任。";
+"ssl_trust_endpoint %@" = "端点：%@";
+"ssl_trust_subject %@" = "证书：%@";
+"ssl_trust_fingerprint %@" = "SHA-256：%@";
+"ssl_trust_previous_fingerprint %@" = "上次 SHA-256：%@";
+"ssl_trust_unknown" = "不可用";
 "trust_domain" = "信任";
 "dont_trust" = "不信任";
 "add_trusted_domain" = "添加受信域名";

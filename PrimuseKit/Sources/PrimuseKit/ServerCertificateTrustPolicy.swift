@@ -27,12 +27,25 @@ public enum ServerCertificateTrustPolicy {
             return .requestInitialTrust
         }
         guard let pinnedFingerprint, !pinnedFingerprint.isEmpty else {
-            return .usePinnedCertificate
+            return .requestInitialTrust
         }
         guard let currentFingerprint,
               currentFingerprint.caseInsensitiveCompare(pinnedFingerprint) == .orderedSame else {
             return .requestChangedCertificateTrust
         }
         return .usePinnedCertificate
+    }
+}
+
+public enum ServerCertificateFingerprint {
+    public static func formatted(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let compact = rawValue.filter { $0.isHexDigit }.uppercased()
+        guard !compact.isEmpty, compact.count.isMultiple(of: 2) else { return nil }
+        return stride(from: 0, to: compact.count, by: 2).map { offset in
+            let start = compact.index(compact.startIndex, offsetBy: offset)
+            let end = compact.index(start, offsetBy: 2)
+            return String(compact[start..<end])
+        }.joined(separator: ":")
     }
 }
