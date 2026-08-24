@@ -41,6 +41,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private static let clientName = "Primuse"
     private static let pageSize = SubsonicCatalogPagingPolicy.pageSize
     private static let transcodeBitRate = 320  // 转码目标码率 kbps
+    private static let catalogRequestMaximumAttempts = 3
+    private static let catalogSnapshotMaximumAttempts = 2
 
     init(
         sourceID: String,
@@ -173,31 +175,26 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     // OpenSubsonic defines an empty search3 query as the direct
                     // full-media enumeration path for offline sync. Navidrome
                     // implements it, reducing an N+1 album walk to one request
-                    // per 500 songs. Preflight the first page before yielding so
-                    // a falsely-advertised server can still use the legacy path
-                    // without duplicating already-emitted songs.
+                    // per 500 songs. Build a stable snapshot before yielding so
+                    // transient WAN failures or a moving offset window cannot
+                    // leave the scanner with a partial authoritative catalog.
                     if SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
                         isOpenSubsonic: isOpenSubsonic,
                         serverType: serverType
                     ) {
-                        let firstPage: [SubsonicChild]?
+                        let catalog: [SubsonicChild]?
                         do {
-                            let page = try await search3SongPage(offset: 0, path: path)
-                            firstPage = page.isEmpty ? nil : page
+                            catalog = try await fetchStableSearch3Catalog(path: path)
                         } catch SubsonicCompatibilityError.directCatalogUnavailable {
                             try Task.checkCancellation()
                             plog("⚠️ Subsonic direct catalog unavailable; falling back to album walk")
-                            firstPage = nil
+                            catalog = nil
                         } catch {
                             throw error
                         }
 
-                        if let firstPage {
-                            try await yieldSearch3Catalog(
-                                firstPage: firstPage,
-                                path: path,
-                                continuation: continuation
-                            )
+                        if let catalog {
+                            try yieldSearch3Catalog(catalog, continuation: continuation)
                             continuation.finish()
                             return
                         }
@@ -265,22 +262,34 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
-        let container: Search3Container
-        do {
-            container = try await requestJSON(
-                "search3",
-                query: SubsonicCatalogPagingPolicy.search3QueryItems(
-                    songOffset: offset,
-                    musicFolderID: musicFolderID(from: path)
+        var finalError: Error?
+        for attempt in 0..<Self.catalogRequestMaximumAttempts {
+            do {
+                let container: Search3Container = try await requestJSON(
+                    "search3",
+                    query: SubsonicCatalogPagingPolicy.search3QueryItems(
+                        songOffset: offset,
+                        musicFolderID: musicFolderID(from: path)
+                    )
                 )
-            )
-        } catch let SourceError.connectionFailed(message) where Self.isDirectCatalogUnavailable(message) {
-            throw SubsonicCompatibilityError.directCatalogUnavailable
+                guard let result = container.searchResult3 else {
+                    throw SubsonicCompatibilityError.directCatalogUnavailable
+                }
+                return result.song ?? []
+            } catch let SourceError.connectionFailed(message)
+                where Self.isDirectCatalogUnavailable(message) {
+                throw SubsonicCompatibilityError.directCatalogUnavailable
+            } catch {
+                guard attempt + 1 < Self.catalogRequestMaximumAttempts,
+                      RemoteDirectoryTransportErrorPolicy.isRetryable(error) else {
+                    throw error
+                }
+                finalError = error
+                try Task.checkCancellation()
+                try await Task.sleep(for: .milliseconds(250 * (attempt + 1)))
+            }
         }
-        guard let result = container.searchResult3 else {
-            throw SubsonicCompatibilityError.directCatalogUnavailable
-        }
-        return result.song ?? []
+        throw finalError ?? SourceError.connectionFailed("Subsonic search3 request failed")
     }
 
     private func fetchLegacyAlbums(_ albums: [AlbumSummary]) async throws -> [LegacyAlbumResult] {
@@ -323,47 +332,73 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return LegacyAlbumResult(index: index, album: album, songs: albumWithSongs.song ?? [])
     }
 
-    private func yieldSearch3Catalog(
+    private func fetchStableSearch3Catalog(path: String) async throws -> [SubsonicChild]? {
+        for attempt in 0..<Self.catalogSnapshotMaximumAttempts {
+            do {
+                let firstPage = try await search3SongPage(offset: 0, path: path)
+                guard !firstPage.isEmpty else { return nil }
+                return try await collectSearch3Catalog(firstPage: firstPage, path: path)
+            } catch SubsonicCompatibilityError.catalogChangedDuringPagination {
+                guard attempt + 1 < Self.catalogSnapshotMaximumAttempts else {
+                    throw SourceError.connectionFailed(
+                        "Subsonic search3 catalog changed repeatedly during pagination"
+                    )
+                }
+                try Task.checkCancellation()
+                try await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        throw SourceError.connectionFailed("Subsonic search3 catalog snapshot failed")
+    }
+
+    private func collectSearch3Catalog(
         firstPage: [SubsonicChild],
-        path: String,
-        continuation: AsyncThrowingStream<ConnectorScannedSong, Error>.Continuation
-    ) async throws {
+        path: String
+    ) async throws -> [SubsonicChild] {
         var offset = 0
         var page = firstPage
         var seenResultIDs = Set<String>()
+        var catalog: [SubsonicChild] = []
 
         while true {
             try Task.checkCancellation()
-            var newResultCount = 0
             for child in page {
                 try Task.checkCancellation()
-                guard seenResultIDs.insert(child.id).inserted else { continue }
-                newResultCount += 1
+                guard seenResultIDs.insert(child.id).inserted else {
+                    throw SubsonicCompatibilityError.catalogChangedDuringPagination
+                }
                 guard child.isVideo != true else { continue }
-                let song = buildSong(from: child)
-                continuation.yield(
-                    ConnectorScannedSong(
-                        song: song,
-                        displayName: child.title ?? song.title,
-                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
-                            child.title
-                        )
-                    )
-                )
+                catalog.append(child)
             }
 
-            if page.count >= Self.pageSize, newResultCount == 0 {
-                throw SourceError.connectionFailed("Subsonic search3 pagination repeated a full page")
-            }
             guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenResultIDs.count) else {
                 throw SourceError.connectionFailed("Subsonic song catalog exceeded the safety limit")
             }
             guard let nextOffset = SubsonicCatalogPagingPolicy.nextOffset(
                 currentOffset: offset,
                 receivedCount: page.count
-            ) else { return }
+            ) else { return catalog }
             offset = nextOffset
             page = try await search3SongPage(offset: offset, path: path)
+        }
+    }
+
+    private func yieldSearch3Catalog(
+        _ catalog: [SubsonicChild],
+        continuation: AsyncThrowingStream<ConnectorScannedSong, Error>.Continuation
+    ) throws {
+        for child in catalog {
+            try Task.checkCancellation()
+            let song = buildSong(from: child)
+            continuation.yield(
+                ConnectorScannedSong(
+                    song: song,
+                    displayName: child.title ?? song.title,
+                    titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                        child.title
+                    )
+                )
+            )
         }
     }
 
@@ -1026,6 +1061,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 private enum SubsonicCompatibilityError: Error {
     case tokenAuthenticationUnsupported
     case directCatalogUnavailable
+    case catalogChangedDuringPagination
 }
 
 // MARK: - Subsonic JSON models
