@@ -2299,6 +2299,9 @@ final class SourceManager {
         let conn = connector(for: source)
         try await conn.connect()
 
+        let prefersAuthenticatedSubsonicWANStream =
+            shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song)
+
         if song.isStreamDescriptor {
             switch try await resolveSTRMTarget(for: song, connector: conn) {
             case .remote(let url):
@@ -2342,7 +2345,8 @@ final class SourceManager {
         // Subsonic-family formats that are deliberately transcoded to a
         // progressive MP3 stream retain that existing direct-stream behavior
         // unless their endpoint needs connector-owned TLS handling.
-        if !permitsConfiguredDirectURL(for: source, song: song) {
+        if !prefersAuthenticatedSubsonicWANStream,
+           !permitsConfiguredDirectURL(for: source, song: song) {
             return try await conn.localURL(for: song.filePath)
         }
 
@@ -5094,6 +5098,10 @@ final class SourceManager {
     }
 
     private func shouldPreferPlainStreamingForPlayback(source: MusicSource, song: Song) -> Bool {
+        if source.type.isSubsonicFamily {
+            return shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song)
+        }
+
         // With more than one enabled endpoint, connector-backed Range reads
         // keep route failover available after playback has started. A plain
         // URL would permanently bind the player to whichever route produced
@@ -5134,6 +5142,50 @@ final class SourceManager {
         // paths. Keep connector-backed Range streaming for LAN IPs and .local
         // hosts where latency is low; use direct HTTP Range for WAN hosts.
         guard let host = source.host, !host.isEmpty else { return false }
+        return !Self.isProbablyLocalHost(host)
+    }
+
+    /// Navidrome's authenticated `stream` URL is self-contained. On a public
+    /// route the generic HTTP playback source is the safer owner: it can
+    /// follow a read-only media redirect without forwarding Subsonic query
+    /// credentials and can validate a proxy's whole-resource response when
+    /// the proxy ignores `Range`. The connector path remains authoritative on
+    /// LAN routes, for alternate TLS identities, and for formats that need a
+    /// complete local file.
+    private func shouldPreferAuthenticatedSubsonicWANStream(
+        source: MusicSource,
+        song: Song
+    ) -> Bool {
+        guard source.type.isSubsonicFamily else { return false }
+
+        let usesServerTranscodedStream = SubsonicSource.requiresServerTranscode(
+            song.fileFormat
+        )
+        guard !FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+                || usesServerTranscodedStream else {
+            return false
+        }
+
+        let projectedSource: MusicSource
+        if source.connectionConfiguration != nil,
+           source.connectionCandidates.count > 1 {
+            guard let activeKind = activeConnectionRoutes[source.id],
+                  activeKind == .publicAddress,
+                  let activeCandidate = source.connectionCandidates.first(where: {
+                      $0.kind == activeKind
+                  }) else {
+                return false
+            }
+            projectedSource = source.applyingConnectionCandidate(activeCandidate)
+        } else {
+            projectedSource = source
+        }
+
+        guard projectedSource.alternateTLSValidationHostname == nil,
+              let host = projectedSource.host,
+              !host.isEmpty else {
+            return false
+        }
         return !Self.isProbablyLocalHost(host)
     }
 
