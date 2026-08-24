@@ -43,7 +43,10 @@ enum FileMetadataReader {
             replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
             replayGainAlbumGain = replayGainAlbumGain ?? fallback.replayGainAlbumGain
             replayGainAlbumPeak = replayGainAlbumPeak ?? fallback.replayGainAlbumPeak
-            lyricsText = lyricsText ?? fallback.lyricsText
+            if lyricsText == nil
+                || lyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true {
+                lyricsText = fallback.lyricsText ?? lyricsText
+            }
         }
     }
 
@@ -51,6 +54,14 @@ enum FileMetadataReader {
     static func read(from url: URL) async -> Metadata {
         let asset = AVURLAsset(url: url)
         var metadata = await read(from: asset)
+
+        if let metadataFile = readISOBaseMediaMetadataFile(from: url) {
+            applyISOBaseMediaLyricsFallback(
+                to: &metadata,
+                data: metadataFile,
+                fileExtension: url.pathExtension
+            )
+        }
 
         applyID3Fallback(to: &metadata, data: readID3FallbackData(from: url))
         applyFLACFallback(
@@ -97,6 +108,11 @@ enum FileMetadataReader {
         let asset = loader.makeAsset(fileExtension: fileExtension)
         var metadata = await read(from: asset)
 
+        applyISOBaseMediaLyricsFallback(
+            to: &metadata,
+            data: data,
+            fileExtension: fileExtension
+        )
         applyID3Fallback(to: &metadata, data: data, tailData: id3TailData)
         applyFLACFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyWAVEFallback(to: &metadata, data: data, fileExtension: fileExtension)
@@ -110,17 +126,16 @@ enum FileMetadataReader {
         return metadata
     }
 
-    /// Parses a complete trailing `moov` without pretending arbitrary
-    /// head/tail bytes are adjacent in the original file. The slice builder
-    /// retains only `ftyp` + `moov`, which is a valid metadata-only container
-    /// and therefore preserves AVFoundation's format-specific tag handling.
+    /// Parses a complete fast-start or trailing `moov` without pretending
+    /// arbitrary head/tail bytes are adjacent in the original file. The slice
+    /// builder retains only `ftyp` + `moov`, which is a valid metadata-only
+    /// container and therefore preserves AVFoundation's tag handling.
     static func readISOBaseMediaMetadata(
         head: Data,
         tail: Data,
         fileExtension: String
     ) async -> Metadata? {
-        let supported = ["m4a", "m4b", "mp4", "m4v", "mov", "alac", "aac"]
-        guard supported.contains(fileExtension.lowercased()),
+        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
               let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
                 head: head,
                 tail: tail
@@ -245,6 +260,57 @@ enum FileMetadataReader {
     private static let flacMetadataReadLimit = 1024 * 1024
     private static let waveHeaderReadLimit = 1024 * 1024
     private static let mpegHeaderReadLimit = 512 * 1024
+    private static let isoBaseMediaExtensions: Set<String> = [
+        "m4a", "m4b", "mp4", "m4v", "mov",
+    ]
+
+    private static func applyISOBaseMediaLyricsFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
+              let lyrics = ISOBaseMediaLyricsParser.lyrics(in: data) else {
+            return
+        }
+        metadata.lyricsText = lyrics
+    }
+
+    private static func readISOBaseMediaMetadataFile(from url: URL) -> Data? {
+        guard isoBaseMediaExtensions.contains(url.pathExtension.lowercased()),
+              let handle = try? FileHandle(forReadingFrom: url) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
+        let rangeSizes = RemoteMetadataReadPolicy.containerTailReadSizes(
+            fileSize: Int64(clamping: fileSize)
+        )
+        for byteCount in rangeSizes {
+            try? handle.seek(toOffset: 0)
+            guard let head = try? handle.read(upToCount: byteCount), !head.isEmpty else {
+                continue
+            }
+            if let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
+                head: head,
+                tail: Data()
+            ) {
+                return metadataFile
+            }
+
+            guard UInt64(byteCount) < fileSize else { continue }
+            try? handle.seek(toOffset: fileSize - UInt64(byteCount))
+            guard let tail = try? handle.read(upToCount: byteCount) else { continue }
+            if let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
+                head: head,
+                tail: tail
+            ) {
+                return metadataFile
+            }
+        }
+        return nil
+    }
 
     private static func applyWAVEFallback(
         to metadata: inout Metadata,

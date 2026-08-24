@@ -98,17 +98,19 @@ public enum AudioDurationPolicy {
 
 
 /// Builds a small, structurally valid ISO Base Media metadata file from
-/// bounded head and tail ranges. A trailing `moov` cannot be parsed reliably
-/// by concatenating arbitrary head/tail bytes because that leaves a partial
-/// `mdat` atom between them. Keeping only `ftyp` and a complete `moov` gives
-/// AVFoundation the container description it needs without materializing the
-/// remote media payload.
+/// bounded head and tail ranges. A fast-start `moov` can live in the head,
+/// while the common trailing form cannot be parsed reliably by concatenating
+/// arbitrary ranges because that leaves a partial `mdat` atom between them.
+/// Keeping only `ftyp` and one complete `moov` gives AVFoundation the container
+/// description it needs without materializing the remote media payload.
 public enum ISOBaseMediaMetadataSliceBuilder {
     public static func makeMetadataFile(head: Data, tail: Data) -> Data? {
-        guard let ftyp = completeAtom(named: "ftyp", in: head),
-              let moov = completeAtom(named: "moov", in: tail, requiredChild: "mvhd") else {
+        guard let ftyp = completeAtom(named: "ftyp", in: head) else {
             return nil
         }
+        let moov = completeAtom(named: "moov", in: head, requiredChild: "mvhd")
+            ?? completeAtom(named: "moov", in: tail, requiredChild: "mvhd")
+        guard let moov else { return nil }
         return ftyp + moov
     }
 

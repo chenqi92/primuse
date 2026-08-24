@@ -15,6 +15,21 @@ struct ISOBaseMediaMetadataSliceBuilderTests {
         #expect(ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(head: head, tail: tail) == ftyp + moov)
     }
 
+    @Test("Extracts a complete fast-start moov from the head range")
+    func buildsMetadataOnlyFileFromHead() {
+        let ftyp = atom("ftyp", payload: Data("M4A ".utf8))
+        let moov = atom(
+            "moov",
+            payload: atom("mvhd", payload: Data(repeating: 0, count: 24))
+        )
+        let head = ftyp + moov + atom("mdat", payload: Data(repeating: 0x11, count: 16))
+
+        #expect(ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
+            head: head,
+            tail: Data()
+        ) == ftyp + moov)
+    }
+
     @Test("Rejects an incomplete moov and a false signature in payload bytes")
     func rejectsIncompleteOrFalseMoov() {
         let ftyp = atom("ftyp", payload: Data("M4A ".utf8))
