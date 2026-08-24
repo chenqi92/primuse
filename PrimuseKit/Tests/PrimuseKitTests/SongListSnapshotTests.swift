@@ -52,6 +52,21 @@ struct SongListSnapshotTests {
         #expect(sortedIDs(songs, by: .dateAddedOldest) == ["b", "a"])
     }
 
+    @Test("Source-date sorting supports both directions and keeps unknown dates last")
+    func sortsSourceDatesBothWays() {
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = Date(timeIntervalSince1970: 2_000)
+        let songs = [
+            song(id: "missing", title: "Missing"),
+            song(id: "b", title: "Newer B", lastModified: newer),
+            song(id: "old", title: "Older", lastModified: older),
+            song(id: "a", title: "Newer A", lastModified: newer),
+        ]
+
+        #expect(sortedIDs(songs, by: .sourceDate) == ["a", "b", "old", "missing"])
+        #expect(sortedIDs(songs, by: .sourceDateOldest) == ["old", "a", "b", "missing"])
+    }
+
     @Test("Sorts every supported metadata field")
     func sortsEveryMetadataField() {
         let songs = [
@@ -265,7 +280,38 @@ struct SongListSnapshotTests {
         #expect(LibrarySongSortOrder.titleDescending.selecting(.title) == .title)
         #expect(LibrarySongSortOrder.title.selecting(.dateAdded) == .dateAdded)
         #expect(LibrarySongSortOrder.dateAdded.selecting(.dateAdded) == .dateAddedOldest)
+        #expect(LibrarySongSortOrder.title.selecting(.sourceDate) == .sourceDate)
+        #expect(LibrarySongSortOrder.sourceDate.selecting(.sourceDate) == .sourceDateOldest)
+        #expect(LibrarySongSortOrder.sourceDateOldest.selecting(.sourceDate) == .sourceDate)
         #expect(LibrarySongSortOrder.dateAddedOldest.selecting(.artist) == .artist)
+    }
+
+    @Test("Sort preference defaults safely and repairs unknown values")
+    func sortPreferenceDefaultsAndRepairs() throws {
+        let suiteName = "LibrarySongSortOrderPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(LibrarySongSortOrderPreference.load(from: defaults) == .title)
+        #expect(defaults.string(forKey: LibrarySongSortOrderPreference.storageKey) == "title")
+
+        defaults.set("retired-sort-order", forKey: LibrarySongSortOrderPreference.storageKey)
+        #expect(LibrarySongSortOrderPreference.load(from: defaults) == .title)
+        #expect(defaults.string(forKey: LibrarySongSortOrderPreference.storageKey) == "title")
+    }
+
+    @Test("Sort preference preserves criterion and direction across defaults instances")
+    func sortPreferencePersistsCompleteOrder() throws {
+        let suiteName = "LibrarySongSortOrderPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        LibrarySongSortOrderPreference.save(.albumDescending, to: defaults)
+        let reopened = try #require(UserDefaults(suiteName: suiteName))
+
+        #expect(LibrarySongSortOrderPreference.load(from: reopened) == .albumDescending)
     }
 
     @Test("Alphabetic sorts expose a complete directional section index")
@@ -443,6 +489,7 @@ struct SongListSnapshotTests {
         albumTitle: String? = nil,
         sourceID: String = "source",
         duration: TimeInterval = 180,
+        lastModified: Date? = nil,
         dateAdded: Date = Date(timeIntervalSince1970: 0),
         fileFormat: AudioFormat = .flac
     ) -> Song {
@@ -455,6 +502,7 @@ struct SongListSnapshotTests {
             fileFormat: fileFormat,
             filePath: "/Music/\(id).\(fileFormat.rawValue)",
             sourceID: sourceID,
+            lastModified: lastModified,
             dateAdded: dateAdded
         )
     }

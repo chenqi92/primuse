@@ -17,6 +17,8 @@ public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case albumDescending
     case dateAdded
     case dateAddedOldest
+    case sourceDate
+    case sourceDateOldest
     case format
     case formatDescending
 }
@@ -26,6 +28,7 @@ public enum LibrarySongSortCriterion: String, CaseIterable, Hashable, Sendable {
     case artist
     case album
     case dateAdded
+    case sourceDate
     case format
 }
 
@@ -36,15 +39,17 @@ public extension LibrarySongSortOrder {
         case .artist, .artistDescending: return .artist
         case .album, .albumDescending: return .album
         case .dateAdded, .dateAddedOldest: return .dateAdded
+        case .sourceDate, .sourceDateOldest: return .sourceDate
         case .format, .formatDescending: return .format
         }
     }
 
     var isAscending: Bool {
         switch self {
-        case .title, .artist, .album, .dateAddedOldest, .format:
+        case .title, .artist, .album, .dateAddedOldest, .sourceDateOldest, .format:
             return true
-        case .titleDescending, .artistDescending, .albumDescending, .dateAdded, .formatDescending:
+        case .titleDescending, .artistDescending, .albumDescending, .dateAdded,
+                .sourceDate, .formatDescending:
             return false
         }
     }
@@ -59,6 +64,8 @@ public extension LibrarySongSortOrder {
         case .albumDescending: return .album
         case .dateAdded: return .dateAddedOldest
         case .dateAddedOldest: return .dateAdded
+        case .sourceDate: return .sourceDateOldest
+        case .sourceDateOldest: return .sourceDate
         case .format: return .formatDescending
         case .formatDescending: return .format
         }
@@ -70,12 +77,39 @@ public extension LibrarySongSortOrder {
         case .artist: return .artist
         case .album: return .album
         case .dateAdded: return .dateAdded
+        case .sourceDate: return .sourceDate
         case .format: return .format
         }
     }
 
     func selecting(_ criterion: LibrarySongSortCriterion) -> LibrarySongSortOrder {
         self.criterion == criterion ? reversed : Self.defaultOrder(for: criterion)
+    }
+}
+
+/// Persists the complete song-list order so both the selected field and its
+/// direction survive view recreation and application relaunches.
+public enum LibrarySongSortOrderPreference {
+    public static let storageKey = "library.songSortOrder.v1"
+
+    @discardableResult
+    public static func load(
+        from defaults: UserDefaults = .standard
+    ) -> LibrarySongSortOrder {
+        if let rawValue = defaults.string(forKey: storageKey),
+           let order = LibrarySongSortOrder(rawValue: rawValue) {
+            return order
+        }
+
+        defaults.set(LibrarySongSortOrder.title.rawValue, forKey: storageKey)
+        return .title
+    }
+
+    public static func save(
+        _ order: LibrarySongSortOrder,
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(order.rawValue, forKey: storageKey)
     }
 }
 
@@ -503,7 +537,7 @@ public enum SongListSnapshotBuilder {
             return song.artistName ?? ""
         case .album:
             return song.albumTitle ?? ""
-        case .dateAdded:
+        case .dateAdded, .sourceDate:
             return nil
         case .format:
             return song.fileFormat.displayName
@@ -537,7 +571,8 @@ public enum SongListSnapshotBuilder {
         from sectionOffsets: [String: Int],
         order: LibrarySongSortOrder
     ) -> [SongListSectionIndexEntry] {
-        guard order.criterion != .dateAdded else { return [] }
+        guard order.criterion != .dateAdded,
+              order.criterion != .sourceDate else { return [] }
 
         let orderedLabels = order.isAscending
             ? latinSectionLabels
@@ -657,6 +692,17 @@ public enum SongListSnapshotBuilder {
                 return lhs.dateAdded < rhs.dateAdded
             }
             comparison = .orderedSame
+        case .sourceDate, .sourceDateOldest:
+            switch (lhs.lastModified, rhs.lastModified) {
+            case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+                return order == .sourceDate ? lhsDate > rhsDate : lhsDate < rhsDate
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                comparison = .orderedSame
+            }
         case .format, .formatDescending:
             comparison = lhs.fileFormat.displayName.compare(rhs.fileFormat.displayName)
         }
@@ -665,9 +711,11 @@ public enum SongListSnapshotBuilder {
             return lhs.id < rhs.id
         }
         switch order {
-        case .titleDescending, .artistDescending, .albumDescending, .formatDescending:
+        case .titleDescending, .artistDescending, .albumDescending, .sourceDate,
+                .formatDescending:
             return comparison == .orderedDescending
-        case .title, .artist, .album, .dateAdded, .dateAddedOldest, .format:
+        case .title, .artist, .album, .dateAdded, .dateAddedOldest,
+                .sourceDateOldest, .format:
             return comparison == .orderedAscending
         }
     }

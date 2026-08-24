@@ -310,6 +310,7 @@
 "sort_artist" = "Künstler";
 "sort_album" = "Album";
 "sort_date_added" = "Hinzugefügt am";
+"sort_source_date" = "Quelldatum";
 "sort_format" = "Format";
 "sort_a_to_z" = "A–Z";
 "sort_z_to_a" = "Z–A";

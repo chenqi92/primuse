@@ -311,6 +311,7 @@
 "sort_artist" = "アーティスト";
 "sort_album" = "アルバム";
 "sort_date_added" = "追加日";
+"sort_source_date" = "元の日時";
 "sort_format" = "フォーマット";
 "sort_a_to_z" = "A–Z";
 "sort_z_to_a" = "Z–A";

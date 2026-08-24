@@ -68,6 +68,7 @@
 "sort_artist" = "演出者";
 "sort_album" = "專輯";
 "sort_date_added" = "加入日期";
+"sort_source_date" = "來源日期";
 "sort_format" = "格式";
 "sort_a_to_z" = "A–Z";
 "sort_z_to_a" = "Z–A";

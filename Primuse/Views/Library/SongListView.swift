@@ -519,6 +519,8 @@ struct SongListView: View {
 
     init(sourceID: String? = nil) {
         scope = sourceID.map(Scope.source) ?? .library
+        let initialSortOrder = LibrarySongSortOrderPreference.load()
+        _sortOrder = State(initialValue: SongSortOrder(libraryOrder: initialSortOrder))
         let initialSongFilter = UserDefaults.standard
             .string(forKey: "library.songFilter.v1")
             .flatMap(SongFilter.init(rawValue:)) ?? .all
@@ -539,6 +541,7 @@ struct SongListView: View {
         case artist, artistDescending
         case album, albumDescending
         case dateAdded, dateAddedOldest
+        case sourceDate, sourceDateOldest
         case format, formatDescending
 
         var libraryOrder: LibrarySongSortOrder {
@@ -551,6 +554,8 @@ struct SongListView: View {
             case .albumDescending: return .albumDescending
             case .dateAdded: return .dateAdded
             case .dateAddedOldest: return .dateAddedOldest
+            case .sourceDate: return .sourceDate
+            case .sourceDateOldest: return .sourceDateOldest
             case .format: return .format
             case .formatDescending: return .formatDescending
             }
@@ -566,6 +571,8 @@ struct SongListView: View {
             case .albumDescending: self = .albumDescending
             case .dateAdded: self = .dateAdded
             case .dateAddedOldest: self = .dateAddedOldest
+            case .sourceDate: self = .sourceDate
+            case .sourceDateOldest: self = .sourceDateOldest
             case .format: self = .format
             case .formatDescending: self = .formatDescending
             }
@@ -778,8 +785,9 @@ struct SongListView: View {
                     folderSourceRevision &+= 1
                     scheduleFolderIndexRecompute(delay: .milliseconds(80))
                 }
-                let dateAddedOrderNeedsRefresh = sortOrder.criterion == .dateAdded
-                if listCache.isEmpty || shouldRetryPendingSort || dateAddedOrderNeedsRefresh {
+                let dateOrderNeedsRefresh = sortOrder.criterion == .dateAdded
+                    || sortOrder.criterion == .sourceDate
+                if listCache.isEmpty || shouldRetryPendingSort || dateOrderNeedsRefresh {
                     scheduleSortedRecompute(
                         delay: .milliseconds(80),
                         pruneRowModels: false,
@@ -856,6 +864,7 @@ struct SongListView: View {
                 )
                 guard accepted else { return }
                 sortOrder = requestedOrder
+                LibrarySongSortOrderPreference.save(requestedOrder.libraryOrder)
                 scheduleSortedRecompute(
                     pruneRowModels: false,
                     isExplicitSort: true
@@ -4283,6 +4292,7 @@ private extension LibrarySongSortCriterion {
         case .artist: return String(localized: "sort_artist")
         case .album: return String(localized: "sort_album")
         case .dateAdded: return String(localized: "sort_date_added")
+        case .sourceDate: return String(localized: "sort_source_date")
         case .format: return String(localized: "sort_format")
         }
     }

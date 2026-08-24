@@ -768,9 +768,10 @@ struct NowPlayingAccessory: View {
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
                 onTap: onTap,
-                artworkSize: isInline ? 32 : 36,
-                artworkCornerRadius: isInline ? 6 : 7,
-                titleFont: .caption
+                artworkSize: isInline ? 32 : 30,
+                artworkCornerRadius: 6,
+                artworkTrailingSpacing: isInline ? 10 : 8,
+                titleFont: isInline ? .caption : .subheadline
             )
 
             MiniPlayerTransportControls(
@@ -778,7 +779,7 @@ struct NowPlayingAccessory: View {
                 showsNextButton: !isInline
             )
         }
-        .padding(.horizontal, isInline ? 12 : 8)
+        .padding(.horizontal, isInline ? 12 : 16)
         .padding(.vertical, isInline ? 2 : 4)
     }
 }

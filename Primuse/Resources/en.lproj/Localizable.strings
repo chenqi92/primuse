@@ -72,6 +72,7 @@
 "sort_artist" = "Artist";
 "sort_album" = "Album";
 "sort_date_added" = "Date Added";
+"sort_source_date" = "Source Date";
 "sort_format" = "Format";
 "sort_a_to_z" = "A–Z";
 "sort_z_to_a" = "Z–A";

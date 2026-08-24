@@ -12,15 +12,16 @@ struct MiniPlayerView: View {
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
                 onTap: { onTap?() },
-                artworkSize: 36,
-                artworkCornerRadius: 7,
-                titleFont: .caption,
+                artworkSize: 30,
+                artworkCornerRadius: 6,
+                artworkTrailingSpacing: 8,
+                titleFont: .subheadline,
                 showsSubtitle: showsSubtitle
             )
 
             MiniPlayerTransportControls(showsNextButton: showsNextButton)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
         .padding(.vertical, 6)
     }
 }
@@ -29,6 +30,7 @@ struct MiniPlayerSwipeContent: View {
     var onTap: () -> Void
     var artworkSize: CGFloat
     var artworkCornerRadius: CGFloat
+    var artworkTrailingSpacing: CGFloat = 10
     var titleFont: Font
     var showsSubtitle = false
 
@@ -52,7 +54,7 @@ struct MiniPlayerSwipeContent: View {
                     fileFormat: player.currentSong?.fileFormat,
                     revisionToken: player.coverRevision
                 )
-                .padding(.trailing, 10)
+                .padding(.trailing, artworkTrailingSpacing)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(player.currentSong?.title ?? "")
@@ -187,6 +189,10 @@ struct MiniPlayerTransportControls: View {
     var showsNextButton: Bool
     @Environment(AudioPlayerService.self) private var player
 
+    private var iconFont: Font {
+        isInline ? .subheadline : .system(size: 20, weight: .semibold)
+    }
+
     var body: some View {
         HStack(spacing: isInline ? 0 : 4) {
             Button {
@@ -194,7 +200,7 @@ struct MiniPlayerTransportControls: View {
             } label: {
                 ZStack {
                     Image(systemName: "play.fill")
-                        .font(isInline ? .subheadline : .body)
+                        .font(iconFont)
                         .opacity(0)
                     if player.isLoading && !player.isLiveRadio {
                         ProgressView().controlSize(.small)
@@ -202,7 +208,7 @@ struct MiniPlayerTransportControls: View {
                         Image(systemName: player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
                             ? "stop.fill"
                             : (player.isPlaybackActive ? "pause.fill" : "play.fill"))
-                            .font(isInline ? .subheadline : .body)
+                            .font(iconFont)
                             .contentTransition(.symbolEffect(.replace))
                     }
                 }
@@ -221,7 +227,7 @@ struct MiniPlayerTransportControls: View {
                     Task { await player.next() }
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.caption)
+                        .font(iconFont)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }

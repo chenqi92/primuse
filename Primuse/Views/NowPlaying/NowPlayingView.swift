@@ -1086,12 +1086,9 @@ struct NowPlayingView: View {
                 .font(.caption2)
                 .foregroundStyle(appearance.tertiary)
         }
-        // Changing between artwork and lyrics animates the surrounding
-        // composition, but the route-owned MPVolumeView must remain visually
-        // stable instead of replaying its fill animation on every page switch.
-        .transaction { transaction in
-            transaction.animation = nil
-        }
+        // Keep the route-owned MPVolumeView stable when switching between
+        // artwork and lyrics without suppressing the player's entrance spring.
+        .animation(nil, value: showLyrics)
     }
 
     // MARK: - Compact phone landscape

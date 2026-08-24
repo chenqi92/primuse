@@ -73,6 +73,7 @@
 "sort_artist" = "艺术家";
 "sort_album" = "专辑";
 "sort_date_added" = "添加日期";
+"sort_source_date" = "来源日期";
 "sort_format" = "格式";
 "sort_a_to_z" = "A–Z";
 "sort_z_to_a" = "Z–A";

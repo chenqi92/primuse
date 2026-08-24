@@ -310,6 +310,7 @@
 "sort_artist" = "아티스트";
 "sort_album" = "앨범";
 "sort_date_added" = "추가된 날짜";
+"sort_source_date" = "원본 날짜";
 "sort_format" = "포맷";
 "sort_a_to_z" = "A–Z";
 "sort_z_to_a" = "Z–A";
