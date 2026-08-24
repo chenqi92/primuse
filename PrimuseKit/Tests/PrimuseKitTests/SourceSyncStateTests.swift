@@ -228,6 +228,34 @@ struct SourceSyncStateTests {
     }
 }
 
+@Suite("Local reference refresh policy")
+struct LocalReferenceRefreshPolicyTests {
+    @Test("Only active device-local bookmark sources are monitored")
+    func monitoredSources() {
+        let active = MusicSource(id: "active", name: "Active", type: .local)
+        let copied = MusicSource(id: "copied", name: "Copied", type: .local)
+        let disabled = MusicSource(
+            id: "disabled",
+            name: "Disabled",
+            type: .local,
+            isEnabled: false
+        )
+        let deleted = MusicSource(
+            id: "deleted",
+            name: "Deleted",
+            type: .local,
+            isDeleted: true,
+            deletedAt: Date()
+        )
+        let remote = MusicSource(id: "remote", name: "Remote", type: .webdav)
+
+        #expect(LocalReferenceRefreshPolicy.monitoredSourceIDs(
+            in: [active, copied, disabled, deleted, remote],
+            bookmarkedSourceIDs: ["active", "disabled", "deleted", "remote"]
+        ) == ["active"])
+    }
+}
+
 @Suite("Baidu stable snapshot reconciliation")
 struct BaiduSnapshotReconciliationTests {
     @Test("Legacy v1 state decodes without discarding path index")

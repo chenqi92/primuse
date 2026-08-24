@@ -16,6 +16,9 @@ final class AppServices {
     let cloudSync: CloudKitSyncService
     let themeService: ThemeService
     let scanService: ScanService
+    #if os(iOS) || os(macOS)
+    let localReferenceRefresh: LocalReferenceRefreshService
+    #endif
     let metadataBackfill: MetadataBackfillService
     let lyricsTextBackfill: LyricsTextBackfillService
     let similarTracks: SimilarTracksService
@@ -161,6 +164,15 @@ final class AppServices {
             )
         }
         self.scanService = scanService
+        #if os(iOS) || os(macOS)
+        self.localReferenceRefresh = LocalReferenceRefreshService(
+            sourcesStore: store,
+            sourceManager: manager,
+            library: library,
+            scanService: scanService,
+            scraperService: scraper
+        )
+        #endif
         self.metadataBackfill = metadataBackfill
         self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
         self.similarTracks = SimilarTracksService()
@@ -319,6 +331,9 @@ final class AppServices {
         radioStationsStore.removeServerMirrors(forSourceIDs: staleRadioSourceIDs)
         sourcesStore.reconcileLocalSongCounts(reconciliation.sourceSongCounts)
         migrateSourceDirectoryDisplayNames()
+        #if os(iOS) || os(macOS)
+        localReferenceRefresh.start()
+        #endif
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }

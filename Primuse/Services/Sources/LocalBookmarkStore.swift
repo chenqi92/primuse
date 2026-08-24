@@ -1,5 +1,11 @@
 #if os(iOS) || os(macOS)
 import Foundation
+import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Persists security-scoped bookmarks for user-chosen local files and folders.
 /// Bookmark blobs remain device-local and are keyed by source ID, so local
@@ -225,6 +231,266 @@ enum LocalBookmarkStore {
         #else
         [.withoutImplicitStartAccessing]
         #endif
+    }
+}
+
+/// Keeps user-selected local references synchronized while the application is
+/// running. File presenter callbacks cover coordinated changes made by Files,
+/// Finder and File Provider extensions; a foreground reconciliation covers the
+/// interval where iOS requires presenters to be unregistered in the background.
+@MainActor
+final class LocalReferenceRefreshService {
+    private let sourcesStore: SourcesStore
+    private let sourceManager: SourceManager
+    private let library: MusicLibrary
+    private let scanService: ScanService
+    private let scraperService: MusicScraperService
+
+    private var presentersBySourceID: [String: [LocalReferenceFilePresenter]] = [:]
+    private var refreshTasks: [String: Task<Void, Never>] = [:]
+    private var observerTokens: [NSObjectProtocol] = []
+    private var isPresenting = false
+    private var hasStarted = false
+
+    init(
+        sourcesStore: SourcesStore,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        scanService: ScanService,
+        scraperService: MusicScraperService
+    ) {
+        self.sourcesStore = sourcesStore
+        self.sourceManager = sourceManager
+        self.library = library
+        self.scanService = scanService
+        self.scraperService = scraperService
+    }
+
+    func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+
+        let center = NotificationCenter.default
+        observerTokens.append(center.addObserver(
+            forName: .primuseSourcesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reconcilePresenters()
+            }
+        })
+
+        #if os(iOS)
+        observerTokens.append(center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.deactivate()
+            }
+        })
+        observerTokens.append(center.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.activate(reconcileAfterInactiveInterval: true)
+            }
+        })
+        guard UIApplication.shared.applicationState != .background else { return }
+        #endif
+
+        activate(reconcileAfterInactiveInterval: true)
+    }
+
+    private func activate(reconcileAfterInactiveInterval: Bool) {
+        guard !isPresenting else {
+            if reconcileAfterInactiveInterval {
+                scheduleForegroundReconciliation()
+            }
+            return
+        }
+        isPresenting = true
+        reconcilePresenters()
+        if reconcileAfterInactiveInterval {
+            scheduleForegroundReconciliation()
+        }
+    }
+
+    private func deactivate() {
+        guard isPresenting else { return }
+        isPresenting = false
+        for task in refreshTasks.values {
+            task.cancel()
+        }
+        refreshTasks.removeAll()
+        unregisterAllPresenters()
+    }
+
+    private func reconcilePresenters() {
+        guard isPresenting else { return }
+
+        let monitoredSourceIDs = LocalReferenceRefreshPolicy.monitoredSourceIDs(
+            in: sourcesStore.sources,
+            bookmarkedSourceIDs: LocalBookmarkStore.storedSourceIDs
+        )
+        let unmonitoredSourceIDs = refreshTasks.keys.filter {
+            !monitoredSourceIDs.contains($0)
+        }
+        for sourceID in unmonitoredSourceIDs {
+            refreshTasks.removeValue(forKey: sourceID)?.cancel()
+        }
+
+        unregisterAllPresenters()
+        for sourceID in monitoredSourceIDs.sorted() {
+            guard let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID),
+                  !references.isEmpty else { continue }
+            presentersBySourceID[sourceID] = references.map { reference in
+                let presenter = LocalReferenceFilePresenter(url: reference.url) { [weak self] in
+                    Task { @MainActor in
+                        self?.scheduleRefresh(sourceID: sourceID)
+                    }
+                }
+                NSFileCoordinator.addFilePresenter(presenter)
+                return presenter
+            }
+        }
+    }
+
+    private func unregisterAllPresenters() {
+        for presenter in presentersBySourceID.values.joined() {
+            NSFileCoordinator.removeFilePresenter(presenter)
+        }
+        presentersBySourceID.removeAll()
+    }
+
+    private func scheduleForegroundReconciliation() {
+        for sourceID in presentersBySourceID.keys {
+            scheduleRefresh(
+                sourceID: sourceID,
+                delay: LocalReferenceRefreshPolicy.foregroundReconciliationDelay
+            )
+        }
+    }
+
+    private func scheduleRefresh(
+        sourceID: String,
+        delay: TimeInterval = LocalReferenceRefreshPolicy.changeDebounce
+    ) {
+        guard isPresenting, presentersBySourceID[sourceID] != nil else { return }
+        refreshTasks[sourceID]?.cancel()
+        refreshTasks[sourceID] = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self, self.isPresenting else { return }
+            self.refreshTasks[sourceID] = nil
+            self.refreshWhenIdle(sourceID: sourceID)
+        }
+    }
+
+    private func refreshWhenIdle(sourceID: String) {
+        guard let source = sourcesStore.source(id: sourceID),
+              source.type == .local,
+              source.isEnabled,
+              !source.isDeleted,
+              presentersBySourceID[sourceID] != nil else {
+            return
+        }
+        if scanService.scanStates[sourceID]?.isScanning == true {
+            scheduleRefresh(
+                sourceID: sourceID,
+                delay: LocalReferenceRefreshPolicy.busyRetryDelay
+            )
+            return
+        }
+
+        scanService.scanSource(
+            source,
+            snapshotExecutionContext: .foregroundResume,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourcesStore,
+            scraperService: scraperService
+        )
+    }
+}
+
+private final class LocalReferenceFilePresenter: NSObject, NSFilePresenter, @unchecked Sendable {
+    let presentedItemOperationQueue: OperationQueue
+
+    private let onChange: @Sendable () -> Void
+    private let urlLock = NSLock()
+    private var currentURL: URL
+    private let securityScopedURL: URL
+    private let usesSecurityScope: Bool
+
+    var presentedItemURL: URL? {
+        urlLock.lock()
+        defer { urlLock.unlock() }
+        return currentURL
+    }
+
+    init(url: URL, onChange: @escaping @Sendable () -> Void) {
+        self.onChange = onChange
+        self.currentURL = url
+        self.securityScopedURL = url
+        self.usesSecurityScope = url.startAccessingSecurityScopedResource()
+        let queue = OperationQueue()
+        queue.name = "com.welape.yuanyin.local-reference-presenter"
+        queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .utility
+        self.presentedItemOperationQueue = queue
+        super.init()
+    }
+
+    deinit {
+        if usesSecurityScope {
+            securityScopedURL.stopAccessingSecurityScopedResource()
+        }
+    }
+
+    func presentedItemDidChange() {
+        onChange()
+    }
+
+    func presentedItemDidMove(to newURL: URL) {
+        urlLock.lock()
+        currentURL = newURL
+        urlLock.unlock()
+        onChange()
+    }
+
+    func accommodatePresentedItemDeletion(
+        completionHandler: @escaping @Sendable (Error?) -> Void
+    ) {
+        onChange()
+        completionHandler(nil)
+    }
+
+    func presentedSubitemDidAppear(at url: URL) {
+        onChange()
+    }
+
+    func presentedSubitemDidChange(at url: URL) {
+        onChange()
+    }
+
+    func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) {
+        onChange()
+    }
+
+    func accommodatePresentedSubitemDeletion(
+        at url: URL,
+        completionHandler: @escaping @Sendable (Error?) -> Void
+    ) {
+        onChange()
+        completionHandler(nil)
     }
 }
 #endif

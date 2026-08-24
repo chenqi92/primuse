@@ -379,6 +379,31 @@ public enum SourcePeriodicSyncPolicy {
     }
 }
 
+/// Selects device-local bookmark sources that can be reconciled from file
+/// presenter notifications. This remains separate from periodic provider sync:
+/// local folders have no durable change cursor and therefore require a complete
+/// fingerprint scan whenever their presented contents change.
+public enum LocalReferenceRefreshPolicy {
+    public static let changeDebounce: TimeInterval = 1.5
+    public static let busyRetryDelay: TimeInterval = 2
+    public static let foregroundReconciliationDelay: TimeInterval = 2
+
+    public static func monitoredSourceIDs(
+        in sources: [MusicSource],
+        bookmarkedSourceIDs: Set<String>
+    ) -> Set<String> {
+        Set(sources.lazy.compactMap { source in
+            guard source.type == .local,
+                  source.isEnabled,
+                  !source.isDeleted,
+                  bookmarkedSourceIDs.contains(source.id) else {
+                return nil
+            }
+            return source.id
+        })
+    }
+}
+
 // MARK: - Directory sidecar indexing
 
 /// The minimal directory-entry surface needed to resolve covers, lyrics,
