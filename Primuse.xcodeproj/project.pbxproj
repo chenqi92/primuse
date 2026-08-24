@@ -243,6 +243,7 @@
 		46177DCBA68557D87AB0DC0C /* MacImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */; };
 		462E50063C5075D907ABD7B6 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		469EB93970538A55A72769EE /* LibraryScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D84632D6A2887E8E174E87C /* LibraryScanner.swift */; };
+		46B89AF5A8627B7DF1D799FC /* MusicLibraryLikedMutationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87FA91B87714FFD617E3E449 /* MusicLibraryLikedMutationTests.swift */; };
 		46BB1679D243A8FF9558598E /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C804B707FEBA12189DA49BB3 /* CloudKitRuntime.swift */; };
 		46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
@@ -750,6 +751,7 @@
 		EC6116A5D537EA6A483CDBA2 /* UpdateBannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428DCE75417C9BAE087880F9 /* UpdateBannerSheet.swift */; };
 		ECDDDC7107FB4CC43091C1C3 /* StoredCoverArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */; };
 		ECEDFBC81578D3110BFAC3B9 /* MusicVideoStreamingLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */; };
+		ECEE25BE33784AD9E79E0CB7 /* SubsonicFavoriteWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F930250B3D0D1AC8E8FD8088 /* SubsonicFavoriteWritebackTests.swift */; };
 		ED5197E708CC23A311F0D6B6 /* ITunesScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */; };
 		ED5685157FF3ACC9ACA8421D /* MacRadioStationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1F59E05FD764211336C02D /* MacRadioStationsView.swift */; };
 		ED7E9B1E97CDF086AE2D5F4C /* TrustedHTTPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB95B932C07091233475361 /* TrustedHTTPTransport.swift */; };
@@ -786,6 +788,7 @@
 		F66BD9569EE438EACD6C68B0 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E29830359FF1F6CBD6D8D05 /* LibraryView.swift */; };
 		F7001D7ED68D7FC3F771FD35 /* LibraryFolderSelectionIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */; };
 		F71064BDCCEB2F5D1F5CC801 /* TVAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */; };
+		F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */; };
 		F7A611EA2879EB502F0E6ADD /* MacMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3CA857E144784647DBFEC6 /* MacMenuBarController.swift */; };
 		F7AF165E4C4ABC46FAECC7C0 /* PinyinTransformer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69ABA8EAAB65A36313703E9D /* PinyinTransformer.swift */; };
 		F7C1D24746A9EFBB09955A64 /* SongListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */; };
@@ -882,6 +885,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = FA4505FD14BFFAC74122E1D1;
 			remoteInfo = PrimuseKit;
+		};
+		FD77E9EA519402E19C214EBE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 387532125516FECA27A69911 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4DCF56FA6ABDDF91819D3B81;
+			remoteInfo = Primuse;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -1248,6 +1258,7 @@
 		7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Bundle+AppVersion.swift"; sourceTree = "<group>"; };
 		7D86538AD37BA59C267F1B20 /* QnapAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QnapAPI.swift; sourceTree = "<group>"; };
 		80464460F8B6E1ACA91B21E2 /* TVScanFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVScanFlowView.swift; sourceTree = "<group>"; };
+		80B555E56C7FE67A29C3965A /* PrimuseTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PrimuseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSettingsStore.swift; sourceTree = "<group>"; };
 		80D713C15544A72530F3E0ED /* MusicSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicSource.swift; sourceTree = "<group>"; };
 		810F050B25A5304CF3CBAF9A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -1266,6 +1277,7 @@
 		85BED3C0FFD431313E46BAD8 /* FullDownloadSeekPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDownloadSeekPolicy.swift; sourceTree = "<group>"; };
 		85BEFEDCF1690FF59B23CD92 /* CloudKVSSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKVSSync.swift; sourceTree = "<group>"; };
 		86755A200F0E3D194EE50F3E /* LastFmSimilarAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFmSimilarAPI.swift; sourceTree = "<group>"; };
+		87FA91B87714FFD617E3E449 /* MusicLibraryLikedMutationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibraryLikedMutationTests.swift; sourceTree = "<group>"; };
 		8817585FD03BC82372556BB9 /* SongSelectable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongSelectable.swift; sourceTree = "<group>"; };
 		88A168D4C0759AC51316AAB9 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		88F82086EB805A0948919DCF /* SimilarTracksService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarTracksService.swift; sourceTree = "<group>"; };
@@ -1353,6 +1365,7 @@
 		B88D3209CC930468F07419E8 /* TVSFBEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSFBEngine.swift; sourceTree = "<group>"; };
 		BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBByteReader.swift; sourceTree = "<group>"; };
 		BB092854D451A9F1235A2B2A /* MacHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHomeView.swift; sourceTree = "<group>"; };
+		BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerFavoriteSyncServiceTests.swift; sourceTree = "<group>"; };
 		BB6F12A56011A7BCA85B7467 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		BBD558438D10637EAEB78840 /* LibrarySnapshotSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySnapshotSync.swift; sourceTree = "<group>"; };
 		BBFD30EEE3734A8D6C23D94C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -1463,6 +1476,7 @@
 		F855798DF69A9D2170EF0511 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		F8AA31CCFC7ADFC3CD1CD903 /* LyricTranslationGroupingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricTranslationGroupingPolicy.swift; sourceTree = "<group>"; };
 		F8C714C150FC7495AF3988FB /* CloudAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAccount.swift; sourceTree = "<group>"; };
+		F930250B3D0D1AC8E8FD8088 /* SubsonicFavoriteWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubsonicFavoriteWritebackTests.swift; sourceTree = "<group>"; };
 		F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayStreamResolver.swift; sourceTree = "<group>"; };
 		F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredCoverArtView.swift; sourceTree = "<group>"; };
 		FA44FA865D7C3D6FC4DFCC9E /* TVSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSettingsView.swift; sourceTree = "<group>"; };
@@ -1629,6 +1643,7 @@
 				BD1EFFDFFE1852022796884A /* Config */,
 				529F10605868F60B99E17E3C /* Primuse */,
 				8EE811704C89D0ED4F2E61C6 /* PrimuseKit */,
+				E02A6280EA74816DDAAA95F9 /* PrimuseTests */,
 				45EEEC1BA930FF317E3B1185 /* PrimuseTopShelf */,
 				C9FF87AE840B3F2EA4285057 /* PrimuseTV */,
 				9DBDFB0BAC2A79E7659261A2 /* PrimuseTVTests */,
@@ -2488,6 +2503,7 @@
 				D895718972388CC203A15AC1 /* Primuse.app */,
 				44E0FB1BC9956D86766A605B /* Primuse.app */,
 				B1E36F2FECF46E724081F983 /* PrimuseKit.framework */,
+				80B555E56C7FE67A29C3965A /* PrimuseTests.xctest */,
 				5777C4BD5F21B1F077D01378 /* PrimuseTopShelf.appex */,
 				E77C291D51A0577AAC67C318 /* PrimuseTV.app */,
 				E869595DCD0088EE00182909 /* PrimuseTVTests.xctest */,
@@ -2513,6 +2529,16 @@
 				30745B2257303D586ECADA6D /* Assets.xcassets */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		E02A6280EA74816DDAAA95F9 /* PrimuseTests */ = {
+			isa = PBXGroup;
+			children = (
+				87FA91B87714FFD617E3E449 /* MusicLibraryLikedMutationTests.swift */,
+				BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */,
+				F930250B3D0D1AC8E8FD8088 /* SubsonicFavoriteWritebackTests.swift */,
+			);
+			path = PrimuseTests;
 			sourceTree = "<group>";
 		};
 		E4688F08BD6F51AEAC64DCE7 /* Views */ = {
@@ -2639,6 +2665,24 @@
 			productName = PrimuseWidgetExtension;
 			productReference = FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		07FA24F0E649DD04E6F27377 /* PrimuseTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F67CA4B86D6BDB83DF6EAA43 /* Build configuration list for PBXNativeTarget "PrimuseTests" */;
+			buildPhases = (
+				33569713FBCB4A4BB171D3A2 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E681585FD213EBE9AB044985 /* PBXTargetDependency */,
+			);
+			name = PrimuseTests;
+			packageProductDependencies = (
+			);
+			productName = PrimuseTests;
+			productReference = 80B555E56C7FE67A29C3965A /* PrimuseTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		34610D945CC226584D15C589 /* PrimuseTV */ = {
 			isa = PBXNativeTarget;
@@ -2840,6 +2884,10 @@
 						DevelopmentTeam = 2U97K3U27A;
 						ProvisioningStyle = Automatic;
 					};
+					07FA24F0E649DD04E6F27377 = {
+						DevelopmentTeam = 2U97K3U27A;
+						ProvisioningStyle = Automatic;
+					};
 					34610D945CC226584D15C589 = {
 						DevelopmentTeam = 2U97K3U27A;
 						ProvisioningStyle = Automatic;
@@ -2909,6 +2957,7 @@
 				A421DEB7AD07C5D9B09C3FDE /* PrimuseMac */,
 				34610D945CC226584D15C589 /* PrimuseTV */,
 				F5EDBC073AD924DC0A180555 /* PrimuseTVTests */,
+				07FA24F0E649DD04E6F27377 /* PrimuseTests */,
 				4F086BB74015F0C1240A69D4 /* PrimuseTopShelf */,
 				D78C07FFF7D4E14143E77E5A /* PrimuseWatchApp */,
 				D999BDF6A063541ECA486CA0 /* PrimuseWatchWidgets */,
@@ -3006,6 +3055,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		33569713FBCB4A4BB171D3A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				46B89AF5A8627B7DF1D799FC /* MusicLibraryLikedMutationTests.swift in Sources */,
+				F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */,
+				ECEE25BE33784AD9E79E0CB7 /* SubsonicFavoriteWritebackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3820,6 +3879,11 @@
 			target = FA4505FD14BFFAC74122E1D1 /* PrimuseKit */;
 			targetProxy = 5674D973A5EE8C350441426B /* PBXContainerItemProxy */;
 		};
+		E681585FD213EBE9AB044985 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4DCF56FA6ABDDF91819D3B81 /* Primuse */;
+			targetProxy = FD77E9EA519402E19C214EBE /* PBXContainerItemProxy */;
+		};
 		FCDA98D377A73F75B463AA60 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = FA4505FD14BFFAC74122E1D1 /* PrimuseKit */;
@@ -4071,6 +4135,23 @@
 			};
 			name = Release;
 		};
+		6F94215AA7D947EEDD63EF15 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Primuse.app/Primuse";
+			};
+			name = Release;
+		};
 		76924AF8F4DBD3405198A423 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -4124,6 +4205,23 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "Primuse/Primuse-Bridging-Header.h";
 			};
 			name = Release;
+		};
+		7E3D516222C75B402BDE9580 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Primuse.app/Primuse";
+			};
+			name = Debug;
 		};
 		7E5B3D2719ED28B9DAA4E665 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -4508,6 +4606,15 @@
 			buildConfigurations = (
 				05849B63241620B073BD02F8 /* Debug */,
 				3CDC01CD320867BEE7F36839 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F67CA4B86D6BDB83DF6EAA43 /* Build configuration list for PBXNativeTarget "PrimuseTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7E3D516222C75B402BDE9580 /* Debug */,
+				6F94215AA7D947EEDD63EF15 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

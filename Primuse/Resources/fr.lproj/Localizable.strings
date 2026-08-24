@@ -2893,8 +2893,9 @@
 "player_blur_inactive_lyrics" = "Flouter les paroles inactives";
 "player_blur_inactive_lyrics_description" = "Floute légèrement les paroles synchronisées sauf la ligne actuelle afin de mettre en valeur ce qui est chanté.";
 "server_favorite_unsupported" = "Cette source ne prend pas en charge les favoris du serveur.";
-"server_favorite_refresh_mismatch" = "L’état de favori renvoyé par Emby ne correspond pas à la demande.";
+"server_favorite_refresh_mismatch" = "L’état de favori renvoyé par le serveur ne correspond pas à la demande.";
+"server_favorite_missing_song_id" = "Le morceau ne possède pas d’identifiant serveur utilisable.";
 "server_favorite_update_failed_title" = "Impossible de mettre à jour le favori";
-"server_favorite_update_failed_message" = "Le favori Emby n’a pas pu être mis à jour. Primuse a resynchronisé ou restauré l’état précédent.\n%@";
+"server_favorite_update_failed_message" = "Le favori du serveur n’a pas pu être mis à jour. Primuse a resynchronisé ou restauré l’état précédent.\n%@";
 "lock_screen_lyrics" = "Paroles sur l’écran verrouillé";
 "lock_screen_lyrics_desc" = "Utilise les paroles synchronisées actuelles comme titre dans le panneau de lecture du système. Le centre de contrôle, le Bluetooth et les écrans embarqués peuvent aussi afficher les paroles.";

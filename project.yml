@@ -72,6 +72,10 @@ schemes:
     profile:
       config: Release
       executable: Primuse
+    test:
+      config: Debug
+      targets:
+        - PrimuseTests
     archive:
       config: Release
 
@@ -272,6 +276,18 @@ targets:
         SKIP_INSTALL: YES
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
+
+  PrimuseTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PrimuseTests
+    dependencies:
+      - target: Primuse
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.tests
+        GENERATE_INFOPLIST_FILE: YES
 
   PrimuseWidgetExtension:
     type: app-extension

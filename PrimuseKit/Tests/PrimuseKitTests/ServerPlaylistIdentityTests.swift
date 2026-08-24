@@ -101,6 +101,60 @@ struct ServerPlaylistIdentityTests {
     }
 }
 
+@Suite("Server favorite writeback policy")
+struct ServerFavoriteWritebackPolicyTests {
+    @Test("Only Emby, Navidrome and explicit Subsonic sources can write favorites")
+    func supportsOnlyExplicitFavoriteSources() {
+        #expect(ServerFavoriteWritebackPolicy.supports(.emby))
+        #expect(ServerFavoriteWritebackPolicy.supports(.navidrome))
+        #expect(ServerFavoriteWritebackPolicy.supports(.subsonic))
+
+        for sourceType in MusicSourceType.allCases where ![.emby, .navidrome, .subsonic].contains(sourceType) {
+            #expect(!ServerFavoriteWritebackPolicy.supports(sourceType))
+        }
+    }
+
+    @Test("Song IDs are recovered only from connector-owned song paths")
+    func extractsStrictSongIDs() {
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/songs/navidrome-song.flac",
+            sourceType: .navidrome
+        ) == "navidrome-song")
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/songs/a.b.c.m4a",
+            sourceType: .subsonic
+        ) == "a.b.c")
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/items/emby-item.mp3",
+            sourceType: .emby
+        ) == "emby-item")
+    }
+
+    @Test("Malformed, mismatched and unsupported paths are rejected before mutation")
+    func rejectsUnsafeMutationIDs() {
+        let rejected: [(String, MusicSourceType)] = [
+            ("", .navidrome),
+            ("/", .navidrome),
+            ("/songs/", .navidrome),
+            ("songs/song.mp3", .navidrome),
+            ("/songs/nested/song.mp3", .navidrome),
+            ("/albums/album-id.mp3", .navidrome),
+            ("/items/emby-item.mp3", .navidrome),
+            ("/songs/navidrome-song.mp3", .emby),
+            ("/songs/airsonic-song.mp3", .airsonic),
+            ("/songs/gonic-song.mp3", .gonic),
+            ("/songs/.mp3", .subsonic),
+        ]
+
+        for (path, sourceType) in rejected {
+            #expect(ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: path,
+                sourceType: sourceType
+            ) == nil)
+        }
+    }
+}
+
 @Suite("Source-owned artwork identity")
 struct SourceOwnedArtworkReferenceTests {
     @Test("Source and connector reference round-trip without exposing URL syntax")

@@ -1415,6 +1415,51 @@ public enum ServerPlaylistIdentity {
     }
 }
 
+/// Fail-closed capability and identity rules for favorite mutations.
+///
+/// Playlist reconciliation can tolerate a best-effort item ID because it is a
+/// read-only match. A favorite mutation cannot: sending a directory, album or
+/// artist ID to a server would modify the wrong object. Only connector paths
+/// emitted for supported song sources are accepted here.
+public enum ServerFavoriteWritebackPolicy {
+    public static func supports(_ sourceType: MusicSourceType) -> Bool {
+        switch sourceType {
+        case .emby, .navidrome, .subsonic:
+            return true
+        default:
+            return false
+        }
+    }
+
+    public static func songID(
+        fromConnectorPath filePath: String,
+        sourceType: MusicSourceType
+    ) -> String? {
+        let directory: String
+        switch sourceType {
+        case .emby:
+            directory = "items"
+        case .navidrome, .subsonic:
+            directory = "songs"
+        default:
+            return nil
+        }
+
+        let prefix = "/\(directory)/"
+        guard filePath.hasPrefix(prefix) else { return nil }
+        let fileName = String(filePath.dropFirst(prefix.count))
+        guard !fileName.isEmpty,
+              !fileName.contains("/"),
+              !fileName.hasPrefix("."),
+              !fileName.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+        else { return nil }
+
+        let itemID = (fileName as NSString).deletingPathExtension
+        guard !itemID.isEmpty, itemID != ".", itemID != ".." else { return nil }
+        return itemID
+    }
+}
+
 /// Pure reconciliation rule shared by server-playlist sync and its tests.
 /// A mirror survives pruning when its detail was synchronized successfully or
 /// when the server listed it but its detail fetch failed in this snapshot.

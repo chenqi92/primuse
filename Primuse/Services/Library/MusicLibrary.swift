@@ -2108,10 +2108,10 @@ final class MusicLibrary {
     /// Set by `AppServices` at startup; nil-safe for tests.
     var sourceIdentityResolver: ((_ sourceID: String) -> String?)?
 
-    /// AppServices wires Emby favorite persistence here. Local liked state is
-    /// updated synchronously for responsive UI; the handler confirms it with
-    /// the server and can reconcile or roll it back without triggering a
-    /// second mutation.
+    /// AppServices wires supported server-favorite persistence here. Local
+    /// liked state is updated synchronously for responsive UI; the handler
+    /// confirms it with the server and can reconcile or roll it back without
+    /// triggering a second mutation.
     @ObservationIgnored
     var likedStateMutationHandler: ((_ song: Song, _ previous: Bool, _ desired: Bool) -> Void)?
     private(set) var serverFavoriteErrorMessage: String?
@@ -2399,7 +2399,8 @@ final class MusicLibrary {
 
     init(
         fileManager: FileManager = .default,
-        disabledSourceIDs: Set<String> = []
+        disabledSourceIDs: Set<String> = [],
+        storageDirectory: URL? = nil
     ) {
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / SourcesStore 同目录。
         #if os(tvOS)
@@ -2407,7 +2408,8 @@ final class MusicLibrary {
         #else
         let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         #endif
-        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        let directory = storageDirectory
+            ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
@@ -3857,6 +3859,18 @@ final class MusicLibrary {
     /// duplicate IDs are ignored exactly as repeated calls to `add` did, but
     /// the playlist is published and persisted only once.
     func add(songIDs: [String], toPlaylist playlistID: String) {
+        add(
+            songIDs: songIDs,
+            toPlaylist: playlistID,
+            propagatesLikedMutation: true
+        )
+    }
+
+    private func add(
+        songIDs: [String],
+        toPlaylist playlistID: String,
+        propagatesLikedMutation: Bool
+    ) {
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
@@ -3866,11 +3880,17 @@ final class MusicLibrary {
         var entries = playlistSongIDs[playlistID] ?? []
         var seen = Set(entries)
         var changed = false
+        var changedSongs: [Song] = []
         entries.reserveCapacity(entries.count + songIDs.count)
         for songID in songIDs where songIndexByID[songID] != nil {
             if seen.insert(songID).inserted {
                 entries.append(songID)
                 changed = true
+                if playlistID == Self.likedSongsPlaylistID,
+                   propagatesLikedMutation,
+                   let songIndex = songIndexByID[songID] {
+                    changedSongs.append(songs[songIndex])
+                }
             }
         }
         guard changed else { return }
@@ -3881,6 +3901,9 @@ final class MusicLibrary {
         persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
+        for song in changedSongs {
+            likedStateMutationHandler?(song, false, true)
+        }
     }
 
     private func validUniqueSongIDs(_ songIDs: [String]) -> [String] {
@@ -3924,24 +3947,29 @@ final class MusicLibrary {
         isLiked desired: Bool,
         propagatesServerMutation: Bool
     ) {
-        guard let song = song(id: songID) else { return }
+        guard song(id: songID) != nil else { return }
         let previous = isLiked(songID: songID)
         guard previous != desired else { return }
 
         ensureLikedPlaylist()
         if desired {
-            add(songID: songID, toPlaylist: Self.likedSongsPlaylistID)
+            add(
+                songIDs: [songID],
+                toPlaylist: Self.likedSongsPlaylistID,
+                propagatesLikedMutation: propagatesServerMutation
+            )
         } else {
-            remove(songID: songID, fromPlaylist: Self.likedSongsPlaylistID)
-        }
-        if propagatesServerMutation {
-            likedStateMutationHandler?(song, previous, desired)
+            remove(
+                songIDs: [songID],
+                fromPlaylist: Self.likedSongsPlaylistID,
+                propagatesLikedMutation: propagatesServerMutation
+            )
         }
     }
 
     /// Replaces only the liked membership owned by one source. Other local or
-    /// server sources retain their entries, while an authoritative empty Emby
-    /// snapshot removes stale likes from that Emby account.
+    /// server sources retain their entries, while an authoritative empty
+    /// server snapshot removes stale likes from that account.
     func replaceLikedSongs(
         fromSourceID sourceID: String,
         with authoritativeSongIDs: [String]
@@ -3987,6 +4015,18 @@ final class MusicLibrary {
     /// 批量移除。逐首调用会按条数重复 sortPlaylists / persistSnapshot / 发通知,
     /// 在歌单里一次移除几十首时那是几十轮全量落盘 + 视图重建。
     func remove(songIDs: [String], fromPlaylist playlistID: String) {
+        remove(
+            songIDs: songIDs,
+            fromPlaylist: playlistID,
+            propagatesLikedMutation: true
+        )
+    }
+
+    private func remove(
+        songIDs: [String],
+        fromPlaylist playlistID: String,
+        propagatesLikedMutation: Bool
+    ) {
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
@@ -3995,6 +4035,7 @@ final class MusicLibrary {
 
         let removalSet = Set(songIDs)
         var entries = playlistSongIDs[playlistID] ?? []
+        let removedSongIDs = entries.filter { removalSet.contains($0) }
         let originalCount = entries.count
         entries.removeAll { removalSet.contains($0) }
         guard entries.count != originalCount else { return }
@@ -4005,6 +4046,12 @@ final class MusicLibrary {
         persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
+        if playlistID == Self.likedSongsPlaylistID, propagatesLikedMutation {
+            for songID in removedSongIDs {
+                guard let songIndex = songIndexByID[songID] else { continue }
+                likedStateMutationHandler?(songs[songIndex], true, false)
+            }
+        }
     }
 
     // MARK: - Cloud sync hooks

@@ -2997,8 +2997,9 @@
 "player_blur_inactive_lyrics" = "非当前歌词模糊";
 "player_blur_inactive_lyrics_description" = "轻微模糊当前行以外的同步歌词，突出正在播放的歌词。";
 "server_favorite_unsupported" = "此来源不支持服务端收藏。";
-"server_favorite_refresh_mismatch" = "Emby 返回的收藏状态与请求不一致。";
+"server_favorite_refresh_mismatch" = "服务端返回的收藏状态与请求不一致。";
+"server_favorite_missing_song_id" = "歌曲缺少可用的服务端 ID。";
 "server_favorite_update_failed_title" = "无法更新收藏";
-"server_favorite_update_failed_message" = "未能更新 Emby 收藏，已重新同步或恢复先前状态。\n%@";
+"server_favorite_update_failed_message" = "未能更新服务端收藏，已重新同步或恢复先前状态。\n%@";
 "lock_screen_lyrics" = "锁屏歌词";
 "lock_screen_lyrics_desc" = "在系统正在播放面板中用当前同步歌词替代标题；控制中心、蓝牙和车载界面也可能显示歌词。";

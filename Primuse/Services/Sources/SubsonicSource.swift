@@ -15,7 +15,7 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
-    ServerPlaylistConnector, ServerRadioConnector {
+    ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector {
     let sourceID: String
 
     private let baseURL: URL          // 形如 https://host:4533 (+ basePath), 不含 /rest
@@ -27,6 +27,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var usesEncodedPassword: Bool
     private let session: URLSession
     private let cacheDirectory: URL
+    private let mirrorsStarredSongsAsPlaylist: Bool
 
     private var isConnected = false
     /// 服务端类型与 OpenSubsonic 能力 —— 从 ping 响应读。决定歌词走 OpenSubsonic
@@ -53,7 +54,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         basePath: String?,
         username: String,
         password: String,
-        alternateTLSValidationHostname: String? = nil
+        alternateTLSValidationHostname: String? = nil,
+        session: URLSession? = nil
     ) {
         self.sourceID = sourceID
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
@@ -65,31 +67,36 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         // 但仍支持规范中的 `p=enc:<UTF-8 hex>` 形式。
         self.encodedPassword = Self.hexEncoded(password)
         self.usesEncodedPassword = sourceType == .airsonic
+        self.mirrorsStarredSongsAsPlaylist = sourceType == .airsonic || sourceType == .gonic
         let salt = Self.randomSalt()
         self.salt = salt
         self.token = Self.md5Hex(password + salt)
 
-        let configuration = URLSessionConfiguration.default
-        // Matches WebDAV / Synology / S3: a catalogue page is 500 songs of JSON
-        // and a full walk is one request per page, which needs more than a
-        // LAN-sized budget over the public internet.
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 600
-        configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        // 家用 Navidrome 常用自签 HTTPS, 复用全局 SmartSSLDelegate 放行受信任证书。
-        self.session = URLSession(
-            configuration: configuration,
-            delegate: SmartSSLDelegate(
-                redirectPolicy: .sameEndpoint,
-                alternateServerTrustHostname: alternateTLSValidationHostname,
-                alternateServerTrustEndpoint: NetworkEndpointIdentity(
-                    scheme: useSsl ? "https" : "http",
-                    host: host,
-                    port: port
-                )
-            ),
-            delegateQueue: nil
-        )
+        if let session {
+            self.session = session
+        } else {
+            let configuration = URLSessionConfiguration.default
+            // Matches WebDAV / Synology / S3: a catalogue page is 500 songs of JSON
+            // and a full walk is one request per page, which needs more than a
+            // LAN-sized budget over the public internet.
+            configuration.timeoutIntervalForRequest = 60
+            configuration.timeoutIntervalForResource = 600
+            configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
+            // 家用 Navidrome 常用自签 HTTPS, 复用全局 SmartSSLDelegate 放行受信任证书。
+            self.session = URLSession(
+                configuration: configuration,
+                delegate: SmartSSLDelegate(
+                    redirectPolicy: .sameEndpoint,
+                    alternateServerTrustHostname: alternateTLSValidationHostname,
+                    alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                        scheme: useSsl ? "https" : "http",
+                        host: host,
+                        port: port
+                    )
+                ),
+                delegateQueue: nil
+            )
+        }
 
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_subsonic_cache_\(sourceID)")
@@ -678,29 +685,29 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             ))
         }
 
-        // Subsonic favorites are annotations, not ordinary playlists, so they
-        // never appear in getPlaylists. Mirror starred songs as one read-only
-        // source playlist. Navidrome, Airsonic and gonic all expose this through
-        // getStarred2; a temporarily unavailable endpoint must preserve an
-        // existing mirror without blocking the normal playlist snapshot.
-        do {
-            let starred: Starred2Container = try await requestJSON("getStarred2")
-            let songs = starred.starred2?.song ?? []
-            if !songs.isEmpty {
-                result.append(ServerPlaylist(
-                    id: Self.starredPlaylistID,
-                    name: String(localized: "playlist_liked_name"),
-                    coverArtReference: songs.first?.coverArt.flatMap { coverArtURLString(for: $0) },
-                    trackIDs: songs.map(\.id),
-                    reportedTrackCount: songs.count
-                ))
+        // Airsonic/gonic retain the legacy read-only mirror. Navidrome and the
+        // explicit Subsonic source now reconcile getStarred2 into Primuse's
+        // system liked playlist, so emitting a second mirror would duplicate it.
+        if mirrorsStarredSongsAsPlaylist {
+            do {
+                let starred: Starred2Container = try await requestJSON("getStarred2")
+                let songs = starred.starred2?.song ?? []
+                if !songs.isEmpty {
+                    result.append(ServerPlaylist(
+                        id: Self.starredPlaylistID,
+                        name: String(localized: "playlist_liked_name"),
+                        coverArtReference: songs.first?.coverArt.flatMap { coverArtURLString(for: $0) },
+                        trackIDs: songs.map(\.id),
+                        reportedTrackCount: songs.count
+                    ))
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try Task.checkCancellation()
+                failedPlaylistIDs.insert(Self.starredPlaylistID)
+                plog("⚠️ Subsonic getStarred2 failed: \(error.localizedDescription)")
             }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Task.checkCancellation()
-            failedPlaylistIDs.insert(Self.starredPlaylistID)
-            plog("⚠️ Subsonic getStarred2 failed: \(error.localizedDescription)")
         }
         return ServerPlaylistSnapshot(
             playlists: result,
@@ -709,6 +716,41 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private static let starredPlaylistID = "primuse.subsonic.starred-songs"
+
+    // MARK: - Server favorites
+
+    func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
+        try await connect()
+        return try await fetchServerFavoriteSnapshot()
+    }
+
+    func setServerFavorite(
+        itemID: String,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot {
+        try await connect()
+        guard !itemID.isEmpty,
+              !itemID.contains("/"),
+              !itemID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+        else {
+            throw SourceError.fileNotFound(itemID)
+        }
+
+        let _: EmptyContainer = try await requestJSON(
+            isFavorite ? "star" : "unstar",
+            query: [URLQueryItem(name: "id", value: itemID)]
+        )
+        let refreshed = try await fetchServerFavoriteSnapshot()
+        guard refreshed.itemIDs.contains(itemID) == isFavorite else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_refresh_mismatch"))
+        }
+        return refreshed
+    }
+
+    private func fetchServerFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
+        let starred: Starred2Container = try await requestJSON("getStarred2")
+        return ServerFavoriteSnapshot(itemIDs: (starred.starred2?.song ?? []).map(\.id))
+    }
 
     // MARK: - Internet radio
 
@@ -1088,6 +1130,11 @@ private struct PingContainer: SubsonicResponseContainer {
     let error: SubsonicError?
     let type: String?            // "navidrome" / "airsonic" / "gonic" / ...
     let openSubsonic: Bool?
+}
+
+private struct EmptyContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
 }
 
 private struct GetSongContainer: SubsonicResponseContainer {

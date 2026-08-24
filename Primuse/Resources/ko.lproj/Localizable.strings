@@ -2893,8 +2893,9 @@
 "player_blur_inactive_lyrics" = "현재 외 가사 흐리게";
 "player_blur_inactive_lyrics_description" = "현재 줄을 강조하도록 현재 줄 이외의 동기화된 가사를 살짝 흐리게 표시합니다.";
 "server_favorite_unsupported" = "이 소스는 서버 즐겨찾기를 지원하지 않습니다.";
-"server_favorite_refresh_mismatch" = "Emby가 반환한 즐겨찾기 상태가 요청과 일치하지 않습니다.";
+"server_favorite_refresh_mismatch" = "서버가 반환한 즐겨찾기 상태가 요청과 일치하지 않습니다.";
+"server_favorite_missing_song_id" = "곡에 사용할 수 있는 서버 ID가 없습니다.";
 "server_favorite_update_failed_title" = "즐겨찾기를 업데이트할 수 없음";
-"server_favorite_update_failed_message" = "Emby 즐겨찾기를 업데이트하지 못했습니다. Primuse가 상태를 다시 동기화하거나 이전 상태로 복원했습니다.\n%@";
+"server_favorite_update_failed_message" = "서버 즐겨찾기를 업데이트하지 못했습니다. Primuse가 상태를 다시 동기화하거나 이전 상태로 복원했습니다.\n%@";
 "lock_screen_lyrics" = "잠금 화면 가사";
 "lock_screen_lyrics_desc" = "현재 동기화된 가사를 시스템 재생 화면의 제목으로 표시합니다. 제어 센터, Bluetooth 및 차량 화면에도 가사가 표시될 수 있습니다.";

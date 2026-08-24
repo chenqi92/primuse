@@ -144,31 +144,71 @@ enum ServerPlaylistSyncService {
     }
 }
 
-/// Keeps Primuse's liked playlist and Emby's per-user favorite annotations in
+@MainActor
+protocol ServerFavoriteManaging: AnyObject {
+    func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot?
+    func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot?
+    func setServerFavorite(for song: Song, isFavorite: Bool) async throws -> ServerFavoriteSnapshot?
+}
+
+extension SourceManager: ServerFavoriteManaging {}
+
+@MainActor
+protocol ServerFavoriteSourcesProviding: AnyObject {
+    func source(id: String) -> MusicSource?
+}
+
+extension SourcesStore: ServerFavoriteSourcesProviding {}
+
+@MainActor
+protocol ServerFavoriteLibraryManaging: AnyObject {
+    var songs: [Song] { get }
+    func isLiked(songID: String) -> Bool
+    func setLiked(songID: String, isLiked: Bool, propagatesServerMutation: Bool)
+    func replaceLikedSongs(fromSourceID sourceID: String, with authoritativeSongIDs: [String])
+    func presentServerFavoriteError(_ message: String)
+}
+
+extension MusicLibrary: ServerFavoriteLibraryManaging {}
+
+@MainActor
+protocol ServerFavoriteSurfacePublishing: AnyObject {
+    func republishNowPlayingSurfaces()
+}
+
+extension AudioPlayerService: ServerFavoriteSurfacePublishing {}
+
+/// Keeps Primuse's liked playlist and supported server favorite annotations in
 /// one state. UI changes are optimistic, but mutations are serialized per
 /// source and confirmed by an authoritative refresh. A rejected or ambiguous
-/// write is reconciled from Emby when possible and otherwise rolled back.
+/// write is reconciled from the server when possible and otherwise rolled back
+/// to the last state that was authoritatively confirmed.
 @MainActor
 final class ServerFavoriteSyncService {
     private struct PendingMutation {
         let song: Song
-        let itemID: String?
+        let itemID: String
+        let sourceType: MusicSourceType
         let previous: Bool
         let desired: Bool
     }
 
-    private let sourceManager: SourceManager
-    private let sourcesStore: SourcesStore
-    private let library: MusicLibrary
-    private weak var player: AudioPlayerService?
+    private let sourceManager: any ServerFavoriteManaging
+    private let sourcesStore: any ServerFavoriteSourcesProviding
+    private let library: any ServerFavoriteLibraryManaging
+    private weak var player: (any ServerFavoriteSurfacePublishing)?
     private var pendingMutations: [String: [String: PendingMutation]] = [:]
     private var mutationTasks: [String: Task<Void, Never>] = [:]
+    /// Last state confirmed by a mutation response or recovery read. It spans
+    /// a rapid sequence for one song so consecutive failures never roll back
+    /// to another optimistic UI value.
+    private var confirmedStates: [String: [String: Bool]] = [:]
 
     init(
-        sourceManager: SourceManager,
-        sourcesStore: SourcesStore,
-        library: MusicLibrary,
-        player: AudioPlayerService
+        sourceManager: any ServerFavoriteManaging,
+        sourcesStore: any ServerFavoriteSourcesProviding,
+        library: any ServerFavoriteLibraryManaging,
+        player: any ServerFavoriteSurfacePublishing
     ) {
         self.sourceManager = sourceManager
         self.sourcesStore = sourcesStore
@@ -177,14 +217,39 @@ final class ServerFavoriteSyncService {
     }
 
     func localLikedStateDidChange(song: Song, previous: Bool, desired: Bool) {
-        guard sourcesStore.sources.contains(where: {
-            $0.id == song.sourceID && $0.type == .emby && $0.isEnabled && !$0.isDeleted
-        }) else { return }
+        guard let source = sourcesStore.source(id: song.sourceID),
+              ServerFavoriteWritebackPolicy.supports(source.type) else { return }
+        guard source.isEnabled, !source.isDeleted else {
+            failImmediately(
+                song: song,
+                previous: previous,
+                desired: desired,
+                error: SourceError.fileNotFound("Source not found for favorite update")
+            )
+            return
+        }
+        guard let itemID = ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: song.filePath,
+            sourceType: source.type
+        ) else {
+            failImmediately(
+                song: song,
+                previous: previous,
+                desired: desired,
+                error: SourceError.fileNotFound(String(localized: "server_favorite_missing_song_id"))
+            )
+            return
+        }
+
+        if confirmedState(sourceID: song.sourceID, songID: song.id) == nil {
+            setConfirmedState(previous, sourceID: song.sourceID, songID: song.id)
+        }
 
         var sourceMutations = pendingMutations[song.sourceID] ?? [:]
         sourceMutations[song.id] = PendingMutation(
             song: song,
-            itemID: ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
+            itemID: itemID,
+            sourceType: source.type,
             previous: previous,
             desired: desired
         )
@@ -200,15 +265,23 @@ final class ServerFavoriteSyncService {
     }
 
     func refresh(source: MusicSource) async {
-        guard source.type == .emby else { return }
+        guard ServerFavoriteWritebackPolicy.supports(source.type),
+              source.isEnabled, !source.isDeleted else { return }
         do {
             guard let snapshot = try await sourceManager.fetchServerFavorites(for: source) else { return }
             guard mutationTasks[source.id] == nil else { return }
-            reconcile(snapshot, sourceID: source.id)
+            reconcile(snapshot, sourceID: source.id, sourceType: source.type)
+            confirmedStates.removeValue(forKey: source.id)
         } catch is CancellationError {
             return
         } catch {
-            plog("⚠️ Emby favorite refresh failed for '\(source.name)': \(error.localizedDescription)")
+            plog("⚠️ Server favorite refresh failed for '\(source.name)': \(error.localizedDescription)")
+        }
+    }
+
+    func waitForPendingMutations(sourceID: String) async {
+        while let task = mutationTasks[sourceID] {
+            await task.value
         }
     }
 
@@ -218,14 +291,13 @@ final class ServerFavoriteSyncService {
                 guard let snapshot = try await sourceManager.setServerFavorite(
                     for: mutation.song,
                     isFavorite: mutation.desired
-                ) else { continue }
-                if hasPendingMutations(sourceID: sourceID) == false {
-                    reconcile(snapshot, sourceID: sourceID)
-                    player?.republishNowPlayingSurfaces()
+                ) else {
+                    throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
                 }
+                try accept(snapshot, for: mutation, sourceID: sourceID)
             } catch is CancellationError {
-                if pendingMutations[sourceID]?[mutation.song.id] == nil {
-                    rollbackIfCurrent(mutation)
+                if !hasPendingMutation(sourceID: sourceID, songID: mutation.song.id) {
+                    rollbackToConfirmedState(mutation, sourceID: sourceID)
                 }
             } catch {
                 await recover(mutation, error: error, sourceID: sourceID)
@@ -238,54 +310,94 @@ final class ServerFavoriteSyncService {
         error: Error,
         sourceID: String
     ) async {
-        if pendingMutations[sourceID]?[mutation.song.id] != nil {
-            return
-        }
-
         let recoveredSnapshot = try? await sourceManager.fetchServerFavorites(sourceID: sourceID)
-        if pendingMutations[sourceID]?[mutation.song.id] != nil {
-            return
-        }
-
         if let snapshot = recoveredSnapshot {
-            let serverValue = mutation.itemID.map { snapshot.itemIDs.contains($0) } ?? mutation.previous
+            let serverValue = snapshot.itemIDs.contains(mutation.itemID)
+            setConfirmedState(serverValue, sourceID: sourceID, songID: mutation.song.id)
+
+            if hasPendingMutation(sourceID: sourceID, songID: mutation.song.id) {
+                return
+            }
             if hasPendingMutations(sourceID: sourceID) {
                 library.setLiked(
                     songID: mutation.song.id,
                     isLiked: serverValue,
                     propagatesServerMutation: false
                 )
+                clearConfirmedState(sourceID: sourceID, songID: mutation.song.id)
             } else {
-                reconcile(snapshot, sourceID: sourceID)
+                reconcile(snapshot, sourceID: sourceID, sourceType: mutation.sourceType)
+                confirmedStates.removeValue(forKey: sourceID)
             }
             player?.republishNowPlayingSurfaces()
             if serverValue == mutation.desired {
                 return
             }
+        } else if hasPendingMutation(sourceID: sourceID, songID: mutation.song.id) {
+            return
         } else {
-            rollbackIfCurrent(mutation)
+            rollbackToConfirmedState(mutation, sourceID: sourceID)
         }
 
-        library.presentServerFavoriteError(String(
-            format: String(localized: "server_favorite_update_failed_message"),
-            error.localizedDescription
-        ))
+        presentFailure(error)
     }
 
-    private func rollbackIfCurrent(_ mutation: PendingMutation) {
-        guard library.isLiked(songID: mutation.song.id) == mutation.desired else { return }
-        library.setLiked(
-            songID: mutation.song.id,
-            isLiked: mutation.previous,
-            propagatesServerMutation: false
-        )
+    private func accept(
+        _ snapshot: ServerFavoriteSnapshot,
+        for mutation: PendingMutation,
+        sourceID: String
+    ) throws {
+        let serverValue = snapshot.itemIDs.contains(mutation.itemID)
+        guard serverValue == mutation.desired else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_refresh_mismatch"))
+        }
+        setConfirmedState(serverValue, sourceID: sourceID, songID: mutation.song.id)
+
+        if hasPendingMutation(sourceID: sourceID, songID: mutation.song.id) {
+            return
+        }
+        if hasPendingMutations(sourceID: sourceID) {
+            library.setLiked(
+                songID: mutation.song.id,
+                isLiked: serverValue,
+                propagatesServerMutation: false
+            )
+            clearConfirmedState(sourceID: sourceID, songID: mutation.song.id)
+        } else {
+            reconcile(snapshot, sourceID: sourceID, sourceType: mutation.sourceType)
+            confirmedStates.removeValue(forKey: sourceID)
+        }
         player?.republishNowPlayingSurfaces()
     }
 
-    private func reconcile(_ snapshot: ServerFavoriteSnapshot, sourceID: String) {
+    private func rollbackToConfirmedState(_ mutation: PendingMutation, sourceID: String) {
+        let confirmed = confirmedState(sourceID: sourceID, songID: mutation.song.id)
+            ?? mutation.previous
+        let shouldRollback = library.isLiked(songID: mutation.song.id) == mutation.desired
+        if shouldRollback {
+            library.setLiked(
+                songID: mutation.song.id,
+                isLiked: confirmed,
+                propagatesServerMutation: false
+            )
+        }
+        clearConfirmedState(sourceID: sourceID, songID: mutation.song.id)
+        if shouldRollback {
+            player?.republishNowPlayingSurfaces()
+        }
+    }
+
+    private func reconcile(
+        _ snapshot: ServerFavoriteSnapshot,
+        sourceID: String,
+        sourceType: MusicSourceType
+    ) {
         var songsByServerItemID: [String: String] = [:]
         for song in library.songs where song.sourceID == sourceID {
-            guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
+            guard let itemID = ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: song.filePath,
+                sourceType: sourceType
+            ),
                   songsByServerItemID[itemID] == nil else { continue }
             songsByServerItemID[itemID] = song.id
         }
@@ -309,5 +421,52 @@ final class ServerFavoriteSyncService {
 
     private func hasPendingMutations(sourceID: String) -> Bool {
         pendingMutations[sourceID]?.isEmpty == false
+    }
+
+    private func hasPendingMutation(sourceID: String, songID: String) -> Bool {
+        pendingMutations[sourceID]?[songID] != nil
+    }
+
+    private func confirmedState(sourceID: String, songID: String) -> Bool? {
+        confirmedStates[sourceID]?[songID]
+    }
+
+    private func setConfirmedState(_ value: Bool, sourceID: String, songID: String) {
+        var sourceStates = confirmedStates[sourceID] ?? [:]
+        sourceStates[songID] = value
+        confirmedStates[sourceID] = sourceStates
+    }
+
+    private func clearConfirmedState(sourceID: String, songID: String) {
+        guard var sourceStates = confirmedStates[sourceID] else { return }
+        sourceStates.removeValue(forKey: songID)
+        if sourceStates.isEmpty {
+            confirmedStates.removeValue(forKey: sourceID)
+        } else {
+            confirmedStates[sourceID] = sourceStates
+        }
+    }
+
+    private func failImmediately(
+        song: Song,
+        previous: Bool,
+        desired: Bool,
+        error: Error
+    ) {
+        guard library.isLiked(songID: song.id) == desired else { return }
+        library.setLiked(
+            songID: song.id,
+            isLiked: previous,
+            propagatesServerMutation: false
+        )
+        player?.republishNowPlayingSurfaces()
+        presentFailure(error)
+    }
+
+    private func presentFailure(_ error: Error) {
+        library.presentServerFavoriteError(String(
+            format: String(localized: "server_favorite_update_failed_message"),
+            error.localizedDescription
+        ))
     }
 }

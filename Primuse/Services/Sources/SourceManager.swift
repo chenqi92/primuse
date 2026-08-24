@@ -909,7 +909,8 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerRadioConnector {
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
+    ServerRadioConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -921,6 +922,30 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerFavoriteConnector else {
+                throw SourceError.connectionFailed("Server favorite connector unavailable")
+            }
+            return try await provider.fetchServerFavorites()
+        }
+    }
+
+    func setServerFavorite(
+        itemID: String,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerFavoriteConnector else {
+                throw SourceError.connectionFailed("Server favorite connector unavailable")
+            }
+            return try await provider.setServerFavorite(
+                itemID: itemID,
+                isFavorite: isFavorite
+            )
         }
     }
 
@@ -5365,7 +5390,7 @@ final class SourceManager {
     }
 
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
-        guard source.type == .emby,
+        guard ServerFavoriteWritebackPolicy.supports(source.type),
               let conn = connector(for: source) as? any ServerFavoriteConnector else { return nil }
         return try await conn.fetchServerFavorites()
     }
@@ -5390,8 +5415,11 @@ final class SourceManager {
         }) else {
             throw SourceError.fileNotFound("Source not found for favorite update")
         }
-        guard source.type == .emby else { return nil }
-        guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) else {
+        guard ServerFavoriteWritebackPolicy.supports(source.type) else { return nil }
+        guard let itemID = ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: song.filePath,
+            sourceType: source.type
+        ) else {
             throw SourceError.fileNotFound(song.filePath)
         }
         guard let conn = connector(for: source) as? any ServerFavoriteConnector else {

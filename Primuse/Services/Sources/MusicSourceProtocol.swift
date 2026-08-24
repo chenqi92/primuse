@@ -876,9 +876,10 @@ struct ServerFavoriteSnapshot: Sendable {
     }
 }
 
-/// Emby exposes favorites through user-item APIs instead of playlist APIs.
-/// The mutation returns a fresh authoritative snapshot so callers can recover
-/// from stale UI state and verify that the server accepted the requested value.
+/// Server-side favorite annotations exposed independently from playlists.
+/// Emby uses its user-item API; Navidrome/Subsonic use star/unstar with a song
+/// `id`. The mutation returns a fresh authoritative snapshot so callers can
+/// recover from stale UI state and verify that the server accepted the value.
 protocol ServerFavoriteConnector: MusicSourceConnector {
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot

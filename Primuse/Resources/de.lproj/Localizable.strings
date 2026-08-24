@@ -2893,8 +2893,9 @@
 "player_blur_inactive_lyrics" = "Inaktiven Liedtext weichzeichnen";
 "player_blur_inactive_lyrics_description" = "Synchronisierte Liedtexte außer der aktuellen Zeile werden leicht weichgezeichnet, damit die aktuelle Zeile hervorsticht.";
 "server_favorite_unsupported" = "Diese Quelle unterstützt keine Serverfavoriten.";
-"server_favorite_refresh_mismatch" = "Der von Emby gemeldete Favoritenstatus entspricht nicht der Anfrage.";
+"server_favorite_refresh_mismatch" = "Der vom Server gemeldete Favoritenstatus entspricht nicht der Anfrage.";
+"server_favorite_missing_song_id" = "Dem Titel fehlt eine verwendbare Server-ID.";
 "server_favorite_update_failed_title" = "Favorit konnte nicht aktualisiert werden";
-"server_favorite_update_failed_message" = "Der Emby-Favorit konnte nicht aktualisiert werden. Primuse hat den Status neu synchronisiert oder wiederhergestellt.\n%@";
+"server_favorite_update_failed_message" = "Der Serverfavorit konnte nicht aktualisiert werden. Primuse hat den Status neu synchronisiert oder wiederhergestellt.\n%@";
 "lock_screen_lyrics" = "Liedtext auf dem Sperrbildschirm";
 "lock_screen_lyrics_desc" = "Zeigt die aktuelle synchronisierte Liedzeile als Titel in der systemweiten Wiedergabeansicht. Auch Kontrollzentrum, Bluetooth- und Fahrzeuganzeigen können den Liedtext anzeigen.";
