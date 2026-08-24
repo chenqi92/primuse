@@ -2986,3 +2986,7 @@
 "player_lyrics_alignment_right" = "右对齐";
 "player_blur_inactive_lyrics" = "非当前歌词模糊";
 "player_blur_inactive_lyrics_description" = "轻微模糊当前行以外的同步歌词，突出正在播放的歌词。";
+"server_favorite_unsupported" = "此来源不支持服务端收藏。";
+"server_favorite_refresh_mismatch" = "Emby 返回的收藏状态与请求不一致。";
+"server_favorite_update_failed_title" = "无法更新收藏";
+"server_favorite_update_failed_message" = "未能更新 Emby 收藏，已重新同步或恢复先前状态。\n%@";

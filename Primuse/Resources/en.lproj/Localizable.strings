@@ -2669,3 +2669,7 @@
 "player_lyrics_alignment_right" = "Right";
 "player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
 "player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";
+"server_favorite_unsupported" = "This source does not support server favorites.";
+"server_favorite_refresh_mismatch" = "Emby returned a favorite state that did not match the request.";
+"server_favorite_update_failed_title" = "Couldn’t Update Favorite";
+"server_favorite_update_failed_message" = "The Emby favorite could not be updated. Primuse resynced or restored the previous state.\n%@";

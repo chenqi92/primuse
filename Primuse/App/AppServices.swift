@@ -29,6 +29,7 @@ final class AppServices {
     let crashDiagnostics: CrashDiagnosticsService
     let duplicateCleanup: DuplicateCleanupService
     let batchRemoval: SongBatchRemovalService
+    let serverFavoriteSync: ServerFavoriteSyncService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
     private struct SourceCleanupRequest {
@@ -97,6 +98,12 @@ final class AppServices {
             manager?.setAutomaticAudioCachingEnabled(enabled)
         }
         let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
+        let favoriteSync = ServerFavoriteSyncService(
+            sourceManager: manager,
+            sourcesStore: store,
+            library: library,
+            player: player
+        )
         let sync = CloudKitSyncService(
             library: library,
             sourcesStore: store,
@@ -115,6 +122,7 @@ final class AppServices {
         self.musicLibrary = library
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
+        self.serverFavoriteSync = favoriteSync
         let theme = ThemeService()
         // 启动时同时恢复固定回退色、主题色来源与封面氛围偏好。
         #if os(iOS)
@@ -140,6 +148,16 @@ final class AppServices {
                 source: source,
                 sourceManager: manager,
                 store: radioStore
+            )
+        }
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync] source in
+            await favoriteSync?.refresh(source: source)
+        }
+        library.likedStateMutationHandler = { [weak favoriteSync] song, previous, desired in
+            favoriteSync?.localLikedStateDidChange(
+                song: song,
+                previous: previous,
+                desired: desired
             )
         }
         self.scanService = scanService

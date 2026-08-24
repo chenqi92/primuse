@@ -2108,6 +2108,14 @@ final class MusicLibrary {
     /// Set by `AppServices` at startup; nil-safe for tests.
     var sourceIdentityResolver: ((_ sourceID: String) -> String?)?
 
+    /// AppServices wires Emby favorite persistence here. Local liked state is
+    /// updated synchronously for responsive UI; the handler confirms it with
+    /// the server and can reconcile or roll it back without triggering a
+    /// second mutation.
+    @ObservationIgnored
+    var likedStateMutationHandler: ((_ song: Song, _ previous: Bool, _ desired: Bool) -> Void)?
+    private(set) var serverFavoriteErrorMessage: String?
+
     private func identityKey(for song: Song) -> String {
         let prefix = sourceIdentityResolver?(song.sourceID) ?? song.sourceID
         return "\(prefix):\(song.filePath)"
@@ -3903,16 +3911,73 @@ final class MusicLibrary {
     }
 
     func toggleLiked(songID: String) {
-        ensureLikedPlaylist()
-        if isLiked(songID: songID) {
-            remove(songID: songID, fromPlaylist: Self.likedSongsPlaylistID)
-        } else {
-            add(songID: songID, toPlaylist: Self.likedSongsPlaylistID)
-        }
+        let previous = isLiked(songID: songID)
+        setLiked(songID: songID, isLiked: !previous, propagatesServerMutation: true)
     }
 
     func isLiked(songID: String) -> Bool {
         contains(songID: songID, inPlaylist: Self.likedSongsPlaylistID)
+    }
+
+    func setLiked(
+        songID: String,
+        isLiked desired: Bool,
+        propagatesServerMutation: Bool
+    ) {
+        guard let song = song(id: songID) else { return }
+        let previous = isLiked(songID: songID)
+        guard previous != desired else { return }
+
+        ensureLikedPlaylist()
+        if desired {
+            add(songID: songID, toPlaylist: Self.likedSongsPlaylistID)
+        } else {
+            remove(songID: songID, fromPlaylist: Self.likedSongsPlaylistID)
+        }
+        if propagatesServerMutation {
+            likedStateMutationHandler?(song, previous, desired)
+        }
+    }
+
+    /// Replaces only the liked membership owned by one source. Other local or
+    /// server sources retain their entries, while an authoritative empty Emby
+    /// snapshot removes stale likes from that Emby account.
+    func replaceLikedSongs(
+        fromSourceID sourceID: String,
+        with authoritativeSongIDs: [String]
+    ) {
+        let sourceSongIDs = Set(songs.lazy.filter { $0.sourceID == sourceID }.map(\.id))
+        let authoritative = validUniqueSongIDs(authoritativeSongIDs).filter {
+            sourceSongIDs.contains($0)
+        }
+        let current = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
+        var next = current.filter { !sourceSongIDs.contains($0) }
+        let retained = Set(next)
+        next.append(contentsOf: authoritative.filter { !retained.contains($0) })
+        guard next != current else { return }
+
+        if allPlaylists.contains(where: { $0.id == Self.likedSongsPlaylistID }) == false {
+            guard next.isEmpty == false else { return }
+            ensureLikedPlaylist()
+        }
+        guard let playlistIndex = allPlaylists.firstIndex(where: {
+            $0.id == Self.likedSongsPlaylistID && !$0.isDeleted
+        }) else { return }
+
+        playlistSongIDs[Self.likedSongsPlaylistID] = next
+        allPlaylists[playlistIndex] = stampedPlaylist(allPlaylists[playlistIndex])
+        sortPlaylists()
+        persistPlaylistDurabilityLedger()
+        persistSnapshot()
+        notifyPlaylistsChanged([Self.likedSongsPlaylistID])
+    }
+
+    func presentServerFavoriteError(_ message: String) {
+        serverFavoriteErrorMessage = message
+    }
+
+    func dismissServerFavoriteError() {
+        serverFavoriteErrorMessage = nil
     }
 
     func remove(songID: String, fromPlaylist playlistID: String) {

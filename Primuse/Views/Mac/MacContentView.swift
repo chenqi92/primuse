@@ -167,6 +167,17 @@ struct MacContentView: View {
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
+        .alert(
+            String(localized: "server_favorite_update_failed_title"),
+            isPresented: Binding(
+                get: { library.serverFavoriteErrorMessage != nil },
+                set: { if !$0 { library.dismissServerFavoriteError() } }
+            )
+        ) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(library.serverFavoriteErrorMessage ?? "")
+        }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(
                    get: { lyricsScrapeAlertMessage != nil },

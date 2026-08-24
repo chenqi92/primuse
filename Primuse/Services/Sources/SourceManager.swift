@@ -1016,6 +1016,7 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
+    ServerFavoriteConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -1029,6 +1030,30 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerFavoriteConnector else {
+                throw SourceError.connectionFailed("Server favorite connector unavailable")
+            }
+            return try await provider.fetchServerFavorites()
+        }
+    }
+
+    func setServerFavorite(
+        itemID: String,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerFavoriteConnector else {
+                throw SourceError.connectionFailed("Server favorite connector unavailable")
+            }
+            return try await provider.setServerFavorite(
+                itemID: itemID,
+                isFavorite: isFavorite
+            )
         }
     }
 
@@ -5285,6 +5310,42 @@ final class SourceManager {
     func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
         return try await conn.fetchServerPlaylists()
+    }
+
+    func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
+        guard source.type == .emby,
+              let conn = connector(for: source) as? any ServerFavoriteConnector else { return nil }
+        return try await conn.fetchServerFavorites()
+    }
+
+    func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot? {
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: {
+            $0.id == sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
+            throw SourceError.fileNotFound("Source not found for favorite refresh")
+        }
+        return try await fetchServerFavorites(for: source)
+    }
+
+    func setServerFavorite(
+        for song: Song,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot? {
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: {
+            $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
+            throw SourceError.fileNotFound("Source not found for favorite update")
+        }
+        guard source.type == .emby else { return nil }
+        guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) else {
+            throw SourceError.fileNotFound(song.filePath)
+        }
+        guard let conn = connector(for: source) as? any ServerFavoriteConnector else {
+            throw SourceError.connectionFailed("Server favorite connector unavailable")
+        }
+        return try await conn.setServerFavorite(itemID: itemID, isFavorite: isFavorite)
     }
 
     func fetchServerRadioStations(for source: MusicSource) async throws -> ServerRadioStationSnapshot? {

@@ -143,3 +143,171 @@ enum ServerPlaylistSyncService {
         return ids.filter { seen.insert($0).inserted }
     }
 }
+
+/// Keeps Primuse's liked playlist and Emby's per-user favorite annotations in
+/// one state. UI changes are optimistic, but mutations are serialized per
+/// source and confirmed by an authoritative refresh. A rejected or ambiguous
+/// write is reconciled from Emby when possible and otherwise rolled back.
+@MainActor
+final class ServerFavoriteSyncService {
+    private struct PendingMutation {
+        let song: Song
+        let itemID: String?
+        let previous: Bool
+        let desired: Bool
+    }
+
+    private let sourceManager: SourceManager
+    private let sourcesStore: SourcesStore
+    private let library: MusicLibrary
+    private weak var player: AudioPlayerService?
+    private var pendingMutations: [String: [String: PendingMutation]] = [:]
+    private var mutationTasks: [String: Task<Void, Never>] = [:]
+
+    init(
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore,
+        library: MusicLibrary,
+        player: AudioPlayerService
+    ) {
+        self.sourceManager = sourceManager
+        self.sourcesStore = sourcesStore
+        self.library = library
+        self.player = player
+    }
+
+    func localLikedStateDidChange(song: Song, previous: Bool, desired: Bool) {
+        guard sourcesStore.sources.contains(where: {
+            $0.id == song.sourceID && $0.type == .emby && $0.isEnabled && !$0.isDeleted
+        }) else { return }
+
+        var sourceMutations = pendingMutations[song.sourceID] ?? [:]
+        sourceMutations[song.id] = PendingMutation(
+            song: song,
+            itemID: ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
+            previous: previous,
+            desired: desired
+        )
+        pendingMutations[song.sourceID] = sourceMutations
+
+        guard mutationTasks[song.sourceID] == nil else { return }
+        let sourceID = song.sourceID
+        mutationTasks[sourceID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.drainMutations(sourceID: sourceID)
+            self.mutationTasks[sourceID] = nil
+        }
+    }
+
+    func refresh(source: MusicSource) async {
+        guard source.type == .emby else { return }
+        do {
+            guard let snapshot = try await sourceManager.fetchServerFavorites(for: source) else { return }
+            guard mutationTasks[source.id] == nil else { return }
+            reconcile(snapshot, sourceID: source.id)
+        } catch is CancellationError {
+            return
+        } catch {
+            plog("⚠️ Emby favorite refresh failed for '\(source.name)': \(error.localizedDescription)")
+        }
+    }
+
+    private func drainMutations(sourceID: String) async {
+        while let mutation = takeNextMutation(sourceID: sourceID) {
+            do {
+                guard let snapshot = try await sourceManager.setServerFavorite(
+                    for: mutation.song,
+                    isFavorite: mutation.desired
+                ) else { continue }
+                if hasPendingMutations(sourceID: sourceID) == false {
+                    reconcile(snapshot, sourceID: sourceID)
+                    player?.republishNowPlayingSurfaces()
+                }
+            } catch is CancellationError {
+                if pendingMutations[sourceID]?[mutation.song.id] == nil {
+                    rollbackIfCurrent(mutation)
+                }
+            } catch {
+                await recover(mutation, error: error, sourceID: sourceID)
+            }
+        }
+    }
+
+    private func recover(
+        _ mutation: PendingMutation,
+        error: Error,
+        sourceID: String
+    ) async {
+        if pendingMutations[sourceID]?[mutation.song.id] != nil {
+            return
+        }
+
+        let recoveredSnapshot = try? await sourceManager.fetchServerFavorites(sourceID: sourceID)
+        if pendingMutations[sourceID]?[mutation.song.id] != nil {
+            return
+        }
+
+        if let snapshot = recoveredSnapshot {
+            let serverValue = mutation.itemID.map { snapshot.itemIDs.contains($0) } ?? mutation.previous
+            if hasPendingMutations(sourceID: sourceID) {
+                library.setLiked(
+                    songID: mutation.song.id,
+                    isLiked: serverValue,
+                    propagatesServerMutation: false
+                )
+            } else {
+                reconcile(snapshot, sourceID: sourceID)
+            }
+            player?.republishNowPlayingSurfaces()
+            if serverValue == mutation.desired {
+                return
+            }
+        } else {
+            rollbackIfCurrent(mutation)
+        }
+
+        library.presentServerFavoriteError(String(
+            format: String(localized: "server_favorite_update_failed_message"),
+            error.localizedDescription
+        ))
+    }
+
+    private func rollbackIfCurrent(_ mutation: PendingMutation) {
+        guard library.isLiked(songID: mutation.song.id) == mutation.desired else { return }
+        library.setLiked(
+            songID: mutation.song.id,
+            isLiked: mutation.previous,
+            propagatesServerMutation: false
+        )
+        player?.republishNowPlayingSurfaces()
+    }
+
+    private func reconcile(_ snapshot: ServerFavoriteSnapshot, sourceID: String) {
+        var songsByServerItemID: [String: String] = [:]
+        for song in library.songs where song.sourceID == sourceID {
+            guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
+                  songsByServerItemID[itemID] == nil else { continue }
+            songsByServerItemID[itemID] = song.id
+        }
+        library.replaceLikedSongs(
+            fromSourceID: sourceID,
+            with: snapshot.itemIDs.compactMap { songsByServerItemID[$0] }
+        )
+    }
+
+    private func takeNextMutation(sourceID: String) -> PendingMutation? {
+        guard var sourceMutations = pendingMutations[sourceID],
+              let songID = sourceMutations.keys.first,
+              let mutation = sourceMutations.removeValue(forKey: songID) else { return nil }
+        if sourceMutations.isEmpty {
+            pendingMutations.removeValue(forKey: sourceID)
+        } else {
+            pendingMutations[sourceID] = sourceMutations
+        }
+        return mutation
+    }
+
+    private func hasPendingMutations(sourceID: String) -> Bool {
+        pendingMutations[sourceID]?.isEmpty == false
+    }
+}

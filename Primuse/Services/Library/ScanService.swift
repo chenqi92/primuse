@@ -20,6 +20,10 @@ final class ScanService {
     /// carry another dependency. Invoked only after a successful server-library
     /// catalogue commit, alongside server playlist mirroring.
     @ObservationIgnored var serverRadioSyncHandler: ((MusicSource) async -> Void)?
+    /// Emby favorites are user annotations rather than ordinary playlists.
+    /// Refresh them only after the authoritative song catalogue has committed,
+    /// so server item IDs can be reconciled to stable local song IDs.
+    @ObservationIgnored var serverFavoriteSyncHandler: ((MusicSource) async -> Void)?
     struct ScanState: Equatable {
         var isScanning: Bool = false
         var currentFile: String = ""
@@ -1767,6 +1771,7 @@ final class ScanService {
                 sourceManager: sourceManager,
                 library: library
             )
+            await serverFavoriteSyncHandler?(source)
             await serverRadioSyncHandler?(source)
         }
     }

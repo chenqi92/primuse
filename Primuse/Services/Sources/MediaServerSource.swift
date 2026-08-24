@@ -3,7 +3,7 @@ import Foundation
 import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerRadioConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerRadioStreamResolvingConnector {
     private static let maximumCatalogTracks = 10_000_000
     private static let maximumPlaylistCount = 100_000
@@ -842,6 +842,37 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
+    func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
+        guard kind == .emby else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
+        }
+        try await connect()
+        return try await fetchEmbyFavoriteSnapshot()
+    }
+
+    func setServerFavorite(
+        itemID: String,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot {
+        guard kind == .emby else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
+        }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+
+        _ = try await performRequest(
+            path: "/Users/\(userID)/FavoriteItems/\(itemID)",
+            method: isFavorite ? "POST" : "DELETE",
+            retriesIdempotentMutationAfterAuthentication: true
+        )
+
+        let refreshed = try await fetchEmbyFavoriteSnapshot()
+        guard refreshed.itemIDs.contains(itemID) == isFavorite else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_refresh_mismatch"))
+        }
+        return refreshed
+    }
+
     func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
         guard kind != .plex else { return nil }
         try await connect()
@@ -939,6 +970,24 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             playlists: result,
             failedPlaylistIDs: failedPlaylistIDs
         )
+    }
+
+    private func fetchEmbyFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
+        guard let userID else { throw SourceError.authenticationFailed }
+        let response = try await fetchAllJellyfinOrEmbyItems(
+            path: "/Users/\(userID)/Items",
+            baseQueryItems: [
+                URLQueryItem(name: "Filters", value: "IsFavorite"),
+                URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "EnableUserData", value: "true"),
+                URLQueryItem(name: "SortBy", value: "SortName"),
+                URLQueryItem(name: "SortOrder", value: "Ascending")
+            ],
+            maximumCount: Self.maximumCatalogTracks,
+            deduplicatesItems: true
+        )
+        return ServerFavoriteSnapshot(itemIDs: response.items.map(\.id))
     }
 
     private func fetchPlexPlaylists() async throws -> ServerPlaylistSnapshot {
@@ -1278,6 +1327,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         accept: String = "application/json",
         requiresAuth: Bool = true,
         allowPasswordReauthentication: Bool = true,
+        retriesIdempotentMutationAfterAuthentication: Bool = false,
         maximumResponseBytes: Int = PlainHTTPClient.defaultMaxBytes
     ) async throws -> Data {
         var request = URLRequest(url: buildURL(path: path, queryItems: queryItems))
@@ -1296,7 +1346,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             maxBytes: maximumResponseBytes
         )
         if requiresAuth,
-           method == "GET",
+           (method == "GET" || retriesIdempotentMutationAfterAuthentication),
            allowPasswordReauthentication,
            kind != .plex,
            authType != .apiKey,
@@ -1314,6 +1364,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 accept: accept,
                 requiresAuth: requiresAuth,
                 allowPasswordReauthentication: false,
+                retriesIdempotentMutationAfterAuthentication: false,
                 maximumResponseBytes: maximumResponseBytes
             )
         }

@@ -354,6 +354,17 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             presentNowPlaying()
         }
+        .alert(
+            String(localized: "server_favorite_update_failed_title"),
+            isPresented: Binding(
+                get: { library.serverFavoriteErrorMessage != nil },
+                set: { if !$0 { library.dismissServerFavoriteError() } }
+            )
+        ) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(library.serverFavoriteErrorMessage ?? "")
+        }
         // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
         .alert(
             String(localized: "cellular_backfill_title"),

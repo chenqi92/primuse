@@ -864,6 +864,26 @@ protocol ServerPlaylistConnector: MusicSourceConnector {
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
 }
 
+/// Authoritative favorite item IDs for one media-server account. Favorites are
+/// user data rather than ordinary playlists, so mutations must round-trip to
+/// the server and return a refreshed snapshot before the local liked state is
+/// considered confirmed.
+struct ServerFavoriteSnapshot: Sendable {
+    let itemIDs: [String]
+
+    init(itemIDs: [String]) {
+        self.itemIDs = itemIDs
+    }
+}
+
+/// Emby exposes favorites through user-item APIs instead of playlist APIs.
+/// The mutation returns a fresh authoritative snapshot so callers can recover
+/// from stale UI state and verify that the server accepted the requested value.
+protocol ServerFavoriteConnector: MusicSourceConnector {
+    func fetchServerFavorites() async throws -> ServerFavoriteSnapshot
+    func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot
+}
+
 /// One radio station exposed by a server library. `streamURL` is used for
 /// credential-free internet-radio URLs. `sourcePlaybackPath` is used when the
 /// connector must mint an authenticated URL at playback time (Jellyfin/Emby

@@ -2882,3 +2882,7 @@
 "player_lyrics_alignment_right" = "Rechts";
 "player_blur_inactive_lyrics" = "Inaktiven Liedtext weichzeichnen";
 "player_blur_inactive_lyrics_description" = "Synchronisierte Liedtexte außer der aktuellen Zeile werden leicht weichgezeichnet, damit die aktuelle Zeile hervorsticht.";
+"server_favorite_unsupported" = "Diese Quelle unterstützt keine Serverfavoriten.";
+"server_favorite_refresh_mismatch" = "Der von Emby gemeldete Favoritenstatus entspricht nicht der Anfrage.";
+"server_favorite_update_failed_title" = "Favorit konnte nicht aktualisiert werden";
+"server_favorite_update_failed_message" = "Der Emby-Favorit konnte nicht aktualisiert werden. Primuse hat den Status neu synchronisiert oder wiederhergestellt.\n%@";

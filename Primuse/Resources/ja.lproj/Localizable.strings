@@ -2883,3 +2883,7 @@
 "player_lyrics_alignment_right" = "右揃え";
 "player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
 "player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";
+"server_favorite_unsupported" = "This source does not support server favorites.";
+"server_favorite_refresh_mismatch" = "Emby returned a favorite state that did not match the request.";
+"server_favorite_update_failed_title" = "Couldn’t Update Favorite";
+"server_favorite_update_failed_message" = "The Emby favorite could not be updated. Primuse resynced or restored the previous state.\n%@";
