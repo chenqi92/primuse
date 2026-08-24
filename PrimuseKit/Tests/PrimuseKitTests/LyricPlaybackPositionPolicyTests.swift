@@ -151,4 +151,86 @@ struct LyricPlaybackPositionPolicyTests {
             at: 40
         ) == .line(1))
     }
+
+    @Test("Now Playing metadata uses the active synchronized lyric")
+    func nowPlayingMetadataUsesActiveLyric() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 0, text: "First", isSynchronized: true),
+            LyricLine(id: "second", timestamp: 12, text: "Second", isSynchronized: true),
+        ]
+
+        let presentation = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: "Song",
+            artistName: "Artist",
+            lyrics: lyrics,
+            playbackTime: 15,
+            isEnabled: true,
+            isLiveStream: false
+        )
+
+        #expect(presentation.title == "Second")
+        #expect(presentation.artist == "Artist / Song")
+        #expect(presentation.lyricLineID == "second")
+    }
+
+    @Test("Now Playing metadata keeps the song title before the first lyric")
+    func nowPlayingMetadataWaitsForFirstLyric() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 8, text: "First", isSynchronized: true),
+        ]
+
+        let presentation = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: "Song",
+            artistName: "Artist",
+            lyrics: lyrics,
+            playbackTime: 3,
+            isEnabled: true,
+            isLiveStream: false
+        )
+
+        #expect(presentation.title == "Song")
+        #expect(presentation.artist == "Artist")
+        #expect(presentation.lyricLineID == nil)
+    }
+
+    @Test("Disabled, live and plain lyrics preserve canonical Now Playing metadata")
+    func unsupportedNowPlayingLyricsPreserveCanonicalMetadata() {
+        let synchronized = [
+            LyricLine(id: "line", timestamp: 0, text: "Lyric", isSynchronized: true),
+        ]
+        let plain = [
+            LyricLine(id: "plain", timestamp: 0, text: "Plain", isSynchronized: false),
+        ]
+
+        for presentation in [
+            NowPlayingLyricsMetadataPolicy.presentation(
+                canonicalTitle: "Song",
+                artistName: "Artist",
+                lyrics: synchronized,
+                playbackTime: 10,
+                isEnabled: false,
+                isLiveStream: false
+            ),
+            NowPlayingLyricsMetadataPolicy.presentation(
+                canonicalTitle: "Song",
+                artistName: "Artist",
+                lyrics: synchronized,
+                playbackTime: 10,
+                isEnabled: true,
+                isLiveStream: true
+            ),
+            NowPlayingLyricsMetadataPolicy.presentation(
+                canonicalTitle: "Song",
+                artistName: "Artist",
+                lyrics: plain,
+                playbackTime: 10,
+                isEnabled: true,
+                isLiveStream: false
+            ),
+        ] {
+            #expect(presentation.title == "Song")
+            #expect(presentation.artist == "Artist")
+            #expect(presentation.lyricLineID == nil)
+        }
+    }
 }

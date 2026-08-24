@@ -1181,6 +1181,14 @@ struct PlaybackSettingsView: View {
             }
             .disabled(settings.outputMode == .highFidelity)
 
+            #if os(iOS)
+            Section {
+                Toggle("lock_screen_lyrics", isOn: $settings.lockScreenLyricsEnabled)
+            } footer: {
+                Text("lock_screen_lyrics_desc")
+            }
+            #endif
+
         }
         .navigationTitle("playback_settings")
         #if os(iOS)

@@ -613,7 +613,13 @@ final class AudioPlayerService {
     private var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
     private var isRestoringPlaybackSession = false
 
-    private(set) var currentSong: Song?
+    private(set) var currentSong: Song? {
+        didSet {
+            #if os(iOS)
+            prepareLockScreenLyricsForCurrentSong(previousSong: oldValue)
+            #endif
+        }
+    }
     private(set) var isPlaying = false
     private(set) var playbackKind: PlaybackKind = .track
     private(set) var currentRadioStation: RadioStation?
@@ -641,6 +647,9 @@ final class AudioPlayerService {
         didSet {
             currentTimeAnchor = Date()
             handoffCurrentTime = currentTime
+            #if os(iOS)
+            publishLockScreenLyricsIfNeeded()
+            #endif
         }
     }
     private(set) var duration: TimeInterval = 0
@@ -1161,6 +1170,9 @@ final class AudioPlayerService {
         observeOutputPipelineSettings()
         #if os(iOS)
         observeCarAudioRouteState()
+        observeLockScreenLyricsSetting()
+        observeLockScreenLyricsChanges()
+        observeLikedSongChanges()
         #endif
 
         // 服务端曲库源(Subsonic/Navidrome)回报回调 —— 把 ScrobbleService 的播放
@@ -8653,6 +8665,148 @@ final class AudioPlayerService {
 
     // MARK: - Now Playing Info
 
+    #if os(iOS)
+    @ObservationIgnored private var lockScreenLyricsLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var lockScreenLyricsSongID: String?
+    @ObservationIgnored private var lockScreenLyrics: [LyricLine] = []
+    @ObservationIgnored private var lastPublishedLockScreenLyricsPresentation:
+        NowPlayingLyricsMetadataPresentation?
+
+    private func observeLockScreenLyricsSetting() {
+        withObservationTracking {
+            _ = playbackSettings.lockScreenLyricsEnabled
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.resetLockScreenLyricsState()
+                self.updateNowPlayingInfo()
+                self.loadLockScreenLyricsIfNeeded(for: self.currentSong)
+                self.observeLockScreenLyricsSetting()
+            }
+        }
+    }
+
+    private func prepareLockScreenLyricsForCurrentSong(previousSong: Song?) {
+        let previousIdentity = previousSong.map { ($0.id, $0.lyricsFileName) }
+        let currentIdentity = currentSong.map { ($0.id, $0.lyricsFileName) }
+        guard previousIdentity?.0 != currentIdentity?.0
+                || previousIdentity?.1 != currentIdentity?.1 else { return }
+
+        resetLockScreenLyricsState()
+        loadLockScreenLyricsIfNeeded(for: currentSong)
+    }
+
+    private func resetLockScreenLyricsState() {
+        lockScreenLyricsLoadTask?.cancel()
+        lockScreenLyricsLoadTask = nil
+        lockScreenLyricsSongID = nil
+        lockScreenLyrics = []
+        lastPublishedLockScreenLyricsPresentation = nil
+    }
+
+    private func loadLockScreenLyricsIfNeeded(for song: Song?) {
+        guard playbackSettings.lockScreenLyricsEnabled,
+              !isLiveRadio,
+              let song else { return }
+
+        let expectedSongID = song.id
+        let capturedSourceManager = sourceManager
+        lockScreenLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
+            let lyrics: [LyricLine]
+            if song.sourceID == AppleMusicLibraryService.systemSourceID {
+                if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+                    lyrics = cached
+                } else if let fetched = try? await AppServices.shared.appleMusicLibrary
+                    .fetchLyrics(forAmID: song.filePath), !fetched.isEmpty {
+                    _ = await MetadataAssetStore.shared.cacheLyrics(
+                        fetched,
+                        forSongID: song.id,
+                        force: true
+                    )
+                    lyrics = fetched
+                } else {
+                    lyrics = []
+                }
+            } else if let capturedSourceManager {
+                lyrics = await LyricsLoader.load(
+                    for: song,
+                    sourceManager: capturedSourceManager
+                )
+            } else {
+                lyrics = []
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.playbackSettings.lockScreenLyricsEnabled,
+                  !self.isLiveRadio,
+                  self.currentSong?.id == expectedSongID else { return }
+
+            self.lockScreenLyricsLoadTask = nil
+            self.lockScreenLyricsSongID = expectedSongID
+            self.lockScreenLyrics = lyrics
+            self.publishLockScreenLyricsIfNeeded()
+        }
+    }
+
+    private func lockScreenLyricsPresentation() -> NowPlayingLyricsMetadataPresentation {
+        guard let song = currentSong else {
+            return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
+        }
+        let lyrics = lockScreenLyricsSongID == song.id ? lockScreenLyrics : []
+        return NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: song.title,
+            artistName: song.artistName,
+            lyrics: lyrics,
+            playbackTime: currentTime,
+            isEnabled: playbackSettings.lockScreenLyricsEnabled,
+            isLiveStream: isLiveRadio
+        )
+    }
+
+    private func publishLockScreenLyricsIfNeeded() {
+        guard playbackSettings.lockScreenLyricsEnabled,
+              !isLiveRadio,
+              lockScreenLyricsSongID == currentSong?.id,
+              !lockScreenLyrics.isEmpty else { return }
+
+        let presentation = lockScreenLyricsPresentation()
+        guard presentation != lastPublishedLockScreenLyricsPresentation else { return }
+        updateNowPlayingInfo()
+    }
+
+    private func observeLockScreenLyricsChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseLyricsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let songID = notification.object as? String else { return }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.playbackSettings.lockScreenLyricsEnabled,
+                      self.currentSong?.id == songID else { return }
+                self.resetLockScreenLyricsState()
+                self.updateNowPlayingInfo()
+                self.loadLockScreenLyricsIfNeeded(for: self.currentSong)
+            }
+        }
+    }
+
+    private func observeLikedSongChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .primusePlaylistsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let ids = notification.userInfo?["ids"] as? [String]
+            guard ids?.contains(MusicLibrary.likedSongsPlaylistID) ?? true else { return }
+            Task { @MainActor [weak self] in
+                self?.republishNowPlayingSurfaces()
+            }
+        }
+    }
+    #endif
+
     /// Tracks which song last started an artwork lookup to avoid redundant IO.
     private var lastArtworkSongID: String?
 
@@ -8715,8 +8869,16 @@ final class AudioPlayerService {
         // Build a fresh snapshot; artwork is carried forward only when its
         // ownership still matches the current song.
         var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = currentSong?.title ?? ""
-        info[MPMediaItemPropertyArtist] = currentSong?.artistName ?? ""
+        var publishedTitle = currentSong?.title ?? ""
+        var publishedArtist = currentSong?.artistName ?? ""
+        #if os(iOS)
+        let lyricsPresentation = lockScreenLyricsPresentation()
+        publishedTitle = lyricsPresentation.title
+        publishedArtist = lyricsPresentation.artist
+        lastPublishedLockScreenLyricsPresentation = lyricsPresentation
+        #endif
+        info[MPMediaItemPropertyTitle] = publishedTitle
+        info[MPMediaItemPropertyArtist] = publishedArtist
         info[MPNowPlayingInfoPropertyExternalContentIdentifier] = currentSong?.id
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
@@ -8782,6 +8944,13 @@ final class AudioPlayerService {
         center.changePlaybackPositionCommand.isEnabled = playbackCapabilities.canSeek
         center.nextTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
         center.previousTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
+        #if os(iOS)
+        let canLikeCurrentSong = !isLiveRadio
+            && currentSong.flatMap { library?.song(id: $0.id) } != nil
+        center.likeCommand.isEnabled = canLikeCurrentSong
+        center.likeCommand.isActive = canLikeCurrentSong
+            && (currentSong.map { library?.isLiked(songID: $0.id) ?? false } ?? false)
+        #endif
     }
 
     /// Loads cover art for a track transition or an explicit same-track refresh.
@@ -9102,8 +9271,36 @@ final class AudioPlayerService {
             guard self?.playbackCapabilities.canSeek == true else { return .commandFailed }
             self?.seek(to: event.positionTime); return .success
         }
+        #if os(iOS)
+        center.likeCommand.addTarget { [weak self] event in
+            guard let self else { return .noActionableNowPlayingItem }
+            return self.handleRemoteLikeCommand(event)
+        }
+        #endif
         updateNowPlayingInfo()
     }
+
+    #if os(iOS)
+    private func handleRemoteLikeCommand(
+        _ event: MPRemoteCommandEvent
+    ) -> MPRemoteCommandHandlerStatus {
+        guard let feedbackEvent = event as? MPFeedbackCommandEvent,
+              !isLiveRadio,
+              let songID = currentSong?.id,
+              let library,
+              library.song(id: songID) != nil else {
+            return .noActionableNowPlayingItem
+        }
+
+        library.setLiked(
+            songID: songID,
+            isLiked: !feedbackEvent.isNegative,
+            propagatesServerMutation: true
+        )
+        republishNowPlayingSurfaces()
+        return .success
+    }
+    #endif
 
     /// MediaRemote may finish dispatching the originating command after the
     /// first synchronous Now Playing assignment. Re-publish the latest complete

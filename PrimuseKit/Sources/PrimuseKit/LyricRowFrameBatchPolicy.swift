@@ -186,3 +186,59 @@ public enum LyricPlaybackPositionPolicy {
         )
     }
 }
+
+public struct NowPlayingLyricsMetadataPresentation: Equatable, Sendable {
+    public let title: String
+    public let artist: String
+    public let lyricLineID: String?
+
+    public init(title: String, artist: String, lyricLineID: String?) {
+        self.title = title
+        self.artist = artist
+        self.lyricLineID = lyricLineID
+    }
+}
+
+public enum NowPlayingLyricsMetadataPolicy {
+    public static func presentation(
+        canonicalTitle: String,
+        artistName: String?,
+        lyrics: [LyricLine],
+        playbackTime: TimeInterval,
+        isEnabled: Bool,
+        isLiveStream: Bool
+    ) -> NowPlayingLyricsMetadataPresentation {
+        let title = canonicalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let canonical = NowPlayingLyricsMetadataPresentation(
+            title: title,
+            artist: artist,
+            lyricLineID: nil
+        )
+
+        guard isEnabled,
+              !isLiveStream,
+              playbackTime.isFinite,
+              playbackTime >= 0 else { return canonical }
+
+        let synchronizedLyrics = lyrics.filter {
+            $0.isSynchronized
+                && $0.timestamp.isFinite
+                && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard let firstLine = synchronizedLyrics.first,
+              playbackTime >= firstLine.timestamp,
+              let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
+                in: synchronizedLyrics,
+                at: playbackTime
+              ) else { return canonical }
+
+        let line = synchronizedLyrics[activeIndex]
+        let secondary = [artist, title].filter { !$0.isEmpty }.joined(separator: " / ")
+        return NowPlayingLyricsMetadataPresentation(
+            title: line.text.trimmingCharacters(in: .whitespacesAndNewlines),
+            artist: secondary,
+            lyricLineID: line.id
+        )
+    }
+}

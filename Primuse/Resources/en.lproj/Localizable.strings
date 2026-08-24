@@ -2680,3 +2680,5 @@
 "server_favorite_refresh_mismatch" = "Emby returned a favorite state that did not match the request.";
 "server_favorite_update_failed_title" = "Couldn’t Update Favorite";
 "server_favorite_update_failed_message" = "The Emby favorite could not be updated. Primuse resynced or restored the previous state.\n%@";
+"lock_screen_lyrics" = "Lock Screen Lyrics";
+"lock_screen_lyrics_desc" = "Use the current synchronized lyric as the title in the system Now Playing panel. Control Center, Bluetooth and in-car displays may also show the lyric.";

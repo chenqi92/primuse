@@ -76,6 +76,10 @@ struct PlaybackSettings: Codable, Sendable {
     /// 播放速度倍率, 0.5x ~ 2.0x。1.0 = 正常。走 AVAudioUnitTimePitch
     /// 节点，自动保持音调不变。
     var playbackRate: Float = 1.0
+    /// Uses the current synchronized lyric as the system Now Playing title.
+    /// Disabled by default because the remapped metadata is also visible to
+    /// Control Center, Bluetooth receivers and in-car Now Playing surfaces.
+    var lockScreenLyricsEnabled: Bool = false
     /// 是否让 AVAudioSession 把硬件输出 SR 切到当前歌曲采样率, 避免
     /// CoreAudio 自动重采样。仅 iOS 真机有效, 部分老款硬件无视该 hint。
     var matchOutputSampleRate: Bool = false
@@ -118,6 +122,7 @@ struct PlaybackSettings: Codable, Sendable {
         skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
         playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
+        lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? false
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
@@ -150,6 +155,7 @@ struct PlaybackSettings: Codable, Sendable {
         skipTrailingSilenceEnabled: Bool = false,
         prewarmQueueCount: Int = 3,
         playbackRate: Float = 1.0,
+        lockScreenLyricsEnabled: Bool = false,
         matchOutputSampleRate: Bool = false,
         effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
@@ -180,6 +186,7 @@ struct PlaybackSettings: Codable, Sendable {
         self.skipTrailingSilenceEnabled = skipTrailingSilenceEnabled
         self.prewarmQueueCount = prewarmQueueCount
         self.playbackRate = playbackRate
+        self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
         self.effectChainEnabled = effectChainEnabled
         self.compressorEnabled = compressorEnabled
@@ -281,6 +288,7 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
 
     // Compressor / Limiter
@@ -322,6 +330,7 @@ final class PlaybackSettingsStore {
         self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         self.playbackRate = max(0.5, min(2.0, s.playbackRate))
+        self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
         self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
@@ -363,6 +372,7 @@ final class PlaybackSettingsStore {
         skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         playbackRate = max(0.5, min(2.0, s.playbackRate))
+        lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
         effectChainEnabled = s.effectChainEnabled
         compressorEnabled = s.compressorEnabled
@@ -396,6 +406,7 @@ final class PlaybackSettingsStore {
             skipTrailingSilenceEnabled: skipTrailingSilenceEnabled,
             prewarmQueueCount: prewarmQueueCount,
             playbackRate: playbackRate,
+            lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,
             effectChainEnabled: effectChainEnabled,
             compressorEnabled: compressorEnabled,

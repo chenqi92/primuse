@@ -2997,3 +2997,5 @@
 "server_favorite_refresh_mismatch" = "Emby 返回的收藏状态与请求不一致。";
 "server_favorite_update_failed_title" = "无法更新收藏";
 "server_favorite_update_failed_message" = "未能更新 Emby 收藏，已重新同步或恢复先前状态。\n%@";
+"lock_screen_lyrics" = "锁屏歌词";
+"lock_screen_lyrics_desc" = "在系统正在播放面板中用当前同步歌词替代标题；控制中心、蓝牙和车载界面也可能显示歌词。";
