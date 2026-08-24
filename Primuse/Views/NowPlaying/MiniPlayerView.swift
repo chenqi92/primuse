@@ -187,10 +187,11 @@ struct MiniPlayerSwipeContent: View {
 struct MiniPlayerTransportControls: View {
     var isInline = false
     var showsNextButton: Bool
+    var regularIconSize: CGFloat = 20
     @Environment(AudioPlayerService.self) private var player
 
     private var iconFont: Font {
-        isInline ? .subheadline : .system(size: 20, weight: .semibold)
+        isInline ? .subheadline : .system(size: regularIconSize, weight: .semibold)
     }
 
     var body: some View {

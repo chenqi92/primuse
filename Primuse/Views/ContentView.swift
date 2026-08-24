@@ -776,7 +776,8 @@ struct NowPlayingAccessory: View {
 
             MiniPlayerTransportControls(
                 isInline: isInline,
-                showsNextButton: !isInline
+                showsNextButton: !isInline,
+                regularIconSize: 18
             )
         }
         .padding(.horizontal, isInline ? 12 : 16)
