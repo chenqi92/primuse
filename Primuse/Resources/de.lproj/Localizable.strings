@@ -382,9 +382,9 @@
 "scan_in_progress" = "Musikdateien werden gescannt …";
 "add_source" = "Quelle hinzufügen";
 "select_source_type" = "Quellentyp auswählen";
-"local_import_title" = "Aus Dateien importieren";
+"local_import_title" = "In Primuse kopieren";
 "local_import_subtitle" = "Einen oder mehrere Ordner importieren";
-"local_import_section_footer" = "Importierte Titel werden in die App kopiert und offline abgespielt.";
+"local_import_section_footer" = "Dateien und Ordner bleiben standardmäßig am ursprünglichen Ort. Für eine von der App verwaltete Offline-Kopie „In Primuse kopieren“ wählen.";
 "local_import_source_name" = "Lokale Musik";
 "local_import_none_added" = "Es wurden keine Audiodateien importiert.";
 "local_import_err_title" = "Import fehlgeschlagen";
@@ -2132,11 +2132,17 @@
 "source_deleted_toast" = "„%@“ gelöscht";
 "undo" = "Widerrufen";
 
-/* Local import — two entries */
-"local_import_folder_title" = "Ordner importieren";
-"local_import_folder_subtitle" = "Auf dem Gerät oder iCloud Drive, ganzer Ordner";
-"local_import_files_title" = "Dateien importieren";
-"local_import_files_subtitle" = "Audio aus Dateien oder Cloud-Diensten wählen";
+/* Local files and folders */
+"local_import_folder_title" = "Ordner verknüpfen";
+"local_import_folder_subtitle" = "Vom ursprünglichen Ort abspielen, einschließlich Unterordnern";
+"local_import_files_title" = "Dateien verknüpfen";
+"local_import_files_subtitle" = "Ausgewählte Audiodateien am ursprünglichen Ort abspielen";
+"local_import_copy_title" = "In Primuse kopieren";
+"local_import_copy_subtitle" = "Von der App verwaltete Kopie für Offline-Wiedergabe speichern";
+"local_import_copy_folder" = "Ordner kopieren";
+"local_import_copy_files" = "Dateien kopieren";
+"local_reference_source_name_format" = "Lokale Verknüpfungen (%d)";
+"local_reference_permission_missing" = "Primuse kann nicht mehr auf diese Datei oder diesen Ordner zugreifen. Füge das Element erneut hinzu, um den Zugriff wiederherzustellen.";
 "local_import_progress_title" = "Musik wird importiert";
 "local_import_progress_discovering" = "Importierbare Audiodateien werden gesucht…";
 "local_import_progress_indexing" = "Checking previously imported files…";

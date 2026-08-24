@@ -383,9 +383,9 @@
 "scan_in_progress" = "音楽ファイルをスキャン中...";
 "add_source" = "ソースを追加";
 "select_source_type" = "ソースの種類を選択";
-"local_import_title" = "ファイルから読み込む";
+"local_import_title" = "Primuse にコピー";
 "local_import_subtitle" = "フォルダを選んで中の音楽をまとめて読み込む";
-"local_import_section_footer" = "読み込んだ曲はアプリ内にコピーされ、オフラインでも再生できます。";
+"local_import_section_footer" = "ファイルとフォルダは通常、元の場所から直接参照します。アプリで管理するオフライン用コピーが必要な場合は「Primuse にコピー」を選択してください。";
 "local_import_source_name" = "ローカル音楽";
 "local_import_none_added" = "読み込める音源ファイルがありませんでした。";
 "local_import_err_title" = "読み込みに失敗しました";
@@ -2133,11 +2133,17 @@
 "source_deleted_toast" = "「%@」を削除しました";
 "undo" = "取り消す";
 
-/* Local import — two entries */
-"local_import_folder_title" = "フォルダを読み込む";
-"local_import_folder_subtitle" = "本体または iCloud Drive、フォルダごと";
-"local_import_files_title" = "ファイルを読み込む";
-"local_import_files_subtitle" = "ファイルやクラウドから音源を選択";
+/* Local files and folders */
+"local_import_folder_title" = "フォルダを参照";
+"local_import_folder_subtitle" = "サブフォルダを含め、元の場所から再生";
+"local_import_files_title" = "ファイルを参照";
+"local_import_files_subtitle" = "選択した音源を元の場所から再生";
+"local_import_copy_title" = "Primuse にコピー";
+"local_import_copy_subtitle" = "オフライン再生用にアプリ管理のコピーを保存";
+"local_import_copy_folder" = "フォルダをコピー";
+"local_import_copy_files" = "ファイルをコピー";
+"local_reference_source_name_format" = "ローカル参照（%d 件）";
+"local_reference_permission_missing" = "Primuse はこのファイルまたはフォルダにアクセスできなくなりました。再度追加してアクセスを復元してください。";
 "local_import_progress_title" = "音楽を読み込み中";
 "local_import_progress_discovering" = "読み込める音源を探しています…";
 "local_import_progress_indexing" = "Checking previously imported files…";

@@ -4,8 +4,10 @@ import PrimuseKit
 
 actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
-    nonisolated let supportsSidecarWriting = true
+    nonisolated let supportsSidecarWriting: Bool
     private let basePath: URL
+    private let referenceRoots: [LocalReferenceRoot]
+    private let referenceBookmarksUnavailable: Bool
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
     /// Native metadata readers are fast and remain the default for large
@@ -16,22 +18,45 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private static let ffmpegMetadataProbeExtensions =
         FFmpegAudioDecoder.preferredExtensions
     private static let minimumReadableAudioBytes: Int64 = 1024
-    /// macOS sandbox requires holding the security scope across the lifetime
-    /// of the connector — the URL we resolved from the stored bookmark
-    /// stops being readable the moment we release it.
-    private let usesSecurityScope: Bool
+    /// Sandboxed local references require holding every resolved security scope
+    /// for the connector lifetime. A virtual path component is present for
+    /// individual files and multi-root selections; one folder keeps `/` as its
+    /// root for compatibility with existing macOS sources.
+    private struct LocalReferenceRoot: Sendable {
+        let virtualPathComponent: String?
+        let url: URL
+        let isDirectory: Bool
+        let usesSecurityScope: Bool
+    }
 
     init(sourceID: String, basePath: URL) {
         self.sourceID = sourceID
-        #if os(macOS)
-        if let resolved = LocalBookmarkStore.resolve(sourceID: sourceID) {
-            self.basePath = resolved
-            self.usesSecurityScope = resolved.startAccessingSecurityScopedResource()
-        } else {
-            self.basePath = basePath
-            self.usesSecurityScope = false
+        var resolvedBasePath = basePath
+        var resolvedRoots: [LocalReferenceRoot] = []
+        var bookmarksUnavailable = false
+
+        #if os(iOS) || os(macOS)
+        if let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID) {
+            if references.isEmpty {
+                bookmarksUnavailable = true
+            } else {
+                resolvedRoots = references.map { reference in
+                    LocalReferenceRoot(
+                        virtualPathComponent: reference.virtualPathComponent,
+                        url: reference.url,
+                        isDirectory: reference.isDirectory,
+                        usesSecurityScope: reference.url.startAccessingSecurityScopedResource()
+                    )
+                }
+                if resolvedRoots.count == 1,
+                   resolvedRoots[0].virtualPathComponent == nil {
+                    resolvedBasePath = resolvedRoots[0].url
+                }
+            }
         }
-        #elseif os(iOS)
+        #endif
+
+        #if os(iOS)
         // 本地导入源的文件固定在 <当前沙箱>/Documents/LocalMusic。app 数据容器 UUID
         // 会随重装变化, 而持久化到源记录(旧版本还可能经 CloudKit 同步)的绝对 basePath
         // 可能指向已不存在的旧容器, 导致 connect()/路径解析 pathNotFound、歌曲无法播放。
@@ -43,29 +68,40 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let isManagedLocalImport = sourceID == LocalImportService.existingSourceID
             && (basePath.lastPathComponent == "LocalMusic"
                 || basePath.path.contains("/Documents/LocalMusic"))
-        if isManagedLocalImport {
-            self.basePath = LocalImportService.musicDirectory
+        if resolvedRoots.isEmpty, !bookmarksUnavailable, isManagedLocalImport {
+            resolvedBasePath = LocalImportService.musicDirectory
         } else if let rebased = PrimuseSandboxPathResolver.existingURL(
             forStoredAbsolutePath: basePath.path
-        ) {
-            self.basePath = rebased
-        } else {
-            self.basePath = basePath
+        ), resolvedRoots.isEmpty, !bookmarksUnavailable {
+            resolvedBasePath = rebased
         }
-        self.usesSecurityScope = false
-        #else
-        self.basePath = basePath
-        self.usesSecurityScope = false
         #endif
+
+        self.basePath = resolvedBasePath
+        self.referenceRoots = resolvedRoots
+        self.referenceBookmarksUnavailable = bookmarksUnavailable
+        self.supportsSidecarWriting = resolvedRoots.isEmpty
+            || resolvedRoots.allSatisfy(\.isDirectory)
     }
 
     deinit {
-        if usesSecurityScope {
-            basePath.stopAccessingSecurityScopedResource()
+        for root in referenceRoots where root.usesSecurityScope {
+            root.url.stopAccessingSecurityScopedResource()
         }
     }
 
     func connect() async throws {
+        if referenceBookmarksUnavailable {
+            throw SourceError.credentialUnavailable(
+                String(localized: "local_reference_permission_missing")
+            )
+        }
+        if !referenceRoots.isEmpty {
+            for root in referenceRoots where !FileManager.default.fileExists(atPath: root.url.path) {
+                throw SourceError.pathNotFound(root.url.path)
+            }
+            return
+        }
         guard FileManager.default.fileExists(atPath: basePath.path) else {
             throw SourceError.pathNotFound(basePath.path)
         }
@@ -74,6 +110,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     func disconnect() async {}
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        if isVirtualReferenceRoot(path) {
+            return try referenceRoots.map { root in
+                try remoteFileItem(for: root.url, path: virtualPath(for: root))
+            }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        }
         let directoryURL = try resolvedURL(for: path, allowRoot: true)
         let contents = try FileManager.default.contentsOfDirectory(
             at: directoryURL,
@@ -81,18 +122,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         )
 
         return try contents.map { url in
-            let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-            return RemoteFileItem(
-                name: url.lastPathComponent,
-                path: relativePath(for: url),
-                isDirectory: resourceValues.isDirectory ?? false,
-                size: Int64(resourceValues.fileSize ?? 0),
-                modifiedDate: resourceValues.contentModificationDate,
-                revision: Self.localRevision(
-                    size: Int64(resourceValues.fileSize ?? 0),
-                    modifiedDate: resourceValues.contentModificationDate
-                )
-            )
+            try remoteFileItem(for: url, path: relativePath(for: url))
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
@@ -140,11 +170,16 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             .fileSizeKey,
             .contentModificationDateKey,
         ]
-        let siblingURLs = try FileManager.default.contentsOfDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        )
+        let siblingURLs: [URL]
+        if isIndividuallyReferencedFile(fileURL) {
+            siblingURLs = [fileURL]
+        } else {
+            siblingURLs = try FileManager.default.contentsOfDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsHiddenFiles]
+            )
+        }
         let siblings: [RemoteFileItem] = siblingURLs.compactMap { url in
             guard let values = try? url.resourceValues(forKeys: keys),
                   values.isRegularFile == true else { return nil }
@@ -391,22 +426,16 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     /// MV candidates. Directory-local sibling decoration is applied afterward,
     /// so no second recursive walk is needed.
     private func buildScanInventory(from path: String) throws -> LocalScanInventory {
-        let startURL = try resolvedURL(for: path, allowRoot: true)
         let keys: Set<URLResourceKey> = [
             .isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
         ]
-        let enumerator = FileManager.default.enumerator(
-            at: startURL,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        )
         var filesByParent: [String: [RemoteFileItem]] = [:]
         var cueURLsByPath: [String: URL] = [:]
 
-        while let url = enumerator?.nextObject() as? URL {
+        func recordFile(_ url: URL) throws {
             try Task.checkCancellation()
             guard let values = try? url.resourceValues(forKeys: keys),
-                  values.isRegularFile == true else { continue }
+                  values.isRegularFile == true else { return }
             let size = Int64(values.fileSize ?? 0)
             let item = RemoteFileItem(
                 name: url.lastPathComponent,
@@ -420,6 +449,41 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             if PrimuseConstants.supportedCueSheetExtensions.contains(url.pathExtension.lowercased()) {
                 cueURLsByPath[item.path] = url
             }
+        }
+
+        let startURLs = isVirtualReferenceRoot(path)
+            ? referenceRoots.map(\.url)
+            : [try resolvedURL(for: path, allowRoot: true)]
+        for startURL in startURLs {
+            try Task.checkCancellation()
+            let values = try startURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values.isRegularFile == true {
+                try recordFile(startURL)
+                continue
+            }
+            guard values.isDirectory == true else {
+                throw SourceError.connectionFailed(
+                    "Local source root is not a readable file or folder: \(startURL.path)"
+                )
+            }
+            var enumerationError: Error?
+            guard let enumerator = FileManager.default.enumerator(
+                at: startURL,
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsHiddenFiles],
+                errorHandler: { _, error in
+                    enumerationError = error
+                    return false
+                }
+            ) else {
+                throw SourceError.connectionFailed(
+                    "Unable to enumerate local source root: \(startURL.path)"
+                )
+            }
+            while let url = enumerator.nextObject() as? URL {
+                try recordFile(url)
+            }
+            if let enumerationError { throw enumerationError }
         }
 
         var scannable: [RemoteFileItem] = []
@@ -595,8 +659,6 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     /// as virtual tracks and never duplicated as one whole-file library row.
     private func loadCueTracks(from cueURLs: [URL]) async throws -> [String: [CueTrackDescriptor]] {
         var result: [String: [CueTrackDescriptor]] = [:]
-        let base = basePath.standardizedFileURL.path
-        let basePrefix = base.hasSuffix("/") ? base : base + "/"
 
         for cueURL in cueURLs {
             try Task.checkCancellation()
@@ -616,7 +678,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 let candidate = cueURL.deletingLastPathComponent()
                     .appendingPathComponent(referencedPath)
                     .standardizedFileURL
-                guard candidate.path.hasPrefix(basePrefix),
+                guard isAccessibleReference(candidate, relativeTo: cueURL),
                       FileManager.default.fileExists(atPath: candidate.path) else {
                     plog("⚠️ CUE: '\(cueURL.lastPathComponent)' references missing file '\(cueFile.name)'")
                     continue
@@ -751,7 +813,37 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return (parentDir as NSString).appendingPathComponent(sidecarName)
     }
 
+    private func remoteFileItem(for url: URL, path: String) throws -> RemoteFileItem {
+        let values = try url.resourceValues(forKeys: [
+            .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+        ])
+        let size = Int64(values.fileSize ?? 0)
+        return RemoteFileItem(
+            name: url.lastPathComponent,
+            path: path,
+            isDirectory: values.isDirectory ?? false,
+            size: size,
+            modifiedDate: values.contentModificationDate,
+            revision: Self.localRevision(size: size, modifiedDate: values.contentModificationDate)
+        )
+    }
+
+    private func isVirtualReferenceRoot(_ path: String) -> Bool {
+        guard !referenceRoots.isEmpty,
+              path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty else {
+            return false
+        }
+        return referenceRoots.count > 1 || referenceRoots[0].virtualPathComponent != nil
+    }
+
+    private func virtualPath(for root: LocalReferenceRoot) -> String {
+        root.virtualPathComponent.map { "/\($0)" } ?? "/"
+    }
+
     private func resolvedURL(for path: String, allowRoot: Bool) throws -> URL {
+        if !referenceRoots.isEmpty {
+            return try resolvedReferenceURL(for: path, allowRoot: allowRoot)
+        }
         if path.hasPrefix("/"),
            let migratedURL = PrimuseSandboxPathResolver.existingURL(
                forStoredAbsolutePath: path
@@ -780,12 +872,80 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return fileURL
     }
 
+    private func resolvedReferenceURL(for path: String, allowRoot: Bool) throws -> URL {
+        let relativePath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        for root in referenceRoots {
+            let remainder: String
+            if let component = root.virtualPathComponent {
+                if relativePath == component {
+                    guard allowRoot || !root.isDirectory else {
+                        throw SourceError.fileNotFound(path)
+                    }
+                    return root.url.standardizedFileURL
+                }
+                let prefix = component + "/"
+                guard relativePath.hasPrefix(prefix) else { continue }
+                remainder = String(relativePath.dropFirst(prefix.count))
+            } else {
+                if relativePath.isEmpty {
+                    guard allowRoot else { throw SourceError.fileNotFound(path) }
+                    return root.url.standardizedFileURL
+                }
+                remainder = relativePath
+            }
+
+            guard root.isDirectory else { throw SourceError.fileNotFound(path) }
+            let candidate = root.url.appendingPathComponent(remainder).standardizedFileURL
+            guard Self.contains(candidate, inside: root.url) else {
+                throw SourceError.connectionFailed("Refusing to access outside source root: \(path)")
+            }
+            return candidate
+        }
+        throw SourceError.fileNotFound(path)
+    }
+
     private func relativePath(for url: URL) -> String {
-        let base = basePath.standardizedFileURL.path
-        let path = url.standardizedFileURL.path
-        guard path.hasPrefix(base) else { return "/" + url.lastPathComponent }
-        let suffix = path.dropFirst(base.count)
-        return suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
+        let standardized = url.standardizedFileURL
+        for root in referenceRoots where Self.contains(standardized, inside: root.url) {
+            let rootPath = root.url.standardizedFileURL.path
+            let suffix = standardized.path.dropFirst(rootPath.count)
+            let rootPrefix = root.virtualPathComponent.map { "/\($0)" } ?? ""
+            if suffix.isEmpty { return rootPrefix.isEmpty ? "/" : rootPrefix }
+            let childPath = suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
+            return rootPrefix + childPath
+        }
+
+        let standardizedBase = basePath.standardizedFileURL
+        guard Self.contains(standardized, inside: standardizedBase) else {
+            return "/" + url.lastPathComponent
+        }
+        let suffix = standardized.path.dropFirst(standardizedBase.path.count)
+        return suffix.isEmpty ? "/" : (suffix.hasPrefix("/") ? String(suffix) : "/" + suffix)
+    }
+
+    private func isAccessibleReference(_ candidate: URL, relativeTo sourceURL: URL) -> Bool {
+        if referenceRoots.isEmpty {
+            return Self.contains(sourceURL, inside: basePath)
+                && Self.contains(candidate, inside: basePath)
+        }
+        guard let root = referenceRoots.first(where: {
+            Self.contains(sourceURL, inside: $0.url)
+        }), root.isDirectory else { return false }
+        return Self.contains(candidate, inside: root.url)
+    }
+
+    private func isIndividuallyReferencedFile(_ url: URL) -> Bool {
+        referenceRoots.contains {
+            !$0.isDirectory && $0.url.standardizedFileURL == url.standardizedFileURL
+        }
+    }
+
+    private nonisolated static func contains(_ candidate: URL, inside root: URL) -> Bool {
+        let candidatePath = candidate.standardizedFileURL.path
+        let rootPath = root.standardizedFileURL.path
+        if candidatePath == rootPath { return true }
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        return candidatePath.hasPrefix(prefix)
     }
 
     private nonisolated static func preferredPositive(

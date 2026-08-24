@@ -323,7 +323,7 @@ final class SourcesStore {
 
     /// Tear down the persisted secrets and per-source storage owned outside the
     /// source row itself: Keychain passwords, cloud OAuth tokens + app
-    /// credentials, security-scoped bookmarks (macOS only) and cloud directory
+    /// credentials, security-scoped bookmarks and cloud directory
     /// display names. Idempotent and safe to call for any source type.
     private func purgeCredentials(for source: MusicSource) -> Bool {
         // KeychainService / CloudTokenManager / CloudDirectoryNameStore 仅存在于
@@ -346,9 +346,7 @@ final class SourcesStore {
             passwordDeleted: passwordDeleted,
             cloudCredentialsDeleted: cloudCredentialsDeleted
         ), fnConnectAccessCodeDeleted else { return false }
-        #if os(macOS)
         LocalBookmarkStore.remove(sourceID: source.id)
-        #endif
         CloudDirectoryNameStore.deleteAll(for: source.id)
         #endif
         return true
@@ -647,8 +645,10 @@ final class SourcesStore {
     /// posting a sync notification could delete the real source on its owner.
     private func pruneForeignDeviceLocalSources() {
         #if os(iOS)
-        let ownedSourceIDs = LocalImportService.existingSourceID
-            .map { Set([$0]) } ?? []
+        var ownedSourceIDs = LocalBookmarkStore.storedSourceIDs
+        if let copiedSourceID = LocalImportService.existingSourceID {
+            ownedSourceIDs.insert(copiedSourceID)
+        }
         let foreignSourceIDs = MusicSourceCloudSyncPolicy.foreignDeviceLocalSourceIDs(
             in: allSources,
             ownedSourceIDs: ownedSourceIDs

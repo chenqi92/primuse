@@ -70,7 +70,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     #endif
     #if os(iOS)
     @State private var showLocalImporter = false
-    @State private var localImportPickerMode: LocalImportPickerMode = .folder
+    @State private var localImportPickerMode: LocalImportPickerMode = .referenceFolder
     @State private var localImportTask: Task<Void, Never>?
     @State private var localImportSession: LocalImportService.CopySession?
     @State private var localImportProgress: LocalImportService.CopyProgress?
@@ -682,9 +682,9 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         .navigationTitle("select_source_type")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
-        // 文件/文件夹入口都走 open-in-place 安全域授权: 文件夹递归扫描;
-        // 散文件拿到活的 provider URL, 交给 LocalImportService 按需触发下载/
-        // materialize 后再读字节(asCopy:true 会让系统提前复制, 第三方网盘易交出占位)。
+        // 引用与复制入口都先走 open-in-place 安全域授权。引用会持久化书签；
+        // “复制到 Primuse”再由 LocalImportService 按需 materialize 并复制，
+        // 避免 asCopy:true 在第三方 File Provider 上提前产出占位小文件。
         .sheet(isPresented: $showLocalImporter) {
             IOSLocalDocumentPicker(mode: localImportPickerMode) { result in
                 handleLocalImport(result)
@@ -707,13 +707,12 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         }
     }
 
-    /// 本地导入入口 —— 跟随普通源类型的 Local 分组。iOS 一个选择器无法同时选文件夹和散文件,
-    /// 且 .folder 模式下第三方云盘会被系统灰掉, 故拆成两个入口: 文件夹整包
-    /// (本机/iCloud)、文件多选(可从百度/阿里等云盘选音频)。
+    /// 新选择默认保留在原位置并以安全域书签直接引用。复制仍作为显式菜单
+    /// 提供；旧版本已经复制到 Documents/LocalMusic 的来源继续独立复用。
     private var iosLocalImportSection: some View {
         Section {
             Button {
-                localImportPickerMode = .folder
+                localImportPickerMode = .referenceFolder
                 showLocalImporter = true
             } label: {
                 iosImportRow(icon: "folder.badge.plus",
@@ -725,7 +724,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             .accessibilityIdentifier("localImport.folder")
 
             Button {
-                localImportPickerMode = .files
+                localImportPickerMode = .referenceFiles
                 showLocalImporter = true
             } label: {
                 iosImportRow(icon: "doc.badge.plus",
@@ -735,6 +734,25 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             .buttonStyle(.plain)
             .disabled(localImportProgress != nil)
             .accessibilityIdentifier("localImport.files")
+
+            Menu {
+                Button("local_import_copy_folder") {
+                    localImportPickerMode = .copyFolder
+                    showLocalImporter = true
+                }
+                Button("local_import_copy_files") {
+                    localImportPickerMode = .copyFiles
+                    showLocalImporter = true
+                }
+            } label: {
+                iosImportRow(
+                    icon: "square.and.arrow.down.on.square",
+                    title: "local_import_copy_title",
+                    subtitle: "local_import_copy_subtitle"
+                )
+            }
+            .disabled(localImportProgress != nil)
+            .accessibilityIdentifier("localImport.copy")
         } header: {
             Text(SourceCategory.local.displayNameFallback)
         } footer: {
@@ -809,8 +827,64 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         showLocalImporter = false
         switch result {
         case .success(let urls):
-            startLocalImport(urls)
+            if localImportPickerMode.copiesToPrimuse {
+                startLocalImport(urls)
+            } else {
+                addLocalReferences(urls)
+            }
         case .failure(let error):
+            localImportAlert = LocalImportAlert(
+                title: String(localized: "local_import_err_title"),
+                message: error.localizedDescription,
+                dismissAfterOK: false
+            )
+        }
+    }
+
+    private func addLocalReferences(_ urls: [URL]) {
+        var seenPaths = Set<String>()
+        let uniqueURLs = urls.filter { seenPaths.insert($0.standardizedFileURL.path).inserted }
+        guard !uniqueURLs.isEmpty else { return }
+
+        let sourceID = UUID().uuidString
+        do {
+            try LocalBookmarkStore.saveReferences(
+                sourceID: sourceID,
+                urls: uniqueURLs,
+                treatingAsDirectories: localImportPickerMode.selectsFolders
+            )
+            let sourceName: String
+            if uniqueURLs.count == 1 {
+                let url = uniqueURLs[0]
+                let suggestedName = localImportPickerMode.selectsFolders
+                    ? url.lastPathComponent
+                    : (url.lastPathComponent as NSString).deletingPathExtension
+                sourceName = suggestedName.isEmpty
+                    ? String(localized: "local_import_source_name")
+                    : suggestedName
+            } else {
+                sourceName = String(
+                    format: String(localized: "local_reference_source_name_format"),
+                    uniqueURLs.count
+                )
+            }
+            let source = MusicSource(
+                id: sourceID,
+                name: sourceName,
+                type: .local,
+                basePath: uniqueURLs[0].path,
+                authType: .none,
+                extraConfig: MusicSource.encodeScannedDirectories(["/"], into: nil, type: .local)
+            )
+            do {
+                try onAdd(source)
+            } catch {
+                LocalBookmarkStore.remove(sourceID: sourceID)
+                throw error
+            }
+            dismiss()
+        } catch {
+            LocalBookmarkStore.remove(sourceID: sourceID)
             localImportAlert = LocalImportAlert(
                 title: String(localized: "local_import_err_title"),
                 message: error.localizedDescription,
@@ -822,7 +896,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     private func startLocalImport(_ urls: [URL]) {
         guard localImportSession == nil, localImportTask == nil else { return }
         localImportAlert = nil
-        let cleanupPickedCopies = localImportPickerMode.importsCopy
+        let cleanupPickedCopies = localImportPickerMode.pickerImportsCopy
         localImportProgress = LocalImportService.CopyProgress(
             phase: .discovering,
             currentFileName: "",
@@ -1198,24 +1272,40 @@ extension MusicSourceType: @retroactive Identifiable {
 
 #if os(iOS)
 enum LocalImportPickerMode {
-    case folder
-    case files
+    case referenceFolder
+    case referenceFiles
+    case copyFolder
+    case copyFiles
 
     var contentTypes: [UTType] {
         switch self {
-        case .folder:
+        case .referenceFolder, .copyFolder:
             return [.folder]
-        case .files:
+        case .referenceFiles, .copyFiles:
             return SourceTypeSelectionView<EmptyView>.audioContentTypes
         }
     }
 
-    // 两个入口都走 open-in-place(asCopy:false): 拿到活的 security-scoped
+    var copiesToPrimuse: Bool {
+        switch self {
+        case .copyFolder, .copyFiles: return true
+        case .referenceFolder, .referenceFiles: return false
+        }
+    }
+
+    var selectsFolders: Bool {
+        switch self {
+        case .referenceFolder, .copyFolder: return true
+        case .referenceFiles, .copyFiles: return false
+        }
+    }
+
+    // 所有入口都走 open-in-place(asCopy:false): 拿到活的 security-scoped
     // provider URL, LocalImportService 才能用 startDownloadingUbiquitousItem +
     // NSFileCoordinator(.forUploading) 驱动按需 materialize。asCopy:true 时系统
     // 在导出阶段就先复制进沙箱, 第三方网盘扩展常交出占位小文件(几十字节), 而那时
     // 已是普通本地副本(非 ubiquitous), 兜底下载逻辑全部失效, 只能拒收。
-    var importsCopy: Bool {
+    var pickerImportsCopy: Bool {
         false
     }
 }
@@ -1227,7 +1317,7 @@ struct IOSLocalDocumentPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: mode.contentTypes,
-            asCopy: mode.importsCopy
+            asCopy: mode.pickerImportsCopy
         )
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = true

@@ -152,9 +152,9 @@
 "scan_in_progress" = "Scanning music files...";
 "add_source" = "Add Source";
 "select_source_type" = "Select Source Type";
-"local_import_title" = "Import from Files";
+"local_import_title" = "Copy to Primuse";
 "local_import_subtitle" = "Pick one or more folders to import their music";
-"local_import_section_footer" = "Imported songs are copied into the app and play offline.";
+"local_import_section_footer" = "Files and folders stay in their original location by default. Choose Copy to Primuse for an app-managed offline copy.";
 "local_import_source_name" = "Local Music";
 "local_import_none_added" = "No audio files were imported.";
 "local_import_err_title" = "Import Failed";
@@ -1984,11 +1984,17 @@
 "source_deleted_toast" = "Deleted “%@”";
 "undo" = "Undo";
 
-/* Local import — two entries */
-"local_import_folder_title" = "Import a Folder";
-"local_import_folder_subtitle" = "On-device or iCloud Drive, imports the whole folder";
-"local_import_files_title" = "Import Files";
-"local_import_files_subtitle" = "Pick audio from Files or cloud drives";
+/* Local files and folders */
+"local_import_folder_title" = "Reference a Folder";
+"local_import_folder_subtitle" = "Play from its original location, including subfolders";
+"local_import_files_title" = "Reference Files";
+"local_import_files_subtitle" = "Play selected audio from its original location";
+"local_import_copy_title" = "Copy to Primuse";
+"local_import_copy_subtitle" = "Store an app-managed copy for offline playback";
+"local_import_copy_folder" = "Copy a Folder";
+"local_import_copy_files" = "Copy Files";
+"local_reference_source_name_format" = "Local References (%d)";
+"local_reference_permission_missing" = "Primuse can no longer access this file or folder. Add it again to restore access.";
 "local_import_progress_title" = "Importing Music";
 "local_import_progress_discovering" = "Finding importable audio…";
 "local_import_progress_indexing" = "Checking previously imported files…";

@@ -140,9 +140,9 @@
 "scan_in_progress" = "正在掃描音樂檔案...";
 "add_source" = "新增音樂來源";
 "select_source_type" = "選擇音樂來源類型";
-"local_import_title" = "從檔案匯入";
+"local_import_title" = "複製到 Primuse";
 "local_import_subtitle" = "選擇資料夾，整包匯入其中的音樂";
-"local_import_section_footer" = "匯入的歌曲會複製到 App 內，離線也能播放。";
+"local_import_section_footer" = "預設保留檔案和資料夾的原位置並直接引用；如需由 App 管理的離線副本，請選擇「複製到 Primuse」。";
 "local_import_source_name" = "本機音樂";
 "local_import_none_added" = "沒有可匯入的音訊檔案。";
 "local_import_err_title" = "匯入失敗";
@@ -2109,11 +2109,17 @@
 "source_deleted_toast" = "已刪除「%@」";
 "undo" = "復原";
 
-/* Local import — two entries */
-"local_import_folder_title" = "匯入資料夾";
-"local_import_folder_subtitle" = "本機或 iCloud 雲碟，整包匯入（含子目錄）";
-"local_import_files_title" = "匯入檔案";
-"local_import_files_subtitle" = "可從百度網盤、阿里雲盤等選取音訊";
+/* Local files and folders */
+"local_import_folder_title" = "引用資料夾";
+"local_import_folder_subtitle" = "從原位置播放，包含所有子資料夾";
+"local_import_files_title" = "引用檔案";
+"local_import_files_subtitle" = "從原位置播放所選音訊，不額外複製";
+"local_import_copy_title" = "複製到 Primuse";
+"local_import_copy_subtitle" = "儲存由 App 管理的副本，方便離線播放";
+"local_import_copy_folder" = "複製資料夾";
+"local_import_copy_files" = "複製檔案";
+"local_reference_source_name_format" = "本機引用（%d 項）";
+"local_reference_permission_missing" = "Primuse 已無法存取這個檔案或資料夾，請重新加入以恢復授權。";
 "local_import_progress_title" = "正在匯入音樂";
 "local_import_progress_discovering" = "正在尋找可匯入的音訊…";
 "local_import_progress_indexing" = "正在檢查已完整匯入的檔案…";

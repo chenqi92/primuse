@@ -382,9 +382,9 @@
 "scan_in_progress" = "Analyse des fichiers musicaux…";
 "add_source" = "Ajouter une source";
 "select_source_type" = "Sélectionner le type de source";
-"local_import_title" = "Importer depuis Fichiers";
+"local_import_title" = "Copier dans Primuse";
 "local_import_subtitle" = "Choisir un ou plusieurs dossiers à importer";
-"local_import_section_footer" = "Les morceaux importés sont copiés dans l'app et lisibles hors ligne.";
+"local_import_section_footer" = "Par défaut, les fichiers et dossiers restent à leur emplacement d’origine. Choisissez « Copier dans Primuse » pour une copie hors ligne gérée par l’app.";
 "local_import_source_name" = "Musique locale";
 "local_import_none_added" = "Aucun fichier audio n'a été importé.";
 "local_import_err_title" = "Échec de l'importation";
@@ -2132,11 +2132,17 @@
 "source_deleted_toast" = "« %@ » supprimé";
 "undo" = "Annuler";
 
-/* Local import — two entries */
-"local_import_folder_title" = "Importer un dossier";
-"local_import_folder_subtitle" = "Sur l'appareil ou iCloud Drive, tout le dossier";
-"local_import_files_title" = "Importer des fichiers";
-"local_import_files_subtitle" = "Choisir l'audio depuis Fichiers ou le cloud";
+/* Local files and folders */
+"local_import_folder_title" = "Référencer un dossier";
+"local_import_folder_subtitle" = "Lire depuis son emplacement d’origine, sous-dossiers inclus";
+"local_import_files_title" = "Référencer des fichiers";
+"local_import_files_subtitle" = "Lire les fichiers audio sélectionnés depuis leur emplacement d’origine";
+"local_import_copy_title" = "Copier dans Primuse";
+"local_import_copy_subtitle" = "Conserver une copie gérée par l’app pour l’écoute hors ligne";
+"local_import_copy_folder" = "Copier un dossier";
+"local_import_copy_files" = "Copier des fichiers";
+"local_reference_source_name_format" = "Références locales (%d)";
+"local_reference_permission_missing" = "Primuse ne peut plus accéder à ce fichier ou dossier. Ajoutez-le à nouveau pour rétablir l’accès.";
 "local_import_progress_title" = "Importation de la musique";
 "local_import_progress_discovering" = "Recherche des fichiers audio importables…";
 "local_import_progress_indexing" = "Checking previously imported files…";

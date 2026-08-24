@@ -287,8 +287,7 @@ struct SourcesContentView: View {
                 SourceTypeSelectionView(
                     submitIntent: .continueToConnection,
                     onAdd: { source in
-                        if source.type == .local,
-                           source.id == LocalImportService.existingSourceID {
+                        if source.type == .local {
                             try sourceStore.addDurably(source)
                         } else {
                             sourceStore.add(source)
@@ -339,7 +338,7 @@ struct SourcesContentView: View {
             }
             #if os(iOS)
             .sheet(isPresented: $showExistingLocalFileImporter) {
-                IOSLocalDocumentPicker(mode: .files) { result in
+                IOSLocalDocumentPicker(mode: .copyFiles) { result in
                     handleExistingLocalImport(result)
                 }
             }
@@ -683,7 +682,7 @@ struct SourcesContentView: View {
             }
 
             #if os(iOS)
-            if isLocalImportSource(source),
+            if isManagedLocalImportSource(source),
                localImportTargetSource?.id == source.id,
                let localImportProgress {
                 localImportProgressView(localImportProgress)
@@ -701,25 +700,20 @@ struct SourcesContentView: View {
                     ) {
                         openAppleMusicSettings = true
                     }
-                } else if isLocalImportSource(source) {
+                } else if source.type == .local {
                     #if os(iOS)
-                    let isImportingHere = localImportTargetSource?.id == source.id && localImportProgress != nil
-                    sourceActionButton(
-                        "local_import_title",
-                        systemImage: "doc.badge.plus",
-                        prominence: .accent,
-                        isLoading: isImportingHere,
-                        isDisabled: localImportProgress != nil
-                    ) {
-                        presentExistingLocalImport(for: source)
-                    }
-                    #else
-                    sourceActionButton(
-                        "local_import_title",
-                        systemImage: "doc.badge.plus",
-                        prominence: .accent
-                    ) {
-                        showAddSource = true
+                    if isManagedLocalImportSource(source) {
+                        let isImportingHere = localImportTargetSource?.id == source.id
+                            && localImportProgress != nil
+                        sourceActionButton(
+                            "local_import_copy_title",
+                            systemImage: "square.and.arrow.down.on.square",
+                            prominence: .accent,
+                            isLoading: isImportingHere,
+                            isDisabled: localImportProgress != nil
+                        ) {
+                            presentExistingLocalImport(for: source)
+                        }
                     }
                     #endif
 
@@ -1791,9 +1785,9 @@ struct SourcesContentView: View {
         scanService.cancelScan(for: sourceID)
     }
 
-    private func isLocalImportSource(_ source: MusicSource) -> Bool {
+    private func isManagedLocalImportSource(_ source: MusicSource) -> Bool {
         #if os(iOS)
-        return source.type == .local
+        return source.type == .local && source.id == LocalImportService.existingSourceID
         #else
         return false
         #endif
@@ -1833,7 +1827,7 @@ struct SourcesContentView: View {
 
         if path == "/" {
             if source.type == .local {
-                return String(localized: "local_import_source_name")
+                return source.name
             }
             return String(localized: "shared_folders")
         }
