@@ -602,6 +602,9 @@
 "insecure_http_trust_title" = "允许不安全的 HTTP 连接？";
 "insecure_http_trust_message %@" = "主机「%@」使用未加密的 HTTP。账号、密码、会话和音乐数据可能被网络中的其他人读取或篡改。是否仍然允许？";
 "allow_insecure_http" = "仍然允许 HTTP";
+"insecure_http_warning_title" = "允许不安全的 HTTP 连接？";
+"insecure_http_warning_message %@" = "主机「%@」使用未加密的 HTTP。账号、密码、会话和音乐数据可能被网络中的其他人读取或篡改。是否仍然允许？";
+"insecure_http_continue" = "仍然允许 HTTP";
 "insecure_http_permission_required %@" = "主机「%@」尚未获准使用公网 HTTP。请改用 HTTPS，或在安全设置中明确允许该主机。";
 "domain_placeholder" = "域名";
 "add" = "添加";

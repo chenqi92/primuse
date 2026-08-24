@@ -796,6 +796,9 @@
 "insecure_http_trust_title" = "Autoriser une connexion HTTP non sécurisée ?";
 "insecure_http_trust_message %@" = "L’hôte « %@ » utilise HTTP sans chiffrement. Une personne sur le réseau pourrait lire ou modifier vos identifiants, votre session et vos données musicales. L’autoriser quand même ?";
 "allow_insecure_http" = "Autoriser HTTP quand même";
+"insecure_http_warning_title" = "Autoriser une connexion HTTP non sécurisée ?";
+"insecure_http_warning_message %@" = "L’hôte « %@ » utilise HTTP sans chiffrement. Une personne sur le réseau pourrait lire ou modifier vos identifiants, votre session et vos données musicales. L’autoriser quand même ?";
+"insecure_http_continue" = "Autoriser HTTP quand même";
 "insecure_http_permission_required %@" = "L’hôte « %@ » n’est pas autorisé à utiliser HTTP public. Utilisez HTTPS ou autorisez explicitement cet hôte dans les réglages de sécurité.";
 "domain_placeholder" = "Domaine";
 "add" = "Ajouter";

@@ -796,6 +796,9 @@
 "insecure_http_trust_title" = "Unsichere HTTP-Verbindung zulassen?";
 "insecure_http_trust_message %@" = "Der Host „%@“ verwendet unverschlüsseltes HTTP. Andere im Netzwerk könnten Zugangsdaten, Sitzung und Musikdaten lesen oder verändern. Trotzdem zulassen?";
 "allow_insecure_http" = "HTTP trotzdem zulassen";
+"insecure_http_warning_title" = "Unsichere HTTP-Verbindung zulassen?";
+"insecure_http_warning_message %@" = "Der Host „%@“ verwendet unverschlüsseltes HTTP. Andere im Netzwerk könnten Zugangsdaten, Sitzung und Musikdaten lesen oder verändern. Trotzdem zulassen?";
+"insecure_http_continue" = "HTTP trotzdem zulassen";
 "insecure_http_permission_required %@" = "Der Host „%@“ ist nicht für öffentliches HTTP zugelassen. Verwende HTTPS oder erlaube den Host ausdrücklich in den Sicherheitseinstellungen.";
 "domain_placeholder" = "Domain";
 "add" = "Hinzufügen";

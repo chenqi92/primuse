@@ -797,6 +797,9 @@
 "insecure_http_trust_title" = "安全でない HTTP 接続を許可しますか？";
 "insecure_http_trust_message %@" = "ホスト「%@」は暗号化されていない HTTP を使用します。ネットワーク上の第三者が認証情報、セッション、音楽データを読み取ったり改ざんしたりする可能性があります。それでも許可しますか？";
 "allow_insecure_http" = "HTTP を許可する";
+"insecure_http_warning_title" = "安全でない HTTP 接続を許可しますか？";
+"insecure_http_warning_message %@" = "ホスト「%@」は暗号化されていない HTTP を使用します。ネットワーク上の第三者が認証情報、セッション、音楽データを読み取ったり改ざんしたりする可能性があります。それでも許可しますか？";
+"insecure_http_continue" = "HTTP を許可する";
 "insecure_http_permission_required %@" = "ホスト「%@」には公開 HTTP の使用が許可されていません。HTTPS を使用するか、セキュリティ設定でこのホストを明示的に許可してください。";
 "domain_placeholder" = "ドメイン";
 "add" = "追加";

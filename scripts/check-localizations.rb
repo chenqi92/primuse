@@ -8,6 +8,12 @@ require "set"
 ROOT = Pathname(__dir__).parent.freeze
 SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant].freeze
 
+REQUIRED_APP_LOCALIZATION_KEYS = [
+  "insecure_http_continue",
+  "insecure_http_warning_message %@",
+  "insecure_http_warning_title"
+].freeze
+
 RESOURCE_GROUPS = [
   ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
@@ -295,6 +301,16 @@ end
 failures = []
 RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
   check_resource_group(name, root, file_name, exact_english_parity, failures)
+end
+
+localization_paths(ROOT / "Primuse/Resources", "Localizable.strings").each do |locale, path|
+  next unless path.file?
+
+  dictionary = load_strings(path)
+  missing = REQUIRED_APP_LOCALIZATION_KEYS.reject { |key| dictionary.key?(key) }
+  unless missing.empty?
+    failures << "Primuse Localizable.strings #{locale}: missing required keys: #{missing.join(', ')}"
+  end
 end
 
 LOCALIZED_ERROR_ROOTS.each do |relative_root|

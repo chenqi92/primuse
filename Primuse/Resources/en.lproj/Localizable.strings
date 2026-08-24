@@ -601,6 +601,9 @@
 "insecure_http_trust_title" = "Allow an Insecure HTTP Connection?";
 "insecure_http_trust_message %@" = "The host “%@” uses unencrypted HTTP. Someone on the network could read or alter your account credentials, session, and music data. Allow it anyway?";
 "allow_insecure_http" = "Allow HTTP Anyway";
+"insecure_http_warning_title" = "Allow an Insecure HTTP Connection?";
+"insecure_http_warning_message %@" = "The host “%@” uses unencrypted HTTP. Someone on the network could read or alter your account credentials, session, and music data. Allow it anyway?";
+"insecure_http_continue" = "Allow HTTP Anyway";
 "insecure_http_permission_required %@" = "The host “%@” has not been allowed to use public HTTP. Use HTTPS or explicitly allow this host in Security settings.";
 "domain_placeholder" = "Domain";
 "add" = "Add";

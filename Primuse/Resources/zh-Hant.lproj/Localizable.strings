@@ -564,6 +564,9 @@
 "insecure_http_trust_title" = "允許不安全的 HTTP 連線？";
 "insecure_http_trust_message %@" = "主機「%@」使用未加密的 HTTP。帳號、密碼、工作階段和音樂資料可能被網路中的其他人讀取或竄改。是否仍要允許？";
 "allow_insecure_http" = "仍然允許 HTTP";
+"insecure_http_warning_title" = "允許不安全的 HTTP 連線？";
+"insecure_http_warning_message %@" = "主機「%@」使用未加密的 HTTP。帳號、密碼、工作階段和音樂資料可能被網路中的其他人讀取或竄改。是否仍要允許？";
+"insecure_http_continue" = "仍然允許 HTTP";
 "insecure_http_permission_required %@" = "主機「%@」尚未獲准使用公網 HTTP。請改用 HTTPS，或在安全設定中明確允許該主機。";
 "domain_placeholder" = "網域";
 "add" = "加入";
