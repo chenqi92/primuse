@@ -57,7 +57,6 @@ final class TVThemeState {
 // 保留原有 10ft 字号和焦点层级，颜色 token 同时适配 tvOS 浅色与深色外观。
 // 封面色只负责氛围和强调，文字、卡片、分隔线始终由语义色保证对比度。
 
-@MainActor
 enum TVColor {
     static let bg = adaptive(light: rgb(0xF2EFEB), dark: rgb(0x000000))
     static let bgDeep = adaptive(light: rgb(0xE9E4DE), dark: rgb(0x0A0A0A))
@@ -87,16 +86,16 @@ enum TVColor {
                                      dark: UIColor.black.withAlphaComponent(0.24))
     static let focusShadow = adaptive(light: UIColor.black.withAlphaComponent(0.26),
                                       dark: UIColor.black.withAlphaComponent(0.54))
-    static var focusRing: Color { brand }
+    @MainActor static var focusRing: Color { brand }
     /// 品牌底色在浅色外观中加深、深色外观中提亮，并提供对应前景色，
     /// 让 16pt 普通文本和焦点图标都达到稳定对比度。
-    static var brand: Color {
+    @MainActor static var brand: Color {
         TVThemeState.shared.accent
     }
-    static var brandSecondary: Color {
+    @MainActor static var brandSecondary: Color {
         TVThemeState.shared.secondary
     }
-    static var onBrand: Color {
+    @MainActor static var onBrand: Color {
         TVThemeState.shared.onAccent
     }
     static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))

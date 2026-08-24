@@ -709,6 +709,7 @@
 		DB18A0C7FC05D5856F733A90 /* MacRadioStationEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */; };
 		DB9E5F2628D4E445C822E8D3 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
 		DBEB1006A1C6D8EE8BC47135 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
+		DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */; };
 		DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86E05F2143FF7A15E29948C /* NFSSource.swift */; };
 		DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C714C150FC7495AF3988FB /* CloudAccount.swift */; };
 		DF207060532441F426923D9E /* UPnPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */; };
@@ -867,6 +868,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = FA4505FD14BFFAC74122E1D1;
 			remoteInfo = PrimuseKit;
+		};
+		933B1073F1353C9C220F46C9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 387532125516FECA27A69911 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 34610D945CC226584D15C589;
+			remoteInfo = PrimuseTV;
 		};
 		BE0AE8E13CB3839C590DD113 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -1154,6 +1162,7 @@
 		52F04429FA512B9FBE040C61 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		53685355484484D363F001AF /* BrandTintStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandTintStore.swift; sourceTree = "<group>"; };
 		546D19974F6A389BCC097DA9 /* DrimeAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrimeAPIProtocol.swift; sourceTree = "<group>"; };
+		54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVColorBackgroundIsolationTests.swift; sourceTree = "<group>"; };
 		54BFF366606BB1197F305ABA /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		54D5EDD9A322FF83F0612BEF /* DesktopLyricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopLyricsView.swift; sourceTree = "<group>"; };
 		552EC251CB491F214F263601 /* SynologyAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAPI.swift; sourceTree = "<group>"; };
@@ -1427,6 +1436,7 @@
 		E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFolderSelectionIndex.swift; sourceTree = "<group>"; };
 		E7BBFA50461FE980684501FA /* AddSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSourceView.swift; sourceTree = "<group>"; };
 		E7F90F8D26A59F3DF6BF867F /* SidecarMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarMetadataLoader.swift; sourceTree = "<group>"; };
+		E869595DCD0088EE00182909 /* PrimuseTVTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PrimuseTVTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioDirectoryClient.swift; sourceTree = "<group>"; };
 		E8945701E14DEF0FF55A668F /* ScraperSourceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperSourceConfig.swift; sourceTree = "<group>"; };
 		E8F85E53FF87D6A322E1A0A7 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
@@ -1621,6 +1631,7 @@
 				8EE811704C89D0ED4F2E61C6 /* PrimuseKit */,
 				45EEEC1BA930FF317E3B1185 /* PrimuseTopShelf */,
 				C9FF87AE840B3F2EA4285057 /* PrimuseTV */,
+				9DBDFB0BAC2A79E7659261A2 /* PrimuseTVTests */,
 				535E516108F81253495C5268 /* PrimuseWatch */,
 				D18012C0B8BEE57541076D6C /* PrimuseWatchShared */,
 				7FA40E35A25357F375A5C97D /* PrimuseWatchWidgets */,
@@ -2130,6 +2141,14 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		9DBDFB0BAC2A79E7659261A2 /* PrimuseTVTests */ = {
+			isa = PBXGroup;
+			children = (
+				54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */,
+			);
+			path = PrimuseTVTests;
+			sourceTree = "<group>";
+		};
 		9E53D249778735CE1630BEA6 /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -2471,6 +2490,7 @@
 				B1E36F2FECF46E724081F983 /* PrimuseKit.framework */,
 				5777C4BD5F21B1F077D01378 /* PrimuseTopShelf.appex */,
 				E77C291D51A0577AAC67C318 /* PrimuseTV.app */,
+				E869595DCD0088EE00182909 /* PrimuseTVTests.xctest */,
 				0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */,
 				94091D358D024862C22DA30C /* PrimuseWatchWidgets.appex */,
 				FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */,
@@ -2769,6 +2789,24 @@
 			productReference = 94091D358D024862C22DA30C /* PrimuseWatchWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		F5EDBC073AD924DC0A180555 /* PrimuseTVTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7E7B231074AC9B4AC71AE355 /* Build configuration list for PBXNativeTarget "PrimuseTVTests" */;
+			buildPhases = (
+				275E31F5630F0A4074FE7F4F /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6201D389ECD348F5E4892A36 /* PBXTargetDependency */,
+			);
+			name = PrimuseTVTests;
+			packageProductDependencies = (
+			);
+			productName = PrimuseTVTests;
+			productReference = E869595DCD0088EE00182909 /* PrimuseTVTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		FA4505FD14BFFAC74122E1D1 /* PrimuseKit */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C7C74F146C60BF0FBAFAB03E /* Build configuration list for PBXNativeTarget "PrimuseKit" */;
@@ -2826,6 +2864,10 @@
 						DevelopmentTeam = 2U97K3U27A;
 						ProvisioningStyle = Automatic;
 					};
+					F5EDBC073AD924DC0A180555 = {
+						DevelopmentTeam = 2U97K3U27A;
+						ProvisioningStyle = Automatic;
+					};
 					FA4505FD14BFFAC74122E1D1 = {
 						DevelopmentTeam = 2U97K3U27A;
 						ProvisioningStyle = Automatic;
@@ -2866,6 +2908,7 @@
 				FA4505FD14BFFAC74122E1D1 /* PrimuseKit */,
 				A421DEB7AD07C5D9B09C3FDE /* PrimuseMac */,
 				34610D945CC226584D15C589 /* PrimuseTV */,
+				F5EDBC073AD924DC0A180555 /* PrimuseTVTests */,
 				4F086BB74015F0C1240A69D4 /* PrimuseTopShelf */,
 				D78C07FFF7D4E14143E77E5A /* PrimuseWatchApp */,
 				D999BDF6A063541ECA486CA0 /* PrimuseWatchWidgets */,
@@ -2955,6 +2998,14 @@
 				C27FC4095CCA4C732D2E235A /* QuickAccessWidget.swift in Sources */,
 				905195595203C14BB65E504D /* SecondaryWidgets.swift in Sources */,
 				2EFBCB657D83A2B64F03C9C3 /* WidgetDesignSystem.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		275E31F5630F0A4074FE7F4F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3754,6 +3805,11 @@
 			target = 077D3AF75542004A69D318FF /* PrimuseWidgetExtension */;
 			targetProxy = 45458E82C950F902ABBF664F /* PBXContainerItemProxy */;
 		};
+		6201D389ECD348F5E4892A36 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 34610D945CC226584D15C589 /* PrimuseTV */;
+			targetProxy = 933B1073F1353C9C220F46C9 /* PBXContainerItemProxy */;
+		};
 		C85F3B46B4DA8166FBF68F4D /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = FA4505FD14BFFAC74122E1D1 /* PrimuseKit */;
@@ -3980,6 +4036,23 @@
 			};
 			name = Release;
 		};
+		51A2F21CFD7F3ED1CB67E031 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin.tvtests;
+				SDKROOT = appletvos;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PrimuseTV.app/PrimuseTV";
+			};
+			name = Release;
+		};
 		678B01AF95DBF3E198636323 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -4170,6 +4243,23 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "PrimuseTV/PrimuseTV-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = 3;
 				TVOS_DEPLOYMENT_TARGET = 17.0;
+			};
+			name = Debug;
+		};
+		998DE494601A04A482EDEC4D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin.tvtests;
+				SDKROOT = appletvos;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PrimuseTV.app/PrimuseTV";
 			};
 			name = Debug;
 		};
@@ -4364,6 +4454,15 @@
 			buildConfigurations = (
 				DBC06A5E6BE1110CC63FF4E1 /* Debug */,
 				F3853614E2600B9F36A50D5E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7E7B231074AC9B4AC71AE355 /* Build configuration list for PBXNativeTarget "PrimuseTVTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				998DE494601A04A482EDEC4D /* Debug */,
+				51A2F21CFD7F3ED1CB67E031 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
