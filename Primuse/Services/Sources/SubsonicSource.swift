@@ -738,6 +738,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 name: name,
                 streamURL: station.streamURL,
                 homepageURL: station.homePageURL,
+                coverArtReference: station.coverArt.flatMap { coverArtURLString(for: $0) },
                 streamFormat: format
             )
         }
@@ -1268,10 +1269,12 @@ private struct SubsonicInternetRadioStation: Decodable {
     let name: String?
     let streamURL: String?
     let homePageURL: String?
+    let coverArt: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
+        case coverArt
         case streamURL = "streamUrl"
         case homePageURL = "homePageUrl"
     }
