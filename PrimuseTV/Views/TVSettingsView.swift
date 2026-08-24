@@ -22,12 +22,11 @@ private var tvDebugShowsThemePicker: Bool {
 /// 刻意精简:无 EQ 推子 / 刮削源 / SSL 信任,这些留在 macOS / iOS。
 struct TVSettingsView: View {
     @Environment(TVStore.self) private var store
+    @Environment(TVAppearanceState.self) private var appearanceState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     var onNavigate: (TVRoot.Tab) -> Void = { _ in }
     @AppStorage("tvAutoSync") private var autoSync = true
-    @AppStorage(TVAppearancePreference.storageKey)
-    private var appearanceRawValue = TVAppearancePreference.system.rawValue
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.colorModeKey)
@@ -164,6 +163,7 @@ struct TVSettingsView: View {
         }
         .animation(.easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(.easeInOut(duration: 0.24), value: showsThemePicker)
+        .preferredColorScheme(appearance.colorScheme)
         .onExitCommand {
             if showsThemePicker {
                 showsThemePicker = false
@@ -193,7 +193,7 @@ struct TVSettingsView: View {
     }
 
     private var appearance: TVAppearancePreference {
-        TVAppearancePreference(rawValue: appearanceRawValue) ?? .system
+        appearanceState.preference
     }
 
     private var currentThemeTitle: String {
@@ -231,7 +231,7 @@ struct TVSettingsView: View {
                 ForEach(TVAppearancePreference.allCases, id: \.self) { preference in
                     let isSelected = appearance == preference
                     TVFocusButton(radius: 10, scale: 1.04, lift: 0) {
-                        appearanceRawValue = preference.rawValue
+                        appearanceState.select(preference)
                     } label: { focused in
                         Text(appearanceTitle(preference))
                             .font(.system(size: 16, weight: isSelected ? .bold : .semibold))

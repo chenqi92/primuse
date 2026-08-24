@@ -21,6 +21,25 @@ enum TVAppearancePreference: String, CaseIterable {
 }
 
 @MainActor
+@Observable
+final class TVAppearanceState {
+    private(set) var preference: TVAppearancePreference
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        preference = TVAppearancePreference(
+            rawValue: defaults.string(forKey: TVAppearancePreference.storageKey) ?? ""
+        ) ?? .system
+    }
+
+    func select(_ preference: TVAppearancePreference) {
+        self.preference = preference
+        defaults.set(preference.rawValue, forKey: TVAppearancePreference.storageKey)
+    }
+}
+
+@MainActor
 final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     let store = TVStore()
     private lazy var playMediaHandler = TVPlayMediaIntentHandler(store: store)
@@ -39,8 +58,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
 struct PrimuseTVApp: App {
     @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
     @State private var themeState = TVThemeState.shared
-    @AppStorage(TVAppearancePreference.storageKey)
-    private var appearanceRawValue = TVAppearancePreference.system.rawValue
+    @State private var appearanceState = TVAppearanceState()
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.colorModeKey)
@@ -49,7 +67,7 @@ struct PrimuseTVApp: App {
     private var store: TVStore { appDelegate.store }
 
     private var appearance: TVAppearancePreference {
-        TVAppearancePreference(rawValue: appearanceRawValue) ?? .system
+        appearanceState.preference
     }
 
     var body: some Scene {
@@ -57,6 +75,7 @@ struct PrimuseTVApp: App {
             TVRoot()
                 .environment(store)
                 .environment(themeState)
+                .environment(appearanceState)
                 .preferredColorScheme(appearance.colorScheme)
                 .modifier(TVWindowAppearanceModifier(preference: appearance))
                 .tint(themeState.accent)
@@ -104,15 +123,27 @@ private struct TVWindowAppearanceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onAppear(perform: apply)
-            .onChange(of: preference) { _, _ in apply() }
+            .onAppear { apply(preference) }
+            .onChange(of: preference) { _, newPreference in
+                apply(newPreference)
+            }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { apply() }
+                if phase == .active { apply(preference) }
             }
     }
 
     @MainActor
-    private func apply() {
+    private func apply(_ preference: TVAppearancePreference) {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        TVWindowAppearanceApplicator.apply(preference, to: windows)
+    }
+}
+
+@MainActor
+enum TVWindowAppearanceApplicator {
+    static func apply(_ preference: TVAppearancePreference, to windows: [UIWindow]) {
         let style: UIUserInterfaceStyle
         switch preference {
         case .system: style = .unspecified
@@ -120,11 +151,8 @@ private struct TVWindowAppearanceModifier: ViewModifier {
         case .dark: style = .dark
         }
 
-        for scene in UIApplication.shared.connectedScenes {
-            guard let windowScene = scene as? UIWindowScene else { continue }
-            for window in windowScene.windows {
-                window.overrideUserInterfaceStyle = style
-            }
+        for window in windows {
+            window.overrideUserInterfaceStyle = style
         }
     }
 }
