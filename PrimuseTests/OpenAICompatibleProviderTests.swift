@@ -83,6 +83,85 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         }
     }
 
+    func testProviderDoesNotReuseAPIKeyFromAnotherOrigin() async throws {
+        let profileID = UUID(uuidString: "6B7C2032-A642-45D1-8C7D-C58DD17AD20D")!
+        let oldConfiguration = AIRemoteProviderConfiguration(
+            id: profileID,
+            baseURL: "https://old-origin.invalid/v1",
+            generationModel: "test-generation-model",
+            isEnabled: true
+        )
+        let newConfiguration = AIRemoteProviderConfiguration(
+            id: profileID,
+            baseURL: "https://new-origin.invalid/v1",
+            generationModel: "test-generation-model",
+            isEnabled: true
+        )
+        let credentialStore = TestAICredentialStore()
+        try await credentialStore.seed("old-origin-key", configuration: oldConfiguration)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: newConfiguration,
+            credentialStore: credentialStore,
+            session: session
+        )
+
+        guard case .unavailable(.missingCredential) = await provider.runtimeAvailability() else {
+            XCTFail("A new origin must require a new API key")
+            return
+        }
+        do {
+            _ = try await provider.interpretSearch(
+                AISemanticSearchRequest(query: "quiet evening")
+            )
+            XCTFail("Expected the provider to reject the missing origin-bound key")
+        } catch OpenAICompatibleProviderError.missingCredential {
+            XCTAssertTrue(IntelligenceURLProtocol.requests(host: "new-origin.invalid").isEmpty)
+        }
+    }
+
+    @MainActor
+    func testServiceDeletesOnlyTheCurrentOriginAPIKey() async throws {
+        let profileID = UUID(uuidString: "78805B85-F9A8-4325-B624-C393DC35D600")!
+        let first = AIRemoteProviderConfiguration(
+            id: profileID,
+            baseURL: "https://first-origin.invalid/v1"
+        )
+        let second = AIRemoteProviderConfiguration(
+            id: profileID,
+            baseURL: "https://second-origin.invalid/v1"
+        )
+        let credentialStore = TestAICredentialStore()
+        try await credentialStore.seed("first-key", configuration: first)
+        try await credentialStore.seed("second-key", configuration: second)
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let service = MusicIntelligenceService(
+            settingsStore: AISettingsStore(defaults: defaults),
+            credentialStore: credentialStore
+        )
+
+        try await service.deleteAPIKey(configuration: second)
+
+        guard case .ready("first-key") = await credentialStore.lookupAPIKey(
+            configuration: first
+        ) else {
+            XCTFail("Deleting the current origin must preserve other origins")
+            return
+        }
+        guard case .notConfigured = await credentialStore.lookupAPIKey(
+            configuration: second
+        ) else {
+            XCTFail("The current origin key should be deleted")
+            return
+        }
+    }
+
     private func makeProvider(
         host: String,
         apiStyle: AICompatibleAPIStyle
@@ -102,6 +181,55 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             session: session
         )
         return (provider, session)
+    }
+}
+
+private actor TestAICredentialStore: AICredentialStoring {
+    private var keys: [String: String] = [:]
+
+    func seed(
+        _ key: String,
+        configuration: AIRemoteProviderConfiguration
+    ) throws {
+        keys[try account(for: configuration)] = key
+    }
+
+    func lookupAPIKey(configuration: AIRemoteProviderConfiguration) -> AICredentialLookup {
+        guard let account = try? account(for: configuration),
+              let key = keys[account] else {
+            return .notConfigured
+        }
+        return .ready(key)
+    }
+
+    func requireAPIKey(configuration: AIRemoteProviderConfiguration) throws -> String {
+        guard case .ready(let key) = lookupAPIKey(configuration: configuration) else {
+            throw MusicIntelligenceError.unavailable(.missingCredential)
+        }
+        return key
+    }
+
+    @discardableResult
+    func saveAPIKey(
+        _ rawValue: String,
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> Bool {
+        let key = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let account = try account(for: configuration)
+        keys[account] = key.isEmpty ? nil : key
+        return !key.isEmpty
+    }
+
+    func deleteAPIKey(configuration: AIRemoteProviderConfiguration) throws {
+        keys[try account(for: configuration)] = nil
+    }
+
+    private func account(for configuration: AIRemoteProviderConfiguration) throws -> String {
+        try AICredentialStoragePolicy.account(
+            profileID: configuration.id,
+            baseURL: configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        )
     }
 }
 

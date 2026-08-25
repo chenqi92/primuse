@@ -144,8 +144,46 @@ public enum AIRemoteEndpointPolicy {
 public enum AICredentialStoragePolicy {
     private static let accountNamespace = "ai.provider."
 
-    public static func account(profileID: UUID) -> String {
+    public static func legacyAccount(profileID: UUID) -> String {
         "\(accountNamespace)\(profileID.uuidString.lowercased()).apiKey"
+    }
+
+    public static func canonicalOrigin(
+        baseURL: String,
+        allowInsecureLocalHTTP: Bool
+    ) throws -> String {
+        let url = try AIRemoteEndpointPolicy.validatedBaseURL(
+            baseURL,
+            allowInsecureLocalHTTP: allowInsecureLocalHTTP
+        )
+        guard let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased() else {
+            throw AIRemoteEndpointValidationError.invalidURL
+        }
+
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        if let port = url.port,
+           !((scheme == "https" && port == 443) || (scheme == "http" && port == 80)) {
+            components.port = port
+        }
+        guard let origin = components.string else {
+            throw AIRemoteEndpointValidationError.invalidURL
+        }
+        return origin
+    }
+
+    public static func account(
+        profileID: UUID,
+        baseURL: String,
+        allowInsecureLocalHTTP: Bool
+    ) throws -> String {
+        let origin = try canonicalOrigin(
+            baseURL: baseURL,
+            allowInsecureLocalHTTP: allowInsecureLocalHTTP
+        )
+        return "\(accountNamespace)\(profileID.uuidString.lowercased()).origin.\(origin).apiKey"
     }
 
     public static func isEligibleForICloudMigration(account: String) -> Bool {

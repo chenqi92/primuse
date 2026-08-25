@@ -3020,6 +3020,7 @@
 "ai_embedding_model" = "向量模型（可选）";
 "ai_api_key" = "API 密钥";
 "ai_api_key_stored" = "API 密钥已安全保存在本设备";
+"ai_delete_current_api_key" = "删除当前 API 密钥";
 "ai_provider_footer" = "仅向该服务发送当前搜索词；曲库、歌词、听歌历史和音频均留在本设备。";
 "ai_allow_insecure_local_http" = "允许局域网服务器使用 HTTP";
 "ai_remote_consent" = "允许向该服务发送搜索词";

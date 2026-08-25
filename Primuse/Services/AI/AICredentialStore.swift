@@ -15,9 +15,22 @@ enum AICredentialStoreError: Error, Sendable {
     case readFailed(OSStatus)
 }
 
-actor AICredentialStore {
-    func lookupAPIKey(profileID: UUID) -> AICredentialLookup {
-        let account = AICredentialStoragePolicy.account(profileID: profileID)
+protocol AICredentialStoring: Actor {
+    func lookupAPIKey(configuration: AIRemoteProviderConfiguration) -> AICredentialLookup
+    func requireAPIKey(configuration: AIRemoteProviderConfiguration) throws -> String
+    @discardableResult
+    func saveAPIKey(_ rawValue: String, configuration: AIRemoteProviderConfiguration) throws -> Bool
+    func deleteAPIKey(configuration: AIRemoteProviderConfiguration) throws
+}
+
+actor AICredentialStore: AICredentialStoring {
+    func lookupAPIKey(configuration: AIRemoteProviderConfiguration) -> AICredentialLookup {
+        let account: String
+        do {
+            account = try Self.account(configuration: configuration)
+        } catch {
+            return .notConfigured
+        }
         switch KeychainService.localOnlyPasswordLookup(for: account) {
         case .found(let value):
             return .ready(value)
@@ -30,8 +43,8 @@ actor AICredentialStore {
         }
     }
 
-    func requireAPIKey(profileID: UUID) throws -> String {
-        switch lookupAPIKey(profileID: profileID) {
+    func requireAPIKey(configuration: AIRemoteProviderConfiguration) throws -> String {
+        switch lookupAPIKey(configuration: configuration) {
         case .ready(let key):
             return key
         case .notConfigured:
@@ -44,14 +57,22 @@ actor AICredentialStore {
     }
 
     @discardableResult
-    func saveAPIKey(_ rawValue: String, profileID: UUID) throws -> Bool {
+    func saveAPIKey(
+        _ rawValue: String,
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> Bool {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let account = AICredentialStoragePolicy.account(profileID: profileID)
+        let account = try Self.account(configuration: configuration)
+        let legacyAccount = AICredentialStoragePolicy.legacyAccount(profileID: configuration.id)
         if value.isEmpty {
-            guard KeychainService.deletePassword(for: account) else {
+            guard KeychainService.deletePassword(for: account),
+                  KeychainService.deletePassword(for: legacyAccount) else {
                 throw AICredentialStoreError.persistenceFailed
             }
             return false
+        }
+        guard KeychainService.deletePassword(for: legacyAccount) else {
+            throw AICredentialStoreError.persistenceFailed
         }
         guard KeychainService.setLocalOnlyPassword(value, for: account) else {
             throw AICredentialStoreError.persistenceFailed
@@ -59,10 +80,20 @@ actor AICredentialStore {
         return true
     }
 
-    func deleteAPIKey(profileID: UUID) throws {
-        let account = AICredentialStoragePolicy.account(profileID: profileID)
-        guard KeychainService.deletePassword(for: account) else {
+    func deleteAPIKey(configuration: AIRemoteProviderConfiguration) throws {
+        let account = try Self.account(configuration: configuration)
+        let legacyAccount = AICredentialStoragePolicy.legacyAccount(profileID: configuration.id)
+        guard KeychainService.deletePassword(for: account),
+              KeychainService.deletePassword(for: legacyAccount) else {
             throw AICredentialStoreError.persistenceFailed
         }
+    }
+
+    private static func account(configuration: AIRemoteProviderConfiguration) throws -> String {
+        try AICredentialStoragePolicy.account(
+            profileID: configuration.id,
+            baseURL: configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        )
     }
 }

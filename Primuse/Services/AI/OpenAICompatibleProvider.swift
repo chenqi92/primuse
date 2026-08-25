@@ -30,14 +30,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
     nonisolated let descriptor: AIProviderDescriptor
 
     private let configuration: AIRemoteProviderConfiguration
-    private let credentialStore: AICredentialStore
+    private let credentialStore: any AICredentialStoring
     private let apiKeyOverride: String?
     private let session: URLSession
     private static let maximumResponseBytes = 2 * 1_024 * 1_024
 
     init(
         configuration: AIRemoteProviderConfiguration,
-        credentialStore: AICredentialStore,
+        credentialStore: any AICredentialStoring,
         apiKeyOverride: String? = nil,
         session: URLSession? = nil
     ) {
@@ -76,7 +76,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         }
 
         if apiKeyOverride != nil { return .available }
-        switch await credentialStore.lookupAPIKey(profileID: configuration.id) {
+        switch await credentialStore.lookupAPIKey(configuration: configuration) {
         case .ready:
             return .available
         case .notConfigured:
@@ -181,7 +181,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
     private func requiredAPIKey() async throws -> String {
         if let apiKeyOverride { return apiKeyOverride }
         do {
-            return try await credentialStore.requireAPIKey(profileID: configuration.id)
+            return try await credentialStore.requireAPIKey(configuration: configuration)
         } catch MusicIntelligenceError.unavailable(.missingCredential) {
             throw OpenAICompatibleProviderError.missingCredential
         } catch {

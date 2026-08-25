@@ -2917,6 +2917,7 @@
 "ai_embedding_model" = "Embedding model (optional)";
 "ai_api_key" = "API key";
 "ai_api_key_stored" = "An API key is stored on this device";
+"ai_delete_current_api_key" = "現在の API キーを削除";
 "ai_provider_footer" = "Only the current search text is sent to this provider. Your library, lyrics, listening history and audio stay on this device.";
 "ai_allow_insecure_local_http" = "Allow HTTP for local network servers";
 "ai_remote_consent" = "Allow sending search text to this provider";

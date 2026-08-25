@@ -8,6 +8,7 @@ struct AISettingsView: View {
     @State private var consent = false
     @State private var apiKeyDraft = ""
     @State private var hasStoredAPIKey = false
+    @State private var storedAPIKeyOrigin: String?
     @State private var didLoad = false
     @State private var isWorking = false
     @State private var status: Status = .idle
@@ -52,8 +53,9 @@ struct AISettingsView: View {
             draftConfiguration = intelligence.settingsStore.configuration
             consent = intelligence.settingsStore.hasExplicitRemoteConsent
             hasStoredAPIKey = await intelligence.hasStoredAPIKey(
-                profileID: draftConfiguration.id
+                configuration: draftConfiguration
             )
+            storedAPIKeyOrigin = hasStoredAPIKey ? draftCredentialOrigin : nil
         }
     }
 
@@ -91,10 +93,17 @@ struct AISettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            if hasStoredAPIKey && apiKeyDraft.isEmpty {
+            if hasStoredAPIKeyForDraft && apiKeyDraft.isEmpty {
                 Label("ai_api_key_stored", systemImage: "checkmark.shield")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if hasStoredAPIKeyForDraft {
+                Button("ai_delete_current_api_key", role: .destructive) {
+                    deleteCurrentAPIKey()
+                }
+                .disabled(isWorking)
             }
         } header: {
             Text("ai_provider_section")
@@ -130,7 +139,7 @@ struct AISettingsView: View {
                 isWorking
                 || !consent
                 || draftConfiguration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || (!hasStoredAPIKey && apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                || (!hasStoredAPIKeyForDraft && apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             )
 
             switch status {
@@ -150,18 +159,23 @@ struct AISettingsView: View {
     }
 
     private func save() {
+        let configuration = draftConfiguration
+        let apiKey = apiKeyDraft
         isWorking = true
         status = .idle
         Task {
             do {
                 try await intelligence.save(
-                    configuration: draftConfiguration,
+                    configuration: configuration,
                     hasExplicitRemoteConsent: consent,
-                    apiKey: apiKeyDraft.isEmpty ? nil : apiKeyDraft
+                    apiKey: apiKey.isEmpty ? nil : apiKey
                 )
                 hasStoredAPIKey = await intelligence.hasStoredAPIKey(
-                    profileID: draftConfiguration.id
+                    configuration: configuration
                 )
+                storedAPIKeyOrigin = hasStoredAPIKey
+                    ? Self.credentialOrigin(for: configuration)
+                    : nil
                 apiKeyDraft = ""
                 status = .saved
             } catch {
@@ -169,6 +183,39 @@ struct AISettingsView: View {
             }
             isWorking = false
         }
+    }
+
+    private func deleteCurrentAPIKey() {
+        let configuration = draftConfiguration
+        isWorking = true
+        status = .idle
+        Task {
+            do {
+                try await intelligence.deleteAPIKey(configuration: configuration)
+                hasStoredAPIKey = false
+                storedAPIKeyOrigin = nil
+            } catch {
+                status = .failed(Self.message(for: error))
+            }
+            isWorking = false
+        }
+    }
+
+    private var draftCredentialOrigin: String? {
+        Self.credentialOrigin(for: draftConfiguration)
+    }
+
+    private var hasStoredAPIKeyForDraft: Bool {
+        hasStoredAPIKey && storedAPIKeyOrigin == draftCredentialOrigin
+    }
+
+    private static func credentialOrigin(
+        for configuration: AIRemoteProviderConfiguration
+    ) -> String? {
+        try? AICredentialStoragePolicy.canonicalOrigin(
+            baseURL: configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        )
     }
 
     private func testConnection() {

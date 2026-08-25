@@ -2916,6 +2916,7 @@
 "ai_embedding_model" = "벡터 모델(선택 사항)";
 "ai_api_key" = "API 키";
 "ai_api_key_stored" = "API 키가 이 기기에 저장되어 있음";
+"ai_delete_current_api_key" = "현재 API 키 삭제";
 "ai_provider_footer" = "현재 검색어만 이 제공자에게 전송됩니다. 보관함, 가사, 감상 기록 및 오디오는 이 기기에 남습니다.";
 "ai_allow_insecure_local_http" = "로컬 네트워크 서버에 HTTP 허용";
 "ai_remote_consent" = "이 제공자에게 검색어 전송 허용";

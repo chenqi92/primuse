@@ -2916,6 +2916,7 @@
 "ai_embedding_model" = "Vektormodell (optional)";
 "ai_api_key" = "API-Schlüssel";
 "ai_api_key_stored" = "Ein API-Schlüssel ist auf diesem Gerät gespeichert";
+"ai_delete_current_api_key" = "Aktuellen API-Schlüssel löschen";
 "ai_provider_footer" = "Nur der aktuelle Suchtext wird an diesen Anbieter gesendet. Mediathek, Liedtexte, Hörverlauf und Audio bleiben auf diesem Gerät.";
 "ai_allow_insecure_local_http" = "HTTP für Server im lokalen Netzwerk erlauben";
 "ai_remote_consent" = "Senden des Suchtexts an diesen Anbieter erlauben";

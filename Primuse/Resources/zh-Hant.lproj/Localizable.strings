@@ -2893,6 +2893,7 @@
 "ai_embedding_model" = "向量模型（選填）";
 "ai_api_key" = "API 金鑰";
 "ai_api_key_stored" = "API 金鑰已安全儲存於此裝置";
+"ai_delete_current_api_key" = "刪除目前的 API 金鑰";
 "ai_provider_footer" = "只會將目前搜尋詞傳送至此服務；曲庫、歌詞、聆聽記錄與音訊均保留在此裝置。";
 "ai_allow_insecure_local_http" = "允許區域網路伺服器使用 HTTP";
 "ai_remote_consent" = "允許向此服務傳送搜尋詞";

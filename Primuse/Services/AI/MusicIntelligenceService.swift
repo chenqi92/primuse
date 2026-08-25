@@ -8,7 +8,7 @@ final class MusicIntelligenceService {
     let settingsStore: AISettingsStore
     let regionAvailability: AIRegionAvailabilityService
 
-    private let credentialStore: AICredentialStore
+    private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
     @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
 
@@ -32,7 +32,7 @@ final class MusicIntelligenceService {
     init(
         settingsStore: AISettingsStore = AISettingsStore(),
         regionAvailability: AIRegionAvailabilityService = AIRegionAvailabilityService(),
-        credentialStore: AICredentialStore = AICredentialStore()
+        credentialStore: any AICredentialStoring = AICredentialStore()
     ) {
         self.settingsStore = settingsStore
         self.regionAvailability = regionAvailability
@@ -109,8 +109,8 @@ final class MusicIntelligenceService {
         }
     }
 
-    func hasStoredAPIKey(profileID: UUID) async -> Bool {
-        if case .ready = await credentialStore.lookupAPIKey(profileID: profileID) {
+    func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
+        if case .ready = await credentialStore.lookupAPIKey(configuration: configuration) {
             return true
         }
         return false
@@ -134,12 +134,17 @@ final class MusicIntelligenceService {
         )
         if let apiKey,
            !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            _ = try await credentialStore.saveAPIKey(apiKey, profileID: configuration.id)
+            _ = try await credentialStore.saveAPIKey(apiKey, configuration: configuration)
         }
         try settingsStore.save(
             configuration: configuration,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent
         )
+        semanticPlanCache.removeAll(keepingCapacity: true)
+    }
+
+    func deleteAPIKey(configuration: AIRemoteProviderConfiguration) async throws {
+        try await credentialStore.deleteAPIKey(configuration: configuration)
         semanticPlanCache.removeAll(keepingCapacity: true)
     }
 
@@ -177,9 +182,9 @@ final class MusicIntelligenceService {
 }
 
 private actor MusicIntelligenceEngine {
-    private let credentialStore: AICredentialStore
+    private let credentialStore: any AICredentialStoring
 
-    init(credentialStore: AICredentialStore) {
+    init(credentialStore: any AICredentialStoring) {
         self.credentialStore = credentialStore
     }
 

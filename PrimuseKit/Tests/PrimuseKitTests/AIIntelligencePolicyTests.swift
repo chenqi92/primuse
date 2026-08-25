@@ -229,14 +229,59 @@ struct AIRemoteEndpointPolicyTests {
 
     @Test func credentialAccountIsStableAndContainsNoSecretMaterial() {
         let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
-        #expect(AICredentialStoragePolicy.account(profileID: profileID)
+        #expect(AICredentialStoragePolicy.legacyAccount(profileID: profileID)
             == "ai.provider.f36f1dd2-7471-4d96-a6b8-bba6a3ef02c0.apiKey")
+    }
+
+    @Test func credentialAccountBindsToCanonicalOrigin() throws {
+        let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
+        let first = try AICredentialStoragePolicy.account(
+            profileID: profileID,
+            baseURL: "https://API.Example.com:443/v1/",
+            allowInsecureLocalHTTP: false
+        )
+        let sameOrigin = try AICredentialStoragePolicy.account(
+            profileID: profileID,
+            baseURL: "https://api.example.com/compatible/v2",
+            allowInsecureLocalHTTP: false
+        )
+        let differentPort = try AICredentialStoragePolicy.account(
+            profileID: profileID,
+            baseURL: "https://api.example.com:8443/v1",
+            allowInsecureLocalHTTP: false
+        )
+
+        #expect(first == sameOrigin)
+        #expect(first.contains("https://api.example.com"))
+        #expect(first != differentPort)
+        #expect(try AICredentialStoragePolicy.canonicalOrigin(
+            baseURL: "http://192.168.1.20:80/v1",
+            allowInsecureLocalHTTP: true
+        ) == "http://192.168.1.20")
+    }
+
+    @Test func credentialAccountChangesAcrossSchemeHostAndEffectivePort() throws {
+        let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
+        let urls = [
+            ("https://api.example.com/v1", false),
+            ("https://other.example.com/v1", false),
+            ("https://api.example.com:8443/v1", false),
+            ("http://127.0.0.1:443/v1", true),
+        ]
+        let accounts = try urls.map { baseURL, allowHTTP in
+            try AICredentialStoragePolicy.account(
+                profileID: profileID,
+                baseURL: baseURL,
+                allowInsecureLocalHTTP: allowHTTP
+            )
+        }
+        #expect(Set(accounts).count == urls.count)
     }
 
     @Test func deviceOnlyAICredentialsAreExcludedFromICloudMigration() {
         let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
         #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
-            account: AICredentialStoragePolicy.account(profileID: profileID)
+            account: AICredentialStoragePolicy.legacyAccount(profileID: profileID)
         ))
         #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
             account: "ai.provider.future-device-only-secret"

@@ -2916,6 +2916,7 @@
 "ai_embedding_model" = "Modèle vectoriel (facultatif)";
 "ai_api_key" = "Clé API";
 "ai_api_key_stored" = "Une clé API est stockée sur cet appareil";
+"ai_delete_current_api_key" = "Supprimer la clé API actuelle";
 "ai_provider_footer" = "Seul le texte de la recherche actuelle est envoyé à ce fournisseur. Votre bibliothèque, vos paroles, votre historique d’écoute et votre audio restent sur cet appareil.";
 "ai_allow_insecure_local_http" = "Autoriser HTTP pour les serveurs du réseau local";
 "ai_remote_consent" = "Autoriser l’envoi du texte de recherche à ce fournisseur";
