@@ -5,13 +5,23 @@ import PrimuseKit
 @MainActor
 private final class SearchWorkCoordinator {
     var searchTask: Task<Void, Never>?
+    var intelligenceTask: Task<Void, Never>?
     var lyricsCache = LibrarySearchCache()
     var generation = 0
 
     func cancelSearch() {
         searchTask?.cancel()
         searchTask = nil
+        intelligenceTask?.cancel()
+        intelligenceTask = nil
     }
+}
+
+private struct SemanticLibrarySearchResult: Identifiable, Sendable {
+    let song: PrimuseKit.Song
+    let relatedConcept: String
+
+    var id: String { song.id }
 }
 
 private struct SearchLibraryRevisionObserver: View {
@@ -35,9 +45,11 @@ struct SearchView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @Binding var searchText: String
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var matchingAlbums: [PrimuseKit.Album] = []
+    @State private var semanticResults: [SemanticLibrarySearchResult] = []
     @State private var recentSearches: [String] = []
     /// Task handles, generation tokens and the reusable lyrics index are
     /// operational state. Keeping them outside SwiftUI rendering state avoids
@@ -47,16 +59,24 @@ struct SearchView: View {
     /// 出来时显示 loading 占位, 避免 200ms+ 窗口里先闪一下 "无匹配" 再
     /// 跳到结果。
     @State private var isSearching: Bool = false
+    @State private var isIntelligenceSearching: Bool = false
     /// 当前已经渲染的结果对应的 query。如果它与 searchText 不一致, 说明
     /// 屏幕上还是上一轮的旧结果, ContentUnavailableView 不该出来。
     @State private var renderedQuery: String = ""
+    @State private var intelligenceRenderedQuery: String = ""
     @State private var selection = SongSelectionModel()
+
+    private var visibleSemanticResults: [SemanticLibrarySearchResult] {
+        guard intelligenceRenderedQuery == searchText else { return [] }
+        let directResultIDs = Set(searchResults.map(\.song.id))
+        return semanticResults.filter { !directResultIDs.contains($0.song.id) }
+    }
 
     /// 结果分组各自截断过（iOS 每组 40，macOS 歌词 3 / 其余 6），"全选"只圈
     /// 用户真正看得到的那些。Apple Music 在线结果不是本地曲库条目，不参与多选。
     private var selectableSongIDs: [String] {
         let kinds: [LibrarySearchMatchKind] = [.metadata, .lyrics, .fuzzy]
-        return kinds.flatMap { kind -> [String] in
+        let directIDs = kinds.flatMap { kind -> [String] in
             let bucket = searchResults.filter { $0.matchKind == kind }
             #if os(macOS)
             return bucket.prefix(kind == .lyrics ? 3 : 6).map(\.song.id)
@@ -64,6 +84,12 @@ struct SearchView: View {
             return bucket.prefix(40).map(\.song.id)
             #endif
         }
+        #if os(macOS)
+        let semanticIDs = visibleSemanticResults.prefix(6).map(\.song.id)
+        #else
+        let semanticIDs = visibleSemanticResults.prefix(40).map(\.song.id)
+        #endif
+        return directIDs + semanticIDs
     }
 
     var body: some View {
@@ -87,6 +113,9 @@ struct SearchView: View {
         )
         .onChange(of: renderedQuery) { _, _ in
             // 换了一轮结果，之前选中的歌多半已经不在屏幕上了。
+            selection.prune(to: Set(selectableSongIDs))
+        }
+        .onChange(of: semanticResults.map(\.id)) { _, _ in
             selection.prune(to: Set(selectableSongIDs))
         }
         .onAppear {
@@ -129,7 +158,11 @@ struct SearchView: View {
                 } else {
                     recentSearchView
                 }
-            } else if searchResults.isEmpty && matchingAlbums.isEmpty && appleMusic.searchResults.isEmpty {
+            } else if searchResults.isEmpty
+                        && matchingAlbums.isEmpty
+                        && visibleSemanticResults.isEmpty
+                        && appleMusic.searchResults.isEmpty
+                        && !isIntelligenceSearching {
                 if isSearching || renderedQuery != searchText {
                     searchingPlaceholder
                 } else {
@@ -238,7 +271,11 @@ struct SearchView: View {
             } else {
                 macRecentSearchView
             }
-        } else if searchResults.isEmpty && matchingAlbums.isEmpty && appleMusic.searchResults.isEmpty {
+        } else if searchResults.isEmpty
+                    && matchingAlbums.isEmpty
+                    && visibleSemanticResults.isEmpty
+                    && appleMusic.searchResults.isEmpty
+                    && !isIntelligenceSearching {
             if isSearching || renderedQuery != searchText {
                 macSearchingPlaceholder
             } else {
@@ -304,6 +341,7 @@ struct SearchView: View {
                     macSongBucket(kind: .metadata, title: "search_section_metadata")
                     macSongBucket(kind: .lyrics, title: "search_section_lyrics")
                     macSongBucket(kind: .fuzzy, title: "search_section_fuzzy")
+                    macSemanticSection
                 }
 
                 VStack(alignment: .leading, spacing: 24) {
@@ -348,6 +386,18 @@ struct SearchView: View {
                                subtitle: result.song.artistName ?? "",
                                systemImage: "music.note",
                                song: result.song)
+                }
+                .buttonStyle(.plain)
+            } else if let result = visibleSemanticResults.first {
+                Button {
+                    playSong(result.song)
+                } label: {
+                    macTopCard(
+                        title: result.song.title,
+                        subtitle: result.song.artistName ?? "",
+                        systemImage: "sparkles",
+                        song: result.song
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -525,6 +575,77 @@ struct SearchView: View {
         }
     }
 
+    @ViewBuilder
+    private var macSemanticSection: some View {
+        let results = Array(visibleSemanticResults.prefix(6))
+        if isIntelligenceSearching || !results.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                    macSectionLabel("search_ai_section")
+                }
+                if isIntelligenceSearching {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("search_ai_loading")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(PMColor.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                }
+                ForEach(results) { result in
+                    macSemanticResultRow(result)
+                        .songSelectable(
+                            songID: result.song.id,
+                            selection: selection,
+                            orderedIDs: { selectableSongIDs },
+                            defaultAction: { playSong(result.song) }
+                        )
+                }
+            }
+        }
+    }
+
+    private func macSemanticResultRow(_ result: SemanticLibrarySearchResult) -> some View {
+        Button {
+            playSong(result.song)
+        } label: {
+            HStack(spacing: 12) {
+                CachedArtworkView(
+                    coverRef: result.song.coverArtFileName,
+                    songID: result.song.id,
+                    size: 32,
+                    cornerRadius: 5,
+                    sourceID: result.song.sourceID,
+                    filePath: result.song.filePath,
+                    fileFormat: result.song.fileFormat
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(result.song.title)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text(verbatim: String(
+                        format: String(localized: "search_ai_reason_format"),
+                        result.relatedConcept
+                    ))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .pmRowBackground(cornerRadius: 6)
+        }
+        .buttonStyle(.plain)
+    }
+
     private func macTopCard(title: String,
                             subtitle: String,
                             systemImage: String,
@@ -698,7 +819,11 @@ struct SearchView: View {
     }
 
     private var macTotalResultCount: Int {
-        searchResults.count + matchingAlbums.count + matchingArtistCount + appleMusic.searchResults.count
+        searchResults.count
+            + visibleSemanticResults.count
+            + matchingAlbums.count
+            + matchingArtistCount
+            + appleMusic.searchResults.count
     }
 
     /// 从搜索结果歌曲里反推 distinct 艺术家数 — 没有专用 artist search 结果时
@@ -825,6 +950,7 @@ struct SearchView: View {
             songSection(kind: .metadata, titleKey: "search_section_metadata")
             songSection(kind: .lyrics, titleKey: "search_section_lyrics")
             songSection(kind: .fuzzy, titleKey: "search_section_fuzzy")
+            semanticSongSection
 
             // Apple Music — 即使没结果也显示 section 标题, 让用户一眼看到
             // "为什么没有 Apple Music 推荐" (未授权 / 搜索失败 / 真没结果)。
@@ -932,6 +1058,54 @@ struct SearchView: View {
         }
     }
 
+    @ViewBuilder
+    private var semanticSongSection: some View {
+        let results = Array(visibleSemanticResults.prefix(40))
+        if isIntelligenceSearching || !results.isEmpty {
+            Section {
+                if isIntelligenceSearching {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("search_ai_loading")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(results) { result in
+                    VStack(alignment: .leading, spacing: 3) {
+                        SongRowView(
+                            song: result.song,
+                            isPlaying: player.currentSong?.id == result.song.id,
+                            selection: selection,
+                            context: SongRowView.context(
+                                for: result.song,
+                                sourcesStore: sourcesStore,
+                                backfill: backfill
+                            )
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture { playSong(result.song) }
+
+                        Text(verbatim: String(
+                            format: String(localized: "search_ai_reason_format"),
+                            result.relatedConcept
+                        ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 54)
+                    }
+                    .songSelectable(
+                        songID: result.song.id,
+                        selection: selection,
+                        orderedIDs: { selectableSongIDs }
+                    )
+                }
+            } header: {
+                Label("search_ai_section", systemImage: "sparkles")
+            }
+        }
+    }
+
     private func appleMusicRow(_ song: MusicKit.Song) -> some View {
         Button {
             Task { await appleMusic.play(song) }
@@ -975,8 +1149,11 @@ struct SearchView: View {
         guard !query.isEmpty else {
             searchResults = []
             matchingAlbums = []
+            semanticResults = []
             isSearching = false
+            isIntelligenceSearching = false
             renderedQuery = ""
+            intelligenceRenderedQuery = ""
             return
         }
 
@@ -988,6 +1165,13 @@ struct SearchView: View {
         workCoordinator.generation += 1
         let myGen = workCoordinator.generation
         isSearching = true
+
+        performSemanticSearch(
+            query: query,
+            songsSnapshot: songsSnapshot,
+            metadataRevisionKey: metadataRevisionKey,
+            generation: myGen
+        )
 
         workCoordinator.searchTask = Task {
             // 不管成功 / 取消 / 出错都要把 isSearching 关回去, 否则 UI 卡在
@@ -1067,6 +1251,118 @@ struct SearchView: View {
         }
     }
 
+    private func performSemanticSearch(
+        query: String,
+        songsSnapshot: [PrimuseKit.Song],
+        metadataRevisionKey: String,
+        generation: Int
+    ) {
+        guard intelligence.isSemanticSearchConfigured else {
+            semanticResults = []
+            intelligenceRenderedQuery = query
+            isIntelligenceSearching = false
+            return
+        }
+
+        isIntelligenceSearching = true
+        workCoordinator.intelligenceTask = Task {
+            defer {
+                if generation == workCoordinator.generation {
+                    isIntelligenceSearching = false
+                }
+            }
+
+            do {
+                try await Task.sleep(for: .milliseconds(550))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  generation == workCoordinator.generation,
+                  let plan = await intelligence.semanticSearchPlan(for: query) else {
+                if generation == workCoordinator.generation, !Task.isCancelled {
+                    semanticResults = []
+                    intelligenceRenderedQuery = query
+                }
+                return
+            }
+
+            let results = await semanticLibraryMatches(
+                plan: plan,
+                songsSnapshot: songsSnapshot,
+                metadataRevisionKey: metadataRevisionKey
+            )
+            guard !Task.isCancelled, generation == workCoordinator.generation else { return }
+            semanticResults = results
+            intelligenceRenderedQuery = query
+        }
+    }
+
+    private func semanticLibraryMatches(
+        plan: AISemanticSearchPlan,
+        songsSnapshot: [PrimuseKit.Song],
+        metadataRevisionKey: String
+    ) async -> [SemanticLibrarySearchResult] {
+        var concepts: [String] = []
+        var conceptKeys = Set<String>()
+        for concept in plan.expandedTerms + plan.themes + plan.moods {
+            let trimmed = concept.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = trimmed.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+            guard !trimmed.isEmpty, conceptKeys.insert(key).inserted else { continue }
+            concepts.append(trimmed)
+            if concepts.count == 8 { break }
+        }
+
+        var results: [SemanticLibrarySearchResult] = []
+        var songIDs = Set<String>()
+        for concept in concepts {
+            guard !Task.isCancelled else { return [] }
+            let indexed = await LibrarySearchIndex.shared.search(
+                query: concept,
+                songs: songsSnapshot,
+                albums: [],
+                metadataRevisionKey: metadataRevisionKey,
+                songLimit: 12,
+                albumLimit: 0
+            )
+
+            let matches: [LibrarySearchResult]
+            if let indexed {
+                matches = indexed.output.songResults
+            } else {
+                let fallbackWorker = Task.detached(priority: .utility) {
+                    LibrarySearchWorker.compute(
+                        query: concept,
+                        songs: songsSnapshot,
+                        albums: [],
+                        cache: LibrarySearchCache(),
+                        includeMetadata: true,
+                        includeLyrics: false,
+                        songLimit: 12,
+                        albumLimit: 0
+                    ).songResults
+                }
+                matches = await withTaskCancellationHandler {
+                    await fallbackWorker.value
+                } onCancel: {
+                    fallbackWorker.cancel()
+                }
+            }
+
+            for match in matches where songIDs.insert(match.song.id).inserted {
+                results.append(SemanticLibrarySearchResult(
+                    song: match.song,
+                    relatedConcept: concept
+                ))
+                if results.count == 30 { return results }
+            }
+        }
+        return results
+    }
+
     private func mergeIndexedSearch(
         _ indexed: LibrarySearchOutput,
         literalFallback: LibrarySearchOutput
@@ -1105,7 +1401,10 @@ struct SearchView: View {
     }
 
     private func playSong(_ song: PrimuseKit.Song, lyricsHint: String? = nil, matchKind: LibrarySearchMatchKind? = nil) {
-        let queue = searchResults.map(\.song).filteredPlayable()
+        var seenSongIDs = Set<String>()
+        let queue = (searchResults.map(\.song) + visibleSemanticResults.map(\.song))
+            .filter { seenSongIDs.insert($0.id).inserted }
+            .filteredPlayable()
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(queue, startAt: index)
         // 歌词命中: 让 NowPlayingView 加载完歌词后自动 seek 到那行;
