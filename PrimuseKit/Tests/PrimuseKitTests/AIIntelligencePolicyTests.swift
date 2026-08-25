@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
+@Suite("AI settings operation policy")
+struct AISettingsOperationPolicyTests {
+    @Test func currentDraftAcceptsOperationCompletion() {
+        #expect(AISettingsOperationPolicy.canApplyCompletion(
+            operationGeneration: 4,
+            currentGeneration: 4
+        ))
+    }
+
+    @Test func editedDraftRejectsOldSuccessAndCredentialCleanup() {
+        #expect(!AISettingsOperationPolicy.canApplyCompletion(
+            operationGeneration: 4,
+            currentGeneration: 5
+        ))
+    }
+}
+
 @Suite("AI region availability")
 struct AIRegionAvailabilityTests {
     @Test func storefrontIsAuthoritative() {

@@ -11,6 +11,7 @@ struct AISettingsView: View {
     @State private var storedAPIKeyOrigin: String?
     @State private var didLoad = false
     @State private var isWorking = false
+    @State private var draftGeneration: UInt64 = 0
     @State private var status: Status = .idle
 
     private enum Status: Equatable {
@@ -40,6 +41,7 @@ struct AISettingsView: View {
                 }
             } else {
                 providerSections
+                    .disabled(isWorking)
             }
         }
         .navigationTitle("ai_settings_title")
@@ -62,34 +64,52 @@ struct AISettingsView: View {
     @ViewBuilder
     private var providerSections: some View {
         Section {
-            Toggle("ai_enable_semantic_search", isOn: $draftConfiguration.isEnabled)
+            Toggle(
+                "ai_enable_semantic_search",
+                isOn: configurationBinding(\.isEnabled)
+            )
         } footer: {
             Text("ai_enable_semantic_search_footer")
         }
 
         Section {
-            TextField("ai_provider_name", text: $draftConfiguration.displayName)
+            TextField(
+                "ai_provider_name",
+                text: configurationBinding(\.displayName)
+            )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            TextField("ai_base_url", text: $draftConfiguration.baseURL)
+            TextField(
+                "ai_base_url",
+                text: configurationBinding(\.baseURL)
+            )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            Picker("ai_api_style", selection: $draftConfiguration.apiStyle) {
+            Picker(
+                "ai_api_style",
+                selection: configurationBinding(\.apiStyle)
+            ) {
                 Text("ai_api_style_responses").tag(AICompatibleAPIStyle.responses)
                 Text("ai_api_style_chat_completions").tag(AICompatibleAPIStyle.chatCompletions)
             }
 
-            TextField("ai_generation_model", text: $draftConfiguration.generationModel)
+            TextField(
+                "ai_generation_model",
+                text: configurationBinding(\.generationModel)
+            )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            TextField("ai_embedding_model", text: $draftConfiguration.embeddingModel)
+            TextField(
+                "ai_embedding_model",
+                text: configurationBinding(\.embeddingModel)
+            )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            SecureField("ai_api_key", text: $apiKeyDraft)
+            SecureField("ai_api_key", text: apiKeyBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
@@ -112,8 +132,11 @@ struct AISettingsView: View {
         }
 
         Section {
-            Toggle("ai_allow_insecure_local_http", isOn: $draftConfiguration.allowInsecureLocalHTTP)
-            Toggle("ai_remote_consent", isOn: $consent)
+            Toggle(
+                "ai_allow_insecure_local_http",
+                isOn: configurationBinding(\.allowInsecureLocalHTTP)
+            )
+            Toggle("ai_remote_consent", isOn: consentBinding)
         } footer: {
             Text("ai_privacy_footer")
         }
@@ -122,12 +145,15 @@ struct AISettingsView: View {
             Button {
                 save()
             } label: {
-                if isWorking {
-                    ProgressView()
-                } else {
+                HStack {
                     Label("save", systemImage: "square.and.arrow.down")
+                    if isWorking {
+                        Spacer()
+                        ProgressView()
+                    }
                 }
             }
+            .accessibilityLabel(Text("save"))
             .disabled(isWorking)
 
             Button {
@@ -160,7 +186,9 @@ struct AISettingsView: View {
 
     private func save() {
         let configuration = draftConfiguration
+        let consent = consent
         let apiKey = apiKeyDraft
+        let operationGeneration = draftGeneration
         isWorking = true
         status = .idle
         Task {
@@ -170,16 +198,23 @@ struct AISettingsView: View {
                     hasExplicitRemoteConsent: consent,
                     apiKey: apiKey.isEmpty ? nil : apiKey
                 )
-                hasStoredAPIKey = await intelligence.hasStoredAPIKey(
+                let storedAPIKey = await intelligence.hasStoredAPIKey(
                     configuration: configuration
                 )
-                storedAPIKeyOrigin = hasStoredAPIKey
+                guard canApplyCompletion(operationGeneration) else {
+                    isWorking = false
+                    return
+                }
+                hasStoredAPIKey = storedAPIKey
+                storedAPIKeyOrigin = storedAPIKey
                     ? Self.credentialOrigin(for: configuration)
                     : nil
                 apiKeyDraft = ""
                 status = .saved
             } catch {
-                status = .failed(Self.message(for: error))
+                if canApplyCompletion(operationGeneration) {
+                    status = .failed(Self.message(for: error))
+                }
             }
             isWorking = false
         }
@@ -187,15 +222,22 @@ struct AISettingsView: View {
 
     private func deleteCurrentAPIKey() {
         let configuration = draftConfiguration
+        let operationGeneration = draftGeneration
         isWorking = true
         status = .idle
         Task {
             do {
                 try await intelligence.deleteAPIKey(configuration: configuration)
+                guard canApplyCompletion(operationGeneration) else {
+                    isWorking = false
+                    return
+                }
                 hasStoredAPIKey = false
                 storedAPIKeyOrigin = nil
             } catch {
-                status = .failed(Self.message(for: error))
+                if canApplyCompletion(operationGeneration) {
+                    status = .failed(Self.message(for: error))
+                }
             }
             isWorking = false
         }
@@ -219,21 +261,73 @@ struct AISettingsView: View {
     }
 
     private func testConnection() {
+        let configuration = draftConfiguration
+        let consent = consent
+        let apiKey = apiKeyDraft
+        let operationGeneration = draftGeneration
         isWorking = true
         status = .idle
         Task {
             do {
                 try await intelligence.testConnection(
-                    configuration: draftConfiguration,
+                    configuration: configuration,
                     hasExplicitRemoteConsent: consent,
-                    apiKey: apiKeyDraft.isEmpty ? nil : apiKeyDraft
+                    apiKey: apiKey.isEmpty ? nil : apiKey
                 )
-                status = .connectionSucceeded
+                if canApplyCompletion(operationGeneration) {
+                    status = .connectionSucceeded
+                }
             } catch {
-                status = .failed(Self.message(for: error))
+                if canApplyCompletion(operationGeneration) {
+                    status = .failed(Self.message(for: error))
+                }
             }
             isWorking = false
         }
+    }
+
+    private func configurationBinding<Value>(
+        _ keyPath: WritableKeyPath<AIRemoteProviderConfiguration, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { draftConfiguration[keyPath: keyPath] },
+            set: { value in
+                draftConfiguration[keyPath: keyPath] = value
+                draftDidChange()
+            }
+        )
+    }
+
+    private var consentBinding: Binding<Bool> {
+        Binding(
+            get: { consent },
+            set: { value in
+                consent = value
+                draftDidChange()
+            }
+        )
+    }
+
+    private var apiKeyBinding: Binding<String> {
+        Binding(
+            get: { apiKeyDraft },
+            set: { value in
+                apiKeyDraft = value
+                draftDidChange()
+            }
+        )
+    }
+
+    private func draftDidChange() {
+        draftGeneration &+= 1
+        status = .idle
+    }
+
+    private func canApplyCompletion(_ operationGeneration: UInt64) -> Bool {
+        AISettingsOperationPolicy.canApplyCompletion(
+            operationGeneration: operationGeneration,
+            currentGeneration: draftGeneration
+        )
     }
 
     private static func message(for error: Error) -> String {

@@ -37,6 +37,15 @@ public enum AIResponseSizePolicy {
     }
 }
 
+public enum AISettingsOperationPolicy {
+    public static func canApplyCompletion(
+        operationGeneration: UInt64,
+        currentGeneration: UInt64
+    ) -> Bool {
+        operationGeneration == currentGeneration
+    }
+}
+
 public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var displayName: String
