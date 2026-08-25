@@ -1005,7 +1005,7 @@
 
 // MARK: - Backfill 完成通知 + 保活提示
 "backfill_done_title" = "标签读取完成";
-"backfill_done_body" = "已为 %d 首歌读取完整标签。";
+"backfill_done_body" = "已检查 %d 首歌的文件标签。";
 "backfill_keep_app_alive_hint" = "播放任意一首歌曲可让标签持续读取";
 "notify_backfill_complete" = "标签读取完成时通知我";
 "notify_permission_denied_hint" = "通知权限已被拒绝。请到系统「设置 → 猿音」中允许通知。";

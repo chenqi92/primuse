@@ -1003,7 +1003,7 @@
 
 // MARK: - Backfill done notification + keep-alive hint
 "backfill_done_title" = "Tag reading complete";
-"backfill_done_body" = "Tags loaded for %d songs.";
+"backfill_done_body" = "File tags inspected for %d songs.";
 "backfill_keep_app_alive_hint" = "Play any song to keep tag reading running";
 "notify_backfill_complete" = "Notify when tag reading completes";
 "notify_permission_denied_hint" = "Notification permission denied. Allow it in iOS Settings → Primuse.";

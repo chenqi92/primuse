@@ -2434,6 +2434,7 @@ public struct MetadataBackfillWorkReasons: OptionSet, Sendable, Equatable {
     public static let artwork = Self(rawValue: 1 << 1)
     public static let title = Self(rawValue: 1 << 2)
     public static let albumArtist = Self(rawValue: 1 << 3)
+    public static let artist = Self(rawValue: 1 << 4)
 }
 
 /// Shared predicate for the background metadata pipeline. Each inspection leg
@@ -2449,7 +2450,9 @@ public enum MetadataBackfillEligibilityPolicy {
         durationInspectionComplete: Bool = false,
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
-        albumArtistChecked: Bool = true
+        albumArtistChecked: Bool = true,
+        hasArtist: Bool = true,
+        artistChecked: Bool = true
     ) -> MetadataBackfillWorkReasons {
         var reasons: MetadataBackfillWorkReasons = []
         if duration <= 0 && !durationInspectionComplete {
@@ -2464,6 +2467,9 @@ public enum MetadataBackfillEligibilityPolicy {
         if hasAlbumTitle && !hasAlbumArtist && !albumArtistChecked {
             reasons.insert(.albumArtist)
         }
+        if !hasArtist && !artistChecked {
+            reasons.insert(.artist)
+        }
         return reasons
     }
 
@@ -2476,7 +2482,9 @@ public enum MetadataBackfillEligibilityPolicy {
         durationInspectionComplete: Bool = false,
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
-        albumArtistChecked: Bool = true
+        albumArtistChecked: Bool = true,
+        hasArtist: Bool = true,
+        artistChecked: Bool = true
     ) -> Bool {
         !reasons(
             duration: duration,
@@ -2487,7 +2495,9 @@ public enum MetadataBackfillEligibilityPolicy {
             durationInspectionComplete: durationInspectionComplete,
             hasAlbumTitle: hasAlbumTitle,
             hasAlbumArtist: hasAlbumArtist,
-            albumArtistChecked: albumArtistChecked
+            albumArtistChecked: albumArtistChecked,
+            hasArtist: hasArtist,
+            artistChecked: artistChecked
         ).isEmpty
     }
 }

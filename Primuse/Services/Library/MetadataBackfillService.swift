@@ -73,6 +73,13 @@ final class MetadataBackfillService {
     /// eligible forever whenever they have an album title.
     private var albumArtistCheckedIDs: Set<String> = []
 
+    /// Songs whose track-artist field has been inspected. Track artist is
+    /// independent from duration and album artist: a valid FLAC STREAMINFO
+    /// block can complete duration while a later Vorbis-comment block has not
+    /// yet been read. Persisting absence prevents an artist-less file from
+    /// looping forever after one complete bounded inspection.
+    private var artistCheckedIDs: Set<String> = []
+
     /// Consecutive transient failure count per song ID. Counts are persisted so
     /// relaunching the app or changing networks cannot reset the automatic retry
     /// budget and keep rereading the same permanently unreachable object.
@@ -139,6 +146,7 @@ final class MetadataBackfillService {
     private let artworkGivenUpURL: URL
     private let titleCheckedURL: URL
     private let albumArtistCheckedURL: URL
+    private let artistCheckedURL: URL
     private let deferredRetryURL: URL
     private let retryCountsURL: URL
     private let sourceRetryCountsURL: URL
@@ -240,6 +248,7 @@ final class MetadataBackfillService {
         self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
         self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
         self.albumArtistCheckedURL = directory.appendingPathComponent("backfill-album-artist-checked.json")
+        self.artistCheckedURL = directory.appendingPathComponent("backfill-artist-checked.json")
         self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
         self.retryCountsURL = directory.appendingPathComponent("backfill-retry-counts.json")
         self.sourceRetryCountsURL = directory.appendingPathComponent("backfill-source-retry-counts.json")
@@ -269,6 +278,7 @@ final class MetadataBackfillService {
         loadArtworkGivenUp()
         loadTitleChecked()
         loadAlbumArtistChecked()
+        loadArtistChecked()
         loadDeferredRetries()
         loadRetryCounts()
         loadSourceRetryCounts()
@@ -653,6 +663,32 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: cloudTitleAndDurationFixKey)
         }
 
+        // Track artist used to have no independent completion marker. A FLAC
+        // row could therefore be considered complete as soon as STREAMINFO
+        // supplied duration, even when its Vorbis comments were beyond the
+        // first 256 KB. Reconcile the queue once and reopen only failed remote
+        // FLAC rows that still have no artist; successful absence is persisted
+        // by artistCheckedIDs after the new bounded inspection.
+        let remoteFLACArtistFixKey = "primuse.backfillState.v2026_08_remoteFLACArtist"
+        if !UserDefaults.standard.bool(forKey: remoteFLACArtistFixKey) {
+            let missingArtistIDs = Set(library.songs.lazy.filter { song in
+                song.fileFormat == .flac
+                    && (song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            }.map(\.id))
+            let retryIDs = failedSongIDs.intersection(missingArtistIDs)
+            if !retryIDs.isEmpty {
+                failedSongIDs.subtract(retryIDs)
+                sessionGivenUpIDs.subtract(retryIDs)
+                artistCheckedIDs.subtract(retryIDs)
+                for id in retryIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveInspectionState()
+                plog("📥 Backfill: reopening \(retryIDs.count) remote FLAC rows for artist repair")
+            }
+            markQueueDirty()
+            UserDefaults.standard.set(true, forKey: remoteFLACArtistFixKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by
@@ -676,6 +712,7 @@ final class MetadataBackfillService {
                 self.deferredRetrySongIDs.subtract(ids)
                 self.titleCheckedIDs.subtract(ids)
                 self.albumArtistCheckedIDs.subtract(ids)
+                self.artistCheckedIDs.subtract(ids)
                 for id in ids { self.transientFailureCounts[id] = nil }
                 for sourceID in Set(songs.map(\.sourceID)) {
                     self.sourceTransientFailureCounts[sourceID] = nil
@@ -923,6 +960,7 @@ final class MetadataBackfillService {
         deferredRetrySongIDs.subtract(songIDs)
         titleCheckedIDs.subtract(songIDs)
         albumArtistCheckedIDs.subtract(songIDs)
+        artistCheckedIDs.subtract(songIDs)
         for id in songIDs { transientFailureCounts[id] = nil }
         for sourceID in sourceIDs { sourceTransientFailureCounts[sourceID] = nil }
         saveFailed()
@@ -1115,6 +1153,7 @@ final class MetadataBackfillService {
         let artworkGivenUpSnapshot = artworkGivenUpIDs
         let titleCheckedSnapshot = titleCheckedIDs
         let albumArtistCheckedSnapshot = albumArtistCheckedIDs
+        let artistCheckedSnapshot = artistCheckedIDs
         let deferredRetrySnapshot = deferredRetrySongIDs
         var bySource: [String: Int] = [:]
         var deferredBySource: [String: Int] = [:]
@@ -1134,7 +1173,8 @@ final class MetadataBackfillService {
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
                 titleCheckedIDs: titleCheckedSnapshot,
                 incompleteSongIDs: incompleteIDs,
-                albumArtistCheckedIDs: albumArtistCheckedSnapshot
+                albumArtistCheckedIDs: albumArtistCheckedSnapshot,
+                artistCheckedIDs: artistCheckedSnapshot
             )
             let hasTerminalOrSourceFailure = failedIDs.contains(song.id)
                 || sourceIssueIDs.contains(song.id)
@@ -1290,6 +1330,7 @@ final class MetadataBackfillService {
         artworkGivenUpIDs.subtract(retryIDs)
         titleCheckedIDs.subtract(retryIDs)
         albumArtistCheckedIDs.subtract(retryIDs)
+        artistCheckedIDs.subtract(retryIDs)
         for id in retryIDs { transientFailureCounts[id] = nil }
         for sourceID in sourceIDs { sourceTransientFailureCounts[sourceID] = nil }
         saveFailed()
@@ -1313,6 +1354,7 @@ final class MetadataBackfillService {
         artworkGivenUpIDs.remove(songID)
         titleCheckedIDs.remove(songID)
         albumArtistCheckedIDs.remove(songID)
+        artistCheckedIDs.remove(songID)
         transientFailureCounts[songID] = nil
         if let sourceID = library.song(id: songID)?.sourceID {
             sourceTransientFailureCounts[sourceID] = nil
@@ -1401,6 +1443,7 @@ final class MetadataBackfillService {
     /// Each song in the snapshot is touched exactly once.
     private func processSnapshot(_ snapshot: [Song]) async {
         var pendingFlush: [Song] = []
+        var pendingArtistInspectionIDs: Set<String> = []
         var lastFlushAt = Date()
         plog("📥 processSnapshot: starting with \(snapshot.count) songs")
 
@@ -1542,6 +1585,17 @@ final class MetadataBackfillService {
                 if result.outcome.titleInspected, canRecordOutcome {
                     markMetadataInspected(songID: songID)
                 }
+                if result.outcome.artistInspected, canRecordOutcome {
+                    if result.outcome.song == nil {
+                        markArtistInspected(songID: songID)
+                    } else {
+                        // Persist this only after the matching replacement is
+                        // applied. Otherwise a process exit between the marker
+                        // write and the library flush could strand an unknown
+                        // artist that is no longer eligible for repair.
+                        pendingArtistInspectionIDs.insert(songID)
+                    }
+                }
                 if let updated = result.outcome.song {
                     clearAutomaticRetryState(songID: songID, sourceID: result.song.sourceID)
                     if !result.outcome.markFailed
@@ -1570,6 +1624,10 @@ final class MetadataBackfillService {
                     lastFlushAt = Date()
                     if !batch.isEmpty {
                         library.replaceSongs(batch)
+                        markArtistsInspected(
+                            songIDs: pendingArtistInspectionIDs.intersection(batch.map(\.id))
+                        )
+                        pendingArtistInspectionIDs.subtract(batch.map(\.id))
                         clearDeferredRetries(in: batch)
                         markMetadataInspected(in: batch)
                         refreshRemainingCounts()
@@ -1599,6 +1657,9 @@ final class MetadataBackfillService {
             pendingFlush.removeAll()
             if !batch.isEmpty {
                 library.replaceSongs(batch)
+                markArtistsInspected(
+                    songIDs: pendingArtistInspectionIDs.intersection(batch.map(\.id))
+                )
                 clearDeferredRetries(in: batch)
                 markMetadataInspected(in: batch)
                 refreshRemainingCounts()
@@ -1737,6 +1798,10 @@ final class MetadataBackfillService {
         /// A bounded header read completed, even if it yielded no replacement
         /// fields. This closes the independent title-inspection leg.
         var titleInspected: Bool = false
+        /// The bounded region capable of containing track-artist text was read.
+        /// This remains false when an expanded FLAC read fails, allowing a
+        /// later network session to resume that specific inspection.
+        var artistInspected: Bool = false
         /// Set when the attempt failed with a *transient* error (timeout /
         /// network / throttle). The caller records one persisted attempt and
         /// parks the song until a later network session.
@@ -1923,25 +1988,66 @@ final class MetadataBackfillService {
             song: song,
             cacheKey: song.id
         )
+        let needsArtistInspection = (song.artistName?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            && !artistCheckedIDs.contains(song.id)
+        var artistInspectionCompleted = !needsArtistInspection
+            || metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         if song.fileFormat == .mp3 {
             let id3ByteCount = FileMetadataReader.id3TagByteCount(in: headData)
             let hasTruncatedID3 = (id3ByteCount ?? 0) > headData.count
             let needsDurationExpansion = metadataLooksMissing(metadata)
             let needsArtworkExpansion = Self.needsEmbeddedArtworkBackfill(song)
                 && metadata.coverArtFileName == nil
+            let needsArtistExpansion = needsArtistInspection
+                && metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             let expandedByteCount = RemoteMetadataReadPolicy.expandedReadSize(
                 fileSize: song.fileSize,
                 currentByteCount: headData.count,
                 declaredID3ByteCount: id3ByteCount,
                 metadataInsufficient: needsDurationExpansion && !hasTruncatedID3
             ).map { min($0, Self.maxMetadataHeadBytes) } ?? headData.count
-            if (needsDurationExpansion || needsArtworkExpansion),
-               expandedByteCount > headData.count,
-               let expandedHead = try? await sourceManager.fetchMetadataRange(
-                for: song,
-                offset: 0,
-                length: Int64(expandedByteCount)
-               ) {
+            if (needsDurationExpansion || needsArtworkExpansion || needsArtistExpansion),
+               expandedByteCount > headData.count {
+                do {
+                    let expandedHead = try await sourceManager.fetchMetadataRange(
+                        for: song,
+                        offset: 0,
+                        length: Int64(expandedByteCount)
+                    )
+                    metadataInputData = expandedHead
+                    metadata = await extractMetadata(
+                        from: expandedHead,
+                        song: song,
+                        cacheKey: song.id
+                    )
+                    if needsArtistExpansion,
+                       metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        artistInspectionCompleted = true
+                    }
+                } catch {
+                    if needsArtistExpansion { throw error }
+                }
+            }
+        } else if song.fileFormat == .flac,
+                  needsArtistInspection,
+                  metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            // STREAMINFO is normally in the first few bytes, while a valid
+            // Vorbis-comment block can sit after large padding or artwork.
+            // Retry only artist-less FLAC rows, cap the read at 4 MB, and let
+            // the execution profile keep this extra traffic serial/throttled.
+            let expandedByteCount = song.fileSize > 0
+                ? RemoteMetadataReadPolicy.initialReadSize(
+                    fileSize: song.fileSize,
+                    fileExtension: song.fileFormat.rawValue
+                )
+                : Self.maxMetadataHeadBytes
+            if expandedByteCount > headData.count {
+                let expandedHead = try await sourceManager.fetchMetadataRange(
+                    for: song,
+                    offset: 0,
+                    length: Int64(expandedByteCount)
+                )
                 metadataInputData = expandedHead
                 metadata = await extractMetadata(
                     from: expandedHead,
@@ -1949,38 +2055,63 @@ final class MetadataBackfillService {
                     cacheKey: song.id
                 )
             }
+            artistInspectionCompleted = true
+        } else if needsArtistInspection {
+            artistInspectionCompleted = true
         }
-        if metadataLooksMissing(metadata) {
-            let ext = song.fileFormat.rawValue.lowercased()
-            if Self.isoBaseMediaExtensions.contains(ext) {
+        let lowercasedExtension = song.fileFormat.rawValue.lowercased()
+        let needsSecondaryArtistRange = needsArtistInspection
+            && metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            && (Self.isoBaseMediaExtensions.contains(lowercasedExtension)
+                || lowercasedExtension == "mp3")
+        if metadataLooksMissing(metadata) || needsSecondaryArtistRange {
+            if Self.isoBaseMediaExtensions.contains(lowercasedExtension) {
+                var readContainerTail = false
                 for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: song.fileSize) {
-                    guard let tailData = try? await sourceManager.fetchMetadataRange(
-                        for: song,
-                        offset: -Int64(tailSize),
-                        length: Int64(tailSize)
-                    ), !tailData.isEmpty else {
-                        continue
+                    do {
+                        let tailData = try await sourceManager.fetchMetadataRange(
+                            for: song,
+                            offset: -Int64(tailSize),
+                            length: Int64(tailSize)
+                        )
+                        guard !tailData.isEmpty else { continue }
+                        readContainerTail = true
+                        metadata = await extractMetadata(
+                            from: metadataInputData,
+                            containerTailData: tailData,
+                            song: song,
+                            cacheKey: song.id
+                        )
+                        let foundArtist = metadata.artist?
+                            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        if !metadataLooksMissing(metadata)
+                            && (!needsSecondaryArtistRange || foundArtist) {
+                            break
+                        }
+                    } catch {
+                        if needsSecondaryArtistRange { throw error }
                     }
+                }
+                if needsSecondaryArtistRange, readContainerTail {
+                    artistInspectionCompleted = true
+                }
+            } else if lowercasedExtension == "mp3" {
+                do {
+                    let tailData = try await sourceManager.fetchMetadataRange(
+                        for: song,
+                        offset: -Self.fallbackTailBytes,
+                        length: Self.fallbackTailBytes
+                    )
                     metadata = await extractMetadata(
                         from: metadataInputData,
-                        containerTailData: tailData,
+                        id3TailData: tailData,
                         song: song,
                         cacheKey: song.id
                     )
-                    if !metadataLooksMissing(metadata) { break }
+                    if needsSecondaryArtistRange { artistInspectionCompleted = true }
+                } catch {
+                    if needsSecondaryArtistRange { throw error }
                 }
-            } else if ext == "mp3",
-                      let tailData = try? await sourceManager.fetchMetadataRange(
-                for: song,
-                offset: -Self.fallbackTailBytes,
-                length: Self.fallbackTailBytes
-            ) {
-                metadata = await extractMetadata(
-                    from: metadataInputData,
-                    id3TailData: tailData,
-                    song: song,
-                    cacheKey: song.id
-                )
             }
         }
 
@@ -2019,7 +2150,8 @@ final class MetadataBackfillService {
                     song: partial,
                     markFailed: false,
                     detailsIncomplete: true,
-                    titleInspected: true
+                    titleInspected: true,
+                    artistInspected: artistInspectionCompleted
                 )
             }
             if song.isStreamDescriptor || song.fileFormat.requiresFFmpeg {
@@ -2028,14 +2160,16 @@ final class MetadataBackfillService {
                     song: nil,
                     markFailed: false,
                     detailsIncomplete: true,
-                    titleInspected: true
+                    titleInspected: true,
+                    artistInspected: artistInspectionCompleted
                 )
             }
             plog("⚠️ Backfill: '\(song.title)' bytes were read but details parsing failed")
             return BackfillOutcome(
                 song: nil,
                 markFailed: true,
-                titleInspected: true
+                titleInspected: true,
+                artistInspected: artistInspectionCompleted
             )
         }
 
@@ -2095,6 +2229,7 @@ final class MetadataBackfillService {
             song: merged,
             markFailed: false,
             titleInspected: true,
+            artistInspected: artistInspectionCompleted,
             artworkGivenUp: artworkStillMissing
         )
     }
@@ -2287,6 +2422,7 @@ final class MetadataBackfillService {
         let artworkGivenUpSnapshot = artworkGivenUpIDs
         let titleCheckedSnapshot = titleCheckedIDs
         let albumArtistCheckedSnapshot = albumArtistCheckedIDs
+        let artistCheckedSnapshot = artistCheckedIDs
         let incompleteSnapshot = incompleteSongIDs
         let songs = library.songs
         let candidates = songs.lazy.filter { song in
@@ -2306,7 +2442,8 @@ final class MetadataBackfillService {
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
                 titleCheckedIDs: titleCheckedSnapshot,
                 incompleteSongIDs: incompleteSnapshot,
-                albumArtistCheckedIDs: albumArtistCheckedSnapshot
+                albumArtistCheckedIDs: albumArtistCheckedSnapshot,
+                artistCheckedIDs: artistCheckedSnapshot
             )
         }
         return Array(candidates.prefix(500))
@@ -2358,7 +2495,8 @@ final class MetadataBackfillService {
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             incompleteSongIDs: incompleteSongIDs,
-            albumArtistCheckedIDs: albumArtistCheckedIDs
+            albumArtistCheckedIDs: albumArtistCheckedIDs,
+            artistCheckedIDs: artistCheckedIDs
         )
     }
 
@@ -2367,7 +2505,8 @@ final class MetadataBackfillService {
         artworkGivenUpIDs: Set<String>,
         titleCheckedIDs: Set<String>,
         incompleteSongIDs: Set<String>,
-        albumArtistCheckedIDs: Set<String>
+        albumArtistCheckedIDs: Set<String>,
+        artistCheckedIDs: Set<String>
     ) -> Bool {
         MetadataBackfillEligibilityPolicy.needsBackfill(
             duration: song.duration,
@@ -2378,7 +2517,9 @@ final class MetadataBackfillService {
             durationInspectionComplete: incompleteSongIDs.contains(song.id),
             hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-            albumArtistChecked: albumArtistCheckedIDs.contains(song.id)
+            albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
+            hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+            artistChecked: artistCheckedIDs.contains(song.id)
         )
     }
 
@@ -2432,6 +2573,12 @@ final class MetadataBackfillService {
         guard let data = try? Data(contentsOf: albumArtistCheckedURL),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
         albumArtistCheckedIDs = Set(decoded)
+    }
+
+    private func loadArtistChecked() {
+        guard let data = try? Data(contentsOf: artistCheckedURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
+        artistCheckedIDs = Set(decoded)
     }
 
     private func loadDeferredRetries() {
@@ -2498,6 +2645,18 @@ final class MetadataBackfillService {
         }
     }
 
+    private func markArtistInspected(songID: String) {
+        markArtistsInspected(songIDs: [songID])
+    }
+
+    private func markArtistsInspected(songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        let previousCount = artistCheckedIDs.count
+        artistCheckedIDs.formUnion(songIDs)
+        guard artistCheckedIDs.count != previousCount else { return }
+        saveInspectionState()
+    }
+
     private func markMetadataInspected(in songs: [Song]) {
         let ids = songs.map(\.id)
         let previousTitleCount = titleCheckedIDs.count
@@ -2535,6 +2694,7 @@ final class MetadataBackfillService {
         let artworkGivenUp = artworkGivenUpIDs
         let titleChecked = titleCheckedIDs
         let albumArtistChecked = albumArtistCheckedIDs
+        let artistChecked = artistCheckedIDs
         let deferredRetries = deferredRetrySongIDs
         let retryCounts = transientFailureCounts
         let sourceRetryCounts = sourceTransientFailureCounts
@@ -2544,6 +2704,7 @@ final class MetadataBackfillService {
         let artworkURL = artworkGivenUpURL
         let titleURL = titleCheckedURL
         let albumArtistURL = albumArtistCheckedURL
+        let artistURL = artistCheckedURL
         let deferredRetryURL = deferredRetryURL
         let retryCountsURL = retryCountsURL
         let sourceRetryCountsURL = sourceRetryCountsURL
@@ -2558,6 +2719,7 @@ final class MetadataBackfillService {
             Self.writeIDSet(artworkGivenUp, to: artworkURL)
             Self.writeIDSet(titleChecked, to: titleURL)
             Self.writeIDSet(albumArtistChecked, to: albumArtistURL)
+            Self.writeIDSet(artistChecked, to: artistURL)
             Self.writeIDSet(deferredRetries, to: deferredRetryURL)
             Self.writeRetryCounts(retryCounts, to: retryCountsURL)
             Self.writeRetryCounts(sourceRetryCounts, to: sourceRetryCountsURL)

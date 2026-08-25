@@ -190,10 +190,12 @@ struct MetadataBackfillEligibilityPolicyTests {
             titleChecked: false,
             hasAlbumTitle: true,
             hasAlbumArtist: false,
-            albumArtistChecked: false
+            albumArtistChecked: false,
+            hasArtist: false,
+            artistChecked: false
         )
 
-        #expect(reasons == [.duration, .artwork, .title, .albumArtist])
+        #expect(reasons == [.duration, .artwork, .title, .albumArtist, .artist])
     }
 
     @Test("A legitimately absent album artist completes after inspection")
@@ -218,6 +220,29 @@ struct MetadataBackfillEligibilityPolicyTests {
             hasAlbumTitle: true,
             hasAlbumArtist: false,
             albumArtistChecked: true
+        ))
+    }
+
+    @Test("A missing track artist gets one independent inspection")
+    func missingTrackArtistDoesNotLoop() {
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasArtist: false,
+            artistChecked: false
+        ) == [.artist])
+
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasArtist: false,
+            artistChecked: true
         ))
     }
 }

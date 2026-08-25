@@ -920,7 +920,7 @@
 "scan_runs_in_background_hint" = "可以離開此頁繼續使用，掃描會在背景進行";
 "backfill_runs_in_background_hint" = "標籤會在背景讀取，不影響播放和瀏覽";
 "backfill_done_title" = "標籤讀取完成";
-"backfill_done_body" = "已為 %d 首歌讀取完整標籤。";
+"backfill_done_body" = "已檢查 %d 首歌的檔案標籤。";
 "backfill_keep_app_alive_hint" = "播放任一首歌曲可讓標籤持續讀取";
 "notify_backfill_complete" = "標籤讀取完成時通知我";
 "notify_permission_denied_hint" = "通知權限已被拒絕。請到系統「設定 → 猿音」中允許通知。";
