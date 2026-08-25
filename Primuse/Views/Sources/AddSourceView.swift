@@ -26,7 +26,7 @@ struct AddSourceView: View {
     var editingSource: MusicSource?
     var prefillDevice: DiscoveredDevice?
     var submitIntent: AddSourceSubmitIntent = .save
-    var onValidatedJellyfinSave: ((MusicSource) throws -> Void)? = nil
+    var onValidatedMediaServerSave: ((MusicSource) throws -> Void)? = nil
     var onSave: (MusicSource) -> Void
 
     @State private var name = ""
@@ -56,7 +56,7 @@ struct AddSourceView: View {
     @State private var isInitialized = false
     @State private var showCredentialSaveError = false
     @State private var showSynologyPasswordValidationInfo = false
-    @State private var jellyfinCreationTransaction = JellyfinSourceCreationTransaction()
+    @State private var mediaServerCreationTransaction = MediaServerSourceCreationTransaction()
     #if os(macOS)
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
@@ -66,8 +66,8 @@ struct AddSourceView: View {
     @FocusState private var focusedField: SourceFormField?
 
     private var isEditing: Bool { editingSource != nil }
-    private var requiresAuthenticatedJellyfinPreflight: Bool {
-        JellyfinSourceCreationPolicy.requiresPreflight(
+    private var requiresAuthenticatedMediaServerPreflight: Bool {
+        MediaServerSourceCreationPolicy.requiresPreflight(
             for: sourceType,
             isEditing: isEditing
         )
@@ -242,23 +242,23 @@ struct AddSourceView: View {
             Text("synology_password_edit_validation_hint")
         }
         .alert(
-            jellyfinCreationTransaction.failure?.title ?? String(localized: "connection_failed"),
+            mediaServerCreationTransaction.failure?.title ?? String(localized: "connection_failed"),
             isPresented: Binding(
-                get: { jellyfinCreationTransaction.failure != nil },
+                get: { mediaServerCreationTransaction.failure != nil },
                 set: { isPresented in
-                    if !isPresented { jellyfinCreationTransaction.clearFailure() }
+                    if !isPresented { mediaServerCreationTransaction.clearFailure() }
                 }
             )
         ) {
             Button("ok", role: .cancel) {
-                jellyfinCreationTransaction.clearFailure()
+                mediaServerCreationTransaction.clearFailure()
             }
         } message: {
-            Text(jellyfinCreationTransaction.failure?.message ?? "")
+            Text(mediaServerCreationTransaction.failure?.message ?? "")
         }
         .onDisappear {
-            if requiresAuthenticatedJellyfinPreflight {
-                jellyfinCreationTransaction.cancel()
+            if requiresAuthenticatedMediaServerPreflight {
+                mediaServerCreationTransaction.cancel()
             }
         }
     }
@@ -333,7 +333,7 @@ struct AddSourceView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(submitButtonTitle) { saveSource() }
-                        .disabled(canSave == false || jellyfinCreationTransaction.isRunning)
+                        .disabled(canSave == false || mediaServerCreationTransaction.isRunning)
                         .fontWeight(.semibold)
                 }
             }
@@ -369,7 +369,7 @@ struct AddSourceView: View {
                 Button(submitButtonTitle) { saveSource() }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(canSave == false || jellyfinCreationTransaction.isRunning)
+                    .disabled(canSave == false || mediaServerCreationTransaction.isRunning)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
@@ -1430,8 +1430,8 @@ struct AddSourceView: View {
             source = source.projectingPreferredConnectionForLegacy()
         }
 
-        if requiresAuthenticatedJellyfinPreflight {
-            jellyfinCreationTransaction.submit(
+        if requiresAuthenticatedMediaServerPreflight {
+            mediaServerCreationTransaction.submit(
                 source: source,
                 secret: password,
                 persistCredential: { sourceID, secret in
@@ -1444,10 +1444,10 @@ struct AddSourceView: View {
                     KeychainService.deletePassword(for: sourceID)
                 },
                 persistSource: { source in
-                    guard let onValidatedJellyfinSave else {
-                        throw JellyfinSourceCreationError.missingPersistenceHandler
+                    guard let onValidatedMediaServerSave else {
+                        throw MediaServerSourceCreationError.missingPersistenceHandler
                     }
-                    try onValidatedJellyfinSave(source)
+                    try onValidatedMediaServerSave(source)
                 },
                 onCommit: { _ in
                     dismiss()
@@ -1547,8 +1547,8 @@ struct AddSourceView: View {
     }
 
     private func cancelAndDismiss() {
-        if requiresAuthenticatedJellyfinPreflight {
-            jellyfinCreationTransaction.cancel()
+        if requiresAuthenticatedMediaServerPreflight {
+            mediaServerCreationTransaction.cancel()
         }
         dismiss()
     }

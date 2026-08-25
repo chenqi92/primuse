@@ -287,7 +287,10 @@ struct SourcesContentView: View {
                 SourceTypeSelectionView(
                     submitIntent: .continueToConnection,
                     onAdd: { source in
-                        if source.type == .jellyfin {
+                        if MediaServerSourceCreationPolicy.requiresPreflight(
+                            for: source.type,
+                            isEditing: false
+                        ) {
                             try sourceStore.addDurably(source)
                         } else if source.type == .local {
                             try sourceStore.addDurably(source)
@@ -304,7 +307,10 @@ struct SourcesContentView: View {
                                 sourceStore: sourceStore,
                                 scraperService: scraperService
                             )
-                        } else if source.type == .jellyfin {
+                        } else if MediaServerSourceCreationPolicy.requiresPreflight(
+                            for: source.type,
+                            isEditing: false
+                        ) {
                             scanService.scanSource(
                                 source,
                                 sourceManager: sourceManager,

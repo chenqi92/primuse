@@ -4,18 +4,19 @@ import XCTest
 @testable import Primuse
 
 @MainActor
-final class JellyfinSourceCreationTransactionTests: XCTestCase {
-    func testPreflightPolicyAppliesOnlyToNewJellyfinSources() {
+final class MediaServerSourceCreationTransactionTests: XCTestCase {
+    func testPreflightPolicyAppliesOnlyToNewJellyfinAndEmbySources() {
+        let preflightTypes: Set<MusicSourceType> = [.jellyfin, .emby]
         for sourceType in MusicSourceType.allCases {
             XCTAssertEqual(
-                JellyfinSourceCreationPolicy.requiresPreflight(
+                MediaServerSourceCreationPolicy.requiresPreflight(
                     for: sourceType,
                     isEditing: false
                 ),
-                sourceType == .jellyfin
+                preflightTypes.contains(sourceType)
             )
             XCTAssertFalse(
-                JellyfinSourceCreationPolicy.requiresPreflight(
+                MediaServerSourceCreationPolicy.requiresPreflight(
                     for: sourceType,
                     isEditing: true
                 )
@@ -24,7 +25,7 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
     }
 
     func testWrongAddressShowsNetworkFailureWithoutPersistence() async {
-        let transaction = JellyfinSourceCreationTransaction { _, _ in
+        let transaction = MediaServerSourceCreationTransaction { _, _ in
             throw URLError(.cannotConnectToHost)
         }
         var credentialWrites = 0
@@ -52,7 +53,7 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
             makeSource(username: "missing-account"),
             makeSource(username: "qa-user")
         ] {
-            let transaction = JellyfinSourceCreationTransaction { _, _ in
+            let transaction = MediaServerSourceCreationTransaction { _, _ in
                 throw SourceError.authenticationFailed
             }
             var credentialWrites = 0
@@ -75,47 +76,49 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
     }
 
     func testSuccessfulAuthenticationCommitsCredentialSourceAndScanOnce() async {
-        let preflights = JellyfinPreflightCounter()
-        let transaction = JellyfinSourceCreationTransaction { _, _ in
-            await preflights.increment()
+        for sourceType in [MusicSourceType.jellyfin, .emby] {
+            let preflights = MediaServerPreflightCounter()
+            let transaction = MediaServerSourceCreationTransaction { _, _ in
+                await preflights.increment()
+            }
+            var credentials: [String: String] = [:]
+            var persistedSources: [MusicSource] = []
+            var scanRequests: [String] = []
+            let source = makeSource(type: sourceType)
+
+            transaction.submit(
+                source: source,
+                secret: "correct-secret",
+                persistCredential: { credentials[$0] = $1; return true },
+                removeCredential: { credentials[$0] = nil; return true },
+                persistSource: {
+                    persistedSources.append($0)
+                    scanRequests.append($0.id)
+                },
+                onCommit: { _ in }
+            )
+            transaction.submit(
+                source: source,
+                secret: "correct-secret",
+                persistCredential: { _, _ in XCTFail("duplicate credential write"); return true },
+                removeCredential: { _ in true },
+                persistSource: { _ in XCTFail("duplicate source write") },
+                onCommit: { _ in XCTFail("duplicate commit") }
+            )
+            await waitUntil { transaction.didCommit }
+
+            let preflightCount = await preflights.value
+            XCTAssertEqual(preflightCount, 1)
+            XCTAssertEqual(credentials, [source.id: "correct-secret"])
+            XCTAssertEqual(persistedSources.map(\.id), [source.id])
+            XCTAssertEqual(scanRequests, [source.id])
+            XCTAssertNil(transaction.failure)
         }
-        var credentials: [String: String] = [:]
-        var persistedSources: [MusicSource] = []
-        var scanRequests: [String] = []
-        let source = makeSource()
-
-        transaction.submit(
-            source: source,
-            secret: "correct-secret",
-            persistCredential: { credentials[$0] = $1; return true },
-            removeCredential: { credentials[$0] = nil; return true },
-            persistSource: {
-                persistedSources.append($0)
-                scanRequests.append($0.id)
-            },
-            onCommit: { _ in }
-        )
-        transaction.submit(
-            source: source,
-            secret: "correct-secret",
-            persistCredential: { _, _ in XCTFail("duplicate credential write"); return true },
-            removeCredential: { _ in true },
-            persistSource: { _ in XCTFail("duplicate source write") },
-            onCommit: { _ in XCTFail("duplicate commit") }
-        )
-        await waitUntil { transaction.didCommit }
-
-        let preflightCount = await preflights.value
-        XCTAssertEqual(preflightCount, 1)
-        XCTAssertEqual(credentials, [source.id: "correct-secret"])
-        XCTAssertEqual(persistedSources.map(\.id), [source.id])
-        XCTAssertEqual(scanRequests, [source.id])
-        XCTAssertNil(transaction.failure)
     }
 
     func testTimeoutLeavesFormFailedAndDoesNotPersist() async {
-        let gate = JellyfinPreflightGate()
-        let transaction = JellyfinSourceCreationTransaction(timeout: 0.05) { _, _ in
+        let gate = MediaServerPreflightGate()
+        let transaction = MediaServerSourceCreationTransaction(timeout: 0.05) { _, _ in
             await gate.wait()
         }
         var credentialWrites = 0
@@ -138,8 +141,8 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
     }
 
     func testCancelBeforeLatePreflightCompletionNeverCommits() async {
-        let gate = JellyfinPreflightGate()
-        let transaction = JellyfinSourceCreationTransaction(timeout: 5) { _, _ in
+        let gate = MediaServerPreflightGate()
+        let transaction = MediaServerSourceCreationTransaction(timeout: 5) { _, _ in
             await gate.wait()
         }
         var credentialWrites = 0
@@ -165,8 +168,29 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
         XCTAssertEqual(sourceWrites, 0)
     }
 
+    func testCredentialPersistenceFailureRollsBackAndDoesNotPersistSource() async {
+        let transaction = MediaServerSourceCreationTransaction { _, _ in }
+        var credentialRemovals = 0
+        var sourceWrites = 0
+
+        transaction.submit(
+            source: makeSource(type: .emby),
+            secret: "secret",
+            persistCredential: { _, _ in false },
+            removeCredential: { _ in credentialRemovals += 1; return true },
+            persistSource: { _ in sourceWrites += 1 },
+            onCommit: { _ in XCTFail("failed credential persistence committed") }
+        )
+        await waitUntil { !transaction.isRunning }
+
+        XCTAssertEqual(credentialRemovals, 1)
+        XCTAssertEqual(sourceWrites, 0)
+        XCTAssertEqual(transaction.failure?.kind, .credentialPersistence)
+        XCTAssertFalse(transaction.didCommit)
+    }
+
     func testSourcePersistenceFailureRollsBackCredential() async {
-        let transaction = JellyfinSourceCreationTransaction { _, _ in }
+        let transaction = MediaServerSourceCreationTransaction { _, _ in }
         var credentials: [String: String] = [:]
         let source = makeSource()
 
@@ -175,7 +199,7 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
             secret: "secret",
             persistCredential: { credentials[$0] = $1; return true },
             removeCredential: { credentials[$0] = nil; return true },
-            persistSource: { _ in throw JellyfinCreationTestError.persistence },
+            persistSource: { _ in throw MediaServerCreationTestError.persistence },
             onCommit: { _ in XCTFail("failed persistence committed") }
         )
         await waitUntil { !transaction.isRunning }
@@ -185,57 +209,98 @@ final class JellyfinSourceCreationTransactionTests: XCTestCase {
         XCTAssertFalse(transaction.didCommit)
     }
 
-    func testRealJellyfinLoginPreflightAcceptsValidResponse() async throws {
-        let requests = JellyfinRequestRecorder()
+    func testCredentialRollbackFailureIsReported() async {
+        let transaction = MediaServerSourceCreationTransaction { _, _ in }
 
-        try await JellyfinSourceCreationPreflight.validate(
-            source: makeSource(),
-            secret: "correct-secret",
-            requestDataLoader: { request in
-                await requests.record(request)
-                return try makeResponse(
-                    for: request,
-                    status: 200,
-                    json: #"{"AccessToken":"qa-token","User":{"Id":"qa-user-id"}}"#
-                )
-            }
+        transaction.submit(
+            source: makeSource(type: .emby),
+            secret: "secret",
+            persistCredential: { _, _ in true },
+            removeCredential: { _ in false },
+            persistSource: { _ in throw MediaServerCreationTestError.persistence },
+            onCommit: { _ in XCTFail("failed source persistence committed") }
         )
+        await waitUntil { !transaction.isRunning }
 
-        let recordedRequests = await requests.values
-        XCTAssertEqual(recordedRequests.count, 1)
-        XCTAssertEqual(recordedRequests.first?.url?.path, "/Users/AuthenticateByName")
-        XCTAssertEqual(recordedRequests.first?.httpMethod, "POST")
+        XCTAssertEqual(transaction.failure?.kind, .credentialRollback)
+        XCTAssertFalse(transaction.didCommit)
     }
 
-    func testRealJellyfinLoginPreflightMapsHTTP401ToAuthenticationFailure() async {
-        do {
-            try await JellyfinSourceCreationPreflight.validate(
-                source: makeSource(),
-                secret: "wrong-secret",
+    func testRealMediaServerLoginPreflightAcceptsJellyfinAndEmbyResponses() async throws {
+        for sourceType in [MusicSourceType.jellyfin, .emby] {
+            let requests = MediaServerRequestRecorder()
+
+            try await MediaServerSourceCreationPreflight.validate(
+                source: makeSource(type: sourceType),
+                secret: "correct-secret",
                 requestDataLoader: { request in
-                    try makeResponse(
+                    await requests.record(request)
+                    return try makeResponse(
                         for: request,
-                        status: 401,
-                        json: #"{"Message":"Unauthorized"}"#
+                        status: 200,
+                        json: #"{"AccessToken":"qa-token","User":{"Id":"qa-user-id"}}"#
                     )
                 }
             )
-            XCTFail("Expected authentication failure")
-        } catch let error as SourceError {
-            guard case .authenticationFailed = error else {
-                return XCTFail("Unexpected source error: \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+
+            let recordedRequests = await requests.values
+            XCTAssertEqual(recordedRequests.count, 1)
+            XCTAssertEqual(recordedRequests.first?.url?.path, "/Users/AuthenticateByName")
+            XCTAssertEqual(recordedRequests.first?.httpMethod, "POST")
         }
     }
 
-    private func makeSource(username: String = "qa-user") -> MusicSource {
+    func testRealMediaServerLoginPreflightMapsHTTP401ToAuthenticationFailure() async {
+        for sourceType in [MusicSourceType.jellyfin, .emby] {
+            do {
+                try await MediaServerSourceCreationPreflight.validate(
+                    source: makeSource(type: sourceType),
+                    secret: "wrong-secret",
+                    requestDataLoader: { request in
+                        try makeResponse(
+                            for: request,
+                            status: 401,
+                            json: #"{"Message":"Unauthorized"}"#
+                        )
+                    }
+                )
+                XCTFail("Expected authentication failure for \(sourceType)")
+            } catch let error as SourceError {
+                guard case .authenticationFailed = error else {
+                    return XCTFail("Unexpected source error: \(error)")
+                }
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testRealMediaServerPreflightPropagatesNetworkFailure() async {
+        for sourceType in [MusicSourceType.jellyfin, .emby] {
+            do {
+                try await MediaServerSourceCreationPreflight.validate(
+                    source: makeSource(type: sourceType),
+                    secret: "secret",
+                    requestDataLoader: { _ in throw URLError(.cannotConnectToHost) }
+                )
+                XCTFail("Expected network failure for \(sourceType)")
+            } catch let error as URLError {
+                XCTAssertEqual(error.code, .cannotConnectToHost)
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    private func makeSource(
+        type: MusicSourceType = .jellyfin,
+        username: String = "qa-user"
+    ) -> MusicSource {
         MusicSource(
             id: UUID().uuidString,
-            name: "Jellyfin QA",
-            type: .jellyfin,
-            host: "jellyfin-preflight.invalid",
+            name: "Media Server QA",
+            type: type,
+            host: "media-server-preflight.invalid",
             port: 8096,
             useSsl: false,
             username: username,
@@ -273,13 +338,13 @@ private func makeResponse(
     return (Data(json.utf8), response)
 }
 
-private enum JellyfinCreationTestError: LocalizedError {
+private enum MediaServerCreationTestError: LocalizedError {
     case persistence
 
     var errorDescription: String? { "Source persistence failed" }
 }
 
-private actor JellyfinPreflightGate {
+private actor MediaServerPreflightGate {
     private var started = false
     private var continuation: CheckedContinuation<Void, Never>?
 
@@ -298,7 +363,7 @@ private actor JellyfinPreflightGate {
     }
 }
 
-private actor JellyfinPreflightCounter {
+private actor MediaServerPreflightCounter {
     private(set) var value = 0
 
     func increment() {
@@ -306,7 +371,7 @@ private actor JellyfinPreflightCounter {
     }
 }
 
-private actor JellyfinRequestRecorder {
+private actor MediaServerRequestRecorder {
     private(set) var values: [URLRequest] = []
 
     func record(_ request: URLRequest) {

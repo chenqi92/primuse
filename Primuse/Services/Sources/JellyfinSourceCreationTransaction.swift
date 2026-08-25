@@ -2,22 +2,22 @@ import Foundation
 import Observation
 import PrimuseKit
 
-enum JellyfinSourceCreationPolicy {
+enum MediaServerSourceCreationPolicy {
     static func requiresPreflight(
         for sourceType: MusicSourceType,
         isEditing: Bool
     ) -> Bool {
-        sourceType == .jellyfin && !isEditing
+        [.jellyfin, .emby].contains(sourceType) && !isEditing
     }
 }
 
-enum JellyfinSourceCreationError: LocalizedError {
+enum MediaServerSourceCreationError: LocalizedError {
     case missingPersistenceHandler
 
     var errorDescription: String? { String(localized: "connection_failed") }
 }
 
-struct JellyfinSourceCreationFailure: Identifiable, Equatable, Sendable {
+struct MediaServerSourceCreationFailure: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case authentication
         case network
@@ -88,8 +88,15 @@ struct JellyfinSourceCreationFailure: Identifiable, Equatable, Sendable {
         )
     }
 
-    static func credentialPersistence() -> Self {
-        Self(
+    static func credentialPersistence(rollbackSucceeded: Bool) -> Self {
+        guard rollbackSucceeded else {
+            return Self(
+                kind: .credentialRollback,
+                title: String(localized: "credential_save_failed_title"),
+                message: String(localized: "credential_save_failed_message")
+            )
+        }
+        return Self(
             kind: .credentialPersistence,
             title: String(localized: "credential_save_failed_title"),
             message: String(localized: "credential_save_failed_message")
@@ -136,19 +143,25 @@ struct JellyfinSourceCreationFailure: Identifiable, Equatable, Sendable {
     }
 }
 
-enum JellyfinSourceCreationPreflight {
+enum MediaServerSourceCreationPreflight {
     static func validate(
         source: MusicSource,
         secret: String,
         requestDataLoader: MediaServerSource.RequestDataLoader? = nil
     ) async throws {
-        guard source.type == .jellyfin else {
+        let kind: MediaServerSource.Kind
+        switch source.type {
+        case .jellyfin:
+            kind = .jellyfin
+        case .emby:
+            kind = .emby
+        default:
             throw SourceError.connectionFailed("Unsupported creation preflight")
         }
 
         let connector = MediaServerSource(
             sourceID: source.id,
-            kind: .jellyfin,
+            kind: kind,
             host: source.host ?? "",
             port: source.port,
             useSsl: source.useSsl,
@@ -171,7 +184,7 @@ enum JellyfinSourceCreationPreflight {
 
 @MainActor
 @Observable
-final class JellyfinSourceCreationTransaction {
+final class MediaServerSourceCreationTransaction {
     typealias Preflight = @Sendable (MusicSource, String) async throws -> Void
 
     private let timeout: TimeInterval
@@ -181,12 +194,12 @@ final class JellyfinSourceCreationTransaction {
 
     private(set) var isRunning = false
     private(set) var didCommit = false
-    private(set) var failure: JellyfinSourceCreationFailure?
+    private(set) var failure: MediaServerSourceCreationFailure?
 
     init(timeout: TimeInterval = 15, preflight: Preflight? = nil) {
         self.timeout = timeout
         self.preflight = preflight ?? { source, secret in
-            try await JellyfinSourceCreationPreflight.validate(
+            try await MediaServerSourceCreationPreflight.validate(
                 source: source,
                 secret: secret
             )
@@ -229,9 +242,12 @@ final class JellyfinSourceCreationTransaction {
                   !Task.isCancelled else { return }
 
             guard persistCredential(source.id, secret) else {
+                let rollbackSucceeded = removeCredential(source.id)
                 self.task = nil
                 self.isRunning = false
-                self.failure = .credentialPersistence()
+                self.failure = .credentialPersistence(
+                    rollbackSucceeded: rollbackSucceeded
+                )
                 return
             }
 

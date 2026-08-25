@@ -124,7 +124,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 AddSourceView(
                     sourceType: type,
                     submitIntent: submitIntent,
-                    onValidatedJellyfinSave: addValidatedJellyfinSource
+                    onValidatedMediaServerSave: addValidatedMediaServerSource
                 ) { source in
                     addSourceAndAdvance(source)
                 }
@@ -133,7 +133,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                     sourceType: device.sourceType,
                     prefillDevice: device,
                     submitIntent: submitIntent,
-                    onValidatedJellyfinSave: addValidatedJellyfinSource
+                    onValidatedMediaServerSave: addValidatedMediaServerSource
                 ) { source in
                     addSourceAndAdvance(source)
                 }
@@ -596,9 +596,12 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         }
     }
 
-    private func addValidatedJellyfinSource(_ source: MusicSource) throws {
-        guard source.type == .jellyfin else {
-            throw JellyfinSourceCreationError.missingPersistenceHandler
+    private func addValidatedMediaServerSource(_ source: MusicSource) throws {
+        guard MediaServerSourceCreationPolicy.requiresPreflight(
+            for: source.type,
+            isEditing: false
+        ) else {
+            throw MediaServerSourceCreationError.missingPersistenceHandler
         }
         try onAdd(source)
         dismiss()
