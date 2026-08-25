@@ -139,6 +139,74 @@ struct PlaybackInterruptionResumePolicyTests {
         #expect(!shouldResume)
         #expect(!policy.playbackIsIntended)
     }
+
+    @Test("Foreground activation recovers a suspended interruption exactly once")
+    func foregroundActivationRecoversSuspendedInterruption() {
+        var policy = PlaybackInterruptionResumePolicy()
+        policy.registerPlayIntent()
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+
+        let firstDecision = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false,
+            currentItemID: "song-a"
+        )
+        let repeatedDecision = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false,
+            currentItemID: "song-a"
+        )
+
+        #expect(firstDecision)
+        #expect(!repeatedDecision)
+    }
+
+    @Test("Foreground activation waits while another app is still playing")
+    func foregroundActivationDoesNotInterruptOtherAudio() {
+        var policy = PlaybackInterruptionResumePolicy()
+        policy.registerPlayIntent()
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+
+        let foregroundDecision = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: true,
+            currentItemID: "song-a"
+        )
+        let ticketRemainedPending = policy.isAwaitingInterruptionEnd
+        let systemDecision = policy.interruptionEnded(
+            systemShouldResume: true,
+            currentItemID: "song-a"
+        )
+
+        #expect(!foregroundDecision)
+        #expect(ticketRemainedPending)
+        #expect(systemDecision)
+    }
+
+    @Test("A delayed duplicate begin preserves the original resume ticket")
+    func suspendedDuplicateBeginPreservesResumeTicket() {
+        var policy = PlaybackInterruptionResumePolicy()
+        policy.registerPlayIntent()
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+
+        policy.interruptionBegan(wasActuallyPlaying: false, currentItemID: "song-a")
+        let ticketSurvivedDuplicate = policy.isAwaitingInterruptionEnd
+        let foregroundDecision = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false,
+            currentItemID: "song-a"
+        )
+
+        #expect(ticketSurvivedDuplicate)
+        #expect(foregroundDecision)
+    }
+
+    @Test("Foreground activation without an interruption ticket never starts playback")
+    func foregroundActivationNeedsLiveTicket() {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        let foregroundDecision = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false,
+            currentItemID: "song-a"
+        )
+
+        #expect(!foregroundDecision)
+    }
 }
 
 @Suite("Bluetooth playback recovery policy")

@@ -109,6 +109,12 @@ final class AudioSessionManager {
         }
     }
 
+    /// Foreground interruption recovery must never activate Primuse's
+    /// non-mixable playback session while another app is still producing audio.
+    var otherAudioIsPlaying: Bool {
+        AVAudioSession.sharedInstance().isOtherAudioPlaying
+    }
+
     // MARK: - Interruption Handling
 
     @objc private nonisolated func handleInterruption(_ notification: Notification) {
@@ -169,5 +175,6 @@ final class AudioSessionManager {
     func deactivate() {}
     var outputRouteIsBluetoothHFP: Bool { false }
     var outputRouteIsBluetooth: Bool { false }
+    var otherAudioIsPlaying: Bool { false }
 #endif
 }

@@ -1030,6 +1030,8 @@ final class AudioPlayerService {
     /// settle window. An actual interruption cancels it and owns all resume
     /// authorization through PlaybackInterruptionResumePolicy instead.
     private var configurationRecoveryPendingSongID: String?
+    private var appActivationInterruptionRecoveryTask: Task<Void, Never>?
+    private static let appActivationInterruptionRecoveryAttemptLimit = 4
     private var bluetoothHFPResumeWatchdogTask: Task<Void, Never>?
     private var lastPublishedPlaybackWasActive = false
     @ObservationIgnored private var nowPlayingTransportRepublishGeneration: UInt64 = 0
@@ -1437,6 +1439,7 @@ final class AudioPlayerService {
 
         manager.onInterruptionBegan = { [weak self] in
             guard let self else { return }
+            self.cancelAppActivationInterruptionRecovery()
             let appleMusic = AppServices.shared.appleMusic
             let hasAppleMusicRequest = self.isAppleMusicMode
                 || self.activeAppleMusicRequestID != nil
@@ -1466,10 +1469,15 @@ final class AudioPlayerService {
             // delivers `.began`. Use the last state that was published after
             // validating the real backend output, never the raw mirrored flag.
             let wasPlaying = self.lastPublishedPlaybackWasActive
+            let wasAwaitingInterruptionEnd = self.interruptionResumePolicy
+                .isAwaitingInterruptionEnd
             self.interruptionResumePolicy.interruptionBegan(
                 wasActuallyPlaying: wasPlaying,
                 currentItemID: self.currentSong?.id
             )
+            let preservedExistingTicket = wasAwaitingInterruptionEnd
+                && !wasPlaying
+                && self.interruptionResumePolicy.isAwaitingInterruptionEnd
             self.invalidateAutomaticAdvance(reason: "interruption-began")
             // Once a fade has committed, currentSong already points at the
             // incoming track while the engine's primary node still belongs to
@@ -1477,9 +1485,11 @@ final class AudioPlayerService {
             // otherwise the old track's tail becomes the new track's recovery
             // position after the interruption.
             self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
-            self.syncPlaybackProgressFromEngine()
-            self.pendingRecoveryTime = self.currentTime
-            self.needsPlaybackRecovery = wasPlaying
+            if !preservedExistingTicket {
+                self.syncPlaybackProgressFromEngine()
+                self.pendingRecoveryTime = self.currentTime
+            }
+            self.needsPlaybackRecovery = self.needsPlaybackRecovery || wasPlaying
             if self.isLiveRadio {
                 // A delayed reconnect is an internal recovery attempt, not a
                 // user Play. Quiesce every radio backend and give authorized
@@ -1503,6 +1513,10 @@ final class AudioPlayerService {
                 self.isLoading = false
             }
 
+            if preservedExistingTicket {
+                self.scheduleAppActivationInterruptionRecovery()
+            }
+
             guard wasPlaying else { return }
             // Sync UI to paused state — the engine was already stopped by the system.
             self.isPlaying = false
@@ -1513,27 +1527,17 @@ final class AudioPlayerService {
 
         manager.onInterruptionEnded = { [weak self] systemShouldResume in
             guard let self else { return }
+            self.cancelAppActivationInterruptionRecovery()
             let shouldResume = self.interruptionResumePolicy.interruptionEnded(
                 systemShouldResume: systemShouldResume,
                 currentItemID: self.currentSong?.id
             )
-            guard shouldResume, !self.isPlaybackActuallyActive, self.currentSong != nil else {
+            guard shouldResume else {
                 self.updateNowPlayingInfo()
                 self.updatePlaybackState()
                 return
             }
-            // The interruption may end before the recording app releases HFP.
-            // Reactivating our nonmixable playback session here would interrupt
-            // that app again. Keep the one-shot resume bound to this item until
-            // a later route change confirms that Bluetooth is back on A2DP.
-            if AudioSessionManager.shared.outputRouteIsBluetoothHFP {
-                self.bluetoothHFPSuspendedSongID = self.currentSong?.id
-                self.scheduleBluetoothHFPResumeWatchdog()
-                self.updateNowPlayingInfo()
-                self.updatePlaybackState()
-                return
-            }
-            self.resumeCurrentPlayback(registeringUserIntent: false)
+            self.resumeAfterAuthorizedInterruption(source: "system-ended")
         }
 
         manager.onConfigurationChange = { [weak self] in
@@ -1752,6 +1756,65 @@ final class AudioPlayerService {
         clearBluetoothHFPDeferredResume()
     }
 
+    private func resumeAfterAuthorizedInterruption(source: String) {
+        guard !isPlaybackActuallyActive, currentSong != nil else {
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
+        // The interruption may end before the recording app releases HFP.
+        // Reactivating our nonmixable playback session here would interrupt
+        // that app again. Keep the one-shot resume bound to this item until a
+        // later route change confirms that Bluetooth is back on A2DP.
+        if AudioSessionManager.shared.outputRouteIsBluetoothHFP {
+            bluetoothHFPSuspendedSongID = currentSong?.id
+            scheduleBluetoothHFPResumeWatchdog()
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
+        plog("🔊 Resuming authorized interruption source=\(source)")
+        resumeCurrentPlayback(registeringUserIntent: false)
+    }
+
+    @discardableResult
+    private func attemptAppActivationInterruptionRecovery() -> Bool {
+        let shouldResume = interruptionResumePolicy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: AudioSessionManager.shared.otherAudioIsPlaying,
+            currentItemID: currentSong?.id
+        )
+        guard shouldResume else { return false }
+        resumeAfterAuthorizedInterruption(source: "app-activation")
+        return true
+    }
+
+    /// Scene activation can overtake the final audio-session notification when
+    /// another app is being backgrounded. Allow that state to settle briefly;
+    /// the ticket remains pending after the bounded retries and can still be
+    /// consumed by a later genuine interruption-end notification.
+    private func scheduleAppActivationInterruptionRecovery(attempt: Int = 0) {
+        cancelAppActivationInterruptionRecovery()
+        guard interruptionResumePolicy.isAwaitingInterruptionEnd,
+              attempt < Self.appActivationInterruptionRecoveryAttemptLimit else { return }
+        appActivationInterruptionRecoveryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.appActivationInterruptionRecoveryTask = nil
+            if self.attemptAppActivationInterruptionRecovery() { return }
+            guard self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
+            self.scheduleAppActivationInterruptionRecovery(attempt: attempt + 1)
+        }
+    }
+
+    private func cancelAppActivationInterruptionRecovery() {
+        appActivationInterruptionRecoveryTask?.cancel()
+        appActivationInterruptionRecoveryTask = nil
+    }
+
     /// HFP 抢占结束(对方录音结束, 蓝牙回到 A2DP)后续播挂起的播放。
     /// 挂起票据一次性消费; 恢复只在用户播放意图未变、没有待决系统中断、
     /// 且输出仍在蓝牙上时发生 —— 蓝牙在挂起期间断开的话, 票据作废,
@@ -1832,6 +1895,7 @@ final class AudioPlayerService {
     private func registerPlayIntent() {
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
+        cancelAppActivationInterruptionRecovery()
         cancelPendingConfigurationRecovery()
         clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPlayIntent()
@@ -1841,6 +1905,7 @@ final class AudioPlayerService {
     private func registerPauseOrStopIntent() {
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.completeForPauseOrStopIntent()
+        cancelAppActivationInterruptionRecovery()
         cancelPendingConfigurationRecovery()
         clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPauseOrStopIntent()
@@ -1853,6 +1918,7 @@ final class AudioPlayerService {
     }
 
     private func invalidateInterruptionResumePreservingIntent() {
+        cancelAppActivationInterruptionRecovery()
         interruptionResumePolicy.invalidatePendingResumePreservingIntent()
     }
 
@@ -6579,12 +6645,16 @@ final class AudioPlayerService {
     }
 
     func handleAppWillResignActive() {
+        cancelAppActivationInterruptionRecovery()
         syncPlaybackProgressFromEngine()
         updateNowPlayingInfo()
         updatePlaybackState()
     }
 
     func handleAppDidBecomeActive() {
+        if interruptionResumePolicy.isAwaitingInterruptionEnd {
+            scheduleAppActivationInterruptionRecovery()
+        }
         switch PlaybackAppActivationPolicy.action(
             needsPlaybackRecovery: needsPlaybackRecovery
         ) {

@@ -194,9 +194,10 @@ public enum NowPlayingPlaybackProjectionPolicy {
 }
 
 /// Keeps user playback intent separate from transient engine/UI state. System
-/// interruptions may only resume the exact item/generation that was actively
-/// playing when the interruption began. Any later user action invalidates the
-/// pending ticket, so delayed callbacks cannot revive stale playback.
+/// interruption recovery may only resume the exact item/generation that was
+/// actively playing when the interruption began. Any later user action
+/// invalidates the pending ticket, so delayed callbacks cannot revive stale
+/// playback.
 public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
     private struct Ticket: Equatable, Sendable {
         var intentGeneration: UInt64
@@ -240,10 +241,27 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
         wasActuallyPlaying: Bool,
         currentItemID: String?
     ) {
-        guard playbackIsIntended,
-              wasActuallyPlaying,
-              let currentItemID,
-              !currentItemID.isEmpty else {
+        guard let currentItemID, !currentItemID.isEmpty else {
+            pendingTicket = nil
+            return
+        }
+
+        // After a long background suspension, iOS may deliver another begin
+        // notification after the engine and visible state are already paused.
+        // Preserve only the exact live ticket; a genuinely paused item still
+        // has no right to start automatically.
+        if !wasActuallyPlaying {
+            guard playbackIsIntended,
+                  let ticket = pendingTicket,
+                  ticket.intentGeneration == intentGeneration,
+                  ticket.itemID == currentItemID else {
+                pendingTicket = nil
+                return
+            }
+            return
+        }
+
+        guard playbackIsIntended else {
             pendingTicket = nil
             return
         }
@@ -251,6 +269,27 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
             intentGeneration: intentGeneration,
             itemID: currentItemID
         )
+    }
+
+    /// Reconciles a live interruption ticket when the app returns after being
+    /// suspended and iOS did not deliver a usable interruption-end event. Other
+    /// audio keeps the ticket pending so foreground activation never steals its
+    /// session; cold launch and ordinary paused state have no ticket to consume.
+    public mutating func resumeAfterAppActivationIfSafe(
+        otherAudioIsPlaying: Bool,
+        currentItemID: String?
+    ) -> Bool {
+        guard let ticket = pendingTicket else { return false }
+        guard playbackIsIntended,
+              ticket.intentGeneration == intentGeneration,
+              ticket.itemID == currentItemID else {
+            pendingTicket = nil
+            return false
+        }
+        guard !otherAudioIsPlaying else { return false }
+
+        pendingTicket = nil
+        return true
     }
 
     /// Returns `true` exactly once when system permission, user intent, item
