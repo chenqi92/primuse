@@ -118,6 +118,22 @@ struct BackfillStatePolicyTests {
             currentCount: persistedCount
         ) == MetadataBackfillRetryPolicy.maximumAutomaticAttempts)
     }
+
+    @Test("Successful scans renew only exhausted source retry budgets")
+    func successfulScanRecoveryIsBounded() {
+        #expect(MetadataBackfillSourceRecoveryPolicy.shouldRenewRetryBudget(
+            sourceAttemptCount: MetadataBackfillRetryPolicy.maximumAutomaticAttempts,
+            unresolvedSongCount: 7
+        ))
+        #expect(!MetadataBackfillSourceRecoveryPolicy.shouldRenewRetryBudget(
+            sourceAttemptCount: MetadataBackfillRetryPolicy.maximumAutomaticAttempts - 1,
+            unresolvedSongCount: 7
+        ))
+        #expect(!MetadataBackfillSourceRecoveryPolicy.shouldRenewRetryBudget(
+            sourceAttemptCount: MetadataBackfillRetryPolicy.maximumAutomaticAttempts,
+            unresolvedSongCount: 0
+        ))
+    }
 }
 
 @Suite("User metadata protection")

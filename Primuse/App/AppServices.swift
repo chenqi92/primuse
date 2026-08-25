@@ -146,6 +146,9 @@ final class AppServices {
         scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }
+        scanService.successfulSourceScanHandler = { [weak metadataBackfill] sourceID in
+            metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
+        }
         scanService.serverRadioSyncHandler = { [weak manager, weak radioStore] source in
             guard let manager, let radioStore else { return }
             await ServerRadioSyncService.sync(

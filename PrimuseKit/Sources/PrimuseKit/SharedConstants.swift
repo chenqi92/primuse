@@ -2662,6 +2662,22 @@ public enum MetadataBackfillRetryPolicy {
     }
 }
 
+/// A successful catalogue scan is a bounded source-availability signal. It may
+/// renew an exhausted source-wide retry budget when unresolved tag work still
+/// exists, but it must not erase a partially consumed budget on every routine
+/// scan.
+public enum MetadataBackfillSourceRecoveryPolicy {
+    public static func shouldRenewRetryBudget(
+        sourceAttemptCount: Int,
+        unresolvedSongCount: Int
+    ) -> Bool {
+        unresolvedSongCount > 0
+            && MetadataBackfillRetryPolicy.hasExhaustedAutomaticAttempts(
+                sourceAttemptCount
+            )
+    }
+}
+
 public enum MetadataBackfillDeferredRetryCause: Sendable, Equatable {
     case sourceUnavailable
     case repeatedSnapshot

@@ -919,6 +919,38 @@ final class MetadataBackfillService {
         refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
     }
 
+    /// A completed source scan proves that catalogue access has recovered. If
+    /// an older outage exhausted the source-wide backfill circuit breaker,
+    /// grant the still-unresolved rows one fresh bounded retry budget. A normal
+    /// successful scan does not touch a partially consumed budget.
+    func sourceScanSucceeded(forSourceID sourceID: String) {
+        let retryableSongIDs = Set(library.songs.lazy.filter { [self] song in
+            song.sourceID == sourceID
+                && !failedSongIDs.contains(song.id)
+                && !sourceIssueSongIDs.contains(song.id)
+                && !sessionStallParkedIDs.contains(song.id)
+                && needsBackfill(song)
+        }.map(\.id))
+        let sourceAttemptCount = sourceTransientFailureCounts[sourceID] ?? 0
+        guard MetadataBackfillSourceRecoveryPolicy.shouldRenewRetryBudget(
+            sourceAttemptCount: sourceAttemptCount,
+            unresolvedSongCount: retryableSongIDs.count
+        ) else { return }
+
+        sessionGivenUpIDs.subtract(retryableSongIDs)
+        sessionNetworkParkedIDs.subtract(retryableSongIDs)
+        for songID in retryableSongIDs {
+            transientFailureCounts[songID] = nil
+        }
+        sourceTransientFailureCounts[sourceID] = nil
+        saveRetryCounts()
+        plog(
+            "📥 Backfill: successful source scan renewed exhausted retry budget "
+                + "source=\(sourceID) unresolved=\(retryableSongIDs.count)"
+        )
+        refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
+    }
+
     /// Drop queued work for a source that was removed. The
     /// worker processes fixed snapshots, so without stopping it a deleted
     /// 10K-song source can keep burning through stale rows until relaunch.

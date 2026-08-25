@@ -16,6 +16,9 @@ final class ScanService {
     /// Full-metadata scanners report only IDs they actually inspected. AppServices
     /// wires this to MetadataBackfillService after both services are initialized.
     @ObservationIgnored var metadataInspectionHandler: ((Set<String>) -> Void)?
+    /// Successful catalogue access can reopen an exhausted metadata-read
+    /// circuit breaker without coupling ScanService to the backfill worker.
+    @ObservationIgnored var successfulSourceScanHandler: ((String) -> Void)?
     /// AppServices injects the radio store without making every scan call site
     /// carry another dependency. Invoked only after a successful server-library
     /// catalogue commit, alongside server playlist mirroring.
@@ -1774,6 +1777,7 @@ final class ScanService {
             await serverFavoriteSyncHandler?(source)
             await serverRadioSyncHandler?(source)
         }
+        successfulSourceScanHandler?(sourceID)
     }
 
     // MARK: - Helpers
