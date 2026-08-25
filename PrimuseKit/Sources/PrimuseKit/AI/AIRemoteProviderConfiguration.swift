@@ -242,6 +242,19 @@ public enum AIRemoteEndpointPolicy {
         )
         return baseURL.appendingPathComponent("embeddings")
     }
+
+    public static func modelsEndpoint(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> URL {
+        guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
+            throw AIRemoteEndpointValidationError.invalidRequestTimeout
+        }
+        let baseURL = try validatedBaseURL(
+            configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        )
+        return baseURL.appendingPathComponent("models")
+    }
 }
 
 public enum AICredentialStoragePolicy {

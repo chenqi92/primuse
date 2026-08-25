@@ -56,6 +56,18 @@ public struct AIProviderDescriptor: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+public struct AIProviderModel: Identifiable, Codable, Hashable, Sendable {
+    public var id: String
+    public var ownedBy: String?
+    public var createdAt: Date?
+
+    public init(id: String, ownedBy: String? = nil, createdAt: Date? = nil) {
+        self.id = id
+        self.ownedBy = ownedBy
+        self.createdAt = createdAt
+    }
+}
+
 public enum AIProviderRuntimeAvailability: Equatable, Sendable {
     case available
     case unavailable(AIProviderUnavailableReason)

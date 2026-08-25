@@ -162,6 +162,32 @@ final class MusicIntelligenceService {
         semanticPlanCache.removeAll(keepingCapacity: true)
     }
 
+    func availableModels(
+        configuration: AIRemoteProviderConfiguration,
+        apiKey: String?
+    ) async throws -> [AIProviderModel] {
+        let regionSnapshot = regionAvailability.snapshot
+        let decision = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: regionSnapshot.context
+        )
+        guard decision.isAllowed else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
+        let models = try await engine.listModels(
+            configuration: configuration,
+            apiKeyOverride: apiKey,
+            requestAuthorization: regionAuthorization(for: regionSnapshot)
+        )
+        guard AIRegionRequestPolicy.canCommitRemoteResponse(
+            captured: regionSnapshot,
+            latest: regionAvailability.snapshot
+        ) else {
+            throw MusicIntelligenceError.unavailable(.temporarilyUnavailable)
+        }
+        return models
+    }
+
     func testConnection(
         configuration: AIRemoteProviderConfiguration,
         hasExplicitRemoteConsent: Bool,
@@ -260,6 +286,22 @@ private actor MusicIntelligenceEngine {
 
         return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.interpretSearch(request)
+        }
+    }
+
+    func listModels(
+        configuration: AIRemoteProviderConfiguration,
+        apiKeyOverride: String?,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> [AIProviderModel] {
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            apiKeyOverride: apiKeyOverride,
+            requestAuthorization: requestAuthorization
+        )
+        return try await withTimeout(seconds: configuration.requestTimeout) {
+            try await provider.listModels()
         }
     }
 

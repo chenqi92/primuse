@@ -330,6 +330,44 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         )
     }
 
+    func listModels() async throws -> [AIProviderModel] {
+        let endpoint: URL
+        do {
+            endpoint = try AIRemoteEndpointPolicy.modelsEndpoint(configuration: configuration)
+        } catch let error as AIRemoteEndpointValidationError {
+            throw OpenAICompatibleProviderError.invalidConfiguration(error)
+        }
+        let apiKey = try await requiredAPIKey()
+        let data = try await getJSON(from: endpoint, apiKey: apiKey)
+        let response: ModelsResponse
+        do {
+            response = try JSONDecoder().decode(ModelsResponse.self, from: data)
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+
+        var seen = Set<String>()
+        let models = response.data.compactMap { item -> AIProviderModel? in
+            let id = item.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, id.count <= 256 else { return nil }
+            let key = id.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            guard seen.insert(key).inserted else { return nil }
+            let owner = item.ownedBy?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let createdAt = item.created.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            return AIProviderModel(
+                id: id,
+                ownedBy: owner?.isEmpty == false ? owner : nil,
+                createdAt: createdAt
+            )
+        }
+        return models.sorted {
+            $0.id.localizedStandardCompare($1.id) == .orderedAscending
+        }
+    }
+
     private func requiredAPIKey() async throws -> String {
         if let apiKeyOverride { return apiKeyOverride }
         do {
@@ -363,9 +401,25 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
             throw OpenAICompatibleProviderError.invalidResponse
         }
 
-        guard await requestAuthorization() else {
-            throw CancellationError()
+        return try await perform(request)
+    }
+
+    private func getJSON(from endpoint: URL, apiKey: String) async throws -> Data {
+        guard let requestTimeout = AIRequestTimeoutPolicy.validated(
+            configuration.requestTimeout
+        ) else {
+            throw OpenAICompatibleProviderError.invalidConfiguration(.invalidRequestTimeout)
         }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        return try await perform(request)
+    }
+
+    private func perform(_ request: URLRequest) async throws -> Data {
+        guard await requestAuthorization() else { throw CancellationError() }
 
         let data: Data
         let response: URLResponse
@@ -477,5 +531,21 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
 
         var data: [Item]
         var model: String
+    }
+
+    private struct ModelsResponse: Decodable {
+        struct Item: Decodable {
+            var id: String
+            var ownedBy: String?
+            var created: Int?
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case ownedBy = "owned_by"
+                case created
+            }
+        }
+
+        var data: [Item]
     }
 }

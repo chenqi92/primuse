@@ -254,6 +254,9 @@ struct AIRemoteEndpointPolicyTests {
         #expect(try AIRemoteEndpointPolicy.embeddingsEndpoint(
             configuration: configuration
         ).absoluteString == "https://api.example.com/v1/embeddings")
+        #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
+            configuration: configuration
+        ).absoluteString == "https://api.example.com/v1/models")
     }
 
     @Test func localHTTPRequiresExplicitConsent() throws {

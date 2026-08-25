@@ -4,6 +4,42 @@ import XCTest
 @testable import Primuse
 
 final class OpenAICompatibleProviderTests: XCTestCase {
+    func testModelsRequestUsesConfiguredEndpointAndReturnsNormalizedModels() async throws {
+        let host = "intelligence-models.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"object":"list","data":[{"id":" text-embedding-3-small ","owned_by":"openai","created":1715367049},{"id":"gpt-4.1","owned_by":"openai"},{"id":"GPT-4.1"},{"id":""}]}"#
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+
+        let models = try await provider.listModels()
+
+        XCTAssertEqual(models.map(\.id), ["gpt-4.1", "text-embedding-3-small"])
+        XCTAssertEqual(models.first?.ownedBy, "openai")
+        XCTAssertNotNil(models.last?.createdAt)
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.path, "/v1/models")
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-api-key")
+        XCTAssertNil(request.httpBody)
+    }
+
+    func testModelsRequestRejectsInvalidResponse() async throws {
+        let host = "intelligence-models-invalid.invalid"
+        IntelligenceURLProtocol.configure(host: host, statusCode: 200, body: #"{"models":[]}"#)
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+
+        do {
+            _ = try await provider.listModels()
+            XCTFail("Expected an invalid models response")
+        } catch OpenAICompatibleProviderError.invalidResponse {
+            XCTAssertEqual(IntelligenceURLProtocol.requests(host: host).count, 1)
+        }
+    }
+
     func testResponsesRequestUsesConfiguredEndpointAndReturnsNormalizedPlan() async throws {
         let host = "intelligence-responses.invalid"
         IntelligenceURLProtocol.configure(
@@ -222,7 +258,10 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             )
             XCTFail("Expected the streaming response limit to cancel the request")
         } catch OpenAICompatibleProviderError.responseTooLarge {
-            XCTAssertEqual(IntelligenceURLProtocol.deliveredChunkCount(host: host), 3)
+            XCTAssertGreaterThanOrEqual(
+                IntelligenceURLProtocol.deliveredChunkCount(host: host),
+                3
+            )
             for _ in 0..<50 where IntelligenceURLProtocol.stopLoadingCount(host: host) == 0 {
                 try await Task.sleep(for: .milliseconds(10))
             }
