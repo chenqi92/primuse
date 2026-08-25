@@ -225,12 +225,8 @@ struct MacSettingsView: View {
 
     @ViewBuilder
     private var contentPane: some View {
-        if tab == .intelligence {
-            AISettingsView()
-        } else {
-            MacSettingsScroll(title: tab.title) {
-                settingsContent
-            }
+        MacSettingsScroll(title: tab.title) {
+            settingsContent
         }
     }
 
@@ -252,7 +248,7 @@ struct MacSettingsView: View {
         case .appleMusic:
             MacSTAppleMusicView()
         case .intelligence:
-            EmptyView()
+            MacSTIntelligenceView()
         case .widgets:
             MacSTWidgetView()
         case .cloud:
@@ -576,6 +572,344 @@ private struct MacSTButton: View {
         if prominent { return PMColor.brand }
         if destructive { return .clear }
         return PMColor.glassBtn
+    }
+}
+
+private struct MacSTTextField: View {
+    @Binding var text: String
+    let prompt: String
+    var secure = false
+    var width: CGFloat = 360
+
+    var body: some View {
+        Group {
+            if secure {
+                SecureField("", text: $text, prompt: Text(verbatim: prompt))
+            } else {
+                TextField("", text: $text, prompt: Text(verbatim: prompt))
+            }
+        }
+        .textFieldStyle(.plain)
+        .font(.system(size: 12))
+        .foregroundStyle(PMColor.text)
+        .padding(.horizontal, 9)
+        .frame(width: width, height: 24)
+        .background(PMColor.bg, in: .rect(cornerRadius: 5))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+        }
+    }
+}
+
+private struct MacAIModelField: View {
+    @Binding var text: String
+    let models: [AIProviderModel]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            MacSTTextField(
+                text: $text,
+                prompt: String(localized: "ai_model_manual_placeholder"),
+                width: models.isEmpty ? 360 : 324
+            )
+            if !models.isEmpty {
+                Menu {
+                    ForEach(models) { model in
+                        Button(model.id) { text = model.id }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(PMColor.textFaint)
+                        .frame(width: 30, height: 24)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+                        }
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+            }
+        }
+    }
+}
+
+private struct MacSTIntelligenceView: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @State private var editor = AISettingsEditorModel()
+
+    var body: some View {
+        Group {
+            if intelligence.regionAvailability.isRefreshing,
+               intelligence.regionAvailability.context.region == .unknown {
+            MacSTSection {
+                MacSTGroup {
+                    MacSTRow(String(localized: "ai_region_checking"), divider: false) {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            } else if !intelligence.shouldExposeRemoteConfiguration {
+            MacSTSection {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "ai_region_unavailable_title"),
+                        hint: String(localized: "ai_region_unavailable_description"),
+                        divider: false
+                    ) {
+                        Image(systemName: "globe.asia.australia.fill")
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            }
+            } else {
+            statusCard
+
+            MacSTSection(
+                String(localized: "ai_capability_section"),
+                hint: String(localized: "ai_enable_semantic_search_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "ai_enable_semantic_search"),
+                        divider: false
+                    ) {
+                        MacSTToggle(isOn: editor.configurationBinding(\.isEnabled))
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "ai_connection_section"),
+                hint: String(localized: "ai_provider_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(String(localized: "ai_provider_name"), divider: false) {
+                        MacSTTextField(
+                            text: editor.configurationBinding(\.displayName),
+                            prompt: String(localized: "ai_provider_default_name")
+                        )
+                    }
+                    MacSTRow(String(localized: "ai_base_url")) {
+                        MacSTTextField(
+                            text: editor.configurationBinding(\.baseURL, clearModels: true),
+                            prompt: "https://api.openai.com/v1"
+                        )
+                    }
+                    MacSTRow(
+                        String(localized: "ai_api_key"),
+                        hint: editor.hasStoredAPIKeyForDraft && editor.apiKeyDraft.isEmpty
+                            ? String(localized: "ai_api_key_stored") : nil
+                    ) {
+                        MacSTTextField(
+                            text: editor.apiKeyBinding,
+                            prompt: "sk-…",
+                            secure: true
+                        )
+                    }
+                    MacSTRow(String(localized: "ai_api_style")) {
+                        MacSTPicker(
+                            selection: editor.configurationBinding(\.apiStyle),
+                            options: [
+                                (.responses, String(localized: "ai_api_style_responses")),
+                                (.chatCompletions, String(localized: "ai_api_style_chat_completions")),
+                            ],
+                            width: 220
+                        )
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "ai_models_section"),
+                hint: String(localized: "ai_models_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(String(localized: "ai_generation_model"), divider: false) {
+                        MacAIModelField(
+                            text: editor.configurationBinding(\.generationModel),
+                            models: editor.availableModels
+                        )
+                    }
+                    MacSTRow(String(localized: "ai_embedding_model")) {
+                        MacAIModelField(
+                            text: editor.configurationBinding(\.embeddingModel),
+                            models: editor.availableModels
+                        )
+                    }
+                    MacSTRow(
+                        String(localized: "ai_online_models"),
+                        hint: modelStatusText
+                    ) {
+                        HStack(spacing: 8) {
+                            if editor.isFetchingModels {
+                                ProgressView().controlSize(.small)
+                            }
+                            MacSTButton(
+                                title: String(localized: "ai_fetch_models"),
+                                systemImage: "arrow.triangle.2.circlepath",
+                                prominent: !editor.availableModels.isEmpty
+                            ) {
+                                Task { await editor.fetchModels(using: intelligence) }
+                            }
+                            .disabled(!editor.canFetchModels)
+                        }
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "ai_privacy_section"),
+                hint: String(localized: "ai_privacy_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "ai_allow_insecure_local_http"),
+                        divider: false
+                    ) {
+                        MacSTToggle(
+                            isOn: editor.configurationBinding(
+                                \.allowInsecureLocalHTTP,
+                                clearModels: true
+                            )
+                        )
+                    }
+                    MacSTRow(String(localized: "ai_remote_consent")) {
+                        MacSTToggle(isOn: editor.consentBinding)
+                    }
+                }
+            }
+
+            MacSTSection {
+                MacSTGroup {
+                    MacSTRow(String(localized: "ai_actions_section"), divider: false) {
+                        HStack(spacing: 8) {
+                            if editor.isWorking {
+                                ProgressView().controlSize(.small)
+                            }
+                            if editor.hasStoredAPIKeyForDraft {
+                                MacSTButton(
+                                    title: String(localized: "ai_delete_current_api_key"),
+                                    destructive: true
+                                ) {
+                                    Task {
+                                        await editor.deleteCurrentAPIKey(using: intelligence)
+                                    }
+                                }
+                                .disabled(editor.isWorking || editor.isFetchingModels)
+                            }
+                            MacSTButton(
+                                title: String(localized: "ai_test_connection"),
+                                systemImage: "network"
+                            ) {
+                                Task { await editor.testConnection(using: intelligence) }
+                            }
+                            .disabled(!editor.canTestConnection)
+                            MacSTButton(
+                                title: String(localized: "save"),
+                                systemImage: "square.and.arrow.down",
+                                prominent: true
+                            ) {
+                                Task { await editor.save(using: intelligence) }
+                            }
+                            .disabled(editor.isWorking || editor.isFetchingModels)
+                        }
+                    }
+                }
+            }
+            }
+        }
+        .task { await editor.load(using: intelligence) }
+    }
+
+    private var statusCard: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(PMColor.brand.opacity(0.14))
+                .frame(width: 42, height: 42)
+                .overlay {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: editor.draftConfiguration.displayName.isEmpty
+                     ? String(localized: "ai_provider_default_name")
+                     : editor.draftConfiguration.displayName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(verbatim: summaryText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(summaryColor)
+                    .lineLimit(2)
+            }
+            Spacer()
+            HStack(spacing: 3) {
+                ForEach(0..<4, id: \.self) { index in
+                    Capsule()
+                        .fill(editor.hasUsableAPIKey
+                              ? PMColor.brand.opacity(0.45 + Double(index) * 0.14)
+                              : PMColor.dividerStrong)
+                        .frame(width: 3, height: CGFloat(8 + index * 3))
+                }
+            }
+            .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 70)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .padding(.bottom, 22)
+    }
+
+    private var summaryText: String {
+        switch editor.status {
+        case .saved:
+            return String(localized: "ai_settings_saved")
+        case .connectionSucceeded:
+            return String(localized: "ai_connection_success")
+        case .modelsLoaded(let count):
+            return String(
+                format: String(localized: "ai_models_loaded_format"), count
+            )
+        case .modelsEmpty:
+            return String(localized: "ai_models_empty")
+        case .failed(let message, _):
+            return message
+        case .idle:
+            return String(localized: editor.hasUsableAPIKey
+                          ? "ai_connection_ready" : "ai_connection_needs_key")
+        }
+    }
+
+    private var summaryColor: Color {
+        if case .failed = editor.status { return PMColor.bad }
+        return editor.hasUsableAPIKey ? PMColor.brand : PMColor.textFaint
+    }
+
+    private var modelStatusText: String? {
+        if editor.isFetchingModels { return String(localized: "ai_models_loading") }
+        switch editor.status {
+        case .modelsLoaded(let count):
+            return String(
+                format: String(localized: "ai_models_loaded_format"), count
+            )
+        case .modelsEmpty:
+            return String(localized: "ai_models_empty")
+        case .failed(let message, .models):
+            return message
+        default:
+            return editor.availableModels.isEmpty ? nil : String(
+                format: String(localized: "ai_models_loaded_format"),
+                editor.availableModels.count
+            )
+        }
     }
 }
 
