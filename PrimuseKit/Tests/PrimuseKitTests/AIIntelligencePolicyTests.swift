@@ -396,6 +396,63 @@ struct AIRemoteEndpointPolicyTests {
     }
 }
 
+@Suite("AI request limits")
+struct AIRequestLimitPolicyTests {
+    @Test func initializationProducesOnlySafeTimeouts() {
+        #expect(AIRemoteProviderConfiguration(requestTimeout: .nan).requestTimeout == 12)
+        #expect(AIRemoteProviderConfiguration(requestTimeout: .infinity).requestTimeout == 12)
+        #expect(AIRemoteProviderConfiguration(requestTimeout: 1).requestTimeout == 2)
+        #expect(AIRemoteProviderConfiguration(requestTimeout: 61).requestTimeout == 60)
+    }
+
+    @Test func decodingRejectsPersistedOutOfRangeTimeouts() throws {
+        let validData = try JSONEncoder().encode(AIRemoteProviderConfiguration())
+        var object = try #require(
+            JSONSerialization.jsonObject(with: validData) as? [String: Any]
+        )
+
+        for timeout in [1, 61] {
+            object["requestTimeout"] = timeout
+            let data = try JSONSerialization.data(withJSONObject: object)
+            #expect(throws: DecodingError.self) {
+                try JSONDecoder().decode(AIRemoteProviderConfiguration.self, from: data)
+            }
+        }
+    }
+
+    @Test func encodingAndRuntimeConversionRejectMutatedInvalidTimeouts() {
+        for timeout in [TimeInterval.nan, .infinity, -.infinity, 1, 61] {
+            var configuration = AIRemoteProviderConfiguration()
+            configuration.requestTimeout = timeout
+            #expect(throws: EncodingError.self) {
+                try JSONEncoder().encode(configuration)
+            }
+            #expect(AIRequestTimeoutPolicy.validated(timeout) == nil)
+            #expect(AIRequestTimeoutPolicy.nanoseconds(timeout) == nil)
+        }
+        #expect(AIRequestTimeoutPolicy.nanoseconds(2) == 2_000_000_000)
+        #expect(AIRequestTimeoutPolicy.nanoseconds(60) == 60_000_000_000)
+    }
+
+    @Test func responseLimitChecksEveryIncomingChunkWithoutOverflow() {
+        let maximum = AIResponseSizePolicy.maximumBytes
+        #expect(AIResponseSizePolicy.allowsAppend(
+            currentBytes: maximum - 1,
+            incomingBytes: 1
+        ))
+        #expect(!AIResponseSizePolicy.allowsAppend(
+            currentBytes: maximum,
+            incomingBytes: 1
+        ))
+        #expect(!AIResponseSizePolicy.allowsAppend(
+            currentBytes: Int.max,
+            incomingBytes: Int.max
+        ))
+        #expect(!AIResponseSizePolicy.allowsAppend(currentBytes: -1, incomingBytes: 1))
+        #expect(!AIResponseSizePolicy.allowsAppend(currentBytes: 0, incomingBytes: -1))
+    }
+}
+
 @Suite("AI semantic search plan")
 struct AISemanticSearchPlanTests {
     @Test func normalizationRemovesDuplicatesOriginalAndUnsafeLengths() {

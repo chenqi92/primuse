@@ -12,7 +12,79 @@ enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
     case requestFailed(statusCode: Int)
 }
 
-private final class AIRedirectRejectingSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+private final class AIBoundedResponseLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    fileprivate enum LoaderError: Error {
+        case responseTooLarge
+        case missingResponse
+    }
+
+    private struct State {
+        var continuation: CheckedContinuation<(Data, URLResponse), any Error>?
+        var session: URLSession?
+        var task: URLSessionDataTask?
+        var response: URLResponse?
+        var data = Data()
+        var finished = false
+        var cancellationRequested = false
+    }
+
+    private let configuration: URLSessionConfiguration
+    private let maximumBytes: Int
+    private let lock = NSLock()
+    private var state = State()
+
+    private init(configuration: URLSessionConfiguration, maximumBytes: Int) {
+        self.configuration = configuration
+        self.maximumBytes = maximumBytes
+    }
+
+    static func data(
+        for request: URLRequest,
+        configuration: URLSessionConfiguration,
+        maximumBytes: Int
+    ) async throws -> (Data, URLResponse) {
+        let loader = AIBoundedResponseLoader(
+            configuration: configuration,
+            maximumBytes: maximumBytes
+        )
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                loader.start(request: request, continuation: continuation)
+            }
+        } onCancel: {
+            loader.cancel()
+        }
+    }
+
+    private func start(
+        request: URLRequest,
+        continuation: CheckedContinuation<(Data, URLResponse), any Error>
+    ) {
+        lock.lock()
+        if state.cancellationRequested {
+            state.finished = true
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        state.continuation = continuation
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        state.session = session
+        state.task = task
+        lock.unlock()
+        task.resume()
+    }
+
+    private func cancel() {
+        lock.lock()
+        state.cancellationRequested = true
+        let task = state.task
+        lock.unlock()
+        task?.cancel()
+        finish(with: .failure(CancellationError()))
+    }
+
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -24,6 +96,84 @@ private final class AIRedirectRejectingSessionDelegate: NSObject, URLSessionTask
         // base URL must point at its final API endpoint.
         completionHandler(nil)
     }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        let declaredLength = response.expectedContentLength
+        guard declaredLength < 0 || declaredLength <= Int64(maximumBytes) else {
+            completionHandler(.cancel)
+            dataTask.cancel()
+            finish(with: .failure(LoaderError.responseTooLarge))
+            return
+        }
+
+        lock.lock()
+        state.response = response
+        lock.unlock()
+        completionHandler(.allow)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        lock.lock()
+        let canAppend = AIResponseSizePolicy.allowsAppend(
+            currentBytes: state.data.count,
+            incomingBytes: data.count
+        )
+        if canAppend {
+            state.data.append(data)
+        }
+        lock.unlock()
+
+        guard !canAppend else { return }
+        dataTask.cancel()
+        finish(with: .failure(LoaderError.responseTooLarge))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            finish(with: .failure(error))
+            return
+        }
+
+        lock.lock()
+        let response = state.response
+        let data = state.data
+        lock.unlock()
+        guard let response else {
+            finish(with: .failure(LoaderError.missingResponse))
+            return
+        }
+        finish(with: .success((data, response)))
+    }
+
+    private func finish(with result: Result<(Data, URLResponse), any Error>) {
+        lock.lock()
+        guard !state.finished, let continuation = state.continuation else {
+            lock.unlock()
+            return
+        }
+        state.finished = true
+        state.continuation = nil
+        let session = state.session
+        state.session = nil
+        state.task = nil
+        lock.unlock()
+
+        session?.invalidateAndCancel()
+        continuation.resume(with: result)
+    }
 }
 
 actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding {
@@ -33,8 +183,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
     private let credentialStore: any AICredentialStoring
     private let apiKeyOverride: String?
     private let requestAuthorization: @Sendable () async -> Bool
-    private let session: URLSession
-    private static let maximumResponseBytes = 2 * 1_024 * 1_024
+    private let sessionConfiguration: URLSessionConfiguration
 
     init(
         configuration: AIRemoteProviderConfiguration,
@@ -50,27 +199,27 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         self.requestAuthorization = requestAuthorization
         descriptor = configuration.descriptor
 
+        let sessionConfiguration: URLSessionConfiguration
         if let session {
-            self.session = session
+            sessionConfiguration = session.configuration
         } else {
-            let sessionConfiguration = URLSessionConfiguration.ephemeral
+            sessionConfiguration = .ephemeral
             sessionConfiguration.urlCache = nil
             sessionConfiguration.httpCookieStorage = nil
             sessionConfiguration.httpShouldSetCookies = false
             sessionConfiguration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            sessionConfiguration.timeoutIntervalForRequest = configuration.requestTimeout
-            sessionConfiguration.timeoutIntervalForResource = configuration.requestTimeout
-            self.session = URLSession(
-                configuration: sessionConfiguration,
-                delegate: AIRedirectRejectingSessionDelegate(),
-                delegateQueue: nil
-            )
         }
+        let safeTimeout = AIRequestTimeoutPolicy.validated(configuration.requestTimeout)
+            ?? AIRequestTimeoutPolicy.defaultValue
+        sessionConfiguration.timeoutIntervalForRequest = safeTimeout
+        sessionConfiguration.timeoutIntervalForResource = safeTimeout
+        self.sessionConfiguration = sessionConfiguration
     }
 
     func runtimeAvailability() async -> AIProviderRuntimeAvailability {
         guard descriptor.isEnabled else { return .unavailable(.disabled) }
         guard !descriptor.capabilities.isEmpty,
+              AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil,
               (try? AIRemoteEndpointPolicy.validatedBaseURL(
                 configuration.baseURL,
                 allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
@@ -197,9 +346,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         to endpoint: URL,
         apiKey: String
     ) async throws -> Data {
+        guard let requestTimeout = AIRequestTimeoutPolicy.validated(
+            configuration.requestTimeout
+        ) else {
+            throw OpenAICompatibleProviderError.invalidConfiguration(.invalidRequestTimeout)
+        }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = configuration.requestTimeout
+        request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -216,7 +370,13 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await AIBoundedResponseLoader.data(
+                for: request,
+                configuration: sessionConfiguration,
+                maximumBytes: AIResponseSizePolicy.maximumBytes
+            )
+        } catch AIBoundedResponseLoader.LoaderError.responseTooLarge {
+            throw OpenAICompatibleProviderError.responseTooLarge
         } catch let error as URLError where error.code == .timedOut {
             throw MusicIntelligenceError.timedOut
         } catch is CancellationError {
@@ -229,9 +389,6 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         }
         guard (200...299).contains(http.statusCode) else {
             throw OpenAICompatibleProviderError.requestFailed(statusCode: http.statusCode)
-        }
-        guard data.count <= Self.maximumResponseBytes else {
-            throw OpenAICompatibleProviderError.responseTooLarge
         }
         return data
     }

@@ -5,6 +5,38 @@ public enum AICompatibleAPIStyle: String, Codable, CaseIterable, Hashable, Senda
     case chatCompletions
 }
 
+public enum AIRequestTimeoutPolicy {
+    public static let defaultValue: TimeInterval = 12
+    public static let minimum: TimeInterval = 2
+    public static let maximum: TimeInterval = 60
+
+    public static func normalizedForInitialization(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultValue }
+        return min(max(value, minimum), maximum)
+    }
+
+    public static func validated(_ value: TimeInterval) -> TimeInterval? {
+        guard value.isFinite, (minimum...maximum).contains(value) else { return nil }
+        return value
+    }
+
+    public static func nanoseconds(_ value: TimeInterval) -> UInt64? {
+        guard let value = validated(value) else { return nil }
+        return UInt64(value * 1_000_000_000)
+    }
+}
+
+public enum AIResponseSizePolicy {
+    public static let maximumBytes = 2 * 1_024 * 1_024
+
+    public static func allowsAppend(currentBytes: Int, incomingBytes: Int) -> Bool {
+        guard currentBytes >= 0,
+              incomingBytes >= 0,
+              currentBytes <= maximumBytes else { return false }
+        return incomingBytes <= maximumBytes - currentBytes
+    }
+}
+
 public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var displayName: String
@@ -33,7 +65,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         self.apiStyle = apiStyle
         self.generationModel = generationModel
         self.embeddingModel = embeddingModel
-        self.requestTimeout = min(max(requestTimeout, 2), 60)
+        self.requestTimeout = AIRequestTimeoutPolicy.normalizedForInitialization(requestTimeout)
         self.allowInsecureLocalHTTP = allowInsecureLocalHTTP
         self.isEnabled = isEnabled
     }
@@ -62,6 +94,61 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
             isEnabled: isEnabled
         )
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case baseURL
+        case apiStyle
+        case generationModel
+        case embeddingModel
+        case requestTimeout
+        case allowInsecureLocalHTTP
+        case isEnabled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let requestTimeout = try container.decode(TimeInterval.self, forKey: .requestTimeout)
+        guard AIRequestTimeoutPolicy.validated(requestTimeout) != nil else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .requestTimeout,
+                in: container,
+                debugDescription: "AI request timeout must be finite and between 2 and 60 seconds"
+            )
+        }
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        baseURL = try container.decode(String.self, forKey: .baseURL)
+        apiStyle = try container.decode(AICompatibleAPIStyle.self, forKey: .apiStyle)
+        generationModel = try container.decode(String.self, forKey: .generationModel)
+        embeddingModel = try container.decode(String.self, forKey: .embeddingModel)
+        self.requestTimeout = requestTimeout
+        allowInsecureLocalHTTP = try container.decode(Bool.self, forKey: .allowInsecureLocalHTTP)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        guard AIRequestTimeoutPolicy.validated(requestTimeout) != nil else {
+            throw EncodingError.invalidValue(
+                requestTimeout,
+                EncodingError.Context(
+                    codingPath: encoder.codingPath + [CodingKeys.requestTimeout],
+                    debugDescription: "AI request timeout must be finite and between 2 and 60 seconds"
+                )
+            )
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(baseURL, forKey: .baseURL)
+        try container.encode(apiStyle, forKey: .apiStyle)
+        try container.encode(generationModel, forKey: .generationModel)
+        try container.encode(embeddingModel, forKey: .embeddingModel)
+        try container.encode(requestTimeout, forKey: .requestTimeout)
+        try container.encode(allowInsecureLocalHTTP, forKey: .allowInsecureLocalHTTP)
+        try container.encode(isEnabled, forKey: .isEnabled)
+    }
 }
 
 public enum AIRemoteEndpointValidationError: Error, Equatable, Sendable {
@@ -70,6 +157,7 @@ public enum AIRemoteEndpointValidationError: Error, Equatable, Sendable {
     case missingHost
     case embeddedCredential
     case queryOrFragmentNotAllowed
+    case invalidRequestTimeout
     case insecurePublicHTTP
     case insecureLocalHTTPRequiresConsent
 }
@@ -118,6 +206,9 @@ public enum AIRemoteEndpointPolicy {
     public static func generationEndpoint(
         configuration: AIRemoteProviderConfiguration
     ) throws -> URL {
+        guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
+            throw AIRemoteEndpointValidationError.invalidRequestTimeout
+        }
         let baseURL = try validatedBaseURL(
             configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
@@ -133,6 +224,9 @@ public enum AIRemoteEndpointPolicy {
     public static func embeddingsEndpoint(
         configuration: AIRemoteProviderConfiguration
     ) throws -> URL {
+        guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
+            throw AIRemoteEndpointValidationError.invalidRequestTimeout
+        }
         let baseURL = try validatedBaseURL(
             configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP

@@ -35,6 +35,9 @@ final class AISettingsStore {
         configuration: AIRemoteProviderConfiguration,
         hasExplicitRemoteConsent: Bool
     ) throws {
+        guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
+            throw AIRemoteEndpointValidationError.invalidRequestTimeout
+        }
         _ = try AIRemoteEndpointPolicy.validatedBaseURL(
             configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP

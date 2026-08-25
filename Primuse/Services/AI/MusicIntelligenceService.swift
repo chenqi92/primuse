@@ -267,10 +267,12 @@ private actor MusicIntelligenceEngine {
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
-        try await withThrowingTaskGroup(of: Value.self) { group in
+        guard let nanoseconds = AIRequestTimeoutPolicy.nanoseconds(seconds) else {
+            throw MusicIntelligenceError.invalidConfiguration
+        }
+        return try await withThrowingTaskGroup(of: Value.self) { group in
             group.addTask { try await operation() }
             group.addTask {
-                let nanoseconds = UInt64(max(0.1, seconds) * 1_000_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
                 throw MusicIntelligenceError.timedOut
             }

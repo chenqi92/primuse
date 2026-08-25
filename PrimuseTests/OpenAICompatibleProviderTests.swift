@@ -157,6 +157,78 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         }
     }
 
+    func testInvalidRuntimeTimeoutFailsClosedWithoutSendingRequest() async throws {
+        let host = "intelligence-invalid-timeout.invalid"
+        IntelligenceURLProtocol.configure(host: host, statusCode: 200, body: "{}")
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        var configuration = AIRemoteProviderConfiguration(
+            baseURL: "https://\(host)/v1",
+            generationModel: "test-generation-model",
+            isEnabled: true
+        )
+        configuration.requestTimeout = .nan
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "must-not-be-sent",
+            session: session
+        )
+
+        XCTAssertEqual(
+            await provider.runtimeAvailability(),
+            .unavailable(.missingConfiguration)
+        )
+        do {
+            _ = try await provider.interpretSearch(
+                AISemanticSearchRequest(query: "quiet evening")
+            )
+            XCTFail("Expected the invalid timeout to fail closed")
+        } catch OpenAICompatibleProviderError.invalidConfiguration(.invalidRequestTimeout) {
+            XCTAssertTrue(IntelligenceURLProtocol.requests(host: host).isEmpty)
+        }
+    }
+
+    func testResponseIsCancelledAsSoonAsStreamingBodyExceedsLimit() async throws {
+        let host = "intelligence-oversized.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            chunks: [
+                Data(repeating: 0x61, count: 1_024 * 1_024),
+                Data(repeating: 0x62, count: 1_024 * 1_024),
+                Data([0x63]),
+                Data(repeating: 0x64, count: 1_024),
+            ]
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://\(host)/v1",
+                generationModel: "test-generation-model",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "test-key",
+            session: session
+        )
+
+        do {
+            _ = try await provider.interpretSearch(
+                AISemanticSearchRequest(query: "quiet evening")
+            )
+            XCTFail("Expected the streaming response limit to cancel the request")
+        } catch OpenAICompatibleProviderError.responseTooLarge {
+            XCTAssertEqual(IntelligenceURLProtocol.deliveredChunkCount(host: host), 3)
+            XCTAssertGreaterThanOrEqual(IntelligenceURLProtocol.stopLoadingCount(host: host), 1)
+        }
+    }
+
     @MainActor
     func testServiceDeletesOnlyTheCurrentOriginAPIKey() async throws {
         let profileID = UUID(uuidString: "78805B85-F9A8-4325-B624-C393DC35D600")!
@@ -193,6 +265,28 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             XCTFail("The current origin key should be deleted")
             return
         }
+    }
+
+    @MainActor
+    func testSettingsRejectInvalidTimeoutBeforePersistence() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let store = AISettingsStore(defaults: defaults)
+        let original = store.configuration
+        var invalid = original
+        invalid.requestTimeout = .infinity
+
+        XCTAssertThrowsError(try store.save(
+            configuration: invalid,
+            hasExplicitRemoteConsent: true
+        )) { error in
+            XCTAssertEqual(
+                error as? AIRemoteEndpointValidationError,
+                .invalidRequestTimeout
+            )
+        }
+        XCTAssertEqual(store.configuration, original)
     }
 
     private func makeProvider(
@@ -269,16 +363,24 @@ private actor TestAICredentialStore: AICredentialStoring {
 private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
     private struct State {
         var statusCode: Int
-        var body: String
+        var chunks: [Data]
         var requests: [URLRequest] = []
+        var deliveredChunkCount = 0
+        var stopLoadingCount = 0
     }
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var states: [String: State] = [:]
+    private let instanceLock = NSLock()
+    private var isStopped = false
 
     static func configure(host: String, statusCode: Int, body: String) {
+        configure(host: host, statusCode: statusCode, chunks: [Data(body.utf8)])
+    }
+
+    static func configure(host: String, statusCode: Int, chunks: [Data]) {
         lock.lock()
-        states[host] = State(statusCode: statusCode, body: body)
+        states[host] = State(statusCode: statusCode, chunks: chunks)
         lock.unlock()
     }
 
@@ -286,6 +388,18 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return states[host]?.requests ?? []
+    }
+
+    static func deliveredChunkCount(host: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return states[host]?.deliveredChunkCount ?? 0
+    }
+
+    static func stopLoadingCount(host: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return states[host]?.stopLoadingCount ?? 0
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -322,11 +436,38 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(state.body.utf8))
-        client?.urlProtocolDidFinishLoading(self)
+        deliver(state.chunks, host: host, index: 0)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        instanceLock.lock()
+        isStopped = true
+        instanceLock.unlock()
+        guard let host = request.url?.host else { return }
+        Self.lock.lock()
+        Self.states[host]?.stopLoadingCount += 1
+        Self.lock.unlock()
+    }
+
+    private func deliver(_ chunks: [Data], host: String, index: Int) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.002) { [weak self] in
+            guard let self else { return }
+            self.instanceLock.lock()
+            let stopped = self.isStopped
+            self.instanceLock.unlock()
+            guard !stopped else { return }
+            guard index < chunks.count else {
+                self.client?.urlProtocolDidFinishLoading(self)
+                return
+            }
+
+            Self.lock.lock()
+            Self.states[host]?.deliveredChunkCount += 1
+            Self.lock.unlock()
+            self.client?.urlProtocol(self, didLoad: chunks[index])
+            self.deliver(chunks, host: host, index: index + 1)
+        }
+    }
 
     private static func readBody(from stream: InputStream) -> Data {
         stream.open()
