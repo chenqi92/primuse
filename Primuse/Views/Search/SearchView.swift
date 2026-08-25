@@ -1303,22 +1303,10 @@ struct SearchView: View {
         songsSnapshot: [PrimuseKit.Song],
         metadataRevisionKey: String
     ) async -> [SemanticLibrarySearchResult] {
-        var concepts: [String] = []
-        var conceptKeys = Set<String>()
-        for concept in plan.expandedTerms + plan.themes + plan.moods {
-            let trimmed = concept.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = trimmed.folding(
-                options: [.caseInsensitive, .diacriticInsensitive],
-                locale: .current
-            )
-            guard !trimmed.isEmpty, conceptKeys.insert(key).inserted else { continue }
-            concepts.append(trimmed)
-            if concepts.count == 8 { break }
-        }
-
-        var results: [SemanticLibrarySearchResult] = []
-        var songIDs = Set<String>()
-        for concept in concepts {
+        let concepts = AISemanticLibraryAggregationPolicy.concepts(from: plan)
+        var candidates: [AISemanticLibraryMatchCandidate] = []
+        var songsByID: [String: PrimuseKit.Song] = [:]
+        for (conceptOrder, concept) in concepts.enumerated() {
             guard !Task.isCancelled else { return [] }
             let indexed = await LibrarySearchIndex.shared.search(
                 query: concept,
@@ -1352,15 +1340,24 @@ struct SearchView: View {
                 }
             }
 
-            for match in matches where songIDs.insert(match.song.id).inserted {
-                results.append(SemanticLibrarySearchResult(
-                    song: match.song,
-                    relatedConcept: concept
+            for match in matches {
+                songsByID[match.song.id] = match.song
+                candidates.append(AISemanticLibraryMatchCandidate(
+                    songID: match.song.id,
+                    title: match.song.title,
+                    score: match.score,
+                    relatedConcept: concept,
+                    conceptOrder: conceptOrder
                 ))
-                if results.count == 30 { return results }
             }
         }
-        return results
+        return AISemanticLibraryAggregationPolicy.rankedMatches(candidates).compactMap { match in
+            guard let song = songsByID[match.songID] else { return nil }
+            return SemanticLibrarySearchResult(
+                song: song,
+                relatedConcept: match.relatedConcept
+            )
+        }
     }
 
     private func mergeIndexedSearch(

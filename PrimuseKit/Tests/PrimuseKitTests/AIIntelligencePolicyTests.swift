@@ -467,4 +467,72 @@ struct AISemanticSearchPlanTests {
         #expect(plan.themes == ["思乡"])
         #expect(plan.moods == ["怀念 安静"])
     }
+
+    @Test func semanticLibraryConceptsAreDeduplicatedAndLimitedToEight() {
+        let plan = AISemanticSearchPlan(
+            expandedTerms: [" One ", "one", "Two", "Three", "Four"],
+            themes: ["Five", "Six", "Seven", "Eight", "Nine"],
+            moods: ["Ten"]
+        )
+        #expect(AISemanticLibraryAggregationPolicy.concepts(from: plan) == [
+            "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+        ])
+    }
+
+    @Test func semanticLibraryAggregationUsesTheBestScoreFromAllConcepts() {
+        let candidates = [
+            AISemanticLibraryMatchCandidate(
+                songID: "song-a",
+                title: "Beta",
+                score: 80,
+                relatedConcept: "first concept",
+                conceptOrder: 0
+            ),
+            AISemanticLibraryMatchCandidate(
+                songID: "song-b",
+                title: "Alpha",
+                score: 90,
+                relatedConcept: "first concept",
+                conceptOrder: 0
+            ),
+            AISemanticLibraryMatchCandidate(
+                songID: "song-a",
+                title: "Beta",
+                score: 120,
+                relatedConcept: "later better concept",
+                conceptOrder: 7
+            ),
+        ]
+
+        let ranked = AISemanticLibraryAggregationPolicy.rankedMatches(candidates)
+        #expect(ranked.map(\.songID) == ["song-a", "song-b"])
+        #expect(ranked.first?.score == 120)
+        #expect(ranked.first?.relatedConcept == "later better concept")
+    }
+
+    @Test func semanticLibraryAggregationSortsStablyBeforeApplyingLimit() {
+        var candidates = (0..<31).map { index in
+            AISemanticLibraryMatchCandidate(
+                songID: String(format: "song-%02d", 30 - index),
+                title: index < 2 ? "Same" : String(format: "Title %02d", index),
+                score: 100,
+                relatedConcept: "concept",
+                conceptOrder: 0
+            )
+        }
+        candidates.append(AISemanticLibraryMatchCandidate(
+            songID: "song-30",
+            title: "Same",
+            score: 100,
+            relatedConcept: "later equal concept",
+            conceptOrder: 4
+        ))
+
+        let ranked = AISemanticLibraryAggregationPolicy.rankedMatches(candidates)
+        #expect(ranked.count == 30)
+        #expect(ranked[0].songID == "song-29")
+        #expect(ranked[1].songID == "song-30")
+        #expect(ranked[1].relatedConcept == "concept")
+        #expect(!ranked.contains(where: { $0.songID == "song-00" }))
+    }
 }

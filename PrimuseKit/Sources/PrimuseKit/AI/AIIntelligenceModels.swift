@@ -136,6 +136,81 @@ public struct AISemanticSearchPlan: Codable, Equatable, Sendable {
     }
 }
 
+public struct AISemanticLibraryMatchCandidate: Equatable, Sendable {
+    public var songID: String
+    public var title: String
+    public var score: Int
+    public var relatedConcept: String
+    public var conceptOrder: Int
+
+    public init(
+        songID: String,
+        title: String,
+        score: Int,
+        relatedConcept: String,
+        conceptOrder: Int
+    ) {
+        self.songID = songID
+        self.title = title
+        self.score = score
+        self.relatedConcept = relatedConcept
+        self.conceptOrder = conceptOrder
+    }
+}
+
+public enum AISemanticLibraryAggregationPolicy {
+    public static func concepts(
+        from plan: AISemanticSearchPlan,
+        limit: Int = 8
+    ) -> [String] {
+        guard limit > 0 else { return [] }
+        var concepts: [String] = []
+        var keys = Set<String>()
+        for rawValue in plan.expandedTerms + plan.themes + plan.moods {
+            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = value.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            guard !value.isEmpty, keys.insert(key).inserted else { continue }
+            concepts.append(value)
+            if concepts.count == limit { break }
+        }
+        return concepts
+    }
+
+    public static func rankedMatches(
+        _ candidates: [AISemanticLibraryMatchCandidate],
+        limit: Int = 30
+    ) -> [AISemanticLibraryMatchCandidate] {
+        guard limit > 0 else { return [] }
+        var bestBySongID: [String: AISemanticLibraryMatchCandidate] = [:]
+        for candidate in candidates where !candidate.songID.isEmpty {
+            guard let current = bestBySongID[candidate.songID] else {
+                bestBySongID[candidate.songID] = candidate
+                continue
+            }
+            if candidate.score > current.score
+                || (candidate.score == current.score
+                    && candidate.conceptOrder < current.conceptOrder) {
+                bestBySongID[candidate.songID] = candidate
+            }
+        }
+
+        let titleLocale = Locale(identifier: "en_US_POSIX")
+        return Array(bestBySongID.values.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            let titleOrder = lhs.title.compare(
+                rhs.title,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: titleLocale
+            )
+            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+            return lhs.songID < rhs.songID
+        }.prefix(limit))
+    }
+}
+
 public struct AIEmbeddingRequest: Equatable, Sendable {
     public var texts: [String]
     public var dimensions: Int?
