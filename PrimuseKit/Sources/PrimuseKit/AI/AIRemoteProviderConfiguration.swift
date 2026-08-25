@@ -142,7 +142,13 @@ public enum AIRemoteEndpointPolicy {
 }
 
 public enum AICredentialStoragePolicy {
+    private static let accountNamespace = "ai.provider."
+
     public static func account(profileID: UUID) -> String {
-        "ai.provider.\(profileID.uuidString.lowercased()).apiKey"
+        "\(accountNamespace)\(profileID.uuidString.lowercased()).apiKey"
+    }
+
+    public static func isEligibleForICloudMigration(account: String) -> Bool {
+        !account.hasPrefix(accountNamespace)
     }
 }

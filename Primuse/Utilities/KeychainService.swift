@@ -522,6 +522,7 @@ enum KeychainService {
 
         for item in items {
             guard let account = item[kSecAttrAccount as String] as? String,
+                  AICredentialStoragePolicy.isEligibleForICloudMigration(account: account),
                   let data = item[kSecValueData as String] as? Data,
                   let password = String(data: data, encoding: .utf8) else { continue }
 

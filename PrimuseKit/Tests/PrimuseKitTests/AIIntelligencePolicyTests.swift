@@ -232,6 +232,19 @@ struct AIRemoteEndpointPolicyTests {
         #expect(AICredentialStoragePolicy.account(profileID: profileID)
             == "ai.provider.f36f1dd2-7471-4d96-a6b8-bba6a3ef02c0.apiKey")
     }
+
+    @Test func deviceOnlyAICredentialsAreExcludedFromICloudMigration() {
+        let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
+        #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
+            account: AICredentialStoragePolicy.account(profileID: profileID)
+        ))
+        #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
+            account: "ai.provider.future-device-only-secret"
+        ))
+        #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
+            account: "source.connection.example"
+        ))
+    }
 }
 
 @Suite("AI semantic search plan")
