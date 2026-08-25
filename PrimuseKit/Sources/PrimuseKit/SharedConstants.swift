@@ -4522,13 +4522,18 @@ public enum SourceDirectorySelectionPolicy {
 }
 
 /// Controls when a newly configured source is allowed to become durable.
-/// SMB credentials and endpoints must be exercised by the directory browser
-/// before an empty or unauthenticated source can enter the library.
+/// Credential-backed filesystem endpoints must be exercised by the directory
+/// browser before an empty or unauthenticated source can enter the library.
 public enum SourceCreationPersistencePolicy {
+    public enum CancellationDisposition: Equatable, Sendable {
+        case discardUncommittedDraft
+        case preservePersistedSource
+    }
+
     public static func defersUntilValidatedDirectorySelection(
         for sourceType: MusicSourceType
     ) -> Bool {
-        sourceType == .smb
+        sourceType == .smb || sourceType == .webdav
     }
 
     public static func canCommitDeferredCreation(
@@ -4540,6 +4545,16 @@ public enum SourceCreationPersistencePolicy {
             return true
         }
         return connectionValidated && !selectedDirectories.isEmpty
+    }
+
+    public static func cancellationDisposition(
+        wasPersistedBeforeFlow: Bool,
+        wasCommittedDuringFlow: Bool
+    ) -> CancellationDisposition {
+        if !wasPersistedBeforeFlow && !wasCommittedDuringFlow {
+            return .discardUncommittedDraft
+        }
+        return .preservePersistedSource
     }
 }
 

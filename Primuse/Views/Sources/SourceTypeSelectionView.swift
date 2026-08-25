@@ -636,7 +636,11 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     private func finishConnectionFlowIfNeeded() {
         guard let source = connectionSource else { return }
         connectionSource = nil
-        if connectionCommitIsDeferred, !connectionWasCommitted {
+        if connectionCommitIsDeferred,
+           SourceCreationPersistencePolicy.cancellationDisposition(
+               wasPersistedBeforeFlow: false,
+               wasCommittedDuringFlow: connectionWasCommitted
+           ) == .discardUncommittedDraft {
             if !KeychainService.deletePassword(for: source.id) {
                 plog("⛔ Draft source credential rollback failed id=\(source.id.prefix(8))…")
             }

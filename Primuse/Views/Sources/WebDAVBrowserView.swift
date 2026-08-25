@@ -6,22 +6,26 @@ struct WebDAVBrowserView: View {
     @Binding var selectedDirectories: [String]
 
     private let connector: any MusicSourceConnector
+    private let onConfirm: ((Bool) -> Void)?
 
     init(
         source: MusicSource,
         connector: any MusicSourceConnector,
-        selectedDirectories: Binding<[String]>
+        selectedDirectories: Binding<[String]>,
+        onConfirm: ((Bool) -> Void)? = nil
     ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
         self.connector = connector
+        self.onConfirm = onConfirm
     }
 
     var body: some View {
         ConnectorDirectoryBrowserView(
             source: source,
             connector: connector,
-            selectedDirectories: $selectedDirectories
+            selectedDirectories: $selectedDirectories,
+            onConfirm: onConfirm
         )
     }
 }

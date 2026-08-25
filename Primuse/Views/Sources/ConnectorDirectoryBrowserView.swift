@@ -50,6 +50,7 @@ struct ConnectorDirectoryBrowserView: View {
                     for: source.type,
                     browserPath: "/"
                 ),
+                sourceType: source.type,
                 selectableRootPath: SourceDirectorySelectionPolicy.selectableRootPath(
                     for: source.type,
                     browserPath: "/"

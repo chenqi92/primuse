@@ -505,6 +505,7 @@ struct MacDirTreeBrowser: View {
     @Binding var selectedDirectories: [String]
     let load: (String) async throws -> [RemoteFileItem]
     var rootPath: String = "/"
+    var sourceType: MusicSourceType? = nil
     var selectableRootPath: String? = nil
     var onConfirm: ((Bool) -> Void)? = nil
 
@@ -804,9 +805,9 @@ struct MacDirTreeBrowser: View {
     }
 
     private var deferredConfirmationDisabled: Bool {
-        guard onConfirm != nil else { return false }
+        guard onConfirm != nil, let sourceType else { return false }
         return !SourceCreationPersistencePolicy.canCommitDeferredCreation(
-            for: .smb,
+            for: sourceType,
             connectionValidated: rootConnectionValidated,
             selectedDirectories: selectedDirectories
         )

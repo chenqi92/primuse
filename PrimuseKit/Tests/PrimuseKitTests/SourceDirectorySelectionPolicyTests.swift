@@ -16,10 +16,10 @@ struct SourceDirectorySelectionPolicyTests {
         #expect(actual == expected)
     }
 
-    @Test
-    func smbCreationWaitsForValidatedDirectorySelection() {
+    @Test("SMB and WebDAV creation waits for validated directory selection")
+    func filesystemCreationWaitsForValidatedDirectorySelection() {
         #expect(SourceCreationPersistencePolicy.defersUntilValidatedDirectorySelection(for: .smb))
-        #expect(!SourceCreationPersistencePolicy.defersUntilValidatedDirectorySelection(for: .webdav))
+        #expect(SourceCreationPersistencePolicy.defersUntilValidatedDirectorySelection(for: .webdav))
 
         #expect(!SourceCreationPersistencePolicy.canCommitDeferredCreation(
             for: .smb,
@@ -36,11 +36,53 @@ struct SourceDirectorySelectionPolicyTests {
             connectionValidated: true,
             selectedDirectories: ["/Music"]
         ))
-        #expect(SourceCreationPersistencePolicy.canCommitDeferredCreation(
+    }
+
+    @Test("Cancelling the WebDAV HTTP risk prompt discards the new draft")
+    func webDAVRiskPromptCancellationDiscardsDraft() {
+        #expect(!SourceCreationPersistencePolicy.canCommitDeferredCreation(
             for: .webdav,
             connectionValidated: false,
             selectedDirectories: []
         ))
+        #expect(SourceCreationPersistencePolicy.cancellationDisposition(
+            wasPersistedBeforeFlow: false,
+            wasCommittedDuringFlow: false
+        ) == .discardUncommittedDraft)
+    }
+
+    @Test("Cancelling after WebDAV authentication failure discards the new draft")
+    func webDAVAuthenticationFailureCancellationDiscardsDraft() {
+        #expect(!SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .webdav,
+            connectionValidated: false,
+            selectedDirectories: ["/Music"]
+        ))
+        #expect(SourceCreationPersistencePolicy.cancellationDisposition(
+            wasPersistedBeforeFlow: false,
+            wasCommittedDuringFlow: false
+        ) == .discardUncommittedDraft)
+    }
+
+    @Test("A validated WebDAV source remains after successful save")
+    func successfulWebDAVCreationRemainsPersisted() {
+        #expect(SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .webdav,
+            connectionValidated: true,
+            selectedDirectories: ["/"]
+        ))
+        #expect(SourceCreationPersistencePolicy.cancellationDisposition(
+            wasPersistedBeforeFlow: false,
+            wasCommittedDuringFlow: true
+        ) == .preservePersistedSource)
+    }
+
+    @Test("Cancelling an existing WebDAV edit preserves the source")
+    func existingWebDAVEditCancellationPreservesSource() {
+        #expect(SourceCreationPersistencePolicy.cancellationDisposition(
+            wasPersistedBeforeFlow: true,
+            wasCommittedDuringFlow: false
+        ) == .preservePersistedSource)
     }
 
     @Test("S3 browser root maps to the bucket prefix")

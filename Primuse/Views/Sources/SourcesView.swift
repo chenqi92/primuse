@@ -1578,7 +1578,8 @@ struct SourcesContentView: View {
             WebDAVBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onConfirm: onConfirm
             )
         case .ftp:
             FTPBrowserView(
