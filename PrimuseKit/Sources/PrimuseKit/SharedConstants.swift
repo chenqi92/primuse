@@ -2502,6 +2502,64 @@ public enum MetadataBackfillEligibilityPolicy {
     }
 }
 
+/// Controls how aggressively the metadata queue uses network and CPU time.
+/// iOS background work deliberately favors continuity over throughput, and
+/// becomes even gentler while audio is the user-facing foreground workload.
+public enum MetadataBackfillExecutionMode: Sendable, Equatable {
+    case standard
+    case background
+    case backgroundDuringPlayback
+}
+
+public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
+    public let workerCount: Int
+    public let snapshotLimit: Int
+    public let interRequestDelay: TimeInterval
+    public let flushInterval: TimeInterval
+
+    public init(
+        workerCount: Int,
+        snapshotLimit: Int,
+        interRequestDelay: TimeInterval,
+        flushInterval: TimeInterval
+    ) {
+        self.workerCount = workerCount
+        self.snapshotLimit = snapshotLimit
+        self.interRequestDelay = interRequestDelay
+        self.flushInterval = flushInterval
+    }
+}
+
+public enum MetadataBackfillExecutionPolicy {
+    public static func limits(
+        for mode: MetadataBackfillExecutionMode
+    ) -> MetadataBackfillExecutionLimits {
+        switch mode {
+        case .standard:
+            MetadataBackfillExecutionLimits(
+                workerCount: 3,
+                snapshotLimit: 500,
+                interRequestDelay: 0,
+                flushInterval: 5
+            )
+        case .background:
+            MetadataBackfillExecutionLimits(
+                workerCount: 1,
+                snapshotLimit: 24,
+                interRequestDelay: 0.75,
+                flushInterval: 15
+            )
+        case .backgroundDuringPlayback:
+            MetadataBackfillExecutionLimits(
+                workerCount: 1,
+                snapshotLimit: 8,
+                interRequestDelay: 1.5,
+                flushInterval: 30
+            )
+        }
+    }
+}
+
 /// A row's metadata state is independent from whether the media can be handed
 /// to the player. In particular, STRM and complete-file decoder formats can be
 /// playable while their duration remains unknown.

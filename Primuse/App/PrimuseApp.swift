@@ -109,10 +109,15 @@ private enum BackgroundScanResumeTask {
             let backfill = services.metadataBackfill
             let scraper = services.scraperService
 
-            // Background audio is user-facing foreground work. Postpone every
-            // opportunistic scan/index/backfill job instead of competing with
-            // decoding, networking and audio-buffer delivery in the process.
+            // Background audio is user-facing foreground work. Keep directory
+            // scans, scraping and indexing postponed, but let metadata tags
+            // advance through a single throttled Range request at a time.
             if services.playerService.isPlaybackActive {
+                backfill.setExecutionMode(.backgroundDuringPlayback)
+                if backfill.hasPendingWork {
+                    backfill.start()
+                    await backfill.waitUntilIdle()
+                }
                 scanService.scheduleBackgroundResumeIfNeeded(
                     backfillPending: backfill.hasPendingWork,
                     scrapePending: scraper.hasPendingBackgroundContinuation,
@@ -122,6 +127,8 @@ private enum BackgroundScanResumeTask {
                 completion.complete(success: true)
                 return
             }
+
+            backfill.setExecutionMode(.background)
 
             // Resume any interrupted scans, then run backfill until the
             // task expires or work runs out. Both phases use HTTP Range
@@ -1333,6 +1340,11 @@ struct PrimuseApp: App {
 
                     case .background:
                         #if os(iOS)
+                        metadataBackfill.setExecutionMode(
+                            playerService.isPlaybackActive
+                                ? .backgroundDuringPlayback
+                                : .background
+                        )
                         scanService.suspendForegroundOnlyScans(sourceStore: sourcesStore)
                         // If a scan was running OR backfill has pending work, ask
                         // iOS to wake us later via BGProcessingTask so we can keep
@@ -1359,7 +1371,11 @@ struct PrimuseApp: App {
                             guard self.scenePhase == .background else { return }
                             musicLibrary.endSceneTransitionQuiescence()
                             musicLibrary.persistNow()
-                            guard !playerService.isPlaybackActive else {
+                            if playerService.isPlaybackActive {
+                                metadataBackfill.setExecutionMode(.backgroundDuringPlayback)
+                                if metadataBackfill.hasPendingWork {
+                                    metadataBackfill.start()
+                                }
                                 scanService.scheduleBackgroundResumeIfNeeded(
                                     backfillPending: metadataBackfill.hasPendingWork,
                                     scrapePending: scraperService.hasPendingBackgroundContinuation,
@@ -1368,6 +1384,7 @@ struct PrimuseApp: App {
                                 )
                                 return
                             }
+                            metadataBackfill.setExecutionMode(.background)
                             musicLibrary.resumePendingIdentityResolution()
                             AppServices.shared.spotlightIndex.resumePendingSynchronization(
                                 library: musicLibrary
@@ -1421,6 +1438,8 @@ struct PrimuseApp: App {
                         BackgroundLibraryMaintenanceCoordinator.shared.cancel()
                         AppServices.shared.spotlightIndex.suspendSynchronization()
                         AppServices.shared.lyricsTextBackfill.stop()
+                        metadataBackfill.stop()
+                        metadataBackfill.setExecutionMode(.standard)
                         musicLibrary.suspendPendingIdentityResolution()
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
@@ -1442,6 +1461,33 @@ struct PrimuseApp: App {
                     @unknown default:
                         break
                     }
+                }
+                .onChange(of: playerService.isPlaybackActive) { _, isActive in
+                    #if os(iOS)
+                    guard scenePhase == .background else { return }
+                    metadataBackfill.setExecutionMode(
+                        isActive ? .backgroundDuringPlayback : .background
+                    )
+                    if isActive {
+                        // A remote-control play command can arrive after the
+                        // scene already entered background. Quiesce heavy work
+                        // immediately, preserving its durable checkpoints.
+                        scanService.cancelAllActiveScans()
+                        scraperService.cancelPreservingCheckpoint()
+                        AppServices.shared.spotlightIndex.suspendSynchronization()
+                        AppServices.shared.lyricsTextBackfill.stop()
+                        BackgroundLibraryMaintenanceCoordinator.shared.cancel()
+                    }
+                    if metadataBackfill.hasPendingWork, !metadataBackfill.isRunning {
+                        metadataBackfill.start()
+                    }
+                    scanService.scheduleBackgroundResumeIfNeeded(
+                        backfillPending: metadataBackfill.hasPendingWork,
+                        scrapePending: scraperService.hasPendingBackgroundContinuation,
+                        localImportPending: LocalImportService.hasPendingScan,
+                        sourceStore: sourcesStore
+                    )
+                    #endif
                 }
                 // Continue a background scan/backfill pipeline as new bare
                 // rows arrive. On iOS, an ordinary foreground publication only

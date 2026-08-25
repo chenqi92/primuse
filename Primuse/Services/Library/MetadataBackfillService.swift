@@ -12,12 +12,11 @@ import UIKit
 /// library with a fully-populated copy.
 ///
 /// Lifecycle:
-/// - A real library/source mutation marks the durable queue dirty. iOS only
-///   evaluates and runs it in a non-playing background/BGProcessing window.
-/// - Worker drains the queue one song at a time. Each cloud-source connector
-///   is an actor with its own throttle, so multiple workers per source don't
-///   actually parallelize; one worker per source plus shared throttle is the
-///   sweet spot.
+/// - A real library/source mutation marks the durable queue dirty. iOS runs it
+///   in background/BGProcessing windows, using a serial throttled profile while
+///   playback is active.
+/// - The standard worker can use a small bounded amount of concurrency. iOS
+///   background profiles deliberately trade throughput for smooth playback.
 /// - Failed songs (corrupt / missing / decoder rejected) are recorded so we
 ///   don't retry them every launch. Successful ones are replaced in the
 ///   library and persist via `MusicLibrary.persistSnapshot()`.
@@ -203,6 +202,7 @@ final class MetadataBackfillService {
     private var queueStatePersistenceTask: Task<Void, Never>?
 
     private var worker: Task<Void, Never>?
+    private var executionMode: MetadataBackfillExecutionMode = .standard
     /// Source lifecycle notifications can arrive from the view, CloudKit and
     /// the global cleanup coordinator almost simultaneously. Coalesce them so
     /// removing several large sources scans the library once instead of once
@@ -748,13 +748,27 @@ final class MetadataBackfillService {
         }
     }
 
+    /// Changes future dispatch cadence without discarding queue state. Moving
+    /// into real background playback also releases the short UIKit assertion
+    /// so its expiration cannot stop an audio-backed execution window.
+    func setExecutionMode(_ mode: MetadataBackfillExecutionMode) {
+        guard executionMode != mode else { return }
+        executionMode = mode
+        if mode == .backgroundDuringPlayback {
+            // Real background audio already keeps the process eligible to run.
+            // Holding a short UIApplication assertion here would make its
+            // expiration handler stop an otherwise healthy slow queue at the
+            // ~30 second boundary.
+            endBackgroundTaskIfHeld()
+        } else if isRunning {
+            beginBackgroundTaskIfNeeded()
+        }
+        plog("📥 Backfill: execution mode -> \(String(describing: mode))")
+    }
+
     /// Start (or resume) backfill. Idempotent — if a worker is already
     /// running this is a no-op. A durable clean state returns before touching
-    /// the library array.
-    ///
-    /// Skips on cellular when "Wi-Fi only" is enabled (default). Returns
-    /// early without scheduling work; caller can re-invoke later when the
-    /// path changes (we observe NetworkMonitor for that).
+    /// the library array. Wi-Fi-only gating remains enforced before dispatch.
     func start() {
         guard worker == nil else {
             // Worker still in flight — common during initial scan when
@@ -780,7 +794,8 @@ final class MetadataBackfillService {
         isWaitingForWiFi = false
         setCellularPromptPresented(false)
 
-        let needsBackfill = pickNextBatch()
+        let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+        let needsBackfill = pickNextBatch(limit: limits.snapshotLimit)
         guard !needsBackfill.isEmpty else {
             // Either every song has metadata OR every bare song is in
             // failedSongIDs. Surface both numbers so a "spinner stuck"
@@ -803,7 +818,7 @@ final class MetadataBackfillService {
         // Diagnostic: prove that we only pick still-bare songs. If you see
         // this number stay >0 forever you can compare against
         // `library.songs.count` to confirm no infinite reprocessing.
-        plog("📥 Backfill: gen=\(generation) bareInLib=\(remainingCount) batchHead=\(needsBackfill.count)")
+        plog("📥 Backfill: gen=\(generation) mode=\(String(describing: executionMode)) bareInLib=\(remainingCount) batchHead=\(needsBackfill.count)")
         worker = Task { [weak self] in
             await self?.runWorker()
             await MainActor.run { [weak self] in
@@ -842,6 +857,7 @@ final class MetadataBackfillService {
         // after the scene is actually inactive/background; PrimuseApp stops
         // the foreground worker during the transition and restarts it once
         // the background scene has settled.
+        guard executionMode != .backgroundDuringPlayback else { return }
         guard UIApplication.shared.applicationState != .active else { return }
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "primuse.backfill") { [weak self] in
@@ -1373,16 +1389,9 @@ final class MetadataBackfillService {
     /// Network requests still complete continuously; only the observable
     /// library publication is coalesced.
     private static let flushBatchSize = 250
-    /// Even with a partial batch, flush at least every N seconds. Five seconds
-    /// keeps progress visible while avoiding observable full-library publishes
-    /// several times inside one interaction gesture.
-    private static let flushInterval: TimeInterval = 5
-    /// 并发处理 worker 数。百度网盘 actor 内的 throttle 把 callAPI 串行化
-    /// (避免 errno 31034 限流), 但 Range fetch 走 actor 外 URLSession 能真
-    /// 并发。3 个 worker 实测下吞吐量翻倍多, 再多会撞 throttle 等待 + 触发
-    /// 服务端限流。其他 connector (Synology / WebDAV) 也用同一个并发数,
-    /// 它们没限速但 3 路并发也比串行快。
-    private static let workerConcurrency = 3
+    /// Flush cadence and worker count come from
+    /// MetadataBackfillExecutionPolicy. Standard work retains the historical
+    /// three-worker throughput; iOS background modes are serial and throttled.
     /// Hard cap for a single song's metadata backfill. Some SMB/NAS stacks can
     /// leave a READ or AVFoundation metadata load suspended indefinitely for a
     /// damaged or locked file. Let that file go and keep the queue moving.
@@ -1402,7 +1411,10 @@ final class MetadataBackfillService {
                 break
             }
 
-            let snapshot = await MainActor.run { [self] in pickNextBatch() }
+            let snapshot = await MainActor.run { [self] in
+                let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+                return pickNextBatch(limit: limits.snapshotLimit)
+            }
             if snapshot.isEmpty { break }
 
             // Oscillation guard: if pickNextBatch keeps returning the
@@ -1438,7 +1450,8 @@ final class MetadataBackfillService {
         }
     }
 
-    /// Process a fixed list of songs sequentially, flushing the library
+    /// Process a fixed list of songs with the active bounded concurrency,
+    /// flushing the library
     /// every `flushBatchSize` successes (or every `flushInterval` seconds).
     /// Each song in the snapshot is touched exactly once.
     private func processSnapshot(_ snapshot: [Song]) async {
@@ -1475,15 +1488,34 @@ final class MetadataBackfillService {
             }
             return nil
         }
+        func addTask(for song: Song, to group: inout TaskGroup<(song: Song, outcome: BackfillOutcome)>) {
+            let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+            let delay = limits.interRequestDelay
+            let priority: TaskPriority = executionMode == .backgroundDuringPlayback
+                ? .background
+                : .utility
+            group.addTask(priority: priority) { [self] in
+                if delay > 0 {
+                    do {
+                        try await Task.sleep(for: .seconds(delay))
+                    } catch {
+                        return (
+                            song,
+                            BackfillOutcome(song: nil, markFailed: false, cancelled: true)
+                        )
+                    }
+                }
+                return (song, await self.processOne(song))
+            }
+        }
         await withTaskGroup(of: (song: Song, outcome: BackfillOutcome).self) { group in
             defer { group.cancelAll() }
-            // Seed: 启动 workerConcurrency 个 task
-            for _ in 0..<Self.workerConcurrency {
+            let initialLimits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+            // Seed: background profiles deliberately launch one task only.
+            for _ in 0..<initialLimits.workerCount {
                 guard let song = nextEligibleSong() else { break }
                 if shouldBlockForCellular() { return }
-                group.addTask(priority: .utility) { [self] in
-                    (song, await self.processOne(song))
-                }
+                addTask(for: song, to: &group)
             }
 
             // Drain: 每完成一个就启动下一个, 同时累积 / flush
@@ -1612,8 +1644,11 @@ final class MetadataBackfillService {
 
                 // Flush when the batch is full OR the interval has elapsed。
                 // 在 main actor 上, library.replaceSongs 调一次即可。
+                let flushInterval = MetadataBackfillExecutionPolicy
+                    .limits(for: executionMode)
+                    .flushInterval
                 let shouldFlush = pendingFlush.count >= Self.flushBatchSize
-                    || Date().timeIntervalSince(lastFlushAt) >= Self.flushInterval
+                    || Date().timeIntervalSince(lastFlushAt) >= flushInterval
                 if shouldFlush, !pendingFlush.isEmpty {
                     // Partial metadata can be accompanied by markFailed=true
                     // (for example TIT2 parsed but duration did not). Failure
@@ -1644,9 +1679,7 @@ final class MetadataBackfillService {
 
                 // 派发下一首给空闲 worker。
                 if let next = nextEligibleSong() {
-                    group.addTask(priority: .utility) { [self] in
-                        (next, await self.processOne(next))
-                    }
+                    addTask(for: next, to: &group)
                 }
             }
         }
@@ -2411,7 +2444,7 @@ final class MetadataBackfillService {
     /// extraction would produce (duration, bitRate). Songs in the failure
     /// set are skipped. Limited to a batch so the queue doesn't grow
     /// unbounded for huge libraries.
-    private func pickNextBatch() -> [Song] {
+    private func pickNextBatch(limit: Int) -> [Song] {
         let sourceIDs = backfillableSourceIDs()
         let failedIDs = failedSongIDs
         let sourceIssueIDs = sourceIssueSongIDs
@@ -2446,7 +2479,7 @@ final class MetadataBackfillService {
                 artistCheckedIDs: artistCheckedSnapshot
             )
         }
-        return Array(candidates.prefix(500))
+        return Array(candidates.prefix(max(1, limit)))
     }
 
     private func isStillEligible(_ song: Song) -> Bool {
