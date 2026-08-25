@@ -300,7 +300,10 @@ final class AudioEngine {
     /// rate. The channel count follows the active output route; unlike the
     /// sample rate it is not persisted on `Song`.
     func directPCMFormat(sampleRate: Double) -> AVAudioFormat? {
-        guard sampleRate >= 8_000, sampleRate <= 384_000 else { return nil }
+        guard sampleRate >= DirectPCMOutputSampleRatePolicy.minimumSampleRate,
+              sampleRate <= DirectPCMOutputSampleRatePolicy.maximumSampleRate else {
+            return nil
+        }
         let routeChannels = engine?.outputNode.inputFormat(forBus: 0).channelCount
             ?? outputFormat?.channelCount
             ?? 2
@@ -311,8 +314,10 @@ final class AudioEngine {
     }
 
     func hardwareSupportsDirectFormat(_ format: AVAudioFormat) -> Bool {
-        let actual = currentHardwareSampleRate
-        return actual > 0 && abs(actual - format.sampleRate) < 1
+        DirectPCMOutputSampleRatePolicy.hardwareMatches(
+            requestedSampleRate: format.sampleRate,
+            actualHardwareSampleRate: currentHardwareSampleRate
+        )
     }
 
     // MARK: - Output device routing (macOS only)

@@ -2560,6 +2560,58 @@ public enum MetadataBackfillExecutionPolicy {
     }
 }
 
+/// Chooses the format label for the DSP-free PCM graph after the output route
+/// has negotiated its real hardware rate. A preferred rate is only a request;
+/// feeding buffers labelled with a rejected source rate can make PCM render at
+/// the wrong speed and pitch.
+public enum DirectPCMOutputSampleRatePolicy {
+    public static let minimumSampleRate = 8_000.0
+    public static let maximumSampleRate = 384_000.0
+    public static let matchTolerance = 1.0
+
+    public static func resolvedSampleRate(
+        requestedSourceSampleRate: Double?,
+        actualHardwareSampleRate: Double
+    ) -> Double? {
+        guard isValid(actualHardwareSampleRate) else { return nil }
+        guard let requestedSourceSampleRate,
+              isValid(requestedSourceSampleRate) else {
+            return actualHardwareSampleRate
+        }
+        return abs(requestedSourceSampleRate - actualHardwareSampleRate) < matchTolerance
+            ? requestedSourceSampleRate
+            : actualHardwareSampleRate
+    }
+
+    public static func hardwareMatches(
+        requestedSampleRate: Double,
+        actualHardwareSampleRate: Double
+    ) -> Bool {
+        isValid(requestedSampleRate)
+            && isValid(actualHardwareSampleRate)
+            && abs(requestedSampleRate - actualHardwareSampleRate) < matchTolerance
+    }
+
+    public static func bufferMatchesGraph(
+        bufferSampleRate: Double,
+        bufferChannelCount: UInt32,
+        graphSampleRate: Double,
+        graphChannelCount: UInt32
+    ) -> Bool {
+        isValid(bufferSampleRate)
+            && isValid(graphSampleRate)
+            && abs(bufferSampleRate - graphSampleRate) < matchTolerance
+            && bufferChannelCount > 0
+            && bufferChannelCount == graphChannelCount
+    }
+
+    private static func isValid(_ sampleRate: Double) -> Bool {
+        sampleRate.isFinite
+            && sampleRate >= minimumSampleRate
+            && sampleRate <= maximumSampleRate
+    }
+}
+
 /// A row's metadata state is independent from whether the media can be handed
 /// to the player. In particular, STRM and complete-file decoder formats can be
 /// playable while their duration remains unknown.

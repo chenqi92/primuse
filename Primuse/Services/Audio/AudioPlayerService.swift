@@ -1292,19 +1292,46 @@ final class AudioPlayerService {
         settings.outputMode == .effects && settings.crossfadeEnabled
     }
 
+    /// Builds a direct PCM graph only from the rate reported by the active
+    /// route. A preferred source rate can be rejected (Bluetooth and HDMI are
+    /// common examples); labelling the graph with that rejected value renders
+    /// PCM at the wrong speed and pitch.
+    private func safeDirectPCMFormat(
+        requestedSourceSampleRate: Double?,
+        outputMode: AudioOutputMode
+    ) -> AVAudioFormat? {
+        guard outputMode == .highFidelity else { return nil }
+        let actualRate = audioEngine.currentHardwareSampleRate
+        guard let resolvedRate = DirectPCMOutputSampleRatePolicy.resolvedSampleRate(
+            requestedSourceSampleRate: requestedSourceSampleRate,
+            actualHardwareSampleRate: actualRate
+        ) else {
+            plog("ℹ️ Direct PCM route rate is unavailable; using the output node's native format")
+            return nil
+        }
+        if let requestedSourceSampleRate,
+           !DirectPCMOutputSampleRatePolicy.hardwareMatches(
+            requestedSampleRate: requestedSourceSampleRate,
+            actualHardwareSampleRate: actualRate
+           ) {
+            plog("ℹ️ Preferred PCM rate \(requestedSourceSampleRate) Hz unavailable; decoding safely at \(resolvedRate) Hz")
+        }
+        return audioEngine.directPCMFormat(sampleRate: resolvedRate)
+    }
+
     /// Negotiates the render graph before decoder creation. DoP is only used
     /// when a DSP-free graph is selected and the output reports the exact DoP
     /// carrier sample rate. Unsupported routes safely fall back to PCM.
     private func configureOutputPipeline(for song: Song, url: URL) async throws -> DSDPlaybackMode {
         let settings = playbackSettings.snapshot()
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
+        _ = AudioSessionManager.shared.activatePlaybackSession()
 
         if isLocalDSD,
            settings.outputMode == .highFidelity,
            settings.dsdPlaybackMode != .pcm,
            let dopFormat = try? nativeDecoder.dsdOutputFormat(for: url, mode: .dop) {
             _ = audioEngine.prepareHardwareSampleRate(dopFormat.sampleRate)
-            _ = AudioSessionManager.shared.activatePlaybackSession()
             if audioEngine.hardwareSupportsDirectFormat(dopFormat) {
                 try audioEngine.configure(outputMode: .highFidelity, directSourceFormat: dopFormat)
                 plog("🎧 DSD output: DoP \(dopFormat.sampleRate) Hz direct")
@@ -1317,9 +1344,10 @@ final class AudioPlayerService {
         if isLocalDSD,
            let pcmFormat = try? nativeDecoder.dsdOutputFormat(for: url, mode: .pcm) {
             _ = audioEngine.prepareHardwareSampleRate(pcmFormat.sampleRate)
-            if settings.outputMode == .highFidelity {
-                directPCMFormat = pcmFormat
-            }
+            directPCMFormat = safeDirectPCMFormat(
+                requestedSourceSampleRate: pcmFormat.sampleRate,
+                outputMode: settings.outputMode
+            )
         } else {
             var sourceSampleRate = song.sampleRate.map(Double.init)
             if sourceSampleRate == nil, url.isFileURL {
@@ -1334,16 +1362,12 @@ final class AudioPlayerService {
                sourceSampleRate > 0 {
                 _ = audioEngine.prepareHardwareSampleRate(sourceSampleRate)
             }
-            if settings.outputMode == .highFidelity,
-               let sourceSampleRate,
-               sourceSampleRate > 0 {
-                directPCMFormat = audioEngine.directPCMFormat(
-                    sampleRate: sourceSampleRate
-                )
-            }
+            directPCMFormat = safeDirectPCMFormat(
+                requestedSourceSampleRate: sourceSampleRate,
+                outputMode: settings.outputMode
+            )
         }
 
-        _ = AudioSessionManager.shared.activatePlaybackSession()
         try audioEngine.configure(
             outputMode: settings.outputMode,
             directSourceFormat: directPCMFormat
@@ -1364,6 +1388,7 @@ final class AudioPlayerService {
             for: url,
             mode: .pcm
         )
+        _ = AudioSessionManager.shared.activatePlaybackSession()
         if let decodedPCMFormat {
             _ = audioEngine.prepareHardwareSampleRate(decodedPCMFormat.sampleRate)
         } else {
@@ -1371,7 +1396,11 @@ final class AudioPlayerService {
         }
         do {
             let directFormat = playbackSettings.outputMode == .highFidelity
-                ? decodedPCMFormat
+                ? safeDirectPCMFormat(
+                    requestedSourceSampleRate: decodedPCMFormat?.sampleRate
+                        ?? song.sampleRate.map(Double.init),
+                    outputMode: .highFidelity
+                )
                 : nil
             try audioEngine.configure(
                 outputMode: playbackSettings.outputMode,
@@ -3635,7 +3664,12 @@ final class AudioPlayerService {
         await playFromURL(song: song, url: url, playID: id)
     }
 
-    private func playFromURL(song: Song, url: URL, playID id: UUID) async {
+    private func playFromURL(
+        song: Song,
+        url: URL,
+        playID id: UUID,
+        formatRecoveryAttempt: Int = 0
+    ) async {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
         plog("▶️   URL: \(redactedURL(url))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
@@ -3890,6 +3924,48 @@ final class AudioPlayerService {
                 } else {
                     isLoading = false
                     republishNowPlayingSurfaces()
+                }
+                return
+            }
+
+            let bufferMatchesGraph = DirectPCMOutputSampleRatePolicy.bufferMatchesGraph(
+                bufferSampleRate: firstBuffer.format.sampleRate,
+                bufferChannelCount: firstBuffer.format.channelCount,
+                graphSampleRate: outputFormat.sampleRate,
+                graphChannelCount: outputFormat.channelCount
+            )
+            let actualHardwareRate = audioEngine.currentHardwareSampleRate
+            let hardwareRateIsKnown = DirectPCMOutputSampleRatePolicy.resolvedSampleRate(
+                requestedSourceSampleRate: nil,
+                actualHardwareSampleRate: actualHardwareRate
+            ) != nil
+            let graphMatchesHardware = audioEngine.outputMode != .highFidelity
+                || !hardwareRateIsKnown
+                || DirectPCMOutputSampleRatePolicy.hardwareMatches(
+                    requestedSampleRate: outputFormat.sampleRate,
+                    actualHardwareSampleRate: actualHardwareRate
+                )
+            if !bufferMatchesGraph || !graphMatchesHardware {
+                plog(
+                    "⚠️ PCM format changed before first schedule "
+                        + "buffer=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount) "
+                        + "graph=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount) "
+                        + "hardware=sr\(actualHardwareRate); rebuilding once"
+                )
+                audioEngine.stopPlayback()
+                guard formatRecoveryAttempt == 0 else {
+                    throw AudioDecoderError.decodingFailed("PCM output format remained inconsistent after rebuild")
+                }
+                // Return first so the current AsyncStream iterator is released
+                // and its decoder task is cancelled before the replacement
+                // pipeline begins on the next MainActor turn.
+                Task { @MainActor [weak self] in
+                    await self?.playFromURL(
+                        song: song,
+                        url: url,
+                        playID: id,
+                        formatRecoveryAttempt: formatRecoveryAttempt + 1
+                    )
                 }
                 return
             }
