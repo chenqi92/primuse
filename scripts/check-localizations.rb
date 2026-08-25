@@ -51,6 +51,11 @@ IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
   radio_batch_entry_file
 ].freeze
 
+JAPANESE_TRANSLATION_REQUIRED_PREFIXES = %w[
+  ai_
+  search_ai_
+].freeze
+
 IDENTICAL_VALUE_ALLOWLIST = {
   "de" => %w[
     drime_token_section
@@ -238,6 +243,15 @@ def check_resource_group(name, root, file_name, exact_english_parity, failures)
       next if IDENTICAL_VALUE_ALLOWLIST.fetch(locale, []).include?(key)
 
       failures << "#{name} #{locale}: untranslated value for #{key.inspect}"
+    end
+
+    if locale == "ja"
+      dictionary.each do |key, value|
+        next unless JAPANESE_TRANSLATION_REQUIRED_PREFIXES.any? { |prefix| key.start_with?(prefix) }
+        next if value.match?(/[\p{Hiragana}\p{Katakana}\p{Han}]/)
+
+        failures << "#{name} ja: missing Japanese translation for #{key.inspect}"
+      end
     end
   end
 end
