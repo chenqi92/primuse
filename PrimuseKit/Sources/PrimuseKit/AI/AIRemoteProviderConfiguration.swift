@@ -98,7 +98,7 @@ public enum AIRemoteEndpointPolicy {
         }
 
         if scheme == "http" {
-            guard InsecureHTTPHostPolicy.isLocalNetworkHost(host) else {
+            guard InsecureHTTPHostPolicy.isPrivateIPAddressLiteral(host) else {
                 throw AIRemoteEndpointValidationError.insecurePublicHTTP
             }
             guard allowInsecureLocalHTTP else {

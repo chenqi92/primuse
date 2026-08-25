@@ -52,6 +52,11 @@ public enum InsecureHTTPHostPolicy {
             return true
         }
 
+        return isPrivateIPAddressLiteral(host)
+    }
+
+    public static func isPrivateIPAddressLiteral(_ rawValue: String) -> Bool {
+        guard let host = normalizedHost(rawValue) else { return false }
         if let ipv6 = IPv6Address(host) {
             let bytes = Array(ipv6.rawValue)
             guard bytes.count == 16 else { return false }
@@ -61,12 +66,11 @@ public enum InsecureHTTPHostPolicy {
             return false
         }
 
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4,
-              let first = UInt8(parts[0]),
-              let second = UInt8(parts[1]),
-              UInt8(parts[2]) != nil,
-              UInt8(parts[3]) != nil else { return false }
+        guard let ipv4 = IPv4Address(host) else { return false }
+        let bytes = Array(ipv4.rawValue)
+        guard bytes.count == 4 else { return false }
+        let first = bytes[0]
+        let second = bytes[1]
         if first == 10 || first == 127 { return true }
         if first == 172 && (16...31).contains(second) { return true }
         if first == 192 && second == 168 { return true }

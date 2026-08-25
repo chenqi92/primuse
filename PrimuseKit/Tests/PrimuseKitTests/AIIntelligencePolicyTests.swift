@@ -267,6 +267,52 @@ struct AIRemoteEndpointPolicyTests {
         }
     }
 
+    @Test func insecureHTTPAllowsOnlyPrivateIPAddressLiterals() throws {
+        for host in [
+            "127.0.0.1",
+            "127.255.255.254",
+            "10.0.0.1",
+            "172.16.0.1",
+            "172.31.255.254",
+            "192.168.0.1",
+            "169.254.1.1",
+            "[::1]",
+            "[fc00::1]",
+            "[fdff::1]",
+            "[fe80::1]",
+            "[febf::1]",
+        ] {
+            #expect(try AIRemoteEndpointPolicy.validatedBaseURL(
+                "http://\(host):11434/v1",
+                allowInsecureLocalHTTP: true
+            ).scheme == "http")
+        }
+
+        for host in [
+            "localhost",
+            "model.local",
+            "model.home",
+            "model.lan",
+            "model.internal",
+            "8.8.8.8",
+            "100.64.0.1",
+            "172.15.255.255",
+            "172.32.0.1",
+            "169.255.0.1",
+            "0.0.0.0",
+            "[2001:4860:4860::8888]",
+            "[fec0::1]",
+            "[::ffff:192.168.1.1]",
+        ] {
+            #expect(throws: AIRemoteEndpointValidationError.insecurePublicHTTP) {
+                try AIRemoteEndpointPolicy.validatedBaseURL(
+                    "http://\(host):11434/v1",
+                    allowInsecureLocalHTTP: true
+                )
+            }
+        }
+    }
+
     @Test func descriptorOnlyAdvertisesConfiguredCapabilities() {
         let generationOnly = AIRemoteProviderConfiguration(
             generationModel: "chat-model",
