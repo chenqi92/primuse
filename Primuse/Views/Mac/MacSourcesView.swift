@@ -42,10 +42,16 @@ struct MacSourcesView: View {
             SourceTypeSelectionView(
                 submitIntent: .continueToConnection,
                 onAdd: { source in
-                    sourceStore.add(source)
+                    if source.type == .jellyfin {
+                        try sourceStore.addDurably(source)
+                    } else {
+                        sourceStore.add(source)
+                    }
                     // Local 已通过 basePath 限定扫描范围，不需要再次选择目录；
                     // 保存后立即扫描，和 iOS 的新增来源流程保持一致。
-                    if source.type == .local {
+                    if source.type == .jellyfin {
+                        runScan(source)
+                    } else if source.type == .local {
                         runScan(source)
                     }
                 },

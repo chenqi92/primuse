@@ -618,11 +618,22 @@ private struct OnboardingAddSourceCoverModifier: ViewModifier {
 
     private var addSourceContent: some View {
         SourceTypeSelectionView { source in
-            if source.type == .local,
-               source.id == LocalImportService.existingSourceID {
+            if source.type == .jellyfin {
+                try AppServices.shared.sourcesStore.addDurably(source)
+            } else if source.type == .local,
+                      source.id == LocalImportService.existingSourceID {
                 try AppServices.shared.sourcesStore.addDurably(source)
             } else {
                 AppServices.shared.sourcesStore.add(source)
+            }
+            if source.type == .jellyfin {
+                AppServices.shared.scanService.scanSource(
+                    source,
+                    sourceManager: AppServices.shared.sourceManager,
+                    library: AppServices.shared.musicLibrary,
+                    sourceStore: AppServices.shared.sourcesStore,
+                    scraperService: AppServices.shared.scraperService
+                )
             }
             presentAddSource = false
             finish()

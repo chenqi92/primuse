@@ -287,7 +287,9 @@ struct SourcesContentView: View {
                 SourceTypeSelectionView(
                     submitIntent: .continueToConnection,
                     onAdd: { source in
-                        if source.type == .local {
+                        if source.type == .jellyfin {
+                            try sourceStore.addDurably(source)
+                        } else if source.type == .local {
                             try sourceStore.addDurably(source)
                         } else {
                             sourceStore.add(source)
@@ -295,6 +297,14 @@ struct SourcesContentView: View {
                         // 本地导入: 文件已拷进沙箱, add 后立即扫描入库, 让导入的歌
                         // 即时出现。需要远端目录的源会在目录选择会话结束后自动扫描。
                         if source.type == .local {
+                            scanService.scanSource(
+                                source,
+                                sourceManager: sourceManager,
+                                library: library,
+                                sourceStore: sourceStore,
+                                scraperService: scraperService
+                            )
+                        } else if source.type == .jellyfin {
                             scanService.scanSource(
                                 source,
                                 sourceManager: sourceManager,

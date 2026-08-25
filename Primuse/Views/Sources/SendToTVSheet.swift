@@ -14,6 +14,9 @@ struct SendToTVSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var musicLibrary
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(ScanService.self) private var scanService
+    @Environment(MusicScraperService.self) private var scraperService
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
 
     @State private var sending = false
@@ -136,11 +139,22 @@ struct SendToTVSheet: View {
             .padding(24)
             .sheet(isPresented: $showAddSource) {
                 SourceTypeSelectionView { source in
-                    if source.type == .local,
-                       source.id == LocalImportService.existingSourceID {
+                    if source.type == .jellyfin {
+                        try sourcesStore.addDurably(source)
+                    } else if source.type == .local,
+                              source.id == LocalImportService.existingSourceID {
                         try sourcesStore.addDurably(source)
                     } else {
                         sourcesStore.add(source)
+                    }
+                    if source.type == .jellyfin {
+                        scanService.scanSource(
+                            source,
+                            sourceManager: sourceManager,
+                            library: musicLibrary,
+                            sourceStore: sourcesStore,
+                            scraperService: scraperService
+                        )
                     }
                 }
             }

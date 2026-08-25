@@ -121,14 +121,19 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         } else {
             switch target {
             case .type(let type):
-                AddSourceView(sourceType: type, submitIntent: submitIntent) { source in
+                AddSourceView(
+                    sourceType: type,
+                    submitIntent: submitIntent,
+                    onValidatedJellyfinSave: addValidatedJellyfinSource
+                ) { source in
                     addSourceAndAdvance(source)
                 }
             case .device(let device):
                 AddSourceView(
                     sourceType: device.sourceType,
                     prefillDevice: device,
-                    submitIntent: submitIntent
+                    submitIntent: submitIntent,
+                    onValidatedJellyfinSave: addValidatedJellyfinSource
                 ) { source in
                     addSourceAndAdvance(source)
                 }
@@ -589,6 +594,14 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             plog("⛔ Source persistence failed — \(error.localizedDescription)")
             #endif
         }
+    }
+
+    private func addValidatedJellyfinSource(_ source: MusicSource) throws {
+        guard source.type == .jellyfin else {
+            throw JellyfinSourceCreationError.missingPersistenceHandler
+        }
+        try onAdd(source)
+        dismiss()
     }
 
     private var deferredSelectedDirectories: Binding<[String]> {

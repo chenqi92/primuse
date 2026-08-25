@@ -26,6 +26,7 @@ struct AddSourceView: View {
     var editingSource: MusicSource?
     var prefillDevice: DiscoveredDevice?
     var submitIntent: AddSourceSubmitIntent = .save
+    var onValidatedJellyfinSave: ((MusicSource) throws -> Void)? = nil
     var onSave: (MusicSource) -> Void
 
     @State private var name = ""
@@ -55,6 +56,7 @@ struct AddSourceView: View {
     @State private var isInitialized = false
     @State private var showCredentialSaveError = false
     @State private var showSynologyPasswordValidationInfo = false
+    @State private var jellyfinCreationTransaction = JellyfinSourceCreationTransaction()
     #if os(macOS)
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
@@ -64,6 +66,12 @@ struct AddSourceView: View {
     @FocusState private var focusedField: SourceFormField?
 
     private var isEditing: Bool { editingSource != nil }
+    private var requiresAuthenticatedJellyfinPreflight: Bool {
+        JellyfinSourceCreationPolicy.requiresPreflight(
+            for: sourceType,
+            isEditing: isEditing
+        )
+    }
     private var continuesToConnectionAfterSave: Bool {
         !isEditing
             && submitIntent == .continueToConnection
@@ -233,6 +241,26 @@ struct AddSourceView: View {
         } message: {
             Text("synology_password_edit_validation_hint")
         }
+        .alert(
+            jellyfinCreationTransaction.failure?.title ?? String(localized: "connection_failed"),
+            isPresented: Binding(
+                get: { jellyfinCreationTransaction.failure != nil },
+                set: { isPresented in
+                    if !isPresented { jellyfinCreationTransaction.clearFailure() }
+                }
+            )
+        ) {
+            Button("ok", role: .cancel) {
+                jellyfinCreationTransaction.clearFailure()
+            }
+        } message: {
+            Text(jellyfinCreationTransaction.failure?.message ?? "")
+        }
+        .onDisappear {
+            if requiresAuthenticatedJellyfinPreflight {
+                jellyfinCreationTransaction.cancel()
+            }
+        }
     }
 
     /// Follow HTTP's 80/443 defaults only while the field still contains the
@@ -301,11 +329,11 @@ struct AddSourceView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
+                    Button("cancel") { cancelAndDismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(submitButtonTitle) { saveSource() }
-                        .disabled(canSave == false)
+                        .disabled(canSave == false || jellyfinCreationTransaction.isRunning)
                         .fontWeight(.semibold)
                 }
             }
@@ -328,7 +356,7 @@ struct AddSourceView: View {
 
             HStack(spacing: 8) {
                 Spacer()
-                Button("cancel") { dismiss() }
+                Button("cancel") { cancelAndDismiss() }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
                     .font(.system(size: 12))
@@ -341,7 +369,7 @@ struct AddSourceView: View {
                 Button(submitButtonTitle) { saveSource() }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(canSave == false)
+                    .disabled(canSave == false || jellyfinCreationTransaction.isRunning)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
@@ -1402,6 +1430,32 @@ struct AddSourceView: View {
             source = source.projectingPreferredConnectionForLegacy()
         }
 
+        if requiresAuthenticatedJellyfinPreflight {
+            jellyfinCreationTransaction.submit(
+                source: source,
+                secret: password,
+                persistCredential: { sourceID, secret in
+                    if secret.isEmpty {
+                        return KeychainService.deletePassword(for: sourceID)
+                    }
+                    return KeychainService.setPassword(secret, for: sourceID)
+                },
+                removeCredential: { sourceID in
+                    KeychainService.deletePassword(for: sourceID)
+                },
+                persistSource: { source in
+                    guard let onValidatedJellyfinSave else {
+                        throw JellyfinSourceCreationError.missingPersistenceHandler
+                    }
+                    try onValidatedJellyfinSave(source)
+                },
+                onCommit: { _ in
+                    dismiss()
+                }
+            )
+            return
+        }
+
         // Save credentials
         if sourceType == .drime {
             let tm = CloudTokenManager(sourceID: source.id)
@@ -1490,6 +1544,13 @@ struct AddSourceView: View {
         #endif
 
         completeSave(source)
+    }
+
+    private func cancelAndDismiss() {
+        if requiresAuthenticatedJellyfinPreflight {
+            jellyfinCreationTransaction.cancel()
+        }
+        dismiss()
     }
 
     private func completeSave(_ source: MusicSource) {

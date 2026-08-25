@@ -339,6 +339,7 @@
 		5D9C7448984A096646317144 /* Album.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAE5ECFCA4B6AB18CC72F7DB /* Album.swift */; };
 		5E0C4FB858DCCE7E784D422A /* ThemeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74134D8D32D016D927D59D77 /* ThemeService.swift */; };
 		5E1E95EB6F8FDBC014FEF4BA /* ScraperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */; };
+		5F57F340B615890225768BCE /* JellyfinSourceCreationTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE14ABCEB2BD02801AE8BED9 /* JellyfinSourceCreationTransaction.swift */; };
 		5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */; };
 		5FB3BB3804C2565A4EDDF5C6 /* IncrementalSongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB39C2EE3B1DD6E01169AE8 /* IncrementalSongStore.swift */; };
 		60E5B1FD6BDC269EC90C8FEB /* AudioOutputPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252F65F36897EF6DB9E6BCD8 /* AudioOutputPickerView.swift */; };
@@ -368,6 +369,7 @@
 		69C9FBF4D0A501818DCFBCF2 /* MacRadioBatchAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D506F3799C64A1F8FA9FE080 /* MacRadioBatchAddView.swift */; };
 		69F39E580C4E08F73E195E62 /* TVStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE9678E678B62A15290407A4 /* TVStore.swift */; };
 		6A1B6FA7D0F5E6788DE62B4E /* ScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */; };
+		6A2605583566E7C549DED890 /* JellyfinSourceCreationTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE14ABCEB2BD02801AE8BED9 /* JellyfinSourceCreationTransaction.swift */; };
 		6A4DFA7BDE26E0CC1AF2B569 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 918D1E8936DCDF2C339A070A /* InfoPlist.strings */; };
 		6AE046838D6546471C6E2457 /* MusicScraperFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */; };
 		6B11501B13017E6A911546BC /* ScrobbleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA12C906FD443EE450488F7 /* ScrobbleSettings.swift */; };
@@ -424,6 +426,7 @@
 		7A8AE931F42C82A025F20511 /* AppIconService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796306024AE3678DB56D02A /* AppIconService.swift */; };
 		7A9DEF1B3E6DD0B7C5D1F722 /* SourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */; };
 		7ABFF781D988BDA3808083B5 /* AudioPlayerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */; };
+		7AC8B7D62196F7C0440AC523 /* JellyfinSourceCreationTransactionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E618E93EA660ED2F816D9E3E /* JellyfinSourceCreationTransactionTests.swift */; };
 		7B26E8F040692D1549C7F486 /* VisualizerBarsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */; };
 		7B9FA70A8C0354C361A52F05 /* LyricsTextTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = B427A8FFB610413C99EE452B /* LyricsTextTools.swift */; };
 		7BA8162CFA252E94A19ADF03 /* WatchSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1729792F7E0AC649901171B8 /* WatchSessionBridge.swift */; };
@@ -1373,6 +1376,7 @@
 		BBFD30EEE3734A8D6C23D94C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncChannel.swift; sourceTree = "<group>"; };
 		BDC5ED08076B47DEE8ECB3AA /* NowPlayingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidget.swift; sourceTree = "<group>"; };
+		BE14ABCEB2BD02801AE8BED9 /* JellyfinSourceCreationTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JellyfinSourceCreationTransaction.swift; sourceTree = "<group>"; };
 		BE9678E678B62A15290407A4 /* TVStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStore.swift; sourceTree = "<group>"; };
 		BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubsonicCatalogPagingPolicy.swift; sourceTree = "<group>"; };
 		BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBSource.swift; sourceTree = "<group>"; };
@@ -1446,6 +1450,7 @@
 		E43D86A7277FFD6BA412DECF /* SourcesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesStore.swift; sourceTree = "<group>"; };
 		E4A9D5B6369B77FBCEFFF97C /* XorZlibLyricsDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XorZlibLyricsDecoder.swift; sourceTree = "<group>"; };
 		E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		E618E93EA660ED2F816D9E3E /* JellyfinSourceCreationTransactionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JellyfinSourceCreationTransactionTests.swift; sourceTree = "<group>"; };
 		E6AB7C14D2E4EC9112B49730 /* YearlyReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReportView.swift; sourceTree = "<group>"; };
 		E77C291D51A0577AAC67C318 /* PrimuseTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PrimuseTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFolderSelectionIndex.swift; sourceTree = "<group>"; };
@@ -1716,6 +1721,7 @@
 				83ED706EE476BAD28EE3B6AE /* FnMusicAPI.swift */,
 				D3AF04B176BDD4E0FE78D02B /* FnMusicSource.swift */,
 				2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */,
+				BE14ABCEB2BD02801AE8BED9 /* JellyfinSourceCreationTransaction.swift */,
 				0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */,
 				2DF35A49EBE68F0FDA253D9A /* LocalFileSource.swift */,
 				D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */,
@@ -2537,6 +2543,7 @@
 		E02A6280EA74816DDAAA95F9 /* PrimuseTests */ = {
 			isa = PBXGroup;
 			children = (
+				E618E93EA660ED2F816D9E3E /* JellyfinSourceCreationTransactionTests.swift */,
 				87FA91B87714FFD617E3E449 /* MusicLibraryLikedMutationTests.swift */,
 				BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */,
 				F930250B3D0D1AC8E8FD8088 /* SubsonicFavoriteWritebackTests.swift */,
@@ -3065,6 +3072,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7AC8B7D62196F7C0440AC523 /* JellyfinSourceCreationTransactionTests.swift in Sources */,
 				46B89AF5A8627B7DF1D799FC /* MusicLibraryLikedMutationTests.swift in Sources */,
 				F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */,
 				ECEE25BE33784AD9E79E0CB7 /* SubsonicFavoriteWritebackTests.swift in Sources */,
@@ -3307,6 +3315,7 @@
 				AFE8B1D83B0A404411167743 /* ImmersivePlayerView.swift in Sources */,
 				1F557C87A502FBCD8DC01038 /* ImmersiveStageScenery.swift in Sources */,
 				08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */,
+				6A2605583566E7C549DED890 /* JellyfinSourceCreationTransaction.swift in Sources */,
 				2E8D2AA64CC077D5625523F5 /* KaraokeLineView.swift in Sources */,
 				31F1344B52B4C9CED77732F8 /* KeychainService.swift in Sources */,
 				1A9F9D73E72B9688620EF8C2 /* LRCLIBScraper.swift in Sources */,
@@ -3653,6 +3662,7 @@
 				2C61D7F37B8D2158EDFC1B45 /* ImmersivePlayerView.swift in Sources */,
 				5049BF06A280BC7DC440AF62 /* ImmersiveStageScenery.swift in Sources */,
 				173ECEA29447C32D1D305203 /* ImmersiveStageView.swift in Sources */,
+				5F57F340B615890225768BCE /* JellyfinSourceCreationTransaction.swift in Sources */,
 				E1F03B0F5F84CD3EC3339D8D /* KaraokeLineView.swift in Sources */,
 				075FDC9F6218D8AD5DD8A4D9 /* KeychainService.swift in Sources */,
 				0DE424D06481AD17229FF9F0 /* LRCLIBScraper.swift in Sources */,

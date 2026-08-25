@@ -5,6 +5,8 @@ import PrimuseKit
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerRadioStreamResolvingConnector {
+    typealias RequestDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
     private static let maximumCatalogTracks = 10_000_000
     private static let maximumPlaylistCount = 100_000
     private static let playlistPageSize = 200
@@ -25,6 +27,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private let secret: String
     private let authType: SourceAuthType
     private let session: URLSession
+    private let requestDataLoader: RequestDataLoader?
     private let deviceID: String
     private let cacheDirectory: URL
 
@@ -47,7 +50,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         username: String,
         secret: String,
         authType: SourceAuthType,
-        alternateTLSValidationHostname: String? = nil
+        alternateTLSValidationHostname: String? = nil,
+        requestDataLoader: RequestDataLoader? = nil
     ) {
         self.sourceID = sourceID
         self.kind = kind
@@ -73,6 +77,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         self.username = username
         self.secret = secret
         self.authType = authType
+        self.requestDataLoader = requestDataLoader
         self.deviceID = "primuse-\(sourceID)"
 
         let configuration = URLSessionConfiguration.default
@@ -1340,11 +1345,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             request.setValue(value, forHTTPHeaderField: header)
         }
 
-        let (data, response) = try await TrustedHTTPTransport.data(
-            for: request,
-            session: session,
-            maxBytes: maximumResponseBytes
-        )
+        let (data, response): (Data, URLResponse)
+        if let requestDataLoader {
+            (data, response) = try await requestDataLoader(request)
+        } else {
+            (data, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: session,
+                maxBytes: maximumResponseBytes
+            )
+        }
         if requiresAuth,
            (method == "GET" || retriesIdempotentMutationAfterAuthentication),
            allowPasswordReauthentication,
