@@ -206,6 +206,7 @@ extension View {
             .environment(services.visualizer)
             .environment(services.duplicateCleanup)
             .environment(services.batchRemoval)
+            .environment(services.musicIntelligence)
     }
 }
 #endif

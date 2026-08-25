@@ -11,7 +11,7 @@ import PrimuseKit
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     case playback, equalizer, effects, keyboard, theme
-    case scrape, lyrics, appleMusic, widgets, cloud, deleted, ssl, about
+    case scrape, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about
 
     var id: String { rawValue }
 
@@ -24,6 +24,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .scrape: return Lz("Metadata Scraping")
         case .lyrics: return Lz("Lyrics Translation")
         case .appleMusic: return "Apple Music"
+        case .intelligence: return String(localized: "ai_settings_title")
         case .widgets: return Lz("Widgets")
         case .cloud: return "iCloud"
         case .theme: return Lz("Appearance")
@@ -42,6 +43,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .scrape: return "tag"
         case .lyrics: return "character.bubble"
         case .appleMusic: return "music.note"
+        case .intelligence: return "sparkles"
         case .widgets: return "rectangle.grid.2x2"
         case .cloud: return "icloud"
         case .theme: return "sun.max"
@@ -60,6 +62,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .scrape: return "ST-04"
         case .lyrics: return "ST-05"
         case .appleMusic: return "ST-06"
+        case .intelligence: return "ST-14"
         case .widgets: return "ST-07"
         case .cloud: return "ST-08"
         case .theme: return "ST-12"
@@ -79,6 +82,7 @@ final class MacSettingsNavigationModel {
 struct MacSettingsView: View {
     let navigation: MacSettingsNavigationModel
 
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var sidebarFilter = ""
 
     private var tab: MacSettingsTab { navigation.tab }
@@ -89,8 +93,11 @@ struct MacSettingsView: View {
 
     private var filteredTabs: [MacSettingsTab] {
         let query = sidebarFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return MacSettingsTab.allCases }
-        return MacSettingsTab.allCases.filter {
+        let availableTabs = MacSettingsTab.allCases.filter {
+            $0 != .intelligence || intelligence.shouldExposeRemoteConfiguration
+        }
+        guard !query.isEmpty else { return availableTabs }
+        return availableTabs.filter {
             $0.title.localizedCaseInsensitiveContains(query)
             || $0.spec.localizedCaseInsensitiveContains(query)
         }
@@ -216,9 +223,14 @@ struct MacSettingsView: View {
         .buttonStyle(.plain)
     }
 
+    @ViewBuilder
     private var contentPane: some View {
-        MacSettingsScroll(title: tab.title) {
-            settingsContent
+        if tab == .intelligence {
+            AISettingsView()
+        } else {
+            MacSettingsScroll(title: tab.title) {
+                settingsContent
+            }
         }
     }
 
@@ -239,6 +251,8 @@ struct MacSettingsView: View {
             MacSTLyricsView()
         case .appleMusic:
             MacSTAppleMusicView()
+        case .intelligence:
+            EmptyView()
         case .widgets:
             MacSTWidgetView()
         case .cloud:

@@ -155,6 +155,69 @@ enum KeychainService {
         passwordLookup(for: account).password
     }
 
+    /// Persists secrets that must never be synchronized to another device.
+    /// AI API keys use this path because a provider profile may describe a
+    /// private endpoint whose credential must remain device-local.
+    @discardableResult
+    static func setLocalOnlyPassword(_ password: String, for account: String) -> Bool {
+        let status = persistPasswordItem(
+            Data(password.utf8),
+            account: account,
+            synchronizable: false,
+            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+        guard status == errSecSuccess else {
+            plog("⚠️ Local-only Keychain write failed account=\(account.prefix(12))… status=\(status)")
+            return false
+        }
+
+        if Self.supportsSynchronizableKeychainAttributes {
+            let cleanupStatus = deletePasswordVariant(for: account, synchronizable: true)
+            guard cleanupStatus == errSecSuccess || cleanupStatus == errSecItemNotFound else {
+                plog("⚠️ Local-only Keychain cleanup failed account=\(account.prefix(12))… status=\(cleanupStatus)")
+                return false
+            }
+        }
+        cacheWrite(password, for: account)
+        return true
+    }
+
+    static func localOnlyPasswordLookup(for account: String) -> PasswordLookupResult {
+        if let cached = cacheRead(account) {
+            return .found(cached)
+        }
+
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = kCFBooleanFalse as Any
+        }
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else {
+            switch status {
+            case errSecItemNotFound:
+                return .notFound
+            case errSecInteractionNotAllowed, errSecNotAvailable, errSecMissingEntitlement:
+                return .temporarilyUnavailable(status)
+            default:
+                return .failed(status)
+            }
+        }
+        guard let data = result as? Data,
+              let password = String(data: data, encoding: .utf8) else {
+            return .failed(errSecDecode)
+        }
+        cacheWrite(password, for: account)
+        return .found(password)
+    }
+
     /// Resolves a source credential without collapsing Keychain failures into
     /// an empty secret. Anonymous/non-credential sources intentionally receive
     /// an empty value; every other read error must stop before network auth.
@@ -320,7 +383,8 @@ enum KeychainService {
     private static func persistPasswordItem(
         _ data: Data,
         account: String,
-        synchronizable: Bool
+        synchronizable: Bool,
+        accessible: CFString = kSecAttrAccessibleAfterFirstUnlock
     ) -> OSStatus {
         var identity: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -335,7 +399,7 @@ enum KeychainService {
 
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: accessible,
         ]
         let updateStatus = SecItemUpdate(identity as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess {

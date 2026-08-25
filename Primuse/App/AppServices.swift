@@ -33,6 +33,7 @@ final class AppServices {
     let duplicateCleanup: DuplicateCleanupService
     let batchRemoval: SongBatchRemovalService
     let serverFavoriteSync: ServerFavoriteSyncService
+    let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
     private struct SourceCleanupRequest {
@@ -176,6 +177,7 @@ final class AppServices {
         self.metadataBackfill = metadataBackfill
         self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
         self.similarTracks = SimilarTracksService()
+        self.musicIntelligence = MusicIntelligenceService()
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
         self.spotlightIndex = SpotlightIndexService()
@@ -248,6 +250,7 @@ final class AppServices {
 
         wireIntentBridge()
         observeSpotlightSynchronization()
+        musicIntelligence.start()
         let startupFinishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
             format: "🚀 launch services total=%.0fms keychain=%.0f sources=%.0f library=%.0f core=%.0f auxiliary=%.0f wiring=%.0f observers=%.0f",

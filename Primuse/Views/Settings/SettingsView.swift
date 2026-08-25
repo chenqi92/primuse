@@ -9,6 +9,7 @@ import AppKit
 #endif
 
 struct SettingsView: View {
+    @Environment(MusicIntelligenceService.self) private var musicIntelligence
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
 
     init(scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init())) {
@@ -151,6 +152,14 @@ struct SettingsView: View {
                 }
 
                 Section("services_integrations") {
+                    if musicIntelligence.shouldExposeRemoteConfiguration {
+                        NavigationLink {
+                            AISettingsView()
+                        } label: {
+                            Label("ai_settings_title", systemImage: "sparkles")
+                        }
+                    }
+
                     NavigationLink {
                         AppleMusicSettingsView()
                     } label: {
