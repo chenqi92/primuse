@@ -177,10 +177,8 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             session: session
         )
 
-        XCTAssertEqual(
-            await provider.runtimeAvailability(),
-            .unavailable(.missingConfiguration)
-        )
+        let availability = await provider.runtimeAvailability()
+        XCTAssertEqual(availability, .unavailable(.missingConfiguration))
         do {
             _ = try await provider.interpretSearch(
                 AISemanticSearchRequest(query: "quiet evening")
@@ -225,6 +223,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             XCTFail("Expected the streaming response limit to cancel the request")
         } catch OpenAICompatibleProviderError.responseTooLarge {
             XCTAssertEqual(IntelligenceURLProtocol.deliveredChunkCount(host: host), 3)
+            for _ in 0..<50 where IntelligenceURLProtocol.stopLoadingCount(host: host) == 0 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
             XCTAssertGreaterThanOrEqual(IntelligenceURLProtocol.stopLoadingCount(host: host), 1)
         }
     }
