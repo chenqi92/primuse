@@ -148,43 +148,32 @@ struct ConnectorDirectoryBrowserView: View {
 
     private var directoryList: some View {
         let directories = items.filter(\.isDirectory)
-        let selectableRootPath = SourceDirectorySelectionPolicy.selectableRootPath(
+        let presentation = SourceDirectorySelectionPolicy.browserPresentation(
             for: source.type,
-            browserPath: currentPath
+            browserPath: currentPath,
+            itemDirectoryFlags: items.map(\.isDirectory)
         )
 
         return List {
-            if let selectableRootPath {
+            if let selectableCurrentPath = presentation.selectableCurrentPath {
                 DirectoryCheckRow(
                     name: String(localized: "current_directory"),
-                    subtitle: source.basePath,
-                    path: selectableRootPath,
-                    icon: "shippingbox.fill",
+                    subtitle: currentPath == "/" ? source.basePath : currentDirectorySubtitle,
+                    path: selectableCurrentPath,
+                    icon: currentPath == "/" ? "shippingbox.fill" : "folder.fill",
                     iconColor: .orange,
                     isNavigable: false,
                     selectedDirectories: policySelectedDirectories
                 )
             }
 
-            if directories.isEmpty, selectableRootPath == nil {
+            if presentation.showsNoSubdirectories {
                 ContentUnavailableView(
                     "no_subdirectories",
                     systemImage: "folder",
                     description: Text("no_subdirectories_desc")
                 )
             } else {
-                if currentPath != "/" {
-                    DirectoryCheckRow(
-                        name: String(localized: "current_directory"),
-                        subtitle: currentDirectorySubtitle,
-                        path: currentPath,
-                        icon: "folder.fill",
-                        iconColor: .orange,
-                        isNavigable: false,
-                        selectedDirectories: policySelectedDirectories
-                    )
-                }
-
                 ForEach(directories, id: \.path) { item in
                     DirectoryCheckRow(
                         name: item.name,

@@ -64,6 +64,19 @@ struct SourceDirectorySelectionPolicyTests {
         ) == .discardUncommittedDraft)
     }
 
+    @Test("Cancelling after SMB connection failure discards the new draft")
+    func smbConnectionFailureCancellationDiscardsDraft() {
+        #expect(!SourceCreationPersistencePolicy.canCommitDeferredCreation(
+            for: .smb,
+            connectionValidated: false,
+            selectedDirectories: []
+        ))
+        #expect(SourceCreationPersistencePolicy.cancellationDisposition(
+            wasPersistedBeforeFlow: false,
+            wasCommittedDuringFlow: false
+        ) == .discardUncommittedDraft)
+    }
+
     @Test("A validated WebDAV source remains after successful save")
     func successfulWebDAVCreationRemainsPersisted() {
         #expect(SourceCreationPersistencePolicy.canCommitDeferredCreation(
@@ -79,6 +92,14 @@ struct SourceDirectorySelectionPolicyTests {
 
     @Test("Cancelling an existing WebDAV edit preserves the source")
     func existingWebDAVEditCancellationPreservesSource() {
+        #expect(SourceCreationPersistencePolicy.cancellationDisposition(
+            wasPersistedBeforeFlow: true,
+            wasCommittedDuringFlow: false
+        ) == .preservePersistedSource)
+    }
+
+    @Test("Cancelling an existing SMB edit preserves the source")
+    func existingSMBEditCancellationPreservesSource() {
         #expect(SourceCreationPersistencePolicy.cancellationDisposition(
             wasPersistedBeforeFlow: true,
             wasCommittedDuringFlow: false
@@ -155,6 +176,68 @@ struct SourceDirectorySelectionPolicyTests {
         ) == ["/"])
     }
 
+    @Test("SMB share root is selectable and covers child scopes")
+    func selectsSMBRoot() {
+        #expect(SourceDirectorySelectionPolicy.selectableCurrentPath(
+            for: .smb,
+            browserPath: "/"
+        ) == "/")
+        #expect(SourceDirectorySelectionPolicy.normalizedSelections(
+            ["/Albums", "/"],
+            for: .smb
+        ) == ["/"])
+    }
+
+    @Test("Empty and file-only SMB leaf directories remain selectable")
+    func selectsSMBLeafDirectoriesWithoutChildren() {
+        let emptyDirectory = SourceDirectorySelectionPolicy.browserPresentation(
+            for: .smb,
+            browserPath: "/Music/Empty",
+            itemDirectoryFlags: []
+        )
+        let fileOnlyDirectory = SourceDirectorySelectionPolicy.browserPresentation(
+            for: .smb,
+            browserPath: "/Music/Leaf",
+            itemDirectoryFlags: [false, false]
+        )
+
+        #expect(emptyDirectory.selectableCurrentPath == "/Music/Empty")
+        #expect(emptyDirectory.showsNoSubdirectories)
+        #expect(fileOnlyDirectory.selectableCurrentPath == "/Music/Leaf")
+        #expect(fileOnlyDirectory.showsNoSubdirectories)
+    }
+
+    @Test("Directories with children remain selectable for SMB and WebDAV")
+    func selectsCurrentDirectoryAlongsideChildren() {
+        let smbDirectory = SourceDirectorySelectionPolicy.browserPresentation(
+            for: .smb,
+            browserPath: "/Music",
+            itemDirectoryFlags: [false, true]
+        )
+        let webDAVDirectory = SourceDirectorySelectionPolicy.browserPresentation(
+            for: .webdav,
+            browserPath: "/Library",
+            itemDirectoryFlags: [true]
+        )
+
+        #expect(smbDirectory.selectableCurrentPath == "/Music")
+        #expect(!smbDirectory.showsNoSubdirectories)
+        #expect(webDAVDirectory.selectableCurrentPath == "/Library")
+        #expect(!webDAVDirectory.showsNoSubdirectories)
+    }
+
+    @Test("Adjacent filesystem browsers preserve child path semantics")
+    func preservesAdjacentFilesystemChildPaths() {
+        #expect(SourceDirectorySelectionPolicy.selectableCurrentPath(
+            for: .ftp,
+            browserPath: "/Audio/Leaf"
+        ) == "/Audio/Leaf")
+        #expect(SourceDirectorySelectionPolicy.selectableCurrentPath(
+            for: .sftp,
+            browserPath: "/Archive"
+        ) == "/Archive")
+    }
+
     @Test("Other protocols keep root and selected paths unchanged")
     func preservesOtherProtocols() {
         let selected = ["/Music", "/Archive"]
@@ -166,7 +249,7 @@ struct SourceDirectorySelectionPolicyTests {
         #expect(SourceDirectorySelectionPolicy.selectableRootPath(
             for: .smb,
             browserPath: "/"
-        ) == nil)
+        ) == "/")
         #expect(SourceDirectorySelectionPolicy.normalizedSelections(
             selected,
             for: .smb

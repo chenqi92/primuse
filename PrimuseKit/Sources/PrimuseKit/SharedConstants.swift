@@ -4478,6 +4478,11 @@ public enum LocalFirstSnapshotBootstrap {
 /// root paths. S3 uses an empty prefix for the bucket root, while the shared
 /// browser represents its root breadcrumb as `/`.
 public enum SourceDirectorySelectionPolicy {
+    public struct BrowserPresentation: Equatable, Sendable {
+        public let selectableCurrentPath: String?
+        public let showsNoSubdirectories: Bool
+    }
+
     /// Path passed to the connector for a path shown by the shared browser.
     public static func connectorPath(
         for sourceType: MusicSourceType,
@@ -4489,8 +4494,8 @@ public enum SourceDirectorySelectionPolicy {
 
     /// Selectable scan path for the current browser root, when supported.
     /// WebDAV servers can expose playable files directly at their configured
-    /// root (for example an OpenList virtual mount), so that root must remain
-    /// selectable even when the server has no child directories.
+    /// root (for example an OpenList virtual mount), while an SMB root can be
+    /// either the explicitly configured share or the server's share list.
     public static func selectableRootPath(
         for sourceType: MusicSourceType,
         browserPath: String
@@ -4498,9 +4503,35 @@ public enum SourceDirectorySelectionPolicy {
         guard browserPath.isEmpty || browserPath == "/" else { return nil }
         switch sourceType {
         case .s3: return ""
-        case .drime, .webdav: return "/"
+        case .drime, .smb, .webdav: return "/"
         default: return nil
         }
+    }
+
+    /// Every successfully loaded child directory is a valid scan root even
+    /// when it is empty or contains files but no further directories.
+    public static func selectableCurrentPath(
+        for sourceType: MusicSourceType,
+        browserPath: String
+    ) -> String? {
+        if browserPath.isEmpty || browserPath == "/" {
+            return selectableRootPath(for: sourceType, browserPath: browserPath)
+        }
+        return browserPath
+    }
+
+    public static func browserPresentation(
+        for sourceType: MusicSourceType,
+        browserPath: String,
+        itemDirectoryFlags: [Bool]
+    ) -> BrowserPresentation {
+        BrowserPresentation(
+            selectableCurrentPath: selectableCurrentPath(
+                for: sourceType,
+                browserPath: browserPath
+            ),
+            showsNoSubdirectories: !itemDirectoryFlags.contains(true)
+        )
     }
 
     /// Selecting the S3 bucket root covers all child prefixes, so it is kept
@@ -4513,6 +4544,7 @@ public enum SourceDirectorySelectionPolicy {
         case .s3 where directories.contains(""):
             return [""]
         case .drime where directories.contains("/"),
+             .smb where directories.contains("/"),
              .webdav where directories.contains("/"):
             return ["/"]
         default:
