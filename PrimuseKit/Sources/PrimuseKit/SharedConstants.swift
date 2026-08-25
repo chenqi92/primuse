@@ -4551,6 +4551,13 @@ public enum SourceDirectorySelectionPolicy {
             return directories
         }
     }
+
+    public static func toggledSelection(_ directories: [String], path: String) -> [String] {
+        if directories.contains(path) {
+            return directories.filter { $0 != path }
+        }
+        return directories + [path]
+    }
 }
 
 /// Controls when a newly configured source is allowed to become durable.

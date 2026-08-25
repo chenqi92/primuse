@@ -238,6 +238,75 @@ struct SourceDirectorySelectionPolicyTests {
         ) == "/Archive")
     }
 
+    @Test("Directory navigation updates the current path and breadcrumb hierarchy")
+    func navigatesNestedDirectories() {
+        var state = DirectoryBrowserNavigationState(rootTitle: "Shared Folders")
+
+        let enteredNested = state.enterDirectory(path: "/Nested", title: "Nested")
+        let enteredDeep = state.enterDirectory(path: "/Nested/Deep", title: "Deep")
+
+        #expect(enteredNested)
+        #expect(enteredDeep)
+        #expect(state.currentPath == "/Nested/Deep")
+        #expect(state.segments.map(\.path) == ["/", "/Nested", "/Nested/Deep"])
+    }
+
+    @Test("Breadcrumb navigation returns through multiple directory levels")
+    func returnsThroughBreadcrumbs() {
+        var state = DirectoryBrowserNavigationState(rootTitle: "Shared Folders")
+        state.enterDirectory(path: "/Nested", title: "Nested")
+        state.enterDirectory(path: "/Nested/Deep", title: "Deep")
+
+        let returnedToNested = state.navigateToBreadcrumb(at: 1)
+
+        #expect(returnedToNested)
+        #expect(state.currentPath == "/Nested")
+        #expect(state.segments.map(\.title) == ["Shared Folders", "Nested"])
+        let returnedToRoot = state.navigateToBreadcrumb(at: 0)
+
+        #expect(returnedToRoot)
+        #expect(state.currentPath == "/")
+    }
+
+    @Test("Current directory actions do not start duplicate requests")
+    func ignoresRepeatedNavigation() {
+        var state = DirectoryBrowserNavigationState(rootTitle: "Shared Folders")
+        let rootRequest = state.beginRequest()
+
+        let repeatedEntry = state.enterDirectory(path: "/", title: "Shared Folders")
+        let repeatedBreadcrumb = state.navigateToBreadcrumb(at: 0)
+
+        #expect(!repeatedEntry)
+        #expect(!repeatedBreadcrumb)
+        #expect(state.requestGeneration == rootRequest.generation)
+        #expect(state.accepts(rootRequest))
+    }
+
+    @Test("Late directory responses cannot replace the latest navigation")
+    func rejectsStaleDirectoryResponses() {
+        var state = DirectoryBrowserNavigationState(rootTitle: "Shared Folders")
+        let oldRootRequest = state.beginRequest()
+        state.enterDirectory(path: "/Nested", title: "Nested")
+        let childRequest = state.beginRequest()
+        state.navigateToBreadcrumb(at: 0)
+        let latestRootRequest = state.beginRequest()
+
+        #expect(!state.accepts(oldRootRequest))
+        #expect(!state.accepts(childRequest))
+        #expect(state.accepts(latestRootRequest))
+    }
+
+    @Test("Selection toggles without changing directory navigation")
+    func selectionDoesNotNavigate() {
+        let state = DirectoryBrowserNavigationState(rootTitle: "Shared Folders")
+        let selected = SourceDirectorySelectionPolicy.toggledSelection([], path: "/Nested")
+
+        #expect(selected == ["/Nested"])
+        #expect(state.currentPath == "/")
+        #expect(state.segments.count == 1)
+        #expect(state.requestGeneration == 0)
+    }
+
     @Test("Other protocols keep root and selected paths unchanged")
     func preservesOtherProtocols() {
         let selected = ["/Music", "/Archive"]

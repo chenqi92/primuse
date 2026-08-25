@@ -2,11 +2,6 @@ import SwiftUI
 import PrimuseKit
 
 struct ConnectorDirectoryBrowserView: View {
-    private struct BreadcrumbSegment: Equatable {
-        let path: String
-        let title: String
-    }
-
     let source: MusicSource
     let connector: any MusicSourceConnector
     @Binding var selectedDirectories: [String]
@@ -14,10 +9,9 @@ struct ConnectorDirectoryBrowserView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(SourcesStore.self) private var sourcesStore
-    @State private var currentPath = "/"
-    @State private var pathStack: [BreadcrumbSegment] = [
-        .init(path: "/", title: String(localized: "shared_folders"))
-    ]
+    @State private var navigation = DirectoryBrowserNavigationState(
+        rootTitle: String(localized: "shared_folders")
+    )
     @State private var items: [RemoteFileItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -80,7 +74,7 @@ struct ConnectorDirectoryBrowserView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 DirectoryBreadcrumb(
-                    segments: pathStack.map { .init(path: $0.path, title: $0.title) },
+                    segments: navigation.segments.map { .init(path: $0.path, title: $0.title) },
                     onSelect: navigateTo
                 )
                 Divider()
@@ -150,7 +144,7 @@ struct ConnectorDirectoryBrowserView: View {
         let directories = items.filter(\.isDirectory)
         let presentation = SourceDirectorySelectionPolicy.browserPresentation(
             for: source.type,
-            browserPath: currentPath,
+            browserPath: navigation.currentPath,
             itemDirectoryFlags: items.map(\.isDirectory)
         )
 
@@ -158,9 +152,9 @@ struct ConnectorDirectoryBrowserView: View {
             if let selectableCurrentPath = presentation.selectableCurrentPath {
                 DirectoryCheckRow(
                     name: String(localized: "current_directory"),
-                    subtitle: currentPath == "/" ? source.basePath : currentDirectorySubtitle,
+                    subtitle: navigation.currentPath == "/" ? source.basePath : currentDirectorySubtitle,
                     path: selectableCurrentPath,
-                    icon: currentPath == "/" ? "shippingbox.fill" : "folder.fill",
+                    icon: navigation.currentPath == "/" ? "shippingbox.fill" : "folder.fill",
                     iconColor: .orange,
                     isNavigable: false,
                     selectedDirectories: policySelectedDirectories
@@ -198,8 +192,8 @@ struct ConnectorDirectoryBrowserView: View {
             directoryList
             Rectangle().fill(PMColor.divider).frame(width: 0.5)
             DirectoryPreviewPane(
-                title: pathStack.last?.title ?? source.name,
-                path: currentPath,
+                title: navigation.segments.last?.title ?? source.name,
+                path: navigation.currentPath,
                 items: items,
                 selectedCount: selectedDirectories.count
             )
@@ -210,24 +204,20 @@ struct ConnectorDirectoryBrowserView: View {
     }
 
     private var currentDirectorySubtitle: String? {
-        guard currentPath != "/" else { return nil }
+        guard navigation.currentPath != "/" else { return nil }
         if source.type.isCloudDrive {
-            return pathStack.last?.title
+            return navigation.segments.last?.title
         }
-        return currentPath
+        return navigation.currentPath
     }
 
     private func enterDirectory(_ item: RemoteFileItem) {
-        currentPath = item.path
-        pathStack.append(.init(path: item.path, title: item.name))
+        guard navigation.enterDirectory(path: item.path, title: item.name) else { return }
         loadDirectory()
     }
 
     private func navigateTo(index: Int) {
-        guard index < pathStack.count else { return }
-
-        currentPath = pathStack[index].path
-        pathStack = Array(pathStack.prefix(index + 1))
+        guard navigation.navigateToBreadcrumb(at: index) else { return }
         loadDirectory()
     }
 
@@ -238,30 +228,30 @@ struct ConnectorDirectoryBrowserView: View {
         errorMessage = nil
 
         // 捕获本次请求对应的路径, 写回前校验仍是当前目录, 避免快速导航时晚到的响应覆盖列表。
-        let requestPath = currentPath
+        let request = navigation.beginRequest()
         loadTask = Task {
             do {
-                let loaded = try await loadItems(at: requestPath)
-                guard !Task.isCancelled, requestPath == currentPath else { return }
+                let loaded = try await loadItems(at: request.path)
+                guard !Task.isCancelled, navigation.accepts(request) else { return }
                 applyLoadedItems(loaded)
-                if requestPath == "/" {
+                if request.path == "/" {
                     rootConnectionValidated = true
                 }
                 isLoading = false
             } catch {
-                guard !Task.isCancelled, requestPath == currentPath else { return }
+                guard !Task.isCancelled, navigation.accepts(request) else { return }
                 let trusted = await promptTransportTrust(for: error)
-                guard !Task.isCancelled, requestPath == currentPath else { return }
+                guard !Task.isCancelled, navigation.accepts(request) else { return }
                 if trusted {
                     do {
-                        let loaded = try await loadItems(at: requestPath)
-                        guard !Task.isCancelled, requestPath == currentPath else { return }
+                        let loaded = try await loadItems(at: request.path)
+                        guard !Task.isCancelled, navigation.accepts(request) else { return }
                         applyLoadedItems(loaded)
-                        if requestPath == "/" {
+                        if request.path == "/" {
                             rootConnectionValidated = true
                         }
                     } catch {
-                        guard !Task.isCancelled, requestPath == currentPath else { return }
+                        guard !Task.isCancelled, navigation.accepts(request) else { return }
                         errorMessage = error.localizedDescription
                     }
                 } else {
@@ -352,7 +342,7 @@ struct ConnectorDirectoryBrowserView: View {
         items = loaded
         if source.type.isCloudDrive {
             persistDirectoryNames(from: loaded)
-            if let current = pathStack.last {
+            if let current = navigation.segments.last {
                 CloudDirectoryNameStore.saveName(current.title, for: current.path, sourceID: source.id)
                 persistSelectedDirectoryNames(selectedDirectories)
             }

@@ -1042,10 +1042,11 @@ struct DirectoryCheckRow: View {
         Binding(
             get: { selectedDirectories.contains(path) },
             set: { newValue in
-                if newValue {
-                    if !selectedDirectories.contains(path) { selectedDirectories.append(path) }
-                } else {
-                    selectedDirectories.removeAll { $0 == path }
+                if newValue != selectedDirectories.contains(path) {
+                    selectedDirectories = SourceDirectorySelectionPolicy.toggledSelection(
+                        selectedDirectories,
+                        path: path
+                    )
                 }
             }
         )
@@ -1136,6 +1137,7 @@ struct DirectoryCheckRow: View {
                         Spacer()
                         Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.quaternary)
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else {
@@ -1159,10 +1161,9 @@ struct DirectoryCheckRow: View {
     #endif
 
     private func toggle() {
-        if selectedDirectories.contains(path) {
-            selectedDirectories.removeAll { $0 == path }
-        } else {
-            selectedDirectories.append(path)
-        }
+        selectedDirectories = SourceDirectorySelectionPolicy.toggledSelection(
+            selectedDirectories,
+            path: path
+        )
     }
 }
