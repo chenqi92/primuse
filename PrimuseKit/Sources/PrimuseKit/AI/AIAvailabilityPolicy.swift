@@ -30,6 +30,35 @@ public struct AIRegionContext: Codable, Equatable, Sendable {
     public static let unknown = AIRegionContext(region: .unknown, source: .unresolved)
 }
 
+public struct AIRegionSnapshot: Equatable, Sendable {
+    public var context: AIRegionContext
+    public var revision: UInt64
+
+    public init(context: AIRegionContext, revision: UInt64) {
+        self.context = context
+        self.revision = revision
+    }
+}
+
+public enum AIRegionRequestPolicy {
+    public static func canSendRemoteRequest(
+        captured: AIRegionSnapshot,
+        latest: AIRegionSnapshot
+    ) -> Bool {
+        captured == latest && AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: latest.context
+        ).isAllowed
+    }
+
+    public static func canCommitRemoteResponse(
+        captured: AIRegionSnapshot,
+        latest: AIRegionSnapshot
+    ) -> Bool {
+        canSendRemoteRequest(captured: captured, latest: latest)
+    }
+}
+
 public enum AIRegionResolver {
     private static let mainlandChinaCodes: Set<String> = ["CN", "CHN"]
 

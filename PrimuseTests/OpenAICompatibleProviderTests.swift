@@ -124,6 +124,39 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         }
     }
 
+    func testRegionRevisionIsRecheckedBeforeSendingRequest() async throws {
+        let host = "intelligence-region-change.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"expanded_terms\":[\"calm\"]}"}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://\(host)/v1",
+                generationModel: "test-generation-model",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "must-not-be-sent",
+            requestAuthorization: { false },
+            session: session
+        )
+
+        do {
+            _ = try await provider.interpretSearch(
+                AISemanticSearchRequest(query: "quiet evening")
+            )
+            XCTFail("Expected the stale region revision to cancel the request")
+        } catch is CancellationError {
+            XCTAssertTrue(IntelligenceURLProtocol.requests(host: host).isEmpty)
+        }
+    }
+
     @MainActor
     func testServiceDeletesOnlyTheCurrentOriginAPIKey() async throws {
         let profileID = UUID(uuidString: "78805B85-F9A8-4325-B624-C393DC35D600")!

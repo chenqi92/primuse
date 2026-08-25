@@ -32,6 +32,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
     private let configuration: AIRemoteProviderConfiguration
     private let credentialStore: any AICredentialStoring
     private let apiKeyOverride: String?
+    private let requestAuthorization: @Sendable () async -> Bool
     private let session: URLSession
     private static let maximumResponseBytes = 2 * 1_024 * 1_024
 
@@ -39,12 +40,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         configuration: AIRemoteProviderConfiguration,
         credentialStore: any AICredentialStoring,
         apiKeyOverride: String? = nil,
+        requestAuthorization: @escaping @Sendable () async -> Bool = { true },
         session: URLSession? = nil
     ) {
         self.configuration = configuration
         self.credentialStore = credentialStore
         let trimmedOverride = apiKeyOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.apiKeyOverride = trimmedOverride?.isEmpty == false ? trimmedOverride : nil
+        self.requestAuthorization = requestAuthorization
         descriptor = configuration.descriptor
 
         if let session {
@@ -204,6 +207,10 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             throw OpenAICompatibleProviderError.invalidResponse
+        }
+
+        guard await requestAuthorization() else {
+            throw CancellationError()
         }
 
         let data: Data

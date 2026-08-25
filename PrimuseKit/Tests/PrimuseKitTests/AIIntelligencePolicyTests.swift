@@ -93,6 +93,64 @@ struct AIRegionAvailabilityTests {
         #expect(decision.shouldExposeConfiguration)
         #expect(decision.requiresExplicitConsent)
     }
+
+    @Test func remoteResultsRequireTheCurrentAllowedRegionRevision() {
+        let captured = AIRegionSnapshot(
+            context: AIRegionContext(
+                region: .international,
+                source: .appStorefront,
+                countryCode: "USA"
+            ),
+            revision: 7
+        )
+        #expect(AIRegionRequestPolicy.canSendRemoteRequest(
+            captured: captured,
+            latest: captured
+        ))
+        #expect(AIRegionRequestPolicy.canCommitRemoteResponse(
+            captured: captured,
+            latest: captured
+        ))
+
+        let refreshed = AIRegionSnapshot(context: captured.context, revision: 8)
+        #expect(!AIRegionRequestPolicy.canSendRemoteRequest(
+            captured: captured,
+            latest: refreshed
+        ))
+        #expect(!AIRegionRequestPolicy.canCommitRemoteResponse(
+            captured: captured,
+            latest: refreshed
+        ))
+    }
+
+    @Test func unknownAndMainlandRegionsFailClosed() {
+        let international = AIRegionSnapshot(
+            context: AIRegionContext(
+                region: .international,
+                source: .appStorefront,
+                countryCode: "USA"
+            ),
+            revision: 3
+        )
+        for context in [
+            AIRegionContext.unknown,
+            AIRegionContext(
+                region: .mainlandChina,
+                source: .appStorefront,
+                countryCode: "CHN"
+            ),
+        ] {
+            let latest = AIRegionSnapshot(context: context, revision: 4)
+            #expect(!AIRegionRequestPolicy.canSendRemoteRequest(
+                captured: international,
+                latest: latest
+            ))
+            #expect(!AIRegionRequestPolicy.canCommitRemoteResponse(
+                captured: international,
+                latest: latest
+            ))
+        }
+    }
 }
 
 @Suite("AI provider routing")

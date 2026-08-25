@@ -19,6 +19,7 @@ final class MusicIntelligenceService {
         var apiStyle: AICompatibleAPIStyle
         var query: String
         var languageCode: String
+        var regionRevision: UInt64
     }
 
     private struct SemanticPlanCacheEntry {
@@ -41,7 +42,9 @@ final class MusicIntelligenceService {
     }
 
     func start() {
-        Task { await regionAvailability.refresh() }
+        regionAvailability.start { [weak self] in
+            self?.semanticPlanCache.removeAll(keepingCapacity: true)
+        }
     }
 
     var shouldExposeRemoteConfiguration: Bool {
@@ -61,7 +64,8 @@ final class MusicIntelligenceService {
     func semanticSearchPlan(for query: String) async -> AISemanticSearchPlan? {
         let configuration = settingsStore.configuration
         let consent = settingsStore.hasExplicitRemoteConsent
-        let region = regionAvailability.context
+        let regionSnapshot = regionAvailability.snapshot
+        let region = regionSnapshot.context
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isSemanticSearchConfigured, !trimmedQuery.isEmpty else { return nil }
 
@@ -75,7 +79,8 @@ final class MusicIntelligenceService {
                 options: [.caseInsensitive, .diacriticInsensitive],
                 locale: .current
             ),
-            languageCode: languageCode
+            languageCode: languageCode,
+            regionRevision: regionSnapshot.revision
         )
         let now = ProcessInfo.processInfo.systemUptime
         if let cached = semanticPlanCache[cacheKey],
@@ -84,6 +89,10 @@ final class MusicIntelligenceService {
         }
 
         do {
+            guard AIRegionRequestPolicy.canSendRemoteRequest(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot
+            ) else { return nil }
             let plan = try await engine.interpretSearch(
                 AISemanticSearchRequest(
                     query: trimmedQuery,
@@ -91,8 +100,13 @@ final class MusicIntelligenceService {
                 ),
                 configuration: configuration,
                 regionContext: region,
-                hasExplicitRemoteConsent: consent
+                hasExplicitRemoteConsent: consent,
+                requestAuthorization: regionAuthorization(for: regionSnapshot)
             )
+            guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot
+            ) else { return nil }
             guard !plan.expandedTerms.isEmpty || !plan.themes.isEmpty || !plan.moods.isEmpty else {
                 return nil
             }
@@ -153,7 +167,8 @@ final class MusicIntelligenceService {
         hasExplicitRemoteConsent: Bool,
         apiKey: String?
     ) async throws {
-        let region = regionAvailability.context
+        let regionSnapshot = regionAvailability.snapshot
+        let region = regionSnapshot.context
         let decision = AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
             regionContext: region
@@ -176,8 +191,29 @@ final class MusicIntelligenceService {
             configuration: enabledConfiguration,
             regionContext: region,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent,
-            apiKeyOverride: apiKey
+            apiKeyOverride: apiKey,
+            requestAuthorization: regionAuthorization(for: regionSnapshot)
         )
+        guard AIRegionRequestPolicy.canCommitRemoteResponse(
+            captured: regionSnapshot,
+            latest: regionAvailability.snapshot
+        ) else {
+            throw MusicIntelligenceError.unavailable(.temporarilyUnavailable)
+        }
+    }
+
+    private func regionAuthorization(
+        for captured: AIRegionSnapshot
+    ) -> @Sendable () async -> Bool {
+        let availability = regionAvailability
+        return {
+            await MainActor.run {
+                AIRegionRequestPolicy.canSendRemoteRequest(
+                    captured: captured,
+                    latest: availability.snapshot
+                )
+            }
+        }
     }
 }
 
@@ -193,7 +229,8 @@ private actor MusicIntelligenceEngine {
         configuration: AIRemoteProviderConfiguration,
         regionContext: AIRegionContext,
         hasExplicitRemoteConsent: Bool,
-        apiKeyOverride: String? = nil
+        apiKeyOverride: String? = nil,
+        requestAuthorization: @escaping @Sendable () async -> Bool = { true }
     ) async throws -> AISemanticSearchPlan {
         let candidates = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
@@ -211,7 +248,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            apiKeyOverride: apiKeyOverride
+            apiKeyOverride: apiKeyOverride,
+            requestAuthorization: requestAuthorization
         )
         switch await provider.runtimeAvailability() {
         case .available:
