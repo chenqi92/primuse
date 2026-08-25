@@ -343,6 +343,27 @@ public enum SourceSyncCommitPolicy {
     }
 }
 
+public enum SourceScanLifecycleCompletion: Sendable, Equatable {
+    case committedSnapshot
+    case committedNoChanges
+    case uncommitted
+    case failed
+    case cancelled
+}
+
+public enum SourceScanLifecyclePolicy {
+    public static func shouldNotifySuccessfulScan(
+        for completion: SourceScanLifecycleCompletion
+    ) -> Bool {
+        switch completion {
+        case .committedSnapshot, .committedNoChanges:
+            true
+        case .uncommitted, .failed, .cancelled:
+            false
+        }
+    }
+}
+
 /// Energy-conscious cadence for provider-native change feeds. Directory-walk
 /// sources deliberately do not use this policy because a background wake must
 /// never turn into an unrequested NAS-wide traversal.

@@ -1603,6 +1603,10 @@ final class ScanService {
             scanStates[source.id] = Self.completedScanState(
                 reconciliation: candidateState.reconciliation
             )
+            publishSuccessfulScanLifecycle(
+                sourceID: source.id,
+                completion: .committedNoChanges
+            )
             return true
         }
 
@@ -1777,10 +1781,23 @@ final class ScanService {
             await serverFavoriteSyncHandler?(source)
             await serverRadioSyncHandler?(source)
         }
-        successfulSourceScanHandler?(sourceID)
+        publishSuccessfulScanLifecycle(
+            sourceID: sourceID,
+            completion: .committedSnapshot
+        )
     }
 
     // MARK: - Helpers
+
+    private func publishSuccessfulScanLifecycle(
+        sourceID: String,
+        completion: SourceScanLifecycleCompletion
+    ) {
+        guard SourceScanLifecyclePolicy.shouldNotifySuccessfulScan(
+            for: completion
+        ) else { return }
+        successfulSourceScanHandler?(sourceID)
+    }
 
     private func publishBaiduReconciliationProgress(
         sourceID: String,

@@ -43,6 +43,27 @@ struct SourceSyncStateTests {
         ))
     }
 
+    @Test func successfulNoChangeScanNotifiesLifecycleExactlyOnce() {
+        let completions = [SourceScanLifecycleCompletion.committedNoChanges]
+        let notificationCount = completions.count {
+            SourceScanLifecyclePolicy.shouldNotifySuccessfulScan(for: $0)
+        }
+
+        #expect(notificationCount == 1)
+    }
+
+    @Test func unsuccessfulOrUncommittedScansDoNotNotifyLifecycle() {
+        for completion in [
+            SourceScanLifecycleCompletion.failed,
+            .cancelled,
+            .uncommitted,
+        ] {
+            #expect(!SourceScanLifecyclePolicy.shouldNotifySuccessfulScan(
+                for: completion
+            ))
+        }
+    }
+
     @Test func stateRoundTripsWithPendingDirectoryQueue() throws {
         let item = SourceSyncIndexedItem(
             stableKey: "id:1",
