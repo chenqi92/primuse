@@ -714,7 +714,11 @@ private struct MacSTIntelligenceView: View {
                     }
                     MacSTRow(String(localized: "ai_base_url")) {
                         MacSTTextField(
-                            text: editor.configurationBinding(\.baseURL, clearModels: true),
+                            text: editor.configurationBinding(
+                                \.baseURL,
+                                clearModels: true,
+                                updatesProviderPreset: true
+                            ),
                             prompt: "https://api.openai.com/v1"
                         )
                     }
@@ -747,7 +751,8 @@ private struct MacSTIntelligenceView: View {
                         MacSTPicker(
                             selection: editor.configurationBinding(
                                 \.apiPathMode,
-                                clearModels: true
+                                clearModels: true,
+                                updatesProviderPreset: true
                             ),
                             options: [
                                 (.automatic, String(localized: "ai_path_mode_automatic")),
@@ -761,7 +766,8 @@ private struct MacSTIntelligenceView: View {
                         MacSTPicker(
                             selection: editor.configurationBinding(
                                 \.authenticationStyle,
-                                clearModels: true
+                                clearModels: true,
+                                updatesProviderPreset: true
                             ),
                             options: [
                                 (

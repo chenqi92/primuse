@@ -20,6 +20,7 @@ final class AISettingsEditorModel {
     }
 
     var draftConfiguration = AIRemoteProviderConfiguration()
+    var selectedProviderPreset: AIProviderPreset = .custom
     var consent = false
     var apiKeyDraft = ""
     var hasStoredAPIKey = false
@@ -57,6 +58,9 @@ final class AISettingsEditorModel {
         didLoad = true
         await intelligence.regionAvailability.refresh()
         draftConfiguration = intelligence.settingsStore.configuration
+        selectedProviderPreset = AIProviderPreset.matching(
+            configuration: draftConfiguration
+        )
         consent = intelligence.settingsStore.hasExplicitRemoteConsent
         hasStoredAPIKey = await intelligence.hasStoredAPIKey(configuration: draftConfiguration)
         storedAPIKeyScope = hasStoredAPIKey ? draftCredentialScope : nil
@@ -64,12 +68,18 @@ final class AISettingsEditorModel {
 
     func configurationBinding<Value>(
         _ keyPath: WritableKeyPath<AIRemoteProviderConfiguration, Value>,
-        clearModels: Bool = false
+        clearModels: Bool = false,
+        updatesProviderPreset: Bool = false
     ) -> Binding<Value> {
         Binding(
             get: { self.draftConfiguration[keyPath: keyPath] },
             set: { value in
                 self.draftConfiguration[keyPath: keyPath] = value
+                if updatesProviderPreset {
+                    self.selectedProviderPreset = AIProviderPreset.matching(
+                        configuration: self.draftConfiguration
+                    )
+                }
                 self.draftDidChange(clearModels: clearModels)
             }
         )
@@ -97,14 +107,20 @@ final class AISettingsEditorModel {
 
     var providerPresetBinding: Binding<AIProviderPreset> {
         Binding(
-            get: { AIProviderPreset.matching(configuration: self.draftConfiguration) },
-            set: { preset in
-                guard preset != .custom else { return }
-                self.draftConfiguration = preset.applying(to: self.draftConfiguration)
-                self.apiKeyDraft = ""
-                self.draftDidChange(clearModels: true)
-            }
+            get: { self.selectedProviderPreset },
+            set: { self.applyProviderPreset($0) }
         )
+    }
+
+    func applyProviderPreset(_ preset: AIProviderPreset) {
+        selectedProviderPreset = preset
+        guard preset != .custom else {
+            status = .idle
+            return
+        }
+        draftConfiguration = preset.applying(to: draftConfiguration)
+        apiKeyDraft = ""
+        draftDidChange(clearModels: true)
     }
 
     var apiStyleBinding: Binding<AICompatibleAPIStyle> {
@@ -115,6 +131,9 @@ final class AISettingsEditorModel {
                 if !self.draftConfiguration.supportsEmbeddings {
                     self.draftConfiguration.embeddingModel = ""
                 }
+                self.selectedProviderPreset = AIProviderPreset.matching(
+                    configuration: self.draftConfiguration
+                )
                 self.draftDidChange(clearModels: true)
             }
         )
@@ -396,7 +415,11 @@ struct AISettingsView: View {
 
             TextField(
                 "ai_base_url",
-                text: editor.configurationBinding(\.baseURL, clearModels: true)
+                text: editor.configurationBinding(
+                    \.baseURL,
+                    clearModels: true,
+                    updatesProviderPreset: true
+                )
             )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -420,7 +443,11 @@ struct AISettingsView: View {
 
             Picker(
                 "ai_path_mode",
-                selection: editor.configurationBinding(\.apiPathMode, clearModels: true)
+                selection: editor.configurationBinding(
+                    \.apiPathMode,
+                    clearModels: true,
+                    updatesProviderPreset: true
+                )
             ) {
                 Text("ai_path_mode_automatic").tag(AIAPIPathMode.automatic)
                 Text("ai_path_mode_as_entered").tag(AIAPIPathMode.asEntered)
@@ -429,7 +456,11 @@ struct AISettingsView: View {
 
             Picker(
                 "ai_authentication_style",
-                selection: editor.configurationBinding(\.authenticationStyle, clearModels: true)
+                selection: editor.configurationBinding(
+                    \.authenticationStyle,
+                    clearModels: true,
+                    updatesProviderPreset: true
+                )
             ) {
                 Text("ai_authentication_style_automatic")
                     .tag(AIAuthenticationStyle.automatic)

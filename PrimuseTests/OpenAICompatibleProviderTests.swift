@@ -523,6 +523,48 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue(editor.canFetchModels)
     }
 
+    @MainActor
+    func testProviderPresetSelectionHasStableExplicitState() {
+        let editor = AISettingsEditorModel()
+        editor.apiKeyDraft = "temporary-key"
+
+        editor.applyProviderPreset(.anthropic)
+
+        XCTAssertEqual(editor.selectedProviderPreset, .anthropic)
+        XCTAssertEqual(editor.providerPresetBinding.wrappedValue, .anthropic)
+        XCTAssertEqual(editor.draftConfiguration.baseURL, "https://api.anthropic.com")
+        XCTAssertEqual(editor.draftConfiguration.apiStyle, .anthropicMessages)
+        XCTAssertTrue(editor.apiKeyDraft.isEmpty)
+
+        editor.applyProviderPreset(.custom)
+
+        XCTAssertEqual(editor.selectedProviderPreset, .custom)
+        XCTAssertEqual(editor.providerPresetBinding.wrappedValue, .custom)
+        XCTAssertEqual(editor.draftConfiguration.baseURL, "https://api.anthropic.com")
+    }
+
+    @MainActor
+    func testEditingProviderConnectionRecomputesPresetWithoutMenuFeedback() {
+        let editor = AISettingsEditorModel()
+        editor.applyProviderPreset(.openAI)
+
+        editor.configurationBinding(
+            \.baseURL,
+            clearModels: true,
+            updatesProviderPreset: true
+        ).wrappedValue = "https://relay.example.com"
+
+        XCTAssertEqual(editor.selectedProviderPreset, .custom)
+
+        editor.configurationBinding(
+            \.baseURL,
+            clearModels: true,
+            updatesProviderPreset: true
+        ).wrappedValue = "https://api.openai.com"
+
+        XCTAssertEqual(editor.selectedProviderPreset, .openAI)
+    }
+
     private func makeProvider(
         host: String,
         apiStyle: AICompatibleAPIStyle
