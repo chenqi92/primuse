@@ -3013,6 +3013,7 @@
 "stats_server_error_account_ambiguous" = "伺服器歷史包含多個帳號，無法安全顯示。";
 "stats_server_error_history_changed" = "分頁讀取期間聽歌歷史發生變化，請重試。";
 "stats_server_error_unsupported" = "此來源沒有可讀取的伺服器聽歌統計。";
+"stats_server_error_connector_unavailable" = "目前來源設定無法使用伺服器統計連接器。";
 "stats_server_error_invalid_payload" = "伺服器傳回了不支援的統計資料。";
 "stats_server_source" = "伺服器來源";
 "stats_server_last_updated" = "最近更新";

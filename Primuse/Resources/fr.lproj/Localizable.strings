@@ -3036,6 +3036,7 @@
 "stats_server_error_account_ambiguous" = "L’historique du serveur contient plusieurs comptes et ne peut pas être affiché en toute sécurité.";
 "stats_server_error_history_changed" = "L’historique d’écoute a changé pendant la pagination. Réessayez.";
 "stats_server_error_unsupported" = "Cette source ne fournit pas de statistiques d’écoute serveur lisibles.";
+"stats_server_error_connector_unavailable" = "Le connecteur de statistiques serveur n’est pas disponible pour cette configuration de source.";
 "stats_server_error_invalid_payload" = "Le serveur a renvoyé un format de statistiques non pris en charge.";
 "stats_server_source" = "Source serveur";
 "stats_server_last_updated" = "Dernière mise à jour";

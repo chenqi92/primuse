@@ -119,6 +119,25 @@ final class ServerListeningStatsServiceTests: XCTestCase {
         }
     }
 
+    func testInitialRefreshFailureDoesNotClaimCachedDataIsShown() async {
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "primuse-listening-stats-tests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let service = ServerListeningStatsService(
+            snapshotStore: ServerListeningStatsSnapshotStore(directoryURL: directoryURL),
+            fetchPayload: { _ in throw FixtureError.offline }
+        )
+
+        await service.activate(source: makeSource())
+
+        XCTAssertNil(service.snapshot)
+        XCTAssertTrue(service.staleReasons.isEmpty)
+        XCTAssertFalse(service.isStale)
+        XCTAssertNotNil(service.errorMessage)
+    }
+
     func testSuccessfulRefreshReplacesCachedAccountAndClearsStaleState() async throws {
         try await withSnapshotStore { store, _ in
             let now = Date(timeIntervalSince1970: 500_000)

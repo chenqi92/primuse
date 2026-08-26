@@ -289,7 +289,9 @@ final class ServerListeningStatsService {
             return
         } catch {
             guard isCurrent(token, source) else { return }
-            staleReasons.insert(.refreshFailed)
+            if snapshot != nil {
+                staleReasons.insert(.refreshFailed)
+            }
             errorMessage = error.localizedDescription
         }
     }

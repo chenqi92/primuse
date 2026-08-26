@@ -3037,6 +3037,7 @@
 "stats_server_error_account_ambiguous" = "サーバー履歴に複数のアカウントが含まれるため、安全に表示できません。";
 "stats_server_error_history_changed" = "ページ取得中に再生履歴が変更されました。もう一度お試しください。";
 "stats_server_error_unsupported" = "このソースには読み取り可能なサーバー再生統計がありません。";
+"stats_server_error_connector_unavailable" = "このソース設定ではサーバー統計コネクタを利用できません。";
 "stats_server_error_invalid_payload" = "サーバーから未対応の統計形式が返されました。";
 "stats_server_source" = "サーバーソース";
 "stats_server_last_updated" = "最終更新";

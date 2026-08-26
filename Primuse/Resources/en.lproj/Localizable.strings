@@ -2823,6 +2823,7 @@
 "stats_server_error_account_ambiguous" = "The server history contains multiple accounts and cannot be shown safely.";
 "stats_server_error_history_changed" = "Listening history changed during pagination. Try again.";
 "stats_server_error_unsupported" = "This source does not expose readable server listening statistics.";
+"stats_server_error_connector_unavailable" = "The server statistics connector is unavailable for this source configuration.";
 "stats_server_error_invalid_payload" = "The server returned an unsupported statistics payload.";
 "stats_server_source" = "Server Source";
 "stats_server_last_updated" = "Last Updated";

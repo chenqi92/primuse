@@ -3036,6 +3036,7 @@
 "stats_server_error_account_ambiguous" = "Der Serververlauf enthält mehrere Konten und kann nicht sicher angezeigt werden.";
 "stats_server_error_history_changed" = "Der Hörverlauf hat sich während der Seitennavigation geändert. Bitte erneut versuchen.";
 "stats_server_error_unsupported" = "Diese Quelle bietet keine lesbaren serverseitigen Hörstatistiken.";
+"stats_server_error_connector_unavailable" = "Der Serverstatistik-Connector ist für diese Quellenkonfiguration nicht verfügbar.";
 "stats_server_error_invalid_payload" = "Der Server hat ein nicht unterstütztes Statistikformat geliefert.";
 "stats_server_source" = "Serverquelle";
 "stats_server_last_updated" = "Zuletzt aktualisiert";

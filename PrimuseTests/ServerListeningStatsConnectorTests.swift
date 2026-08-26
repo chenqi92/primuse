@@ -5,6 +5,37 @@ import XCTest
 
 @MainActor
 final class ServerListeningStatsConnectorTests: XCTestCase {
+    func testCredentialFailureIsNotMisreportedAsUnsupportedCapability() async {
+        let connector = CredentialUnavailableSourceConnector(
+            sourceID: "stats-credential-failure",
+            failure: .failed(-1)
+        )
+
+        do {
+            _ = try await connector.fetchServerListeningStats()
+            XCTFail("Expected credential failure")
+        } catch SourceError.credentialUnavailable(_) {
+            // Expected: a supported service remains supported while its credential is unavailable.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testMissingRouteIsNotMisreportedAsUnsupportedCapability() async {
+        let connector = NoAvailableConnectionSourceConnector(
+            sourceID: "stats-missing-route"
+        )
+
+        do {
+            _ = try await connector.fetchServerListeningStats()
+            XCTFail("Expected route failure")
+        } catch SourceError.connectionFailed(_) {
+            // Expected: route selection remains a recoverable connection failure.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testGenericSubsonicReadsAggregateStatisticsFromLegacyAlbumWalk() async throws {
         try await assertSubsonicStatistics(
             sourceType: .subsonic,
@@ -56,7 +87,7 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
     func testPlexUsesTimestampedHistoryWithoutInventingDuration() async throws {
         let source = makeMediaSource(kind: .plex) { request in
             switch request.url?.path {
-            case "/":
+            case "", "/":
                 return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1","apiVersion":"1.0"}}"#)
             case "/library/sections":
                 return try Self.response(request, json: #"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#)
@@ -85,7 +116,7 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
             let path = request.url?.path ?? ""
             paths.append(path)
             switch path {
-            case "/":
+            case "", "/":
                 return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
             case "/library/sections":
                 return try Self.response(request, json: #"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#)
@@ -111,7 +142,7 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
             let path = request.url?.path ?? ""
             paths.append(path)
             switch path {
-            case "/":
+            case "", "/":
                 return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
             case "/library/sections":
                 return try Self.response(request, json: #"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#)
@@ -128,13 +159,14 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         } catch {
             // Expected: a server failure must not trigger aggregate fallback.
         }
+        XCTAssertTrue(paths.values.contains("/status/sessions/history/all"))
         XCTAssertFalse(paths.values.contains("/library/sections/1/all"))
     }
 
     func testPlexRejectsHistoryThatMixesAccounts() async throws {
         let source = makeMediaSource(kind: .plex) { request in
             switch request.url?.path {
-            case "/":
+            case "", "/":
                 return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
             case "/library/sections":
                 return try Self.response(request, json: #"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#)
@@ -157,7 +189,7 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         let historyRequests = LockedCounter()
         let source = makeMediaSource(kind: .plex) { request in
             switch request.url?.path {
-            case "/":
+            case "", "/":
                 return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
             case "/library/sections":
                 return try Self.response(request, json: #"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#)
@@ -185,7 +217,7 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
     func testConnectorCancellationPropagatesWithoutFallback() async throws {
         let source = makeMediaSource(kind: .plex) { request in
             switch request.url?.path {
-            case "/":
+            case "", "/":
                 return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
             case "/library/sections":
                 return try Self.response(request, json: #"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#)

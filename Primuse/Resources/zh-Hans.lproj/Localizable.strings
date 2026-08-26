@@ -3140,6 +3140,7 @@
 "stats_server_error_account_ambiguous" = "服务端历史包含多个账号，无法安全展示。";
 "stats_server_error_history_changed" = "分页读取期间听歌历史发生变化，请重试。";
 "stats_server_error_unsupported" = "此来源没有可读取的服务端听歌统计。";
+"stats_server_error_connector_unavailable" = "当前来源配置无法使用服务端统计连接器。";
 "stats_server_error_invalid_payload" = "服务端返回了不受支持的统计数据。";
 "stats_server_source" = "服务端来源";
 "stats_server_last_updated" = "最近更新";

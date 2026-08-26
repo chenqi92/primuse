@@ -5410,11 +5410,19 @@ final class SourceManager {
     func fetchServerListeningStats(
         for source: MusicSource
     ) async throws -> ServerListeningStatsPayload? {
-        guard source.type.serverListeningStatsCapability != .unavailable,
-              let connector = connector(for: source) as? any ServerListeningStatsConnector else {
-            return nil
+        guard source.type.serverListeningStatsCapability != .unavailable else { return nil }
+        let connector = connector(for: source)
+        if let provider = connector as? any ServerListeningStatsConnector {
+            return try await provider.fetchServerListeningStats()
         }
-        return try await connector.fetchServerListeningStats()
+
+        // If a supported source ever resolves to a connector without this optional
+        // capability, preserve any concrete connection error before reporting the
+        // implementation mismatch. It must not be presented as an unsupported service.
+        try await connector.connect()
+        throw SourceError.connectionFailed(
+            String(localized: "stats_server_error_connector_unavailable")
+        )
     }
 
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
