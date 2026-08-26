@@ -13,8 +13,9 @@ import UIKit
 ///
 /// Lifecycle:
 /// - A real library/source mutation marks the durable queue dirty. iOS runs it
-///   in background/BGProcessing windows, using a serial throttled profile while
-///   playback is active.
+///   primarily in background/BGProcessing windows. A completed foreground
+///   source scan gets one small serial pass so new rows can surface metadata
+///   without restarting whole-library foreground maintenance.
 /// - The standard worker can use a small bounded amount of concurrency. iOS
 ///   background profiles deliberately trade throughput for smooth playback.
 /// - Failed songs (corrupt / missing / decoder rejected) are recorded so we
@@ -832,6 +833,9 @@ final class MetadataBackfillService {
                 self.refreshRemainingCounts(force: true)
                 self.updateWaitingForWiFiState(presentPrompt: true)
                 self.endBackgroundTaskIfHeld()
+                if self.executionMode == .foregroundAfterSourceScan {
+                    self.setExecutionMode(.standard)
+                }
                 // 完成通知 ── 处理 >= 5 首才发, 避免每次 worker 短跑都打扰用户。
                 // hasPendingWork == false 表示当前没遗留 ── 队列全清才算"完成"。
                 // postIfEnabled 内部会检查用户在设置页是否开了开关 + 系统是否已授权,
@@ -897,6 +901,9 @@ final class MetadataBackfillService {
         pendingCount = 0
         updateWaitingForWiFiState(presentPrompt: false)
         endBackgroundTaskIfHeld()
+        if executionMode == .foregroundAfterSourceScan {
+            setExecutionMode(.standard)
+        }
     }
 
     /// Re-evaluate active work after a source was enabled or disabled. Only
@@ -919,10 +926,11 @@ final class MetadataBackfillService {
         refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
     }
 
-    /// A completed source scan proves that catalogue access has recovered. If
-    /// an older outage exhausted the source-wide backfill circuit breaker,
-    /// grant the still-unresolved rows one fresh bounded retry budget. A normal
-    /// successful scan does not touch a partially consumed budget.
+    /// A completed source scan proves that catalogue access has recovered and
+    /// may also have committed brand-new bare rows. If an older outage exhausted
+    /// the source-wide backfill circuit breaker, grant the unresolved rows one
+    /// fresh bounded retry budget. Every successful scan with eligible rows
+    /// refreshes the queue; an active iOS scene runs only one gentle pass.
     func sourceScanSucceeded(forSourceID sourceID: String) {
         let retryableSongIDs = Set(library.songs.lazy.filter { [self] song in
             song.sourceID == sourceID
@@ -931,24 +939,36 @@ final class MetadataBackfillService {
                 && !sessionStallParkedIDs.contains(song.id)
                 && needsBackfill(song)
         }.map(\.id))
+        guard !retryableSongIDs.isEmpty else { return }
+
         let sourceAttemptCount = sourceTransientFailureCounts[sourceID] ?? 0
-        guard MetadataBackfillSourceRecoveryPolicy.shouldRenewRetryBudget(
+        if MetadataBackfillSourceRecoveryPolicy.shouldRenewRetryBudget(
             sourceAttemptCount: sourceAttemptCount,
             unresolvedSongCount: retryableSongIDs.count
-        ) else { return }
-
-        sessionGivenUpIDs.subtract(retryableSongIDs)
-        sessionNetworkParkedIDs.subtract(retryableSongIDs)
-        for songID in retryableSongIDs {
-            transientFailureCounts[songID] = nil
+        ) {
+            sessionGivenUpIDs.subtract(retryableSongIDs)
+            sessionNetworkParkedIDs.subtract(retryableSongIDs)
+            for songID in retryableSongIDs {
+                transientFailureCounts[songID] = nil
+            }
+            sourceTransientFailureCounts[sourceID] = nil
+            saveRetryCounts()
+            plog(
+                "📥 Backfill: successful source scan renewed exhausted retry budget "
+                    + "source=\(sourceID) unresolved=\(retryableSongIDs.count)"
+            )
         }
-        sourceTransientFailureCounts[sourceID] = nil
-        saveRetryCounts()
-        plog(
-            "📥 Backfill: successful source scan renewed exhausted retry budget "
-                + "source=\(sourceID) unresolved=\(retryableSongIDs.count)"
-        )
-        refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
+
+        #if os(iOS)
+        if UIApplication.shared.applicationState == .active {
+            setExecutionMode(.foregroundAfterSourceScan)
+            refreshQueue(startImmediately: true)
+        } else {
+            refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
+        }
+        #else
+        refreshQueue()
+        #endif
     }
 
     /// Drop queued work for a source that was removed. The
@@ -1436,6 +1456,7 @@ final class MetadataBackfillService {
         // would be picked again, causing duplicate Range fetches and a
         // weird-looking processedCount that grows past pendingCount.
         var lastSnapshotIDs: Set<String> = []
+        var completedSnapshotPasses = 0
         while !Task.isCancelled {
             let blockedByCellular = await MainActor.run { [self] in shouldBlockForCellular() }
             if blockedByCellular {
@@ -1443,8 +1464,15 @@ final class MetadataBackfillService {
                 break
             }
 
+            let limits = await MainActor.run { [self] in
+                MetadataBackfillExecutionPolicy.limits(for: executionMode)
+            }
+            if let snapshotPassLimit = limits.snapshotPassLimit,
+               completedSnapshotPasses >= snapshotPassLimit {
+                break
+            }
+
             let snapshot = await MainActor.run { [self] in
-                let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
                 return pickNextBatch(limit: limits.snapshotLimit)
             }
             if snapshot.isEmpty { break }
@@ -1479,6 +1507,7 @@ final class MetadataBackfillService {
 
             activeSourceIDs = Set(snapshot.map(\.sourceID))
             await processSnapshot(snapshot)
+            completedSnapshotPasses += 1
         }
     }
 

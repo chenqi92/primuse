@@ -2507,6 +2507,11 @@ public enum MetadataBackfillEligibilityPolicy {
 /// becomes even gentler while audio is the user-facing foreground workload.
 public enum MetadataBackfillExecutionMode: Sendable, Equatable {
     case standard
+    /// A source scan just committed new bare rows while the iOS scene is
+    /// interactive. Process one small serial pass so newly-added songs do not
+    /// remain stuck at "reading details", then leave any large remainder to
+    /// background maintenance.
+    case foregroundAfterSourceScan
     case background
     case backgroundDuringPlayback
 }
@@ -2516,17 +2521,20 @@ public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
     public let snapshotLimit: Int
     public let interRequestDelay: TimeInterval
     public let flushInterval: TimeInterval
+    public let snapshotPassLimit: Int?
 
     public init(
         workerCount: Int,
         snapshotLimit: Int,
         interRequestDelay: TimeInterval,
-        flushInterval: TimeInterval
+        flushInterval: TimeInterval,
+        snapshotPassLimit: Int? = nil
     ) {
         self.workerCount = workerCount
         self.snapshotLimit = snapshotLimit
         self.interRequestDelay = interRequestDelay
         self.flushInterval = flushInterval
+        self.snapshotPassLimit = snapshotPassLimit
     }
 }
 
@@ -2541,6 +2549,14 @@ public enum MetadataBackfillExecutionPolicy {
                 snapshotLimit: 500,
                 interRequestDelay: 0,
                 flushInterval: 5
+            )
+        case .foregroundAfterSourceScan:
+            MetadataBackfillExecutionLimits(
+                workerCount: 1,
+                snapshotLimit: 24,
+                interRequestDelay: 0.75,
+                flushInterval: 15,
+                snapshotPassLimit: 1
             )
         case .background:
             MetadataBackfillExecutionLimits(
