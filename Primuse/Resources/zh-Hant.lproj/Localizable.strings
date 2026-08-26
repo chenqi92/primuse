@@ -2867,6 +2867,16 @@
 "player_lyrics_alignment_left" = "靠左對齊";
 "player_lyrics_alignment_center" = "置中對齊";
 "player_lyrics_alignment_right" = "靠右對齊";
+"player_current_lyric_color" = "目前歌詞顏色";
+"player_lyrics_color_default" = "預設";
+"player_lyrics_color_custom" = "自訂";
+"player_lyrics_color_gradient" = "漸層";
+"player_lyrics_custom_color" = "自訂顏色";
+"player_lyrics_gradient_start_color" = "漸層起始色";
+"player_lyrics_gradient_end_color" = "漸層結束色";
+"player_lyrics_color_preview" = "預覽";
+"player_lyrics_color_preview_sample" = "正在播放的歌詞";
+"player_current_lyric_color_description" = "僅變更目前歌詞與逐字高亮顏色；非目前歌詞維持原有樣式。";
 "player_blur_inactive_lyrics" = "非目前歌詞模糊";
 "player_blur_inactive_lyrics_description" = "輕微模糊目前行以外的同步歌詞，突顯正在播放的歌詞。";
 "server_favorite_unsupported" = "此來源不支援伺服器收藏。";

@@ -2890,6 +2890,16 @@
 "player_lyrics_alignment_left" = "Links";
 "player_lyrics_alignment_center" = "Zentriert";
 "player_lyrics_alignment_right" = "Rechts";
+"player_current_lyric_color" = "Farbe der aktuellen Liedzeile";
+"player_lyrics_color_default" = "Standard";
+"player_lyrics_color_custom" = "Benutzerdefiniert";
+"player_lyrics_color_gradient" = "Verlauf";
+"player_lyrics_custom_color" = "Benutzerdefinierte Farbe";
+"player_lyrics_gradient_start_color" = "Startfarbe des Verlaufs";
+"player_lyrics_gradient_end_color" = "Endfarbe des Verlaufs";
+"player_lyrics_color_preview" = "Vorschau";
+"player_lyrics_color_preview_sample" = "Aktuell gesungene Zeile";
+"player_current_lyric_color_description" = "Ändert nur die aktuelle Zeile und die wortweise Hervorhebung; inaktive Liedtexte behalten ihr bisheriges Aussehen.";
 "player_blur_inactive_lyrics" = "Inaktiven Liedtext weichzeichnen";
 "player_blur_inactive_lyrics_description" = "Synchronisierte Liedtexte außer der aktuellen Zeile werden leicht weichgezeichnet, damit die aktuelle Zeile hervorsticht.";
 "server_favorite_unsupported" = "Diese Quelle unterstützt keine Serverfavoriten.";

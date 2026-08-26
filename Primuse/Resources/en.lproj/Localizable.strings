@@ -2677,6 +2677,16 @@
 "player_lyrics_alignment_left" = "Left";
 "player_lyrics_alignment_center" = "Center";
 "player_lyrics_alignment_right" = "Right";
+"player_current_lyric_color" = "Current Lyrics Color";
+"player_lyrics_color_default" = "Default";
+"player_lyrics_color_custom" = "Custom";
+"player_lyrics_color_gradient" = "Gradient";
+"player_lyrics_custom_color" = "Custom Color";
+"player_lyrics_gradient_start_color" = "Gradient Start Color";
+"player_lyrics_gradient_end_color" = "Gradient End Color";
+"player_lyrics_color_preview" = "Preview";
+"player_lyrics_color_preview_sample" = "Now playing lyrics";
+"player_current_lyric_color_description" = "Changes only the current line and word-level highlight color; inactive lyrics keep their existing appearance.";
 "player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
 "player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";
 "server_favorite_unsupported" = "This source does not support server favorites.";

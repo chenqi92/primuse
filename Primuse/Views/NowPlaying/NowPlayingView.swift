@@ -4298,6 +4298,14 @@ struct LyricsScrollView: View {
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
+    private var lyricsColorModeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.customLyricsColorHexKey)
+    private var customLyricsColorHex = PlayerAppearancePreferences.defaultCustomLyricsColorHex
+    @AppStorage(PlayerAppearancePreferences.gradientLyricsStartColorHexKey)
+    private var gradientLyricsStartColorHex = PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+    @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
+    private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
@@ -4368,6 +4376,10 @@ struct LyricsScrollView: View {
         PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue
     }
 
+    private var lyricsColorMode: PlayerLyricsColorMode {
+        PlayerLyricsColorMode(rawValue: lyricsColorModeRawValue) ?? .defaultValue
+    }
+
     private var lyricLayoutDirection: LayoutDirection {
         switch lyricsWritingDirection {
         case .natural:
@@ -4381,6 +4393,52 @@ struct LyricsScrollView: View {
 
     private var lyricsScaleAnchor: UnitPoint {
         lyricsAlignment.scaleAnchor(in: lyricLayoutDirection)
+    }
+
+    private func currentLyricStyle(opacity: Double = 1) -> AnyShapeStyle {
+        let resolvedOpacity = min(max(opacity, 0), 1)
+        switch lyricsColorMode {
+        case .defaultColor:
+            return AnyShapeStyle(appearance.primary.opacity(resolvedOpacity))
+        case .custom:
+            return AnyShapeStyle(
+                lyricsColor(
+                    from: customLyricsColorHex,
+                    fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex
+                )
+                .opacity(resolvedOpacity)
+            )
+        case .gradient:
+            let startPoint: UnitPoint = lyricLayoutDirection == .rightToLeft ? .trailing : .leading
+            let endPoint: UnitPoint = lyricLayoutDirection == .rightToLeft ? .leading : .trailing
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [
+                        lyricsColor(
+                            from: gradientLyricsStartColorHex,
+                            fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+                        )
+                        .opacity(resolvedOpacity),
+                        lyricsColor(
+                            from: gradientLyricsEndColorHex,
+                            fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+                        )
+                        .opacity(resolvedOpacity),
+                    ],
+                    startPoint: startPoint,
+                    endPoint: endPoint
+                )
+            )
+        }
+    }
+
+    private func lyricsColor(from storedHex: String, fallback: String) -> Color {
+        Color(
+            hex: PlayerAppearancePreferences.normalizedLyricsColorHex(
+                storedHex,
+                fallback: fallback
+            )
+        )
     }
 
     var body: some View {
@@ -5079,7 +5137,9 @@ struct LyricsScrollView: View {
                 line: line,
                 fontSize: fontSize,
                 weight: weight,
-                activeColor: appearance.primary.opacity(activeOpacity),
+                activeStyle: isActive
+                    ? currentLyricStyle(opacity: activeOpacity)
+                    : AnyShapeStyle(appearance.primary.opacity(activeOpacity)),
                 inactiveColor: appearance.primary.opacity(inactiveOpacity),
                 textAlignment: textAlignment,
                 writingDirection: lyricsWritingDirection,
@@ -5092,20 +5152,35 @@ struct LyricsScrollView: View {
         } else {
             Text(line.text)
                 .font(.system(size: fontSize, weight: weight))
-                .foregroundStyle(
-                    dimmedByAmbient
-                        ? appearance.primary
-                        : isActive ? appearance.primary
-                        : index < currentLineIndex
-                            ? appearance.primary.opacity(appearance.pastLyricOpacity)
-                            : appearance.primary.opacity(appearance.futureLyricOpacity)
-                )
+                .foregroundStyle(lyricLineStyle(
+                    isActive: isActive,
+                    index: index,
+                    dimmedByAmbient: dimmedByAmbient
+                ))
                 .multilineTextAlignment(textAlignment)
                 // 长歌词在窄屏 / 放大字号下需要 wrap 多行。不加 fixedSize 时 SwiftUI
                 // 在某些 layout 约束下会单行 + 省略号; 而靠近当前行时切到 KaraokeLineView
                 // (它有 fixedSize) 会展开多行 → 视觉上"省略号展开收起"的跳动。
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func lyricLineStyle(
+        isActive: Bool,
+        index: Int,
+        dimmedByAmbient: Bool
+    ) -> AnyShapeStyle {
+        if isActive {
+            return currentLyricStyle()
+        }
+        if dimmedByAmbient {
+            return AnyShapeStyle(appearance.primary)
+        }
+        return AnyShapeStyle(
+            index < currentLineIndex
+                ? appearance.primary.opacity(appearance.pastLyricOpacity)
+                : appearance.primary.opacity(appearance.futureLyricOpacity)
+        )
     }
 
     /// 字级模式 row 的视觉状态。

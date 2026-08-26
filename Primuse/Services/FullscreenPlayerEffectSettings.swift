@@ -6,8 +6,41 @@ enum PlayerAppearancePreferences {
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
     static let lyricsAlignmentKey = "primuse.player.lyricsAlignment"
+    static let lyricsColorModeKey = "primuse.player.lyricsColorMode"
+    static let customLyricsColorHexKey = "primuse.player.customLyricsColorHex"
+    static let gradientLyricsStartColorHexKey = "primuse.player.gradientLyricsStartColorHex"
+    static let gradientLyricsEndColorHexKey = "primuse.player.gradientLyricsEndColorHex"
     static let blursInactiveLyricsKey = "primuse.player.blursInactiveLyrics"
     static let blursInactiveLyricsByDefault = false
+
+    static let defaultCustomLyricsColorHex = "0A84FF"
+    static let defaultGradientLyricsStartColorHex = "FF375F"
+    static let defaultGradientLyricsEndColorHex = "AF52DE"
+
+    static func normalizedLyricsColorHex(_ value: String, fallback: String) -> String {
+        AppThemePreferences.normalizedHex(value, fallback: fallback)
+    }
+}
+
+enum PlayerLyricsColorMode: String, CaseIterable, Identifiable {
+    case defaultColor = "default"
+    case custom
+    case gradient
+
+    static let defaultValue = PlayerLyricsColorMode.defaultColor
+
+    var id: String { rawValue }
+
+    var localizedTitle: LocalizedStringKey {
+        switch self {
+        case .defaultColor:
+            "player_lyrics_color_default"
+        case .custom:
+            "player_lyrics_color_custom"
+        case .gradient:
+            "player_lyrics_color_gradient"
+        }
+    }
 }
 
 enum PlayerLyricsAlignment: String, CaseIterable, Identifiable {

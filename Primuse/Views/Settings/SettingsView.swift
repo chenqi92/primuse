@@ -274,6 +274,14 @@ private struct PlayerAppearanceSettingsView: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
+    private var lyricsColorModeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.customLyricsColorHexKey)
+    private var customLyricsColorHex = PlayerAppearancePreferences.defaultCustomLyricsColorHex
+    @AppStorage(PlayerAppearancePreferences.gradientLyricsStartColorHexKey)
+    private var gradientLyricsStartColorHex = PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+    @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
+    private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
 
@@ -286,6 +294,64 @@ private struct PlayerAppearanceSettingsView: View {
         )
     }
 
+    private var selectedLyricsColorMode: PlayerLyricsColorMode {
+        PlayerLyricsColorMode(rawValue: lyricsColorModeRawValue) ?? .defaultValue
+    }
+
+    private var lyricsColorMode: Binding<PlayerLyricsColorMode> {
+        Binding(
+            get: { selectedLyricsColorMode },
+            set: { lyricsColorModeRawValue = $0.rawValue }
+        )
+    }
+
+    private var customLyricsColor: Binding<Color> {
+        storedColorBinding(
+            $customLyricsColorHex,
+            fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex
+        )
+    }
+
+    private var gradientLyricsStartColor: Binding<Color> {
+        storedColorBinding(
+            $gradientLyricsStartColorHex,
+            fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+        )
+    }
+
+    private var gradientLyricsEndColor: Binding<Color> {
+        storedColorBinding(
+            $gradientLyricsEndColorHex,
+            fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+        )
+    }
+
+    private var lyricsColorPreviewStyle: AnyShapeStyle {
+        switch selectedLyricsColorMode {
+        case .defaultColor:
+            AnyShapeStyle(Color.primary)
+        case .custom:
+            AnyShapeStyle(color(from: customLyricsColorHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex))
+        case .gradient:
+            AnyShapeStyle(
+                LinearGradient(
+                    colors: [
+                        color(
+                            from: gradientLyricsStartColorHex,
+                            fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+                        ),
+                        color(
+                            from: gradientLyricsEndColorHex,
+                            fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+                        ),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+        }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -295,6 +361,51 @@ private struct PlayerAppearanceSettingsView: View {
             }
 
             Section {
+                Picker("player_current_lyric_color", selection: lyricsColorMode) {
+                    ForEach(PlayerLyricsColorMode.allCases) { mode in
+                        Text(mode.localizedTitle)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("playerLyricsColorModePicker")
+
+                switch selectedLyricsColorMode {
+                case .defaultColor:
+                    EmptyView()
+                case .custom:
+                    ColorPicker(
+                        "player_lyrics_custom_color",
+                        selection: customLyricsColor,
+                        supportsOpacity: false
+                    )
+                    .accessibilityIdentifier("playerLyricsCustomColorPicker")
+                case .gradient:
+                    ColorPicker(
+                        "player_lyrics_gradient_start_color",
+                        selection: gradientLyricsStartColor,
+                        supportsOpacity: false
+                    )
+                    .accessibilityIdentifier("playerLyricsGradientStartColorPicker")
+
+                    ColorPicker(
+                        "player_lyrics_gradient_end_color",
+                        selection: gradientLyricsEndColor,
+                        supportsOpacity: false
+                    )
+                    .accessibilityIdentifier("playerLyricsGradientEndColorPicker")
+                }
+
+                HStack(spacing: 12) {
+                    Text("player_lyrics_color_preview")
+                    Spacer(minLength: 12)
+                    Text("player_lyrics_color_preview_sample")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(lyricsColorPreviewStyle)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
                 Picker("player_lyrics_alignment", selection: lyricsAlignment) {
                     ForEach(PlayerLyricsAlignment.allCases) { alignment in
                         Text(alignment.localizedTitle)
@@ -307,11 +418,50 @@ private struct PlayerAppearanceSettingsView: View {
             } header: {
                 Text("player_lyrics_section")
             } footer: {
-                Text("player_blur_inactive_lyrics_description")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("player_current_lyric_color_description")
+                    Text("player_blur_inactive_lyrics_description")
+                }
             }
         }
         .navigationTitle("player_appearance_title")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func color(from storedHex: String, fallback: String) -> Color {
+        Color(
+            hex: PlayerAppearancePreferences.normalizedLyricsColorHex(
+                storedHex,
+                fallback: fallback
+            )
+        )
+    }
+
+    private func storedColorBinding(
+        _ storage: Binding<String>,
+        fallback: String
+    ) -> Binding<Color> {
+        Binding(
+            get: { color(from: storage.wrappedValue, fallback: fallback) },
+            set: { storage.wrappedValue = Self.hex(from: $0, fallback: fallback) }
+        )
+    }
+
+    private static func hex(from color: Color, fallback: String) -> String {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return fallback
+        }
+
+        return String(
+            format: "%02X%02X%02X",
+            Int(round(red * 255)),
+            Int(round(green * 255)),
+            Int(round(blue * 255))
+        )
     }
 }
 #endif

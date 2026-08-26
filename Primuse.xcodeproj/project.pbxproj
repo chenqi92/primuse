@@ -722,6 +722,7 @@
 		D41AE27EAA6E1A88B0CF1C98 /* LocalFileSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DF35A49EBE68F0FDA253D9A /* LocalFileSource.swift */; };
 		D42E2411F8E52B854968A2D4 /* CloudDirectoryNameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */; };
 		D44C804D29B918B9E036F646 /* SongBatchRemovalFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263A86C2200AD024B88E6E9A /* SongBatchRemovalFeedback.swift */; };
+		D49A69585083A36B4261ED1D /* PlayerLyricsColorPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF4C2C2431FCAFEEBF27ABE /* PlayerLyricsColorPreferencesTests.swift */; };
 		D4BA7D2927A0037D9895C527 /* SynologyQuickConnectResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */; };
 		D56E6EABC2D5A470A539695A /* LyricsEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFBF61EBCA02E9282931D3B /* LyricsEditorView.swift */; };
 		D5DABD2F05D069BF9C02C7A7 /* EmbeddedMetadataWritebackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21027666DF946697326B985E /* EmbeddedMetadataWritebackCoordinator.swift */; };
@@ -1198,6 +1199,7 @@
 		4CFE0AB34758413DB8B02463 /* Primuse-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Primuse-Bridging-Header.h"; sourceTree = "<group>"; };
 		4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4DB4788BFEC669118576E7E2 /* U115Source.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = U115Source.swift; sourceTree = "<group>"; };
+		4DF4C2C2431FCAFEEBF27ABE /* PlayerLyricsColorPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerLyricsColorPreferencesTests.swift; sourceTree = "<group>"; };
 		4E0A23AFAAE5609F948E3DB0 /* LyricsEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsEditorSheet.swift; sourceTree = "<group>"; };
 		4E1B508C874118EA9DD7CFCD /* TVImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVImmersivePlayerView.swift; sourceTree = "<group>"; };
 		4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseAppIntents.swift; sourceTree = "<group>"; };
@@ -2621,6 +2623,7 @@
 				F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */,
 				87FA91B87714FFD617E3E449 /* MusicLibraryLikedMutationTests.swift */,
 				0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */,
+				4DF4C2C2431FCAFEEBF27ABE /* PlayerLyricsColorPreferencesTests.swift */,
 				BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */,
 				57E5CB7F4B45F29DC1E8F30D /* ServerListeningStatsConnectorTests.swift */,
 				31F300281145AEB5C3A9BC87 /* ServerListeningStatsServiceTests.swift */,
@@ -3156,6 +3159,7 @@
 				953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */,
 				46B89AF5A8627B7DF1D799FC /* MusicLibraryLikedMutationTests.swift in Sources */,
 				E0F81CCC4D4D80C022C98A59 /* OpenAICompatibleProviderTests.swift in Sources */,
+				D49A69585083A36B4261ED1D /* PlayerLyricsColorPreferencesTests.swift in Sources */,
 				F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */,
 				0942CA3CF25753C75FD0119F /* ServerListeningStatsConnectorTests.swift in Sources */,
 				75EB658DF4EA4FA781A5A776 /* ServerListeningStatsServiceTests.swift in Sources */,

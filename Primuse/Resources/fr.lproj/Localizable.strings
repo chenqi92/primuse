@@ -2890,6 +2890,16 @@
 "player_lyrics_alignment_left" = "À gauche";
 "player_lyrics_alignment_center" = "Centré";
 "player_lyrics_alignment_right" = "À droite";
+"player_current_lyric_color" = "Couleur des paroles actuelles";
+"player_lyrics_color_default" = "Par défaut";
+"player_lyrics_color_custom" = "Personnalisée";
+"player_lyrics_color_gradient" = "Dégradé";
+"player_lyrics_custom_color" = "Couleur personnalisée";
+"player_lyrics_gradient_start_color" = "Couleur de début du dégradé";
+"player_lyrics_gradient_end_color" = "Couleur de fin du dégradé";
+"player_lyrics_color_preview" = "Aperçu";
+"player_lyrics_color_preview_sample" = "Paroles en cours";
+"player_current_lyric_color_description" = "Modifie uniquement la ligne actuelle et la surbrillance mot par mot ; les autres paroles conservent leur apparence.";
 "player_blur_inactive_lyrics" = "Flouter les paroles inactives";
 "player_blur_inactive_lyrics_description" = "Floute légèrement les paroles synchronisées sauf la ligne actuelle afin de mettre en valeur ce qui est chanté.";
 "server_favorite_unsupported" = "Cette source ne prend pas en charge les favoris du serveur.";

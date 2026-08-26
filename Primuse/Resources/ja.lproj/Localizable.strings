@@ -2891,6 +2891,16 @@
 "player_lyrics_alignment_left" = "左揃え";
 "player_lyrics_alignment_center" = "中央揃え";
 "player_lyrics_alignment_right" = "右揃え";
+"player_current_lyric_color" = "現在の歌詞の色";
+"player_lyrics_color_default" = "デフォルト";
+"player_lyrics_color_custom" = "カスタム";
+"player_lyrics_color_gradient" = "グラデーション";
+"player_lyrics_custom_color" = "カスタムカラー";
+"player_lyrics_gradient_start_color" = "グラデーションの開始色";
+"player_lyrics_gradient_end_color" = "グラデーションの終了色";
+"player_lyrics_color_preview" = "プレビュー";
+"player_lyrics_color_preview_sample" = "再生中の歌詞";
+"player_current_lyric_color_description" = "現在行と単語単位のハイライト色のみを変更し、それ以外の歌詞は元の表示を維持します。";
 "player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
 "player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";
 "server_favorite_unsupported" = "This source does not support server favorites.";

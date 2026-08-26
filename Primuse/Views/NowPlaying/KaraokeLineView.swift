@@ -5,10 +5,9 @@ import PrimuseKit
 /// flow layout 自动换行。每帧由 60Hz `TimelineView(.animation)` 驱动。
 ///
 /// 字级动效细节:
-/// - **字内 mask 扫光**: 每个 syllable 由两层 Text 叠加 — 底层 inactive 色,
-///   顶层 active 色 + LinearGradient mask, mask 的「可见区」随 progress 沿
-///   书写方向扫过。单字内部能看到柔和的明暗过渡, 不再是
-///   整字一起亮。
+/// - **字内 mask 扫光**: 底层逐字绘制 inactive 色，整行 active 填充通过
+///   每个 syllable 的进度 mask 露出。这样既保留字内过渡，也能让渐变色
+///   在整行坐标系连续绘制。
 /// - **字级 bounce**: 当前唱的字 scale 1.0 → 1.04 → 1.0 走 sin 曲线, 像被
 ///   节奏「点」起来一下。anchor=.bottom 让字向上抬, 不影响行高。
 /// - **lookahead 提前唤醒 100ms**: 字真正唱出来那一刻, 扫光已基本到位。
@@ -18,7 +17,7 @@ struct KaraokeLineView: View {
     let line: LyricLine
     let fontSize: CGFloat
     let weight: Font.Weight
-    let activeColor: Color
+    let activeStyle: AnyShapeStyle
     let inactiveColor: Color
     let textAlignment: TextAlignment
     /// Presentation direction resolved from the document's `[la:...]` header.
@@ -44,7 +43,7 @@ struct KaraokeLineView: View {
         line: LyricLine,
         fontSize: CGFloat,
         weight: Font.Weight,
-        activeColor: Color,
+        activeStyle: AnyShapeStyle,
         inactiveColor: Color,
         textAlignment: TextAlignment = .leading,
         writingDirection: LyricWritingDirection = .natural,
@@ -57,7 +56,7 @@ struct KaraokeLineView: View {
         self.line = line
         self.fontSize = fontSize
         self.weight = weight
-        self.activeColor = activeColor
+        self.activeStyle = activeStyle
         self.inactiveColor = inactiveColor
         self.textAlignment = textAlignment
         self.writingDirection = writingDirection
@@ -66,6 +65,36 @@ struct KaraokeLineView: View {
         self.isAnimationEnabled = isAnimationEnabled
         self.animatesSyllableBounce = animatesSyllableBounce
         self.deactivationTime = deactivationTime
+    }
+
+    init(
+        line: LyricLine,
+        fontSize: CGFloat,
+        weight: Font.Weight,
+        activeColor: Color,
+        inactiveColor: Color,
+        textAlignment: TextAlignment = .leading,
+        writingDirection: LyricWritingDirection = .natural,
+        timeAt: @escaping (Date) -> TimeInterval,
+        fixedTime: TimeInterval? = nil,
+        isAnimationEnabled: Bool = true,
+        animatesSyllableBounce: Bool = true,
+        deactivationTime: TimeInterval? = nil
+    ) {
+        self.init(
+            line: line,
+            fontSize: fontSize,
+            weight: weight,
+            activeStyle: AnyShapeStyle(activeColor),
+            inactiveColor: inactiveColor,
+            textAlignment: textAlignment,
+            writingDirection: writingDirection,
+            timeAt: timeAt,
+            fixedTime: fixedTime,
+            isAnimationEnabled: isAnimationEnabled,
+            animatesSyllableBounce: animatesSyllableBounce,
+            deactivationTime: deactivationTime
+        )
     }
 
     /// 扫光提前进入过渡的时间 — 让字真正唱出来的时刻已经亮了 80-90%。
@@ -129,19 +158,14 @@ struct KaraokeLineView: View {
     @ViewBuilder
     private func renderLine(at now: TimeInterval) -> some View {
         if let syllables = line.syllables, !syllables.isEmpty {
-            LyricsFlowLayout(
-                measurementKey: fontSize,
-                layoutDirection: lyricLayoutDirection,
-                textAlignment: textAlignment
-            ) {
-                ForEach(syllables.indices, id: \.self) { i in
-                    syllableView(syllables[i], at: now)
-                        .environment(\.layoutDirection, lyricLayoutDirection)
+            inactiveSyllableLayer(syllables, at: now)
+                .overlay {
+                    Rectangle()
+                        .fill(activeStyle)
+                        .mask {
+                            activeSyllableMask(syllables, at: now)
+                        }
                 }
-            }
-            // Keep the custom layout's coordinate space physical. Individual
-            // lyric views still receive the document direction for shaping.
-            .environment(\.layoutDirection, .leftToRight)
         } else {
             Text(line.text)
                 .font(.system(size: fontSize, weight: weight))
@@ -177,27 +201,66 @@ struct KaraokeLineView: View {
         }
     }
 
-    /// 单个 syllable: 双层 Text + 扫光 mask + scale bounce。
-    @ViewBuilder
-    private func syllableView(_ syl: LyricSyllable, at now: TimeInterval) -> some View {
-        let sweepProgress = computeSweepProgress(syl: syl, now: now)
-        let bumpProgress = computeBumpProgress(syl: syl, now: now)
-        let scale = animatesSyllableBounce
-            ? 1.0 + Self.bumpAmount * bellCurve(bumpProgress)
-            : 1.0
-        ZStack {
-            // 底层: inactive 色, 总是显示
-            Text(syl.text)
-                .foregroundStyle(inactiveColor)
-            // 顶层: active 色, 用 mask 露出 progress 部分
-            Text(syl.text)
-                .foregroundStyle(activeColor)
-                .mask(sweepMask(progress: sweepProgress))
+    private func inactiveSyllableLayer(
+        _ syllables: [LyricSyllable],
+        at now: TimeInterval
+    ) -> some View {
+        LyricsFlowLayout(
+            measurementKey: fontSize,
+            layoutDirection: lyricLayoutDirection,
+            textAlignment: textAlignment
+        ) {
+            ForEach(syllables.indices, id: \.self) { index in
+                inactiveSyllable(syllables[index], at: now)
+                    .environment(\.layoutDirection, lyricLayoutDirection)
+            }
         }
-        .font(.system(size: fontSize, weight: weight))
-        .scaleEffect(scale, anchor: .bottom)
-        // 防止 fixedSize 把多字节字符拆开
-        .fixedSize()
+        // Keep the custom layout's coordinate space physical. Individual
+        // lyric views still receive the document direction for shaping.
+        .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private func activeSyllableMask(
+        _ syllables: [LyricSyllable],
+        at now: TimeInterval
+    ) -> some View {
+        LyricsFlowLayout(
+            measurementKey: fontSize,
+            layoutDirection: lyricLayoutDirection,
+            textAlignment: textAlignment
+        ) {
+            ForEach(syllables.indices, id: \.self) { index in
+                activeSyllableMask(syllables[index], at: now)
+                    .environment(\.layoutDirection, lyricLayoutDirection)
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private func inactiveSyllable(_ syllable: LyricSyllable, at now: TimeInterval) -> some View {
+        let scale = syllableScale(syllable, at: now)
+        return Text(syllable.text)
+            .foregroundStyle(inactiveColor)
+            .font(.system(size: fontSize, weight: weight))
+            .scaleEffect(scale, anchor: .bottom)
+            .fixedSize()
+    }
+
+    private func activeSyllableMask(_ syllable: LyricSyllable, at now: TimeInterval) -> some View {
+        let sweepProgress = computeSweepProgress(syl: syllable, now: now)
+        let scale = syllableScale(syllable, at: now)
+        return Text(syllable.text)
+            .foregroundStyle(.white)
+            .font(.system(size: fontSize, weight: weight))
+            .mask(sweepMask(progress: sweepProgress))
+            .scaleEffect(scale, anchor: .bottom)
+            .fixedSize()
+    }
+
+    private func syllableScale(_ syllable: LyricSyllable, at now: TimeInterval) -> Double {
+        guard animatesSyllableBounce else { return 1 }
+        let bumpProgress = computeBumpProgress(syl: syllable, now: now)
+        return 1.0 + Self.bumpAmount * bellCurve(bumpProgress)
     }
 
     /// 「扫光」mask: 沿文档书写方向推进；只改变字内的视觉填充方向，

@@ -2890,6 +2890,16 @@
 "player_lyrics_alignment_left" = "왼쪽";
 "player_lyrics_alignment_center" = "가운데";
 "player_lyrics_alignment_right" = "오른쪽";
+"player_current_lyric_color" = "현재 가사 색상";
+"player_lyrics_color_default" = "기본";
+"player_lyrics_color_custom" = "사용자 지정";
+"player_lyrics_color_gradient" = "그라데이션";
+"player_lyrics_custom_color" = "사용자 지정 색상";
+"player_lyrics_gradient_start_color" = "그라데이션 시작 색상";
+"player_lyrics_gradient_end_color" = "그라데이션 끝 색상";
+"player_lyrics_color_preview" = "미리보기";
+"player_lyrics_color_preview_sample" = "현재 재생 중인 가사";
+"player_current_lyric_color_description" = "현재 줄과 단어별 강조 색상만 변경하며, 나머지 가사는 기존 스타일을 유지합니다.";
 "player_blur_inactive_lyrics" = "현재 외 가사 흐리게";
 "player_blur_inactive_lyrics_description" = "현재 줄을 강조하도록 현재 줄 이외의 동기화된 가사를 살짝 흐리게 표시합니다.";
 "server_favorite_unsupported" = "이 소스는 서버 즐겨찾기를 지원하지 않습니다.";
