@@ -2,9 +2,10 @@ import SwiftUI
 import PrimuseKit
 
 /// 歌词翻译设置 — 用 Apple Translation Framework 离线翻译。
-/// 第一次启用 + 首次播放时, 系统会弹出对应语言对的下载提示
-/// (~100MB), 用户接受后下载完毕后续秒翻译。
+/// 已安装语言包自动工作；缺少语言包时播放器先显示显式翻译操作，只有用户
+/// 点击后才允许系统展示下载或源语言确认界面。
 struct LyricsTranslationSettingsView: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @State private var cacheCount: Int = 0
@@ -20,14 +21,16 @@ struct LyricsTranslationSettingsView: View {
 
             if settings.isEnabled {
                 Section {
-                    Picker("lyrics_translation_mode", selection: $settings.mode) {
+                    Picker("lyrics_translation_mode", selection: displayedMode) {
                         Text("lyrics_translation_mode_system")
                             .tag(LyricsTranslationMode.system)
-                        Text("lyrics_translation_mode_intelligent")
-                            .tag(LyricsTranslationMode.intelligentWithSystemFallback)
+                        if intelligence.shouldExposeRemoteConfiguration {
+                            Text("lyrics_translation_mode_intelligent")
+                                .tag(LyricsTranslationMode.intelligentWithSystemFallback)
+                        }
                     }
                 } footer: {
-                    Text(settings.mode == .system
+                    Text(displayedMode.wrappedValue == .system
                          ? "lyrics_translation_mode_system_footer"
                          : "lyrics_translation_mode_intelligent_footer")
                 }
@@ -87,5 +90,14 @@ struct LyricsTranslationSettingsView: View {
         #if os(macOS)
         .macReadablePane(maxWidth: 720)
         #endif
+    }
+
+    private var displayedMode: Binding<LyricsTranslationMode> {
+        Binding(
+            get: {
+                intelligence.shouldExposeRemoteConfiguration ? settings.mode : .system
+            },
+            set: { settings.mode = $0 }
+        )
     }
 }

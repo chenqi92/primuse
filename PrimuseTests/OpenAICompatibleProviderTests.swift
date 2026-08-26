@@ -112,6 +112,57 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue((object["input"] as? String)?.contains("line-1") == true)
     }
 
+    func testRecommendationsUseOpaqueCandidateIDsAndReturnLocalSongIDs() async throws {
+        let host = "intelligence-recommendations.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"summary\":\"A quieter progression\",\"recommendations\":[{\"id\":\"c1\",\"reason\":\"gentle pacing\"},{\"id\":\"c0\",\"reason\":\"familiar opener\"},{\"id\":\"unknown\",\"reason\":\"ignore\"}]}"}"#
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+        let request = AIRecommendationRequest(
+            scene: .bedtime,
+            languageCode: "en",
+            preferences: [
+                AIRecommendationPreference(
+                    title: "Often Played",
+                    artist: "Listener Favorite",
+                    playCount: 12
+                )
+            ],
+            candidates: [
+                AIRecommendationCandidate(
+                    songID: "private-song-id-1",
+                    title: "First Candidate",
+                    artist: "Artist A"
+                ),
+                AIRecommendationCandidate(
+                    songID: "private-song-id-2",
+                    title: "Second Candidate",
+                    artist: "Artist B"
+                ),
+            ]
+        )
+
+        let plan = try await provider.recommendations(request)
+
+        XCTAssertEqual(plan.selections.map(\.songID), [
+            "private-song-id-2", "private-song-id-1",
+        ])
+        XCTAssertEqual(plan.summary, "A quieter progression")
+        let sentRequest = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let body = try XCTUnwrap(sentRequest.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let input = try XCTUnwrap(object["input"] as? String)
+        XCTAssertTrue(input.contains("First Candidate"))
+        XCTAssertTrue(input.contains("\"id\":\"c0\""))
+        XCTAssertFalse(input.contains("private-song-id"))
+        XCTAssertFalse(input.contains("filePath"))
+        XCTAssertFalse(input.contains("sourceID"))
+        XCTAssertFalse(input.contains("lyrics"))
+    }
+
     func testChatCompletionsResponseIsSupportedThroughTheSameInterface() async throws {
         let host = "intelligence-chat.invalid"
         IntelligenceURLProtocol.configure(
@@ -573,14 +624,111 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                 fallbackEnabled: true
             ),
             semanticSearchEnabled: true,
-            hasExplicitRemoteConsent: true
+            recommendationsEnabled: true,
+            hasExplicitRemoteConsent: true,
+            hasExplicitListeningContextConsent: true
         )
 
         let reloaded = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
         XCTAssertEqual(reloaded.providerSet.routedProviders.map(\.id), [second.id, first.id])
         XCTAssertTrue(reloaded.providerSet.fallbackEnabled)
         XCTAssertTrue(reloaded.semanticSearchEnabled)
+        XCTAssertTrue(reloaded.recommendationsEnabled)
         XCTAssertTrue(reloaded.hasExplicitRemoteConsent)
+        XCTAssertTrue(reloaded.hasExplicitListeningContextConsent)
+    }
+
+    @MainActor
+    func testVersionTwoSettingsMigrateWithoutGrantingListeningContextConsent() throws {
+        struct LegacySettingsV2: Codable {
+            var schemaVersion: Int
+            var providerSet: AIRemoteProviderSet
+            var semanticSearchEnabled: Bool
+            var hasExplicitRemoteConsent: Bool
+        }
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let provider = AIRemoteProviderConfiguration(
+            generationModel: "legacy-model",
+            isEnabled: true
+        )
+        defaults.set(
+            try JSONEncoder().encode(LegacySettingsV2(
+                schemaVersion: 2,
+                providerSet: AIRemoteProviderSet(
+                    providers: [provider],
+                    primaryProviderID: provider.id,
+                    fallbackEnabled: false
+                ),
+                semanticSearchEnabled: true,
+                hasExplicitRemoteConsent: true
+            )),
+            forKey: AISettingsStore.storageKey
+        )
+
+        let migrated = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+
+        XCTAssertTrue(migrated.semanticSearchEnabled)
+        XCTAssertTrue(migrated.hasExplicitRemoteConsent)
+        XCTAssertFalse(migrated.recommendationsEnabled)
+        XCTAssertFalse(migrated.hasExplicitListeningContextConsent)
+    }
+
+    @MainActor
+    func testSystemAndIntelligentLyricsCachesRemainMutuallyExclusive() {
+        let cache = LyricsTranslationCache.shared
+        cache.clearAll()
+        defer { cache.clearAll() }
+
+        cache.setTranslation(
+            "system result",
+            for: "source line",
+            sourceLang: "en",
+            targetLang: "zh-Hans",
+            provider: .system
+        )
+        XCTAssertEqual(
+            cache.translation(
+                for: "source line",
+                sourceLang: "en",
+                targetLang: "zh-Hans",
+                provider: .system
+            ),
+            "system result"
+        )
+        XCTAssertNil(cache.translation(
+            for: "source line",
+            sourceLang: "en",
+            targetLang: "zh-Hans",
+            provider: .intelligent
+        ))
+
+        cache.setTranslation(
+            "intelligent result",
+            for: "source line",
+            sourceLang: "en",
+            targetLang: "zh-Hans",
+            provider: .intelligent
+        )
+        XCTAssertEqual(
+            cache.translation(
+                for: "source line",
+                sourceLang: "en",
+                targetLang: "zh-Hans",
+                provider: .intelligent
+            ),
+            "intelligent result"
+        )
+        XCTAssertEqual(
+            cache.translation(
+                for: "source line",
+                sourceLang: "en",
+                targetLang: "zh-Hans",
+                provider: .system
+            ),
+            "system result"
+        )
     }
 
     @MainActor
@@ -635,6 +783,30 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         ).wrappedValue = "https://api.openai.com"
 
         XCTAssertEqual(editor.selectedProviderPreset, .openAI)
+    }
+
+    @MainActor
+    func testProviderReorderingAndSwitchesControlFallbackOrder() {
+        let editor = AISettingsEditorModel()
+        let primaryID = editor.draftProviderSet.primaryProviderID
+        editor.addProvider()
+        let secondID = editor.selectedProviderID
+        editor.addProvider()
+        let thirdID = editor.selectedProviderID
+
+        editor.moveProvider(thirdID, offset: -1)
+
+        XCTAssertEqual(
+            editor.draftProviderSet.routedProviders.map(\.id),
+            [primaryID, thirdID, secondID]
+        )
+
+        editor.providerEnabledBinding(thirdID).wrappedValue = false
+
+        XCTAssertEqual(
+            editor.draftProviderSet.routedProviders.map(\.id),
+            [primaryID, secondID]
+        )
     }
 
     private func makeProvider(

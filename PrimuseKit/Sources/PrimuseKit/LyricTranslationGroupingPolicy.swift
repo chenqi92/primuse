@@ -28,6 +28,53 @@ public struct LyricTranslationGroup: Equatable, Sendable {
     }
 }
 
+/// One-shot authorization for starting system UI that may prepare or download a
+/// Translation language pair. The authorization is intentionally process-local:
+/// persisted translation settings must never recreate a system prompt after an
+/// app launch or view remount.
+public struct LyricTranslationPreparationRequestGate: Sendable {
+    public private(set) var revision: UInt = 0
+    private var issuedAt: Date?
+    private var consumedRevision: UInt = 0
+
+    public init() {}
+
+    @discardableResult
+    public mutating func issue(at date: Date = Date()) -> UInt {
+        revision &+= 1
+        if revision == 0 {
+            revision = 1
+            consumedRevision = 0
+        }
+        issuedAt = date
+        return revision
+    }
+
+    public mutating func consume(
+        revision requestedRevision: UInt,
+        at date: Date = Date(),
+        maximumAge: TimeInterval = 30
+    ) -> Bool {
+        guard requestedRevision != 0,
+              requestedRevision == revision,
+              requestedRevision != consumedRevision,
+              let issuedAt else {
+            return false
+        }
+        consumedRevision = requestedRevision
+        guard date.timeIntervalSince(issuedAt) >= 0,
+              date.timeIntervalSince(issuedAt) <= maximumAge else {
+            return false
+        }
+        return true
+    }
+
+    public mutating func invalidate() {
+        consumedRevision = revision
+        issuedAt = nil
+    }
+}
+
 /// Produces one Translation batch per source language. Apple Translation
 /// requires every request in a batch to use the same source language, while a
 /// line whose language cannot be identified safely follows the language of the
@@ -125,28 +172,25 @@ public enum LyricTranslationGroupingPolicy {
         }
     }
 
-    /// Automatic playback may translate every already-installed language pair,
-    /// but it should request at most one new language download at a time. A
-    /// noisy per-line language classification must never fan out into a series
-    /// of system sheets. Prefer the downloadable group covering the most lines,
-    /// and only prompt when it represents a meaningful share of the lyric body.
+    /// Automatic playback may only use a known, already-installed language pair.
+    /// A supported-but-not-installed pair and an unknown source language both
+    /// require a separate, explicit user request before a Translation session is
+    /// created, because either case may present system UI.
     public static func automaticSessionGroups(
-        installed: [LyricTranslationGroup],
-        downloadable: [LyricTranslationGroup],
-        totalCandidateCount: Int? = nil
+        installed: [LyricTranslationGroup]
     ) -> [LyricTranslationGroup] {
-        guard var primaryDownload = downloadable.first else { return installed }
-        for group in downloadable.dropFirst()
-            where group.candidates.count > primaryDownload.candidates.count {
-            primaryDownload = group
+        installed.filter { $0.sourceLanguageCode != nil }
+    }
+
+    /// An explicit user action may prepare one language pair at a time. Choosing
+    /// only the largest group prevents one tap from cascading through multiple
+    /// system download or source-language sheets.
+    public static func explicitlyRequestedSessionGroup(
+        preparationRequired: [LyricTranslationGroup]
+    ) -> LyricTranslationGroup? {
+        preparationRequired.max { lhs, rhs in
+            lhs.candidates.count < rhs.candidates.count
         }
-        let groupedCount = (installed + downloadable)
-            .reduce(into: 0) { $0 += $1.candidates.count }
-        let totalCount = max(totalCandidateCount ?? groupedCount, 1)
-        guard primaryDownload.candidates.count * 5 >= totalCount else {
-            return installed
-        }
-        return installed + [primaryDownload]
     }
 
     public static func languageIdentity(_ raw: String) -> String {

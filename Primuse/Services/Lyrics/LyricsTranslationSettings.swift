@@ -17,19 +17,38 @@ final class LyricsTranslationSettingsStore {
     static let shared = LyricsTranslationSettingsStore()
 
     private static let userDefaultsKey = "primuse.lyrics.translation.settings.v1"
+    private static let preparationRequestMaximumAge: TimeInterval = 30
+
+    /// Only a direct tap on the in-player translation action issues this
+    /// process-local revision. Persisted settings, song changes and view remounts
+    /// therefore cannot authorize system language-pack UI by themselves.
+    private(set) var systemPreparationRequestRevision: UInt = 0
+    private var systemPreparationRequestGate = LyricTranslationPreparationRequestGate()
 
     var isEnabled: Bool {
-        didSet { persist(); LyricsTranslationSettingsStore.notifyChanged() }
+        didSet {
+            if !isEnabled { systemPreparationRequestGate.invalidate() }
+            persist()
+            LyricsTranslationSettingsStore.notifyChanged()
+        }
     }
 
     var mode: LyricsTranslationMode {
-        didSet { persist(); LyricsTranslationSettingsStore.notifyChanged() }
+        didSet {
+            if mode != oldValue { systemPreparationRequestGate.invalidate() }
+            persist()
+            LyricsTranslationSettingsStore.notifyChanged()
+        }
     }
 
     /// BCP-47 语言标识 (例如 "zh-Hans" / "zh-Hant" / "en" / "ja")。
     /// 默认跟随系统首选语言, 第一次启动按 Locale.preferredLanguages 推断。
     var targetLanguageCode: String {
-        didSet { persist(); LyricsTranslationSettingsStore.notifyChanged() }
+        didSet {
+            if targetLanguageCode != oldValue { systemPreparationRequestGate.invalidate() }
+            persist()
+            LyricsTranslationSettingsStore.notifyChanged()
+        }
     }
 
     /// `LanguageAvailability` 尚未返回结果时使用的离线候选。设置界面加载后
@@ -127,6 +146,18 @@ final class LyricsTranslationSettingsStore {
         return LyricTranslationGroupingPolicy.needsTranslation(
             detectedSourceLanguageCode: detectedSourceLanguageCode,
             targetLanguageCode: targetLanguageCode
+        )
+    }
+
+    func requestSystemTranslationPreparation() {
+        guard isEnabled else { return }
+        systemPreparationRequestRevision = systemPreparationRequestGate.issue()
+    }
+
+    func consumeSystemTranslationPreparationRequest(revision: UInt) -> Bool {
+        systemPreparationRequestGate.consume(
+            revision: revision,
+            maximumAge: Self.preparationRequestMaximumAge
         )
     }
 

@@ -4202,8 +4202,11 @@ private struct LyricsScaleEnvelopeLayout: Layout {
 private enum LyricsTranslationActivity: Equatable {
     case idle
     case intelligentLoading
+    case intelligentCached
     case intelligentSuccess(provider: String, fallbackDepth: Int)
     case systemFallback
+    case systemPreparationRequired
+    case systemUnavailable
 }
 
 struct LyricsScrollView: View {
@@ -4249,9 +4252,8 @@ struct LyricsScrollView: View {
     @State private var lineAutoFollowResumeTask: Task<Void, Never>? = nil
     private static let manualScrollGracePeriod: TimeInterval = 3.0
 
-    // Translation —— system translation framework
-    // 离线 + 免费, 翻译结果走 LyricsTranslationCache 持久化, 切歌时按当前
-    // 启用状态触发批量翻译。
+    // Translation —— system translation framework。切歌只自动使用已安装且
+    // 源语言明确的语言对；可能出现系统 UI 的准备流程必须由用户显式触发。
     @State private var translatedTextByLineID: [String: String] = [:]
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
     @State private var translationActivity: LyricsTranslationActivity = .idle
@@ -4403,6 +4405,9 @@ struct LyricsScrollView: View {
         case .intelligentLoading:
             Label("lyrics_translation_ai_loading", systemImage: "sparkles")
                 .lyricsTranslationStatusBadgeStyle()
+        case .intelligentCached:
+            Label("lyrics_translation_ai_cached", systemImage: "checkmark.circle.fill")
+                .lyricsTranslationStatusBadgeStyle()
         case .intelligentSuccess(let provider, let fallbackDepth):
             Label(
                 String(
@@ -4417,6 +4422,18 @@ struct LyricsScrollView: View {
             .lyricsTranslationStatusBadgeStyle()
         case .systemFallback:
             Label("lyrics_translation_ai_system_fallback", systemImage: "arrow.uturn.backward.circle")
+                .lyricsTranslationStatusBadgeStyle()
+        case .systemPreparationRequired:
+            Button {
+                lastLyricRowTapAt = Date()
+                translationSettings.requestSystemTranslationPreparation()
+            } label: {
+                Label(String(localized: "Translate Lyrics"), systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.plain)
+            .lyricsTranslationStatusBadgeStyle()
+        case .systemUnavailable:
+            Label("lyrics_translation_unavailable", systemImage: "exclamationmark.triangle")
                 .lyricsTranslationStatusBadgeStyle()
         }
     }
@@ -5217,6 +5234,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         let isEnabled: Bool
         let targetLanguageCode: String
         let mode: LyricsTranslationMode
+        let systemPreparationRequestRevision: UInt
+        let regionRevision: UInt64
     }
 
     private var translationTaskIdentity: TranslationTaskIdentity {
@@ -5227,7 +5246,9 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             targetLanguageCode: LyricsTranslationSettingsStore.normalizedLanguageCode(
                 settings.targetLanguageCode
             ),
-            mode: settings.mode
+            mode: settings.mode,
+            systemPreparationRequestRevision: settings.systemPreparationRequestRevision,
+            regionRevision: intelligence.regionAvailability.revision
         )
     }
 
@@ -5253,22 +5274,14 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         activity = .idle
 
         guard identity.isEnabled, !lyrics.isEmpty else { return }
+        let explicitlyRequested = settings.consumeSystemTranslationPreparationRequest(
+            revision: identity.systemPreparationRequestRevision
+        )
 
         let lyricTexts = lyrics.map(\.text)
         let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLyricsLanguageCode(
             for: lyricTexts
         )
-        guard LyricsTranslationSettingsStore.lyricsNeedTranslation(
-            detectedSourceLanguageCode: fallbackSourceLanguageCode,
-            targetLanguageCode: identity.targetLanguageCode
-        ) else {
-            plog(
-                "Lyrics translation skipped: whole lyric language "
-                    + "\(fallbackSourceLanguageCode ?? "unknown") already matches "
-                    + identity.targetLanguageCode
-            )
-            return
-        }
         let candidates = lyrics.map { line in
             LyricTranslationCandidate(
                 id: line.id,
@@ -5287,26 +5300,22 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         guard !groups.isEmpty else { return }
 
         let cache = LyricsTranslationCache.shared
+        let usesIntelligentProvider = identity.mode == .intelligentWithSystemFallback
+            && intelligence.shouldExposeRemoteConfiguration
+        let preferredCacheProvider: LyricsTranslationCache.ProviderNamespace =
+            usesIntelligentProvider ? .intelligent : .system
         var hits: [String: String] = [:]
         var uncachedGroups: [LyricTranslationGroup] = []
-        var cooledDownLineCount = 0
 
         for group in groups {
             let pending = group.candidates.filter { candidate in
                 if let translated = cache.translation(
                     for: candidate.text,
                     sourceLang: group.sourceLanguageCode,
-                    targetLang: identity.targetLanguageCode
+                    targetLang: identity.targetLanguageCode,
+                    provider: preferredCacheProvider
                 ) {
                     hits[candidate.id] = translated
-                    return false
-                }
-                if cache.isMarkedFailed(
-                    source: candidate.text,
-                    sourceLang: group.sourceLanguageCode,
-                    targetLang: identity.targetLanguageCode
-                ) {
-                    cooledDownLineCount += 1
                     return false
                 }
                 return true
@@ -5323,12 +5332,14 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         translatedTextByLineID = hits
-        if cooledDownLineCount > 0 {
-            plog("Lyrics translation cooldown skipped \(cooledDownLineCount) lines")
+        guard !uncachedGroups.isEmpty else {
+            if preferredCacheProvider == .intelligent, !hits.isEmpty {
+                activity = .intelligentCached
+            }
+            return
         }
-        guard !uncachedGroups.isEmpty else { return }
 
-        if identity.mode == .intelligentWithSystemFallback {
+        if usesIntelligentProvider {
             activity = .intelligentLoading
             let pendingCandidates = uncachedGroups.flatMap(\.candidates)
             if let execution = await intelligence.translateLyrics(
@@ -5344,24 +5355,110 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 }
                 LyricsTranslationCache.shared.bulkSet(
                     cachePairs,
-                    targetLang: identity.targetLanguageCode
+                    targetLang: identity.targetLanguageCode,
+                    provider: .intelligent
                 )
                 translatedTextByLineID.merge(execution.translations) { _, new in new }
-                activity = .intelligentSuccess(
-                    provider: execution.providerName,
-                    fallbackDepth: execution.fallbackDepth
-                )
-                return
+                let translatedIDs = Set(execution.translations.keys)
+                uncachedGroups = uncachedGroups.compactMap { group in
+                    let remaining = group.candidates.filter {
+                        !translatedIDs.contains($0.id)
+                    }
+                    guard !remaining.isEmpty else { return nil }
+                    return LyricTranslationGroup(
+                        id: group.id,
+                        sourceLanguageCode: group.sourceLanguageCode,
+                        candidates: remaining
+                    )
+                }
+                if uncachedGroups.isEmpty {
+                    activity = .intelligentSuccess(
+                        provider: execution.providerName,
+                        fallbackDepth: execution.fallbackDepth
+                    )
+                    return
+                }
             }
             guard !Task.isCancelled, translationTaskIdentity == identity else { return }
             activity = .systemFallback
+
+            var systemPendingGroups: [LyricTranslationGroup] = []
+            for group in uncachedGroups {
+                let pending = group.candidates.filter { candidate in
+                    if let translated = cache.translation(
+                        for: candidate.text,
+                        sourceLang: group.sourceLanguageCode,
+                        targetLang: identity.targetLanguageCode,
+                        provider: .system
+                    ) {
+                        hits[candidate.id] = translated
+                        return false
+                    }
+                    return true
+                }
+                if !pending.isEmpty {
+                    systemPendingGroups.append(LyricTranslationGroup(
+                        id: group.id,
+                        sourceLanguageCode: group.sourceLanguageCode,
+                        candidates: pending
+                    ))
+                }
+            }
+            translatedTextByLineID.merge(hits) { _, new in new }
+            uncachedGroups = systemPendingGroups
+            guard !uncachedGroups.isEmpty else { return }
+        }
+
+        var systemGroups: [LyricTranslationGroup] = []
+        var deferredSystemLineCount = 0
+        for group in uncachedGroups {
+            if !explicitlyRequested, cache.isPairMarkedFailed(
+                sourceLang: group.sourceLanguageCode,
+                targetLang: identity.targetLanguageCode
+            ) {
+                deferredSystemLineCount += group.candidates.count
+                continue
+            }
+
+            let pending = explicitlyRequested ? group.candidates : group.candidates.filter { candidate in
+                if cache.isMarkedFailed(
+                    source: candidate.text,
+                    sourceLang: group.sourceLanguageCode,
+                    targetLang: identity.targetLanguageCode
+                ) {
+                    deferredSystemLineCount += 1
+                    return false
+                }
+                return true
+            }
+            guard !pending.isEmpty else { continue }
+            systemGroups.append(
+                LyricTranslationGroup(
+                    id: group.id,
+                    sourceLanguageCode: group.sourceLanguageCode,
+                    candidates: pending
+                )
+            )
+        }
+        if deferredSystemLineCount > 0 {
+            plog("Lyrics translation cooldown skipped \(deferredSystemLineCount) lines")
+        }
+        guard !systemGroups.isEmpty else {
+            if deferredSystemLineCount > 0 { activity = .systemPreparationRequired }
+            return
         }
 
         let target = Locale.Language(identifier: identity.targetLanguageCode)
         var installedGroups: [LyricTranslationGroup] = []
-        var downloadableGroups: [LyricTranslationGroup] = []
-        for group in uncachedGroups {
+        var preparationRequiredGroups: [LyricTranslationGroup] = []
+        var unsupportedSystemLineCount = 0
+        var shouldOfferPreparation = deferredSystemLineCount > 0
+        for group in systemGroups {
             guard !Task.isCancelled else { return }
+            if group.sourceLanguageCode == nil, !explicitlyRequested {
+                preparationRequiredGroups.append(group)
+                continue
+            }
             do {
                 guard let text = group.candidates.first?.text else { continue }
                 let status = try await Self.translationAvailabilityStatus(
@@ -5372,31 +5469,62 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 
                 switch status {
                 case .installed:
-                    installedGroups.append(group)
+                    if group.sourceLanguageCode == nil {
+                        preparationRequiredGroups.append(group)
+                    } else {
+                        installedGroups.append(group)
+                    }
                 case .supported:
-                    downloadableGroups.append(group)
+                    preparationRequiredGroups.append(group)
+                    plog(
+                        "Lyrics translation language pair requires explicit download: "
+                            + "\(group.sourceLanguageCode ?? "auto") -> "
+                            + identity.targetLanguageCode
+                    )
                 case .unsupported:
+                    unsupportedSystemLineCount += group.candidates.count
                     plog(
                         "Lyrics translation pair unsupported: "
                             + "\(group.sourceLanguageCode ?? "auto") -> "
                             + identity.targetLanguageCode
                     )
                 @unknown default:
+                    unsupportedSystemLineCount += group.candidates.count
                     plog("Lyrics translation availability returned an unknown status")
                 }
             } catch {
+                cache.markPairFailed(
+                    sourceLang: group.sourceLanguageCode,
+                    targetLang: identity.targetLanguageCode
+                )
+                shouldOfferPreparation = true
                 plog("Lyrics translation language detection failed: \(error.localizedDescription)")
             }
         }
 
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
         translatedTextByLineID.merge(hits) { _, new in new }
-        let availableGroups = LyricTranslationGroupingPolicy.automaticSessionGroups(
-            installed: installedGroups,
-            downloadable: downloadableGroups,
-            totalCandidateCount: candidates.count
+        var availableGroups = LyricTranslationGroupingPolicy.automaticSessionGroups(
+            installed: installedGroups
         )
-        guard !availableGroups.isEmpty else { return }
+        if explicitlyRequested,
+           let explicitGroup = LyricTranslationGroupingPolicy.explicitlyRequestedSessionGroup(
+               preparationRequired: preparationRequiredGroups
+           ) {
+            availableGroups.append(explicitGroup)
+            preparationRequiredGroups.removeAll { $0.id == explicitGroup.id }
+        }
+        if !preparationRequiredGroups.isEmpty || shouldOfferPreparation {
+            activity = .systemPreparationRequired
+        }
+        guard !availableGroups.isEmpty else {
+            if preparationRequiredGroups.isEmpty,
+               !shouldOfferPreparation,
+               unsupportedSystemLineCount > 0 {
+                activity = .systemUnavailable
+            }
+            return
+        }
 
         preparedGroups = availableGroups
         activeGroupIndex = 0
@@ -5471,15 +5599,24 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 let id = response.clientIdentifier ?? ""
                 let translated = response.targetText
                 if !id.isEmpty { newStateUpdates[id] = translated }
+                let detectedSourceLanguageCode = LyricsTranslationSettingsStore
+                    .normalizedLanguageCode(response.sourceLanguage.minimalIdentifier)
                 newCachePairs.append(
                     (
                         source: response.sourceText,
-                        sourceLang: LyricsTranslationSettingsStore.normalizedLanguageCode(
-                            response.sourceLanguage.minimalIdentifier
-                        ),
+                        sourceLang: group.sourceLanguageCode,
                         translated: translated
                     )
                 )
+                if group.sourceLanguageCode != detectedSourceLanguageCode {
+                    newCachePairs.append(
+                        (
+                            source: response.sourceText,
+                            sourceLang: detectedSourceLanguageCode,
+                            translated: translated
+                        )
+                    )
+                }
             }
         } catch {
             guard !Task.isCancelled else { return }
@@ -5491,12 +5628,23 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 sourceLang: group.sourceLanguageCode,
                 targetLang: identity.targetLanguageCode
             )
+            LyricsTranslationCache.shared.markPairFailed(
+                sourceLang: group.sourceLanguageCode,
+                targetLang: identity.targetLanguageCode
+            )
             plog("Lyrics translation failed: \(error.localizedDescription)")
         }
 
         if !newCachePairs.isEmpty {
             LyricsTranslationCache.shared.bulkSet(
                 newCachePairs,
+                targetLang: identity.targetLanguageCode,
+                provider: .system
+            )
+        }
+        if !translationFailed {
+            LyricsTranslationCache.shared.clearPairFailure(
+                sourceLang: group.sourceLanguageCode,
                 targetLang: identity.targetLanguageCode
             )
         }
@@ -5511,6 +5659,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         guard !translationFailed else {
+            activity = .systemPreparationRequired
             translationConfig = nil
             preparedGroups = []
             preparedIdentity = nil

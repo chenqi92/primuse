@@ -11,24 +11,34 @@ import PrimuseKit
 final class LyricsTranslationCache {
     static let shared = LyricsTranslationCache()
 
+    enum ProviderNamespace: String, Sendable {
+        case system
+        case intelligent
+    }
+
     private struct Persisted: Codable {
         var schemaVersion: Int?
         var entries: [String: String]  // key → translated text
         /// negative cache: key → 失败时的 Date。系统翻译失败或用户取消语言包
         /// 下载后短时间内不应反复弹出；冷却到期后允许自动恢复。
         var negativeEntries: [String: Date]?
+        /// 语言对级冷却不包含歌词文本，切歌或重建播放器后也不会立即重试
+        /// 同一个失败的系统 Translation session。
+        var pairNegativeEntries: [String: Date]?
         var insertionOrder: [String]?
     }
 
     private var entries: [String: String] = [:]
     private var negativeEntries: [String: Date] = [:]
+    private var pairNegativeEntries: [String: Date] = [:]
     private let fileURL: URL
     private var saveTask: Task<Void, Never>?
 
     /// 内存条目上限 — 超过这个数量按插入顺序丢最早的 (简化 LRU)。
     private static let maxEntries = 5000
     private static let schemaVersion = 2
-    private static let providerVersion = "apple-translation-v2"
+    private static let systemProviderVersion = "apple-translation-v2"
+    private static let intelligentProviderVersion = "intelligent-translation-v1"
     /// 翻译失败的冷却时间。避免同一次播放期间反复抢占系统展示链，同时不会把
     /// 临时资源错误或用户取消下载长期视为不支持。
     private static let negativeTTL: TimeInterval = 10 * 60
@@ -45,15 +55,30 @@ final class LyricsTranslationCache {
     }
 
     /// 取一行的翻译。命中返回 translated, 未缓存返回 nil 让调用方触发翻译。
-    func translation(for source: String, sourceLang: String?, targetLang: String) -> String? {
-        let k = Self.makeKey(text: source, sourceLang: sourceLang, targetLang: targetLang)
+    func translation(
+        for source: String,
+        sourceLang: String?,
+        targetLang: String,
+        provider: ProviderNamespace = .system
+    ) -> String? {
+        let k = Self.makeKey(
+            text: source,
+            sourceLang: sourceLang,
+            targetLang: targetLang,
+            provider: provider
+        )
         return entries[k]
     }
 
     /// 这一行仍处于失败冷却期时别再调用 session.translate，
     /// 系统大概率还会回同样的"无法翻译"。
     func isMarkedFailed(source: String, sourceLang: String?, targetLang: String) -> Bool {
-        let k = Self.makeKey(text: source, sourceLang: sourceLang, targetLang: targetLang)
+        let k = Self.makeKey(
+            text: source,
+            sourceLang: sourceLang,
+            targetLang: targetLang,
+            provider: .system
+        )
         guard let when = negativeEntries[k] else { return false }
         if Date().timeIntervalSince(when) > Self.negativeTTL {
             negativeEntries[k] = nil
@@ -68,9 +93,36 @@ final class LyricsTranslationCache {
         guard !sources.isEmpty else { return }
         let now = Date()
         for s in sources {
-            let k = Self.makeKey(text: s, sourceLang: sourceLang, targetLang: targetLang)
+            let k = Self.makeKey(
+                text: s,
+                sourceLang: sourceLang,
+                targetLang: targetLang,
+                provider: .system
+            )
             negativeEntries[k] = now
         }
+        scheduleSave()
+    }
+
+    func isPairMarkedFailed(sourceLang: String?, targetLang: String) -> Bool {
+        let key = Self.makePairKey(sourceLang: sourceLang, targetLang: targetLang)
+        guard let when = pairNegativeEntries[key] else { return false }
+        if Date().timeIntervalSince(when) > Self.negativeTTL {
+            pairNegativeEntries[key] = nil
+            return false
+        }
+        return true
+    }
+
+    func markPairFailed(sourceLang: String?, targetLang: String) {
+        let key = Self.makePairKey(sourceLang: sourceLang, targetLang: targetLang)
+        pairNegativeEntries[key] = Date()
+        scheduleSave()
+    }
+
+    func clearPairFailure(sourceLang: String?, targetLang: String) {
+        let key = Self.makePairKey(sourceLang: sourceLang, targetLang: targetLang)
+        guard pairNegativeEntries.removeValue(forKey: key) != nil else { return }
         scheduleSave()
     }
 
@@ -79,9 +131,15 @@ final class LyricsTranslationCache {
         _ translated: String,
         for source: String,
         sourceLang: String?,
-        targetLang: String
+        targetLang: String,
+        provider: ProviderNamespace = .system
     ) {
-        let k = Self.makeKey(text: source, sourceLang: sourceLang, targetLang: targetLang)
+        let k = Self.makeKey(
+            text: source,
+            sourceLang: sourceLang,
+            targetLang: targetLang,
+            provider: provider
+        )
         if entries[k] == nil {
             insertionOrder.append(k)
             if insertionOrder.count > Self.maxEntries {
@@ -98,10 +156,16 @@ final class LyricsTranslationCache {
     /// 触发 scheduleSave 多次。
     func bulkSet(
         _ pairs: [(source: String, sourceLang: String?, translated: String)],
-        targetLang: String
+        targetLang: String,
+        provider: ProviderNamespace = .system
     ) {
         for (s, sourceLang, translated) in pairs {
-            let k = Self.makeKey(text: s, sourceLang: sourceLang, targetLang: targetLang)
+            let k = Self.makeKey(
+                text: s,
+                sourceLang: sourceLang,
+                targetLang: targetLang,
+                provider: provider
+            )
             if entries[k] == nil {
                 insertionOrder.append(k)
             }
@@ -121,6 +185,7 @@ final class LyricsTranslationCache {
         entries.removeAll()
         insertionOrder.removeAll()
         negativeEntries.removeAll()
+        pairNegativeEntries.removeAll()
         try? FileManager.default.removeItem(at: fileURL)
     }
 
@@ -128,8 +193,23 @@ final class LyricsTranslationCache {
 
     // MARK: - Private
 
-    private static func makeKey(text: String, sourceLang: String?, targetLang: String) -> String {
+    private static func makeKey(
+        text: String,
+        sourceLang: String?,
+        targetLang: String,
+        provider: ProviderNamespace
+    ) -> String {
+        let providerVersion = provider == .system
+            ? systemProviderVersion : intelligentProviderVersion
         let raw = "\(providerVersion)|\(sourceLang ?? "auto")|\(targetLang)|\(text)"
+        let digest = SHA256.hash(data: Data(raw.utf8))
+        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func makePairKey(sourceLang: String?, targetLang: String) -> String {
+        let source = sourceLang.map(LyricTranslationGroupingPolicy.languageIdentity) ?? "auto"
+        let target = LyricTranslationGroupingPolicy.languageIdentity(targetLang)
+        let raw = "\(systemProviderVersion)|pair|\(source)|\(target)"
         let digest = SHA256.hash(data: Data(raw.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
@@ -147,10 +227,12 @@ final class LyricsTranslationCache {
         // 写盘前把过期的 negative entry 顺手清掉, 不然会无限增长。
         let cutoff = Date().addingTimeInterval(-Self.negativeTTL)
         negativeEntries = negativeEntries.filter { $0.value > cutoff }
+        pairNegativeEntries = pairNegativeEntries.filter { $0.value > cutoff }
         let snapshot = Persisted(
             schemaVersion: Self.schemaVersion,
             entries: entries,
             negativeEntries: negativeEntries,
+            pairNegativeEntries: pairNegativeEntries,
             insertionOrder: insertionOrder
         )
         do {
@@ -184,5 +266,6 @@ final class LyricsTranslationCache {
         // 载入时筛掉超过 TTL 的 negative entry, 避免老条目永远占位。
         let cutoff = Date().addingTimeInterval(-Self.negativeTTL)
         negativeEntries = (decoded.negativeEntries ?? [:]).filter { $0.value > cutoff }
+        pairNegativeEntries = (decoded.pairNegativeEntries ?? [:]).filter { $0.value > cutoff }
     }
 }

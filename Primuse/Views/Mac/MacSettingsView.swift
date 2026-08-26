@@ -671,7 +671,7 @@ private struct MacSTIntelligenceView: View {
 
             MacSTSection(
                 String(localized: "ai_capability_section"),
-                hint: String(localized: "ai_enable_semantic_search_footer")
+                hint: String(localized: "ai_capabilities_footer")
             ) {
                 MacSTGroup {
                     MacSTRow(
@@ -679,6 +679,11 @@ private struct MacSTIntelligenceView: View {
                         divider: false
                     ) {
                         MacSTToggle(isOn: editor.semanticSearchBinding)
+                    }
+                    MacSTRow(
+                        String(localized: "ai_enable_recommendations")
+                    ) {
+                        MacSTToggle(isOn: editor.recommendationsBinding)
                     }
                 }
             }
@@ -869,6 +874,11 @@ private struct MacSTIntelligenceView: View {
                     MacSTRow(String(localized: "ai_remote_consent")) {
                         MacSTToggle(isOn: editor.consentBinding)
                     }
+                    MacSTRow(
+                        String(localized: "ai_listening_context_consent")
+                    ) {
+                        MacSTToggle(isOn: editor.listeningContextConsentBinding)
+                    }
                 }
             }
 
@@ -926,7 +936,7 @@ private struct MacSTIntelligenceView: View {
             isPresented: $showsRemoveProviderConfirmation
         ) {
             Button(String(localized: "ai_remove_provider"), role: .destructive) {
-                Task { await editor.removeSelectedProvider(using: intelligence) }
+                editor.removeSelectedProvider()
             }
             Button(String(localized: "cancel"), role: .cancel) {}
         }
@@ -2758,6 +2768,7 @@ private final class ScraperReorderHandleNSView: NSView {
 // MARK: - ST-05 Lyrics Translation
 
 private struct MacSTLyricsView: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
@@ -2777,19 +2788,13 @@ private struct MacSTLyricsView: View {
                 MacSTRow(String(localized: "lyrics_translation_mode")) {
                     MacSTPicker(
                         selection: Binding(
-                            get: { settings.mode.rawValue },
+                            get: {
+                                intelligence.shouldExposeRemoteConfiguration
+                                    ? settings.mode.rawValue : LyricsTranslationMode.system.rawValue
+                            },
                             set: { settings.mode = LyricsTranslationMode(rawValue: $0) ?? .system }
                         ),
-                        options: [
-                            (
-                                LyricsTranslationMode.system.rawValue,
-                                String(localized: "lyrics_translation_mode_system")
-                            ),
-                            (
-                                LyricsTranslationMode.intelligentWithSystemFallback.rawValue,
-                                String(localized: "lyrics_translation_mode_intelligent")
-                            ),
-                        ]
+                        options: lyricsTranslationModeOptions
                     )
                 }
                 MacSTRow(Lz("Target Language")) {
@@ -2825,6 +2830,20 @@ private struct MacSTLyricsView: View {
                 }
             }
         }
+    }
+
+    private var lyricsTranslationModeOptions: [(String, String)] {
+        var options = [(
+            LyricsTranslationMode.system.rawValue,
+            String(localized: "lyrics_translation_mode_system")
+        )]
+        if intelligence.shouldExposeRemoteConfiguration {
+            options.append((
+                LyricsTranslationMode.intelligentWithSystemFallback.rawValue,
+                String(localized: "lyrics_translation_mode_intelligent")
+            ))
+        }
+        return options
     }
 }
 

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -98,15 +99,29 @@ struct LyricTranslationGroupingPolicyTests {
         #expect(groups[0].candidates.map(\.id) == ["known", "short"])
     }
 
-    @Test func automaticSessionsRequestAtMostOneDownload() {
+    @Test func automaticSessionsUseOnlyInstalledKnownLanguagePairs() {
         let installed = [
             LyricTranslationGroup(
                 id: "en",
                 sourceLanguageCode: "en",
                 candidates: [.init(id: "en-1", text: "Hello", sourceLanguageCode: "en")]
+            ),
+            LyricTranslationGroup(
+                id: "auto",
+                sourceLanguageCode: nil,
+                candidates: [.init(id: "auto-1", text: "Yo", sourceLanguageCode: nil)]
             )
         ]
-        let downloadable = [
+
+        let selected = LyricTranslationGroupingPolicy.automaticSessionGroups(
+            installed: installed
+        )
+
+        #expect(selected.map(\.id) == ["en"])
+    }
+
+    @Test func explicitPreparationChoosesOnlyTheLargestLanguageGroup() {
+        let preparationRequired = [
             LyricTranslationGroup(
                 id: "ko",
                 sourceLanguageCode: "ko",
@@ -122,32 +137,72 @@ struct LyricTranslationGroupingPolicyTests {
             ),
         ]
 
-        let selected = LyricTranslationGroupingPolicy.automaticSessionGroups(
-            installed: installed,
-            downloadable: downloadable
+        let selected = LyricTranslationGroupingPolicy.explicitlyRequestedSessionGroup(
+            preparationRequired: preparationRequired
         )
 
-        #expect(selected.map(\.id) == ["en", "ja"])
+        #expect(selected?.id == "ja")
     }
 
-    @Test func sparseLanguageOutlierDoesNotRequestDownload() {
-        let downloadable = [
-            LyricTranslationGroup(
-                id: "tr",
-                sourceLanguageCode: "tr",
-                candidates: [
-                    .init(id: "credit-1", text: "作曲 : ASKA", sourceLanguageCode: "tr"),
-                    .init(id: "credit-2", text: "编曲 : ASKA", sourceLanguageCode: "tr"),
-                ]
-            )
-        ]
-
-        let selected = LyricTranslationGroupingPolicy.automaticSessionGroups(
-            installed: [],
-            downloadable: downloadable,
-            totalCandidateCount: 59
+    @Test func wholeLyricsFallbackDoesNotHideConfidentForeignLines() {
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                .init(id: "target", text: "这是中文歌词", sourceLanguageCode: "zh-Hans"),
+                .init(id: "foreign", text: "I will always love you", sourceLanguageCode: "en"),
+            ],
+            targetLanguageCode: "zh-Hans",
+            fallbackSourceLanguageCode: "zh-Hans"
         )
 
-        #expect(selected.isEmpty)
+        #expect(groups.map(\.id) == ["en"])
+        #expect(groups[0].candidates.map(\.id) == ["foreign"])
+    }
+
+    @Test func preparationAuthorizationIsConsumedOnlyOnce() {
+        var gate = LyricTranslationPreparationRequestGate()
+        let issuedAt = Date(timeIntervalSince1970: 1_000)
+        let revision = gate.issue(at: issuedAt)
+
+        let firstConsumption = gate.consume(
+            revision: revision,
+            at: issuedAt.addingTimeInterval(1)
+        )
+        let repeatedConsumption = gate.consume(
+            revision: revision,
+            at: issuedAt.addingTimeInterval(2)
+        )
+        #expect(firstConsumption)
+        #expect(!repeatedConsumption)
+    }
+
+    @Test func expiredPreparationAuthorizationCannotReappearAfterRemount() {
+        var gate = LyricTranslationPreparationRequestGate()
+        let issuedAt = Date(timeIntervalSince1970: 1_000)
+        let revision = gate.issue(at: issuedAt)
+
+        let expiredConsumption = gate.consume(
+            revision: revision,
+            at: issuedAt.addingTimeInterval(31),
+            maximumAge: 30
+        )
+        let remountedConsumption = gate.consume(
+            revision: revision,
+            at: issuedAt.addingTimeInterval(5)
+        )
+        #expect(!expiredConsumption)
+        #expect(!remountedConsumption)
+    }
+
+    @Test func invalidatedPreparationAuthorizationCannotFollowASettingsChange() {
+        var gate = LyricTranslationPreparationRequestGate()
+        let issuedAt = Date(timeIntervalSince1970: 1_000)
+        let revision = gate.issue(at: issuedAt)
+        gate.invalidate()
+
+        let consumption = gate.consume(
+            revision: revision,
+            at: issuedAt.addingTimeInterval(1)
+        )
+        #expect(!consumption)
     }
 }
