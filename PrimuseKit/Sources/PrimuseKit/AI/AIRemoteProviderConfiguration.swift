@@ -66,7 +66,7 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.baseURL = "https://api.deepseek.com/anthropic"
             configuration.apiStyle = .anthropicMessages
             configuration.apiPathMode = .appendV1
-            configuration.authenticationStyle = .bearer
+            configuration.authenticationStyle = .xAPIKey
             configuration.generationModel = "deepseek-v4-flash"
         }
         return configuration

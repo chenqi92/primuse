@@ -242,6 +242,41 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             "Bearer deepseek-test-key"
         )
         XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertNil(request.value(forHTTPHeaderField: "anthropic-version"))
+    }
+
+    func testDeepSeekAnthropicUsesNativeAuthenticationForMessages() async throws {
+        let host = "deepseek-anthropic-messages.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"content":[{"type":"text","text":"{\"expanded_terms\":[\"calm\"]}"}]}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        var configuration = AIProviderPreset.deepSeekAnthropic.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        configuration.baseURL = "https://\(host)/anthropic"
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "deepseek-test-key",
+            session: session
+        )
+
+        _ = try await provider.interpretSearch(AISemanticSearchRequest(query: "calm"))
+
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.path, "/anthropic/v1/messages")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "deepseek-test-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "anthropic-version"),
+            "2023-06-01"
+        )
     }
 
     func testHTTPStatusIsReportedWithoutParsingTheResponseBody() async throws {

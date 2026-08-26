@@ -355,7 +355,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
             where AIRemoteEndpointPolicy.usesOpenAIModelCatalog(
                 configuration: configuration
             ):
-            let data = try await getJSON(from: endpoint, apiKey: apiKey)
+            // DeepSeek's Messages endpoint follows Anthropic authentication,
+            // while its provider-wide model catalog follows the OpenAI API.
+            let data = try await getJSON(
+                from: endpoint,
+                apiKey: apiKey,
+                authenticationStyle: .bearer,
+                includesAnthropicVersion: false
+            )
             items = try Self.decodeModelsResponse(data).data
         case .anthropicMessages:
             items = try await anthropicModelItems(from: endpoint, apiKey: apiKey)
@@ -464,7 +471,12 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         return try await perform(request)
     }
 
-    private func getJSON(from endpoint: URL, apiKey: String) async throws -> Data {
+    private func getJSON(
+        from endpoint: URL,
+        apiKey: String,
+        authenticationStyle: AIAuthenticationStyle? = nil,
+        includesAnthropicVersion: Bool? = nil
+    ) async throws -> Data {
         guard let requestTimeout = AIRequestTimeoutPolicy.validated(
             configuration.requestTimeout
         ) else {
@@ -474,12 +486,24 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         request.httpMethod = "GET"
         request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        applyAuthentication(to: &request, apiKey: apiKey)
+        applyAuthentication(
+            to: &request,
+            apiKey: apiKey,
+            authenticationStyle: authenticationStyle,
+            includesAnthropicVersion: includesAnthropicVersion
+        )
         return try await perform(request)
     }
 
-    private func applyAuthentication(to request: inout URLRequest, apiKey: String) {
-        switch configuration.authenticationStyle.resolved(for: configuration.apiStyle) {
+    private func applyAuthentication(
+        to request: inout URLRequest,
+        apiKey: String,
+        authenticationStyle: AIAuthenticationStyle? = nil,
+        includesAnthropicVersion: Bool? = nil
+    ) {
+        let resolvedAuthentication = (authenticationStyle ?? configuration.authenticationStyle)
+            .resolved(for: configuration.apiStyle)
+        switch resolvedAuthentication {
         case .bearer:
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         case .xAPIKey:
@@ -487,7 +511,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         case .automatic:
             assertionFailure("Authentication style must resolve before creating a request")
         }
-        if configuration.apiStyle == .anthropicMessages {
+        if includesAnthropicVersion ?? (configuration.apiStyle == .anthropicMessages) {
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         }
     }

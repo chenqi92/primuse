@@ -300,6 +300,7 @@ struct AIRemoteEndpointPolicyTests {
         let deepSeekAnthropic = AIProviderPreset.deepSeekAnthropic.applying(
             to: AIRemoteProviderConfiguration()
         )
+        #expect(deepSeekAnthropic.authenticationStyle == .xAPIKey)
         #expect(try AIRemoteEndpointPolicy.generationEndpoint(
             configuration: deepSeekAnthropic
         ).absoluteString == "https://api.deepseek.com/anthropic/v1/messages")
