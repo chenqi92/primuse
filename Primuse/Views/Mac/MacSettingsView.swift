@@ -746,6 +746,15 @@ private struct MacSTIntelligenceView: View {
                                 .frame(width: 320, alignment: .trailing)
                         }
                     }
+                    if !selectedProviderIsAvailableInRegion {
+                        MacSTRow(
+                            String(localized: "ai_region_unavailable_title"),
+                            hint: String(localized: "ai_provider_region_blocked")
+                        ) {
+                            Image(systemName: "exclamationmark.shield.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
                     MacSTRow(
                         String(localized: "ai_api_key"),
                         hint: editor.hasStoredAPIKeyForDraft && editor.apiKeyDraft.isEmpty
@@ -983,6 +992,14 @@ private struct MacSTIntelligenceView: View {
             presets.append(editor.selectedProviderPreset)
         }
         return presets
+    }
+
+    private var selectedProviderIsAvailableInRegion: Bool {
+        AIProviderRegionPolicy.allows(
+            configuration: editor.draftConfiguration,
+            region: intelligence.regionAvailability.context.region,
+            purpose: .modelCatalog
+        )
     }
 
     private var statusCard: some View {

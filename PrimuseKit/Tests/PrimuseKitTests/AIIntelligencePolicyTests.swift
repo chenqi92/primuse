@@ -56,7 +56,7 @@ struct AIRegionAvailabilityTests {
         ) == .unknown)
     }
 
-    @Test func mainlandChinaAllowsOnDeviceModelsAndBlocksRestrictedProviders() {
+    @Test func mainlandChinaAllowsLocalAndConfiguredDomesticProviders() {
         let region = AIRegionContext(
             region: .mainlandChina,
             source: .appStorefront,
@@ -78,11 +78,15 @@ struct AIRegionAvailabilityTests {
         #expect(localGenerativeDecision.shouldExposeConfiguration)
         #expect(!localGenerativeDecision.requiresExplicitConsent)
 
-        for executionClass in [
-            AIExecutionClass.appleSystemModel,
-            .userConfiguredRemote,
-            .bundledRemote,
-        ] {
+        let configuredRemote = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: region
+        )
+        #expect(configuredRemote.isAllowed)
+        #expect(configuredRemote.shouldExposeConfiguration)
+        #expect(configuredRemote.requiresExplicitConsent)
+
+        for executionClass in [AIExecutionClass.appleSystemModel, .bundledRemote] {
             let decision = AIAvailabilityPolicy.decision(
                 for: executionClass,
                 regionContext: region
@@ -227,7 +231,7 @@ struct AIProviderRoutingTests {
         ).map(\.id) == [remote.id, local.id])
     }
 
-    @Test func mainlandRegionRemovesRemoteProviderEvenWithConsent() {
+    @Test func mainlandRoutingRequiresConsentBeforeEndpointPolicyRuns() {
         let remote = AIRemoteProviderConfiguration(
             generationModel: "example-model",
             isEnabled: true
@@ -242,8 +246,14 @@ struct AIProviderRoutingTests {
             from: [remote],
             capability: .semanticSearchInterpretation,
             regionContext: mainland,
-            hasExplicitRemoteConsent: true
+            hasExplicitRemoteConsent: false
         ).isEmpty)
+        #expect(AIProviderRoutingPolicy.candidates(
+            from: [remote],
+            capability: .semanticSearchInterpretation,
+            regionContext: mainland,
+            hasExplicitRemoteConsent: true
+        ).map(\.id) == [remote.id])
     }
 }
 
@@ -317,6 +327,18 @@ struct AIRemoteEndpointPolicyTests {
         #expect(AIRemoteEndpointPolicy.usesOpenAIModelCatalog(
             configuration: deepSeekAnthropic
         ))
+
+        let gemini = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        #expect(gemini.apiStyle == .geminiGenerateContent)
+        #expect(gemini.authenticationStyle == .xGoogAPIKey)
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: gemini
+        ).absoluteString == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent")
+        #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
+            configuration: gemini
+        ).absoluteString == "https://generativelanguage.googleapis.com/v1beta/models")
     }
 
     @Test func customPathCanBeUsedDirectlyOrReceiveV1() throws {
@@ -570,12 +592,14 @@ struct AIRemoteEndpointPolicyTests {
     }
 
     @Test func providerCatalogSeparatesMainlandAndInternationalServices() throws {
-        #expect(AIProviderPreset.catalog(for: .mainlandChina) == [
-            .deepSeekOpenAI, .qwen, .zhipu,
-        ])
-        #expect(AIProviderPreset.catalog(for: .international) == [
-            .openAI, .anthropic, .gemini,
-        ])
+        #expect(AIProviderPreset.catalog(for: .mainlandChina)
+            == AIProviderPreset.mainlandChinaCatalog)
+        #expect(AIProviderPreset.catalog(for: .international)
+            == AIProviderPreset.globalCatalog + AIProviderPreset.mainlandChinaCatalog)
+        #expect(AIProviderPreset.catalog(for: .mainlandChina).contains(.xiaomiMiMo))
+        #expect(!AIProviderPreset.catalog(for: .mainlandChina).contains(.openRouter))
+        #expect(AIProviderPreset.catalog(for: .international).contains(.nvidiaNIM))
+        #expect(AIProviderPreset.catalog(for: .international).contains(.openRouter))
         #expect(AIProviderPreset.catalog(for: .unknown).isEmpty)
 
         let qwen = AIProviderPreset.qwen.applying(to: AIRemoteProviderConfiguration())
@@ -586,11 +610,18 @@ struct AIRemoteEndpointPolicyTests {
         ).absoluteString == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
 
         let gemini = AIProviderPreset.gemini.applying(to: AIRemoteProviderConfiguration())
-        #expect(gemini.baseURL == "https://generativelanguage.googleapis.com/v1beta/openai")
+        #expect(gemini.baseURL == "https://generativelanguage.googleapis.com/v1beta")
         #expect(gemini.generationModel == "gemini-3.7-flash")
         #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
             configuration: gemini
-        ).absoluteString == "https://generativelanguage.googleapis.com/v1beta/openai/models")
+        ).absoluteString == "https://generativelanguage.googleapis.com/v1beta/models")
+
+        let xiaomi = AIProviderPreset.xiaomiMiMo.applying(to: AIRemoteProviderConfiguration())
+        #expect(xiaomi.baseURL == "https://api.xiaomimimo.com/v1")
+        #expect(xiaomi.generationModel == "mimo-v2.5-pro")
+
+        let nvidia = AIProviderPreset.nvidiaNIM.applying(to: AIRemoteProviderConfiguration())
+        #expect(nvidia.baseURL == "https://integrate.api.nvidia.com/v1")
     }
 
     @Test func customCompatibilityModeKeepsEndpointDetailsAutomatic() {
@@ -607,6 +638,66 @@ struct AIRemoteEndpointPolicyTests {
         #expect(configured.apiPathMode == .automatic)
         #expect(configured.authenticationStyle == .automatic)
         #expect(configured.embeddingModel.isEmpty)
+
+        let gemini = AIProviderCompatibilityMode.geminiGenerateContent.applying(to: original)
+        #expect(gemini.apiStyle == .geminiGenerateContent)
+        #expect(gemini.apiPathMode == .automatic)
+        #expect(gemini.authenticationStyle == .automatic)
+        #expect(gemini.embeddingModel.isEmpty)
+    }
+
+    @Test func mainlandRegionChecksProviderEndpointAndAggregatorModels() {
+        let deepSeek = AIProviderPreset.deepSeekOpenAI.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        let openAI = AIProviderPreset.openAI.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        var qwen = AIProviderPreset.qwen.applying(to: AIRemoteProviderConfiguration())
+
+        #expect(AIProviderRegionPolicy.allows(
+            configuration: deepSeek,
+            region: .mainlandChina,
+            purpose: .generation
+        ))
+        #expect(!AIProviderRegionPolicy.allows(
+            configuration: openAI,
+            region: .mainlandChina,
+            purpose: .modelCatalog
+        ))
+        #expect(AIProviderRegionPolicy.allows(
+            configuration: openAI,
+            region: .international,
+            purpose: .generation
+        ))
+        #expect(AIProviderRegionPolicy.allows(
+            configuration: qwen,
+            region: .mainlandChina,
+            purpose: .generation
+        ))
+
+        qwen.generationModel = "openai/gpt-oss-20b"
+        #expect(AIProviderRegionPolicy.allows(
+            configuration: qwen,
+            region: .mainlandChina,
+            purpose: .modelCatalog
+        ))
+        #expect(!AIProviderRegionPolicy.allows(
+            configuration: qwen,
+            region: .mainlandChina,
+            purpose: .generation
+        ))
+
+        let filtered = AIProviderRegionPolicy.filterModels(
+            [
+                AIProviderModel(id: "Qwen/Qwen3.5-Plus"),
+                AIProviderModel(id: "openai/gpt-oss-20b"),
+                AIProviderModel(id: "deepseek-v4-flash"),
+            ],
+            configuration: qwen,
+            region: .mainlandChina
+        )
+        #expect(filtered.map(\.id) == ["Qwen/Qwen3.5-Plus", "deepseek-v4-flash"])
     }
 
     @Test func AICredentialsAreEligibleForICloudKeychainMigration() {

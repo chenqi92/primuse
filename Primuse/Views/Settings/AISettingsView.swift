@@ -379,6 +379,26 @@ final class AISettingsEditorModel {
                 return
             }
             availableModels = models
+            var updatedConfiguration = draftConfiguration
+            let currentModel = updatedConfiguration.generationModel
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let presetDefaultModel = selectedProviderPreset
+                .applying(to: updatedConfiguration)
+                .generationModel
+            let defaultNeedsRefresh = selectedProviderPreset != .custom
+                && currentModel == presetDefaultModel
+                && !models.contains { $0.id == currentModel }
+            if (currentModel.isEmpty || defaultNeedsRefresh),
+               let model = Self.preferredGenerationModel(from: models) {
+                updatedConfiguration.generationModel = model.id
+            }
+            if updatedConfiguration.supportsEmbeddings,
+               updatedConfiguration.embeddingModel
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let model = Self.preferredEmbeddingModel(from: models) {
+                updatedConfiguration.embeddingModel = model.id
+            }
+            draftConfiguration = updatedConfiguration
             status = models.isEmpty ? .modelsEmpty : .modelsLoaded(models.count)
         } catch {
             if canApplyCompletion(operationGeneration) {
@@ -511,6 +531,28 @@ final class AISettingsEditorModel {
             operationGeneration: operationGeneration,
             currentGeneration: draftGeneration
         )
+    }
+
+    private static func preferredGenerationModel(
+        from models: [AIProviderModel]
+    ) -> AIProviderModel? {
+        let nonGenerationMarkers = [
+            "embed", "rerank", "tts", "speech", "whisper", "asr",
+            "transcription", "moderation", "image", "video",
+        ]
+        return models.first { model in
+            let id = model.id.lowercased()
+            return !nonGenerationMarkers.contains { id.contains($0) }
+        }
+    }
+
+    private static func preferredEmbeddingModel(
+        from models: [AIProviderModel]
+    ) -> AIProviderModel? {
+        models.first { model in
+            let id = model.id.lowercased()
+            return id.contains("embed") || id.contains("bge")
+        }
     }
 
     static func message(for error: Error) -> String {
@@ -787,6 +829,12 @@ struct AISettingsView: View {
                 }
             }
 
+            if !selectedProviderIsAvailableInRegion {
+                Label("ai_provider_region_blocked", systemImage: "exclamationmark.shield.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             SecureField("ai_api_key", text: editor.apiKeyBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -957,6 +1005,14 @@ struct AISettingsView: View {
         }
         return presets
     }
+
+    private var selectedProviderIsAvailableInRegion: Bool {
+        AIProviderRegionPolicy.allows(
+            configuration: editor.draftConfiguration,
+            region: intelligence.regionAvailability.context.region,
+            purpose: .modelCatalog
+        )
+    }
 }
 
 extension AIProviderPreset {
@@ -970,6 +1026,21 @@ extension AIProviderPreset {
         case .deepSeekAnthropic: String(localized: "ai_provider_preset_deepseek_anthropic")
         case .qwen: String(localized: "ai_provider_preset_qwen")
         case .zhipu: String(localized: "ai_provider_preset_zhipu")
+        case .xiaomiMiMo: String(localized: "ai_provider_preset_xiaomi_mimo")
+        case .kimi: String(localized: "ai_provider_preset_kimi")
+        case .miniMax: String(localized: "ai_provider_preset_minimax")
+        case .volcengineArk: String(localized: "ai_provider_preset_volcengine_ark")
+        case .tencentTokenHub: String(localized: "ai_provider_preset_tencent_tokenhub")
+        case .baiduQianfan: String(localized: "ai_provider_preset_baidu_qianfan")
+        case .stepFun: String(localized: "ai_provider_preset_stepfun")
+        case .siliconFlow: String(localized: "ai_provider_preset_siliconflow")
+        case .openRouter: String(localized: "ai_provider_preset_openrouter")
+        case .nvidiaNIM: String(localized: "ai_provider_preset_nvidia_nim")
+        case .xAI: String(localized: "ai_provider_preset_xai")
+        case .mistral: String(localized: "ai_provider_preset_mistral")
+        case .groq: String(localized: "ai_provider_preset_groq")
+        case .togetherAI: String(localized: "ai_provider_preset_together")
+        case .fireworksAI: String(localized: "ai_provider_preset_fireworks")
         }
     }
 }
@@ -980,6 +1051,7 @@ extension AIProviderCompatibilityMode {
         case .openAIResponses: String(localized: "ai_compatibility_openai_responses")
         case .openAIChatCompletions: String(localized: "ai_compatibility_openai_chat")
         case .anthropicMessages: String(localized: "ai_compatibility_anthropic")
+        case .geminiGenerateContent: String(localized: "ai_compatibility_gemini")
         }
     }
 }

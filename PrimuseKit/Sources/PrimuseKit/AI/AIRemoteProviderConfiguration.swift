@@ -4,6 +4,7 @@ public enum AICompatibleAPIStyle: String, Codable, CaseIterable, Hashable, Senda
     case responses
     case chatCompletions
     case anthropicMessages
+    case geminiGenerateContent
 }
 
 public enum AIAPIPathMode: String, Codable, CaseIterable, Hashable, Sendable {
@@ -20,10 +21,18 @@ public enum AIAuthenticationStyle: String, Codable, CaseIterable, Hashable, Send
     case automatic
     case bearer
     case xAPIKey
+    case xGoogAPIKey
 
     public func resolved(for apiStyle: AICompatibleAPIStyle) -> AIAuthenticationStyle {
         guard self == .automatic else { return self }
-        return apiStyle == .anthropicMessages ? .xAPIKey : .bearer
+        switch apiStyle {
+        case .anthropicMessages:
+            return .xAPIKey
+        case .geminiGenerateContent:
+            return .xGoogAPIKey
+        case .responses, .chatCompletions:
+            return .bearer
+        }
     }
 }
 
@@ -34,6 +43,7 @@ public enum AIProviderCompatibilityMode: String, CaseIterable, Hashable, Sendabl
     case openAIResponses
     case openAIChatCompletions
     case anthropicMessages
+    case geminiGenerateContent
 
     public init(configuration: AIRemoteProviderConfiguration) {
         switch configuration.apiStyle {
@@ -43,6 +53,8 @@ public enum AIProviderCompatibilityMode: String, CaseIterable, Hashable, Sendabl
             self = .openAIChatCompletions
         case .anthropicMessages:
             self = .anthropicMessages
+        case .geminiGenerateContent:
+            self = .geminiGenerateContent
         }
     }
 
@@ -60,6 +72,9 @@ public enum AIProviderCompatibilityMode: String, CaseIterable, Hashable, Sendabl
         case .anthropicMessages:
             configuration.apiStyle = .anthropicMessages
             configuration.embeddingModel = ""
+        case .geminiGenerateContent:
+            configuration.apiStyle = .geminiGenerateContent
+            configuration.embeddingModel = ""
         }
         return configuration
     }
@@ -71,19 +86,63 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     case anthropic
     case gemini
     case deepSeekOpenAI
+    /// Retained so an existing DeepSeek Messages configuration can still be
+    /// recognized. New profiles expose DeepSeek once and keep protocol choice
+    /// in the custom compatibility controls.
     case deepSeekAnthropic
     case qwen
     case zhipu
+    case xiaomiMiMo
+    case kimi
+    case miniMax
+    case volcengineArk
+    case tencentTokenHub
+    case baiduQianfan
+    case stepFun
+    case siliconFlow
+    case openRouter
+    case nvidiaNIM
+    case xAI
+    case mistral
+    case groq
+    case togetherAI
+    case fireworksAI
 
-    /// Curated presets shown for a storefront. Mainland-China entries use
-    /// endpoints operated in mainland China; international storefronts avoid
-    /// presenting those endpoints as equivalent to their global counterparts.
+    public static let mainlandChinaCatalog: [AIProviderPreset] = [
+        .deepSeekOpenAI,
+        .qwen,
+        .zhipu,
+        .xiaomiMiMo,
+        .kimi,
+        .miniMax,
+        .volcengineArk,
+        .tencentTokenHub,
+        .baiduQianfan,
+        .stepFun,
+        .siliconFlow,
+    ]
+
+    public static let globalCatalog: [AIProviderPreset] = [
+        .openAI,
+        .anthropic,
+        .gemini,
+        .openRouter,
+        .nvidiaNIM,
+        .xAI,
+        .mistral,
+        .groq,
+        .togetherAI,
+        .fireworksAI,
+    ]
+
+    /// Mainland storefronts only expose approved mainland endpoints. Other
+    /// storefronts expose both the global and mainland provider catalogs.
     public static func catalog(for region: AICommercialRegion) -> [AIProviderPreset] {
         switch region {
         case .mainlandChina:
-            return [.deepSeekOpenAI, .qwen, .zhipu]
+            return mainlandChinaCatalog
         case .international:
-            return [.openAI, .anthropic, .gemini]
+            return globalCatalog + mainlandChinaCatalog
         case .unknown:
             return []
         }
@@ -110,22 +169,22 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiStyle = .responses
             configuration.apiPathMode = .appendV1
             configuration.authenticationStyle = .bearer
-            configuration.generationModel = ""
+            configuration.generationModel = "gpt-5.2"
+            configuration.embeddingModel = "text-embedding-3-small"
         case .anthropic:
             configuration.displayName = "Anthropic"
             configuration.baseURL = "https://api.anthropic.com"
             configuration.apiStyle = .anthropicMessages
             configuration.apiPathMode = .appendV1
             configuration.authenticationStyle = .xAPIKey
-            configuration.generationModel = ""
+            configuration.generationModel = "claude-sonnet-5"
         case .gemini:
             configuration.displayName = "Google Gemini"
-            configuration.baseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
-            configuration.apiStyle = .chatCompletions
+            configuration.baseURL = "https://generativelanguage.googleapis.com/v1beta"
+            configuration.apiStyle = .geminiGenerateContent
             configuration.apiPathMode = .asEntered
-            configuration.authenticationStyle = .bearer
+            configuration.authenticationStyle = .xGoogAPIKey
             configuration.generationModel = "gemini-3.7-flash"
-            configuration.embeddingModel = "gemini-embedding-001"
         case .deepSeekOpenAI:
             configuration.displayName = "DeepSeek"
             configuration.baseURL = "https://api.deepseek.com"
@@ -154,6 +213,111 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .bearer
             configuration.generationModel = "glm-5.2"
+        case .xiaomiMiMo:
+            configuration.displayName = "Xiaomi MiMo"
+            configuration.baseURL = "https://api.xiaomimimo.com/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "mimo-v2.5-pro"
+        case .kimi:
+            configuration.displayName = "Kimi"
+            configuration.baseURL = "https://api.moonshot.cn/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "kimi-k3"
+        case .miniMax:
+            configuration.displayName = "MiniMax"
+            configuration.baseURL = "https://api.minimaxi.com/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "MiniMax-M2.7"
+        case .volcengineArk:
+            configuration.displayName = "Volcengine Ark"
+            configuration.baseURL = "https://ark.cn-beijing.volces.com/api/v3"
+            configuration.apiStyle = .responses
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "doubao-seed-2-0-lite-260215"
+        case .tencentTokenHub:
+            configuration.displayName = "Tencent TokenHub"
+            configuration.baseURL = "https://tokenhub.tencentmaas.com/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "hy3"
+        case .baiduQianfan:
+            configuration.displayName = "Baidu Qianfan"
+            configuration.baseURL = "https://qianfan.baidubce.com/v2"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "ernie-5.0"
+        case .stepFun:
+            configuration.displayName = "StepFun"
+            configuration.baseURL = "https://api.stepfun.com/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "step-3.5-flash"
+        case .siliconFlow:
+            configuration.displayName = "SiliconFlow"
+            configuration.baseURL = "https://api.siliconflow.cn/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+        case .openRouter:
+            configuration.displayName = "OpenRouter"
+            configuration.baseURL = "https://openrouter.ai/api/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "openrouter/auto"
+        case .nvidiaNIM:
+            configuration.displayName = "NVIDIA NIM"
+            configuration.baseURL = "https://integrate.api.nvidia.com/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "nvidia/nemotron-3-super"
+        case .xAI:
+            configuration.displayName = "xAI"
+            configuration.baseURL = "https://api.x.ai/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "grok-4.6"
+        case .mistral:
+            configuration.displayName = "Mistral AI"
+            configuration.baseURL = "https://api.mistral.ai/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "mistral-small-latest"
+        case .groq:
+            configuration.displayName = "Groq"
+            configuration.baseURL = "https://api.groq.com/openai/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "openai/gpt-oss-20b"
+        case .togetherAI:
+            configuration.displayName = "Together AI"
+            configuration.baseURL = "https://api.together.ai/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "openai/gpt-oss-20b"
+        case .fireworksAI:
+            configuration.displayName = "Fireworks AI"
+            configuration.baseURL = "https://api.fireworks.ai/inference/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "accounts/fireworks/models/llama-v3p1-8b-instruct"
         }
         return configuration
     }
@@ -282,7 +446,12 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     }
 
     public var supportsEmbeddings: Bool {
-        apiStyle != .anthropicMessages
+        switch apiStyle {
+        case .responses, .chatCompletions:
+            return true
+        case .anthropicMessages, .geminiGenerateContent:
+            return false
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -482,6 +651,14 @@ public enum AIRemoteEndpointPolicy {
             return baseURL.appendingPathComponent("chat/completions")
         case .anthropicMessages:
             return baseURL.appendingPathComponent("messages")
+        case .geminiGenerateContent:
+            let model = normalizedGeminiModelID(configuration.generationModel)
+            guard !model.isEmpty else {
+                throw AIRemoteEndpointValidationError.invalidURL
+            }
+            return baseURL
+                .appendingPathComponent("models")
+                .appendingPathComponent("\(model):generateContent")
         }
     }
 
@@ -569,6 +746,9 @@ public enum AIRemoteEndpointPolicy {
 
         let host = baseURL.host?.lowercased() ?? ""
         let path = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if style == .geminiGenerateContent {
+            return baseURL.appendingPathComponent("v1beta")
+        }
         if host == "api.deepseek.com" {
             if style == .anthropicMessages, path.lowercased() == "anthropic" {
                 return baseURL.appendingPathComponent("v1")
@@ -582,6 +762,14 @@ public enum AIRemoteEndpointPolicy {
             return baseURL.appendingPathComponent("v1")
         }
         return baseURL
+    }
+
+    public static func normalizedGeminiModelID(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("models/") {
+            return String(trimmed.dropFirst("models/".count))
+        }
+        return trimmed
     }
 
     private static func appendingV1IfNeeded(to baseURL: URL) -> URL {

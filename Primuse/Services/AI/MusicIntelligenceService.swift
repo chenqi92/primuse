@@ -131,6 +131,11 @@ final class MusicIntelligenceService {
         return settingsStore.semanticSearchEnabled
             && settingsStore.providerSet.routedProviders.contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && AIProviderRegionPolicy.allows(
+                        configuration: $0,
+                        region: regionAvailability.context.region,
+                        purpose: .generation
+                    )
             }
             && settingsStore.hasExplicitRemoteConsent
             && decision.isAllowed
@@ -142,6 +147,11 @@ final class MusicIntelligenceService {
         return settingsStore.recommendationsEnabled
             && settingsStore.providerSet.routedProviders.contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && AIProviderRegionPolicy.allows(
+                        configuration: $0,
+                        region: regionAvailability.context.region,
+                        purpose: .generation
+                    )
             }
             && settingsStore.hasExplicitListeningContextConsent
             && decision.isAllowed
@@ -153,6 +163,11 @@ final class MusicIntelligenceService {
         let decision = regionAvailability.remoteProviderDecision
         return settingsStore.providerSet.routedProviders.contains {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && AIProviderRegionPolicy.allows(
+                    configuration: $0,
+                    region: regionAvailability.context.region,
+                    purpose: .generation
+                )
         }
             && settingsStore.hasExplicitRemoteConsent
             && decision.isAllowed
@@ -177,12 +192,18 @@ final class MusicIntelligenceService {
         let now = ProcessInfo.processInfo.systemUptime
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && AIProviderRegionPolicy.allows(
+                    configuration: $0,
+                    region: region.region,
+                    purpose: .generation
+                )
         }
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         for (fallbackDepth, configuration) in providers.enumerated() {
             guard AIRegionRequestPolicy.canSendRemoteRequest(
                 captured: regionSnapshot,
-                latest: regionAvailability.snapshot
+                latest: regionAvailability.snapshot,
+                configuration: configuration
             ) else { return .failed }
             let cacheKey = SemanticPlanCacheKey(
                 profileID: configuration.id,
@@ -217,11 +238,15 @@ final class MusicIntelligenceService {
                     configuration: configuration,
                     regionContext: region,
                     hasExplicitRemoteConsent: consent,
-                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                    requestAuthorization: regionAuthorization(
+                        for: regionSnapshot,
+                        configuration: configuration
+                    )
                 )
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
                     captured: regionSnapshot,
-                    latest: regionAvailability.snapshot
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
                 ) else { return .failed }
                 guard !plan.expandedTerms.isEmpty || !plan.themes.isEmpty || !plan.moods.isEmpty else {
                     lastEmptyProvider = (configuration.displayName, fallbackDepth)
@@ -274,7 +299,8 @@ final class MusicIntelligenceService {
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   AIRegionRequestPolicy.canSendRemoteRequest(
                     captured: regionSnapshot,
-                    latest: regionAvailability.snapshot
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
                   ) else { continue }
             do {
                 let translations = try await engine.translateLyrics(
@@ -283,11 +309,15 @@ final class MusicIntelligenceService {
                     configuration: configuration,
                     regionContext: regionSnapshot.context,
                     hasExplicitRemoteConsent: consent,
-                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                    requestAuthorization: regionAuthorization(
+                        for: regionSnapshot,
+                        configuration: configuration
+                    )
                 )
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
                     captured: regionSnapshot,
-                    latest: regionAvailability.snapshot
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
                 ), !translations.isEmpty else { continue }
                 return AILyricsTranslationExecution(
                     translations: translations,
@@ -313,12 +343,18 @@ final class MusicIntelligenceService {
         let now = ProcessInfo.processInfo.systemUptime
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && AIProviderRegionPolicy.allows(
+                    configuration: $0,
+                    region: regionSnapshot.context.region,
+                    purpose: .generation
+                )
         }
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         for (fallbackDepth, configuration) in providers.enumerated() {
             guard AIRegionRequestPolicy.canSendRemoteRequest(
                 captured: regionSnapshot,
-                latest: regionAvailability.snapshot
+                latest: regionAvailability.snapshot,
+                configuration: configuration
             ) else { return .failed }
             let cacheKey = RecommendationCacheKey(
                 profileID: configuration.id,
@@ -347,11 +383,15 @@ final class MusicIntelligenceService {
                     regionContext: regionSnapshot.context,
                     hasExplicitListeningContextConsent: settingsStore
                         .hasExplicitListeningContextConsent,
-                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                    requestAuthorization: regionAuthorization(
+                        for: regionSnapshot,
+                        configuration: configuration
+                    )
                 )
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
                     captured: regionSnapshot,
-                    latest: regionAvailability.snapshot
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
                 ) else { return .failed }
                 guard !plan.selections.isEmpty else {
                     lastEmptyProvider = (configuration.displayName, fallbackDepth)
@@ -402,11 +442,17 @@ final class MusicIntelligenceService {
         )
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && AIProviderRegionPolicy.allows(
+                    configuration: $0,
+                    region: regionSnapshot.context.region,
+                    purpose: .generation
+                )
         }
         for (fallbackDepth, configuration) in providers.enumerated() {
             guard AIRegionRequestPolicy.canSendRemoteRequest(
                 captured: regionSnapshot,
-                latest: regionAvailability.snapshot
+                latest: regionAvailability.snapshot,
+                configuration: configuration
             ) else { return .failed }
             do {
                 let generated = try await engine.generateLyrics(
@@ -414,11 +460,15 @@ final class MusicIntelligenceService {
                     configuration: configuration,
                     regionContext: regionSnapshot.context,
                     hasExplicitRemoteConsent: settingsStore.hasExplicitRemoteConsent,
-                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                    requestAuthorization: regionAuthorization(
+                        for: regionSnapshot,
+                        configuration: configuration
+                    )
                 )
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
                     captured: regionSnapshot,
-                    latest: regionAvailability.snapshot
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
                 ) else { return .failed }
                 let lines = generated.lines.enumerated().map { index, text in
                     LyricLine(
@@ -533,18 +583,35 @@ final class MusicIntelligenceService {
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
+        guard AIProviderRegionPolicy.allows(
+            configuration: configuration,
+            region: regionSnapshot.context.region,
+            purpose: .modelCatalog
+        ) else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
         let models = try await engine.listModels(
             configuration: configuration,
             apiKeyOverride: apiKey,
-            requestAuthorization: regionAuthorization(for: regionSnapshot)
+            requestAuthorization: regionAuthorization(
+                for: regionSnapshot,
+                configuration: configuration,
+                purpose: .modelCatalog
+            )
         )
         guard AIRegionRequestPolicy.canCommitRemoteResponse(
             captured: regionSnapshot,
-            latest: regionAvailability.snapshot
+            latest: regionAvailability.snapshot,
+            configuration: configuration,
+            purpose: .modelCatalog
         ) else {
             throw MusicIntelligenceError.unavailable(.temporarilyUnavailable)
         }
-        return models
+        return AIProviderRegionPolicy.filterModels(
+            models,
+            configuration: configuration,
+            region: regionSnapshot.context.region
+        )
     }
 
     func testConnection(
@@ -562,6 +629,13 @@ final class MusicIntelligenceService {
         }
         var enabledConfiguration = configuration
         enabledConfiguration.isEnabled = true
+        guard AIProviderRegionPolicy.allows(
+            configuration: enabledConfiguration,
+            region: region.region,
+            purpose: .generation
+        ) else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
         // Connection diagnostics send only this built-in phrase. They never
         // include a search term, lyrics, library metadata, or listening
         // history, so they are independent from content-sharing consent.
@@ -575,25 +649,33 @@ final class MusicIntelligenceService {
             regionContext: region,
             hasExplicitRemoteConsent: true,
             apiKeyOverride: apiKey,
-            requestAuthorization: regionAuthorization(for: regionSnapshot)
+            requestAuthorization: regionAuthorization(
+                for: regionSnapshot,
+                configuration: enabledConfiguration
+            )
         )
         guard AIRegionRequestPolicy.canCommitRemoteResponse(
             captured: regionSnapshot,
-            latest: regionAvailability.snapshot
+            latest: regionAvailability.snapshot,
+            configuration: enabledConfiguration
         ) else {
             throw MusicIntelligenceError.unavailable(.temporarilyUnavailable)
         }
     }
 
     private func regionAuthorization(
-        for captured: AIRegionSnapshot
+        for captured: AIRegionSnapshot,
+        configuration: AIRemoteProviderConfiguration,
+        purpose: AIProviderRegionPurpose = .generation
     ) -> @Sendable () async -> Bool {
         let availability = regionAvailability
         return {
             await MainActor.run {
                 AIRegionRequestPolicy.canSendRemoteRequest(
                     captured: captured,
-                    latest: availability.snapshot
+                    latest: availability.snapshot,
+                    configuration: configuration,
+                    purpose: purpose
                 )
             }
         }

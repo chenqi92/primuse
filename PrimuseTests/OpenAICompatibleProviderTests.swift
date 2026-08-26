@@ -257,6 +257,108 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertEqual(messages.first?["role"] as? String, "user")
     }
 
+    func testGeminiGenerateContentUsesNativeHeadersBodyAndResponse() async throws {
+        let host = "intelligence-gemini.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"expanded_terms\":[\"night drive\"],\"themes\":[\"road\"],\"moods\":[\"calm\"]}"}]}}]}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://\(host)/v1beta",
+                apiStyle: .geminiGenerateContent,
+                apiPathMode: .asEntered,
+                authenticationStyle: .automatic,
+                generationModel: "gemini-test",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "gemini-api-key",
+            session: session
+        )
+
+        let plan = try await provider.interpretSearch(
+            AISemanticSearchRequest(query: "calm music for a night drive", languageCode: "en")
+        )
+
+        XCTAssertEqual(plan.expandedTerms, ["night drive"])
+        XCTAssertEqual(plan.themes, ["road"])
+        XCTAssertEqual(plan.moods, ["calm"])
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(
+            request.url?.absoluteString,
+            "https://\(host)/v1beta/models/gemini-test:generateContent"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"), "gemini-api-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(object["model"])
+        XCTAssertNotNil(object["systemInstruction"] as? [String: Any])
+        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
+        XCTAssertEqual(contents.first?["role"] as? String, "user")
+        let generationConfig = try XCTUnwrap(object["generationConfig"] as? [String: Any])
+        XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 320)
+        XCTAssertEqual(generationConfig["responseMimeType"] as? String, "application/json")
+    }
+
+    func testGeminiModelsFollowPaginationAndOnlyReturnGenerateContentModels() async throws {
+        let host = "intelligence-gemini-models.invalid"
+        IntelligenceURLProtocol.configureSequence(
+            host: host,
+            responses: [
+                (
+                    200,
+                    #"{"models":[{"name":"models/gemini-flash","supportedGenerationMethods":["generateContent"]},{"name":"models/gemini-embedding","supportedGenerationMethods":["embedContent"]}],"nextPageToken":"page-2"}"#
+                ),
+                (
+                    200,
+                    #"{"models":[{"name":"models/gemini-pro","supportedGenerationMethods":["generateContent","countTokens"]}]}"#
+                ),
+            ]
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://\(host)/v1beta",
+                apiStyle: .geminiGenerateContent,
+                apiPathMode: .asEntered,
+                generationModel: "gemini-flash",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "gemini-api-key",
+            session: session
+        )
+
+        let models = try await provider.listModels()
+
+        XCTAssertEqual(models.map(\.id), ["gemini-flash", "gemini-pro"])
+        XCTAssertTrue(models.allSatisfy { $0.ownedBy == "Google" })
+        let requests = IntelligenceURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "x-goog-api-key"), "gemini-api-key")
+        XCTAssertEqual(
+            URLComponents(url: requests[0].url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "pageSize" })?.value,
+            "1000"
+        )
+        XCTAssertEqual(
+            URLComponents(url: requests[1].url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "pageToken" })?.value,
+            "page-2"
+        )
+    }
+
     func testAnthropicModelsFollowPaginationAndParseDates() async throws {
         let host = "intelligence-anthropic-models.invalid"
         IntelligenceURLProtocol.configureSequence(

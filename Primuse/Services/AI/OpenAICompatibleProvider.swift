@@ -279,6 +279,12 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                     ["role": "user", "content": prompt],
                 ],
             ]
+        case .geminiGenerateContent:
+            body = Self.geminiRequestBody(
+                instructions: Self.semanticSearchInstructions,
+                input: prompt,
+                maximumTokens: 320
+            )
         }
 
         let data = try await postJSON(body, to: endpoint, apiKey: apiKey)
@@ -506,6 +512,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         case .responses, .chatCompletions:
             let data = try await getJSON(from: endpoint, apiKey: apiKey)
             items = try Self.decodeModelsResponse(data).data
+        case .geminiGenerateContent:
+            items = try await geminiModelItems(from: endpoint, apiKey: apiKey)
         }
 
         var seen = Set<String>()
@@ -572,6 +580,58 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         return items
     }
 
+    private func geminiModelItems(
+        from endpoint: URL,
+        apiKey: String
+    ) async throws -> [ModelsResponse.Item] {
+        var items: [ModelsResponse.Item] = []
+        var pageToken: String?
+        var seenTokens = Set<String>()
+        let maximumPages = 20
+
+        for page in 0..<maximumPages {
+            guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            var queryItems = components.queryItems ?? []
+            queryItems.removeAll { $0.name == "pageSize" || $0.name == "pageToken" }
+            queryItems.append(URLQueryItem(name: "pageSize", value: "1000"))
+            if let pageToken {
+                queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
+            components.queryItems = queryItems
+            guard let pageURL = components.url else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+
+            let data = try await getJSON(from: pageURL, apiKey: apiKey)
+            let response: GeminiModelsResponse
+            do {
+                response = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
+            } catch {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            items.append(contentsOf: response.models.compactMap { model in
+                guard model.supportedGenerationMethods?.contains("generateContent") == true else {
+                    return nil
+                }
+                let id = AIRemoteEndpointPolicy.normalizedGeminiModelID(model.name)
+                guard !id.isEmpty else { return nil }
+                return ModelsResponse.Item(id: id, ownedBy: "Google", created: nil, createdAt: nil)
+            })
+
+            let nextToken = response.nextPageToken?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !nextToken.isEmpty else { return items }
+            guard seenTokens.insert(nextToken).inserted,
+                  page + 1 < maximumPages else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            pageToken = nextToken
+        }
+        return items
+    }
+
     private func requiredAPIKey() async throws -> String {
         if let apiKeyOverride { return apiKeyOverride }
         do {
@@ -626,6 +686,12 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                     ["role": "user", "content": input],
                 ],
             ]
+        case .geminiGenerateContent:
+            body = Self.geminiRequestBody(
+                instructions: instructions,
+                input: input,
+                maximumTokens: maximumTokens
+            )
         }
         let data = try await postJSON(body, to: endpoint, apiKey: try await requiredAPIKey())
         guard let output = Self.extractText(from: data, style: configuration.apiStyle) else {
@@ -696,6 +762,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         case .xAPIKey:
             request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        case .xGoogAPIKey:
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         case .automatic:
             assertionFailure("Authentication style must resolve before creating a request")
         }
@@ -825,7 +893,35 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                 return item["text"] as? String
             }
             return texts.isEmpty ? nil : texts.joined(separator: "\n")
+        case .geminiGenerateContent:
+            guard let candidates = root["candidates"] as? [[String: Any]] else { return nil }
+            let texts = candidates.flatMap { candidate -> [String] in
+                guard let content = candidate["content"] as? [String: Any],
+                      let parts = content["parts"] as? [[String: Any]] else { return [] }
+                return parts.compactMap { $0["text"] as? String }
+            }
+            return texts.isEmpty ? nil : texts.joined(separator: "\n")
         }
+    }
+
+    private static func geminiRequestBody(
+        instructions: String,
+        input: String,
+        maximumTokens: Int
+    ) -> [String: Any] {
+        [
+            "systemInstruction": [
+                "parts": [["text": instructions]],
+            ],
+            "contents": [[
+                "role": "user",
+                "parts": [["text": input]],
+            ]],
+            "generationConfig": [
+                "maxOutputTokens": maximumTokens,
+                "responseMimeType": "application/json",
+            ],
+        ]
     }
 
     private static func decodeSearchPlan(from output: String) -> AISemanticSearchPlan? {
@@ -961,6 +1057,16 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             case hasMore = "has_more"
             case lastID = "last_id"
         }
+    }
+
+    private struct GeminiModelsResponse: Decodable {
+        struct Item: Decodable {
+            var name: String
+            var supportedGenerationMethods: [String]?
+        }
+
+        var models: [Item]
+        var nextPageToken: String?
     }
 
     private static func decodeModelsResponse(_ data: Data) throws -> ModelsResponse {

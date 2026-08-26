@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AICommercialRegion: String, Codable, Equatable, Sendable {
+public enum AICommercialRegion: String, Codable, Equatable, Hashable, Sendable {
     case mainlandChina
     case international
     case unknown
@@ -56,6 +56,185 @@ public enum AIRegionRequestPolicy {
         latest: AIRegionSnapshot
     ) -> Bool {
         canSendRemoteRequest(captured: captured, latest: latest)
+    }
+
+    public static func canSendRemoteRequest(
+        captured: AIRegionSnapshot,
+        latest: AIRegionSnapshot,
+        configuration: AIRemoteProviderConfiguration,
+        purpose: AIProviderRegionPurpose = .generation
+    ) -> Bool {
+        canSendRemoteRequest(captured: captured, latest: latest)
+            && AIProviderRegionPolicy.allows(
+                configuration: configuration,
+                region: latest.context.region,
+                purpose: purpose
+            )
+    }
+
+    public static func canCommitRemoteResponse(
+        captured: AIRegionSnapshot,
+        latest: AIRegionSnapshot,
+        configuration: AIRemoteProviderConfiguration,
+        purpose: AIProviderRegionPurpose = .generation
+    ) -> Bool {
+        canSendRemoteRequest(
+            captured: captured,
+            latest: latest,
+            configuration: configuration,
+            purpose: purpose
+        )
+    }
+}
+
+public enum AIProviderRegionPurpose: Sendable {
+    case modelCatalog
+    case generation
+}
+
+/// Storefront restrictions are enforced against the concrete endpoint and,
+/// for multi-vendor mainland catalogs, the selected model. This prevents an
+/// older or iCloud-synced profile from bypassing the storefront picker.
+public enum AIProviderRegionPolicy {
+    private enum MainlandHostRule {
+        case dedicatedDomesticProvider
+        case domesticModelsOnly
+        case localNetwork
+    }
+
+    private static let dedicatedDomesticHosts: Set<String> = [
+        "api.deepseek.com",
+        "open.bigmodel.cn",
+        "api.xiaomimimo.com",
+        "token-plan-cn.xiaomimimo.com",
+        "api.moonshot.cn",
+        "api.minimaxi.com",
+        "api.stepfun.com",
+    ]
+
+    private static let domesticCatalogHosts: Set<String> = [
+        "dashscope.aliyuncs.com",
+        "coding.dashscope.aliyuncs.com",
+        "ark.cn-beijing.volces.com",
+        "tokenhub.tencentmaas.com",
+        "qianfan.baidubce.com",
+        "qianfan.bj.baidubce.com",
+        "api.siliconflow.cn",
+    ]
+
+    private static let domesticModelMarkers = [
+        "deepseek",
+        "qwen",
+        "tongyi",
+        "glm",
+        "chatglm",
+        "zhipu",
+        "zai-org",
+        "thudm",
+        "kimi",
+        "moonshot",
+        "minimax",
+        "mimo",
+        "doubao",
+        "seed",
+        "baichuan",
+        "01-ai",
+        "yi-",
+        "step",
+        "hunyuan",
+        "hy3",
+        "ernie",
+        "qianfan",
+        "internlm",
+        "telechat",
+        "skywork",
+        "cogview",
+        "cogvlm",
+        "baai",
+        "bge-",
+        "minicpm",
+        "openbmb",
+        "inclusionai",
+    ]
+
+    public static func allows(
+        configuration: AIRemoteProviderConfiguration,
+        region: AICommercialRegion,
+        purpose: AIProviderRegionPurpose
+    ) -> Bool {
+        guard let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
+            configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        ) else { return false }
+
+        switch region {
+        case .international:
+            return true
+        case .unknown:
+            return false
+        case .mainlandChina:
+            guard let rule = mainlandRule(for: baseURL) else { return false }
+            switch (rule, purpose) {
+            case (.localNetwork, _), (.dedicatedDomesticProvider, _):
+                return true
+            case (.domesticModelsOnly, .modelCatalog):
+                return true
+            case (.domesticModelsOnly, .generation):
+                return isDomesticModel(configuration.generationModel)
+            }
+        }
+    }
+
+    public static func filterModels(
+        _ models: [AIProviderModel],
+        configuration: AIRemoteProviderConfiguration,
+        region: AICommercialRegion
+    ) -> [AIProviderModel] {
+        switch region {
+        case .international:
+            return models
+        case .unknown:
+            return []
+        case .mainlandChina:
+            guard let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
+                configuration.baseURL,
+                allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+            ), let rule = mainlandRule(for: baseURL) else { return [] }
+            switch rule {
+            case .dedicatedDomesticProvider, .localNetwork:
+                return models
+            case .domesticModelsOnly:
+                return models.filter { isDomesticModel($0.id) }
+            }
+        }
+    }
+
+    public static func isDomesticModel(_ rawValue: String) -> Bool {
+        let model = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            .lowercased()
+        guard !model.isEmpty else { return false }
+        return domesticModelMarkers.contains { model.contains($0) }
+    }
+
+    private static func mainlandRule(for baseURL: URL) -> MainlandHostRule? {
+        guard let rawHost = baseURL.host,
+              let host = InsecureHTTPHostPolicy.normalizedHost(rawHost) else { return nil }
+        if InsecureHTTPHostPolicy.isLocalNetworkHost(host) {
+            return .localNetwork
+        }
+        if dedicatedDomesticHosts.contains(host) {
+            return .dedicatedDomesticProvider
+        }
+        if domesticCatalogHosts.contains(host)
+            || host.hasSuffix(".cn-beijing.maas.aliyuncs.com") {
+            return .domesticModelsOnly
+        }
+        return nil
     }
 }
 
@@ -135,20 +314,30 @@ public enum AIAvailabilityPolicy {
                 requiresExplicitConsent: false
             )
 
-        case .appleSystemModel, .userConfiguredRemote, .bundledRemote:
+        case .userConfiguredRemote:
             switch regionContext.region {
-            case .international:
-                let requiresConsent: Bool
-                switch executionClass {
-                case .userConfiguredRemote, .bundledRemote:
-                    requiresConsent = true
-                default:
-                    requiresConsent = false
-                }
+            case .mainlandChina, .international:
                 return AIAccessDecision(
                     isAllowed: true,
                     shouldExposeConfiguration: true,
-                    requiresExplicitConsent: requiresConsent
+                    requiresExplicitConsent: true
+                )
+            case .unknown:
+                return AIAccessDecision(
+                    isAllowed: false,
+                    shouldExposeConfiguration: false,
+                    requiresExplicitConsent: false,
+                    denialReason: .regionUndetermined
+                )
+            }
+
+        case .appleSystemModel, .bundledRemote:
+            switch regionContext.region {
+            case .international:
+                return AIAccessDecision(
+                    isAllowed: true,
+                    shouldExposeConfiguration: true,
+                    requiresExplicitConsent: executionClass == .bundledRemote
                 )
             case .mainlandChina:
                 return AIAccessDecision(
