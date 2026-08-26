@@ -808,6 +808,29 @@ protocol ServerScrobblingConnector: MusicSourceConnector {
     func scrobble(songPath: String, submission: Bool) async
 }
 
+enum ServerListeningStatsConnectorError: LocalizedError, Equatable, Sendable {
+    case invalidSnapshot
+    case accountAmbiguous
+    case historyChangedDuringPagination
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidSnapshot:
+            return String(localized: "stats_server_error_invalid_snapshot")
+        case .accountAmbiguous:
+            return String(localized: "stats_server_error_account_ambiguous")
+        case .historyChangedDuringPagination:
+            return String(localized: "stats_server_error_history_changed")
+        }
+    }
+}
+
+/// A read-only, fully collected listening snapshot for one authenticated server account.
+/// Connectors must not return partial pages and must never merge local playback history.
+protocol ServerListeningStatsConnector: MusicSourceConnector {
+    func fetchServerListeningStats() async throws -> ServerListeningStatsPayload
+}
+
 /// 服务端上的一份用户歌单。`trackIDs` 是**服务端原生 item ID**(Subsonic 的
 /// child id / Jellyfin 的 item id), 不是 Primuse 的 `Song.id` —— connector 不
 /// 认识本地曲库, 由 `ServerPlaylistSyncService` 通过

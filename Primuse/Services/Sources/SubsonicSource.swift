@@ -15,9 +15,11 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
-    ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector {
+    ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
+    ServerListeningStatsConnector {
     let sourceID: String
 
+    private let sourceType: MusicSourceType
     private let baseURL: URL          // 形如 https://host:4533 (+ basePath), 不含 /rest
     private let username: String
     private let salt: String
@@ -58,6 +60,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         session: URLSession? = nil
     ) {
         self.sourceID = sourceID
+        self.sourceType = sourceType
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
         self.username = username
         self.apiVersion = sourceType == .airsonic
@@ -266,6 +269,94 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             }
             continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
+    }
+
+    func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
+        try await connect()
+        let catalog = try await fetchCompleteStatsCatalog()
+        let tracks = catalog.map { child in
+            ServerListeningTrackAggregate(
+                remoteTrackID: child.id,
+                title: child.title ?? child.id,
+                artist: child.artist ?? child.displayArtist,
+                album: child.album,
+                playCount: child.playCount ?? 0,
+                lastPlayedAt: child.played.flatMap(Self.parseDate)
+            )
+        }
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: ServerListeningStatsFingerprint.account(
+                service: sourceType.rawValue,
+                endpoint: baseURL.absoluteString,
+                accountIdentifier: username
+            ),
+            temporalDetail: .aggregate,
+            tracks: tracks
+        )
+        guard payload.isStructurallyValid else {
+            throw ServerListeningStatsConnectorError.invalidSnapshot
+        }
+        return payload
+    }
+
+    /// Statistics are published only after the complete catalogue has been read.
+    /// This deliberately does not consume `scanSongs`, whose legacy path streams rows
+    /// before the final page and therefore cannot provide an atomic server snapshot.
+    private func fetchCompleteStatsCatalog() async throws -> [SubsonicChild] {
+        if SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
+            isOpenSubsonic: isOpenSubsonic,
+            serverType: serverType
+        ) {
+            do {
+                if let catalog = try await fetchStableSearch3Catalog(path: "/") {
+                    return catalog
+                }
+            } catch SubsonicCompatibilityError.directCatalogUnavailable {
+                try Task.checkCancellation()
+            }
+        }
+
+        var offset = 0
+        var seenAlbumIDs = Set<String>()
+        var seenSongIDs = Set<String>()
+        var catalog: [SubsonicChild] = []
+        while true {
+            try Task.checkCancellation()
+            let listContainer: AlbumListContainer = try await requestJSON(
+                "getAlbumList2",
+                query: [
+                    URLQueryItem(name: "type", value: "alphabeticalByName"),
+                    URLQueryItem(name: "size", value: String(Self.pageSize)),
+                    URLQueryItem(name: "offset", value: String(offset)),
+                ]
+            )
+            guard let albumList = listContainer.albumList2 else {
+                throw ServerListeningStatsConnectorError.invalidSnapshot
+            }
+            let albums = albumList.album ?? []
+            if albums.isEmpty { break }
+            let newAlbums = albums.filter { seenAlbumIDs.insert($0.id).inserted }
+            if albums.count >= Self.pageSize, newAlbums.isEmpty {
+                throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+            }
+            guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(seenAlbumIDs.count) else {
+                throw ServerListeningStatsConnectorError.invalidSnapshot
+            }
+
+            for result in try await fetchLegacyAlbums(newAlbums) {
+                for child in result.songs where child.isVideo != true {
+                    try Task.checkCancellation()
+                    guard seenSongIDs.insert(child.id).inserted else { continue }
+                    guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenSongIDs.count) else {
+                        throw ServerListeningStatsConnectorError.invalidSnapshot
+                    }
+                    catalog.append(child)
+                }
+            }
+            offset += albums.count
+            if albums.count < Self.pageSize { break }
+        }
+        return catalog
     }
 
     private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
@@ -1241,6 +1332,8 @@ private struct SubsonicChild: Decodable, Sendable {
     let path: String?
     let isVideo: Bool?
     let created: String?
+    let playCount: Int?
+    let played: String?
     // OpenSubsonic 扩展
     let samplingRate: Int?
     let bitDepth: Int?

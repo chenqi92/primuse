@@ -910,7 +910,7 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
-    ServerRadioConnector {
+    ServerRadioConnector, ServerListeningStatsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -922,6 +922,15 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerListeningStatsConnector else {
+                throw SourceError.connectionFailed("Server listening statistics connector unavailable")
+            }
+            return try await provider.fetchServerListeningStats()
         }
     }
 
@@ -1042,7 +1051,7 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerFavoriteConnector,
-    ServerRadioConnector, ServerRadioStreamResolvingConnector {
+    ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -1055,6 +1064,15 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerListeningStatsConnector else {
+                throw SourceError.connectionFailed("Server listening statistics connector unavailable")
+            }
+            return try await provider.fetchServerListeningStats()
         }
     }
 
@@ -5387,6 +5405,16 @@ final class SourceManager {
     func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
         return try await conn.fetchServerPlaylists()
+    }
+
+    func fetchServerListeningStats(
+        for source: MusicSource
+    ) async throws -> ServerListeningStatsPayload? {
+        guard source.type.serverListeningStatsCapability != .unavailable,
+              let connector = connector(for: source) as? any ServerListeningStatsConnector else {
+            return nil
+        }
+        return try await connector.fetchServerListeningStats()
     }
 
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {

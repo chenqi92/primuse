@@ -4,7 +4,7 @@ import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
-    ServerRadioStreamResolvingConnector {
+    ServerRadioStreamResolvingConnector, ServerListeningStatsConnector {
     typealias RequestDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     private static let maximumCatalogTracks = 10_000_000
@@ -37,6 +37,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private var plexItems: [String: PlexAudioItem] = [:]
     private var plexAPIVersion: String?
     private var plexSigninState: String?
+    private var plexMachineIdentifier: String?
     private var embyLyricsStreams: [String: EmbyLyricsStreamDescriptor] = [:]
     private var embyLyricsProbedItemIDs: Set<String> = []
 
@@ -134,6 +135,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             let serverInfo = try await fetchPlexServerInfo()
             plexAPIVersion = serverInfo.apiVersion
             plexSigninState = serverInfo.myPlexSigninState
+            plexMachineIdentifier = serverInfo.machineIdentifier
             userID = "plex"
             return
         }
@@ -177,6 +179,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         plexItems.removeAll()
         plexAPIVersion = nil
         plexSigninState = nil
+        plexMachineIdentifier = nil
         embyLyricsStreams.removeAll()
         embyLyricsProbedItemIDs.removeAll()
     }
@@ -614,6 +617,301 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
+        try await connect()
+        let libraryIDs = preferredLibraries(from: try await fetchLibraries()).map(\.id)
+        switch kind {
+        case .jellyfin, .emby:
+            return try await fetchUserDataListeningStats(libraryIDs: libraryIDs)
+        case .plex:
+            if let history = try await fetchStablePlexHistory(libraryIDs: libraryIDs) {
+                return try plexHistoryPayload(history)
+            }
+            return try await fetchPlexAggregateListeningStats(libraryIDs: libraryIDs)
+        }
+    }
+
+    private func fetchUserDataListeningStats(
+        libraryIDs: [String]
+    ) async throws -> ServerListeningStatsPayload {
+        guard let userID else { throw SourceError.authenticationFailed }
+        let items = try await collectAudioItems(libraryIDs: libraryIDs)
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: ServerListeningStatsFingerprint.account(
+                service: serviceIdentifier,
+                endpoint: baseURL.absoluteString,
+                accountIdentifier: userID
+            ),
+            temporalDetail: .aggregate,
+            tracks: items.map { item in
+                ServerListeningTrackAggregate(
+                    remoteTrackID: item.id,
+                    title: item.name,
+                    artist: item.artists?.first ?? item.albumArtist,
+                    album: item.album,
+                    playCount: item.userData?.playCount ?? 0,
+                    lastPlayedAt: item.userData?.lastPlayedDate
+                )
+            }
+        )
+        guard payload.isStructurallyValid else {
+            throw ServerListeningStatsConnectorError.invalidSnapshot
+        }
+        return payload
+    }
+
+    private func fetchPlexAggregateListeningStats(
+        libraryIDs: [String]
+    ) async throws -> ServerListeningStatsPayload {
+        let items = try await collectPlexTracks(libraryIDs: libraryIDs)
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: ServerListeningStatsFingerprint.account(
+                service: serviceIdentifier,
+                endpoint: plexMachineIdentifier ?? baseURL.absoluteString,
+                accountIdentifier: username.isEmpty ? sourceID : username
+            ),
+            temporalDetail: .aggregate,
+            tracks: items.map { item in
+                ServerListeningTrackAggregate(
+                    remoteTrackID: item.ratingKey,
+                    title: item.title,
+                    artist: item.originalTitle ?? item.grandparentTitle,
+                    album: item.parentTitle,
+                    playCount: item.viewCount ?? 0,
+                    lastPlayedAt: item.lastViewedAt.map {
+                        Date(timeIntervalSince1970: TimeInterval($0))
+                    }
+                )
+            }
+        )
+        guard payload.isStructurallyValid else {
+            throw ServerListeningStatsConnectorError.invalidSnapshot
+        }
+        return payload
+    }
+
+    private func plexHistoryPayload(
+        _ history: [PlexHistoryItem]
+    ) throws -> ServerListeningStatsPayload {
+        let tracks = history.filter {
+            $0.type.caseInsensitiveCompare("track") == .orderedSame
+        }
+        let accountIDs = Set(tracks.compactMap(\.accountID))
+        if !tracks.isEmpty {
+            guard accountIDs.count == 1,
+                  tracks.allSatisfy({ $0.accountID != nil }) else {
+                throw ServerListeningStatsConnectorError.accountAmbiguous
+            }
+        }
+        let accountScope = accountIDs.first.map { "account:\($0)" }
+            ?? "empty:\(username.isEmpty ? sourceID : username)"
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: ServerListeningStatsFingerprint.account(
+                service: serviceIdentifier,
+                endpoint: plexMachineIdentifier ?? baseURL.absoluteString,
+                accountIdentifier: accountScope
+            ),
+            temporalDetail: .events,
+            events: tracks.map { item in
+                ServerListeningEvent(
+                    id: item.historyKey,
+                    remoteTrackID: item.ratingKey,
+                    title: item.title,
+                    artist: item.grandparentTitle,
+                    album: item.parentTitle,
+                    playedAt: Date(timeIntervalSince1970: TimeInterval(item.viewedAt))
+                )
+            }
+        )
+        guard payload.isStructurallyValid else {
+            throw ServerListeningStatsConnectorError.invalidSnapshot
+        }
+        return payload
+    }
+
+    /// A new play can shift a descending offset window while it is being read.
+    /// Retry the complete snapshot once; never publish the partial first attempt.
+    private func fetchStablePlexHistory(
+        libraryIDs: [String]
+    ) async throws -> [PlexHistoryItem]? {
+        for attempt in 0..<2 {
+            do {
+                return try await collectPlexHistory(libraryIDs: libraryIDs)
+            } catch ServerListeningStatsConnectorError.historyChangedDuringPagination {
+                guard attempt == 0 else { throw ServerListeningStatsConnectorError.historyChangedDuringPagination }
+                try Task.checkCancellation()
+            }
+        }
+        throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+    }
+
+    private func collectPlexHistory(
+        libraryIDs: [String]
+    ) async throws -> [PlexHistoryItem]? {
+        var history: [PlexHistoryItem] = []
+        var seenHistoryKeys = Set<String>()
+        for libraryID in libraryIDs {
+            var startIndex = 0
+            var expectedTotal: Int?
+            var seenPages = Set<String>()
+            while true {
+                try Task.checkCancellation()
+                guard let page = try await fetchPlexHistoryPage(
+                    librarySectionID: libraryID,
+                    startIndex: startIndex,
+                    limit: Self.playlistPageSize
+                ) else { return nil }
+                if let offset = page.offset, offset != startIndex {
+                    throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+                }
+
+                if let total = page.totalCount {
+                    guard total >= 0, total <= Self.maximumCatalogTracks else {
+                        throw ServerListeningStatsConnectorError.invalidSnapshot
+                    }
+                    if let expectedTotal, total != expectedTotal {
+                        throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+                    }
+                    expectedTotal = total
+                }
+                if page.items.isEmpty {
+                    if let expectedTotal, startIndex < expectedTotal {
+                        throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+                    }
+                    break
+                }
+                guard page.items.count <= Self.playlistPageSize else {
+                    throw ServerListeningStatsConnectorError.invalidSnapshot
+                }
+                let signature = Self.catalogPageSignature(page.items.map(\.historyKey))
+                guard seenPages.insert(signature).inserted else {
+                    throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+                }
+                for item in page.items {
+                    guard seenHistoryKeys.insert(item.historyKey).inserted else {
+                        throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+                    }
+                    history.append(item)
+                    guard history.count <= Self.maximumCatalogTracks else {
+                        throw ServerListeningStatsConnectorError.invalidSnapshot
+                    }
+                }
+                startIndex += page.items.count
+                if let expectedTotal {
+                    guard startIndex <= expectedTotal else {
+                        throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+                    }
+                    if startIndex == expectedTotal { break }
+                }
+            }
+        }
+        return history
+    }
+
+    private func collectAudioItems(libraryIDs: [String]) async throws -> [AudioItem] {
+        var catalog: [AudioItem] = []
+        var seenTrackIDs = Set<String>()
+        for libraryID in libraryIDs {
+            var startIndex = 0
+            var expectedTotal: Int?
+            var seenPages = Set<String>()
+            while true {
+                try Task.checkCancellation()
+                let page = try await fetchAudioItems(
+                    parentID: libraryID,
+                    startIndex: startIndex,
+                    limit: Self.playlistPageSize
+                )
+                try validateCatalogPage(
+                    ids: page.items.map(\.id),
+                    itemCount: page.items.count,
+                    total: page.totalRecordCount,
+                    startIndex: startIndex,
+                    expectedTotal: &expectedTotal,
+                    seenPages: &seenPages
+                )
+                if page.items.isEmpty { break }
+                for item in page.items where seenTrackIDs.insert(item.id).inserted {
+                    catalog.append(item)
+                }
+                startIndex += page.items.count
+                if let expectedTotal, startIndex == expectedTotal { break }
+            }
+        }
+        return catalog
+    }
+
+    private func collectPlexTracks(libraryIDs: [String]) async throws -> [PlexAudioItem] {
+        var catalog: [PlexAudioItem] = []
+        var seenTrackIDs = Set<String>()
+        for libraryID in libraryIDs {
+            var startIndex = 0
+            var expectedTotal: Int?
+            var seenPages = Set<String>()
+            while true {
+                try Task.checkCancellation()
+                let page = try await fetchPlexTracks(
+                    sectionID: libraryID,
+                    startIndex: startIndex,
+                    limit: Self.playlistPageSize
+                )
+                try validateCatalogPage(
+                    ids: page.items.map(\.ratingKey),
+                    itemCount: page.items.count,
+                    total: page.totalCount,
+                    startIndex: startIndex,
+                    expectedTotal: &expectedTotal,
+                    seenPages: &seenPages
+                )
+                if page.items.isEmpty { break }
+                for item in page.items where seenTrackIDs.insert(item.ratingKey).inserted {
+                    catalog.append(item)
+                }
+                startIndex += page.items.count
+                if let expectedTotal, startIndex == expectedTotal { break }
+            }
+        }
+        return catalog
+    }
+
+    private func validateCatalogPage(
+        ids: [String],
+        itemCount: Int,
+        total: Int?,
+        startIndex: Int,
+        expectedTotal: inout Int?,
+        seenPages: inout Set<String>
+    ) throws {
+        if let total {
+            guard total >= 0, total <= Self.maximumCatalogTracks else {
+                throw ServerListeningStatsConnectorError.invalidSnapshot
+            }
+            if let expectedTotal, expectedTotal != total {
+                throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+            }
+            expectedTotal = total
+        }
+        if itemCount == 0 {
+            if let expectedTotal, startIndex < expectedTotal {
+                throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+            }
+            return
+        }
+        guard itemCount <= Self.playlistPageSize,
+              startIndex + itemCount <= (expectedTotal ?? Self.maximumCatalogTracks),
+              seenPages.insert(Self.catalogPageSignature(ids)).inserted else {
+            throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+        }
+    }
+
+    private var serviceIdentifier: String {
+        switch kind {
+        case .jellyfin: return "jellyfin"
+        case .emby: return "emby"
+        case .plex: return "plex"
         }
     }
 
@@ -1282,7 +1580,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             "MediaStreams",
             "ParentIndexNumber",
             "Path",
-            "ProductionYear"
+            "ProductionYear",
+            "UserData"
         ].joined(separator: ",")
 
         let data = try await performRequest(
@@ -1294,6 +1593,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 URLQueryItem(name: "SortBy", value: "SortName"),
                 URLQueryItem(name: "SortOrder", value: "Ascending"),
                 URLQueryItem(name: "Fields", value: fields),
+                URLQueryItem(name: "EnableUserData", value: "true"),
                 URLQueryItem(name: "StartIndex", value: String(startIndex)),
                 URLQueryItem(name: "Limit", value: String(limit))
             ]
@@ -2220,6 +2520,51 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return try decoder.decode(PlexTrackResponse.self, from: data)
     }
 
+    private func fetchPlexHistoryPage(
+        librarySectionID: String,
+        startIndex: Int,
+        limit: Int
+    ) async throws -> PlexHistoryResponse? {
+        var request = URLRequest(
+            url: buildURL(
+                path: "/status/sessions/history/all",
+                queryItems: [
+                    URLQueryItem(name: "librarySectionID", value: librarySectionID),
+                    URLQueryItem(name: "sort", value: "viewedAt:desc"),
+                ]
+            )
+        )
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(String(startIndex), forHTTPHeaderField: "X-Plex-Container-Start")
+        request.setValue(String(limit), forHTTPHeaderField: "X-Plex-Container-Size")
+        for (header, value) in headers(requiresAuth: true) {
+            request.setValue(value, forHTTPHeaderField: header)
+        }
+
+        let (data, response): (Data, URLResponse)
+        if let requestDataLoader {
+            (data, response) = try await requestDataLoader(request)
+        } else {
+            (data, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: session,
+                maxBytes: PlainHTTPClient.defaultMaxBytes
+            )
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid server response")
+        }
+        if [404, 405, 501].contains(http.statusCode) {
+            return nil
+        }
+        try validate(response)
+        guard data.count <= PlainHTTPClient.defaultMaxBytes else {
+            throw ServerListeningStatsConnectorError.invalidSnapshot
+        }
+        return try decoder.decode(PlexHistoryResponse.self, from: data)
+    }
+
     private func fetchPlexTrack(ratingKey: String) async throws -> PlexAudioItem {
         let data = try await performRequest(path: "/library/metadata/\(ratingKey)")
         let response = try decoder.decode(PlexTrackResponse.self, from: data)
@@ -2396,6 +2741,7 @@ private struct AudioItem: Decodable {
     let imageTags: [String: String]?
     let path: String?
     let channelType: String?
+    let userData: UserItemData?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -2418,6 +2764,7 @@ private struct AudioItem: Decodable {
         case imageTags = "ImageTags"
         case path = "Path"
         case channelType = "ChannelType"
+        case userData = "UserData"
     }
 
     var embyLyricsStream: EmbyLyricsStreamDescriptor? {
@@ -2455,6 +2802,16 @@ private struct AudioItem: Decodable {
             return preferred
         }
         return candidates.first
+    }
+}
+
+private struct UserItemData: Decodable {
+    let playCount: Int?
+    let lastPlayedDate: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case playCount = "PlayCount"
+        case lastPlayedDate = "LastPlayedDate"
     }
 }
 
@@ -2722,6 +3079,83 @@ private struct PlexTrackContainer: Decodable {
     }
 }
 
+private struct PlexHistoryResponse: Decodable {
+    let mediaContainer: PlexHistoryContainer
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+
+    var items: [PlexHistoryItem] { mediaContainer.metadata }
+    var totalCount: Int? { mediaContainer.totalSize }
+    var offset: Int? { mediaContainer.offset }
+}
+
+private struct PlexHistoryContainer: Decodable {
+    let metadata: [PlexHistoryItem]
+    let totalSize: Int?
+    let size: Int?
+    let offset: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case metadata = "Metadata"
+        case totalSize
+        case size
+        case offset
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalSize = try container.decodeLossyIntIfPresent(forKey: .totalSize)
+        size = try container.decodeLossyIntIfPresent(forKey: .size)
+        offset = try container.decodeLossyIntIfPresent(forKey: .offset)
+        if let decoded = try container.decodeIfPresent([PlexHistoryItem].self, forKey: .metadata) {
+            metadata = decoded
+        } else if size == 0 || totalSize == 0 {
+            metadata = []
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.metadata,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing Plex history Metadata")
+            )
+        }
+    }
+}
+
+private struct PlexHistoryItem: Decodable {
+    let historyKey: String
+    let ratingKey: String
+    let title: String
+    let parentTitle: String?
+    let grandparentTitle: String?
+    let type: String
+    let viewedAt: Int
+    let accountID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case historyKey
+        case ratingKey
+        case title
+        case parentTitle
+        case grandparentTitle
+        case type
+        case viewedAt
+        case accountID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        historyKey = try container.decode(String.self, forKey: .historyKey)
+        ratingKey = try container.decodeLossyString(forKey: .ratingKey)
+        title = try container.decode(String.self, forKey: .title)
+        parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        type = try container.decode(String.self, forKey: .type)
+        viewedAt = try container.decodeLossyInt(forKey: .viewedAt)
+        accountID = try container.decodeLossyStringIfPresent(forKey: .accountID)
+    }
+}
+
 private struct PlexAudioItem: Decodable {
     let ratingKey: String
     let title: String
@@ -2738,6 +3172,8 @@ private struct PlexAudioItem: Decodable {
     let grandparentThumb: String?
     let genres: [String]?
     let media: [PlexMedia]?
+    let viewCount: Int?
+    let lastViewedAt: Int?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
@@ -2755,6 +3191,8 @@ private struct PlexAudioItem: Decodable {
         case grandparentThumb
         case media = "Media"
         case genre = "Genre"
+        case viewCount
+        case lastViewedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -2774,6 +3212,40 @@ private struct PlexAudioItem: Decodable {
         grandparentThumb = try container.decodeIfPresent(String.self, forKey: .grandparentThumb)
         media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
         genres = try container.decodeIfPresent([PlexGenre].self, forKey: .genre)?.map(\.tag)
+        viewCount = try container.decodeLossyIntIfPresent(forKey: .viewCount)
+        lastViewedAt = try container.decodeLossyIntIfPresent(forKey: .lastViewedAt)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeLossyInt(forKey key: Key) throws -> Int {
+        if let value = try? decode(Int.self, forKey: key) { return value }
+        if let value = try? decode(String.self, forKey: key), let parsed = Int(value) { return parsed }
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: self,
+            debugDescription: "Expected an integer or integer string"
+        )
+    }
+
+    func decodeLossyIntIfPresent(forKey key: Key) throws -> Int? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        return try decodeLossyInt(forKey: key)
+    }
+
+    func decodeLossyString(forKey key: Key) throws -> String {
+        if let value = try? decode(String.self, forKey: key) { return value }
+        if let value = try? decode(Int.self, forKey: key) { return String(value) }
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: self,
+            debugDescription: "Expected a string or integer"
+        )
+    }
+
+    func decodeLossyStringIfPresent(forKey key: Key) throws -> String? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        return try decodeLossyString(forKey: key)
     }
 }
 
