@@ -5254,15 +5254,28 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 
         guard identity.isEnabled, !lyrics.isEmpty else { return }
 
-        let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLanguageCode(
-            for: lyrics.map(\.text).joined(separator: "\n")
+        let lyricTexts = lyrics.map(\.text)
+        let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLyricsLanguageCode(
+            for: lyricTexts
         )
+        guard LyricsTranslationSettingsStore.lyricsNeedTranslation(
+            detectedSourceLanguageCode: fallbackSourceLanguageCode,
+            targetLanguageCode: identity.targetLanguageCode
+        ) else {
+            plog(
+                "Lyrics translation skipped: whole lyric language "
+                    + "\(fallbackSourceLanguageCode ?? "unknown") already matches "
+                    + identity.targetLanguageCode
+            )
+            return
+        }
         let candidates = lyrics.map { line in
             LyricTranslationCandidate(
                 id: line.id,
                 text: line.text,
                 sourceLanguageCode: LyricsTranslationSettingsStore.detectedLanguageCode(
-                    for: line.text
+                    for: line.text,
+                    fallbackLanguageCode: fallbackSourceLanguageCode
                 )
             )
         }
@@ -5276,6 +5289,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         let cache = LyricsTranslationCache.shared
         var hits: [String: String] = [:]
         var uncachedGroups: [LyricTranslationGroup] = []
+        var cooledDownLineCount = 0
 
         for group in groups {
             let pending = group.candidates.filter { candidate in
@@ -5285,6 +5299,14 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                     targetLang: identity.targetLanguageCode
                 ) {
                     hits[candidate.id] = translated
+                    return false
+                }
+                if cache.isMarkedFailed(
+                    source: candidate.text,
+                    sourceLang: group.sourceLanguageCode,
+                    targetLang: identity.targetLanguageCode
+                ) {
+                    cooledDownLineCount += 1
                     return false
                 }
                 return true
@@ -5301,6 +5323,9 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         translatedTextByLineID = hits
+        if cooledDownLineCount > 0 {
+            plog("Lyrics translation cooldown skipped \(cooledDownLineCount) lines")
+        }
         guard !uncachedGroups.isEmpty else { return }
 
         if identity.mode == .intelligentWithSystemFallback {
@@ -5368,7 +5393,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         translatedTextByLineID.merge(hits) { _, new in new }
         let availableGroups = LyricTranslationGroupingPolicy.automaticSessionGroups(
             installed: installedGroups,
-            downloadable: downloadableGroups
+            downloadable: downloadableGroups,
+            totalCandidateCount: candidates.count
         )
         guard !availableGroups.isEmpty else { return }
 
@@ -5420,9 +5446,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         translationConfig = next
     }
 
-    /// 一次只翻译同一源语言的行。失败不会写入长时间 negative cache：用户拒绝
-    /// 下载、临时资源错误和真正不支持的语言对不能被混为一谈；语言对支持性已在
-    /// prepareTranslation 中单独检查。
+    /// 一次只翻译同一源语言的行。失败进入短时间冷却，避免用户取消下载或系统
+    /// 临时错误后，同一首歌立即再次抢占系统展示链。
     private func runTranslation(session: TranslationSession) async {
         guard let identity = preparedIdentity,
               identity == translationTaskIdentity,
@@ -5459,6 +5484,13 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         } catch {
             guard !Task.isCancelled else { return }
             translationFailed = true
+            LyricsTranslationCache.shared.markFailed(
+                sources: group.candidates.compactMap { candidate in
+                    newStateUpdates[candidate.id] == nil ? candidate.text : nil
+                },
+                sourceLang: group.sourceLanguageCode,
+                targetLang: identity.targetLanguageCode
+            )
             plog("Lyrics translation failed: \(error.localizedDescription)")
         }
 

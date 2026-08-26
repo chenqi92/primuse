@@ -2,6 +2,45 @@ import Testing
 @testable import PrimuseKit
 
 struct LyricTranslationGroupingPolicyTests {
+    @Test func wholeLyricsMatchingTargetDoNotNeedTranslation() {
+        #expect(!LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: "zh-CN",
+            targetLanguageCode: "zh-Hans"
+        ))
+        #expect(LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: "zh-TW",
+            targetLanguageCode: "zh-Hans"
+        ))
+        #expect(LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: nil,
+            targetLanguageCode: "zh-Hans"
+        ))
+    }
+
+    @Test func shortLocalizedCreditFallsBackFromNoisyTurkishDetection() {
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "作曲 : ASKA",
+            detectedLanguageCode: "tr",
+            confidence: 0.555,
+            alternativeConfidence: 0.20,
+            fallbackSourceLanguageCode: "zh-Hans"
+        )
+
+        #expect(source == "zh-Hans")
+    }
+
+    @Test func confidentForeignLineCanOverrideWholeLyricsLanguage() {
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "I will always love you",
+            detectedLanguageCode: "en-US",
+            confidence: 0.99,
+            alternativeConfidence: 0.01,
+            fallbackSourceLanguageCode: "zh-Hans"
+        )
+
+        #expect(source == "en")
+    }
+
     @Test func groupsDetectedLinesBySourceLanguageAndPreservesOrder() {
         let groups = LyricTranslationGroupingPolicy.groups(
             candidates: [
@@ -89,5 +128,26 @@ struct LyricTranslationGroupingPolicyTests {
         )
 
         #expect(selected.map(\.id) == ["en", "ja"])
+    }
+
+    @Test func sparseLanguageOutlierDoesNotRequestDownload() {
+        let downloadable = [
+            LyricTranslationGroup(
+                id: "tr",
+                sourceLanguageCode: "tr",
+                candidates: [
+                    .init(id: "credit-1", text: "作曲 : ASKA", sourceLanguageCode: "tr"),
+                    .init(id: "credit-2", text: "编曲 : ASKA", sourceLanguageCode: "tr"),
+                ]
+            )
+        ]
+
+        let selected = LyricTranslationGroupingPolicy.automaticSessionGroups(
+            installed: [],
+            downloadable: downloadable,
+            totalCandidateCount: 59
+        )
+
+        #expect(selected.isEmpty)
     }
 }

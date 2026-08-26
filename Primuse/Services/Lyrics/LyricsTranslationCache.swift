@@ -14,9 +14,8 @@ final class LyricsTranslationCache {
     private struct Persisted: Codable {
         var schemaVersion: Int?
         var entries: [String: String]  // key → translated text
-        /// negative cache: key → 失败时的 Date。Apple Translation 对不支持的
-        /// 语言对/全是目标语言的源文 throw "无法翻译", 是确定性失败,每次播
-        /// 都重试白白吃 CPU。带 24h TTL 让 Apple 更新支持后能自动恢复。
+        /// negative cache: key → 失败时的 Date。系统翻译失败或用户取消语言包
+        /// 下载后短时间内不应反复弹出；冷却到期后允许自动恢复。
         var negativeEntries: [String: Date]?
         var insertionOrder: [String]?
     }
@@ -30,8 +29,9 @@ final class LyricsTranslationCache {
     private static let maxEntries = 5000
     private static let schemaVersion = 2
     private static let providerVersion = "apple-translation-v2"
-    /// 翻译失败的 negative cache 有效期。系统如果之后支持了, 24h 后会自动重试。
-    private static let negativeTTL: TimeInterval = 24 * 3600
+    /// 翻译失败的冷却时间。避免同一次播放期间反复抢占系统展示链，同时不会把
+    /// 临时资源错误或用户取消下载长期视为不支持。
+    private static let negativeTTL: TimeInterval = 10 * 60
 
     private var insertionOrder: [String] = []
 
@@ -50,7 +50,7 @@ final class LyricsTranslationCache {
         return entries[k]
     }
 
-    /// 这一行最近 24h 内是否被标记为"翻译失败"。命中就别再 session.translate,
+    /// 这一行仍处于失败冷却期时别再调用 session.translate，
     /// 系统大概率还会回同样的"无法翻译"。
     func isMarkedFailed(source: String, sourceLang: String?, targetLang: String) -> Bool {
         let k = Self.makeKey(text: source, sourceLang: sourceLang, targetLang: targetLang)
@@ -90,6 +90,7 @@ final class LyricsTranslationCache {
             }
         }
         entries[k] = translated
+        negativeEntries[k] = nil
         scheduleSave()
     }
 
@@ -105,6 +106,7 @@ final class LyricsTranslationCache {
                 insertionOrder.append(k)
             }
             entries[k] = translated
+            negativeEntries[k] = nil
         }
         // LRU 收割
         while insertionOrder.count > Self.maxEntries {

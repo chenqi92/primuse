@@ -70,17 +70,40 @@ final class LyricsTranslationSettingsStore {
 
     static func detectedLanguageCode(
         for text: String,
-        minimumConfidence: Double = 0.55
+        minimumConfidence: Double = 0.55,
+        fallbackLanguageCode: String? = nil
     ) -> String? {
         let sample = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sample.isEmpty else { return nil }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(String(sample.prefix(1_000)))
-        guard let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first,
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 2)
+            .sorted { $0.value > $1.value }
+        guard let hypothesis = hypotheses.first,
               hypothesis.value >= minimumConfidence else {
             return nil
         }
-        return LyricTranslationGroupingPolicy.languageIdentity(hypothesis.key.rawValue)
+        return LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: sample,
+            detectedLanguageCode: hypothesis.key.rawValue,
+            confidence: hypothesis.value,
+            alternativeConfidence: hypotheses.dropFirst().first?.value ?? 0,
+            fallbackSourceLanguageCode: fallbackLanguageCode
+        )
+    }
+
+    static func detectedLyricsLanguageCode(for texts: [String]) -> String? {
+        let sample = texts
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(80)
+            .joined(separator: "\n")
+        guard !sample.isEmpty else { return nil }
+        return detectedLanguageCode(
+            for: String(sample.prefix(4_000)),
+            minimumConfidence: 0.65
+        )
     }
 
     /// Returns false when the lyric body is confidently already in the target
@@ -89,22 +112,22 @@ final class LyricsTranslationSettingsStore {
     /// failed translation pollutes logs and the negative cache. Script variants
     /// remain distinct so zh-Hant → zh-Hans conversion is still attempted.
     static func lyricsNeedTranslation(_ texts: [String], targetLanguageCode: String) -> Bool {
-        let sample = texts
-            .lazy
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .prefix(80)
-            .joined(separator: "\n")
-        guard !sample.isEmpty else { return false }
+        guard texts.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        else { return false }
+        return lyricsNeedTranslation(
+            detectedSourceLanguageCode: detectedLyricsLanguageCode(for: texts),
+            targetLanguageCode: targetLanguageCode
+        )
+    }
 
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(String(sample.prefix(4_000)))
-        guard let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first,
-              hypothesis.value >= 0.65 else {
-            return true
-        }
-        return LyricTranslationGroupingPolicy.languageIdentity(hypothesis.key.rawValue)
-            != LyricTranslationGroupingPolicy.languageIdentity(targetLanguageCode)
+    static func lyricsNeedTranslation(
+        detectedSourceLanguageCode: String?,
+        targetLanguageCode: String
+    ) -> Bool {
+        return LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: detectedSourceLanguageCode,
+            targetLanguageCode: targetLanguageCode
+        )
     }
 
     private func persist() {
