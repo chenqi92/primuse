@@ -103,12 +103,12 @@ final class AISettingsEditorModel {
     }
 
     var canFetchModels: Bool {
-        !isWorking && !isFetchingModels && consent && hasUsableAPIKey
+        !isWorking && !isFetchingModels && hasUsableAPIKey
             && !draftConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var canTestConnection: Bool {
-        !isWorking && !isFetchingModels && consent && hasUsableAPIKey
+        !isWorking && !isFetchingModels && hasUsableAPIKey
             && !draftConfiguration.generationModel
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -118,6 +118,13 @@ final class AISettingsEditorModel {
         didLoad = true
         await intelligence.regionAvailability.refresh()
         draftProviderSet = intelligence.settingsStore.providerSet
+        if !intelligence.settingsStore.hasPersistedSettings,
+           let recommendedPreset = AIProviderPreset.recommended(
+               for: intelligence.regionAvailability.context.region
+           ),
+           let firstProvider = draftProviderSet.providers.first {
+            draftProviderSet.providers[0] = recommendedPreset.applying(to: firstProvider)
+        }
         selectedProviderID = draftProviderSet.primaryProviderID
         semanticSearchEnabled = intelligence.settingsStore.semanticSearchEnabled
         recommendationsEnabled = intelligence.settingsStore.recommendationsEnabled
@@ -244,8 +251,14 @@ final class AISettingsEditorModel {
 
     func selectProvider(_ providerID: UUID) {
         guard draftProviderSet.providers.contains(where: { $0.id == providerID }) else { return }
+        guard selectedProviderID != providerID else {
+            status = .idle
+            return
+        }
         selectedProviderID = providerID
-        status = .idle
+        // Invalidate model/test completions started for the previously selected
+        // provider so they cannot update the new provider's UI state.
+        draftDidChange()
     }
 
     func makePrimary(_ providerID: UUID) {
@@ -305,7 +318,8 @@ final class AISettingsEditorModel {
     func applyProviderPreset(_ preset: AIProviderPreset) {
         selectedProviderPreset = preset
         guard preset != .custom else {
-            status = .idle
+            draftConfiguration = preset.applying(to: draftConfiguration)
+            draftDidChange()
             return
         }
         draftConfiguration = preset.applying(to: draftConfiguration)
@@ -329,6 +343,20 @@ final class AISettingsEditorModel {
         )
     }
 
+    var compatibilityModeBinding: Binding<AIProviderCompatibilityMode> {
+        Binding(
+            get: {
+                AIProviderCompatibilityMode(configuration: self.draftConfiguration)
+            },
+            set: { value in
+                self.draftConfiguration = value.applying(to: self.draftConfiguration)
+                self.draftConfiguration.prefersCustomConfiguration = true
+                self.selectedProviderPreset = .custom
+                self.draftDidChange(clearModels: true)
+            }
+        )
+    }
+
     var resolvedGenerationEndpoint: String? {
         try? AIRemoteEndpointPolicy.generationEndpoint(
             configuration: draftConfiguration
@@ -338,14 +366,12 @@ final class AISettingsEditorModel {
     func fetchModels(using intelligence: MusicIntelligenceService) async {
         let configuration = draftConfiguration
         let apiKey = apiKeyDraft
-        let explicitConsent = consent
         let operationGeneration = draftGeneration
         isFetchingModels = true
         status = .idle
         do {
             let models = try await intelligence.availableModels(
                 configuration: configuration,
-                hasExplicitRemoteConsent: explicitConsent,
                 apiKey: apiKey.isEmpty ? nil : apiKey
             )
             guard canApplyCompletion(operationGeneration) else {
@@ -423,7 +449,6 @@ final class AISettingsEditorModel {
 
     func testConnection(using intelligence: MusicIntelligenceService) async {
         let configuration = draftConfiguration
-        let explicitConsent = consent
         let apiKey = apiKeyDraft
         let operationGeneration = draftGeneration
         isWorking = true
@@ -431,7 +456,6 @@ final class AISettingsEditorModel {
         do {
             try await intelligence.testConnection(
                 configuration: configuration,
-                hasExplicitRemoteConsent: explicitConsent,
                 apiKey: apiKey.isEmpty ? nil : apiKey
             )
             if canApplyCompletion(operationGeneration) {
@@ -621,6 +645,13 @@ struct AISettingsView: View {
                 "ai_enable_recommendations",
                 isOn: editor.recommendationsBinding
             )
+            LabeledContent {
+                Text("ai_capability_on_demand")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } label: {
+                Label("ai_capability_lyrics_generation", systemImage: "text.badge.plus")
+            }
         } footer: {
             Text("ai_capabilities_footer")
         }
@@ -675,6 +706,13 @@ struct AISettingsView: View {
                             editor.moveProvider(provider.id, offset: 1)
                         }
                         .disabled(index == editor.draftProviderSet.providers.count - 1)
+                        if editor.draftProviderSet.providers.count > 1 {
+                            Divider()
+                            Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
+                                editor.selectProvider(provider.id)
+                                showsRemoveProviderConfirmation = true
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .foregroundStyle(.secondary)
@@ -711,32 +749,43 @@ struct AISettingsView: View {
     private var providerSection: some View {
         Section {
             Picker("ai_provider_preset", selection: editor.providerPresetBinding) {
-                Text("ai_provider_preset_custom").tag(AIProviderPreset.custom)
-                Text("ai_provider_preset_openai").tag(AIProviderPreset.openAI)
-                Text("ai_provider_preset_anthropic").tag(AIProviderPreset.anthropic)
-                Text("ai_provider_preset_deepseek_openai")
-                    .tag(AIProviderPreset.deepSeekOpenAI)
-                Text("ai_provider_preset_deepseek_anthropic")
-                    .tag(AIProviderPreset.deepSeekAnthropic)
+                ForEach(visibleProviderPresets, id: \.self) { preset in
+                    Text(preset.localizedTitle).tag(preset)
+                }
             }
 
-            TextField(
-                "ai_provider_name",
-                text: editor.configurationBinding(\.displayName)
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-
-            TextField(
-                "ai_base_url",
-                text: editor.configurationBinding(
-                    \.baseURL,
-                    clearModels: true,
-                    updatesProviderPreset: true
+            if editor.selectedProviderPreset == .custom {
+                TextField(
+                    "ai_provider_name",
+                    text: editor.configurationBinding(\.displayName)
                 )
-            )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+
+                TextField(
+                    "ai_base_url",
+                    text: editor.configurationBinding(
+                        \.baseURL,
+                        clearModels: true,
+                        updatesProviderPreset: true
+                    )
+                )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                Picker("ai_compatibility_mode", selection: editor.compatibilityModeBinding) {
+                    ForEach(AIProviderCompatibilityMode.allCases, id: \.self) { mode in
+                        Text(mode.localizedTitle).tag(mode)
+                    }
+                }
+            } else {
+                LabeledContent("ai_service_address") {
+                    Text(verbatim: editor.draftConfiguration.baseURL)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
 
             SecureField("ai_api_key", text: editor.apiKeyBinding)
                 .textInputAutocapitalization(.never)
@@ -746,51 +795,6 @@ struct AISettingsView: View {
                 Label("ai_api_key_stored", systemImage: "checkmark.shield")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Picker("ai_api_style", selection: editor.apiStyleBinding) {
-                Text("ai_api_style_responses").tag(AICompatibleAPIStyle.responses)
-                Text("ai_api_style_chat_completions").tag(AICompatibleAPIStyle.chatCompletions)
-                Text("ai_api_style_anthropic_messages")
-                    .tag(AICompatibleAPIStyle.anthropicMessages)
-            }
-
-            Picker(
-                "ai_path_mode",
-                selection: editor.configurationBinding(
-                    \.apiPathMode,
-                    clearModels: true,
-                    updatesProviderPreset: true
-                )
-            ) {
-                Text("ai_path_mode_automatic").tag(AIAPIPathMode.automatic)
-                Text("ai_path_mode_as_entered").tag(AIAPIPathMode.asEntered)
-                Text("ai_path_mode_append_v1").tag(AIAPIPathMode.appendV1)
-            }
-
-            Picker(
-                "ai_authentication_style",
-                selection: editor.configurationBinding(
-                    \.authenticationStyle,
-                    clearModels: true,
-                    updatesProviderPreset: true
-                )
-            ) {
-                Text("ai_authentication_style_automatic")
-                    .tag(AIAuthenticationStyle.automatic)
-                Text("ai_authentication_style_bearer")
-                    .tag(AIAuthenticationStyle.bearer)
-                Text("ai_authentication_style_x_api_key")
-                    .tag(AIAuthenticationStyle.xAPIKey)
-            }
-
-            if let endpoint = editor.resolvedGenerationEndpoint {
-                LabeledContent("ai_resolved_endpoint") {
-                    Text(verbatim: endpoint)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                }
             }
         } header: {
             Text("ai_provider_detail_section")
@@ -890,13 +894,6 @@ struct AISettingsView: View {
                 .disabled(editor.isWorking || editor.isFetchingModels)
             }
 
-            if editor.draftProviderSet.providers.count > 1 {
-                Button("ai_remove_provider", role: .destructive) {
-                    showsRemoveProviderConfirmation = true
-                }
-                .disabled(editor.isWorking || editor.isFetchingModels)
-            }
-
             statusView(onlyModelStatus: false)
         } footer: {
             Text("ai_key_sync_footer")
@@ -947,6 +944,42 @@ struct AISettingsView: View {
                 format: String(localized: "ai_provider_count_format"),
                 editor.draftProviderSet.providers.count
             )
+        }
+    }
+
+    private var visibleProviderPresets: [AIProviderPreset] {
+        var presets = [AIProviderPreset.custom]
+        presets.append(contentsOf: AIProviderPreset.catalog(
+            for: intelligence.regionAvailability.context.region
+        ))
+        if !presets.contains(editor.selectedProviderPreset) {
+            presets.append(editor.selectedProviderPreset)
+        }
+        return presets
+    }
+}
+
+extension AIProviderPreset {
+    var localizedTitle: String {
+        switch self {
+        case .custom: String(localized: "ai_provider_preset_custom")
+        case .openAI: String(localized: "ai_provider_preset_openai")
+        case .anthropic: String(localized: "ai_provider_preset_anthropic")
+        case .gemini: String(localized: "ai_provider_preset_gemini")
+        case .deepSeekOpenAI: String(localized: "ai_provider_preset_deepseek")
+        case .deepSeekAnthropic: String(localized: "ai_provider_preset_deepseek_anthropic")
+        case .qwen: String(localized: "ai_provider_preset_qwen")
+        case .zhipu: String(localized: "ai_provider_preset_zhipu")
+        }
+    }
+}
+
+extension AIProviderCompatibilityMode {
+    var localizedTitle: String {
+        switch self {
+        case .openAIResponses: String(localized: "ai_compatibility_openai_responses")
+        case .openAIChatCompletions: String(localized: "ai_compatibility_openai_chat")
+        case .anthropicMessages: String(localized: "ai_compatibility_anthropic")
         }
     }
 }

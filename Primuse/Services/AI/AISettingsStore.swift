@@ -37,6 +37,7 @@ final class AISettingsStore {
     private(set) var recommendationsEnabled: Bool
     private(set) var hasExplicitRemoteConsent: Bool
     private(set) var hasExplicitListeningContextConsent: Bool
+    private(set) var hasPersistedSettings: Bool
     private(set) var revision: UInt64 = 0
 
     var configuration: AIRemoteProviderConfiguration {
@@ -49,12 +50,14 @@ final class AISettingsStore {
     ) {
         self.defaults = defaults
         self.syncsThroughICloud = syncsThroughICloud ?? (defaults === UserDefaults.standard)
-        let loaded = Self.decodeSettings(from: defaults.data(forKey: Self.storageKey))
+        let persistedData = defaults.data(forKey: Self.storageKey)
+        let loaded = Self.decodeSettings(from: persistedData)
         providerSet = loaded.providerSet
         semanticSearchEnabled = loaded.semanticSearchEnabled
         recommendationsEnabled = loaded.recommendationsEnabled
         hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
         hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
+        hasPersistedSettings = persistedData != nil
 
         if self.syncsThroughICloud {
             CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
@@ -89,6 +92,7 @@ final class AISettingsStore {
         self.recommendationsEnabled = recommendationsEnabled
         self.hasExplicitRemoteConsent = hasExplicitRemoteConsent
         self.hasExplicitListeningContextConsent = hasExplicitListeningContextConsent
+        hasPersistedSettings = true
         revision &+= 1
         if syncsThroughICloud {
             CloudKVSSync.shared.markChanged(key: Self.storageKey)
@@ -113,12 +117,14 @@ final class AISettingsStore {
     }
 
     private func reloadFromDefaults() {
-        let loaded = Self.decodeSettings(from: defaults.data(forKey: Self.storageKey))
+        let persistedData = defaults.data(forKey: Self.storageKey)
+        let loaded = Self.decodeSettings(from: persistedData)
         providerSet = loaded.providerSet
         semanticSearchEnabled = loaded.semanticSearchEnabled
         recommendationsEnabled = loaded.recommendationsEnabled
         hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
         hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
+        hasPersistedSettings = persistedData != nil
         revision &+= 1
     }
 

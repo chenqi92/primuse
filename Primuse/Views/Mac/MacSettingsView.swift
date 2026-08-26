@@ -685,6 +685,14 @@ private struct MacSTIntelligenceView: View {
                     ) {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
+                    MacSTRow(
+                        String(localized: "ai_capability_lyrics_generation"),
+                        hint: String(localized: "ai_lyrics_generation_original_notice")
+                    ) {
+                        Text("ai_capability_on_demand")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                    }
                 }
             }
 
@@ -698,37 +706,45 @@ private struct MacSTIntelligenceView: View {
                     MacSTRow(String(localized: "ai_provider_preset"), divider: false) {
                         MacSTPicker(
                             selection: editor.providerPresetBinding,
-                            options: [
-                                (.custom, String(localized: "ai_provider_preset_custom")),
-                                (.openAI, String(localized: "ai_provider_preset_openai")),
-                                (.anthropic, String(localized: "ai_provider_preset_anthropic")),
-                                (
-                                    .deepSeekOpenAI,
-                                    String(localized: "ai_provider_preset_deepseek_openai")
-                                ),
-                                (
-                                    .deepSeekAnthropic,
-                                    String(localized: "ai_provider_preset_deepseek_anthropic")
-                                ),
-                            ],
+                            options: visibleProviderPresets.map { ($0, $0.localizedTitle) },
                             width: 220
                         )
                     }
-                    MacSTRow(String(localized: "ai_provider_name")) {
-                        MacSTTextField(
-                            text: editor.configurationBinding(\.displayName),
-                            prompt: String(localized: "ai_provider_default_name")
-                        )
-                    }
-                    MacSTRow(String(localized: "ai_base_url")) {
-                        MacSTTextField(
-                            text: editor.configurationBinding(
-                                \.baseURL,
-                                clearModels: true,
-                                updatesProviderPreset: true
-                            ),
-                            prompt: "https://api.openai.com/v1"
-                        )
+                    if editor.selectedProviderPreset == .custom {
+                        MacSTRow(String(localized: "ai_provider_name")) {
+                            MacSTTextField(
+                                text: editor.configurationBinding(\.displayName),
+                                prompt: String(localized: "ai_provider_default_name")
+                            )
+                        }
+                        MacSTRow(String(localized: "ai_base_url")) {
+                            MacSTTextField(
+                                text: editor.configurationBinding(
+                                    \.baseURL,
+                                    clearModels: true,
+                                    updatesProviderPreset: true
+                                ),
+                                prompt: "https://api.openai.com/v1"
+                            )
+                        }
+                        MacSTRow(String(localized: "ai_compatibility_mode")) {
+                            MacSTPicker(
+                                selection: editor.compatibilityModeBinding,
+                                options: AIProviderCompatibilityMode.allCases.map {
+                                    ($0, $0.localizedTitle)
+                                },
+                                width: 220
+                            )
+                        }
+                    } else {
+                        MacSTRow(String(localized: "ai_service_address")) {
+                            Text(verbatim: editor.draftConfiguration.baseURL)
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(PMColor.textFaint)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                                .frame(width: 320, alignment: .trailing)
+                        }
                     }
                     MacSTRow(
                         String(localized: "ai_api_key"),
@@ -740,69 +756,6 @@ private struct MacSTIntelligenceView: View {
                             prompt: "sk-…",
                             secure: true
                         )
-                    }
-                    MacSTRow(String(localized: "ai_api_style")) {
-                        MacSTPicker(
-                            selection: editor.apiStyleBinding,
-                            options: [
-                                (.responses, String(localized: "ai_api_style_responses")),
-                                (.chatCompletions, String(localized: "ai_api_style_chat_completions")),
-                                (
-                                    .anthropicMessages,
-                                    String(localized: "ai_api_style_anthropic_messages")
-                                ),
-                            ],
-                            width: 220
-                        )
-                    }
-                    MacSTRow(String(localized: "ai_path_mode")) {
-                        MacSTPicker(
-                            selection: editor.configurationBinding(
-                                \.apiPathMode,
-                                clearModels: true,
-                                updatesProviderPreset: true
-                            ),
-                            options: [
-                                (.automatic, String(localized: "ai_path_mode_automatic")),
-                                (.asEntered, String(localized: "ai_path_mode_as_entered")),
-                                (.appendV1, String(localized: "ai_path_mode_append_v1")),
-                            ],
-                            width: 220
-                        )
-                    }
-                    MacSTRow(String(localized: "ai_authentication_style")) {
-                        MacSTPicker(
-                            selection: editor.configurationBinding(
-                                \.authenticationStyle,
-                                clearModels: true,
-                                updatesProviderPreset: true
-                            ),
-                            options: [
-                                (
-                                    .automatic,
-                                    String(localized: "ai_authentication_style_automatic")
-                                ),
-                                (
-                                    .bearer,
-                                    String(localized: "ai_authentication_style_bearer")
-                                ),
-                                (
-                                    .xAPIKey,
-                                    String(localized: "ai_authentication_style_x_api_key")
-                                ),
-                            ],
-                            width: 220
-                        )
-                    }
-                    if let endpoint = editor.resolvedGenerationEndpoint {
-                        MacSTRow(String(localized: "ai_resolved_endpoint")) {
-                            Text(verbatim: endpoint)
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(PMColor.textFaint)
-                                .lineLimit(2)
-                                .textSelection(.enabled)
-                                .frame(width: 320, alignment: .trailing)
-                        }
                     }
                 }
             }
@@ -982,6 +935,16 @@ private struct MacSTIntelligenceView: View {
                                     editor.moveProvider(provider.id, offset: 1)
                                 }
                                 .disabled(index == editor.draftProviderSet.providers.count - 1)
+                                if editor.draftProviderSet.providers.count > 1 {
+                                    Divider()
+                                    Button(
+                                        String(localized: "ai_remove_provider"),
+                                        role: .destructive
+                                    ) {
+                                        editor.selectProvider(provider.id)
+                                        showsRemoveProviderConfirmation = true
+                                    }
+                                }
                             } label: {
                                 Image(systemName: "ellipsis")
                                     .frame(width: 24, height: 22)
@@ -998,14 +961,6 @@ private struct MacSTIntelligenceView: View {
                 }
                 MacSTRow(String(localized: "ai_provider_actions"), divider: false) {
                     HStack(spacing: 8) {
-                        if editor.draftProviderSet.providers.count > 1 {
-                            MacSTButton(
-                                title: String(localized: "ai_remove_provider"),
-                                destructive: true
-                            ) {
-                                showsRemoveProviderConfirmation = true
-                            }
-                        }
                         MacSTButton(
                             title: String(localized: "ai_add_provider"),
                             systemImage: "plus",
@@ -1017,6 +972,17 @@ private struct MacSTIntelligenceView: View {
                 }
             }
         }
+    }
+
+    private var visibleProviderPresets: [AIProviderPreset] {
+        var presets = [AIProviderPreset.custom]
+        presets.append(contentsOf: AIProviderPreset.catalog(
+            for: intelligence.regionAvailability.context.region
+        ))
+        if !presets.contains(editor.selectedProviderPreset) {
+            presets.append(editor.selectedProviderPreset)
+        }
+        return presets
     }
 
     private var statusCard: some View {
@@ -4079,6 +4045,10 @@ private struct MacSTThemeView: View {
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
+    @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
+    private var customRecommendationIntentsRawValue = ""
+    @State private var customRecommendationIntentTitle = ""
+    @State private var customRecommendationIntentPrompt = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -4151,6 +4121,10 @@ private struct MacSTThemeView: View {
 
     private var librarySectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(librarySectionOrderRawValue)
+    }
+
+    private var customRecommendationIntents: [AICustomRecommendationIntent] {
+        AIRecommendationIntentStoragePolicy.decode(customRecommendationIntentsRawValue)
     }
 
     var body: some View {
@@ -4392,6 +4366,80 @@ private struct MacSTThemeView: View {
                     }
                 }
             }
+
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "ai_recommendation_intents_settings_title"),
+                    hint: String(localized: "ai_recommendation_intents_settings_footer"),
+                    divider: false,
+                    block: true
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 112), spacing: 8)],
+                            alignment: .leading,
+                            spacing: 8
+                        ) {
+                            ForEach(AIRecommendationIntentPreset.allCases, id: \.self) { preset in
+                                Text(verbatim: preset.localizedTitle)
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundStyle(PMColor.brand)
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 26)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        PMColor.brand.opacity(0.12),
+                                        in: Capsule()
+                                    )
+                            }
+                        }
+
+                        ForEach(customRecommendationIntents) { intent in
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(verbatim: intent.title)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(PMColor.text)
+                                    Text(verbatim: intent.prompt)
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(PMColor.textMuted)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 12)
+                                MacSTButton(
+                                    title: String(localized: "ai_recommendation_custom_remove"),
+                                    systemImage: "trash",
+                                    destructive: true
+                                ) {
+                                    removeCustomRecommendationIntent(id: intent.id)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+
+                        HStack(spacing: 8) {
+                            MacSTTextField(
+                                text: $customRecommendationIntentTitle,
+                                prompt: String(localized: "ai_recommendation_custom_title_placeholder"),
+                                width: 180
+                            )
+                            MacSTTextField(
+                                text: $customRecommendationIntentPrompt,
+                                prompt: String(localized: "ai_recommendation_custom_prompt_placeholder"),
+                                width: 360
+                            )
+                            MacSTButton(
+                                title: String(localized: "ai_recommendation_custom_add"),
+                                systemImage: "plus",
+                                prominent: true
+                            ) {
+                                addCustomRecommendationIntent()
+                            }
+                            .disabled(!canAddCustomRecommendationIntent)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -4423,6 +4471,36 @@ private struct MacSTThemeView: View {
         let section = updated.remove(at: index)
         updated.insert(section, at: destination)
         librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
+    }
+
+    private var canAddCustomRecommendationIntent: Bool {
+        customRecommendationIntents.count
+            < AIRecommendationIntentStoragePolicy.maximumCustomIntents
+            && AIRecommendationIntentStoragePolicy.makeIntent(
+                title: customRecommendationIntentTitle,
+                prompt: customRecommendationIntentPrompt
+            ) != nil
+    }
+
+    private func addCustomRecommendationIntent() {
+        guard canAddCustomRecommendationIntent,
+              let intent = AIRecommendationIntentStoragePolicy.makeIntent(
+                title: customRecommendationIntentTitle,
+                prompt: customRecommendationIntentPrompt
+              ) else { return }
+        customRecommendationIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(
+            customRecommendationIntents + [intent]
+        )
+        customRecommendationIntentTitle = ""
+        customRecommendationIntentPrompt = ""
+        CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
+    }
+
+    private func removeCustomRecommendationIntent(id: UUID) {
+        customRecommendationIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(
+            customRecommendationIntents.filter { $0.id != id }
+        )
+        CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
     }
 }
 

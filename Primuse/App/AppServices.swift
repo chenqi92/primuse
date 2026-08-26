@@ -345,6 +345,8 @@ final class AppServices {
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
 
         // Phase 3: Apple TV relay is opt-in. Starting its listeners after the
         // first frame preserves behavior without charging launch rendering.

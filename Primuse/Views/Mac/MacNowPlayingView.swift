@@ -19,7 +19,9 @@ import PrimuseKit
 struct MacNowPlayingView: View {
     var onClose: () -> Void
     var isScrapingCurrentSong: Bool
+    var isGeneratingOriginalLyrics: Bool
     var onScrapeCurrentSong: () -> Void
+    var onGenerateOriginalLyrics: () -> Void
     var onToggleQueue: () -> Void
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
@@ -576,7 +578,34 @@ struct MacNowPlayingView: View {
                                     .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(isScrapingCurrentSong)
+                                .disabled(isScrapingCurrentSong || isGeneratingOriginalLyrics)
+
+                                Button {
+                                    onGenerateOriginalLyrics()
+                                } label: {
+                                    HStack(spacing: 7) {
+                                        if isGeneratingOriginalLyrics {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                                .tint(playerPrimaryColor)
+                                        } else {
+                                            Image(systemName: "sparkles")
+                                        }
+                                        Text("ai_lyrics_generate_original")
+                                    }
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(PMColor.brand, in: Capsule())
+                                    .foregroundStyle(Color.white)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isScrapingCurrentSong || isGeneratingOriginalLyrics)
+
+                                Text("ai_lyrics_generation_original_notice")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(playerFaintColor)
+                                    .multilineTextAlignment(.center)
                             }
                             .frame(maxWidth: .infinity, alignment: .center)
                         }

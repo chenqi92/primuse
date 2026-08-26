@@ -516,6 +516,7 @@
 		94BE0B791A310003362CC3C5 /* FTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */; };
 		94BEF0B6223CD9349AD954D5 /* BaiduPanSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40F5CE9382F37C345E04D5B /* BaiduPanSource.swift */; };
 		953074ECE1F5A2939361B90D /* SpotlightIndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A140A9563DF6E39E6BF9CEF6 /* SpotlightIndexService.swift */; };
+		953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */; };
 		95F92271D58C499F3DCB120F /* S3Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */; };
 		96053C421D166878E3F074C4 /* OAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C85D6EDF29DAED03773957A /* OAuthService.swift */; };
 		9618F8E76B4E5775F085DDD8 /* RadioFLACAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BDA4BF8B2BC7C8290D21F46 /* RadioFLACAudioDecoder.swift */; };
@@ -604,6 +605,7 @@
 		B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
 		B3D288FC16E9A02539CC8EFC /* CloudInputSourceObjC.m in Sources */ = {isa = PBXBuildFile; fileRef = D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */; };
 		B3E5D00D30E6E58CFBBC8264 /* YearlyReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AB7C14D2E4EC9112B49730 /* YearlyReportView.swift */; };
+		B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3550B5D018DE49C7E2D1338F /* AIRecommendationLibraryView.swift */; };
 		B4302BD1B956F6B517A799E2 /* OfflinePlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65ACCFD1629CC080B918B6E8 /* OfflinePlaybackPolicy.swift */; };
 		B4919DB98A38031DE3CB8C9E /* WatchPlayerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE14B295320AA20C02A9BB3 /* WatchPlayerStore.swift */; };
 		B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
@@ -828,6 +830,7 @@
 		F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		F9CDAF1525E2198BCA7BD338 /* SongSelectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142BA8BC3930817CCEC07646 /* SongSelectionModel.swift */; };
 		FADC54FE2BED967374273CE1 /* UserNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CA1E9D7FDCD0F25BE8D43A /* UserNotificationService.swift */; };
+		FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3550B5D018DE49C7E2D1338F /* AIRecommendationLibraryView.swift */; };
 		FB7F4C31C1165C1F0923BCC4 /* TVConfigServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */; };
 		FC03BF45CFF795C29718C5BC /* PlaylistExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285C1472009479A6CC7B2177 /* PlaylistExporter.swift */; };
 		FC2744CFBE903B320EC18167 /* ThemeColorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F805E78BE07CA73C5056348 /* ThemeColorSettingsView.swift */; };
@@ -1140,6 +1143,7 @@
 		347E4E44E4E9CCEA4EFA9F2D /* RadioFLACDecoderBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RadioFLACDecoderBridge.h; sourceTree = "<group>"; };
 		34C6D54A0624AAFCF3E1D472 /* AIAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		34FA9CB76C020D1783D91368 /* Song.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Song.swift; sourceTree = "<group>"; };
+		3550B5D018DE49C7E2D1338F /* AIRecommendationLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRecommendationLibraryView.swift; sourceTree = "<group>"; };
 		358B35D2EA5639F74C35CC3A /* NFSByteReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSByteReader.swift; sourceTree = "<group>"; };
 		363F869C6171BAEF3E787B3A /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		368E7734000B96CD7A810C23 /* SongBatchActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongBatchActionBar.swift; sourceTree = "<group>"; };
@@ -1510,6 +1514,7 @@
 		EEEF77E944AB8BFB9DCC7A72 /* NFSClientBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSClientBackend.swift; sourceTree = "<group>"; };
 		EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurableScraper.swift; sourceTree = "<group>"; };
 		F10291362C83153950BFA661 /* Artist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artist.swift; sourceTree = "<group>"; };
+		F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDisplayConfigurationTests.swift; sourceTree = "<group>"; };
 		F246393058D148228F7BA7B9 /* LibraryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDatabase.swift; sourceTree = "<group>"; };
 		F24FFA868034F06D26F041E3 /* StreamResolverRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamResolverRegistry.swift; sourceTree = "<group>"; };
 		F266BC40DFEB0858D943B648 /* AICredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICredentialStore.swift; sourceTree = "<group>"; };
@@ -2275,6 +2280,7 @@
 		A6BF6074222C37544F76B8C9 /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				3550B5D018DE49C7E2D1338F /* AIRecommendationLibraryView.swift */,
 				CEE2C637A78576C7A05DF5BF /* AlbumDetailView.swift */,
 				1DEC31D2D98572E972C45773 /* AlbumGridView.swift */,
 				1EFD66532368B5A1564BE462 /* ArtistDetailView.swift */,
@@ -2612,6 +2618,7 @@
 			isa = PBXGroup;
 			children = (
 				E618E93EA660ED2F816D9E3E /* JellyfinSourceCreationTransactionTests.swift */,
+				F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */,
 				87FA91B87714FFD617E3E449 /* MusicLibraryLikedMutationTests.swift */,
 				0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */,
 				BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */,
@@ -3146,6 +3153,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7AC8B7D62196F7C0440AC523 /* JellyfinSourceCreationTransactionTests.swift in Sources */,
+				953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */,
 				46B89AF5A8627B7DF1D799FC /* MusicLibraryLikedMutationTests.swift in Sources */,
 				E0F81CCC4D4D80C022C98A59 /* OpenAICompatibleProviderTests.swift in Sources */,
 				F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */,
@@ -3295,6 +3303,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
+				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
 				7210AD10697C91EB7309F068 /* AISettingsStore.swift in Sources */,
 				7EAF3AB03B362A367BABA9D3 /* AISettingsView.swift in Sources */,
 				3FEDDC3FBAA6BB6E200780CC /* AddSourceView.swift in Sources */,
@@ -3657,6 +3666,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
+				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,
 				EB36756FE7E3F05779F6C1F1 /* AISettingsStore.swift in Sources */,
 				BF5E8180398E28714398622E /* AISettingsView.swift in Sources */,
 				38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */,

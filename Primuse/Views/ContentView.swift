@@ -11,6 +11,7 @@ import UIKit
 private enum SidebarItem: Hashable, Identifiable, CaseIterable {
     case home
     case library
+    case libraryRecommendations
     case librarySongs
     case libraryAlbums
     case libraryArtists
@@ -26,7 +27,8 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
     var rawValueTab: Int {
         switch self {
         case .home: return 0
-        case .library, .librarySongs, .libraryAlbums, .libraryArtists, .libraryPlaylists, .libraryRadio:
+        case .library, .libraryRecommendations, .librarySongs, .libraryAlbums,
+                .libraryArtists, .libraryPlaylists, .libraryRadio:
             return 1
         case .search: return 2
         case .settings: return 3
@@ -37,6 +39,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
     static var topLevel: [SidebarItem] { [.home, .library, .search, .settings] }
     static func libraryChild(for section: LibrarySection) -> SidebarItem {
         switch section {
+        case .recommendations: return .libraryRecommendations
         case .songs: return .librarySongs
         case .albums: return .libraryAlbums
         case .artists: return .libraryArtists
@@ -49,6 +52,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
         switch self {
         case .home: return "home_title"
         case .library: return "library_title"
+        case .libraryRecommendations: return "library_recommendations_title"
         case .librarySongs: return "tab_songs"
         case .libraryAlbums: return "tab_albums"
         case .libraryArtists: return "tab_artists"
@@ -63,6 +67,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
         switch self {
         case .home: return "house.fill"
         case .library: return "books.vertical"
+        case .libraryRecommendations: return "sparkles"
         case .librarySongs: return "music.note"
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
@@ -231,6 +236,10 @@ struct ContentView: View {
             HomeView(switchToSettingsTab: { sidebarSelection = .settings; selectedTab = 3 })
         case .library:
             LibraryView(deepLink: $libraryDeepLink)
+        case .libraryRecommendations:
+            librarySubpane(title: "library_recommendations_title") {
+                AIRecommendationLibraryView()
+            }
         case .librarySongs:
             librarySubpane(title: "tab_songs") { SongListView() }
         case .libraryAlbums:

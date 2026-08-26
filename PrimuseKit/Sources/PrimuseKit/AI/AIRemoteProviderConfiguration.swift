@@ -27,19 +27,83 @@ public enum AIAuthenticationStyle: String, Codable, CaseIterable, Hashable, Send
     }
 }
 
+/// User-facing compatibility choices for a custom endpoint. The detailed
+/// path and authentication fields remain part of the persisted provider
+/// configuration, while common gateways can be configured with one choice.
+public enum AIProviderCompatibilityMode: String, CaseIterable, Hashable, Sendable {
+    case openAIResponses
+    case openAIChatCompletions
+    case anthropicMessages
+
+    public init(configuration: AIRemoteProviderConfiguration) {
+        switch configuration.apiStyle {
+        case .responses:
+            self = .openAIResponses
+        case .chatCompletions:
+            self = .openAIChatCompletions
+        case .anthropicMessages:
+            self = .anthropicMessages
+        }
+    }
+
+    public func applying(
+        to original: AIRemoteProviderConfiguration
+    ) -> AIRemoteProviderConfiguration {
+        var configuration = original
+        configuration.apiPathMode = .automatic
+        configuration.authenticationStyle = .automatic
+        switch self {
+        case .openAIResponses:
+            configuration.apiStyle = .responses
+        case .openAIChatCompletions:
+            configuration.apiStyle = .chatCompletions
+        case .anthropicMessages:
+            configuration.apiStyle = .anthropicMessages
+            configuration.embeddingModel = ""
+        }
+        return configuration
+    }
+}
+
 public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     case custom
     case openAI
     case anthropic
+    case gemini
     case deepSeekOpenAI
     case deepSeekAnthropic
+    case qwen
+    case zhipu
+
+    /// Curated presets shown for a storefront. Mainland-China entries use
+    /// endpoints operated in mainland China; international storefronts avoid
+    /// presenting those endpoints as equivalent to their global counterparts.
+    public static func catalog(for region: AICommercialRegion) -> [AIProviderPreset] {
+        switch region {
+        case .mainlandChina:
+            return [.deepSeekOpenAI, .qwen, .zhipu]
+        case .international:
+            return [.openAI, .anthropic, .gemini]
+        case .unknown:
+            return []
+        }
+    }
+
+    public static func recommended(for region: AICommercialRegion) -> AIProviderPreset? {
+        catalog(for: region).first
+    }
 
     public func applying(to original: AIRemoteProviderConfiguration) -> AIRemoteProviderConfiguration {
         var configuration = original
+        if self == .custom {
+            configuration.prefersCustomConfiguration = true
+            return configuration
+        }
+        configuration.prefersCustomConfiguration = false
         configuration.embeddingModel = ""
         switch self {
         case .custom:
-            return original
+            return configuration
         case .openAI:
             configuration.displayName = "OpenAI"
             configuration.baseURL = "https://api.openai.com"
@@ -54,6 +118,14 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiPathMode = .appendV1
             configuration.authenticationStyle = .xAPIKey
             configuration.generationModel = ""
+        case .gemini:
+            configuration.displayName = "Google Gemini"
+            configuration.baseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "gemini-3.7-flash"
+            configuration.embeddingModel = "gemini-embedding-001"
         case .deepSeekOpenAI:
             configuration.displayName = "DeepSeek"
             configuration.baseURL = "https://api.deepseek.com"
@@ -68,6 +140,20 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiPathMode = .appendV1
             configuration.authenticationStyle = .xAPIKey
             configuration.generationModel = "deepseek-v4-flash"
+        case .qwen:
+            configuration.displayName = "Qwen"
+            configuration.baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "qwen-plus"
+        case .zhipu:
+            configuration.displayName = "Zhipu GLM"
+            configuration.baseURL = "https://open.bigmodel.cn/api/paas/v4"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "glm-5.2"
         }
         return configuration
     }
@@ -75,7 +161,8 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     public static func matching(
         configuration: AIRemoteProviderConfiguration
     ) -> AIProviderPreset {
-        for preset in [openAI, anthropic, deepSeekOpenAI, deepSeekAnthropic] {
+        guard !configuration.prefersCustomConfiguration else { return .custom }
+        for preset in AIProviderPreset.allCases where preset != .custom {
             let candidate = preset.applying(to: configuration)
             if candidate.baseURL == configuration.baseURL,
                candidate.apiStyle == configuration.apiStyle,
@@ -141,6 +228,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     public var requestTimeout: TimeInterval
     public var allowInsecureLocalHTTP: Bool
     public var isEnabled: Bool
+    public var prefersCustomConfiguration: Bool
 
     public init(
         id: UUID = UUID(),
@@ -153,7 +241,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         embeddingModel: String = "",
         requestTimeout: TimeInterval = 12,
         allowInsecureLocalHTTP: Bool = false,
-        isEnabled: Bool = false
+        isEnabled: Bool = false,
+        prefersCustomConfiguration: Bool = false
     ) {
         self.id = id
         self.displayName = displayName
@@ -166,6 +255,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         self.requestTimeout = AIRequestTimeoutPolicy.normalizedForInitialization(requestTimeout)
         self.allowInsecureLocalHTTP = allowInsecureLocalHTTP
         self.isEnabled = isEnabled
+        self.prefersCustomConfiguration = prefersCustomConfiguration
     }
 
     public var descriptor: AIProviderDescriptor {
@@ -173,6 +263,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         if !generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             capabilities.insert(.semanticSearchInterpretation)
             capabilities.insert(.lyricsTranslation)
+            capabilities.insert(.lyricsGeneration)
             capabilities.insert(.recommendations)
         }
         if supportsEmbeddings,
@@ -206,6 +297,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         case requestTimeout
         case allowInsecureLocalHTTP
         case isEnabled
+        case prefersCustomConfiguration
     }
 
     public init(from decoder: any Decoder) throws {
@@ -233,6 +325,10 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         self.requestTimeout = requestTimeout
         allowInsecureLocalHTTP = try container.decode(Bool.self, forKey: .allowInsecureLocalHTTP)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        prefersCustomConfiguration = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .prefersCustomConfiguration
+        ) ?? false
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -257,6 +353,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         try container.encode(requestTimeout, forKey: .requestTimeout)
         try container.encode(allowInsecureLocalHTTP, forKey: .allowInsecureLocalHTTP)
         try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(prefersCustomConfiguration, forKey: .prefersCustomConfiguration)
     }
 }
 

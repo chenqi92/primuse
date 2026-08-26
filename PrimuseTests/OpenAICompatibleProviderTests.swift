@@ -123,6 +123,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         defer { session.invalidateAndCancel() }
         let request = AIRecommendationRequest(
             scene: .bedtime,
+            intent: "quiet rain and homesickness",
             languageCode: "en",
             preferences: [
                 AIRecommendationPreference(
@@ -156,11 +157,44 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         let input = try XCTUnwrap(object["input"] as? String)
         XCTAssertTrue(input.contains("First Candidate"))
+        XCTAssertTrue(input.contains("quiet rain and homesickness"))
         XCTAssertTrue(input.contains("\"id\":\"c0\""))
         XCTAssertFalse(input.contains("private-song-id"))
         XCTAssertFalse(input.contains("filePath"))
         XCTAssertFalse(input.contains("sourceID"))
         XCTAssertFalse(input.contains("lyrics"))
+    }
+
+    func testOriginalLyricsGenerationUsesMetadataAndReturnsPlainDraftLines() async throws {
+        let host = "intelligence-lyrics-generation.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"draft_title\":\"Window Light\",\"lines\":[\"First new line\",\"Second new line\",\"Third new line\",\"Fourth new line\"]}"}"#
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+
+        let result = try await provider.generateLyrics(AILyricsGenerationRequest(
+            songTitle: "Night Window",
+            albumTitle: "Road Home",
+            genre: "Ambient",
+            languageCode: "en",
+            maximumLines: 12
+        ))
+
+        XCTAssertEqual(result.draftTitle, "Window Light")
+        XCTAssertEqual(result.lines.count, 4)
+        let sentRequest = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let body = try XCTUnwrap(sentRequest.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let input = try XCTUnwrap(object["input"] as? String)
+        XCTAssertTrue(input.contains("Night Window"))
+        XCTAssertTrue(input.contains("Road Home"))
+        XCTAssertTrue(input.contains("Ambient"))
+        XCTAssertFalse(input.contains("filePath"))
+        XCTAssertFalse(input.contains("sourceID"))
+        XCTAssertFalse(input.contains("artist"))
     }
 
     func testChatCompletionsResponseIsSupportedThroughTheSameInterface() async throws {
@@ -732,15 +766,15 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
-    func testModelFetchRequiresExplicitRemoteConsent() {
+    func testConnectionDiagnosticsDoNotRequireContentSharingConsent() {
         let editor = AISettingsEditorModel()
         editor.apiKeyDraft = "test-key"
         editor.draftConfiguration.baseURL = "https://api.example.com/v1"
+        editor.draftConfiguration.generationModel = "test-model"
 
-        XCTAssertFalse(editor.canFetchModels)
-
-        editor.consent = true
         XCTAssertTrue(editor.canFetchModels)
+        XCTAssertTrue(editor.canTestConnection)
+        XCTAssertFalse(editor.consent)
     }
 
     @MainActor
@@ -761,6 +795,11 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertEqual(editor.selectedProviderPreset, .custom)
         XCTAssertEqual(editor.providerPresetBinding.wrappedValue, .custom)
         XCTAssertEqual(editor.draftConfiguration.baseURL, "https://api.anthropic.com")
+        XCTAssertTrue(editor.draftConfiguration.prefersCustomConfiguration)
+        XCTAssertEqual(
+            AIProviderPreset.matching(configuration: editor.draftConfiguration),
+            .custom
+        )
     }
 
     @MainActor

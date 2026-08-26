@@ -2,12 +2,13 @@ import SwiftUI
 import PrimuseKit
 
 enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable {
-    case playlists, artists, albums, songs, radio
+    case recommendations, playlists, artists, albums, songs, radio
 
     var id: String { rawValue }
 
     var title: LocalizedStringKey {
         switch self {
+        case .recommendations: return "library_recommendations_title"
         case .playlists: return "tab_playlists"
         case .artists: return "tab_artists"
         case .albums: return "tab_albums"
@@ -18,6 +19,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var icon: String {
         switch self {
+        case .recommendations: return "sparkles"
         case .playlists: return "music.note.list"
         case .artists: return "music.mic"
         case .albums: return "square.stack.fill"
@@ -28,6 +30,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var color: Color {
         switch self {
+        case .recommendations: return Color(red: 0.71, green: 0.48, blue: 0.40)
         case .playlists: return .red
         case .artists: return .pink
         case .albums: return .purple
@@ -38,6 +41,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var localizedTitle: String {
         switch self {
+        case .recommendations: return String(localized: "library_recommendations_title")
         case .playlists: return String(localized: "tab_playlists")
         case .artists: return String(localized: "tab_artists")
         case .albums: return String(localized: "tab_albums")
@@ -55,6 +59,7 @@ enum LibraryDisplayConfiguration {
     static let defaultQuickAccessLimit = 5
     static let quickAccessLimitRange = 1...12
     static let defaultSectionOrder: [LibrarySection] = [
+        .recommendations,
         .songs,
         .albums,
         .artists,
@@ -76,9 +81,23 @@ enum LibraryDisplayConfiguration {
         }
 
         var seen = Set<LibrarySection>()
-        let known = stored.filter { seen.insert($0).inserted }
-        let missing = defaultSectionOrder.filter { seen.insert($0).inserted }
-        return known + missing
+        var result = stored.filter { seen.insert($0).inserted }
+        for missing in defaultSectionOrder where !seen.contains(missing) {
+            guard let defaultIndex = defaultSectionOrder.firstIndex(of: missing) else { continue }
+            let insertionIndex = result.firstIndex { section in
+                guard let sectionDefaultIndex = defaultSectionOrder.firstIndex(of: section) else {
+                    return false
+                }
+                return sectionDefaultIndex > defaultIndex
+            }
+            if let insertionIndex {
+                result.insert(missing, at: insertionIndex)
+            } else {
+                result.append(missing)
+            }
+            seen.insert(missing)
+        }
+        return result
     }
 
     static func encodeSectionOrder(_ sections: [LibrarySection]) -> String {
@@ -584,6 +603,18 @@ struct LibraryView: View {
     @ViewBuilder
     private func categoryPreview(_ section: LibrarySection) -> some View {
         switch section {
+        case .recommendations:
+            overlappingPreview(previewSongs) { song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 36,
+                    cornerRadius: 7,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+            }
         case .songs:
             overlappingPreview(previewSongs) { song in
                 CachedArtworkView(
@@ -955,6 +986,8 @@ struct LibraryView: View {
 
     private func categoryCountText(_ section: LibrarySection) -> String {
         switch section {
+        case .recommendations:
+            return String(localized: "library_recommendations_subtitle")
         case .songs:
             return countText(songs.count, unitKey: "songs_count")
         case .albums:
@@ -978,6 +1011,8 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for section: LibrarySection) -> some View {
         switch section {
+        case .recommendations:
+            AIRecommendationLibraryView()
         case .songs:
             SongListView()
         case .albums:

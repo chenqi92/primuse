@@ -150,6 +150,7 @@ struct NowPlayingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
@@ -184,6 +185,7 @@ struct NowPlayingView: View {
     @State private var isResolvingScrapeTarget = false
     @State private var scrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
+    @State private var isGeneratingOriginalLyrics = false
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -229,7 +231,10 @@ struct NowPlayingView: View {
     }
 
     private var isScrapeActionUnavailable: Bool {
-        isResolvingScrapeTarget || scraperService.isScraping || scraperService.isSingleScraping
+        isResolvingScrapeTarget
+            || isGeneratingOriginalLyrics
+            || scraperService.isScraping
+            || scraperService.isSingleScraping
     }
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
@@ -2320,8 +2325,10 @@ struct NowPlayingView: View {
             songID: player.currentSong?.id,
             isSceneActive: isVisualSceneActive,
             isScrapingCurrentSong: isScrapingCurrentSong,
+            isGeneratingOriginalLyrics: isGeneratingOriginalLyrics,
             isScrapeActionUnavailable: isScrapeActionUnavailable,
             onAutomaticScrape: { startAutomaticLyricsScrape() },
+            onGenerateOriginalLyrics: { startOriginalLyricsGeneration() },
             onBackgroundTap: {
                 if isLyricsImmersive {
                     // ScrollView owns the reliable surface gesture. Routing the
@@ -2730,6 +2737,66 @@ struct NowPlayingView: View {
             onProceed: { startAutomaticLyricsScrapeWithEnabledSource(displayedSong) },
             onRequireSource: { showNoScraperSourceAlert = true }
         )
+    }
+
+    private func startOriginalLyricsGeneration() {
+        guard !isGeneratingOriginalLyrics,
+              !scraperService.isScraping,
+              !scraperService.isSingleScraping,
+              let displayedSong = player.currentSong else { return }
+        isGeneratingOriginalLyrics = true
+        lyricsLoadRevision &+= 1
+        Task { @MainActor in
+            defer { isGeneratingOriginalLyrics = false }
+
+            let song: Song
+            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
+                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+                if song.id != displayedSong.id {
+                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                        fromSongID: displayedSong.id,
+                        toSongID: song.id
+                    )
+                    guard player.currentSong?.id == displayedSong.id
+                            || player.currentSong?.id == song.id else { return }
+                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                }
+            } else {
+                song = displayedSong
+            }
+
+            let outcome = await intelligence.generateLyrics(for: song)
+            guard player.currentSong?.id == song.id else { return }
+            switch outcome {
+            case .unavailable:
+                scrapeAlertMessage = String(localized: "ai_lyrics_generation_unavailable")
+            case .failed:
+                scrapeAlertMessage = String(localized: "ai_lyrics_generation_failed")
+            case .success(let execution):
+                let didCache = await MetadataAssetStore.shared.cacheLyrics(
+                    execution.lines,
+                    forSongID: song.id,
+                    force: true
+                )
+                guard didCache else {
+                    scrapeAlertMessage = String(localized: "ai_lyrics_generation_failed")
+                    return
+                }
+                setLyrics(execution.lines)
+                NotificationCenter.default.post(
+                    name: .primuseLyricsDidChange,
+                    object: song.id,
+                    userInfo: ["lyrics": execution.lines]
+                )
+                let key = execution.fallbackDepth > 0
+                    ? "ai_lyrics_generation_fallback_success_format"
+                    : "ai_lyrics_generation_success_format"
+                scrapeAlertMessage = String(
+                    format: String(localized: String.LocalizationValue(key)),
+                    execution.providerName
+                )
+            }
+        }
     }
 
     private func startAutomaticLyricsScrapeWithEnabledSource(_ displayedSong: Song) {
@@ -4216,8 +4283,10 @@ struct LyricsScrollView: View {
     let songID: String?
     let isSceneActive: Bool
     let isScrapingCurrentSong: Bool
+    let isGeneratingOriginalLyrics: Bool
     let isScrapeActionUnavailable: Bool
     let onAutomaticScrape: () -> Void
+    let onGenerateOriginalLyrics: () -> Void
     let onBackgroundTap: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -4444,27 +4513,57 @@ struct LyricsScrollView: View {
             Text("no_lyrics")
                 .font(.title3)
                 .foregroundStyle(appearance.faint)
-            Button { onAutomaticScrape() } label: {
-                HStack(spacing: 7) {
-                    if isScrapingCurrentSong {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(appearance.primary)
-                            .transition(.scale.combined(with: .opacity))
-                    } else {
-                        Image(systemName: "wand.and.stars")
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                    Text("scrape_song")
-                }
-                .font(.subheadline)
-                .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { emptyLyricsActions }
+                VStack(spacing: 10) { emptyLyricsActions }
             }
-            .buttonStyle(.bordered)
-            .tint(appearance.primary)
-            .disabled(isScrapeActionUnavailable)
+            Text("ai_lyrics_generation_original_notice")
+                .font(.caption2)
+                .foregroundStyle(appearance.faint)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var emptyLyricsActions: some View {
+        Button { onAutomaticScrape() } label: {
+            HStack(spacing: 7) {
+                if isScrapingCurrentSong {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(appearance.primary)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    Image(systemName: "wand.and.stars")
+                        .transition(.scale.combined(with: .opacity))
+                }
+                Text("scrape_song")
+            }
+            .font(.subheadline)
+            .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
+        }
+        .buttonStyle(.bordered)
+        .tint(appearance.primary)
+        .disabled(isScrapeActionUnavailable)
+
+        Button { onGenerateOriginalLyrics() } label: {
+            HStack(spacing: 7) {
+                if isGeneratingOriginalLyrics {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(appearance.primary)
+                } else {
+                    Image(systemName: "sparkles")
+                }
+                Text("ai_lyrics_generate_original")
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(appearance.primary)
+        .disabled(isScrapeActionUnavailable)
     }
 
     private var lineLevelLyricsView: some View {

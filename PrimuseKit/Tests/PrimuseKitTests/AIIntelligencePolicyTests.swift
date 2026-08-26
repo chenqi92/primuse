@@ -435,6 +435,7 @@ struct AIRemoteEndpointPolicyTests {
         ).descriptor
         #expect(generationOnly.capabilities.contains(.semanticSearchInterpretation))
         #expect(generationOnly.capabilities.contains(.lyricsTranslation))
+        #expect(generationOnly.capabilities.contains(.lyricsGeneration))
         #expect(!generationOnly.capabilities.contains(.embeddings))
         #expect(!generationOnly.capabilities.contains(.reranking))
         #expect(!generationOnly.capabilities.contains(.songAnnotation))
@@ -448,6 +449,7 @@ struct AIRemoteEndpointPolicyTests {
         ).descriptor
         #expect(!embeddingOnly.capabilities.contains(.semanticSearchInterpretation))
         #expect(!embeddingOnly.capabilities.contains(.lyricsTranslation))
+        #expect(!embeddingOnly.capabilities.contains(.lyricsGeneration))
         #expect(embeddingOnly.capabilities.contains(.embeddings))
 
         let anthropic = AIRemoteProviderConfiguration(
@@ -458,6 +460,7 @@ struct AIRemoteEndpointPolicyTests {
         )
         #expect(anthropic.descriptor.capabilities.contains(.semanticSearchInterpretation))
         #expect(anthropic.descriptor.capabilities.contains(.lyricsTranslation))
+        #expect(anthropic.descriptor.capabilities.contains(.lyricsGeneration))
         #expect(!anthropic.descriptor.capabilities.contains(.embeddings))
         #expect(throws: AIRemoteEndpointValidationError.unsupportedCapability) {
             try AIRemoteEndpointPolicy.embeddingsEndpoint(configuration: anthropic)
@@ -539,7 +542,7 @@ struct AIRemoteEndpointPolicyTests {
         #expect(Set(accounts).count == accounts.count)
     }
 
-    @Test func presetsKeepKnownProtocolSettingsAndPreserveProfileIdentity() {
+    @Test func presetsKeepKnownProtocolSettingsAndPreserveProfileIdentity() throws {
         let id = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
         let original = AIRemoteProviderConfiguration(id: id, embeddingModel: "old")
         let anthropic = AIProviderPreset.anthropic.applying(to: original)
@@ -548,7 +551,62 @@ struct AIRemoteEndpointPolicyTests {
         #expect(anthropic.apiStyle == .anthropicMessages)
         #expect(anthropic.authenticationStyle == .xAPIKey)
         #expect(anthropic.embeddingModel.isEmpty)
+        #expect(!anthropic.prefersCustomConfiguration)
         #expect(AIProviderPreset.matching(configuration: anthropic) == .anthropic)
+
+        let custom = AIProviderPreset.custom.applying(to: anthropic)
+        #expect(custom.prefersCustomConfiguration)
+        #expect(AIProviderPreset.matching(configuration: custom) == .custom)
+        #expect(custom.baseURL == anthropic.baseURL)
+        #expect(custom.authenticationStyle == anthropic.authenticationStyle)
+        #expect(try AICredentialStoragePolicy.scopedAccount(configuration: custom)
+            == AICredentialStoragePolicy.scopedAccount(configuration: anthropic))
+        let decodedCustom = try JSONDecoder().decode(
+            AIRemoteProviderConfiguration.self,
+            from: JSONEncoder().encode(custom)
+        )
+        #expect(decodedCustom.prefersCustomConfiguration)
+        #expect(AIProviderPreset.matching(configuration: decodedCustom) == .custom)
+    }
+
+    @Test func providerCatalogSeparatesMainlandAndInternationalServices() throws {
+        #expect(AIProviderPreset.catalog(for: .mainlandChina) == [
+            .deepSeekOpenAI, .qwen, .zhipu,
+        ])
+        #expect(AIProviderPreset.catalog(for: .international) == [
+            .openAI, .anthropic, .gemini,
+        ])
+        #expect(AIProviderPreset.catalog(for: .unknown).isEmpty)
+
+        let qwen = AIProviderPreset.qwen.applying(to: AIRemoteProviderConfiguration())
+        #expect(qwen.baseURL == "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        #expect(qwen.generationModel == "qwen-plus")
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: qwen
+        ).absoluteString == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+
+        let gemini = AIProviderPreset.gemini.applying(to: AIRemoteProviderConfiguration())
+        #expect(gemini.baseURL == "https://generativelanguage.googleapis.com/v1beta/openai")
+        #expect(gemini.generationModel == "gemini-3.7-flash")
+        #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
+            configuration: gemini
+        ).absoluteString == "https://generativelanguage.googleapis.com/v1beta/openai/models")
+    }
+
+    @Test func customCompatibilityModeKeepsEndpointDetailsAutomatic() {
+        let original = AIRemoteProviderConfiguration(
+            baseURL: "https://relay.example.com/anthropic",
+            apiStyle: .responses,
+            apiPathMode: .asEntered,
+            authenticationStyle: .bearer,
+            embeddingModel: "embedding"
+        )
+        let configured = AIProviderCompatibilityMode.anthropicMessages.applying(to: original)
+
+        #expect(configured.apiStyle == .anthropicMessages)
+        #expect(configured.apiPathMode == .automatic)
+        #expect(configured.authenticationStyle == .automatic)
+        #expect(configured.embeddingModel.isEmpty)
     }
 
     @Test func AICredentialsAreEligibleForICloudKeychainMigration() {
@@ -657,6 +715,77 @@ struct AIRecommendationPolicyTests {
             AIRecommendationSelection(songID: "one", reason: "calm")
         ])
         #expect(plan.summary.count == 180)
+    }
+
+    @Test func recommendationIntentIsSanitizedAndBounded() {
+        let request = AIRecommendationRequest(
+            scene: .relaxation,
+            intent: "  rainy\n  " + String(repeating: "m", count: 200),
+            preferences: [],
+            candidates: [
+                AIRecommendationCandidate(songID: "one", title: "One", artist: "A"),
+            ]
+        )
+
+        #expect(request.intent?.hasPrefix("rainy ") == true)
+        #expect(request.intent?.contains("\n") == false)
+        #expect(request.intent?.count == 160)
+    }
+
+    @Test func customRecommendationIntentsNormalizeAndDeduplicate() throws {
+        let duplicateID = UUID()
+        let raw = try JSONEncoder().encode([
+            AICustomRecommendationIntent(
+                id: duplicateID,
+                title: "  凌晨返程  ",
+                prompt: "  slow\n  rain  "
+            ),
+            AICustomRecommendationIntent(
+                id: duplicateID,
+                title: "Duplicate ID",
+                prompt: "ignored"
+            ),
+            AICustomRecommendationIntent(
+                title: "凌晨返程",
+                prompt: "duplicate title"
+            ),
+            AICustomRecommendationIntent(title: "", prompt: "invalid"),
+        ])
+        let decoded = AIRecommendationIntentStoragePolicy.decode(
+            String(decoding: raw, as: UTF8.self)
+        )
+
+        #expect(decoded.count == 1)
+        #expect(decoded[0].title == "凌晨返程")
+        #expect(decoded[0].prompt == "slow rain")
+        #expect(AIRecommendationIntentStoragePolicy.decode(
+            AIRecommendationIntentStoragePolicy.encode(decoded)
+        ) == decoded)
+    }
+
+    @Test func generatedLyricsAreBoundedWithoutRemovingIntentionalRepetition() {
+        let request = AILyricsGenerationRequest(
+            songTitle: "  Night\nWindow  ",
+            albumTitle: "  Home  ",
+            genre: "Ambient",
+            languageCode: "zh-Hans",
+            maximumLines: 8
+        )
+        let result = AILyricsGenerationResult(
+            draftTitle: String(repeating: "T", count: 140),
+            lines: [
+                " first ", "chorus", "chorus", " ",
+                String(repeating: "l", count: 300),
+                "fifth", "sixth", "seventh", "eighth", "ninth",
+            ]
+        ).normalized(for: request)
+
+        #expect(request.songTitle == "Night Window")
+        #expect(result.draftTitle.count == 120)
+        #expect(result.lines.count == 8)
+        #expect(result.lines[1] == "chorus")
+        #expect(result.lines[2] == "chorus")
+        #expect(result.lines[3].count == 240)
     }
 }
 

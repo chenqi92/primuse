@@ -103,6 +103,12 @@ struct MacSidebar: View {
     @ViewBuilder
     private func libraryNavigationItems(for section: LibrarySection) -> some View {
         switch section {
+        case .recommendations:
+            item(
+                route: .section(.recommendations),
+                icon: section.icon,
+                title: section.title
+            )
         case .songs:
             item(
                 route: .section(.songs),

@@ -98,6 +98,9 @@ struct MacDetailContainer: View {
                 .navigationTitle("search_title")
         case .section(let section):
             switch section {
+            case .recommendations:
+                AIRecommendationLibraryView()
+                    .navigationTitle(section.title)
             case .songs:
                 SongListView()
                     .navigationTitle(section.title)

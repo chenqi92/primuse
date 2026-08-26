@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 /// Mirrors a curated set of UserDefaults entries into NSUbiquitousKeyValueStore so they
 /// roam across the user's iCloud-signed-in devices.
@@ -231,6 +232,8 @@ enum CloudKVSKey {
     static let scraperSettings = "primuse_scraper_settings_v3"
     static let lyricsFontScale = "lyricsFontScale"
     static let recentSearches = "search_recent_queries"
+    static let aiRecommendationIntents = AIRecommendationIntentStoragePolicy.storageKey
+    static let aiRecommendationSelectedIntent = "primuse.ai.recommendationIntent.selected.v1"
     // Certificate trust and public cleartext-HTTP permissions are intentionally
     // NOT synced: both are per-device security decisions. SSLTrustStore keeps
     // them in local UserDefaults only.

@@ -22,6 +22,7 @@ public enum AIExecutionClass: String, Codable, CaseIterable, Sendable {
 public enum AICapability: String, Codable, CaseIterable, Sendable {
     case semanticSearchInterpretation
     case lyricsTranslation
+    case lyricsGeneration
     case embeddings
     case reranking
     case songAnnotation
@@ -158,6 +159,113 @@ public enum AIRecommendationScene: String, Codable, CaseIterable, Hashable, Send
     case bedtime
 }
 
+/// A compact, stable vocabulary for the recommendation ribbon. The semantic
+/// descriptions deliberately live outside localized display strings so every
+/// provider receives the same intent regardless of the device language.
+public enum AIRecommendationIntentPreset: String, Codable, CaseIterable, Hashable, Sendable {
+    case rightNow
+    case nostalgia
+    case unrequitedLove
+    case nightDrive
+    case quietFocus
+    case rainySolitude
+
+    public var semanticIntent: String? {
+        switch self {
+        case .rightNow:
+            return nil
+        case .nostalgia:
+            return "nostalgic songs that evoke home, memory, distance, and returning"
+        case .unrequitedLove:
+            return "love that remains unspoken or unreturned, restrained and bittersweet"
+        case .nightDrive:
+            return "a flowing night drive with momentum, neon atmosphere, and no abrupt mood changes"
+        case .quietFocus:
+            return "quiet concentration with low distraction, steady pacing, and gentle energy"
+        case .rainySolitude:
+            return "rainy solitude, reflective stillness, and a soft sense of emotional distance"
+        }
+    }
+}
+
+public struct AICustomRecommendationIntent: Identifiable, Codable, Hashable, Sendable {
+    public var id: UUID
+    public var title: String
+    public var prompt: String
+
+    public init(id: UUID = UUID(), title: String, prompt: String) {
+        self.id = id
+        self.title = title
+        self.prompt = prompt
+    }
+}
+
+public enum AIRecommendationIntentStoragePolicy {
+    public static let storageKey = "primuse.ai.recommendationIntents.v1"
+    public static let maximumCustomIntents = 12
+    public static let maximumTitleLength = 24
+    public static let maximumPromptLength = 160
+
+    public static func decode(_ rawValue: String) -> [AICustomRecommendationIntent] {
+        guard let data = rawValue.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(
+                [AICustomRecommendationIntent].self,
+                from: data
+              ) else { return [] }
+        return normalized(decoded)
+    }
+
+    public static func encode(_ intents: [AICustomRecommendationIntent]) -> String {
+        guard let data = try? JSONEncoder().encode(normalized(intents)) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public static func makeIntent(
+        id: UUID = UUID(),
+        title: String,
+        prompt: String
+    ) -> AICustomRecommendationIntent? {
+        let title = clean(title, limit: maximumTitleLength)
+        let prompt = clean(prompt, limit: maximumPromptLength)
+        guard !title.isEmpty, !prompt.isEmpty else { return nil }
+        return AICustomRecommendationIntent(id: id, title: title, prompt: prompt)
+    }
+
+    private static func normalized(
+        _ intents: [AICustomRecommendationIntent]
+    ) -> [AICustomRecommendationIntent] {
+        var seenIDs = Set<UUID>()
+        var seenTitles = Set<String>()
+        var output: [AICustomRecommendationIntent] = []
+        for intent in intents {
+            guard seenIDs.insert(intent.id).inserted,
+                  let value = makeIntent(
+                    id: intent.id,
+                    title: intent.title,
+                    prompt: intent.prompt
+                  ) else { continue }
+            let titleKey = value.title.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            guard seenTitles.insert(titleKey).inserted else { continue }
+            output.append(value)
+            if output.count == maximumCustomIntents { break }
+        }
+        return output
+    }
+
+    private static func clean(_ rawValue: String, limit: Int) -> String {
+        let value = rawValue
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(value.prefix(limit))
+    }
+}
+
 public enum AIRecommendationSceneResolver {
     public static func resolved(
         _ scene: AIRecommendationScene,
@@ -220,6 +328,7 @@ public struct AIRecommendationCandidate: Identifiable, Codable, Hashable, Sendab
 
 public struct AIRecommendationRequest: Hashable, Sendable {
     public var scene: AIRecommendationScene
+    public var intent: String?
     public var languageCode: String?
     public var preferences: [AIRecommendationPreference]
     public var candidates: [AIRecommendationCandidate]
@@ -227,12 +336,24 @@ public struct AIRecommendationRequest: Hashable, Sendable {
 
     public init(
         scene: AIRecommendationScene,
+        intent: String? = nil,
         languageCode: String? = nil,
         preferences: [AIRecommendationPreference],
         candidates: [AIRecommendationCandidate],
         maximumResults: Int = 8
     ) {
         self.scene = scene
+        let normalizedIntent = intent?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedIntent, !normalizedIntent.isEmpty {
+            self.intent = String(normalizedIntent.prefix(160))
+        } else {
+            self.intent = nil
+        }
         self.languageCode = languageCode
         self.preferences = Array(preferences.prefix(12))
         self.candidates = Array(candidates.prefix(36))
@@ -370,6 +491,67 @@ public struct AIEmbeddingRequest: Equatable, Sendable {
     }
 }
 
+public struct AILyricsGenerationRequest: Equatable, Sendable {
+    public var songTitle: String
+    public var albumTitle: String?
+    public var genre: String?
+    public var languageCode: String?
+    public var maximumLines: Int
+
+    public init(
+        songTitle: String,
+        albumTitle: String? = nil,
+        genre: String? = nil,
+        languageCode: String? = nil,
+        maximumLines: Int = 24
+    ) {
+        self.songTitle = Self.clean(songTitle, limit: 160) ?? "Untitled"
+        self.albumTitle = Self.clean(albumTitle, limit: 160)
+        self.genre = Self.clean(genre, limit: 100)
+        self.languageCode = Self.clean(languageCode, limit: 24)
+        self.maximumLines = max(8, min(maximumLines, 48))
+    }
+
+    private static func clean(_ rawValue: String?, limit: Int) -> String? {
+        let value = rawValue?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : String(value.prefix(limit))
+    }
+}
+
+public struct AILyricsGenerationResult: Codable, Equatable, Sendable {
+    public var draftTitle: String
+    public var lines: [String]
+
+    public init(draftTitle: String = "", lines: [String] = []) {
+        self.draftTitle = draftTitle
+        self.lines = lines
+    }
+
+    public func normalized(for request: AILyricsGenerationRequest) -> AILyricsGenerationResult {
+        let title = draftTitle
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = lines.compactMap { rawLine -> String? in
+            let line = rawLine
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { return nil }
+            return String(line.prefix(240))
+        }
+        return AILyricsGenerationResult(
+            draftTitle: String(title.prefix(120)),
+            lines: Array(lines.prefix(request.maximumLines))
+        )
+    }
+}
+
 public struct AIEmbeddingResult: Equatable, Sendable {
     public var vectors: [[Float]]
     public var model: String
@@ -398,6 +580,12 @@ public protocol AILyricsTranslationProviding: MusicIntelligenceProvider {
         _ candidates: [LyricTranslationCandidate],
         targetLanguageCode: String
     ) async throws -> [String: String]
+}
+
+public protocol AILyricsGenerationProviding: MusicIntelligenceProvider {
+    func generateLyrics(
+        _ request: AILyricsGenerationRequest
+    ) async throws -> AILyricsGenerationResult
 }
 
 public protocol AIEmbeddingProviding: MusicIntelligenceProvider {

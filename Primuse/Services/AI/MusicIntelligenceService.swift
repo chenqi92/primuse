@@ -22,6 +22,19 @@ struct AILyricsTranslationExecution: Sendable {
     var fallbackDepth: Int
 }
 
+struct AILyricsGenerationExecution: Sendable {
+    var lines: [LyricLine]
+    var draftTitle: String
+    var providerName: String
+    var fallbackDepth: Int
+}
+
+enum AILyricsGenerationOutcome: Sendable {
+    case unavailable
+    case success(AILyricsGenerationExecution)
+    case failed
+}
+
 struct AIRecommendationExecution: Sendable {
     var plan: AIRecommendationPlan
     var providerName: String
@@ -134,6 +147,16 @@ final class MusicIntelligenceService {
             && decision.isAllowed
             && (!decision.requiresExplicitConsent
                 || settingsStore.hasExplicitListeningContextConsent)
+    }
+
+    var isLyricsGenerationConfigured: Bool {
+        let decision = regionAvailability.remoteProviderDecision
+        return settingsStore.providerSet.routedProviders.contains {
+            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+            && settingsStore.hasExplicitRemoteConsent
+            && decision.isAllowed
+            && (!decision.requiresExplicitConsent || settingsStore.hasExplicitRemoteConsent)
     }
 
     func semanticSearchPlan(for query: String) async -> AISemanticSearchPlan? {
@@ -365,6 +388,64 @@ final class MusicIntelligenceService {
         return .failed
     }
 
+    func generateLyrics(for song: Song) async -> AILyricsGenerationOutcome {
+        let regionSnapshot = regionAvailability.snapshot
+        let songTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isLyricsGenerationConfigured, !songTitle.isEmpty else { return .unavailable }
+
+        let request = AILyricsGenerationRequest(
+            songTitle: songTitle,
+            albumTitle: song.albumTitle,
+            genre: song.genre,
+            languageCode: Locale.current.language.languageCode?.identifier,
+            maximumLines: 28
+        )
+        let providers = settingsStore.providerSet.routedProviders.filter {
+            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        for (fallbackDepth, configuration) in providers.enumerated() {
+            guard AIRegionRequestPolicy.canSendRemoteRequest(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot
+            ) else { return .failed }
+            do {
+                let generated = try await engine.generateLyrics(
+                    request,
+                    configuration: configuration,
+                    regionContext: regionSnapshot.context,
+                    hasExplicitRemoteConsent: settingsStore.hasExplicitRemoteConsent,
+                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                )
+                guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot
+                ) else { return .failed }
+                let lines = generated.lines.enumerated().map { index, text in
+                    LyricLine(
+                        timestamp: 0,
+                        text: text,
+                        isSynchronized: false,
+                        metadataLines: index == 0
+                            ? ["[by:Primuse original intelligent draft]"]
+                            : nil
+                    )
+                }
+                guard !lines.isEmpty else { continue }
+                return .success(AILyricsGenerationExecution(
+                    lines: lines,
+                    draftTitle: generated.draftTitle,
+                    providerName: configuration.displayName,
+                    fallbackDepth: fallbackDepth
+                ))
+            } catch is CancellationError {
+                return .failed
+            } catch {
+                continue
+            }
+        }
+        return .failed
+    }
+
     func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
         if case .ready = await credentialStore.lookupAPIKey(configuration: configuration) {
             return true
@@ -442,7 +523,6 @@ final class MusicIntelligenceService {
 
     func availableModels(
         configuration: AIRemoteProviderConfiguration,
-        hasExplicitRemoteConsent: Bool,
         apiKey: String?
     ) async throws -> [AIProviderModel] {
         let regionSnapshot = regionAvailability.snapshot
@@ -452,9 +532,6 @@ final class MusicIntelligenceService {
         )
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
-        }
-        guard !decision.requiresExplicitConsent || hasExplicitRemoteConsent else {
-            throw MusicIntelligenceError.unavailable(.missingConfiguration)
         }
         let models = try await engine.listModels(
             configuration: configuration,
@@ -472,7 +549,6 @@ final class MusicIntelligenceService {
 
     func testConnection(
         configuration: AIRemoteProviderConfiguration,
-        hasExplicitRemoteConsent: Bool,
         apiKey: String?
     ) async throws {
         let regionSnapshot = regionAvailability.snapshot
@@ -484,12 +560,11 @@ final class MusicIntelligenceService {
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
-        guard !decision.requiresExplicitConsent || hasExplicitRemoteConsent else {
-            throw MusicIntelligenceError.unavailable(.missingConfiguration)
-        }
-
         var enabledConfiguration = configuration
         enabledConfiguration.isEnabled = true
+        // Connection diagnostics send only this built-in phrase. They never
+        // include a search term, lyrics, library metadata, or listening
+        // history, so they are independent from content-sharing consent.
         _ = try await engine.interpretSearch(
             AISemanticSearchRequest(
                 query: "quiet evening music",
@@ -498,7 +573,7 @@ final class MusicIntelligenceService {
             ),
             configuration: enabledConfiguration,
             regionContext: region,
-            hasExplicitRemoteConsent: hasExplicitRemoteConsent,
+            hasExplicitRemoteConsent: true,
             apiKeyOverride: apiKey,
             requestAuthorization: regionAuthorization(for: regionSnapshot)
         )
@@ -542,6 +617,7 @@ enum AIRecommendationContextBuilder {
     @MainActor
     static func request(
         scene: AIRecommendationScene,
+        intent: String? = nil,
         candidates: [Song],
         history: PlayHistoryStore = .shared,
         now: Date = Date()
@@ -580,6 +656,7 @@ enum AIRecommendationContextBuilder {
         }
         return AIRecommendationRequest(
             scene: AIRecommendationSceneResolver.resolved(scene, at: now),
+            intent: intent,
             languageCode: Locale.current.language.languageCode?.identifier,
             preferences: preferences,
             candidates: recommendationCandidates,
@@ -598,6 +675,7 @@ final class AIRecommendationViewModel {
 
     func refresh(
         scene: AIRecommendationScene,
+        intent: String? = nil,
         candidates: [Song],
         using intelligence: MusicIntelligenceService
     ) async {
@@ -617,6 +695,7 @@ final class AIRecommendationViewModel {
         }
         guard let request = AIRecommendationContextBuilder.request(
             scene: scene,
+            intent: intent,
             candidates: candidates
         ) else {
             feedback = .idle
@@ -853,6 +932,42 @@ private actor MusicIntelligenceEngine {
         }
         return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.recommendations(request)
+        }
+    }
+
+    func generateLyrics(
+        _ request: AILyricsGenerationRequest,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> AILyricsGenerationResult {
+        let candidates = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsGeneration,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard candidates.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: configuration.requestTimeout) {
+            try await provider.generateLyrics(request)
         }
     }
 

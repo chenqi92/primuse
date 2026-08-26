@@ -325,6 +325,10 @@ private struct LibraryDisplaySettingsView: View {
     private var sectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenSectionsRawValue = ""
+    @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
+    private var customIntentsRawValue = ""
+    @State private var customIntentTitle = ""
+    @State private var customIntentPrompt = ""
 
     private var quickAccessLimit: Int {
         LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
@@ -332,6 +336,10 @@ private struct LibraryDisplaySettingsView: View {
 
     private var sectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(sectionOrderRawValue)
+    }
+
+    private var customIntents: [AICustomRecommendationIntent] {
+        AIRecommendationIntentStoragePolicy.decode(customIntentsRawValue)
     }
 
     private var defaultFlatBrowseBinding: Binding<Bool> {
@@ -405,6 +413,67 @@ private struct LibraryDisplaySettingsView: View {
             }
 
             Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(AIRecommendationIntentPreset.allCases, id: \.self) { preset in
+                            Text(verbatim: preset.localizedTitle)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 11)
+                                .frame(height: 30)
+                                .background(
+                                    Color.accentColor.opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                    }
+                }
+
+                ForEach(customIntents) { intent in
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: intent.title)
+                                .font(.body.weight(.semibold))
+                            Text(verbatim: intent.prompt)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Button(role: .destructive) {
+                            removeCustomIntent(id: intent.id)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(Text("ai_recommendation_custom_remove"))
+                    }
+                }
+
+                TextField("ai_recommendation_custom_title_placeholder", text: $customIntentTitle)
+                    .textInputAutocapitalization(.sentences)
+                TextField(
+                    "ai_recommendation_custom_prompt_placeholder",
+                    text: $customIntentPrompt,
+                    axis: .vertical
+                )
+                .lineLimit(2...4)
+                Button("ai_recommendation_custom_add", systemImage: "plus") {
+                    addCustomIntent()
+                }
+                .disabled(
+                    AIRecommendationIntentStoragePolicy.makeIntent(
+                        title: customIntentTitle,
+                        prompt: customIntentPrompt
+                    ) == nil
+                    || customIntents.count
+                        >= AIRecommendationIntentStoragePolicy.maximumCustomIntents
+                )
+            } header: {
+                Text("ai_recommendation_intents_settings_title")
+            } footer: {
+                Text("ai_recommendation_intents_settings_footer")
+            }
+
+            Section {
                 Toggle("library_default_flat_view", isOn: defaultFlatBrowseBinding)
             } footer: {
                 Text("library_default_flat_view_description")
@@ -443,6 +512,25 @@ private struct LibraryDisplaySettingsView: View {
         var updated = sectionOrder
         updated.move(fromOffsets: source, toOffset: destination)
         sectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
+    }
+
+    private func addCustomIntent() {
+        guard customIntents.count < AIRecommendationIntentStoragePolicy.maximumCustomIntents,
+              let intent = AIRecommendationIntentStoragePolicy.makeIntent(
+                title: customIntentTitle,
+                prompt: customIntentPrompt
+              ) else { return }
+        customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(customIntents + [intent])
+        customIntentTitle = ""
+        customIntentPrompt = ""
+        CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
+    }
+
+    private func removeCustomIntent(id: UUID) {
+        customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(
+            customIntents.filter { $0.id != id }
+        )
+        CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
     }
 }
 
