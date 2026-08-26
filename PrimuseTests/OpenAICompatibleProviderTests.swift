@@ -97,6 +97,153 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
     }
 
+    func testAnthropicMessagesUsesNativeHeadersBodyAndResponse() async throws {
+        let host = "intelligence-anthropic.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"id":"msg_test","type":"message","content":[{"type":"text","text":"{\"expanded_terms\":[\"acoustic\"],\"themes\":[\"nature\"],\"moods\":[\"quiet\"]}"}]}"#
+        )
+        let (provider, session) = makeProvider(
+            host: host,
+            apiStyle: .anthropicMessages
+        )
+        defer { session.invalidateAndCancel() }
+
+        let plan = try await provider.interpretSearch(
+            AISemanticSearchRequest(query: "quiet forest", languageCode: "en")
+        )
+
+        XCTAssertEqual(plan.expandedTerms, ["acoustic"])
+        XCTAssertEqual(plan.themes, ["nature"])
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.path, "/v1/messages")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "test-api-key")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "anthropic-version"),
+            "2023-06-01"
+        )
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(object["model"] as? String, "test-generation-model")
+        XCTAssertEqual(object["max_tokens"] as? Int, 320)
+        XCTAssertNotNil(object["system"] as? String)
+        let messages = try XCTUnwrap(object["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.first?["role"] as? String, "user")
+    }
+
+    func testAnthropicModelsFollowPaginationAndParseDates() async throws {
+        let host = "intelligence-anthropic-models.invalid"
+        IntelligenceURLProtocol.configureSequence(
+            host: host,
+            responses: [
+                (
+                    200,
+                    #"{"data":[{"id":"claude-a","display_name":"Claude A","created_at":"2026-01-02T03:04:05Z"}],"has_more":true,"last_id":"claude-a"}"#
+                ),
+                (
+                    200,
+                    #"{"data":[{"id":"claude-b","display_name":"Claude B","created_at":"2026-02-03T04:05:06.123Z"}],"has_more":false,"last_id":"claude-b"}"#
+                ),
+            ]
+        )
+        let (provider, session) = makeProvider(
+            host: host,
+            apiStyle: .anthropicMessages
+        )
+        defer { session.invalidateAndCancel() }
+
+        let models = try await provider.listModels()
+
+        XCTAssertEqual(models.map(\.id), ["claude-a", "claude-b"])
+        XCTAssertTrue(models.allSatisfy { $0.createdAt != nil })
+        let requests = IntelligenceURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(
+            URLComponents(url: requests[0].url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "limit" })?.value,
+            "100"
+        )
+        XCTAssertEqual(
+            URLComponents(url: requests[1].url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "after_id" })?.value,
+            "claude-a"
+        )
+    }
+
+    func testAnthropicWireFormatCanUseBearerForCompatibleRelay() async throws {
+        let host = "intelligence-anthropic-bearer.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"content":[{"type":"text","text":"{\"expanded_terms\":[\"calm\"]}"}]}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://\(host)/anthropic",
+                apiStyle: .anthropicMessages,
+                apiPathMode: .appendV1,
+                authenticationStyle: .bearer,
+                generationModel: "relay-model",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "relay-key",
+            session: session
+        )
+
+        _ = try await provider.interpretSearch(AISemanticSearchRequest(query: "calm"))
+
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.path, "/anthropic/v1/messages")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer relay-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "anthropic-version"),
+            "2023-06-01"
+        )
+    }
+
+    func testDeepSeekAnthropicUsesOpenAIModelCatalogAtProviderRoot() async throws {
+        let host = "api.deepseek.com"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"object":"list","data":[{"id":"deepseek-v4-flash","owned_by":"deepseek"},{"id":"deepseek-v4-pro","owned_by":"deepseek"}]}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIProviderPreset.deepSeekAnthropic.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "deepseek-test-key",
+            session: session
+        )
+
+        let models = try await provider.listModels()
+
+        XCTAssertEqual(models.map(\.id), ["deepseek-v4-flash", "deepseek-v4-pro"])
+        XCTAssertTrue(models.allSatisfy { $0.ownedBy == "deepseek" })
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.deepseek.com/models")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Authorization"),
+            "Bearer deepseek-test-key"
+        )
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+    }
+
     func testHTTPStatusIsReportedWithoutParsingTheResponseBody() async throws {
         let host = "intelligence-status.invalid"
         IntelligenceURLProtocol.configure(
@@ -329,6 +476,18 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertEqual(store.configuration, original)
     }
 
+    @MainActor
+    func testModelFetchRequiresExplicitRemoteConsent() {
+        let editor = AISettingsEditorModel()
+        editor.apiKeyDraft = "test-key"
+        editor.draftConfiguration.baseURL = "https://api.example.com/v1"
+
+        XCTAssertFalse(editor.canFetchModels)
+
+        editor.consent = true
+        XCTAssertTrue(editor.canFetchModels)
+    }
+
     private func makeProvider(
         host: String,
         apiStyle: AICompatibleAPIStyle
@@ -392,18 +551,18 @@ private actor TestAICredentialStore: AICredentialStoring {
     }
 
     private func account(for configuration: AIRemoteProviderConfiguration) throws -> String {
-        try AICredentialStoragePolicy.account(
-            profileID: configuration.id,
-            baseURL: configuration.baseURL,
-            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        )
+        try AICredentialStoragePolicy.scopedAccount(configuration: configuration)
     }
 }
 
 private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
-    private struct State {
+    private struct StubResponse {
         var statusCode: Int
         var chunks: [Data]
+    }
+
+    private struct State {
+        var responses: [StubResponse]
         var requests: [URLRequest] = []
         var deliveredChunkCount = 0
         var stopLoadingCount = 0
@@ -420,7 +579,20 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
 
     static func configure(host: String, statusCode: Int, chunks: [Data]) {
         lock.lock()
-        states[host] = State(statusCode: statusCode, chunks: chunks)
+        states[host] = State(responses: [
+            StubResponse(statusCode: statusCode, chunks: chunks),
+        ])
+        lock.unlock()
+    }
+
+    static func configureSequence(
+        host: String,
+        responses: [(statusCode: Int, body: String)]
+    ) {
+        lock.lock()
+        states[host] = State(responses: responses.map {
+            StubResponse(statusCode: $0.statusCode, chunks: [Data($0.body.utf8)])
+        })
         lock.unlock()
     }
 
@@ -457,6 +629,8 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }
+        let responseIndex = min(state.requests.count, state.responses.count - 1)
+        let stub = state.responses[responseIndex]
         var capturedRequest = request
         if capturedRequest.httpBody == nil,
            let bodyStream = request.httpBodyStream {
@@ -468,7 +642,7 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
 
         guard let response = HTTPURLResponse(
             url: url,
-            statusCode: state.statusCode,
+            statusCode: stub.statusCode,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
         ) else {
@@ -476,7 +650,7 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        deliver(state.chunks, host: host, index: 0)
+        deliver(stub.chunks, host: host, index: 0)
     }
 
     override func stopLoading() {

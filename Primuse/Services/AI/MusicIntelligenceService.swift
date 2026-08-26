@@ -17,6 +17,8 @@ final class MusicIntelligenceService {
         var baseURL: String
         var model: String
         var apiStyle: AICompatibleAPIStyle
+        var apiPathMode: AIAPIPathMode
+        var authenticationStyle: AIAuthenticationStyle
         var query: String
         var languageCode: String
         var regionRevision: UInt64
@@ -75,6 +77,8 @@ final class MusicIntelligenceService {
             baseURL: configuration.baseURL,
             model: configuration.generationModel,
             apiStyle: configuration.apiStyle,
+            apiPathMode: configuration.apiPathMode,
+            authenticationStyle: configuration.authenticationStyle,
             query: trimmedQuery.folding(
                 options: [.caseInsensitive, .diacriticInsensitive],
                 locale: .current
@@ -142,10 +146,7 @@ final class MusicIntelligenceService {
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
-        _ = try AIRemoteEndpointPolicy.validatedBaseURL(
-            configuration.baseURL,
-            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        )
+        _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: configuration)
         if let apiKey,
            !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = try await credentialStore.saveAPIKey(apiKey, configuration: configuration)
@@ -164,6 +165,7 @@ final class MusicIntelligenceService {
 
     func availableModels(
         configuration: AIRemoteProviderConfiguration,
+        hasExplicitRemoteConsent: Bool,
         apiKey: String?
     ) async throws -> [AIProviderModel] {
         let regionSnapshot = regionAvailability.snapshot
@@ -173,6 +175,9 @@ final class MusicIntelligenceService {
         )
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
+        guard !decision.requiresExplicitConsent || hasExplicitRemoteConsent else {
+            throw MusicIntelligenceError.unavailable(.missingConfiguration)
         }
         let models = try await engine.listModels(
             configuration: configuration,

@@ -687,7 +687,26 @@ private struct MacSTIntelligenceView: View {
                 hint: String(localized: "ai_provider_footer")
             ) {
                 MacSTGroup {
-                    MacSTRow(String(localized: "ai_provider_name"), divider: false) {
+                    MacSTRow(String(localized: "ai_provider_preset"), divider: false) {
+                        MacSTPicker(
+                            selection: editor.providerPresetBinding,
+                            options: [
+                                (.custom, String(localized: "ai_provider_preset_custom")),
+                                (.openAI, String(localized: "ai_provider_preset_openai")),
+                                (.anthropic, String(localized: "ai_provider_preset_anthropic")),
+                                (
+                                    .deepSeekOpenAI,
+                                    String(localized: "ai_provider_preset_deepseek_openai")
+                                ),
+                                (
+                                    .deepSeekAnthropic,
+                                    String(localized: "ai_provider_preset_deepseek_anthropic")
+                                ),
+                            ],
+                            width: 220
+                        )
+                    }
+                    MacSTRow(String(localized: "ai_provider_name")) {
                         MacSTTextField(
                             text: editor.configurationBinding(\.displayName),
                             prompt: String(localized: "ai_provider_default_name")
@@ -712,13 +731,64 @@ private struct MacSTIntelligenceView: View {
                     }
                     MacSTRow(String(localized: "ai_api_style")) {
                         MacSTPicker(
-                            selection: editor.configurationBinding(\.apiStyle),
+                            selection: editor.apiStyleBinding,
                             options: [
                                 (.responses, String(localized: "ai_api_style_responses")),
                                 (.chatCompletions, String(localized: "ai_api_style_chat_completions")),
+                                (
+                                    .anthropicMessages,
+                                    String(localized: "ai_api_style_anthropic_messages")
+                                ),
                             ],
                             width: 220
                         )
+                    }
+                    MacSTRow(String(localized: "ai_path_mode")) {
+                        MacSTPicker(
+                            selection: editor.configurationBinding(
+                                \.apiPathMode,
+                                clearModels: true
+                            ),
+                            options: [
+                                (.automatic, String(localized: "ai_path_mode_automatic")),
+                                (.asEntered, String(localized: "ai_path_mode_as_entered")),
+                                (.appendV1, String(localized: "ai_path_mode_append_v1")),
+                            ],
+                            width: 220
+                        )
+                    }
+                    MacSTRow(String(localized: "ai_authentication_style")) {
+                        MacSTPicker(
+                            selection: editor.configurationBinding(
+                                \.authenticationStyle,
+                                clearModels: true
+                            ),
+                            options: [
+                                (
+                                    .automatic,
+                                    String(localized: "ai_authentication_style_automatic")
+                                ),
+                                (
+                                    .bearer,
+                                    String(localized: "ai_authentication_style_bearer")
+                                ),
+                                (
+                                    .xAPIKey,
+                                    String(localized: "ai_authentication_style_x_api_key")
+                                ),
+                            ],
+                            width: 220
+                        )
+                    }
+                    if let endpoint = editor.resolvedGenerationEndpoint {
+                        MacSTRow(String(localized: "ai_resolved_endpoint")) {
+                            Text(verbatim: endpoint)
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(PMColor.textFaint)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                                .frame(width: 320, alignment: .trailing)
+                        }
                     }
                 }
             }
@@ -734,11 +804,21 @@ private struct MacSTIntelligenceView: View {
                             models: editor.availableModels
                         )
                     }
-                    MacSTRow(String(localized: "ai_embedding_model")) {
-                        MacAIModelField(
-                            text: editor.configurationBinding(\.embeddingModel),
-                            models: editor.availableModels
-                        )
+                    if editor.draftConfiguration.supportsEmbeddings {
+                        MacSTRow(String(localized: "ai_embedding_model")) {
+                            MacAIModelField(
+                                text: editor.configurationBinding(\.embeddingModel),
+                                models: editor.availableModels
+                            )
+                        }
+                    } else {
+                        MacSTRow(
+                            String(localized: "ai_embedding_model"),
+                            hint: String(localized: "ai_embedding_unsupported")
+                        ) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(PMColor.textFaint)
+                        }
                     }
                     MacSTRow(
                         String(localized: "ai_online_models"),

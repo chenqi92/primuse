@@ -259,6 +259,92 @@ struct AIRemoteEndpointPolicyTests {
         ).absoluteString == "https://api.example.com/v1/models")
     }
 
+    @Test func providerAwarePathModesBuildDocumentedEndpoints() throws {
+        let openAI = AIRemoteProviderConfiguration(
+            baseURL: "https://api.openai.com",
+            apiStyle: .responses,
+            apiPathMode: .automatic,
+            generationModel: "model"
+        )
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: openAI
+        ).absoluteString == "https://api.openai.com/v1/responses")
+
+        let customOpenAI = AIRemoteProviderConfiguration(
+            baseURL: "https://relay.example.com",
+            apiStyle: .chatCompletions,
+            apiPathMode: .automatic,
+            generationModel: "model"
+        )
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: customOpenAI
+        ).absoluteString == "https://relay.example.com/v1/chat/completions")
+
+        let deepSeek = AIProviderPreset.deepSeekOpenAI.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: deepSeek
+        ).absoluteString == "https://api.deepseek.com/chat/completions")
+
+        let anthropic = AIProviderPreset.anthropic.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: anthropic
+        ).absoluteString == "https://api.anthropic.com/v1/messages")
+        #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
+            configuration: anthropic
+        ).absoluteString == "https://api.anthropic.com/v1/models")
+
+        let deepSeekAnthropic = AIProviderPreset.deepSeekAnthropic.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: deepSeekAnthropic
+        ).absoluteString == "https://api.deepseek.com/anthropic/v1/messages")
+        #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
+            configuration: deepSeekAnthropic
+        ).absoluteString == "https://api.deepseek.com/models")
+        #expect(AIRemoteEndpointPolicy.usesOpenAIModelCatalog(
+            configuration: deepSeekAnthropic
+        ))
+    }
+
+    @Test func customPathCanBeUsedDirectlyOrReceiveV1() throws {
+        var configuration = AIRemoteProviderConfiguration(
+            baseURL: "https://relay.example.com/openai",
+            apiStyle: .responses,
+            apiPathMode: .asEntered,
+            generationModel: "model"
+        )
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: configuration
+        ).absoluteString == "https://relay.example.com/openai/responses")
+
+        configuration.apiPathMode = .appendV1
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: configuration
+        ).absoluteString == "https://relay.example.com/openai/v1/responses")
+    }
+
+    @Test func legacyConfigurationDecodesWithSafeAutomaticDefaults() throws {
+        let encoded = try JSONEncoder().encode(AIRemoteProviderConfiguration())
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object["apiPathMode"] = nil
+        object["authenticationStyle"] = nil
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(
+            AIRemoteProviderConfiguration.self,
+            from: legacyData
+        )
+
+        #expect(decoded.apiPathMode == .automatic)
+        #expect(decoded.authenticationStyle == .automatic)
+    }
+
     @Test func localHTTPRequiresExplicitConsent() throws {
         #expect(throws: AIRemoteEndpointValidationError.insecureLocalHTTPRequiresConsent) {
             try AIRemoteEndpointPolicy.validatedBaseURL(
@@ -341,6 +427,10 @@ struct AIRemoteEndpointPolicyTests {
         ).descriptor
         #expect(generationOnly.capabilities.contains(.semanticSearchInterpretation))
         #expect(!generationOnly.capabilities.contains(.embeddings))
+        #expect(!generationOnly.capabilities.contains(.reranking))
+        #expect(!generationOnly.capabilities.contains(.songAnnotation))
+        #expect(!generationOnly.capabilities.contains(.recommendations))
+        #expect(!generationOnly.capabilities.contains(.commandInterpretation))
 
         let embeddingOnly = AIRemoteProviderConfiguration(
             generationModel: "",
@@ -349,6 +439,18 @@ struct AIRemoteEndpointPolicyTests {
         ).descriptor
         #expect(!embeddingOnly.capabilities.contains(.semanticSearchInterpretation))
         #expect(embeddingOnly.capabilities.contains(.embeddings))
+
+        let anthropic = AIRemoteProviderConfiguration(
+            apiStyle: .anthropicMessages,
+            generationModel: "claude-example",
+            embeddingModel: "must-not-be-advertised",
+            isEnabled: true
+        )
+        #expect(anthropic.descriptor.capabilities.contains(.semanticSearchInterpretation))
+        #expect(!anthropic.descriptor.capabilities.contains(.embeddings))
+        #expect(throws: AIRemoteEndpointValidationError.unsupportedCapability) {
+            try AIRemoteEndpointPolicy.embeddingsEndpoint(configuration: anthropic)
+        }
     }
 
     @Test func credentialAccountIsStableAndContainsNoSecretMaterial() {
@@ -400,6 +502,42 @@ struct AIRemoteEndpointPolicyTests {
             )
         }
         #expect(Set(accounts).count == urls.count)
+    }
+
+    @Test func scopedCredentialSeparatesPathProtocolAndAuthentication() throws {
+        let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
+        let openAI = AIRemoteProviderConfiguration(
+            id: profileID,
+            baseURL: "https://relay.example.com/openai",
+            apiStyle: .responses,
+            apiPathMode: .appendV1,
+            authenticationStyle: .bearer
+        )
+        var anthropic = openAI
+        anthropic.baseURL = "https://relay.example.com/anthropic"
+        anthropic.apiStyle = .anthropicMessages
+        anthropic.authenticationStyle = .xAPIKey
+        var bearerAnthropic = anthropic
+        bearerAnthropic.authenticationStyle = .bearer
+
+        let accounts = try [
+            AICredentialStoragePolicy.scopedAccount(configuration: openAI),
+            AICredentialStoragePolicy.scopedAccount(configuration: anthropic),
+            AICredentialStoragePolicy.scopedAccount(configuration: bearerAnthropic),
+        ]
+        #expect(Set(accounts).count == accounts.count)
+    }
+
+    @Test func presetsKeepKnownProtocolSettingsAndPreserveProfileIdentity() {
+        let id = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
+        let original = AIRemoteProviderConfiguration(id: id, embeddingModel: "old")
+        let anthropic = AIProviderPreset.anthropic.applying(to: original)
+
+        #expect(anthropic.id == id)
+        #expect(anthropic.apiStyle == .anthropicMessages)
+        #expect(anthropic.authenticationStyle == .xAPIKey)
+        #expect(anthropic.embeddingModel.isEmpty)
+        #expect(AIProviderPreset.matching(configuration: anthropic) == .anthropic)
     }
 
     @Test func deviceOnlyAICredentialsAreExcludedFromICloudMigration() {

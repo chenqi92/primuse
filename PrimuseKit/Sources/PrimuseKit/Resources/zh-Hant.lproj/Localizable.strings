@@ -623,3 +623,8 @@
 "immersive_lyrics_motion_title" = "沉浸文字動效";
 "immersive_lyrics_motion_subtitle" = "控制曲名牆的緩慢漂移和歌詞橫向巡遊；關閉後文字保持靜態。";
 "local_import_insufficient_space" = "可用空間不足（需要 %lld 位元組，可用 %lld 位元組）。";
+"ext.tv.settings.intelligence" = "智慧功能";
+"ext.tv.settings.intelligence.ready" = "語意搜尋已就緒";
+"ext.tv.settings.intelligence.setup" = "設定智慧服務";
+"ext.tv.search.aiLoading" = "正在尋找相關概念…";
+"ext.tv.search.aiReason" = "與「%@」相關";

@@ -59,6 +59,7 @@ struct PrimuseTVApp: App {
     @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
     @State private var themeState = TVThemeState.shared
     @State private var appearanceState = TVAppearanceState()
+    @State private var musicIntelligence = MusicIntelligenceService()
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.colorModeKey)
@@ -76,6 +77,7 @@ struct PrimuseTVApp: App {
                 .environment(store)
                 .environment(themeState)
                 .environment(appearanceState)
+                .environment(musicIntelligence)
                 .preferredColorScheme(appearance.colorScheme)
                 .modifier(TVWindowAppearanceModifier(preference: appearance))
                 .tint(themeState.accent)
@@ -97,6 +99,7 @@ struct PrimuseTVApp: App {
                     )
                 }
                 .task {
+                    musicIntelligence.start()
                     FullscreenPlayerEffectSync.shared.install()
                     #if DEBUG
                     switch ProcessInfo.processInfo.environment["TV_AUDIO_SMOKE"] {

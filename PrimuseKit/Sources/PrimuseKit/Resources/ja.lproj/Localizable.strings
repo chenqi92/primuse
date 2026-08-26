@@ -626,3 +626,8 @@
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
 "immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
 "local_import_insufficient_space" = "空き容量が不足しています（必要：%lld バイト、利用可能：%lld バイト）。";
+"ext.tv.settings.intelligence" = "インテリジェンス機能";
+"ext.tv.settings.intelligence.ready" = "セマンティック検索の準備完了";
+"ext.tv.settings.intelligence.setup" = "プロバイダーを設定";
+"ext.tv.search.aiLoading" = "関連する概念を検索しています…";
+"ext.tv.search.aiReason" = "「%@」に関連";

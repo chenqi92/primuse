@@ -626,3 +626,8 @@
 "immersive_lyrics_motion_title" = "몰입형 문자 모션";
 "immersive_lyrics_motion_subtitle" = "곡명 벽의 느린 이동과 가로 가사 흐름을 제어하며 끄면 문자가 정지합니다.";
 "local_import_insufficient_space" = "사용 가능한 공간이 부족합니다(필요: %lld바이트, 사용 가능: %lld바이트).";
+"ext.tv.settings.intelligence" = "지능형 기능";
+"ext.tv.settings.intelligence.ready" = "의미 검색 준비됨";
+"ext.tv.settings.intelligence.setup" = "서비스 구성";
+"ext.tv.search.aiLoading" = "관련 개념 찾는 중…";
+"ext.tv.search.aiReason" = "‘%@’ 관련";

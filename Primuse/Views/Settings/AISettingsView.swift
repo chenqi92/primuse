@@ -23,7 +23,7 @@ final class AISettingsEditorModel {
     var consent = false
     var apiKeyDraft = ""
     var hasStoredAPIKey = false
-    var storedAPIKeyOrigin: String?
+    var storedAPIKeyScope: String?
     var availableModels: [AIProviderModel] = []
     var didLoad = false
     var isWorking = false
@@ -33,7 +33,7 @@ final class AISettingsEditorModel {
     private var draftGeneration: UInt64 = 0
 
     var hasStoredAPIKeyForDraft: Bool {
-        hasStoredAPIKey && storedAPIKeyOrigin == draftCredentialOrigin
+        hasStoredAPIKey && storedAPIKeyScope == draftCredentialScope
     }
 
     var hasUsableAPIKey: Bool {
@@ -42,7 +42,7 @@ final class AISettingsEditorModel {
     }
 
     var canFetchModels: Bool {
-        !isWorking && !isFetchingModels && hasUsableAPIKey
+        !isWorking && !isFetchingModels && consent && hasUsableAPIKey
             && !draftConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -59,7 +59,7 @@ final class AISettingsEditorModel {
         draftConfiguration = intelligence.settingsStore.configuration
         consent = intelligence.settingsStore.hasExplicitRemoteConsent
         hasStoredAPIKey = await intelligence.hasStoredAPIKey(configuration: draftConfiguration)
-        storedAPIKeyOrigin = hasStoredAPIKey ? draftCredentialOrigin : nil
+        storedAPIKeyScope = hasStoredAPIKey ? draftCredentialScope : nil
     }
 
     func configurationBinding<Value>(
@@ -95,15 +95,48 @@ final class AISettingsEditorModel {
         )
     }
 
+    var providerPresetBinding: Binding<AIProviderPreset> {
+        Binding(
+            get: { AIProviderPreset.matching(configuration: self.draftConfiguration) },
+            set: { preset in
+                guard preset != .custom else { return }
+                self.draftConfiguration = preset.applying(to: self.draftConfiguration)
+                self.apiKeyDraft = ""
+                self.draftDidChange(clearModels: true)
+            }
+        )
+    }
+
+    var apiStyleBinding: Binding<AICompatibleAPIStyle> {
+        Binding(
+            get: { self.draftConfiguration.apiStyle },
+            set: { value in
+                self.draftConfiguration.apiStyle = value
+                if !self.draftConfiguration.supportsEmbeddings {
+                    self.draftConfiguration.embeddingModel = ""
+                }
+                self.draftDidChange(clearModels: true)
+            }
+        )
+    }
+
+    var resolvedGenerationEndpoint: String? {
+        try? AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: draftConfiguration
+        ).absoluteString
+    }
+
     func fetchModels(using intelligence: MusicIntelligenceService) async {
         let configuration = draftConfiguration
         let apiKey = apiKeyDraft
+        let explicitConsent = consent
         let operationGeneration = draftGeneration
         isFetchingModels = true
         status = .idle
         do {
             let models = try await intelligence.availableModels(
                 configuration: configuration,
+                hasExplicitRemoteConsent: explicitConsent,
                 apiKey: apiKey.isEmpty ? nil : apiKey
             )
             guard canApplyCompletion(operationGeneration) else {
@@ -139,7 +172,7 @@ final class AISettingsEditorModel {
                 return
             }
             hasStoredAPIKey = storedAPIKey
-            storedAPIKeyOrigin = storedAPIKey ? Self.credentialOrigin(for: configuration) : nil
+            storedAPIKeyScope = storedAPIKey ? Self.credentialScope(for: configuration) : nil
             apiKeyDraft = ""
             status = .saved
         } catch {
@@ -186,7 +219,7 @@ final class AISettingsEditorModel {
                 return
             }
             hasStoredAPIKey = false
-            storedAPIKeyOrigin = nil
+            storedAPIKeyScope = nil
             availableModels = []
         } catch {
             if canApplyCompletion(operationGeneration) {
@@ -196,17 +229,14 @@ final class AISettingsEditorModel {
         isWorking = false
     }
 
-    private var draftCredentialOrigin: String? {
-        Self.credentialOrigin(for: draftConfiguration)
+    private var draftCredentialScope: String? {
+        Self.credentialScope(for: draftConfiguration)
     }
 
-    private static func credentialOrigin(
+    private static func credentialScope(
         for configuration: AIRemoteProviderConfiguration
     ) -> String? {
-        try? AICredentialStoragePolicy.canonicalOrigin(
-            baseURL: configuration.baseURL,
-            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        )
+        try? AICredentialStoragePolicy.canonicalScope(configuration: configuration)
     }
 
     private func draftDidChange(clearModels: Bool = false) {
@@ -257,6 +287,8 @@ final class AISettingsEditorModel {
             return String(localized: "ai_error_local_http_consent")
         case .insecurePublicHTTP:
             return String(localized: "ai_error_public_http")
+        case .unsupportedCapability:
+            return String(localized: "ai_error_unsupported_capability")
         default:
             return String(localized: "ai_error_invalid_url")
         }
@@ -345,6 +377,16 @@ struct AISettingsView: View {
 
     private var providerSection: some View {
         Section {
+            Picker("ai_provider_preset", selection: editor.providerPresetBinding) {
+                Text("ai_provider_preset_custom").tag(AIProviderPreset.custom)
+                Text("ai_provider_preset_openai").tag(AIProviderPreset.openAI)
+                Text("ai_provider_preset_anthropic").tag(AIProviderPreset.anthropic)
+                Text("ai_provider_preset_deepseek_openai")
+                    .tag(AIProviderPreset.deepSeekOpenAI)
+                Text("ai_provider_preset_deepseek_anthropic")
+                    .tag(AIProviderPreset.deepSeekAnthropic)
+            }
+
             TextField(
                 "ai_provider_name",
                 text: editor.configurationBinding(\.displayName)
@@ -369,9 +411,41 @@ struct AISettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Picker("ai_api_style", selection: editor.configurationBinding(\.apiStyle)) {
+            Picker("ai_api_style", selection: editor.apiStyleBinding) {
                 Text("ai_api_style_responses").tag(AICompatibleAPIStyle.responses)
                 Text("ai_api_style_chat_completions").tag(AICompatibleAPIStyle.chatCompletions)
+                Text("ai_api_style_anthropic_messages")
+                    .tag(AICompatibleAPIStyle.anthropicMessages)
+            }
+
+            Picker(
+                "ai_path_mode",
+                selection: editor.configurationBinding(\.apiPathMode, clearModels: true)
+            ) {
+                Text("ai_path_mode_automatic").tag(AIAPIPathMode.automatic)
+                Text("ai_path_mode_as_entered").tag(AIAPIPathMode.asEntered)
+                Text("ai_path_mode_append_v1").tag(AIAPIPathMode.appendV1)
+            }
+
+            Picker(
+                "ai_authentication_style",
+                selection: editor.configurationBinding(\.authenticationStyle, clearModels: true)
+            ) {
+                Text("ai_authentication_style_automatic")
+                    .tag(AIAuthenticationStyle.automatic)
+                Text("ai_authentication_style_bearer")
+                    .tag(AIAuthenticationStyle.bearer)
+                Text("ai_authentication_style_x_api_key")
+                    .tag(AIAuthenticationStyle.xAPIKey)
+            }
+
+            if let endpoint = editor.resolvedGenerationEndpoint {
+                LabeledContent("ai_resolved_endpoint") {
+                    Text(verbatim: endpoint)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
             }
         } header: {
             Text("ai_connection_section")
@@ -387,11 +461,17 @@ struct AISettingsView: View {
                 text: editor.configurationBinding(\.generationModel),
                 models: editor.availableModels
             )
-            AIModelSelectionField(
-                title: String(localized: "ai_embedding_model"),
-                text: editor.configurationBinding(\.embeddingModel),
-                models: editor.availableModels
-            )
+            if editor.draftConfiguration.supportsEmbeddings {
+                AIModelSelectionField(
+                    title: String(localized: "ai_embedding_model"),
+                    text: editor.configurationBinding(\.embeddingModel),
+                    models: editor.availableModels
+                )
+            } else {
+                Label("ai_embedding_unsupported", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Button {
                 Task { await editor.fetchModels(using: intelligence) }
@@ -410,7 +490,8 @@ struct AISettingsView: View {
         } header: {
             Text("ai_models_section")
         } footer: {
-            Text("ai_models_footer")
+            Text(editor.draftConfiguration.supportsEmbeddings
+                 ? "ai_models_footer" : "ai_models_footer_generation_only")
         }
     }
 

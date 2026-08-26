@@ -25,17 +25,20 @@ protocol AICredentialStoring: Actor {
 
 actor AICredentialStore: AICredentialStoring {
     func lookupAPIKey(configuration: AIRemoteProviderConfiguration) -> AICredentialLookup {
-        let account: String
+        let scopedAccount: String
         do {
-            account = try Self.account(configuration: configuration)
+            scopedAccount = try Self.scopedAccount(configuration: configuration)
         } catch {
             return .notConfigured
         }
-        switch KeychainService.localOnlyPasswordLookup(for: account) {
+        switch KeychainService.localOnlyPasswordLookup(for: scopedAccount) {
         case .found(let value):
             return .ready(value)
         case .notFound:
-            return .notConfigured
+            return migrateLegacyCredential(
+                configuration: configuration,
+                to: scopedAccount
+            )
         case .temporarilyUnavailable(let status):
             return .temporarilyUnavailable(status)
         case .failed(let status):
@@ -62,38 +65,88 @@ actor AICredentialStore: AICredentialStoring {
         configuration: AIRemoteProviderConfiguration
     ) throws -> Bool {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let account = try Self.account(configuration: configuration)
-        let legacyAccount = AICredentialStoragePolicy.legacyAccount(profileID: configuration.id)
+        let account = try Self.scopedAccount(configuration: configuration)
+        let legacyAccounts = try Self.legacyAccounts(configuration: configuration)
         if value.isEmpty {
-            guard KeychainService.deletePassword(for: account),
-                  KeychainService.deletePassword(for: legacyAccount) else {
+            guard Self.deleteAccounts([account] + legacyAccounts) else {
                 throw AICredentialStoreError.persistenceFailed
             }
             return false
         }
-        guard KeychainService.deletePassword(for: legacyAccount) else {
+        guard KeychainService.setLocalOnlyPassword(value, for: account) else {
             throw AICredentialStoreError.persistenceFailed
         }
-        guard KeychainService.setLocalOnlyPassword(value, for: account) else {
+        guard Self.deleteAccounts(legacyAccounts) else {
             throw AICredentialStoreError.persistenceFailed
         }
         return true
     }
 
     func deleteAPIKey(configuration: AIRemoteProviderConfiguration) throws {
-        let account = try Self.account(configuration: configuration)
-        let legacyAccount = AICredentialStoragePolicy.legacyAccount(profileID: configuration.id)
-        guard KeychainService.deletePassword(for: account),
-              KeychainService.deletePassword(for: legacyAccount) else {
+        let account = try Self.scopedAccount(configuration: configuration)
+        let legacyAccounts = try Self.legacyAccounts(configuration: configuration)
+        guard Self.deleteAccounts([account] + legacyAccounts) else {
             throw AICredentialStoreError.persistenceFailed
         }
     }
 
-    private static func account(configuration: AIRemoteProviderConfiguration) throws -> String {
-        try AICredentialStoragePolicy.account(
+    private func migrateLegacyCredential(
+        configuration: AIRemoteProviderConfiguration,
+        to scopedAccount: String
+    ) -> AICredentialLookup {
+        let legacyAccounts: [String]
+        do {
+            legacyAccounts = try Self.legacyAccounts(configuration: configuration)
+        } catch {
+            return .notConfigured
+        }
+
+        for legacyAccount in legacyAccounts {
+            switch KeychainService.localOnlyPasswordLookup(for: legacyAccount) {
+            case .found(let value):
+                guard KeychainService.setLocalOnlyPassword(value, for: scopedAccount) else {
+                    return .failed(errSecInternalError)
+                }
+                guard Self.deleteAccounts(legacyAccounts) else {
+                    return .failed(errSecInternalError)
+                }
+                return .ready(value)
+            case .notFound:
+                continue
+            case .temporarilyUnavailable(let status):
+                return .temporarilyUnavailable(status)
+            case .failed(let status):
+                return .failed(status)
+            }
+        }
+        return .notConfigured
+    }
+
+    private static func scopedAccount(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> String {
+        try AICredentialStoragePolicy.scopedAccount(configuration: configuration)
+    }
+
+    private static func legacyAccounts(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> [String] {
+        let originAccount = try AICredentialStoragePolicy.account(
             profileID: configuration.id,
             baseURL: configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
         )
+        return [
+            originAccount,
+            AICredentialStoragePolicy.legacyAccount(profileID: configuration.id),
+        ]
+    }
+
+    private static func deleteAccounts(_ accounts: [String]) -> Bool {
+        var success = true
+        for account in Set(accounts) {
+            success = KeychainService.deletePassword(for: account) && success
+        }
+        return success
     }
 }

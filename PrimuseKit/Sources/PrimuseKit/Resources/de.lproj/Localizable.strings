@@ -626,3 +626,8 @@
 "immersive_lyrics_motion_title" = "Immersive Textbewegung";
 "immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
 "local_import_insufficient_space" = "Nicht genügend freier Speicherplatz (%lld Byte benötigt, %lld Byte verfügbar).";
+"ext.tv.settings.intelligence" = "Intelligente Funktionen";
+"ext.tv.settings.intelligence.ready" = "Semantische Suche ist bereit";
+"ext.tv.settings.intelligence.setup" = "Anbieter konfigurieren";
+"ext.tv.search.aiLoading" = "Verwandte Konzepte werden gesucht…";
+"ext.tv.search.aiReason" = "Bezug zu „%@“";

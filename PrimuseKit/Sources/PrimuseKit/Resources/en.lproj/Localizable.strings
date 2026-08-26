@@ -624,3 +624,8 @@
 "immersive_lyrics_motion_title" = "Immersive type motion";
 "immersive_lyrics_motion_subtitle" = "Controls the title wall drift and horizontal lyric marquee; turn off to keep type still.";
 "local_import_insufficient_space" = "Not enough free space (required %lld bytes, available %lld bytes).";
+"ext.tv.settings.intelligence" = "Intelligent features";
+"ext.tv.settings.intelligence.ready" = "Semantic search is ready";
+"ext.tv.settings.intelligence.setup" = "Configure a provider";
+"ext.tv.search.aiLoading" = "Finding related concepts…";
+"ext.tv.search.aiReason" = "Related to “%@”";

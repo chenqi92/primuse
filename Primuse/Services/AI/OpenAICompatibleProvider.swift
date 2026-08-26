@@ -220,9 +220,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         guard descriptor.isEnabled else { return .unavailable(.disabled) }
         guard !descriptor.capabilities.isEmpty,
               AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil,
-              (try? AIRemoteEndpointPolicy.validatedBaseURL(
-                configuration.baseURL,
-                allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+              (try? AIRemoteEndpointPolicy.generationEndpoint(
+                configuration: configuration
               )) != nil else {
             return .unavailable(.missingConfiguration)
         }
@@ -270,6 +269,15 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
                     ["role": "user", "content": prompt],
                 ],
             ]
+        case .anthropicMessages:
+            body = [
+                "model": model,
+                "max_tokens": 320,
+                "system": Self.semanticSearchInstructions,
+                "messages": [
+                    ["role": "user", "content": prompt],
+                ],
+            ]
         }
 
         let data = try await postJSON(body, to: endpoint, apiKey: apiKey)
@@ -281,6 +289,9 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
     }
 
     func embeddings(_ request: AIEmbeddingRequest) async throws -> AIEmbeddingResult {
+        guard configuration.supportsEmbeddings else {
+            throw OpenAICompatibleProviderError.invalidConfiguration(.unsupportedCapability)
+        }
         let model = configuration.embeddingModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else {
             throw OpenAICompatibleProviderError.missingEmbeddingModel
@@ -338,16 +349,23 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
             throw OpenAICompatibleProviderError.invalidConfiguration(error)
         }
         let apiKey = try await requiredAPIKey()
-        let data = try await getJSON(from: endpoint, apiKey: apiKey)
-        let response: ModelsResponse
-        do {
-            response = try JSONDecoder().decode(ModelsResponse.self, from: data)
-        } catch {
-            throw OpenAICompatibleProviderError.invalidResponse
+        let items: [ModelsResponse.Item]
+        switch configuration.apiStyle {
+        case .anthropicMessages
+            where AIRemoteEndpointPolicy.usesOpenAIModelCatalog(
+                configuration: configuration
+            ):
+            let data = try await getJSON(from: endpoint, apiKey: apiKey)
+            items = try Self.decodeModelsResponse(data).data
+        case .anthropicMessages:
+            items = try await anthropicModelItems(from: endpoint, apiKey: apiKey)
+        case .responses, .chatCompletions:
+            let data = try await getJSON(from: endpoint, apiKey: apiKey)
+            items = try Self.decodeModelsResponse(data).data
         }
 
         var seen = Set<String>()
-        let models = response.data.compactMap { item -> AIProviderModel? in
+        let models = items.compactMap { item -> AIProviderModel? in
             let id = item.id.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty, id.count <= 256 else { return nil }
             let key = id.folding(
@@ -357,6 +375,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
             guard seen.insert(key).inserted else { return nil }
             let owner = item.ownedBy?.trimmingCharacters(in: .whitespacesAndNewlines)
             let createdAt = item.created.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+                ?? item.createdAt.flatMap(Self.parseISO8601Date)
             return AIProviderModel(
                 id: id,
                 ownedBy: owner?.isEmpty == false ? owner : nil,
@@ -366,6 +385,47 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         return models.sorted {
             $0.id.localizedStandardCompare($1.id) == .orderedAscending
         }
+    }
+
+    private func anthropicModelItems(
+        from endpoint: URL,
+        apiKey: String
+    ) async throws -> [ModelsResponse.Item] {
+        var items: [ModelsResponse.Item] = []
+        var cursor: String?
+        var seenCursors = Set<String>()
+        let maximumPages = 20
+
+        for page in 0..<maximumPages {
+            guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            var queryItems = components.queryItems ?? []
+            queryItems.removeAll { $0.name == "limit" || $0.name == "after_id" }
+            queryItems.append(URLQueryItem(name: "limit", value: "100"))
+            if let cursor {
+                queryItems.append(URLQueryItem(name: "after_id", value: cursor))
+            }
+            components.queryItems = queryItems
+            guard let pageURL = components.url else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+
+            let data = try await getJSON(from: pageURL, apiKey: apiKey)
+            let response = try Self.decodeModelsResponse(data)
+            items.append(contentsOf: response.data)
+            guard response.hasMore == true else { return items }
+
+            let nextCursor = response.lastID?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !nextCursor.isEmpty,
+                  seenCursors.insert(nextCursor).inserted,
+                  page + 1 < maximumPages else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            cursor = nextCursor
+        }
+        return items
     }
 
     private func requiredAPIKey() async throws -> String {
@@ -394,7 +454,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        applyAuthentication(to: &request, apiKey: apiKey)
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
@@ -414,8 +474,22 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
         request.httpMethod = "GET"
         request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        applyAuthentication(to: &request, apiKey: apiKey)
         return try await perform(request)
+    }
+
+    private func applyAuthentication(to request: inout URLRequest, apiKey: String) {
+        switch configuration.authenticationStyle.resolved(for: configuration.apiStyle) {
+        case .bearer:
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        case .xAPIKey:
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        case .automatic:
+            assertionFailure("Authentication style must resolve before creating a request")
+        }
+        if configuration.apiStyle == .anthropicMessages {
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        }
     }
 
     private func perform(_ request: URLRequest) async throws -> Data {
@@ -498,6 +572,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
                 return texts.isEmpty ? nil : texts.joined(separator: "\n")
             }
             return nil
+        case .anthropicMessages:
+            guard let content = root["content"] as? [[String: Any]] else { return nil }
+            let texts = content.compactMap { item -> String? in
+                guard (item["type"] as? String) == nil
+                        || (item["type"] as? String) == "text" else { return nil }
+                return item["text"] as? String
+            }
+            return texts.isEmpty ? nil : texts.joined(separator: "\n")
         }
     }
 
@@ -538,14 +620,40 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding 
             var id: String
             var ownedBy: String?
             var created: Int?
+            var createdAt: String?
 
             private enum CodingKeys: String, CodingKey {
                 case id
                 case ownedBy = "owned_by"
                 case created
+                case createdAt = "created_at"
             }
         }
 
         var data: [Item]
+        var hasMore: Bool?
+        var lastID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case data
+            case hasMore = "has_more"
+            case lastID = "last_id"
+        }
+    }
+
+    private static func decodeModelsResponse(_ data: Data) throws -> ModelsResponse {
+        do {
+            return try JSONDecoder().decode(ModelsResponse.self, from: data)
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
+    private static func parseISO8601Date(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 }

@@ -626,3 +626,8 @@
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
 "immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
 "local_import_insufficient_space" = "Espace libre insuffisant (%lld octets requis, %lld octets disponibles).";
+"ext.tv.settings.intelligence" = "Fonctions intelligentes";
+"ext.tv.settings.intelligence.ready" = "La recherche sémantique est prête";
+"ext.tv.settings.intelligence.setup" = "Configurer un fournisseur";
+"ext.tv.search.aiLoading" = "Recherche de concepts associés…";
+"ext.tv.search.aiReason" = "Associé à « %@ »";

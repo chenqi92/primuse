@@ -23,6 +23,7 @@ private var tvDebugShowsThemePicker: Bool {
 struct TVSettingsView: View {
     @Environment(TVStore.self) private var store
     @Environment(TVAppearanceState.self) private var appearanceState
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     var onNavigate: (TVRoot.Tab) -> Void = { _ in }
@@ -41,6 +42,7 @@ struct TVSettingsView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
+    @State private var showsAISettings = false
     @State private var isSyncing = false
     @State private var syncMsg: String?
 
@@ -105,6 +107,19 @@ struct TVSettingsView: View {
                             navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
                             settingDivider
                             navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
+                            if intelligence.shouldExposeRemoteConfiguration {
+                                settingDivider
+                                navRow(
+                                    "sparkles",
+                                    PMString("ext.tv.settings.intelligence"),
+                                    PMString(
+                                        intelligence.isSemanticSearchConfigured
+                                            ? "ext.tv.settings.intelligence.ready"
+                                            : "ext.tv.settings.intelligence.setup"
+                                    ),
+                                    action: { showsAISettings = true }
+                                )
+                            }
                             settingDivider
                             navRow("star.bubble", PMString("rate_on_app_store"), "App Store", trailing: "arrow.up.right") {
                                 openURL(PrimuseAppStore.reviewURL)
@@ -163,9 +178,15 @@ struct TVSettingsView: View {
         }
         .animation(.easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(.easeInOut(duration: 0.24), value: showsThemePicker)
+        .fullScreenCover(isPresented: $showsAISettings) {
+            TVAISettingsContainer()
+                .environment(intelligence)
+        }
         .preferredColorScheme(appearance.colorScheme)
         .onExitCommand {
-            if showsThemePicker {
+            if showsAISettings {
+                showsAISettings = false
+            } else if showsThemePicker {
                 showsThemePicker = false
             } else if showsEffectPicker {
                 showsEffectPicker = false
@@ -371,6 +392,22 @@ struct TVSettingsView: View {
             .fill(TVColor.divider)
             .frame(height: 1)
             .padding(.leading, 80)
+    }
+}
+
+private struct TVAISettingsContainer: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            AISettingsView()
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(PMString("done")) { dismiss() }
+                    }
+                }
+        }
+        .onExitCommand { dismiss() }
     }
 }
 

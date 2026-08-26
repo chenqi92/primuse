@@ -3,6 +3,89 @@ import Foundation
 public enum AICompatibleAPIStyle: String, Codable, CaseIterable, Hashable, Sendable {
     case responses
     case chatCompletions
+    case anthropicMessages
+}
+
+public enum AIAPIPathMode: String, Codable, CaseIterable, Hashable, Sendable {
+    /// Chooses the provider's documented convention while preserving an
+    /// explicitly versioned or provider-specific path entered by the user.
+    case automatic
+    /// Appends request paths directly to the configured base URL.
+    case asEntered
+    /// Ensures `/v1` exists immediately before the request path.
+    case appendV1
+}
+
+public enum AIAuthenticationStyle: String, Codable, CaseIterable, Hashable, Sendable {
+    case automatic
+    case bearer
+    case xAPIKey
+
+    public func resolved(for apiStyle: AICompatibleAPIStyle) -> AIAuthenticationStyle {
+        guard self == .automatic else { return self }
+        return apiStyle == .anthropicMessages ? .xAPIKey : .bearer
+    }
+}
+
+public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
+    case custom
+    case openAI
+    case anthropic
+    case deepSeekOpenAI
+    case deepSeekAnthropic
+
+    public func applying(to original: AIRemoteProviderConfiguration) -> AIRemoteProviderConfiguration {
+        var configuration = original
+        configuration.embeddingModel = ""
+        switch self {
+        case .custom:
+            return original
+        case .openAI:
+            configuration.displayName = "OpenAI"
+            configuration.baseURL = "https://api.openai.com"
+            configuration.apiStyle = .responses
+            configuration.apiPathMode = .appendV1
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = ""
+        case .anthropic:
+            configuration.displayName = "Anthropic"
+            configuration.baseURL = "https://api.anthropic.com"
+            configuration.apiStyle = .anthropicMessages
+            configuration.apiPathMode = .appendV1
+            configuration.authenticationStyle = .xAPIKey
+            configuration.generationModel = ""
+        case .deepSeekOpenAI:
+            configuration.displayName = "DeepSeek"
+            configuration.baseURL = "https://api.deepseek.com"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "deepseek-v4-flash"
+        case .deepSeekAnthropic:
+            configuration.displayName = "DeepSeek (Anthropic)"
+            configuration.baseURL = "https://api.deepseek.com/anthropic"
+            configuration.apiStyle = .anthropicMessages
+            configuration.apiPathMode = .appendV1
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "deepseek-v4-flash"
+        }
+        return configuration
+    }
+
+    public static func matching(
+        configuration: AIRemoteProviderConfiguration
+    ) -> AIProviderPreset {
+        for preset in [openAI, anthropic, deepSeekOpenAI, deepSeekAnthropic] {
+            let candidate = preset.applying(to: configuration)
+            if candidate.baseURL == configuration.baseURL,
+               candidate.apiStyle == configuration.apiStyle,
+               candidate.apiPathMode == configuration.apiPathMode,
+               candidate.authenticationStyle == configuration.authenticationStyle {
+                return preset
+            }
+        }
+        return .custom
+    }
 }
 
 public enum AIRequestTimeoutPolicy {
@@ -51,6 +134,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     public var displayName: String
     public var baseURL: String
     public var apiStyle: AICompatibleAPIStyle
+    public var apiPathMode: AIAPIPathMode
+    public var authenticationStyle: AIAuthenticationStyle
     public var generationModel: String
     public var embeddingModel: String
     public var requestTimeout: TimeInterval
@@ -62,6 +147,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         displayName: String = "OpenAI Compatible",
         baseURL: String = "https://api.openai.com/v1",
         apiStyle: AICompatibleAPIStyle = .responses,
+        apiPathMode: AIAPIPathMode = .automatic,
+        authenticationStyle: AIAuthenticationStyle = .automatic,
         generationModel: String = "",
         embeddingModel: String = "",
         requestTimeout: TimeInterval = 12,
@@ -72,6 +159,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         self.displayName = displayName
         self.baseURL = baseURL
         self.apiStyle = apiStyle
+        self.apiPathMode = apiPathMode
+        self.authenticationStyle = authenticationStyle
         self.generationModel = generationModel
         self.embeddingModel = embeddingModel
         self.requestTimeout = AIRequestTimeoutPolicy.normalizedForInitialization(requestTimeout)
@@ -82,15 +171,10 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     public var descriptor: AIProviderDescriptor {
         var capabilities: Set<AICapability> = []
         if !generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            capabilities.formUnion([
-                .semanticSearchInterpretation,
-                .reranking,
-                .songAnnotation,
-                .recommendations,
-                .commandInterpretation,
-            ])
+            capabilities.insert(.semanticSearchInterpretation)
         }
-        if !embeddingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if supportsEmbeddings,
+           !embeddingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             capabilities.insert(.embeddings)
         }
         return AIProviderDescriptor(
@@ -104,11 +188,17 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         )
     }
 
+    public var supportsEmbeddings: Bool {
+        apiStyle != .anthropicMessages
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case displayName
         case baseURL
         case apiStyle
+        case apiPathMode
+        case authenticationStyle
         case generationModel
         case embeddingModel
         case requestTimeout
@@ -130,6 +220,12 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         displayName = try container.decode(String.self, forKey: .displayName)
         baseURL = try container.decode(String.self, forKey: .baseURL)
         apiStyle = try container.decode(AICompatibleAPIStyle.self, forKey: .apiStyle)
+        apiPathMode = try container.decodeIfPresent(AIAPIPathMode.self, forKey: .apiPathMode)
+            ?? .automatic
+        authenticationStyle = try container.decodeIfPresent(
+            AIAuthenticationStyle.self,
+            forKey: .authenticationStyle
+        ) ?? .automatic
         generationModel = try container.decode(String.self, forKey: .generationModel)
         embeddingModel = try container.decode(String.self, forKey: .embeddingModel)
         self.requestTimeout = requestTimeout
@@ -152,6 +248,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         try container.encode(displayName, forKey: .displayName)
         try container.encode(baseURL, forKey: .baseURL)
         try container.encode(apiStyle, forKey: .apiStyle)
+        try container.encode(apiPathMode, forKey: .apiPathMode)
+        try container.encode(authenticationStyle, forKey: .authenticationStyle)
         try container.encode(generationModel, forKey: .generationModel)
         try container.encode(embeddingModel, forKey: .embeddingModel)
         try container.encode(requestTimeout, forKey: .requestTimeout)
@@ -169,6 +267,7 @@ public enum AIRemoteEndpointValidationError: Error, Equatable, Sendable {
     case invalidRequestTimeout
     case insecurePublicHTTP
     case insecureLocalHTTPRequiresConsent
+    case unsupportedCapability
 }
 
 public enum AIRemoteEndpointPolicy {
@@ -218,15 +317,14 @@ public enum AIRemoteEndpointPolicy {
         guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
             throw AIRemoteEndpointValidationError.invalidRequestTimeout
         }
-        let baseURL = try validatedBaseURL(
-            configuration.baseURL,
-            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        )
+        let baseURL = try apiBaseURL(configuration: configuration)
         switch configuration.apiStyle {
         case .responses:
             return baseURL.appendingPathComponent("responses")
         case .chatCompletions:
             return baseURL.appendingPathComponent("chat/completions")
+        case .anthropicMessages:
+            return baseURL.appendingPathComponent("messages")
         }
     }
 
@@ -236,10 +334,10 @@ public enum AIRemoteEndpointPolicy {
         guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
             throw AIRemoteEndpointValidationError.invalidRequestTimeout
         }
-        let baseURL = try validatedBaseURL(
-            configuration.baseURL,
-            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        )
+        guard configuration.supportsEmbeddings else {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        let baseURL = try apiBaseURL(configuration: configuration)
         return baseURL.appendingPathComponent("embeddings")
     }
 
@@ -249,11 +347,98 @@ public enum AIRemoteEndpointPolicy {
         guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
             throw AIRemoteEndpointValidationError.invalidRequestTimeout
         }
+        if usesOpenAIModelCatalog(configuration: configuration) {
+            let configuredBaseURL = try validatedBaseURL(
+                configuration.baseURL,
+                allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+            )
+            guard var components = URLComponents(
+                url: configuredBaseURL,
+                resolvingAgainstBaseURL: false
+            ) else {
+                throw AIRemoteEndpointValidationError.invalidURL
+            }
+            components.path = ""
+            guard let origin = components.url else {
+                throw AIRemoteEndpointValidationError.invalidURL
+            }
+            return origin.appendingPathComponent("models")
+        }
+        let baseURL = try apiBaseURL(configuration: configuration)
+        return baseURL.appendingPathComponent("models")
+    }
+
+    public static func usesOpenAIModelCatalog(
+        configuration: AIRemoteProviderConfiguration
+    ) -> Bool {
+        guard configuration.apiStyle == .anthropicMessages,
+              let baseURL = try? validatedBaseURL(
+                  configuration.baseURL,
+                  allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+              ),
+              baseURL.host?.lowercased() == "api.deepseek.com" else {
+            return false
+        }
+        let pathComponents = baseURL.pathComponents
+            .filter { $0 != "/" }
+            .map { $0.lowercased() }
+        guard pathComponents.first == "anthropic" else { return false }
+        return pathComponents.count == 1
+            || (pathComponents.count == 2 && isVersionPathComponent(pathComponents[1]))
+    }
+
+    public static func apiBaseURL(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> URL {
         let baseURL = try validatedBaseURL(
             configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
         )
-        return baseURL.appendingPathComponent("models")
+        switch configuration.apiPathMode {
+        case .asEntered:
+            return baseURL
+        case .appendV1:
+            return appendingV1IfNeeded(to: baseURL)
+        case .automatic:
+            return automaticAPIBaseURL(baseURL, style: configuration.apiStyle)
+        }
+    }
+
+    private static func automaticAPIBaseURL(
+        _ baseURL: URL,
+        style: AICompatibleAPIStyle
+    ) -> URL {
+        if hasVersionPath(baseURL) { return baseURL }
+
+        let host = baseURL.host?.lowercased() ?? ""
+        let path = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if host == "api.deepseek.com" {
+            if style == .anthropicMessages, path.lowercased() == "anthropic" {
+                return baseURL.appendingPathComponent("v1")
+            }
+            return baseURL
+        }
+        if style == .anthropicMessages {
+            return baseURL.appendingPathComponent("v1")
+        }
+        if host == "api.openai.com" || host == "api.anthropic.com" || path.isEmpty {
+            return baseURL.appendingPathComponent("v1")
+        }
+        return baseURL
+    }
+
+    private static func appendingV1IfNeeded(to baseURL: URL) -> URL {
+        hasVersionPath(baseURL) ? baseURL : baseURL.appendingPathComponent("v1")
+    }
+
+    private static func hasVersionPath(_ url: URL) -> Bool {
+        guard let component = url.pathComponents.last?.lowercased() else { return false }
+        return isVersionPathComponent(component)
+    }
+
+    private static func isVersionPathComponent(_ component: String) -> Bool {
+        guard component.count > 1, component.first == "v" else { return false }
+        return component.dropFirst().allSatisfy(\.isNumber)
     }
 }
 
@@ -300,6 +485,23 @@ public enum AICredentialStoragePolicy {
             allowInsecureLocalHTTP: allowInsecureLocalHTTP
         )
         return "\(accountNamespace)\(profileID.uuidString.lowercased()).origin.\(origin).apiKey"
+    }
+
+    public static func canonicalScope(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> String {
+        let apiBaseURL = try AIRemoteEndpointPolicy.apiBaseURL(configuration: configuration)
+        let authentication = configuration.authenticationStyle.resolved(
+            for: configuration.apiStyle
+        )
+        return "\(apiBaseURL.absoluteString)|\(configuration.apiStyle.rawValue)|\(authentication.rawValue)"
+    }
+
+    public static func scopedAccount(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> String {
+        let scope = try canonicalScope(configuration: configuration)
+        return "\(accountNamespace)\(configuration.id.uuidString.lowercased()).endpoint.\(scope).apiKey"
     }
 
     public static func isEligibleForICloudMigration(account: String) -> Bool {

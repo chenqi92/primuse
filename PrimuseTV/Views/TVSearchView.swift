@@ -5,11 +5,13 @@ import SwiftUI
 /// tvOS 搜索 — 左列查询框 + 建议(常驻),右列实时结果(含歌词级匹配)。对应 TVSearchArtboard。
 struct TVSearchView: View {
     @Environment(TVStore.self) private var store
+    @Environment(MusicIntelligenceService.self) private var intelligence
     var openPlayer: () -> Void = {}
     var focusRequest: TVContentFocusRequest? = nil
 
     @State private var query: String = ""
     @State private var results: (top: TVArtist?, songs: [TVStore.TVSearchHit]) = (nil, [])
+    @State private var isSemanticSearching = false
     @FocusState private var inputActive: Bool
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
@@ -25,7 +27,15 @@ struct TVSearchView: View {
             }
             .tvPage()
         }
-        .onChange(of: query) { _, q in results = store.searchHits(q) }
+        .onChange(of: query) { _, q in
+            results = store.searchHits(q)
+            if q.trimmingCharacters(in: .whitespaces).isEmpty {
+                isSemanticSearching = false
+            }
+        }
+        .task(id: trimmed) {
+            await updateSemanticResults(for: trimmed)
+        }
         .task(id: focusRequest?.id) {
             guard let request = focusRequest, request.target == .searchField else { return }
             await Task.yield()
@@ -91,7 +101,18 @@ struct TVSearchView: View {
 
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TVEyebrow(text: PMString("ext.tv.search.topResult")).padding(.bottom, 16)
+            HStack {
+                TVEyebrow(text: PMString("ext.tv.search.topResult"))
+                Spacer()
+                if isSemanticSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(PMString("ext.tv.search.aiLoading"))
+                        .font(.system(size: 15))
+                        .foregroundStyle(TVColor.textFaint)
+                }
+            }
+            .padding(.bottom, 16)
             if let artist = results.top {
                 TVFocusButton(radius: 16, scale: 1.02, lift: 4, action: openPlayer) { focused in
                     HStack(spacing: 20) {
@@ -125,6 +146,39 @@ struct TVSearchView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    @MainActor
+    private func updateSemanticResults(for requestedQuery: String) async {
+        guard !requestedQuery.isEmpty else {
+            isSemanticSearching = false
+            return
+        }
+        isSemanticSearching = intelligence.isSemanticSearchConfigured
+        guard intelligence.isSemanticSearchConfigured else { return }
+        do {
+            try await Task.sleep(for: .milliseconds(400))
+        } catch {
+            finishSemanticSearch(for: requestedQuery)
+            return
+        }
+        guard !Task.isCancelled,
+              let plan = await intelligence.semanticSearchPlan(for: requestedQuery),
+              !Task.isCancelled else {
+            finishSemanticSearch(for: requestedQuery)
+            return
+        }
+        guard trimmed == requestedQuery else { return }
+        let concepts = AISemanticLibraryAggregationPolicy.concepts(from: plan)
+        results = store.searchHits(requestedQuery, relatedConcepts: concepts)
+        finishSemanticSearch(for: requestedQuery)
+    }
+
+    @MainActor
+    private func finishSemanticSearch(for requestedQuery: String) {
+        if trimmed == requestedQuery {
+            isSemanticSearching = false
+        }
+    }
 }
 
 private struct TVSearchSongRow: View {
@@ -151,6 +205,11 @@ private struct TVSearchSongRow: View {
                             Text(snippet.replacingOccurrences(of: "\n", with: " · "))
                                 .font(.system(size: 15)).foregroundStyle(TVColor.brand.opacity(0.9)).lineLimit(1)
                         }
+                    } else if let concept = hit.relatedConcept {
+                        Text(PMString("ext.tv.search.aiReason", concept))
+                            .font(.system(size: 15))
+                            .foregroundStyle(TVColor.brand.opacity(0.9))
+                            .lineLimit(1)
                     } else {
                         Text("\(song.artist) · \(album?.title ?? "")")
                             .font(.system(size: 16)).foregroundStyle(TVColor.textFaint).lineLimit(1)

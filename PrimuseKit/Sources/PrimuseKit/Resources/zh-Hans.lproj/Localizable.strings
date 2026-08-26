@@ -623,3 +623,8 @@
 "immersive_lyrics_motion_title" = "沉浸文字动效";
 "immersive_lyrics_motion_subtitle" = "控制曲名墙的缓慢漂移和歌词横向巡游；关闭后文字保持静态。";
 "local_import_insufficient_space" = "可用空间不足（需要 %lld 字节，可用 %lld 字节）。";
+"ext.tv.settings.intelligence" = "智能功能";
+"ext.tv.settings.intelligence.ready" = "语义搜索已就绪";
+"ext.tv.settings.intelligence.setup" = "配置智能服务";
+"ext.tv.search.aiLoading" = "正在查找相关概念…";
+"ext.tv.search.aiReason" = "与“%@”相关";

@@ -329,6 +329,7 @@ final class TVStore {
         let song: TVSong
         let isLyric: Bool          // 命中的是歌词内容(展示片段)
         let lyricSnippet: String?
+        let relatedConcept: String?
         var id: String { song.id }
     }
 
@@ -344,10 +345,40 @@ final class TVStore {
         var hits: [TVSearchHit] = []
         for r in out.songResults.prefix(24) {
             guard let tv = song(r.song.id) else { continue }
-            hits.append(TVSearchHit(song: tv, isLyric: r.matchKind == .lyrics, lyricSnippet: r.lyricSnippet))
+            hits.append(TVSearchHit(
+                song: tv,
+                isLyric: r.matchKind == .lyrics,
+                lyricSnippet: r.lyricSnippet,
+                relatedConcept: nil
+            ))
         }
         let top = artists.first { $0.name.localizedCaseInsensitiveContains(q) }
         return (top, hits)
+    }
+
+    func searchHits(
+        _ query: String,
+        relatedConcepts: [String]
+    ) -> (top: TVArtist?, songs: [TVSearchHit]) {
+        let primary = searchHits(query)
+        var songs = primary.songs
+        var seenSongIDs = Set(songs.map(\.id))
+        var top = primary.top
+
+        for concept in relatedConcepts {
+            let related = searchHits(concept)
+            if top == nil { top = related.top }
+            for hit in related.songs where seenSongIDs.insert(hit.id).inserted {
+                songs.append(TVSearchHit(
+                    song: hit.song,
+                    isLyric: hit.isLyric,
+                    lyricSnippet: hit.lyricSnippet,
+                    relatedConcept: concept
+                ))
+                if songs.count == 24 { return (top, songs) }
+            }
+        }
+        return (top, songs)
     }
 
     /// 空查询时的建议(艺术家名),与旧逻辑一致。
