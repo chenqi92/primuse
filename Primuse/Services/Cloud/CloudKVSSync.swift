@@ -66,7 +66,7 @@ final class CloudKVSSync {
     /// device updates the key.
     func register(key: String, reload: @escaping () -> Void) {
         registrations[key] = reload
-        if kvs != nil {
+        if kvs != nil, CloudSyncChannel.isEnabled(.settings) {
             pullIfNewer(key: key)
         }
         reload()
@@ -226,6 +226,7 @@ final class CloudKVSSync {
 // MARK: - Well-known KVS keys
 
 enum CloudKVSKey {
+    static let aiSettings = AISettingsStore.storageKey
     static let playbackSettings = "primuse_playback_settings_v1"
     static let scraperSettings = "primuse_scraper_settings_v3"
     static let lyricsFontScale = "lyricsFontScale"

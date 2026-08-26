@@ -23,7 +23,9 @@ final class AISettingsEditorModel {
     var selectedProviderID: UUID
     var providerPresets: [UUID: AIProviderPreset] = [:]
     var semanticSearchEnabled = false
+    var recommendationsEnabled = false
     var consent = false
+    var listeningContextConsent = false
     var apiKeyDrafts: [UUID: String] = [:]
     var storedAPIKeyScopes: [UUID: String] = [:]
     var availableModelsByProvider: [UUID: [AIProviderModel]] = [:]
@@ -35,7 +37,10 @@ final class AISettingsEditorModel {
     private var draftGeneration: UInt64 = 0
     private var savedProviderSet: AIRemoteProviderSet
     private var savedSemanticSearchEnabled = false
+    private var savedRecommendationsEnabled = false
     private var savedConsent = false
+    private var savedListeningContextConsent = false
+    private var pendingRemovedProviders: [UUID: AIRemoteProviderConfiguration] = [:]
 
     init() {
         let providerSet = AIRemoteProviderSet()
@@ -88,7 +93,10 @@ final class AISettingsEditorModel {
     var hasUnsavedChanges: Bool {
         draftProviderSet != savedProviderSet
             || semanticSearchEnabled != savedSemanticSearchEnabled
+            || recommendationsEnabled != savedRecommendationsEnabled
             || consent != savedConsent
+            || listeningContextConsent != savedListeningContextConsent
+            || !pendingRemovedProviders.isEmpty
             || apiKeyDrafts.values.contains {
                 !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
@@ -112,13 +120,19 @@ final class AISettingsEditorModel {
         draftProviderSet = intelligence.settingsStore.providerSet
         selectedProviderID = draftProviderSet.primaryProviderID
         semanticSearchEnabled = intelligence.settingsStore.semanticSearchEnabled
+        recommendationsEnabled = intelligence.settingsStore.recommendationsEnabled
         providerPresets = Dictionary(uniqueKeysWithValues: draftProviderSet.providers.map {
             ($0.id, AIProviderPreset.matching(configuration: $0))
         })
         consent = intelligence.settingsStore.hasExplicitRemoteConsent
+        listeningContextConsent = intelligence.settingsStore
+            .hasExplicitListeningContextConsent
         savedProviderSet = draftProviderSet
         savedSemanticSearchEnabled = semanticSearchEnabled
+        savedRecommendationsEnabled = recommendationsEnabled
         savedConsent = consent
+        savedListeningContextConsent = listeningContextConsent
+        pendingRemovedProviders = [:]
         for provider in draftProviderSet.providers {
             if await intelligence.hasStoredAPIKey(configuration: provider),
                let scope = Self.credentialScope(for: provider) {
@@ -178,6 +192,26 @@ final class AISettingsEditorModel {
             get: { self.semanticSearchEnabled },
             set: { value in
                 self.semanticSearchEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    var recommendationsBinding: Binding<Bool> {
+        Binding(
+            get: { self.recommendationsEnabled },
+            set: { value in
+                self.recommendationsEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    var listeningContextConsentBinding: Binding<Bool> {
+        Binding(
+            get: { self.listeningContextConsent },
+            set: { value in
+                self.listeningContextConsent = value
                 self.draftDidChange()
             }
         )
@@ -246,32 +280,26 @@ final class AISettingsEditorModel {
         draftDidChange()
     }
 
-    func removeSelectedProvider(using intelligence: MusicIntelligenceService) async {
+    func removeSelectedProvider() {
         guard draftProviderSet.providers.count > 1,
               let index = draftProviderSet.providers.firstIndex(where: {
                   $0.id == selectedProviderID
               }) else { return }
         let provider = draftProviderSet.providers[index]
-        isWorking = true
         status = .idle
-        do {
-            try await intelligence.deleteAPIKey(configuration: provider)
-            draftProviderSet.providers.remove(at: index)
-            providerPresets[provider.id] = nil
-            apiKeyDrafts[provider.id] = nil
-            storedAPIKeyScopes[provider.id] = nil
-            availableModelsByProvider[provider.id] = nil
-            if draftProviderSet.primaryProviderID == provider.id {
-                draftProviderSet.primaryProviderID = draftProviderSet.providers[0].id
-            }
-            selectedProviderID = draftProviderSet.providers[
-                min(index, draftProviderSet.providers.count - 1)
-            ].id
-            draftDidChange(clearModels: true)
-        } catch {
-            status = .failed(Self.message(for: error), .settings)
+        pendingRemovedProviders[provider.id] = provider
+        draftProviderSet.providers.remove(at: index)
+        providerPresets[provider.id] = nil
+        apiKeyDrafts[provider.id] = nil
+        storedAPIKeyScopes[provider.id] = nil
+        availableModelsByProvider[provider.id] = nil
+        if draftProviderSet.primaryProviderID == provider.id {
+            draftProviderSet.primaryProviderID = draftProviderSet.providers[0].id
         }
-        isWorking = false
+        selectedProviderID = draftProviderSet.providers[
+            min(index, draftProviderSet.providers.count - 1)
+        ].id
+        draftDidChange(clearModels: true)
     }
 
     func applyProviderPreset(_ preset: AIProviderPreset) {
@@ -337,8 +365,11 @@ final class AISettingsEditorModel {
     func save(using intelligence: MusicIntelligenceService) async {
         let providerSet = draftProviderSet
         let semanticSearchEnabled = semanticSearchEnabled
+        let recommendationsEnabled = recommendationsEnabled
         let explicitConsent = consent
+        let listeningContextConsent = listeningContextConsent
         let apiKeys = apiKeyDrafts
+        let removedProviders = pendingRemovedProviders
         let operationGeneration = draftGeneration
         isWorking = true
         status = .idle
@@ -346,9 +377,19 @@ final class AISettingsEditorModel {
             try await intelligence.save(
                 providerSet: providerSet,
                 semanticSearchEnabled: semanticSearchEnabled,
+                recommendationsEnabled: recommendationsEnabled,
                 hasExplicitRemoteConsent: explicitConsent,
+                hasExplicitListeningContextConsent: listeningContextConsent,
                 apiKeys: apiKeys
             )
+            var failedCredentialRemovals: [UUID: AIRemoteProviderConfiguration] = [:]
+            for provider in removedProviders.values {
+                do {
+                    try await intelligence.deleteAPIKey(configuration: provider)
+                } catch {
+                    failedCredentialRemovals[provider.id] = provider
+                }
+            }
             var savedScopes: [UUID: String] = [:]
             for provider in providerSet.providers {
                 if await intelligence.hasStoredAPIKey(configuration: provider),
@@ -365,8 +406,13 @@ final class AISettingsEditorModel {
             apiKeyDrafts = [:]
             savedProviderSet = draftProviderSet
             savedSemanticSearchEnabled = semanticSearchEnabled
+            savedRecommendationsEnabled = recommendationsEnabled
             savedConsent = consent
-            status = .saved
+            savedListeningContextConsent = listeningContextConsent
+            pendingRemovedProviders = failedCredentialRemovals
+            status = failedCredentialRemovals.isEmpty
+                ? .saved
+                : .failed(String(localized: "ai_error_keychain"), .settings)
         } catch {
             if canApplyCompletion(operationGeneration) {
                 status = .failed(Self.message(for: error), .settings)
@@ -530,7 +576,7 @@ struct AISettingsView: View {
             titleVisibility: .visible
         ) {
             Button("ai_remove_provider", role: .destructive) {
-                Task { await editor.removeSelectedProvider(using: intelligence) }
+                editor.removeSelectedProvider()
             }
             Button("cancel", role: .cancel) {}
         }
@@ -571,14 +617,19 @@ struct AISettingsView: View {
                 "ai_enable_semantic_search",
                 isOn: editor.semanticSearchBinding
             )
+            Toggle(
+                "ai_enable_recommendations",
+                isOn: editor.recommendationsBinding
+            )
         } footer: {
-            Text("ai_enable_semantic_search_footer")
+            Text("ai_capabilities_footer")
         }
     }
 
     private var providerListSection: some View {
         Section {
-            ForEach(editor.draftProviderSet.providers) { provider in
+            ForEach(Array(editor.draftProviderSet.providers.enumerated()), id: \.element.id) {
+                index, provider in
                 HStack(spacing: 12) {
                     Button {
                         editor.selectProvider(provider.id)
@@ -610,6 +661,25 @@ struct AISettingsView: View {
                     }
                     Toggle("", isOn: editor.providerEnabledBinding(provider.id))
                         .labelsHidden()
+                    Menu {
+                        if provider.id != editor.draftProviderSet.primaryProviderID {
+                            Button("ai_set_primary", systemImage: "star") {
+                                editor.makePrimary(provider.id)
+                            }
+                        }
+                        Button("ai_move_up", systemImage: "arrow.up") {
+                            editor.moveProvider(provider.id, offset: -1)
+                        }
+                        .disabled(index == 0)
+                        Button("ai_move_down", systemImage: "arrow.down") {
+                            editor.moveProvider(provider.id, offset: 1)
+                        }
+                        .disabled(index == editor.draftProviderSet.providers.count - 1)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("ai_provider_actions")
                 }
                 .aiProviderPrimaryAction(
                     isPrimary: provider.id == editor.draftProviderSet.primaryProviderID
@@ -780,6 +850,10 @@ struct AISettingsView: View {
                 )
             )
             Toggle("ai_remote_consent", isOn: editor.consentBinding)
+            Toggle(
+                "ai_listening_context_consent",
+                isOn: editor.listeningContextConsentBinding
+            )
         } header: {
             Text("ai_privacy_section")
         } footer: {

@@ -64,6 +64,7 @@ struct TVSongCard: View {
     @Environment(TVStore.self) private var store
     let song: TVSong
     var width: CGFloat = 200
+    var reason: String? = nil
     var action: () -> Void = {}
 
     var body: some View {
@@ -76,6 +77,12 @@ struct TVSongCard: View {
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: width)
                 VStack(alignment: .leading, spacing: 3) {
+                    if let reason, !reason.isEmpty {
+                        Label(reason, systemImage: "sparkles")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(TVColor.brand)
+                            .lineLimit(1)
+                    }
                     Text(song.title).font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(song.artist).font(.system(size: 13))

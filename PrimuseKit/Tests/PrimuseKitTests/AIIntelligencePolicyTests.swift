@@ -56,7 +56,7 @@ struct AIRegionAvailabilityTests {
         ) == .unknown)
     }
 
-    @Test func mainlandChinaAllowsNonGenerativeLocalModelsOnly() {
+    @Test func mainlandChinaAllowsOnDeviceModelsAndBlocksRestrictedProviders() {
         let region = AIRegionContext(
             region: .mainlandChina,
             source: .appStorefront,
@@ -70,9 +70,16 @@ struct AIRegionAvailabilityTests {
         #expect(localDecision.isAllowed)
         #expect(localDecision.shouldExposeConfiguration)
 
+        let localGenerativeDecision = AIAvailabilityPolicy.decision(
+            for: .localGenerativeModel,
+            regionContext: region
+        )
+        #expect(localGenerativeDecision.isAllowed)
+        #expect(localGenerativeDecision.shouldExposeConfiguration)
+        #expect(!localGenerativeDecision.requiresExplicitConsent)
+
         for executionClass in [
-            AIExecutionClass.localGenerativeModel,
-            .appleSystemModel,
+            AIExecutionClass.appleSystemModel,
             .userConfiguredRemote,
             .bundledRemote,
         ] {
@@ -86,7 +93,7 @@ struct AIRegionAvailabilityTests {
         }
     }
 
-    @Test func unknownRegionFailsClosedForGenerativeProviders() {
+    @Test func unknownRegionFailsClosedForRemoteProviders() {
         let decision = AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
             regionContext: .unknown
@@ -427,10 +434,11 @@ struct AIRemoteEndpointPolicyTests {
             isEnabled: true
         ).descriptor
         #expect(generationOnly.capabilities.contains(.semanticSearchInterpretation))
+        #expect(generationOnly.capabilities.contains(.lyricsTranslation))
         #expect(!generationOnly.capabilities.contains(.embeddings))
         #expect(!generationOnly.capabilities.contains(.reranking))
         #expect(!generationOnly.capabilities.contains(.songAnnotation))
-        #expect(!generationOnly.capabilities.contains(.recommendations))
+        #expect(generationOnly.capabilities.contains(.recommendations))
         #expect(!generationOnly.capabilities.contains(.commandInterpretation))
 
         let embeddingOnly = AIRemoteProviderConfiguration(
@@ -439,6 +447,7 @@ struct AIRemoteEndpointPolicyTests {
             isEnabled: true
         ).descriptor
         #expect(!embeddingOnly.capabilities.contains(.semanticSearchInterpretation))
+        #expect(!embeddingOnly.capabilities.contains(.lyricsTranslation))
         #expect(embeddingOnly.capabilities.contains(.embeddings))
 
         let anthropic = AIRemoteProviderConfiguration(
@@ -448,6 +457,7 @@ struct AIRemoteEndpointPolicyTests {
             isEnabled: true
         )
         #expect(anthropic.descriptor.capabilities.contains(.semanticSearchInterpretation))
+        #expect(anthropic.descriptor.capabilities.contains(.lyricsTranslation))
         #expect(!anthropic.descriptor.capabilities.contains(.embeddings))
         #expect(throws: AIRemoteEndpointValidationError.unsupportedCapability) {
             try AIRemoteEndpointPolicy.embeddingsEndpoint(configuration: anthropic)
@@ -579,6 +589,74 @@ struct AIRemoteEndpointPolicyTests {
             primaryProviderID: primary.id,
             fallbackEnabled: false
         ).routedProviders.map(\.id) == [primary.id])
+    }
+}
+
+@Suite("AI scene recommendations")
+struct AIRecommendationPolicyTests {
+    private let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
+
+    @Test func automaticSceneUsesLocalTimeWithoutOverridingManualChoice() throws {
+        let bedtime = try #require(calendar.date(
+            from: DateComponents(year: 2026, month: 8, day: 26, hour: 23)
+        ))
+        let commute = try #require(calendar.date(
+            from: DateComponents(year: 2026, month: 8, day: 26, hour: 8)
+        ))
+        let focus = try #require(calendar.date(
+            from: DateComponents(year: 2026, month: 8, day: 26, hour: 14)
+        ))
+
+        #expect(AIRecommendationSceneResolver.resolved(
+            .automatic,
+            at: bedtime,
+            calendar: calendar
+        ) == .bedtime)
+        #expect(AIRecommendationSceneResolver.resolved(
+            .automatic,
+            at: commute,
+            calendar: calendar
+        ) == .driving)
+        #expect(AIRecommendationSceneResolver.resolved(
+            .automatic,
+            at: focus,
+            calendar: calendar
+        ) == .focus)
+        #expect(AIRecommendationSceneResolver.resolved(
+            .workout,
+            at: bedtime,
+            calendar: calendar
+        ) == .workout)
+    }
+
+    @Test func recommendationPlanRejectsUnknownAndDuplicateSongs() {
+        let request = AIRecommendationRequest(
+            scene: .bedtime,
+            preferences: [],
+            candidates: [
+                AIRecommendationCandidate(songID: "one", title: "One", artist: "A"),
+                AIRecommendationCandidate(songID: "two", title: "Two", artist: "B"),
+            ],
+            maximumResults: 2
+        )
+        let plan = AIRecommendationPlan(
+            summary: String(repeating: "s", count: 240),
+            selections: [
+                AIRecommendationSelection(songID: "one", reason: " calm "),
+                AIRecommendationSelection(songID: "missing", reason: "invented"),
+                AIRecommendationSelection(songID: "one", reason: "duplicate"),
+                AIRecommendationSelection(songID: "two", reason: "   "),
+            ]
+        ).normalized(for: request)
+
+        #expect(plan.selections == [
+            AIRecommendationSelection(songID: "one", reason: "calm")
+        ])
+        #expect(plan.summary.count == 180)
     }
 }
 

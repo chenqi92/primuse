@@ -405,6 +405,15 @@ final class TVStore {
         return cachedAlbums.count > 6 ? Array(cachedAlbums.suffix(6)) : cachedAlbums
     }
 
+    var recommendationRevision: Int { libraryViewRevision }
+
+    func recommendationCandidates(limit: Int = 12) async -> [Song] {
+        let input = MusicDiscoveryEngine.recommendationInput(in: library)
+        return await Task.detached(priority: .utility) {
+            MusicDiscoveryEngine.dailyRecommendations(from: input, limit: limit).map(\.song)
+        }.value
+    }
+
     func isLiked(_ id: String) -> Bool { localLiked.contains(id) }
     func toggleLiked(_ id: String) {
         if localLiked.contains(id) { localLiked.remove(id) } else { localLiked.insert(id) }

@@ -22,6 +22,20 @@ struct AILyricsTranslationExecution: Sendable {
     var fallbackDepth: Int
 }
 
+struct AIRecommendationExecution: Sendable {
+    var plan: AIRecommendationPlan
+    var providerName: String
+    var fallbackDepth: Int
+    var resolvedScene: AIRecommendationScene
+}
+
+enum AIRecommendationOutcome: Sendable {
+    case unavailable
+    case success(AIRecommendationExecution)
+    case empty(providerName: String, fallbackDepth: Int)
+    case failed
+}
+
 @MainActor
 @Observable
 final class MusicIntelligenceService {
@@ -31,6 +45,9 @@ final class MusicIntelligenceService {
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
     @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
+    @ObservationIgnored private var recommendationCache: [
+        RecommendationCacheKey: RecommendationCacheEntry
+    ] = [:]
 
     private struct SemanticPlanCacheKey: Hashable {
         var profileID: UUID
@@ -49,8 +66,26 @@ final class MusicIntelligenceService {
         var createdAt: TimeInterval
     }
 
+    private struct RecommendationCacheKey: Hashable {
+        var profileID: UUID
+        var baseURL: String
+        var model: String
+        var apiStyle: AICompatibleAPIStyle
+        var apiPathMode: AIAPIPathMode
+        var authenticationStyle: AIAuthenticationStyle
+        var request: AIRecommendationRequest
+        var regionRevision: UInt64
+    }
+
+    private struct RecommendationCacheEntry {
+        var plan: AIRecommendationPlan
+        var createdAt: TimeInterval
+    }
+
     private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
     private static let semanticPlanCacheLimit = 64
+    private static let recommendationCacheLifetime: TimeInterval = 6 * 60 * 60
+    private static let recommendationCacheLimit = 24
 
     init(
         settingsStore: AISettingsStore = AISettingsStore(),
@@ -66,11 +101,16 @@ final class MusicIntelligenceService {
     func start() {
         regionAvailability.start { [weak self] in
             self?.semanticPlanCache.removeAll(keepingCapacity: true)
+            self?.recommendationCache.removeAll(keepingCapacity: true)
         }
     }
 
     var shouldExposeRemoteConfiguration: Bool {
         regionAvailability.remoteProviderDecision.shouldExposeConfiguration
+    }
+
+    var shouldShowRemoteRecommendations: Bool {
+        settingsStore.recommendationsEnabled && shouldExposeRemoteConfiguration
     }
 
     var isSemanticSearchConfigured: Bool {
@@ -82,6 +122,18 @@ final class MusicIntelligenceService {
             && settingsStore.hasExplicitRemoteConsent
             && decision.isAllowed
             && (!decision.requiresExplicitConsent || settingsStore.hasExplicitRemoteConsent)
+    }
+
+    var isPersonalizedRecommendationsConfigured: Bool {
+        let decision = regionAvailability.remoteProviderDecision
+        return settingsStore.recommendationsEnabled
+            && settingsStore.providerSet.routedProviders.contains {
+                !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            && settingsStore.hasExplicitListeningContextConsent
+            && decision.isAllowed
+            && (!decision.requiresExplicitConsent
+                || settingsStore.hasExplicitListeningContextConsent)
     }
 
     func semanticSearchPlan(for query: String) async -> AISemanticSearchPlan? {
@@ -206,6 +258,8 @@ final class MusicIntelligenceService {
                     candidates,
                     targetLanguageCode: targetLanguageCode,
                     configuration: configuration,
+                    regionContext: regionSnapshot.context,
+                    hasExplicitRemoteConsent: consent,
                     requestAuthorization: regionAuthorization(for: regionSnapshot)
                 )
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
@@ -224,6 +278,91 @@ final class MusicIntelligenceService {
             }
         }
         return nil
+    }
+
+    func recommendationOutcome(
+        for request: AIRecommendationRequest
+    ) async -> AIRecommendationOutcome {
+        let regionSnapshot = regionAvailability.snapshot
+        guard isPersonalizedRecommendationsConfigured,
+              !request.candidates.isEmpty else { return .unavailable }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        let providers = settingsStore.providerSet.routedProviders.filter {
+            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        var lastEmptyProvider: (name: String, fallbackDepth: Int)?
+        for (fallbackDepth, configuration) in providers.enumerated() {
+            guard AIRegionRequestPolicy.canSendRemoteRequest(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot
+            ) else { return .failed }
+            let cacheKey = RecommendationCacheKey(
+                profileID: configuration.id,
+                baseURL: configuration.baseURL,
+                model: configuration.generationModel,
+                apiStyle: configuration.apiStyle,
+                apiPathMode: configuration.apiPathMode,
+                authenticationStyle: configuration.authenticationStyle,
+                request: request,
+                regionRevision: regionSnapshot.revision
+            )
+            if let cached = recommendationCache[cacheKey],
+               now - cached.createdAt <= Self.recommendationCacheLifetime {
+                return .success(AIRecommendationExecution(
+                    plan: cached.plan,
+                    providerName: configuration.displayName,
+                    fallbackDepth: fallbackDepth,
+                    resolvedScene: request.scene
+                ))
+            }
+
+            do {
+                let plan = try await engine.recommendations(
+                    request,
+                    configuration: configuration,
+                    regionContext: regionSnapshot.context,
+                    hasExplicitListeningContextConsent: settingsStore
+                        .hasExplicitListeningContextConsent,
+                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                )
+                guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot
+                ) else { return .failed }
+                guard !plan.selections.isEmpty else {
+                    lastEmptyProvider = (configuration.displayName, fallbackDepth)
+                    continue
+                }
+                recommendationCache[cacheKey] = RecommendationCacheEntry(
+                    plan: plan,
+                    createdAt: now
+                )
+                if recommendationCache.count > Self.recommendationCacheLimit,
+                   let oldestKey = recommendationCache.min(by: {
+                       $0.value.createdAt < $1.value.createdAt
+                   })?.key {
+                    recommendationCache[oldestKey] = nil
+                }
+                return .success(AIRecommendationExecution(
+                    plan: plan,
+                    providerName: configuration.displayName,
+                    fallbackDepth: fallbackDepth,
+                    resolvedScene: request.scene
+                ))
+            } catch is CancellationError {
+                return .failed
+            } catch {
+                continue
+            }
+        }
+        if let lastEmptyProvider {
+            return .empty(
+                providerName: lastEmptyProvider.name,
+                fallbackDepth: lastEmptyProvider.fallbackDepth
+            )
+        }
+        return .failed
     }
 
     func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
@@ -255,12 +394,15 @@ final class MusicIntelligenceService {
             hasExplicitRemoteConsent: hasExplicitRemoteConsent
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
+        recommendationCache.removeAll(keepingCapacity: true)
     }
 
     func save(
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
+        recommendationsEnabled: Bool,
         hasExplicitRemoteConsent: Bool,
+        hasExplicitListeningContextConsent: Bool,
         apiKeys: [UUID: String]
     ) async throws {
         let decision = AIAvailabilityPolicy.decision(
@@ -284,14 +426,18 @@ final class MusicIntelligenceService {
         try settingsStore.save(
             providerSet: normalized,
             semanticSearchEnabled: semanticSearchEnabled,
-            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+            recommendationsEnabled: recommendationsEnabled,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent,
+            hasExplicitListeningContextConsent: hasExplicitListeningContextConsent
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
+        recommendationCache.removeAll(keepingCapacity: true)
     }
 
     func deleteAPIKey(configuration: AIRemoteProviderConfiguration) async throws {
         try await credentialStore.deleteAPIKey(configuration: configuration)
         semanticPlanCache.removeAll(keepingCapacity: true)
+        recommendationCache.removeAll(keepingCapacity: true)
     }
 
     func availableModels(
@@ -379,6 +525,199 @@ final class MusicIntelligenceService {
     }
 }
 
+enum AIRecommendationFeedback: Equatable {
+    case idle
+    case loading
+    case needsConsent
+    case success(
+        summary: String,
+        providerName: String,
+        fallbackDepth: Int,
+        scene: AIRecommendationScene
+    )
+    case localFallback(providerName: String?, fallbackDepth: Int)
+}
+
+enum AIRecommendationContextBuilder {
+    @MainActor
+    static func request(
+        scene: AIRecommendationScene,
+        candidates: [Song],
+        history: PlayHistoryStore = .shared,
+        now: Date = Date()
+    ) -> AIRecommendationRequest? {
+        var seen = Set<String>()
+        let uniqueCandidates = candidates.filter {
+            !$0.id.isEmpty && seen.insert($0.id).inserted
+        }
+        guard !uniqueCandidates.isEmpty else { return nil }
+        let metadataByID = Dictionary(
+            uniqueKeysWithValues: uniqueCandidates.map { ($0.id, $0) }
+        )
+        let preferences = history.topSongs(in: .year, limit: 12).map { item in
+            AIRecommendationPreference(
+                title: item.title,
+                artist: item.subtitle,
+                genre: metadataByID[item.id]?.genre,
+                playCount: item.playCount
+            )
+        }
+        let recommendationCandidates = uniqueCandidates.prefix(36).map { song in
+            let durationSeconds: Int
+            if song.duration.isFinite {
+                durationSeconds = Int(max(0, min(song.duration, 86_400)).rounded())
+            } else {
+                durationSeconds = 0
+            }
+            return AIRecommendationCandidate(
+                songID: song.id,
+                title: song.title,
+                artist: song.artistName ?? "",
+                genre: song.genre,
+                year: song.year,
+                durationSeconds: durationSeconds
+            )
+        }
+        return AIRecommendationRequest(
+            scene: AIRecommendationSceneResolver.resolved(scene, at: now),
+            languageCode: Locale.current.language.languageCode?.identifier,
+            preferences: preferences,
+            candidates: recommendationCandidates,
+            maximumResults: min(8, recommendationCandidates.count)
+        )
+    }
+}
+
+@MainActor
+@Observable
+final class AIRecommendationViewModel {
+    private(set) var feedback: AIRecommendationFeedback = .idle
+    private(set) var orderedSongIDs: [String] = []
+    private(set) var reasonsBySongID: [String: String] = [:]
+    private var generation: UInt64 = 0
+
+    func refresh(
+        scene: AIRecommendationScene,
+        candidates: [Song],
+        using intelligence: MusicIntelligenceService
+    ) async {
+        generation &+= 1
+        let operationGeneration = generation
+        guard intelligence.settingsStore.recommendationsEnabled else {
+            feedback = .idle
+            orderedSongIDs = []
+            reasonsBySongID = [:]
+            return
+        }
+        guard intelligence.settingsStore.hasExplicitListeningContextConsent else {
+            feedback = .needsConsent
+            orderedSongIDs = []
+            reasonsBySongID = [:]
+            return
+        }
+        guard let request = AIRecommendationContextBuilder.request(
+            scene: scene,
+            candidates: candidates
+        ) else {
+            feedback = .idle
+            orderedSongIDs = []
+            reasonsBySongID = [:]
+            return
+        }
+
+        feedback = .loading
+        let outcome = await intelligence.recommendationOutcome(for: request)
+        guard operationGeneration == generation, !Task.isCancelled else { return }
+        switch outcome {
+        case .unavailable:
+            feedback = .localFallback(providerName: nil, fallbackDepth: 0)
+            orderedSongIDs = []
+            reasonsBySongID = [:]
+        case .success(let execution):
+            orderedSongIDs = execution.plan.selections.map(\.songID)
+            reasonsBySongID = Dictionary(
+                uniqueKeysWithValues: execution.plan.selections.map {
+                    ($0.songID, $0.reason)
+                }
+            )
+            feedback = .success(
+                summary: execution.plan.summary,
+                providerName: execution.providerName,
+                fallbackDepth: execution.fallbackDepth,
+                scene: execution.resolvedScene
+            )
+        case .empty(let providerName, let fallbackDepth):
+            orderedSongIDs = []
+            reasonsBySongID = [:]
+            feedback = .localFallback(
+                providerName: providerName,
+                fallbackDepth: fallbackDepth
+            )
+        case .failed:
+            orderedSongIDs = []
+            reasonsBySongID = [:]
+            feedback = .localFallback(providerName: nil, fallbackDepth: 0)
+        }
+    }
+
+    func orderedSongs(from candidates: [Song]) -> [Song] {
+        guard !orderedSongIDs.isEmpty else { return candidates }
+        let byID = Dictionary(
+            candidates.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        var ordered = orderedSongIDs.compactMap { byID[$0] }
+        let selectedIDs = Set(ordered.map(\.id))
+        ordered.append(contentsOf: candidates.filter { !selectedIDs.contains($0.id) })
+        return ordered
+    }
+
+    func reason(for songID: String) -> String? {
+        reasonsBySongID[songID]
+    }
+
+    var statusText: String {
+        switch feedback {
+        case .idle:
+            return String(localized: "ai_recommendation_status_local")
+        case .loading:
+            return String(localized: "ai_recommendation_status_loading")
+        case .needsConsent:
+            return String(localized: "ai_recommendation_status_needs_consent")
+        case .success(_, let providerName, let fallbackDepth, let scene):
+            let key = fallbackDepth > 0
+                ? "ai_recommendation_status_fallback_format"
+                : "ai_recommendation_status_success_format"
+            return String(
+                format: String(localized: String.LocalizationValue(key)),
+                providerName,
+                scene.localizedName
+            )
+        case .localFallback:
+            return String(localized: "ai_recommendation_status_failed_local")
+        }
+    }
+
+    var summaryText: String? {
+        guard case .success(let summary, _, _, _) = feedback else { return nil }
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+extension AIRecommendationScene {
+    var localizedName: String {
+        switch self {
+        case .automatic: String(localized: "ai_recommendation_scene_automatic")
+        case .driving: String(localized: "ai_recommendation_scene_driving")
+        case .focus: String(localized: "ai_recommendation_scene_focus")
+        case .workout: String(localized: "ai_recommendation_scene_workout")
+        case .relaxation: String(localized: "ai_recommendation_scene_relaxation")
+        case .bedtime: String(localized: "ai_recommendation_scene_bedtime")
+        }
+    }
+}
+
 private actor MusicIntelligenceEngine {
     private let credentialStore: any AICredentialStoring
 
@@ -445,8 +784,23 @@ private actor MusicIntelligenceEngine {
         _ candidates: [LyricTranslationCandidate],
         targetLanguageCode: String,
         configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
     ) async throws -> [String: String] {
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
@@ -463,6 +817,42 @@ private actor MusicIntelligenceEngine {
                 candidates,
                 targetLanguageCode: targetLanguageCode
             )
+        }
+    }
+
+    func recommendations(
+        _ request: AIRecommendationRequest,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitListeningContextConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> AIRecommendationPlan {
+        let candidates = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .recommendations,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitListeningContextConsent
+        )
+        guard candidates.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: configuration.requestTimeout) {
+            try await provider.recommendations(request)
         }
     }
 

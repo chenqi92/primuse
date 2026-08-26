@@ -21,6 +21,7 @@ public enum AIExecutionClass: String, Codable, CaseIterable, Sendable {
 
 public enum AICapability: String, Codable, CaseIterable, Sendable {
     case semanticSearchInterpretation
+    case lyricsTranslation
     case embeddings
     case reranking
     case songAnnotation
@@ -148,6 +149,142 @@ public struct AISemanticSearchPlan: Codable, Equatable, Sendable {
     }
 }
 
+public enum AIRecommendationScene: String, Codable, CaseIterable, Hashable, Sendable {
+    case automatic
+    case driving
+    case focus
+    case workout
+    case relaxation
+    case bedtime
+}
+
+public enum AIRecommendationSceneResolver {
+    public static func resolved(
+        _ scene: AIRecommendationScene,
+        at date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> AIRecommendationScene {
+        guard scene == .automatic else { return scene }
+        let hour = calendar.component(.hour, from: date)
+        let weekday = calendar.component(.weekday, from: date)
+        let isWeekday = (2...6).contains(weekday)
+        if hour >= 22 || hour < 6 { return .bedtime }
+        if isWeekday, (6..<10).contains(hour) || (17..<20).contains(hour) {
+            return .driving
+        }
+        if isWeekday, (10..<17).contains(hour) { return .focus }
+        return .relaxation
+    }
+}
+
+public struct AIRecommendationPreference: Codable, Hashable, Sendable {
+    public var title: String
+    public var artist: String
+    public var genre: String?
+    public var playCount: Int
+
+    public init(title: String, artist: String, genre: String? = nil, playCount: Int) {
+        self.title = title
+        self.artist = artist
+        self.genre = genre
+        self.playCount = playCount
+    }
+}
+
+public struct AIRecommendationCandidate: Identifiable, Codable, Hashable, Sendable {
+    public var songID: String
+    public var title: String
+    public var artist: String
+    public var genre: String?
+    public var year: Int?
+    public var durationSeconds: Int
+
+    public var id: String { songID }
+
+    public init(
+        songID: String,
+        title: String,
+        artist: String,
+        genre: String? = nil,
+        year: Int? = nil,
+        durationSeconds: Int = 0
+    ) {
+        self.songID = songID
+        self.title = title
+        self.artist = artist
+        self.genre = genre
+        self.year = year
+        self.durationSeconds = durationSeconds
+    }
+}
+
+public struct AIRecommendationRequest: Hashable, Sendable {
+    public var scene: AIRecommendationScene
+    public var languageCode: String?
+    public var preferences: [AIRecommendationPreference]
+    public var candidates: [AIRecommendationCandidate]
+    public var maximumResults: Int
+
+    public init(
+        scene: AIRecommendationScene,
+        languageCode: String? = nil,
+        preferences: [AIRecommendationPreference],
+        candidates: [AIRecommendationCandidate],
+        maximumResults: Int = 8
+    ) {
+        self.scene = scene
+        self.languageCode = languageCode
+        self.preferences = Array(preferences.prefix(12))
+        self.candidates = Array(candidates.prefix(36))
+        self.maximumResults = max(1, min(maximumResults, 12))
+    }
+}
+
+public struct AIRecommendationSelection: Codable, Hashable, Sendable {
+    public var songID: String
+    public var reason: String
+
+    public init(songID: String, reason: String) {
+        self.songID = songID
+        self.reason = reason
+    }
+}
+
+public struct AIRecommendationPlan: Codable, Hashable, Sendable {
+    public var summary: String
+    public var selections: [AIRecommendationSelection]
+
+    public init(summary: String = "", selections: [AIRecommendationSelection] = []) {
+        self.summary = summary
+        self.selections = selections
+    }
+
+    public func normalized(for request: AIRecommendationRequest) -> AIRecommendationPlan {
+        let allowedIDs = Set(request.candidates.map(\.songID))
+        var seen = Set<String>()
+        let selections = selections.compactMap { selection -> AIRecommendationSelection? in
+            guard allowedIDs.contains(selection.songID), seen.insert(selection.songID).inserted else {
+                return nil
+            }
+            let reason = selection.reason
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+            guard !reason.isEmpty else { return nil }
+            return AIRecommendationSelection(
+                songID: selection.songID,
+                reason: String(reason.prefix(120))
+            )
+        }
+        return AIRecommendationPlan(
+            summary: String(
+                summary.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180)
+            ),
+            selections: Array(selections.prefix(request.maximumResults))
+        )
+    }
+}
+
 public struct AISemanticLibraryMatchCandidate: Equatable, Sendable {
     public var songID: String
     public var title: String
@@ -250,6 +387,17 @@ public protocol MusicIntelligenceProvider: Sendable {
 
 public protocol AISemanticSearchProviding: MusicIntelligenceProvider {
     func interpretSearch(_ request: AISemanticSearchRequest) async throws -> AISemanticSearchPlan
+}
+
+public protocol AIRecommendationProviding: MusicIntelligenceProvider {
+    func recommendations(_ request: AIRecommendationRequest) async throws -> AIRecommendationPlan
+}
+
+public protocol AILyricsTranslationProviding: MusicIntelligenceProvider {
+    func translateLyrics(
+        _ candidates: [LyricTranslationCandidate],
+        targetLanguageCode: String
+    ) async throws -> [String: String]
 }
 
 public protocol AIEmbeddingProviding: MusicIntelligenceProvider {

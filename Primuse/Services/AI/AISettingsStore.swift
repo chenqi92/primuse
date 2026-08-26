@@ -6,6 +6,15 @@ import StoreKit
 @MainActor
 @Observable
 final class AISettingsStore {
+    private struct PersistedSettingsV3: Codable {
+        var schemaVersion: Int
+        var providerSet: AIRemoteProviderSet
+        var semanticSearchEnabled: Bool
+        var recommendationsEnabled: Bool
+        var hasExplicitRemoteConsent: Bool
+        var hasExplicitListeningContextConsent: Bool
+    }
+
     private struct PersistedSettingsV2: Codable {
         var schemaVersion: Int
         var providerSet: AIRemoteProviderSet
@@ -19,13 +28,16 @@ final class AISettingsStore {
         var hasExplicitRemoteConsent: Bool
     }
 
-    static let storageKey = "ai.settings.v1"
+    nonisolated static let storageKey = "ai.settings.v1"
     private let defaults: UserDefaults
     private let syncsThroughICloud: Bool
 
     private(set) var providerSet: AIRemoteProviderSet
     private(set) var semanticSearchEnabled: Bool
+    private(set) var recommendationsEnabled: Bool
     private(set) var hasExplicitRemoteConsent: Bool
+    private(set) var hasExplicitListeningContextConsent: Bool
+    private(set) var revision: UInt64 = 0
 
     var configuration: AIRemoteProviderConfiguration {
         providerSet.primaryProvider
@@ -40,7 +52,9 @@ final class AISettingsStore {
         let loaded = Self.decodeSettings(from: defaults.data(forKey: Self.storageKey))
         providerSet = loaded.providerSet
         semanticSearchEnabled = loaded.semanticSearchEnabled
+        recommendationsEnabled = loaded.recommendationsEnabled
         hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
+        hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
 
         if self.syncsThroughICloud {
             CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
@@ -52,23 +66,30 @@ final class AISettingsStore {
     func save(
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
-        hasExplicitRemoteConsent: Bool
+        recommendationsEnabled: Bool = false,
+        hasExplicitRemoteConsent: Bool,
+        hasExplicitListeningContextConsent: Bool = false
     ) throws {
         let normalized = providerSet.normalized()
         for provider in normalized.providers where provider.isEnabled {
             _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
         }
-        let persisted = PersistedSettingsV2(
-            schemaVersion: 2,
+        let persisted = PersistedSettingsV3(
+            schemaVersion: 3,
             providerSet: normalized,
             semanticSearchEnabled: semanticSearchEnabled,
-            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+            recommendationsEnabled: recommendationsEnabled,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent,
+            hasExplicitListeningContextConsent: hasExplicitListeningContextConsent
         )
         let data = try JSONEncoder().encode(persisted)
         defaults.set(data, forKey: Self.storageKey)
         self.providerSet = normalized
         self.semanticSearchEnabled = semanticSearchEnabled
+        self.recommendationsEnabled = recommendationsEnabled
         self.hasExplicitRemoteConsent = hasExplicitRemoteConsent
+        self.hasExplicitListeningContextConsent = hasExplicitListeningContextConsent
+        revision &+= 1
         if syncsThroughICloud {
             CloudKVSSync.shared.markChanged(key: Self.storageKey)
         }
@@ -85,7 +106,9 @@ final class AISettingsStore {
                 fallbackEnabled: false
             ),
             semanticSearchEnabled: configuration.isEnabled,
-            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+            recommendationsEnabled: false,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent,
+            hasExplicitListeningContextConsent: false
         )
     }
 
@@ -93,7 +116,10 @@ final class AISettingsStore {
         let loaded = Self.decodeSettings(from: defaults.data(forKey: Self.storageKey))
         providerSet = loaded.providerSet
         semanticSearchEnabled = loaded.semanticSearchEnabled
+        recommendationsEnabled = loaded.recommendationsEnabled
         hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
+        hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
+        revision &+= 1
     }
 
     private static func decodeSettings(
@@ -101,15 +127,30 @@ final class AISettingsStore {
     ) -> (
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
-        hasExplicitRemoteConsent: Bool
+        recommendationsEnabled: Bool,
+        hasExplicitRemoteConsent: Bool,
+        hasExplicitListeningContextConsent: Bool
     ) {
+        if let data,
+           let persisted = try? JSONDecoder().decode(PersistedSettingsV3.self, from: data),
+           persisted.schemaVersion == 3 {
+            return (
+                persisted.providerSet.normalized(),
+                persisted.semanticSearchEnabled,
+                persisted.recommendationsEnabled,
+                persisted.hasExplicitRemoteConsent,
+                persisted.hasExplicitListeningContextConsent
+            )
+        }
         if let data,
            let persisted = try? JSONDecoder().decode(PersistedSettingsV2.self, from: data),
            persisted.schemaVersion == 2 {
             return (
                 persisted.providerSet.normalized(),
                 persisted.semanticSearchEnabled,
-                persisted.hasExplicitRemoteConsent
+                false,
+                persisted.hasExplicitRemoteConsent,
+                false
             )
         }
         if let data,
@@ -125,10 +166,12 @@ final class AISettingsStore {
                     fallbackEnabled: false
                 ),
                 semanticSearchEnabled,
-                persisted.hasExplicitRemoteConsent
+                false,
+                persisted.hasExplicitRemoteConsent,
+                false
             )
         }
-        return (AIRemoteProviderSet(), false, false)
+        return (AIRemoteProviderSet(), false, false, false, false)
     }
 }
 

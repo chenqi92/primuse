@@ -172,6 +172,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         var capabilities: Set<AICapability> = []
         if !generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             capabilities.insert(.semanticSearchInterpretation)
+            capabilities.insert(.lyricsTranslation)
+            capabilities.insert(.recommendations)
         }
         if supportsEmbeddings,
            !embeddingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -128,14 +128,14 @@ public enum AIAvailabilityPolicy {
         regionContext: AIRegionContext
     ) -> AIAccessDecision {
         switch executionClass {
-        case .deterministicLocal, .localDiscriminativeModel:
+        case .deterministicLocal, .localDiscriminativeModel, .localGenerativeModel:
             return AIAccessDecision(
                 isAllowed: true,
                 shouldExposeConfiguration: true,
                 requiresExplicitConsent: false
             )
 
-        case .localGenerativeModel, .appleSystemModel, .userConfiguredRemote, .bundledRemote:
+        case .appleSystemModel, .userConfiguredRemote, .bundledRemote:
             switch regionContext.region {
             case .international:
                 let requiresConsent: Bool

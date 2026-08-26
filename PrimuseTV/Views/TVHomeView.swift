@@ -5,11 +5,18 @@ import PrimuseKit
 /// tvOS 首页 — Top Shelf hero + 三行横向 shelf(对应 tvos.jsx 的 TVHomeArtboard)。
 struct TVHomeView: View {
     @Environment(TVStore.self) private var store
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
+    @AppStorage("primuse.ai.recommendationScene.v1")
+    private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
+    @State private var recommendationCandidates: [Song] = []
+    @State private var aiRecommendation = AIRecommendationViewModel()
+    @State private var recommendationHistoryRevision = 0
+    @State private var recommendationClockRevision = 0
     var openPlayer: () -> Void = {}
 
     private var candidateAlbum: TVAlbum? {
@@ -137,7 +144,10 @@ struct TVHomeView: View {
                             }
                         }
                     }
-                    if !store.recommended.isEmpty {
+                    if intelligence.shouldShowRemoteRecommendations,
+                       !recommendationCandidates.isEmpty {
+                        intelligentRecommendationSection
+                    } else if !store.recommended.isEmpty {
                         TVRow(label: PMString("ext.tv.home.madeForYou")) {
                             ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
                                 TVAlbumCard(album: album, action: openPlayer)
@@ -149,6 +159,108 @@ struct TVHomeView: View {
             }
             }
         }
+        .task(id: recommendationCandidateRefreshKey) {
+            guard intelligence.settingsStore.recommendationsEnabled else {
+                recommendationCandidates = []
+                return
+            }
+            recommendationCandidates = await store.recommendationCandidates(limit: 12)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
+            recommendationHistoryRevision &+= 1
+        }
+        .onReceive(
+            Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()
+        ) { _ in
+            recommendationClockRevision &+= 1
+        }
+    }
+
+    private var recommendationScene: AIRecommendationScene {
+        AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
+    }
+
+    private var recommendationCandidateRefreshKey: String {
+        "\(store.recommendationRevision)#\(recommendationHistoryRevision)#"
+            + "\(intelligence.settingsStore.recommendationsEnabled)"
+    }
+
+    private var recommendationRefreshKey: String {
+        return [
+            recommendationSceneRawValue,
+            String(intelligence.settingsStore.revision),
+            String(intelligence.regionAvailability.revision),
+            String(recommendationHistoryRevision),
+            String(recommendationClockRevision),
+            recommendationCandidates.map(\.id).joined(separator: "|"),
+        ].joined(separator: "#")
+    }
+
+    private var displayedRecommendationSongs: [TVSong] {
+        aiRecommendation.orderedSongs(from: recommendationCandidates).compactMap {
+            store.song($0.id)
+        }
+    }
+
+    private var intelligentRecommendationSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
+                        recommendationSceneButton(scene)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            }
+            if let summary = aiRecommendation.summaryText {
+                Text(summary)
+                    .font(.system(size: 17))
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(2)
+                    .padding(.horizontal, 20)
+            }
+            TVRow(
+                label: PMString("ai_recommendation_home_title"),
+                sub: aiRecommendation.statusText
+            ) {
+                ForEach(displayedRecommendationSongs) { song in
+                    TVSongCard(
+                        song: song,
+                        reason: aiRecommendation.reason(for: song.id),
+                        action: openPlayer
+                    )
+                }
+            }
+        }
+        .task(id: recommendationRefreshKey) {
+            await aiRecommendation.refresh(
+                scene: recommendationScene,
+                candidates: recommendationCandidates,
+                using: intelligence
+            )
+        }
+    }
+
+    private func recommendationSceneButton(_ scene: AIRecommendationScene) -> some View {
+        let selected = recommendationScene == scene
+        return TVFocusButton(
+            radius: 14,
+            scale: 1.05,
+            lift: 4,
+            action: { recommendationSceneRawValue = scene.rawValue }
+        ) { focused in
+            Text(scene.localizedName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(selected ? TVColor.onBrand : TVColor.text)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    selected ? TVColor.brand : (focused ? TVColor.surfaceStrong : TVColor.surface),
+                    in: Capsule()
+                )
+        }
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var heroZone: some View {
