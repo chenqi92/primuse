@@ -8,6 +8,9 @@ import PrimuseKit
 /// - 热力图 (GitHub-style 7×N 格子, 颜色深度对应当日播放次数)
 /// - Top 排行 (歌曲 / 艺术家 / 专辑 三个 tab)
 struct ListeningStatsView: View {
+    @Environment(SourcesStore.self) private var sourcesStore
+    @AppStorage("stats.selectedServerSourceID")
+    private var selectedServerSourceID = ""
     #if os(macOS)
     @State private var range: PlayHistoryStore.Range = .year
     #else
@@ -29,6 +32,28 @@ struct ListeningStatsView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if !serverSources.isEmpty {
+                statsSourcePicker
+                Divider()
+            }
+
+            if let source = selectedServerSource {
+                ServerListeningStatsView(source: source)
+            } else {
+                localBody
+            }
+        }
+        .onChange(of: serverSourceIDs, initial: true) { _, validIDs in
+            if !selectedServerSourceID.isEmpty,
+               !validIDs.contains(selectedServerSourceID) {
+                selectedServerSourceID = ""
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var localBody: some View {
         #if os(macOS)
         macBody
         #else
@@ -61,6 +86,45 @@ struct ListeningStatsView: View {
         } message: {
             Text("stats_clear_message")
         }
+        #endif
+    }
+
+    private var serverSources: [MusicSource] {
+        sourcesStore.sources.filter {
+            $0.isEnabled
+                && !$0.isDeleted
+                && $0.type.serverListeningStatsCapability != .unavailable
+        }
+    }
+
+    private var serverSourceIDs: [String] {
+        serverSources.map(\.id)
+    }
+
+    private var selectedServerSource: MusicSource? {
+        serverSources.first { $0.id == selectedServerSourceID }
+    }
+
+    private var statsSourcePicker: some View {
+        HStack(spacing: 12) {
+            Label("stats_data_source", systemImage: "server.rack")
+                .font(.subheadline.weight(.medium))
+            Spacer()
+            Picker("stats_data_source", selection: $selectedServerSourceID) {
+                Text("stats_source_local").tag("")
+                ForEach(serverSources) { source in
+                    Text(source.name).tag(source.id)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+        .padding(.horizontal, 20)
+        .frame(minHeight: 48)
+        #if os(macOS)
+        .background(PMColor.bgElev.opacity(0.72))
+        #else
+        .background(.regularMaterial)
         #endif
     }
 
