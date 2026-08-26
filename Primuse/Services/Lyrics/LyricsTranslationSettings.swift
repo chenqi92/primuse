@@ -3,6 +3,11 @@ import NaturalLanguage
 import PrimuseKit
 import Translation
 
+enum LyricsTranslationMode: String, Codable, CaseIterable, Sendable {
+    case system
+    case intelligentWithSystemFallback
+}
+
 /// 歌词翻译设置 — 启用开关 + 目标语言。
 /// 翻译用 Apple 自带 Translation Framework (iOS 18+ / macOS 15+),
 /// 离线 + 免费 + 不需要任何 API key 注册。
@@ -14,6 +19,10 @@ final class LyricsTranslationSettingsStore {
     private static let userDefaultsKey = "primuse.lyrics.translation.settings.v1"
 
     var isEnabled: Bool {
+        didSet { persist(); LyricsTranslationSettingsStore.notifyChanged() }
+    }
+
+    var mode: LyricsTranslationMode {
         didSet { persist(); LyricsTranslationSettingsStore.notifyChanged() }
     }
 
@@ -42,11 +51,13 @@ final class LyricsTranslationSettingsStore {
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             self.isEnabled = decoded.isEnabled
             self.targetLanguageCode = decoded.targetLanguageCode
+            self.mode = decoded.mode ?? .system
         } else {
             self.isEnabled = false
             // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
             let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
             self.targetLanguageCode = Self.normalizedLanguageCode(preferred)
+            self.mode = .system
         }
     }
 
@@ -97,7 +108,11 @@ final class LyricsTranslationSettingsStore {
     }
 
     private func persist() {
-        let p = Persisted(isEnabled: isEnabled, targetLanguageCode: targetLanguageCode)
+        let p = Persisted(
+            isEnabled: isEnabled,
+            targetLanguageCode: targetLanguageCode,
+            mode: mode
+        )
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
         }
@@ -110,6 +125,7 @@ final class LyricsTranslationSettingsStore {
     private struct Persisted: Codable {
         let isEnabled: Bool
         let targetLanguageCode: String
+        let mode: LyricsTranslationMode?
     }
 }
 

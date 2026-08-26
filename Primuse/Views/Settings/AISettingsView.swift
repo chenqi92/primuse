@@ -19,27 +19,79 @@ final class AISettingsEditorModel {
         case failed(String, Operation)
     }
 
-    var draftConfiguration = AIRemoteProviderConfiguration()
-    var selectedProviderPreset: AIProviderPreset = .custom
+    var draftProviderSet: AIRemoteProviderSet
+    var selectedProviderID: UUID
+    var providerPresets: [UUID: AIProviderPreset] = [:]
+    var semanticSearchEnabled = false
     var consent = false
-    var apiKeyDraft = ""
-    var hasStoredAPIKey = false
-    var storedAPIKeyScope: String?
-    var availableModels: [AIProviderModel] = []
+    var apiKeyDrafts: [UUID: String] = [:]
+    var storedAPIKeyScopes: [UUID: String] = [:]
+    var availableModelsByProvider: [UUID: [AIProviderModel]] = [:]
     var didLoad = false
     var isWorking = false
     var isFetchingModels = false
     var status: Status = .idle
 
     private var draftGeneration: UInt64 = 0
+    private var savedProviderSet: AIRemoteProviderSet
+    private var savedSemanticSearchEnabled = false
+    private var savedConsent = false
+
+    init() {
+        let providerSet = AIRemoteProviderSet()
+        draftProviderSet = providerSet
+        savedProviderSet = providerSet
+        selectedProviderID = providerSet.primaryProviderID
+        providerPresets[selectedProviderID] = .custom
+    }
+
+    var draftConfiguration: AIRemoteProviderConfiguration {
+        get {
+            draftProviderSet.providers.first { $0.id == selectedProviderID }
+                ?? draftProviderSet.primaryProvider
+        }
+        set {
+            guard let index = draftProviderSet.providers.firstIndex(where: {
+                $0.id == selectedProviderID
+            }) else { return }
+            draftProviderSet.providers[index] = newValue
+        }
+    }
+
+    var selectedProviderPreset: AIProviderPreset {
+        get {
+            providerPresets[selectedProviderID]
+                ?? AIProviderPreset.matching(configuration: draftConfiguration)
+        }
+        set { providerPresets[selectedProviderID] = newValue }
+    }
+
+    var apiKeyDraft: String {
+        get { apiKeyDrafts[selectedProviderID] ?? "" }
+        set { apiKeyDrafts[selectedProviderID] = newValue }
+    }
+
+    var availableModels: [AIProviderModel] {
+        get { availableModelsByProvider[selectedProviderID] ?? [] }
+        set { availableModelsByProvider[selectedProviderID] = newValue }
+    }
 
     var hasStoredAPIKeyForDraft: Bool {
-        hasStoredAPIKey && storedAPIKeyScope == draftCredentialScope
+        storedAPIKeyScopes[selectedProviderID] == draftCredentialScope
     }
 
     var hasUsableAPIKey: Bool {
         hasStoredAPIKeyForDraft
             || !apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasUnsavedChanges: Bool {
+        draftProviderSet != savedProviderSet
+            || semanticSearchEnabled != savedSemanticSearchEnabled
+            || consent != savedConsent
+            || apiKeyDrafts.values.contains {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
     }
 
     var canFetchModels: Bool {
@@ -57,13 +109,22 @@ final class AISettingsEditorModel {
         guard !didLoad else { return }
         didLoad = true
         await intelligence.regionAvailability.refresh()
-        draftConfiguration = intelligence.settingsStore.configuration
-        selectedProviderPreset = AIProviderPreset.matching(
-            configuration: draftConfiguration
-        )
+        draftProviderSet = intelligence.settingsStore.providerSet
+        selectedProviderID = draftProviderSet.primaryProviderID
+        semanticSearchEnabled = intelligence.settingsStore.semanticSearchEnabled
+        providerPresets = Dictionary(uniqueKeysWithValues: draftProviderSet.providers.map {
+            ($0.id, AIProviderPreset.matching(configuration: $0))
+        })
         consent = intelligence.settingsStore.hasExplicitRemoteConsent
-        hasStoredAPIKey = await intelligence.hasStoredAPIKey(configuration: draftConfiguration)
-        storedAPIKeyScope = hasStoredAPIKey ? draftCredentialScope : nil
+        savedProviderSet = draftProviderSet
+        savedSemanticSearchEnabled = semanticSearchEnabled
+        savedConsent = consent
+        for provider in draftProviderSet.providers {
+            if await intelligence.hasStoredAPIKey(configuration: provider),
+               let scope = Self.credentialScope(for: provider) {
+                storedAPIKeyScopes[provider.id] = scope
+            }
+        }
     }
 
     func configurationBinding<Value>(
@@ -110,6 +171,107 @@ final class AISettingsEditorModel {
             get: { self.selectedProviderPreset },
             set: { self.applyProviderPreset($0) }
         )
+    }
+
+    var semanticSearchBinding: Binding<Bool> {
+        Binding(
+            get: { self.semanticSearchEnabled },
+            set: { value in
+                self.semanticSearchEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    var fallbackBinding: Binding<Bool> {
+        Binding(
+            get: { self.draftProviderSet.fallbackEnabled },
+            set: { value in
+                self.draftProviderSet.fallbackEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    func providerEnabledBinding(_ providerID: UUID) -> Binding<Bool> {
+        Binding(
+            get: {
+                self.draftProviderSet.providers.first { $0.id == providerID }?.isEnabled ?? false
+            },
+            set: { value in
+                guard let index = self.draftProviderSet.providers.firstIndex(where: {
+                    $0.id == providerID
+                }) else { return }
+                self.draftProviderSet.providers[index].isEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    func selectProvider(_ providerID: UUID) {
+        guard draftProviderSet.providers.contains(where: { $0.id == providerID }) else { return }
+        selectedProviderID = providerID
+        status = .idle
+    }
+
+    func makePrimary(_ providerID: UUID) {
+        guard draftProviderSet.providers.contains(where: { $0.id == providerID }) else { return }
+        draftProviderSet.primaryProviderID = providerID
+        draftDidChange()
+    }
+
+    func addProvider() {
+        var provider = AIRemoteProviderConfiguration(
+            displayName: String(localized: "ai_custom_provider_name"),
+            baseURL: "https://api.openai.com/v1",
+            isEnabled: true
+        )
+        while draftProviderSet.providers.contains(where: { $0.id == provider.id }) {
+            provider.id = UUID()
+        }
+        draftProviderSet.providers.append(provider)
+        selectedProviderID = provider.id
+        selectedProviderPreset = .custom
+        draftDidChange(clearModels: true)
+    }
+
+    func moveProvider(_ providerID: UUID, offset: Int) {
+        guard let source = draftProviderSet.providers.firstIndex(where: {
+            $0.id == providerID
+        }) else { return }
+        let destination = source + offset
+        guard draftProviderSet.providers.indices.contains(destination) else { return }
+        let provider = draftProviderSet.providers.remove(at: source)
+        draftProviderSet.providers.insert(provider, at: destination)
+        draftDidChange()
+    }
+
+    func removeSelectedProvider(using intelligence: MusicIntelligenceService) async {
+        guard draftProviderSet.providers.count > 1,
+              let index = draftProviderSet.providers.firstIndex(where: {
+                  $0.id == selectedProviderID
+              }) else { return }
+        let provider = draftProviderSet.providers[index]
+        isWorking = true
+        status = .idle
+        do {
+            try await intelligence.deleteAPIKey(configuration: provider)
+            draftProviderSet.providers.remove(at: index)
+            providerPresets[provider.id] = nil
+            apiKeyDrafts[provider.id] = nil
+            storedAPIKeyScopes[provider.id] = nil
+            availableModelsByProvider[provider.id] = nil
+            if draftProviderSet.primaryProviderID == provider.id {
+                draftProviderSet.primaryProviderID = draftProviderSet.providers[0].id
+            }
+            selectedProviderID = draftProviderSet.providers[
+                min(index, draftProviderSet.providers.count - 1)
+            ].id
+            draftDidChange(clearModels: true)
+        } catch {
+            status = .failed(Self.message(for: error), .settings)
+        }
+        isWorking = false
     }
 
     func applyProviderPreset(_ preset: AIProviderPreset) {
@@ -173,26 +335,37 @@ final class AISettingsEditorModel {
     }
 
     func save(using intelligence: MusicIntelligenceService) async {
-        let configuration = draftConfiguration
+        let providerSet = draftProviderSet
+        let semanticSearchEnabled = semanticSearchEnabled
         let explicitConsent = consent
-        let apiKey = apiKeyDraft
+        let apiKeys = apiKeyDrafts
         let operationGeneration = draftGeneration
         isWorking = true
         status = .idle
         do {
             try await intelligence.save(
-                configuration: configuration,
+                providerSet: providerSet,
+                semanticSearchEnabled: semanticSearchEnabled,
                 hasExplicitRemoteConsent: explicitConsent,
-                apiKey: apiKey.isEmpty ? nil : apiKey
+                apiKeys: apiKeys
             )
-            let storedAPIKey = await intelligence.hasStoredAPIKey(configuration: configuration)
+            var savedScopes: [UUID: String] = [:]
+            for provider in providerSet.providers {
+                if await intelligence.hasStoredAPIKey(configuration: provider),
+                   let scope = Self.credentialScope(for: provider) {
+                    savedScopes[provider.id] = scope
+                }
+            }
             guard canApplyCompletion(operationGeneration) else {
                 isWorking = false
                 return
             }
-            hasStoredAPIKey = storedAPIKey
-            storedAPIKeyScope = storedAPIKey ? Self.credentialScope(for: configuration) : nil
-            apiKeyDraft = ""
+            draftProviderSet = intelligence.settingsStore.providerSet
+            storedAPIKeyScopes = savedScopes
+            apiKeyDrafts = [:]
+            savedProviderSet = draftProviderSet
+            savedSemanticSearchEnabled = semanticSearchEnabled
+            savedConsent = consent
             status = .saved
         } catch {
             if canApplyCompletion(operationGeneration) {
@@ -237,8 +410,7 @@ final class AISettingsEditorModel {
                 isWorking = false
                 return
             }
-            hasStoredAPIKey = false
-            storedAPIKeyScope = nil
+            storedAPIKeyScopes[configuration.id] = nil
             availableModels = []
         } catch {
             if canApplyCompletion(operationGeneration) {
@@ -317,6 +489,7 @@ final class AISettingsEditorModel {
 struct AISettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
+    @State private var showsRemoveProviderConfirmation = false
 
     var body: some View {
         Form {
@@ -339,6 +512,7 @@ struct AISettingsView: View {
             } else {
                 connectionSummary
                 capabilitySection
+                providerListSection
                 providerSection
                 modelSection
                 privacySection
@@ -350,6 +524,16 @@ struct AISettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task { await editor.load(using: intelligence) }
+        .confirmationDialog(
+            "ai_remove_provider_confirm",
+            isPresented: $showsRemoveProviderConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("ai_remove_provider", role: .destructive) {
+                Task { await editor.removeSelectedProvider(using: intelligence) }
+            }
+            Button("cancel", role: .cancel) {}
+        }
     }
 
     private var connectionSummary: some View {
@@ -368,9 +552,7 @@ struct AISettingsView: View {
                          ? String(localized: "ai_provider_default_name")
                          : editor.draftConfiguration.displayName)
                         .font(.headline)
-                    Text(verbatim: String(localized: editor.hasUsableAPIKey
-                         ? "ai_connection_ready"
-                         : "ai_connection_needs_key"))
+                    Text(verbatim: connectionSummaryText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -387,10 +569,72 @@ struct AISettingsView: View {
         Section {
             Toggle(
                 "ai_enable_semantic_search",
-                isOn: editor.configurationBinding(\.isEnabled)
+                isOn: editor.semanticSearchBinding
             )
         } footer: {
             Text("ai_enable_semantic_search_footer")
+        }
+    }
+
+    private var providerListSection: some View {
+        Section {
+            ForEach(editor.draftProviderSet.providers) { provider in
+                HStack(spacing: 12) {
+                    Button {
+                        editor.selectProvider(provider.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: provider.id == editor.selectedProviderID
+                                  ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(provider.id == editor.selectedProviderID
+                                                 ? Color.accentColor : Color.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(provider.displayName.isEmpty
+                                     ? String(localized: "ai_provider_default_name")
+                                     : provider.displayName)
+                                    .foregroundStyle(.primary)
+                                Text(provider.baseURL)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                    if provider.id == editor.draftProviderSet.primaryProviderID {
+                        Text("ai_primary_provider")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    Toggle("", isOn: editor.providerEnabledBinding(provider.id))
+                        .labelsHidden()
+                }
+                .aiProviderPrimaryAction(
+                    isPrimary: provider.id == editor.draftProviderSet.primaryProviderID
+                ) {
+                    editor.makePrimary(provider.id)
+                }
+            }
+
+            Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
+
+            HStack {
+                Button("ai_add_provider", systemImage: "plus") {
+                    editor.addProvider()
+                }
+                Spacer()
+                if editor.selectedProviderID != editor.draftProviderSet.primaryProviderID {
+                    Button("ai_set_primary") {
+                        editor.makePrimary(editor.selectedProviderID)
+                    }
+                }
+            }
+        } header: {
+            Text("ai_provider_list_section")
+        } footer: {
+            Text("ai_fallback_footer")
         }
     }
 
@@ -479,7 +723,7 @@ struct AISettingsView: View {
                 }
             }
         } header: {
-            Text("ai_connection_section")
+            Text("ai_provider_detail_section")
         } footer: {
             Text("ai_provider_footer")
         }
@@ -549,7 +793,7 @@ struct AISettingsView: View {
                 Task { await editor.save(using: intelligence) }
             } label: {
                 HStack {
-                    Label("save", systemImage: "square.and.arrow.down")
+                    Label("ai_save_changes", systemImage: "square.and.arrow.down")
                     if editor.isWorking {
                         Spacer()
                         ProgressView()
@@ -572,7 +816,16 @@ struct AISettingsView: View {
                 .disabled(editor.isWorking || editor.isFetchingModels)
             }
 
+            if editor.draftProviderSet.providers.count > 1 {
+                Button("ai_remove_provider", role: .destructive) {
+                    showsRemoveProviderConfirmation = true
+                }
+                .disabled(editor.isWorking || editor.isFetchingModels)
+            }
+
             statusView(onlyModelStatus: false)
+        } footer: {
+            Text("ai_key_sync_footer")
         }
     }
 
@@ -605,6 +858,41 @@ struct AISettingsView: View {
         default:
             EmptyView()
         }
+    }
+
+    private var connectionSummaryText: String {
+        switch editor.status {
+        case .saved:
+            return String(localized: "ai_settings_saved")
+        case .connectionSucceeded:
+            return String(localized: "ai_connection_success")
+        case .failed(let message, _):
+            return message
+        default:
+            return String(
+                format: String(localized: "ai_provider_count_format"),
+                editor.draftProviderSet.providers.count
+            )
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func aiProviderPrimaryAction(
+        isPrimary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        #if os(tvOS)
+        self
+        #else
+        swipeActions(edge: .leading) {
+            if !isPrimary {
+                Button("ai_set_primary", action: action)
+                    .tint(.accentColor)
+            }
+        }
+        #endif
     }
 }
 

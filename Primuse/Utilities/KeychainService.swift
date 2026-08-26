@@ -156,8 +156,6 @@ enum KeychainService {
     }
 
     /// Persists secrets that must never be synchronized to another device.
-    /// AI API keys use this path because a provider profile may describe a
-    /// private endpoint whose credential must remain device-local.
     @discardableResult
     static func setLocalOnlyPassword(_ password: String, for account: String) -> Bool {
         let status = persistPasswordItem(

@@ -75,6 +75,43 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertNil(object["audio"])
     }
 
+    func testLyricsTranslationPreservesLineIdentityAndUsesGenerationEndpoint() async throws {
+        let host = "intelligence-lyrics.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"translations\":[{\"id\":\"line-1\",\"text\":\"回家的路\"},{\"id\":\"line-2\",\"text\":\"雨夜\"}]}"}"#
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+
+        let translations = try await provider.translateLyrics(
+            [
+                LyricTranslationCandidate(
+                    id: "line-1",
+                    text: "The road home",
+                    sourceLanguageCode: "en"
+                ),
+                LyricTranslationCandidate(
+                    id: "line-2",
+                    text: "Rainy night",
+                    sourceLanguageCode: "en"
+                ),
+            ],
+            targetLanguageCode: "zh-Hans"
+        )
+
+        XCTAssertEqual(translations["line-1"], "回家的路")
+        XCTAssertEqual(translations["line-2"], "雨夜")
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.path, "/v1/responses")
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["model"] as? String, "test-generation-model")
+        XCTAssertEqual(object["max_output_tokens"] as? Int, 4_000)
+        XCTAssertTrue((object["input"] as? String)?.contains("line-1") == true)
+    }
+
     func testChatCompletionsResponseIsSupportedThroughTheSameInterface() async throws {
         let host = "intelligence-chat.invalid"
         IntelligenceURLProtocol.configure(
@@ -509,6 +546,41 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             )
         }
         XCTAssertEqual(store.configuration, original)
+    }
+
+    @MainActor
+    func testSettingsPersistMultipleProvidersPrimaryAndFallbackOrder() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let first = AIRemoteProviderConfiguration(
+            displayName: "First",
+            baseURL: "https://first.invalid/v1",
+            generationModel: "first-model",
+            isEnabled: true
+        )
+        let second = AIRemoteProviderConfiguration(
+            displayName: "Second",
+            baseURL: "https://second.invalid/v1",
+            generationModel: "second-model",
+            isEnabled: true
+        )
+        let store = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        try store.save(
+            providerSet: AIRemoteProviderSet(
+                providers: [first, second],
+                primaryProviderID: second.id,
+                fallbackEnabled: true
+            ),
+            semanticSearchEnabled: true,
+            hasExplicitRemoteConsent: true
+        )
+
+        let reloaded = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        XCTAssertEqual(reloaded.providerSet.routedProviders.map(\.id), [second.id, first.id])
+        XCTAssertTrue(reloaded.providerSet.fallbackEnabled)
+        XCTAssertTrue(reloaded.semanticSearchEnabled)
+        XCTAssertTrue(reloaded.hasExplicitRemoteConsent)
     }
 
     @MainActor

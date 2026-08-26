@@ -6,28 +6,71 @@ import StoreKit
 @MainActor
 @Observable
 final class AISettingsStore {
-    private struct PersistedSettings: Codable {
+    private struct PersistedSettingsV2: Codable {
+        var schemaVersion: Int
+        var providerSet: AIRemoteProviderSet
+        var semanticSearchEnabled: Bool
+        var hasExplicitRemoteConsent: Bool
+    }
+
+    private struct PersistedSettingsV1: Codable {
         var schemaVersion: Int
         var configuration: AIRemoteProviderConfiguration
         var hasExplicitRemoteConsent: Bool
     }
 
-    private static let storageKey = "ai.settings.v1"
+    static let storageKey = "ai.settings.v1"
     private let defaults: UserDefaults
+    private let syncsThroughICloud: Bool
 
-    private(set) var configuration: AIRemoteProviderConfiguration
+    private(set) var providerSet: AIRemoteProviderSet
+    private(set) var semanticSearchEnabled: Bool
     private(set) var hasExplicitRemoteConsent: Bool
 
-    init(defaults: UserDefaults = .standard) {
+    var configuration: AIRemoteProviderConfiguration {
+        providerSet.primaryProvider
+    }
+
+    init(
+        defaults: UserDefaults = .standard,
+        syncsThroughICloud: Bool? = nil
+    ) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.storageKey),
-           let persisted = try? JSONDecoder().decode(PersistedSettings.self, from: data),
-           persisted.schemaVersion == 1 {
-            configuration = persisted.configuration
-            hasExplicitRemoteConsent = persisted.hasExplicitRemoteConsent
-        } else {
-            configuration = AIRemoteProviderConfiguration()
-            hasExplicitRemoteConsent = false
+        self.syncsThroughICloud = syncsThroughICloud ?? (defaults === UserDefaults.standard)
+        let loaded = Self.decodeSettings(from: defaults.data(forKey: Self.storageKey))
+        providerSet = loaded.providerSet
+        semanticSearchEnabled = loaded.semanticSearchEnabled
+        hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
+
+        if self.syncsThroughICloud {
+            CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
+                self?.reloadFromDefaults()
+            }
+        }
+    }
+
+    func save(
+        providerSet: AIRemoteProviderSet,
+        semanticSearchEnabled: Bool,
+        hasExplicitRemoteConsent: Bool
+    ) throws {
+        let normalized = providerSet.normalized()
+        for provider in normalized.providers where provider.isEnabled {
+            _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
+        }
+        let persisted = PersistedSettingsV2(
+            schemaVersion: 2,
+            providerSet: normalized,
+            semanticSearchEnabled: semanticSearchEnabled,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        let data = try JSONEncoder().encode(persisted)
+        defaults.set(data, forKey: Self.storageKey)
+        self.providerSet = normalized
+        self.semanticSearchEnabled = semanticSearchEnabled
+        self.hasExplicitRemoteConsent = hasExplicitRemoteConsent
+        if syncsThroughICloud {
+            CloudKVSSync.shared.markChanged(key: Self.storageKey)
         }
     }
 
@@ -35,16 +78,57 @@ final class AISettingsStore {
         configuration: AIRemoteProviderConfiguration,
         hasExplicitRemoteConsent: Bool
     ) throws {
-        _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: configuration)
-        let persisted = PersistedSettings(
-            schemaVersion: 1,
-            configuration: configuration,
+        try save(
+            providerSet: AIRemoteProviderSet(
+                providers: [configuration],
+                primaryProviderID: configuration.id,
+                fallbackEnabled: false
+            ),
+            semanticSearchEnabled: configuration.isEnabled,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent
         )
-        let data = try JSONEncoder().encode(persisted)
-        defaults.set(data, forKey: Self.storageKey)
-        self.configuration = configuration
-        self.hasExplicitRemoteConsent = hasExplicitRemoteConsent
+    }
+
+    private func reloadFromDefaults() {
+        let loaded = Self.decodeSettings(from: defaults.data(forKey: Self.storageKey))
+        providerSet = loaded.providerSet
+        semanticSearchEnabled = loaded.semanticSearchEnabled
+        hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
+    }
+
+    private static func decodeSettings(
+        from data: Data?
+    ) -> (
+        providerSet: AIRemoteProviderSet,
+        semanticSearchEnabled: Bool,
+        hasExplicitRemoteConsent: Bool
+    ) {
+        if let data,
+           let persisted = try? JSONDecoder().decode(PersistedSettingsV2.self, from: data),
+           persisted.schemaVersion == 2 {
+            return (
+                persisted.providerSet.normalized(),
+                persisted.semanticSearchEnabled,
+                persisted.hasExplicitRemoteConsent
+            )
+        }
+        if let data,
+           let persisted = try? JSONDecoder().decode(PersistedSettingsV1.self, from: data),
+           persisted.schemaVersion == 1 {
+            var provider = persisted.configuration
+            let semanticSearchEnabled = provider.isEnabled
+            provider.isEnabled = true
+            return (
+                AIRemoteProviderSet(
+                    providers: [provider],
+                    primaryProviderID: provider.id,
+                    fallbackEnabled: false
+                ),
+                semanticSearchEnabled,
+                persisted.hasExplicitRemoteConsent
+            )
+        }
+        return (AIRemoteProviderSet(), false, false)
     }
 }
 

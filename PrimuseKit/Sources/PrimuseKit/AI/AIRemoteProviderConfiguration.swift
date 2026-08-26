@@ -258,6 +258,64 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     }
 }
 
+/// Ordered remote-provider profiles. The primary profile is attempted first;
+/// when fallback is enabled, the remaining enabled profiles are tried in list
+/// order. Keeping routing data separate from secrets lets the same profile list
+/// roam through iCloud while API keys remain protected by iCloud Keychain.
+public struct AIRemoteProviderSet: Codable, Equatable, Sendable {
+    public var providers: [AIRemoteProviderConfiguration]
+    public var primaryProviderID: UUID
+    public var fallbackEnabled: Bool
+
+    public init(
+        providers: [AIRemoteProviderConfiguration] = [],
+        primaryProviderID: UUID? = nil,
+        fallbackEnabled: Bool = true
+    ) {
+        var normalizedProviders: [AIRemoteProviderConfiguration] = []
+        var seen = Set<UUID>()
+        for provider in providers where seen.insert(provider.id).inserted {
+            normalizedProviders.append(provider)
+        }
+        if normalizedProviders.isEmpty {
+            var provider = AIRemoteProviderConfiguration()
+            provider.isEnabled = true
+            normalizedProviders = [provider]
+        }
+        self.providers = normalizedProviders
+        self.primaryProviderID = normalizedProviders.contains {
+            $0.id == primaryProviderID
+        } ? primaryProviderID! : normalizedProviders[0].id
+        self.fallbackEnabled = fallbackEnabled
+    }
+
+    public var primaryProvider: AIRemoteProviderConfiguration {
+        providers.first { $0.id == primaryProviderID } ?? providers[0]
+    }
+
+    public var routedProviders: [AIRemoteProviderConfiguration] {
+        guard fallbackEnabled else {
+            return primaryProvider.isEnabled ? [primaryProvider] : []
+        }
+        var result: [AIRemoteProviderConfiguration] = []
+        if primaryProvider.isEnabled {
+            result.append(primaryProvider)
+        }
+        result.append(contentsOf: providers.filter {
+            $0.id != primaryProviderID && $0.isEnabled
+        })
+        return result
+    }
+
+    public func normalized() -> AIRemoteProviderSet {
+        AIRemoteProviderSet(
+            providers: providers,
+            primaryProviderID: primaryProviderID,
+            fallbackEnabled: fallbackEnabled
+        )
+    }
+}
+
 public enum AIRemoteEndpointValidationError: Error, Equatable, Sendable {
     case invalidURL
     case unsupportedScheme
@@ -505,6 +563,6 @@ public enum AICredentialStoragePolicy {
     }
 
     public static func isEligibleForICloudMigration(account: String) -> Bool {
-        !account.hasPrefix(accountNamespace)
+        true
     }
 }

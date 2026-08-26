@@ -528,6 +528,7 @@ targets:
       - path: Primuse/Services/Cloud/CloudKitRuntime.swift
       - path: Primuse/Services/Cloud/LibrarySnapshotSync.swift
       - path: Primuse/Services/Cloud/CloudSyncChannel.swift
+      - path: Primuse/Services/Cloud/CloudKVSSync.swift
       - path: Primuse/Services/AI/AISettingsStore.swift
       - path: Primuse/Services/AI/AICredentialStore.swift
       - path: Primuse/Services/AI/MusicIntelligenceService.swift

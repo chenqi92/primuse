@@ -19,6 +19,19 @@ struct LyricsTranslationSettingsView: View {
             }
 
             if settings.isEnabled {
+                Section {
+                    Picker("lyrics_translation_mode", selection: $settings.mode) {
+                        Text("lyrics_translation_mode_system")
+                            .tag(LyricsTranslationMode.system)
+                        Text("lyrics_translation_mode_intelligent")
+                            .tag(LyricsTranslationMode.intelligentWithSystemFallback)
+                    }
+                } footer: {
+                    Text(settings.mode == .system
+                         ? "lyrics_translation_mode_system_footer"
+                         : "lyrics_translation_mode_intelligent_footer")
+                }
+
                 Section("lyrics_translation_target_language") {
                     Picker("lyrics_translation_target", selection: $settings.targetLanguageCode) {
                         ForEach(

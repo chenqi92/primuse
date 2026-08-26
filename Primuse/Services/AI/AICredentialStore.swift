@@ -31,7 +31,7 @@ actor AICredentialStore: AICredentialStoring {
         } catch {
             return .notConfigured
         }
-        switch KeychainService.localOnlyPasswordLookup(for: scopedAccount) {
+        switch KeychainService.passwordLookup(for: scopedAccount) {
         case .found(let value):
             return .ready(value)
         case .notFound:
@@ -73,7 +73,7 @@ actor AICredentialStore: AICredentialStoring {
             }
             return false
         }
-        guard KeychainService.setLocalOnlyPassword(value, for: account) else {
+        guard KeychainService.setPassword(value, for: account) else {
             throw AICredentialStoreError.persistenceFailed
         }
         guard Self.deleteAccounts(legacyAccounts) else {
@@ -102,9 +102,9 @@ actor AICredentialStore: AICredentialStoring {
         }
 
         for legacyAccount in legacyAccounts {
-            switch KeychainService.localOnlyPasswordLookup(for: legacyAccount) {
+            switch KeychainService.passwordLookup(for: legacyAccount) {
             case .found(let value):
-                guard KeychainService.setLocalOnlyPassword(value, for: scopedAccount) else {
+                guard KeychainService.setPassword(value, for: scopedAccount) else {
                     return .failed(errSecInternalError)
                 }
                 guard Self.deleteAccounts(legacyAccounts) else {

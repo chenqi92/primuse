@@ -4199,6 +4199,13 @@ private struct LyricsScaleEnvelopeLayout: Layout {
 ///
 /// 通过把 currentLineIndex 等内部状态封装在子 view 里,行切换只让本 view 重算,
 /// 父 view 的 Menu / sheet 不受影响。
+private enum LyricsTranslationActivity: Equatable {
+    case idle
+    case intelligentLoading
+    case intelligentSuccess(provider: String, fallbackDepth: Int)
+    case systemFallback
+}
+
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
     let lyricsRevision: UInt
@@ -4247,6 +4254,7 @@ struct LyricsScrollView: View {
     // 启用状态触发批量翻译。
     @State private var translatedTextByLineID: [String: String] = [:]
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
+    @State private var translationActivity: LyricsTranslationActivity = .idle
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
@@ -4314,6 +4322,11 @@ struct LyricsScrollView: View {
                 lineLevelLyricsView
             }
         }
+        .overlay(alignment: .topTrailing) {
+            translationStatusBadge
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+        }
         .task(id: playbackFollowTaskIdentity) {
             guard hasSynchronizedLyrics else {
                 currentLineIndex = -1
@@ -4361,7 +4374,8 @@ struct LyricsScrollView: View {
             lyricsRevision: lyricsRevision,
             lyrics: lyrics,
             settings: translationSettings,
-            translatedTextByLineID: $translatedTextByLineID
+            translatedTextByLineID: $translatedTextByLineID,
+            activity: $translationActivity
         )
         .contentShape(Rectangle())
         .simultaneousGesture(
@@ -4379,6 +4393,32 @@ struct LyricsScrollView: View {
                     }
                 }
         )
+    }
+
+    @ViewBuilder
+    private var translationStatusBadge: some View {
+        switch translationActivity {
+        case .idle:
+            EmptyView()
+        case .intelligentLoading:
+            Label("lyrics_translation_ai_loading", systemImage: "sparkles")
+                .lyricsTranslationStatusBadgeStyle()
+        case .intelligentSuccess(let provider, let fallbackDepth):
+            Label(
+                String(
+                    format: String(localized: fallbackDepth > 0
+                                   ? "lyrics_translation_ai_fallback_success_format"
+                                   : "lyrics_translation_ai_success_format"),
+                    provider.isEmpty ? String(localized: "ai_provider_default_name") : provider
+                ),
+                systemImage: fallbackDepth > 0
+                    ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
+            )
+            .lyricsTranslationStatusBadgeStyle()
+        case .systemFallback:
+            Label("lyrics_translation_ai_system_fallback", systemImage: "arrow.uturn.backward.circle")
+                .lyricsTranslationStatusBadgeStyle()
+        }
     }
 
     private var emptyLyricsView: some View {
@@ -5123,13 +5163,21 @@ struct LyricsScrollView: View {
 }
 
 private extension View {
+    func lyricsTranslationStatusBadgeStyle() -> some View {
+        font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+    }
+
     @ViewBuilder
     func lyricsTranslationTaskIfAvailable(
         songID: String?,
         lyricsRevision: UInt,
         lyrics: [LyricLine],
         settings: LyricsTranslationSettingsStore,
-        translatedTextByLineID: Binding<[String: String]>
+        translatedTextByLineID: Binding<[String: String]>,
+        activity: Binding<LyricsTranslationActivity>
     ) -> some View {
         if #available(iOS 18.0, *) {
             modifier(
@@ -5138,7 +5186,8 @@ private extension View {
                     lyricsRevision: lyricsRevision,
                     lyrics: lyrics,
                     settings: settings,
-                    translatedTextByLineID: translatedTextByLineID
+                    translatedTextByLineID: translatedTextByLineID,
+                    activity: activity
                 )
             )
         } else {
@@ -5149,11 +5198,13 @@ private extension View {
 
 @available(iOS 18.0, *)
 private struct LyricsTranslationTaskModifier: ViewModifier {
+    @Environment(MusicIntelligenceService.self) private var intelligence
     let songID: String?
     let lyricsRevision: UInt
     let lyrics: [LyricLine]
     let settings: LyricsTranslationSettingsStore
     @Binding var translatedTextByLineID: [String: String]
+    @Binding var activity: LyricsTranslationActivity
 
     @State private var translationConfig: TranslationSession.Configuration?
     @State private var preparedGroups: [LyricTranslationGroup] = []
@@ -5165,6 +5216,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         let lyricsRevision: UInt
         let isEnabled: Bool
         let targetLanguageCode: String
+        let mode: LyricsTranslationMode
     }
 
     private var translationTaskIdentity: TranslationTaskIdentity {
@@ -5174,7 +5226,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             isEnabled: settings.isEnabled,
             targetLanguageCode: LyricsTranslationSettingsStore.normalizedLanguageCode(
                 settings.targetLanguageCode
-            )
+            ),
+            mode: settings.mode
         )
     }
 
@@ -5197,6 +5250,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         activeGroupIndex = 0
         preparedIdentity = nil
         translatedTextByLineID = [:]
+        activity = .idle
 
         guard identity.isEnabled, !lyrics.isEmpty else { return }
 
@@ -5246,6 +5300,38 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             }
         }
 
+        translatedTextByLineID = hits
+        guard !uncachedGroups.isEmpty else { return }
+
+        if identity.mode == .intelligentWithSystemFallback {
+            activity = .intelligentLoading
+            let pendingCandidates = uncachedGroups.flatMap(\.candidates)
+            if let execution = await intelligence.translateLyrics(
+                pendingCandidates,
+                targetLanguageCode: identity.targetLanguageCode
+            ), !Task.isCancelled, translationTaskIdentity == identity {
+                var cachePairs: [(source: String, sourceLang: String?, translated: String)] = []
+                for group in uncachedGroups {
+                    for candidate in group.candidates {
+                        guard let translated = execution.translations[candidate.id] else { continue }
+                        cachePairs.append((candidate.text, group.sourceLanguageCode, translated))
+                    }
+                }
+                LyricsTranslationCache.shared.bulkSet(
+                    cachePairs,
+                    targetLang: identity.targetLanguageCode
+                )
+                translatedTextByLineID.merge(execution.translations) { _, new in new }
+                activity = .intelligentSuccess(
+                    provider: execution.providerName,
+                    fallbackDepth: execution.fallbackDepth
+                )
+                return
+            }
+            guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+            activity = .systemFallback
+        }
+
         let target = Locale.Language(identifier: identity.targetLanguageCode)
         var installedGroups: [LyricTranslationGroup] = []
         var downloadableGroups: [LyricTranslationGroup] = []
@@ -5279,7 +5365,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
-        translatedTextByLineID = hits
+        translatedTextByLineID.merge(hits) { _, new in new }
         let availableGroups = LyricTranslationGroupingPolicy.automaticSessionGroups(
             installed: installedGroups,
             downloadable: downloadableGroups

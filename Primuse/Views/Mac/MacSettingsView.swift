@@ -640,6 +640,7 @@ private struct MacAIModelField: View {
 private struct MacSTIntelligenceView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
+    @State private var showsRemoveProviderConfirmation = false
 
     var body: some View {
         Group {
@@ -677,13 +678,15 @@ private struct MacSTIntelligenceView: View {
                         String(localized: "ai_enable_semantic_search"),
                         divider: false
                     ) {
-                        MacSTToggle(isOn: editor.configurationBinding(\.isEnabled))
+                        MacSTToggle(isOn: editor.semanticSearchBinding)
                     }
                 }
             }
 
+            providerListSection
+
             MacSTSection(
-                String(localized: "ai_connection_section"),
+                String(localized: "ai_provider_detail_section"),
                 hint: String(localized: "ai_provider_footer")
             ) {
                 MacSTGroup {
@@ -895,7 +898,7 @@ private struct MacSTIntelligenceView: View {
                             }
                             .disabled(!editor.canTestConnection)
                             MacSTButton(
-                                title: String(localized: "save"),
+                                title: String(localized: "ai_save_changes"),
                                 systemImage: "square.and.arrow.down",
                                 prominent: true
                             ) {
@@ -904,11 +907,106 @@ private struct MacSTIntelligenceView: View {
                             .disabled(editor.isWorking || editor.isFetchingModels)
                         }
                     }
+                    MacSTRow(
+                        String(localized: "ai_save_status"),
+                        hint: String(localized: "ai_key_sync_footer"),
+                        divider: false
+                    ) {
+                        Label(actionStatusText, systemImage: actionStatusIcon)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(actionStatusColor)
+                    }
                 }
             }
             }
         }
         .task { await editor.load(using: intelligence) }
+        .confirmationDialog(
+            String(localized: "ai_remove_provider_confirm"),
+            isPresented: $showsRemoveProviderConfirmation
+        ) {
+            Button(String(localized: "ai_remove_provider"), role: .destructive) {
+                Task { await editor.removeSelectedProvider(using: intelligence) }
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+    }
+
+    private var providerListSection: some View {
+        MacSTSection(
+            String(localized: "ai_provider_list_section"),
+            hint: String(localized: "ai_fallback_footer")
+        ) {
+            MacSTGroup {
+                ForEach(Array(editor.draftProviderSet.providers.enumerated()), id: \.element.id) {
+                    index, provider in
+                    MacSTRow(
+                        provider.displayName.isEmpty
+                            ? String(localized: "ai_provider_default_name")
+                            : provider.displayName,
+                        hint: provider.baseURL,
+                        divider: index < editor.draftProviderSet.providers.count - 1
+                    ) {
+                        HStack(spacing: 8) {
+                            if provider.id == editor.draftProviderSet.primaryProviderID {
+                                MacSTBadge(text: String(localized: "ai_primary_provider"))
+                            }
+                            MacSTToggle(isOn: editor.providerEnabledBinding(provider.id))
+                            MacSTButton(
+                                title: String(localized: provider.id == editor.selectedProviderID
+                                              ? "ai_provider_editing" : "ai_edit_provider")
+                            ) {
+                                editor.selectProvider(provider.id)
+                            }
+                            Menu {
+                                if provider.id != editor.draftProviderSet.primaryProviderID {
+                                    Button(String(localized: "ai_set_primary")) {
+                                        editor.makePrimary(provider.id)
+                                    }
+                                }
+                                Button(String(localized: "ai_move_up")) {
+                                    editor.moveProvider(provider.id, offset: -1)
+                                }
+                                .disabled(index == 0)
+                                Button(String(localized: "ai_move_down")) {
+                                    editor.moveProvider(provider.id, offset: 1)
+                                }
+                                .disabled(index == editor.draftProviderSet.providers.count - 1)
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .frame(width: 24, height: 22)
+                                    .foregroundStyle(PMColor.textMuted)
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(.plain)
+                            .menuIndicator(.hidden)
+                        }
+                    }
+                }
+                MacSTRow(String(localized: "ai_fallback_enabled")) {
+                    MacSTToggle(isOn: editor.fallbackBinding)
+                }
+                MacSTRow(String(localized: "ai_provider_actions"), divider: false) {
+                    HStack(spacing: 8) {
+                        if editor.draftProviderSet.providers.count > 1 {
+                            MacSTButton(
+                                title: String(localized: "ai_remove_provider"),
+                                destructive: true
+                            ) {
+                                showsRemoveProviderConfirmation = true
+                            }
+                        }
+                        MacSTButton(
+                            title: String(localized: "ai_add_provider"),
+                            systemImage: "plus",
+                            prominent: true
+                        ) {
+                            editor.addProvider()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var statusCard: some View {
@@ -969,8 +1067,10 @@ private struct MacSTIntelligenceView: View {
         case .failed(let message, _):
             return message
         case .idle:
-            return String(localized: editor.hasUsableAPIKey
-                          ? "ai_connection_ready" : "ai_connection_needs_key")
+            return String(
+                format: String(localized: "ai_provider_count_format"),
+                editor.draftProviderSet.providers.count
+            )
         }
     }
 
@@ -995,6 +1095,48 @@ private struct MacSTIntelligenceView: View {
                 format: String(localized: "ai_models_loaded_format"),
                 editor.availableModels.count
             )
+        }
+    }
+
+    private var actionStatusText: String {
+        switch editor.status {
+        case .saved:
+            return String(localized: "ai_settings_saved")
+        case .connectionSucceeded:
+            return String(localized: "ai_connection_success")
+        case .modelsLoaded(let count):
+            return String(format: String(localized: "ai_models_loaded_format"), count)
+        case .modelsEmpty:
+            return String(localized: "ai_models_empty")
+        case .failed(let message, _):
+            return message
+        case .idle:
+            return String(localized: editor.hasUnsavedChanges
+                          ? "ai_changes_not_saved" : "ai_settings_unchanged")
+        }
+    }
+
+    private var actionStatusIcon: String {
+        switch editor.status {
+        case .saved, .connectionSucceeded, .modelsLoaded:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .modelsEmpty:
+            return "info.circle"
+        case .idle:
+            return editor.hasUnsavedChanges ? "circle.dotted" : "checkmark.circle"
+        }
+    }
+
+    private var actionStatusColor: Color {
+        switch editor.status {
+        case .saved, .connectionSucceeded, .modelsLoaded:
+            return PMColor.ok
+        case .failed:
+            return PMColor.bad
+        default:
+            return PMColor.textMuted
         }
     }
 }
@@ -2631,6 +2773,24 @@ private struct MacSTLyricsView: View {
                         get: { settings.isEnabled },
                         set: { settings.isEnabled = $0 }
                     ))
+                }
+                MacSTRow(String(localized: "lyrics_translation_mode")) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { settings.mode.rawValue },
+                            set: { settings.mode = LyricsTranslationMode(rawValue: $0) ?? .system }
+                        ),
+                        options: [
+                            (
+                                LyricsTranslationMode.system.rawValue,
+                                String(localized: "lyrics_translation_mode_system")
+                            ),
+                            (
+                                LyricsTranslationMode.intelligentWithSystemFallback.rawValue,
+                                String(localized: "lyrics_translation_mode_intelligent")
+                            ),
+                        ]
+                    )
                 }
                 MacSTRow(Lz("Target Language")) {
                     MacSTPicker(

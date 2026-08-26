@@ -24,6 +24,16 @@ private struct SemanticLibrarySearchResult: Identifiable, Sendable {
     var id: String { song.id }
 }
 
+private enum SemanticSearchFeedback: Equatable {
+    case idle
+    case loading
+    case success(provider: String, resultCount: Int, fallbackDepth: Int)
+    case noMatches(provider: String, fallbackDepth: Int)
+    case failed
+
+    var isVisible: Bool { self != .idle }
+}
+
 private struct SearchLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
     let onRevisionChange: () -> Void
@@ -60,6 +70,7 @@ struct SearchView: View {
     /// 跳到结果。
     @State private var isSearching: Bool = false
     @State private var isIntelligenceSearching: Bool = false
+    @State private var semanticSearchFeedback: SemanticSearchFeedback = .idle
     /// 当前已经渲染的结果对应的 query。如果它与 searchText 不一致, 说明
     /// 屏幕上还是上一轮的旧结果, ContentUnavailableView 不该出来。
     @State private var renderedQuery: String = ""
@@ -162,7 +173,7 @@ struct SearchView: View {
                         && matchingAlbums.isEmpty
                         && visibleSemanticResults.isEmpty
                         && appleMusic.searchResults.isEmpty
-                        && !isIntelligenceSearching {
+                        && !semanticSearchFeedback.isVisible {
                 if isSearching || renderedQuery != searchText {
                     searchingPlaceholder
                 } else {
@@ -275,7 +286,7 @@ struct SearchView: View {
                     && matchingAlbums.isEmpty
                     && visibleSemanticResults.isEmpty
                     && appleMusic.searchResults.isEmpty
-                    && !isIntelligenceSearching {
+                    && !semanticSearchFeedback.isVisible {
             if isSearching || renderedQuery != searchText {
                 macSearchingPlaceholder
             } else {
@@ -578,22 +589,15 @@ struct SearchView: View {
     @ViewBuilder
     private var macSemanticSection: some View {
         let results = Array(visibleSemanticResults.prefix(6))
-        if isIntelligenceSearching || !results.isEmpty {
+        if semanticSearchFeedback.isVisible || !results.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                     macSectionLabel("search_ai_section")
                 }
-                if isIntelligenceSearching {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("search_ai_loading")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(PMColor.textMuted)
-                    }
+                semanticFeedbackRow
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                }
                 ForEach(results) { result in
                     macSemanticResultRow(result)
                         .songSelectable(
@@ -865,6 +869,50 @@ struct SearchView: View {
 
     #endif
 
+    @ViewBuilder
+    private var semanticFeedbackRow: some View {
+        switch semanticSearchFeedback {
+        case .idle:
+            EmptyView()
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("search_ai_loading")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .success(let provider, let resultCount, let fallbackDepth):
+            Label(
+                String(
+                    format: String(localized: fallbackDepth > 0
+                                   ? "search_ai_success_fallback_format"
+                                   : "search_ai_success_format"),
+                    provider.isEmpty ? String(localized: "ai_provider_default_name") : provider,
+                    resultCount
+                ),
+                systemImage: fallbackDepth > 0 ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.green)
+        case .noMatches(let provider, let fallbackDepth):
+            Label(
+                String(
+                    format: String(localized: fallbackDepth > 0
+                                   ? "search_ai_no_matches_fallback_format"
+                                   : "search_ai_no_matches_format"),
+                    provider.isEmpty ? String(localized: "ai_provider_default_name") : provider
+                ),
+                systemImage: "sparkles"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        case .failed:
+            Label("search_ai_failed", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+    }
+
     private func formatSearchTime(_ t: TimeInterval) -> String {
         guard t.isFinite, t >= 0 else { return "0:00" }
         let total = Int(t)
@@ -1061,16 +1109,9 @@ struct SearchView: View {
     @ViewBuilder
     private var semanticSongSection: some View {
         let results = Array(visibleSemanticResults.prefix(40))
-        if isIntelligenceSearching || !results.isEmpty {
+        if semanticSearchFeedback.isVisible || !results.isEmpty {
             Section {
-                if isIntelligenceSearching {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("search_ai_loading")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                semanticFeedbackRow
                 ForEach(results) { result in
                     VStack(alignment: .leading, spacing: 3) {
                         SongRowView(
@@ -1152,6 +1193,7 @@ struct SearchView: View {
             semanticResults = []
             isSearching = false
             isIntelligenceSearching = false
+            semanticSearchFeedback = .idle
             renderedQuery = ""
             intelligenceRenderedQuery = ""
             return
@@ -1261,10 +1303,12 @@ struct SearchView: View {
             semanticResults = []
             intelligenceRenderedQuery = query
             isIntelligenceSearching = false
+            semanticSearchFeedback = .idle
             return
         }
 
         isIntelligenceSearching = true
+        semanticSearchFeedback = .loading
         workCoordinator.intelligenceTask = Task {
             defer {
                 if generation == workCoordinator.generation {
@@ -1277,23 +1321,41 @@ struct SearchView: View {
             } catch {
                 return
             }
-            guard !Task.isCancelled,
-                  generation == workCoordinator.generation,
-                  let plan = await intelligence.semanticSearchPlan(for: query) else {
-                if generation == workCoordinator.generation, !Task.isCancelled {
-                    semanticResults = []
-                    intelligenceRenderedQuery = query
-                }
-                return
-            }
-
-            let results = await semanticLibraryMatches(
-                plan: plan,
-                songsSnapshot: songsSnapshot,
-                metadataRevisionKey: metadataRevisionKey
-            )
             guard !Task.isCancelled, generation == workCoordinator.generation else { return }
-            semanticResults = results
+            let outcome = await intelligence.semanticSearchOutcome(for: query)
+            guard !Task.isCancelled, generation == workCoordinator.generation else { return }
+            switch outcome {
+            case .unavailable:
+                semanticResults = []
+                semanticSearchFeedback = .idle
+            case .failed:
+                semanticResults = []
+                semanticSearchFeedback = .failed
+            case .empty(let providerName, let fallbackDepth):
+                semanticResults = []
+                semanticSearchFeedback = .noMatches(
+                    provider: providerName,
+                    fallbackDepth: fallbackDepth
+                )
+            case .success(let execution):
+                let results = await semanticLibraryMatches(
+                    plan: execution.plan,
+                    songsSnapshot: songsSnapshot,
+                    metadataRevisionKey: metadataRevisionKey
+                )
+                guard !Task.isCancelled, generation == workCoordinator.generation else { return }
+                semanticResults = results
+                semanticSearchFeedback = results.isEmpty
+                    ? .noMatches(
+                        provider: execution.providerName,
+                        fallbackDepth: execution.fallbackDepth
+                    )
+                    : .success(
+                        provider: execution.providerName,
+                        resultCount: results.count,
+                        fallbackDepth: execution.fallbackDepth
+                    )
+            }
             intelligenceRenderedQuery = query
         }
     }

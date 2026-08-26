@@ -541,17 +541,44 @@ struct AIRemoteEndpointPolicyTests {
         #expect(AIProviderPreset.matching(configuration: anthropic) == .anthropic)
     }
 
-    @Test func deviceOnlyAICredentialsAreExcludedFromICloudMigration() {
+    @Test func AICredentialsAreEligibleForICloudKeychainMigration() {
         let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
-        #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
+        #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
             account: AICredentialStoragePolicy.legacyAccount(profileID: profileID)
         ))
-        #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
+        #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
             account: "ai.provider.future-device-only-secret"
         ))
         #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
             account: "source.connection.example"
         ))
+    }
+
+    @Test func providerSetRoutesPrimaryThenEnabledFallbacks() {
+        let primary = AIRemoteProviderConfiguration(
+            displayName: "Primary",
+            isEnabled: true
+        )
+        let disabled = AIRemoteProviderConfiguration(
+            displayName: "Disabled",
+            isEnabled: false
+        )
+        let fallback = AIRemoteProviderConfiguration(
+            displayName: "Fallback",
+            isEnabled: true
+        )
+        let providers = AIRemoteProviderSet(
+            providers: [disabled, fallback, primary],
+            primaryProviderID: primary.id,
+            fallbackEnabled: true
+        )
+
+        #expect(providers.routedProviders.map(\.id) == [primary.id, fallback.id])
+        #expect(AIRemoteProviderSet(
+            providers: providers.providers,
+            primaryProviderID: primary.id,
+            fallbackEnabled: false
+        ).routedProviders.map(\.id) == [primary.id])
     }
 }
 

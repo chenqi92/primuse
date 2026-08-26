@@ -2,6 +2,14 @@
 import PrimuseKit
 import SwiftUI
 
+private enum TVSemanticSearchFeedback: Equatable {
+    case idle
+    case loading
+    case success(provider: String, fallbackDepth: Int)
+    case noMatches(provider: String, fallbackDepth: Int)
+    case failed
+}
+
 /// tvOS 搜索 — 左列查询框 + 建议(常驻),右列实时结果(含歌词级匹配)。对应 TVSearchArtboard。
 struct TVSearchView: View {
     @Environment(TVStore.self) private var store
@@ -12,6 +20,7 @@ struct TVSearchView: View {
     @State private var query: String = ""
     @State private var results: (top: TVArtist?, songs: [TVStore.TVSearchHit]) = (nil, [])
     @State private var isSemanticSearching = false
+    @State private var semanticFeedback: TVSemanticSearchFeedback = .idle
     @FocusState private var inputActive: Bool
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
@@ -31,6 +40,7 @@ struct TVSearchView: View {
             results = store.searchHits(q)
             if q.trimmingCharacters(in: .whitespaces).isEmpty {
                 isSemanticSearching = false
+                semanticFeedback = .idle
             }
         }
         .task(id: trimmed) {
@@ -110,6 +120,8 @@ struct TVSearchView: View {
                     Text(PMString("ext.tv.search.aiLoading"))
                         .font(.system(size: 15))
                         .foregroundStyle(TVColor.textFaint)
+                } else {
+                    semanticStatusLabel
                 }
             }
             .padding(.bottom, 16)
@@ -151,9 +163,11 @@ struct TVSearchView: View {
     private func updateSemanticResults(for requestedQuery: String) async {
         guard !requestedQuery.isEmpty else {
             isSemanticSearching = false
+            semanticFeedback = .idle
             return
         }
         isSemanticSearching = intelligence.isSemanticSearchConfigured
+        semanticFeedback = intelligence.isSemanticSearchConfigured ? .loading : .idle
         guard intelligence.isSemanticSearchConfigured else { return }
         do {
             try await Task.sleep(for: .milliseconds(400))
@@ -161,16 +175,70 @@ struct TVSearchView: View {
             finishSemanticSearch(for: requestedQuery)
             return
         }
-        guard !Task.isCancelled,
-              let plan = await intelligence.semanticSearchPlan(for: requestedQuery),
-              !Task.isCancelled else {
+        guard !Task.isCancelled else {
             finishSemanticSearch(for: requestedQuery)
             return
         }
+        let outcome = await intelligence.semanticSearchOutcome(for: requestedQuery)
+        guard !Task.isCancelled else { return }
         guard trimmed == requestedQuery else { return }
-        let concepts = AISemanticLibraryAggregationPolicy.concepts(from: plan)
-        results = store.searchHits(requestedQuery, relatedConcepts: concepts)
+        switch outcome {
+        case .unavailable:
+            semanticFeedback = .idle
+        case .failed:
+            semanticFeedback = .failed
+        case .empty(let providerName, let fallbackDepth):
+            semanticFeedback = .noMatches(provider: providerName, fallbackDepth: fallbackDepth)
+        case .success(let execution):
+            let concepts = AISemanticLibraryAggregationPolicy.concepts(from: execution.plan)
+            results = store.searchHits(requestedQuery, relatedConcepts: concepts)
+            let hasSemanticMatches = results.songs.contains { $0.relatedConcept != nil }
+            semanticFeedback = hasSemanticMatches
+                ? .success(
+                    provider: execution.providerName,
+                    fallbackDepth: execution.fallbackDepth
+                )
+                : .noMatches(
+                    provider: execution.providerName,
+                    fallbackDepth: execution.fallbackDepth
+                )
+        }
         finishSemanticSearch(for: requestedQuery)
+    }
+
+    @ViewBuilder
+    private var semanticStatusLabel: some View {
+        switch semanticFeedback {
+        case .idle, .loading:
+            EmptyView()
+        case .success(let provider, let fallbackDepth):
+            Label(
+                PMString(
+                    fallbackDepth > 0
+                        ? "ext.tv.search.aiSuccessFallback" : "ext.tv.search.aiSuccess",
+                    provider.isEmpty ? PMString("ai_provider_default_name") : provider
+                ),
+                systemImage: fallbackDepth > 0
+                    ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
+            )
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(TVColor.brand)
+        case .noMatches(let provider, let fallbackDepth):
+            Label(
+                PMString(
+                    fallbackDepth > 0
+                        ? "ext.tv.search.aiNoMatchFallback" : "ext.tv.search.aiNoMatch",
+                    provider.isEmpty ? PMString("ai_provider_default_name") : provider
+                ),
+                systemImage: "sparkles"
+            )
+            .font(.system(size: 15))
+            .foregroundStyle(TVColor.textFaint)
+        case .failed:
+            Label(PMString("ext.tv.search.aiFailed"), systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.orange)
+        }
     }
 
     @MainActor

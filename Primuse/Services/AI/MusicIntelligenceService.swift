@@ -2,6 +2,26 @@ import Foundation
 import Observation
 import PrimuseKit
 
+struct AISemanticSearchExecution: Sendable {
+    var plan: AISemanticSearchPlan
+    var providerID: UUID
+    var providerName: String
+    var fallbackDepth: Int
+}
+
+enum AISemanticSearchOutcome: Sendable {
+    case unavailable
+    case success(AISemanticSearchExecution)
+    case empty(providerName: String, fallbackDepth: Int)
+    case failed
+}
+
+struct AILyricsTranslationExecution: Sendable {
+    var translations: [String: String]
+    var providerName: String
+    var fallbackDepth: Int
+}
+
 @MainActor
 @Observable
 final class MusicIntelligenceService {
@@ -54,77 +74,156 @@ final class MusicIntelligenceService {
     }
 
     var isSemanticSearchConfigured: Bool {
-        let configuration = settingsStore.configuration
         let decision = regionAvailability.remoteProviderDecision
-        return configuration.isEnabled
-            && !configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return settingsStore.semanticSearchEnabled
+            && settingsStore.providerSet.routedProviders.contains {
+                !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
             && settingsStore.hasExplicitRemoteConsent
             && decision.isAllowed
             && (!decision.requiresExplicitConsent || settingsStore.hasExplicitRemoteConsent)
     }
 
     func semanticSearchPlan(for query: String) async -> AISemanticSearchPlan? {
-        let configuration = settingsStore.configuration
+        guard case .success(let execution) = await semanticSearchOutcome(for: query) else {
+            return nil
+        }
+        return execution.plan
+    }
+
+    func semanticSearchOutcome(for query: String) async -> AISemanticSearchOutcome {
         let consent = settingsStore.hasExplicitRemoteConsent
         let regionSnapshot = regionAvailability.snapshot
         let region = regionSnapshot.context
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isSemanticSearchConfigured, !trimmedQuery.isEmpty else { return nil }
+        guard isSemanticSearchConfigured, !trimmedQuery.isEmpty else { return .unavailable }
 
         let languageCode = Locale.current.language.languageCode?.identifier ?? ""
-        let cacheKey = SemanticPlanCacheKey(
-            profileID: configuration.id,
-            baseURL: configuration.baseURL,
-            model: configuration.generationModel,
-            apiStyle: configuration.apiStyle,
-            apiPathMode: configuration.apiPathMode,
-            authenticationStyle: configuration.authenticationStyle,
-            query: trimmedQuery.folding(
-                options: [.caseInsensitive, .diacriticInsensitive],
-                locale: .current
-            ),
-            languageCode: languageCode,
-            regionRevision: regionSnapshot.revision
-        )
         let now = ProcessInfo.processInfo.systemUptime
-        if let cached = semanticPlanCache[cacheKey],
-           now - cached.createdAt <= Self.semanticPlanCacheLifetime {
-            return cached.plan
+        let providers = settingsStore.providerSet.routedProviders.filter {
+            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-
-        do {
+        var lastEmptyProvider: (name: String, fallbackDepth: Int)?
+        for (fallbackDepth, configuration) in providers.enumerated() {
             guard AIRegionRequestPolicy.canSendRemoteRequest(
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot
-            ) else { return nil }
-            let plan = try await engine.interpretSearch(
-                AISemanticSearchRequest(
-                    query: trimmedQuery,
-                    languageCode: languageCode.isEmpty ? nil : languageCode
+            ) else { return .failed }
+            let cacheKey = SemanticPlanCacheKey(
+                profileID: configuration.id,
+                baseURL: configuration.baseURL,
+                model: configuration.generationModel,
+                apiStyle: configuration.apiStyle,
+                apiPathMode: configuration.apiPathMode,
+                authenticationStyle: configuration.authenticationStyle,
+                query: trimmedQuery.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: .current
                 ),
-                configuration: configuration,
-                regionContext: region,
-                hasExplicitRemoteConsent: consent,
-                requestAuthorization: regionAuthorization(for: regionSnapshot)
+                languageCode: languageCode,
+                regionRevision: regionSnapshot.revision
             )
-            guard AIRegionRequestPolicy.canCommitRemoteResponse(
-                captured: regionSnapshot,
-                latest: regionAvailability.snapshot
-            ) else { return nil }
-            guard !plan.expandedTerms.isEmpty || !plan.themes.isEmpty || !plan.moods.isEmpty else {
-                return nil
+            if let cached = semanticPlanCache[cacheKey],
+               now - cached.createdAt <= Self.semanticPlanCacheLifetime {
+                return .success(AISemanticSearchExecution(
+                    plan: cached.plan,
+                    providerID: configuration.id,
+                    providerName: configuration.displayName,
+                    fallbackDepth: fallbackDepth
+                ))
             }
-            semanticPlanCache[cacheKey] = SemanticPlanCacheEntry(plan: plan, createdAt: now)
-            if semanticPlanCache.count > Self.semanticPlanCacheLimit,
-               let oldestKey = semanticPlanCache.min(by: {
-                   $0.value.createdAt < $1.value.createdAt
-               })?.key {
-                semanticPlanCache[oldestKey] = nil
+
+            do {
+                let plan = try await engine.interpretSearch(
+                    AISemanticSearchRequest(
+                        query: trimmedQuery,
+                        languageCode: languageCode.isEmpty ? nil : languageCode
+                    ),
+                    configuration: configuration,
+                    regionContext: region,
+                    hasExplicitRemoteConsent: consent,
+                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                )
+                guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot
+                ) else { return .failed }
+                guard !plan.expandedTerms.isEmpty || !plan.themes.isEmpty || !plan.moods.isEmpty else {
+                    lastEmptyProvider = (configuration.displayName, fallbackDepth)
+                    continue
+                }
+                semanticPlanCache[cacheKey] = SemanticPlanCacheEntry(plan: plan, createdAt: now)
+                if semanticPlanCache.count > Self.semanticPlanCacheLimit,
+                   let oldestKey = semanticPlanCache.min(by: {
+                       $0.value.createdAt < $1.value.createdAt
+                   })?.key {
+                    semanticPlanCache[oldestKey] = nil
+                }
+                return .success(AISemanticSearchExecution(
+                    plan: plan,
+                    providerID: configuration.id,
+                    providerName: configuration.displayName,
+                    fallbackDepth: fallbackDepth
+                ))
+            } catch is CancellationError {
+                return .failed
+            } catch {
+                continue
             }
-            return plan
-        } catch {
-            return nil
         }
+        if let lastEmptyProvider {
+            return .empty(
+                providerName: lastEmptyProvider.name,
+                fallbackDepth: lastEmptyProvider.fallbackDepth
+            )
+        }
+        return .failed
+    }
+
+    func translateLyrics(
+        _ candidates: [LyricTranslationCandidate],
+        targetLanguageCode: String
+    ) async -> AILyricsTranslationExecution? {
+        let regionSnapshot = regionAvailability.snapshot
+        let consent = settingsStore.hasExplicitRemoteConsent
+        let decision = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: regionSnapshot.context
+        )
+        guard decision.isAllowed,
+              consent,
+              !candidates.isEmpty else { return nil }
+
+        for (fallbackDepth, configuration) in settingsStore.providerSet.routedProviders.enumerated() {
+            guard !configuration.generationModel
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  AIRegionRequestPolicy.canSendRemoteRequest(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot
+                  ) else { continue }
+            do {
+                let translations = try await engine.translateLyrics(
+                    candidates,
+                    targetLanguageCode: targetLanguageCode,
+                    configuration: configuration,
+                    requestAuthorization: regionAuthorization(for: regionSnapshot)
+                )
+                guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot
+                ), !translations.isEmpty else { continue }
+                return AILyricsTranslationExecution(
+                    translations: translations,
+                    providerName: configuration.displayName,
+                    fallbackDepth: fallbackDepth
+                )
+            } catch is CancellationError {
+                return nil
+            } catch {
+                continue
+            }
+        }
+        return nil
     }
 
     func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
@@ -153,6 +252,38 @@ final class MusicIntelligenceService {
         }
         try settingsStore.save(
             configuration: configuration,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        semanticPlanCache.removeAll(keepingCapacity: true)
+    }
+
+    func save(
+        providerSet: AIRemoteProviderSet,
+        semanticSearchEnabled: Bool,
+        hasExplicitRemoteConsent: Bool,
+        apiKeys: [UUID: String]
+    ) async throws {
+        let decision = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: regionAvailability.context
+        )
+        guard decision.isAllowed else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
+        let normalized = providerSet.normalized()
+        for provider in normalized.providers where provider.isEnabled {
+            _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
+        }
+        for provider in normalized.providers {
+            guard let apiKey = apiKeys[provider.id],
+                  !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            _ = try await credentialStore.saveAPIKey(apiKey, configuration: provider)
+        }
+        try settingsStore.save(
+            providerSet: normalized,
+            semanticSearchEnabled: semanticSearchEnabled,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
@@ -307,6 +438,31 @@ private actor MusicIntelligenceEngine {
         )
         return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.listModels()
+        }
+    }
+
+    func translateLyrics(
+        _ candidates: [LyricTranslationCandidate],
+        targetLanguageCode: String,
+        configuration: AIRemoteProviderConfiguration,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> [String: String] {
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: configuration.requestTimeout) {
+            try await provider.translateLyrics(
+                candidates,
+                targetLanguageCode: targetLanguageCode
+            )
         }
     }
 
