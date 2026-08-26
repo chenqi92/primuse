@@ -963,6 +963,7 @@ struct PrimuseApp: App {
     @State private var visualizer: AudioVisualizerService
     @State private var duplicateCleanup: DuplicateCleanupService
     @State private var batchRemoval: SongBatchRemovalService
+    @State private var serverListeningStats: ServerListeningStatsService
     @State private var musicIntelligence: MusicIntelligenceService
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
@@ -1005,6 +1006,7 @@ struct PrimuseApp: App {
         _visualizer = State(initialValue: services.visualizer)
         _duplicateCleanup = State(initialValue: services.duplicateCleanup)
         _batchRemoval = State(initialValue: services.batchRemoval)
+        _serverListeningStats = State(initialValue: services.serverListeningStats)
         _musicIntelligence = State(initialValue: services.musicIntelligence)
     }
 
@@ -1046,6 +1048,7 @@ struct PrimuseApp: App {
             .environment(visualizer)
             .environment(duplicateCleanup)
             .environment(batchRemoval)
+            .environment(serverListeningStats)
             .environment(musicIntelligence)
         return injected.tint(themeService.uiAccentColor)
     }

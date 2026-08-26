@@ -33,6 +33,7 @@ final class AppServices {
     let duplicateCleanup: DuplicateCleanupService
     let batchRemoval: SongBatchRemovalService
     let serverFavoriteSync: ServerFavoriteSyncService
+    let serverListeningStats: ServerListeningStatsService
     let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
@@ -127,6 +128,7 @@ final class AppServices {
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
         self.serverFavoriteSync = favoriteSync
+        self.serverListeningStats = ServerListeningStatsService(sourceManager: manager)
         let theme = ThemeService()
         // 启动时同时恢复固定回退色、主题色来源与封面氛围偏好。
         #if os(iOS)
