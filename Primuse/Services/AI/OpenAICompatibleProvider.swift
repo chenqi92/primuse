@@ -287,7 +287,11 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             )
         }
 
-        let data = try await postJSON(body, to: endpoint, apiKey: apiKey)
+        let data = try await postJSON(
+            applyingProviderSpecificGenerationControls(to: body),
+            to: endpoint,
+            apiKey: apiKey
+        )
         guard let output = Self.extractText(from: data, style: configuration.apiStyle),
               let plan = Self.decodeSearchPlan(from: output) else {
             throw OpenAICompatibleProviderError.invalidResponse
@@ -693,11 +697,42 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                 maximumTokens: maximumTokens
             )
         }
-        let data = try await postJSON(body, to: endpoint, apiKey: try await requiredAPIKey())
+        let data = try await postJSON(
+            applyingProviderSpecificGenerationControls(to: body),
+            to: endpoint,
+            apiKey: try await requiredAPIKey()
+        )
         guard let output = Self.extractText(from: data, style: configuration.apiStyle) else {
             throw OpenAICompatibleProviderError.invalidResponse
         }
         return output
+    }
+
+    private func applyingProviderSpecificGenerationControls(
+        to body: [String: Any]
+    ) -> [String: Any] {
+        guard let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
+            configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        ), baseURL.host?.lowercased() == "api.deepseek.com" else {
+            return body
+        }
+
+        // Primuse generation calls require a compact final JSON object and do
+        // not consume chain-of-thought. DeepSeek V4 enables thinking by
+        // default, which can exhaust the bounded output budget before content
+        // is emitted, so official DeepSeek endpoints explicitly request the
+        // documented non-thinking mode for these structured operations.
+        var controlledBody = body
+        switch configuration.apiStyle {
+        case .chatCompletions:
+            controlledBody["thinking"] = ["type": "disabled"]
+        case .responses, .anthropicMessages:
+            controlledBody["reasoning"] = ["effort": "none"]
+        case .geminiGenerateContent:
+            break
+        }
+        return controlledBody
     }
 
     private func postJSON(

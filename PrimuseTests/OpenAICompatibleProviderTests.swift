@@ -469,6 +469,121 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "anthropic-version"))
     }
 
+    func testOfficialDeepSeekRecommendationDisablesThinking() async throws {
+        let host = "api.deepseek.com"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"choices":[{"message":{"content":"{\"summary\":\"A calm sequence\",\"recommendations\":[{\"id\":\"c0\",\"reason\":\"gentle pacing\"}]}"}}]}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIProviderPreset.deepSeekOpenAI.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "deepseek-test-key",
+            session: session
+        )
+
+        let plan = try await provider.recommendations(AIRecommendationRequest(
+            scene: .bedtime,
+            preferences: [],
+            candidates: [
+                AIRecommendationCandidate(
+                    songID: "local-song-id",
+                    title: "Quiet Night",
+                    artist: "Test Artist"
+                )
+            ]
+        ))
+
+        XCTAssertEqual(plan.selections.map(\.songID), ["local-song-id"])
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let thinking = try XCTUnwrap(object["thinking"] as? [String: Any])
+        XCTAssertEqual(thinking["type"] as? String, "disabled")
+    }
+
+    func testOfficialDeepSeekResponsesDisablesReasoning() async throws {
+        let host = "api.deepseek.com"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"translations\":[{\"id\":\"line-1\",\"text\":\"安静的夜晚\"}]}"}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://api.deepseek.com/v1",
+                apiStyle: .responses,
+                apiPathMode: .asEntered,
+                generationModel: "deepseek-v4-flash",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "deepseek-test-key",
+            session: session
+        )
+
+        let translations = try await provider.translateLyrics(
+            [
+                LyricTranslationCandidate(
+                    id: "line-1",
+                    text: "Quiet night",
+                    sourceLanguageCode: "en"
+                )
+            ],
+            targetLanguageCode: "zh-Hans"
+        )
+
+        XCTAssertEqual(translations["line-1"], "安静的夜晚")
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let reasoning = try XCTUnwrap(object["reasoning"] as? [String: Any])
+        XCTAssertEqual(reasoning["effort"] as? String, "none")
+    }
+
+    func testOfficialDeepSeekAnthropicDisablesReasoning() async throws {
+        let host = "api.deepseek.com"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"content":[{"type":"text","text":"{\"expanded_terms\":[\"calm\"],\"themes\":[],\"moods\":[\"quiet\"]}"}]}"#
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIProviderPreset.deepSeekAnthropic.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "deepseek-test-key",
+            session: session
+        )
+
+        let plan = try await provider.interpretSearch(
+            AISemanticSearchRequest(query: "quiet music")
+        )
+
+        XCTAssertEqual(plan.expandedTerms, ["calm"])
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let reasoning = try XCTUnwrap(object["reasoning"] as? [String: Any])
+        XCTAssertEqual(reasoning["effort"] as? String, "none")
+    }
+
     func testDeepSeekAnthropicUsesNativeAuthenticationForMessages() async throws {
         let host = "deepseek-anthropic-messages.invalid"
         IntelligenceURLProtocol.configure(
