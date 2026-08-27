@@ -24,5 +24,6 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(playback.snapshotLimit < background.snapshotLimit)
         #expect(playback.interRequestDelay > background.interRequestDelay)
         #expect(playback.flushInterval >= background.flushInterval)
+        #expect(playback.snapshotPassLimit == 1)
     }
 }

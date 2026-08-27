@@ -1,6 +1,20 @@
 import Foundation
 import PrimuseKit
 
+enum SynologyQueryURLBuilder {
+    /// `URLComponents` leaves a literal plus sign in query values. DSM's CGI
+    /// layer applies form-style decoding and treats that byte as a space, so a
+    /// real path such as `A + B.flac` points at a different file and returns
+    /// 404. Preserve the value as `%2B` for every Synology GET endpoint.
+    static func url(from components: URLComponents) -> URL? {
+        var encoded = components
+        if let query = encoded.percentEncodedQuery {
+            encoded.percentEncodedQuery = query.replacingOccurrences(of: "+", with: "%2B")
+        }
+        return encoded.url
+    }
+}
+
 actor SynologyAPI {
     private let host: String
     private let port: Int
@@ -307,7 +321,9 @@ actor SynologyAPI {
             URLQueryItem(name: "mode", value: "download"),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        guard let url = components.url else { throw SynologyError.invalidURL }
+        guard let url = SynologyQueryURLBuilder.url(from: components) else {
+            throw SynologyError.invalidURL
+        }
 
         let (data, response) = try await TrustedHTTPTransport.data(from: url, session: sharedSession)
         try validateDownloadResponse(data: data, response: response)
@@ -327,7 +343,9 @@ actor SynologyAPI {
             URLQueryItem(name: "mode", value: "download"),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        guard let url = components.url else { throw SynologyError.invalidURL }
+        guard let url = SynologyQueryURLBuilder.url(from: components) else {
+            throw SynologyError.invalidURL
+        }
 
         var request = URLRequest(url: url)
         request.setValue("bytes=0-\(maxBytes - 1)", forHTTPHeaderField: "Range")
@@ -359,7 +377,9 @@ actor SynologyAPI {
             URLQueryItem(name: "mode", value: "download"),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        guard let url = components.url else { throw SynologyError.invalidURL }
+        guard let url = SynologyQueryURLBuilder.url(from: components) else {
+            throw SynologyError.invalidURL
+        }
 
         var request = URLRequest(url: url)
         let end = offset.addingReportingOverflow(Int64(length - 1))
@@ -430,7 +450,7 @@ actor SynologyAPI {
             URLQueryItem(name: "size", value: size),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        return components.url
+        return SynologyQueryURLBuilder.url(from: components)
     }
 
     // MARK: - Upload file (for sidecar writing)
@@ -488,7 +508,9 @@ actor SynologyAPI {
         let baseURL = try await resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [URLQueryItem(name: "_sid", value: sid)]
-        guard let url = components.url else { throw SynologyError.invalidURL }
+        guard let url = SynologyQueryURLBuilder.url(from: components) else {
+            throw SynologyError.invalidURL
+        }
 
         var uploadRequest = URLRequest(url: url)
         uploadRequest.httpMethod = "POST"
@@ -732,7 +754,9 @@ actor SynologyAPI {
         } else {
             var components = URLComponents(string: "\(baseURL)\(path)")!
             components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
-            guard let url = components.url else { throw SynologyError.invalidURL }
+            guard let url = SynologyQueryURLBuilder.url(from: components) else {
+                throw SynologyError.invalidURL
+            }
             var req = URLRequest(url: url)
             req.timeoutInterval = 15
             urlRequest = req

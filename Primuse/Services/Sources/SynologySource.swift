@@ -258,7 +258,9 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             URLQueryItem(name: "mode", value: "download"),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        guard let url = components.url else { throw SynologyError.invalidURL }
+        guard let url = SynologyQueryURLBuilder.url(from: components) else {
+            throw SynologyError.invalidURL
+        }
         return url
     }
 

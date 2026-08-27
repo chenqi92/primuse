@@ -678,6 +678,11 @@
 "reread_song_tags_completed" = "Les tags du fichier ont été relus.";
 "reread_song_tags_unsupported" = "Cette source ne fournit pas les tags du fichier d’origine.";
 "reread_song_tags_failed" = "Impossible de lire les tags du fichier. Vérifiez la source ou le format.";
+"reread_song_tags_failed_detail_format" = "Impossible de lire les tags de « %1$@ » (format : %2$@, source : %3$@) : %4$@";
+"reread_song_tags_failure_no_supported_metadata" = "Le fichier est lisible, mais ce format ne contient aucun tag intégré pris en charge.";
+"reread_song_tags_failure_song_changed" = "Le morceau ou sa source a changé pendant la lecture des tags.";
+"reread_song_tags_failure_cancelled" = "La lecture des tags a été annulée avant la fin.";
+"reread_song_tags_failure_no_update" = "Le fichier a été lu, mais aucun tag utilisable n’a été obtenu.";
 "song_details_check_source" = "Vérifier la source";
 "song_details_source_available" = "La source est accessible. Une nouvelle lecture a été programmée.";
 "song_details_source_unavailable" = "La source est toujours indisponible. Vérifiez le réseau, la connexion et le chemin du fichier.";

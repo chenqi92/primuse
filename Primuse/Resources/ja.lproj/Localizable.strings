@@ -679,6 +679,11 @@
 "reread_song_tags_completed" = "File tags were read again.";
 "reread_song_tags_unsupported" = "This source does not expose the original file tags.";
 "reread_song_tags_failed" = "Unable to read file tags. Check the song source or file format.";
+"reread_song_tags_failed_detail_format" = "Unable to read tags for “%1$@” (format: %2$@, source: %3$@): %4$@";
+"reread_song_tags_failure_no_supported_metadata" = "The file bytes are readable, but no supported embedded tags were found in this format.";
+"reread_song_tags_failure_song_changed" = "The song or its source changed while tags were being read.";
+"reread_song_tags_failure_cancelled" = "The tag read was cancelled before it completed.";
+"reread_song_tags_failure_no_update" = "The file was read, but it did not produce any usable tag update.";
 "song_details_check_source" = "Check source";
 "song_details_source_available" = "The source is reachable. Reading has been scheduled again.";
 "song_details_source_unavailable" = "The source is still unavailable. Check the network, sign-in state, and file path.";

@@ -180,6 +180,7 @@ struct NowPlayingView: View {
     @State private var showsImmersiveEffectPicker = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
+    @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricsRevision: UInt = 0
     @State private var lyricsLoadRevision: UInt = 0
     @State private var isResolvingScrapeTarget = false
@@ -694,6 +695,7 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
                         lyrics: lyrics,
+                        lyricsWritingDirection: lyricsWritingDirection,
                         isSceneActive: isVisualSceneActive,
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
@@ -2345,6 +2347,7 @@ struct NowPlayingView: View {
     private var lyricsFullView: some View {
         LyricsScrollView(
             lyrics: lyrics,
+            lyricsWritingDirection: lyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             player: player,
             songID: player.currentSong?.id,
@@ -2686,10 +2689,11 @@ struct NowPlayingView: View {
     }
 
     private func setLyrics(_ value: [LyricLine]) {
+        lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
         lyrics = value
         lyricsRevision &+= 1
         let wordLevelCount = value.filter { $0.isWordLevel }.count
-        plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(value.first?.syllables?.count ?? -1)")
+        plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) direction=\(String(describing: lyricsWritingDirection)) firstSyllables=\(value.first?.syllables?.count ?? -1)")
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
         // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
         consumePendingLyricsJump(from: value)
@@ -4275,6 +4279,7 @@ private enum LyricsTranslationActivity: Equatable {
 
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
+    let lyricsWritingDirection: LyricWritingDirection
     let lyricsRevision: UInt
     let player: AudioPlayerService
     let songID: String?
@@ -4363,10 +4368,6 @@ struct LyricsScrollView: View {
 
     private var hasSynchronizedLyrics: Bool {
         lyrics.contains { $0.isSynchronized }
-    }
-
-    private var lyricsWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolve(in: lyrics)
     }
 
     private var lyricsAlignment: PlayerLyricsAlignment {

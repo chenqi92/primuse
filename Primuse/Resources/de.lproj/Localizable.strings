@@ -678,6 +678,11 @@
 "reread_song_tags_completed" = "Die Datei-Tags wurden erneut gelesen.";
 "reread_song_tags_unsupported" = "Diese Quelle stellt die ursprünglichen Datei-Tags nicht bereit.";
 "reread_song_tags_failed" = "Datei-Tags konnten nicht gelesen werden. Quelle oder Dateiformat prüfen.";
+"reread_song_tags_failed_detail_format" = "Tags für „%1$@“ konnten nicht gelesen werden (Format: %2$@, Quelle: %3$@): %4$@";
+"reread_song_tags_failure_no_supported_metadata" = "Die Datei ist lesbar, enthält in diesem Format aber keine unterstützten eingebetteten Tags.";
+"reread_song_tags_failure_song_changed" = "Der Song oder seine Quelle wurde während des Lesens geändert.";
+"reread_song_tags_failure_cancelled" = "Das Lesen der Tags wurde vor Abschluss abgebrochen.";
+"reread_song_tags_failure_no_update" = "Die Datei wurde gelesen, lieferte aber keine verwendbare Tag-Aktualisierung.";
 "song_details_check_source" = "Quelle prüfen";
 "song_details_source_available" = "Die Quelle ist erreichbar. Das Einlesen wurde erneut eingeplant.";
 "song_details_source_unavailable" = "Die Quelle ist weiterhin nicht verfügbar. Netzwerk, Anmeldung und Dateipfad prüfen.";

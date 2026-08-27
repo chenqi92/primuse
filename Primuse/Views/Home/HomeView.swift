@@ -185,6 +185,7 @@ struct HomeView: View {
     }
 
     @Environment(AppUpdateChecker.self) private var updateChecker
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showUpdateSheet: Bool = false
@@ -260,6 +261,20 @@ struct HomeView: View {
             }
             .onChange(of: configuredQuickAccessLimit) { _, _ in
                 refreshHomeSnapshot(force: true)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    guard needsHomeRefreshWhenActive else { return }
+                    needsHomeRefreshWhenActive = false
+                    if hasPreparedInitialSnapshot {
+                        scheduleDebouncedHomeRefresh()
+                    } else {
+                        Task { await refreshHomeSnapshotAfterPresentationIfNeeded() }
+                    }
+                } else {
+                    needsHomeRefreshWhenActive = true
+                    refreshCoordinator.cancelAll()
+                }
             }
             .onDisappear {
                 refreshCoordinator.cancelAll()
@@ -363,6 +378,7 @@ struct HomeView: View {
     @State private var homeSnapshot = HomeSnapshot()
     @State private var lastHomeSnapshotSignature: HomeSnapshotSignature?
     @State private var hasPreparedInitialSnapshot = false
+    @State private var needsHomeRefreshWhenActive = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
     // `searchRevision` on *every* upsert batch during a scan, so a large
     // library scan would otherwise fire refreshHomeSnapshot(force:) dozens
@@ -973,6 +989,11 @@ struct HomeView: View {
     /// the previous direct call did — the debounce is what suppresses the
     /// redundant work now.
     private func scheduleDebouncedHomeRefresh() {
+        guard scenePhase == .active else {
+            needsHomeRefreshWhenActive = true
+            refreshCoordinator.cancelAll()
+            return
+        }
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
             try? await Task.sleep(for: Self.homeRefreshDebounce)
@@ -1262,6 +1283,11 @@ struct HomeView: View {
     }
 
     private func refreshHomeSnapshot(force: Bool) {
+        guard scenePhase == .active else {
+            needsHomeRefreshWhenActive = true
+            refreshCoordinator.cancelAll()
+            return
+        }
         let signature = homeSnapshotSignature
         guard force || signature != lastHomeSnapshotSignature else { return }
 

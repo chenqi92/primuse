@@ -9,7 +9,7 @@ enum SingleSongTagReadResult: Sendable, Equatable {
     case completed
     case alreadyReading
     case unsupported
-    case failed
+    case failed(reason: String)
 }
 
 /// Fills in metadata for songs that were added by ConnectorScanner in
@@ -1505,7 +1505,9 @@ final class MetadataBackfillService {
         defer { manuallyReadingSongIDs.remove(songID) }
 
         if backfillableSourceIDs().contains(song.sourceID) {
-            guard reopenInspection(for: songID) else { return .unsupported }
+            guard reopenInspection(for: songID) else {
+                return .failed(reason: String(localized: "reread_song_tags_failure_song_changed"))
+            }
             let outcome = await processOne(song)
             return applySingleSongTagReadOutcome(outcome, original: song)
         }
@@ -1516,7 +1518,9 @@ final class MetadataBackfillService {
             let embedded = await FileMetadataReader.read(from: url)
             guard hasUsableLocalFileMetadata(embedded) else {
                 plog("⚠️ Single-song tag read found no readable audio metadata for '\(song.title)'")
-                return .failed
+                return .failed(
+                    reason: String(localized: "reread_song_tags_failure_no_supported_metadata")
+                )
             }
             let fallbackTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
             let metadata = await metadataService.loadMetadata(
@@ -1528,14 +1532,14 @@ final class MetadataBackfillService {
             guard let live = library.song(id: song.id),
                   live.sourceID == song.sourceID,
                   live.filePath == song.filePath else {
-                return .failed
+                return .failed(reason: String(localized: "reread_song_tags_failure_song_changed"))
             }
             let merged = mergeSong(bare: live, metadata: metadata)
             library.replaceSongs([merged])
             return .completed
         } catch {
             plog("⚠️ Single-song tag read failed for '\(song.title)': \(error.localizedDescription)")
-            return .failed
+            return .failed(reason: error.localizedDescription)
         }
     }
 
@@ -1569,7 +1573,9 @@ final class MetadataBackfillService {
         original song: Song
     ) -> SingleSongTagReadResult {
         let songID = song.id
-        guard !outcome.cancelled else { return .failed }
+        guard !outcome.cancelled else {
+            return .failed(reason: String(localized: "reread_song_tags_failure_cancelled"))
+        }
 
         if outcome.markFailed {
             failedSongIDs.insert(songID)
@@ -1623,7 +1629,11 @@ final class MetadataBackfillService {
         saveInspectionState()
         saveRetryCounts()
         refreshRemainingCounts(force: true)
-        return applied ? .completed : .failed
+        if applied { return .completed }
+        return .failed(
+            reason: outcome.failureReason
+                ?? String(localized: "reread_song_tags_failure_no_update")
+        )
     }
 
     // MARK: - Worker
@@ -2078,6 +2088,10 @@ final class MetadataBackfillService {
         var detailsIncomplete: Bool = false
         /// The path/object could not be read and should be checked at the source.
         var sourceIssue: Bool = false
+        /// Exact failure surfaced by an explicit single-song reread. Automatic
+        /// maintenance keeps this diagnostic in the log, while the user action
+        /// presents it together with file, format, and source identity.
+        var failureReason: String? = nil
         /// The worker generation was cancelled. This is a neutral outcome.
         var cancelled: Bool = false
         /// A bounded header read completed, even if it yielded no replacement
@@ -2236,6 +2250,7 @@ final class MetadataBackfillService {
                 song: nil,
                 markFailed: false,
                 sourceIssue: !transient,
+                failureReason: error.localizedDescription,
                 transientFailure: transient,
                 sourceUnavailable: sourceUnavailable
             )
@@ -2561,6 +2576,9 @@ final class MetadataBackfillService {
                     song: nil,
                     markFailed: false,
                     detailsIncomplete: true,
+                    failureReason: String(
+                        localized: "reread_song_tags_failure_no_supported_metadata"
+                    ),
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted
                 )
@@ -2569,6 +2587,9 @@ final class MetadataBackfillService {
             return BackfillOutcome(
                 song: nil,
                 markFailed: true,
+                failureReason: String(
+                    localized: "reread_song_tags_failure_no_supported_metadata"
+                ),
                 titleInspected: true,
                 artistInspected: artistInspectionCompleted
             )

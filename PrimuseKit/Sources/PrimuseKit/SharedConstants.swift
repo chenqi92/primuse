@@ -2580,7 +2580,8 @@ public enum MetadataBackfillExecutionPolicy {
                 workerCount: 1,
                 snapshotLimit: 8,
                 interRequestDelay: 1.5,
-                flushInterval: 30
+                flushInterval: 30,
+                snapshotPassLimit: 1
             )
         }
     }

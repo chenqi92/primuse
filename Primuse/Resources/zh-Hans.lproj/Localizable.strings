@@ -458,6 +458,11 @@
 "reread_song_tags_completed" = "已重新读取文件标签。";
 "reread_song_tags_unsupported" = "此来源不提供原始文件标签读取。";
 "reread_song_tags_failed" = "无法读取文件标签，请检查歌曲来源或文件格式。";
+"reread_song_tags_failed_detail_format" = "无法读取“%1$@”的文件标签（格式：%2$@，来源：%3$@）：%4$@";
+"reread_song_tags_failure_no_supported_metadata" = "文件字节可读取，但该格式中未找到 Primuse 支持的内嵌标签。";
+"reread_song_tags_failure_song_changed" = "读取期间歌曲或其来源已发生变化。";
+"reread_song_tags_failure_cancelled" = "标签读取在完成前被取消。";
+"reread_song_tags_failure_no_update" = "文件已读取，但没有得到可用的标签更新。";
 "song_details_check_source" = "检查来源";
 "song_details_source_available" = "来源连接正常，已重新安排读取。";
 "song_details_source_unavailable" = "来源仍不可用。请检查网络、登录状态和文件路径。";

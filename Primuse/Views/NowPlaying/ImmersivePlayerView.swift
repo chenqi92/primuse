@@ -10,6 +10,7 @@ import PrimuseKit
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
+    let lyricsWritingDirection: LyricWritingDirection
     let isSceneActive: Bool
     let onDismiss: () -> Void
     let onMinimize: () -> Void
@@ -203,7 +204,7 @@ struct ImmersivePlayerView: View {
             lyricWindow: lyricWindow,
             currentLyric: currentLyricText,
             nextLyric: nextLyricText,
-            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: lyrics),
+            lyricsWritingDirection: lyricsWritingDirection,
             levels: spectrumLevels,
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in
