@@ -673,6 +673,11 @@
 "song_details_parse_failed" = "Titeldetails konnten nicht analysiert werden";
 "song_details_parse_failed_message" = "Dateidaten wurden gelesen, aber der aktuelle Parser konnte keine vollständigen Details bestätigen. Die Wiedergabe bleibt verfügbar.";
 "song_details_retry" = "Erneut lesen";
+"reread_song_tags" = "Datei-Tags erneut lesen";
+"reread_song_tags_in_progress" = "Datei-Tags werden gelesen…";
+"reread_song_tags_completed" = "Die Datei-Tags wurden erneut gelesen.";
+"reread_song_tags_unsupported" = "Diese Quelle stellt die ursprünglichen Datei-Tags nicht bereit.";
+"reread_song_tags_failed" = "Datei-Tags konnten nicht gelesen werden. Quelle oder Dateiformat prüfen.";
 "song_details_check_source" = "Quelle prüfen";
 "song_details_source_available" = "Die Quelle ist erreichbar. Das Einlesen wurde erneut eingeplant.";
 "song_details_source_unavailable" = "Die Quelle ist weiterhin nicht verfügbar. Netzwerk, Anmeldung und Dateipfad prüfen.";

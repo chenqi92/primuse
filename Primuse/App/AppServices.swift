@@ -142,9 +142,21 @@ final class AppServices {
         #endif
         self.themeService = theme
         let scanService = ScanService()
-        let metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager) {
-            Set(store.sources.filter { $0.isEnabled && $0.supportsRangeStreaming }.map(\.id))
-        }
+        let metadataBackfill = MetadataBackfillService(
+            library: library,
+            sourceManager: manager,
+            backfillableSourceIDs: {
+                Set(store.sources.filter {
+                    $0.isEnabled && $0.type.supportsEmbeddedMetadataBackfill
+                }.map(\.id))
+            },
+            manuallyReadableSourceIDs: {
+                Set(store.sources.filter {
+                    $0.isEnabled
+                        && ($0.type.supportsEmbeddedMetadataBackfill || $0.type == .local)
+                }.map(\.id))
+            }
+        )
         scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }

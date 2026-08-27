@@ -47,6 +47,7 @@ struct SongRowView: View {
     @State private var showSimilarSongs = false
     @State private var deleteErrorMessage: String?
     @State private var sourceCheckMessage: String?
+    @State private var tagReadMessage: String?
 
     /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
     /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
@@ -433,6 +434,17 @@ struct SongRowView: View {
         } message: {
             Text(sourceCheckMessage ?? "")
         }
+        .alert(
+            String(localized: "reread_song_tags"),
+            isPresented: Binding(
+                get: { tagReadMessage != nil },
+                set: { if !$0 { tagReadMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(tagReadMessage ?? "")
+        }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
     }
 
@@ -458,17 +470,48 @@ struct SongRowView: View {
 
     @ViewBuilder
     private func metadataRecoveryButtons() -> some View {
-        if showsDetailsStatus, detailsState != .reading {
+        if backfill.canRereadTags(for: song) {
             Button {
-                backfill.retry(songID: song.id)
+                rereadTags()
             } label: {
-                Label(String(localized: "song_details_retry"), systemImage: "arrow.clockwise")
+                Label(
+                    String(localized: backfill.isRereadingTags(songID: song.id)
+                        ? "reread_song_tags_in_progress"
+                        : "reread_song_tags"),
+                    systemImage: "arrow.clockwise"
+                )
             }
+            .disabled(backfill.isRereadingTags(songID: song.id))
+        }
 
+        if showsDetailsStatus, detailsState != .reading {
             Button {
                 checkSource()
             } label: {
                 Label(String(localized: "song_details_check_source"), systemImage: "network")
+            }
+        }
+    }
+
+    private func rereadTags() {
+        Task {
+            let result = await backfill.rereadTags(songID: song.id)
+            switch result {
+            case .completed:
+                CachedArtworkView.invalidateCache(for: song.id)
+                if let coverRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: coverRef)
+                }
+                if let updated = library.song(id: song.id) {
+                    player.syncSongMetadata(updated)
+                }
+                tagReadMessage = String(localized: "reread_song_tags_completed")
+            case .alreadyReading:
+                tagReadMessage = String(localized: "reread_song_tags_in_progress")
+            case .unsupported:
+                tagReadMessage = String(localized: "reread_song_tags_unsupported")
+            case .failed:
+                tagReadMessage = String(localized: "reread_song_tags_failed")
             }
         }
     }

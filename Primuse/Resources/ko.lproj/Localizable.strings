@@ -673,6 +673,11 @@
 "song_details_parse_failed" = "곡 세부 정보 구문 분석 실패";
 "song_details_parse_failed_message" = "파일 바이트를 읽었지만 현재 구문 분석기가 전체 세부 정보를 확인하지 못했습니다. 사용 가능한 재생 경로는 유지됩니다.";
 "song_details_retry" = "다시 읽기";
+"reread_song_tags" = "파일 태그 다시 읽기";
+"reread_song_tags_in_progress" = "파일 태그 읽는 중…";
+"reread_song_tags_completed" = "파일 태그를 다시 읽었습니다.";
+"reread_song_tags_unsupported" = "이 소스는 원본 파일 태그를 제공하지 않습니다.";
+"reread_song_tags_failed" = "파일 태그를 읽을 수 없습니다. 음악 소스나 파일 형식을 확인하세요.";
 "song_details_check_source" = "소스 확인";
 "song_details_source_available" = "소스에 연결할 수 있습니다. 읽기를 다시 예약했습니다.";
 "song_details_source_unavailable" = "소스를 계속 사용할 수 없습니다. 네트워크, 로그인 상태 및 파일 경로를 확인하세요.";

@@ -2,10 +2,90 @@
 import Foundation
 import PrimuseKit
 
+private actor TVResolvedStreamMetadataReader: ByteRangeReader {
+    private let resolved: ResolvedStream
+    private var knownContentLength: Int64?
+
+    init(resolved: ResolvedStream, contentLength: Int64) {
+        self.resolved = resolved
+        self.knownContentLength = contentLength > 0 ? contentLength : nil
+    }
+
+    func contentLength() async throws -> Int64 {
+        if let knownContentLength { return knownContentLength }
+        let (_, total) = try await fetch(offset: 0, length: 2)
+        knownContentLength = total
+        return total
+    }
+
+    func read(offset: Int64, length: Int64) async throws -> Data {
+        guard offset >= 0, length > 0 else { return Data() }
+        let (data, total) = try await fetch(offset: offset, length: length)
+        if let knownContentLength, knownContentLength != total {
+            throw URLError(.badServerResponse)
+        }
+        knownContentLength = total
+        return data
+    }
+
+    private func fetch(offset: Int64, length: Int64) async throws -> (Data, Int64) {
+        guard let range = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return (Data(), knownContentLength ?? 0)
+        }
+        var request = URLRequest(url: resolved.url)
+        for (key, value) in resolved.headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.setValue(range, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        request.timeoutInterval = 25
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 25
+        configuration.timeoutIntervalForResource = 45
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session,
+            maximumBytes: Int(clamping: length)
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        switch http.statusCode {
+        case 206:
+            guard let total = HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (data, total)
+        case 200:
+            guard offset == 0,
+                  HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                    bodyLength: data.count,
+                    requestedOffset: offset,
+                    requestedLength: length
+                  ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (data, Int64(data.count))
+        default:
+            throw StreamResolveError.badServerResponse(http.statusCode)
+        }
+    }
+}
+
 /// 给 TV 本机扫出来的「路径骨架」Song 补真实元数据 —— 时长 / 专辑 / 封面 / 歌词。
 ///
 /// 复用手机端同一套读 tag 的代码(`FileMetadataReader` 已编进 PrimuseTV target),
-/// 经 `SMBByteReader` 按 byte-range 只读文件头(不整文件下载),直接在内存中交给
+/// 经协议直连 reader 或云盘解析后的 HTTP Range 只读元数据区(不整文件下载),直接在内存中交给
 /// `FileMetadataReader.read`。MP3 截断头时长不准时,用目录列举已知的真实 fileSize
 /// 反推(抄手机端 `MetadataBackfillService.correctedDuration` 同款逻辑)。封面写进
 /// `MetadataAssetStore` 的 album 缓存,歌词(嵌入 USLT / 同目录 .lrc)写进 song 缓存。
@@ -15,6 +95,8 @@ enum TVMetadataEnricher {
 
     /// 容器格式的元数据(尤其 duration)可能在文件尾部,需 head+tail 拼读。
     private static let tailFormats: Set<String> = ["m4a", "mp4", "m4b", "alac", "aac", "m4v", "mov"]
+    private static let apeTailTagFormats: Set<String> = ["ape", "wv", "mpc", "tta"]
+    private static let id3ContainerTailFormats: Set<String> = ["dff", "aiff", "aif", "wav"]
 
     /// 读真实 tag 并合并进 `song`,带单文件超时(默认 25s)。任何失败 / 超时都原样返回
     /// 路径骨架,绝不让某个卡死的文件(SMB 读挂起 / AVAsset 解析卡住)拖死整次扫描。
@@ -39,9 +121,9 @@ enum TVMetadataEnricher {
     /// 实际读取逻辑(被带超时的 `enrich` 包裹)。
     private static func enrichCore(song: Song, source: MusicSource,
                                    credential: SourceCredential?, siblings: [TVDirEntry]) async -> Song {
-        guard let reader = TVPlaybackCoordinator.makeDirectReader(
-            source: source,
+        guard let reader = await metadataReader(
             song: song,
+            source: source,
             credential: credential
         ) else {
             return song
@@ -79,9 +161,102 @@ enum TVMetadataEnricher {
                 meta = await readMetadata(head, ext: ext)
             }
         }
+        if ext == "flac", meta.coverArtData == nil {
+            while let expanded = RemoteMetadataReadPolicy.expandedFLACReadSize(
+                fileSize: song.fileSize,
+                currentData: head
+            ) {
+                let want = min(Int64(expanded), maxArtworkHeadBytes)
+                guard want > Int64(head.count),
+                      let bigger = try? await reader.read(offset: 0, length: want),
+                      bigger.count > head.count else {
+                    break
+                }
+                head = bigger
+                meta = await readMetadata(head, ext: ext)
+                if meta.coverArtData != nil { break }
+            }
+        }
+        while let expanded = EmbeddedTagMetadataParser.expandedHeadReadSize(
+            fileSize: song.fileSize,
+            currentData: head,
+            fileExtension: ext
+        ) {
+            let want = min(Int64(expanded), maxArtworkHeadBytes)
+            guard want > Int64(head.count),
+                  let bigger = try? await reader.read(offset: 0, length: want),
+                  bigger.count > head.count else {
+                break
+            }
+            head = bigger
+            meta = await readMetadata(head, ext: ext)
+        }
+
+        if let total = try? await reader.contentLength(), total > 0 {
+            if apeTailTagFormats.contains(ext) {
+                let initialSize = min(total, Int64(RemoteMetadataReadPolicy.initialContainerTailByteCount))
+                if var tail = try? await reader.read(
+                    offset: max(0, total - initialSize),
+                    length: initialSize
+                ) {
+                    if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
+                        fileSize: total,
+                        currentData: tail,
+                        fileExtension: ext
+                    ), expanded > tail.count,
+                       let bigger = try? await reader.read(
+                        offset: max(0, total - Int64(expanded)),
+                        length: Int64(expanded)
+                       ) {
+                        tail = bigger
+                    }
+                    let tailMetadata = await FileMetadataReader.read(
+                        from: head,
+                        fileExtension: ext,
+                        id3TailData: tail
+                    )
+                    meta.fillMissing(from: tailMetadata)
+                }
+            } else if ext == "dsf",
+                      let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: head),
+                      offset < total,
+                      let tagHeader = try? await reader.read(offset: offset, length: 10),
+                      !tagHeader.isEmpty {
+                let declared = EmbeddedTagMetadataParser.id3TagByteCount(in: tagHeader)
+                    ?? tagHeader.count
+                let tagLength = min(
+                    Int64(RemoteMetadataReadPolicy.maximumHeadByteCount),
+                    min(total - offset, Int64(declared))
+                )
+                let tagData = if tagLength > Int64(tagHeader.count) {
+                    (try? await reader.read(offset: offset, length: tagLength)) ?? tagHeader
+                } else {
+                    tagHeader
+                }
+                let tagMetadata = await FileMetadataReader.read(
+                    from: head,
+                    fileExtension: ext,
+                    id3TailData: tagData
+                )
+                meta.fillMissing(from: tagMetadata)
+            } else if id3ContainerTailFormats.contains(ext) {
+                let tailSize = min(total, Int64(RemoteMetadataReadPolicy.initialContainerTailByteCount))
+                if let tail = try? await reader.read(
+                    offset: max(0, total - tailSize),
+                    length: tailSize
+                ) {
+                    let tailMetadata = await FileMetadataReader.read(
+                        from: head,
+                        fileExtension: ext,
+                        id3TailData: tail
+                    )
+                    meta.fillMissing(from: tailMetadata)
+                }
+            }
+        }
         // m4a/mp4:moov 在尾部时逐步扩读,只提取完整 ftyp+moov 再交给
         // AVFoundation。任意 head+tail 直接拼接会留下截断 mdat,不是有效容器。
-        if (meta.duration ?? 0) <= 0, tailFormats.contains(ext),
+        if ((meta.duration ?? 0) <= 0 || meta.coverArtData == nil), tailFormats.contains(ext),
            let total = try? await reader.contentLength(), total > headBytes {
             for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: total) {
                 guard let tail = try? await reader.read(
@@ -96,7 +271,7 @@ enum TVMetadataEnricher {
                     fileExtension: ext
                 ) {
                     meta.fillMissing(from: tailMetadata)
-                    if (meta.duration ?? 0) > 0 { break }
+                    break
                 }
             }
         }
@@ -233,6 +408,32 @@ enum TVMetadataEnricher {
     }
 
     // MARK: 工具
+
+    private static func metadataReader(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> ByteRangeReader? {
+        if let direct = TVPlaybackCoordinator.makeDirectReader(
+            source: source,
+            song: song,
+            credential: credential
+        ) {
+            return direct
+        }
+        guard source.type == .oneDrive || source.type == .dropbox,
+              let resolved = try? await StreamResolverRegistry.shared.resolve(
+                for: song,
+                source: source,
+                credential: credential
+              ) else {
+            return nil
+        }
+        return TVResolvedStreamMetadataReader(
+            resolved: resolved,
+            contentLength: song.fileSize
+        )
+    }
 
     private static func readMetadata(_ data: Data, ext: String) async -> FileMetadataReader.Metadata {
         await FileMetadataReader.read(from: data, fileExtension: ext)

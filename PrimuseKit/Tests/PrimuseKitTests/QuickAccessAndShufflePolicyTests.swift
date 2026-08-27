@@ -145,6 +145,26 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 
+    @Test("FLAC and MPEG-4 audio get one embedded artwork attempt")
+    func containerArtworkStillBackfills() {
+        for format in [AudioFormat.flac, .m4a, .alac] {
+            #expect(MetadataBackfillEligibilityPolicy.needsBackfill(
+                duration: 180,
+                format: format,
+                hasCoverArt: false,
+                artworkGivenUp: false,
+                titleChecked: true
+            ))
+            #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+                duration: 180,
+                format: format,
+                hasCoverArt: false,
+                artworkGivenUp: true,
+                titleChecked: true
+            ))
+        }
+    }
+
     @Test("Server catalog MP3 with duration and cover skips a duplicate header read")
     func completeServerCatalogMP3DoesNotBackfill() {
         let titleChecked = ServerCatalogMetadataInspectionPolicy.hasUsableTitle("讲真的")

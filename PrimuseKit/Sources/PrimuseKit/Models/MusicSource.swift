@@ -409,6 +409,14 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             || isSubsonicFamily
     }
 
+    /// File-oriented sources whose Range responses expose the original audio
+    /// bytes. Server-library endpoints may support ranged playback while still
+    /// returning a transcoded stream, so their catalogue metadata remains the
+    /// authority instead of being overwritten by tags from that stream.
+    public var supportsEmbeddedMetadataBackfill: Bool {
+        supportsRangeStreaming && !isServerLibrary
+    }
+
     public var requiresOAuth: Bool {
         isCloudDrive
     }

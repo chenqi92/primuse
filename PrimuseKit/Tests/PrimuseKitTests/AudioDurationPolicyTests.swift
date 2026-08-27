@@ -137,6 +137,46 @@ struct RemoteMetadataReadPolicyTests {
         ) == 900_000)
     }
 
+    @Test("FLAC expansion follows a truncated picture block exactly")
+    func flacPictureExpansionUsesDeclaredBlockSize() {
+        var data = Data([0x66, 0x4C, 0x61, 0x43])
+        data.append(flacBlockHeader(type: 0, length: 34, isLast: false))
+        data.append(Data(repeating: 0, count: 34))
+        let pictureLength = 553_238
+        data.append(flacBlockHeader(type: 6, length: pictureLength, isLast: false))
+        let pictureBodyStart = data.count
+        data.append(Data(repeating: 0, count: 256 * 1024 - data.count))
+
+        #expect(RemoteMetadataReadPolicy.expandedFLACReadSize(
+            fileSize: 15_000_000,
+            currentData: data
+        ) == pictureBodyStart + pictureLength + 4)
+    }
+
+    @Test("A final FLAC padding body does not trigger useless network reads")
+    func finalFLACPaddingNeedsNoExpansion() {
+        var data = Data([0x66, 0x4C, 0x61, 0x43])
+        data.append(flacBlockHeader(type: 0, length: 34, isLast: false))
+        data.append(Data(repeating: 0, count: 34))
+        data.append(flacBlockHeader(type: 1, length: 2 * 1024 * 1024, isLast: true))
+
+        #expect(RemoteMetadataReadPolicy.expandedFLACReadSize(
+            fileSize: 20_000_000,
+            currentData: data
+        ) == nil)
+    }
+
+    @Test("FLAC metadata expansion never exceeds four megabytes")
+    func flacExpansionIsBounded() {
+        var data = Data([0x66, 0x4C, 0x61, 0x43])
+        data.append(flacBlockHeader(type: 6, length: 8 * 1024 * 1024, isLast: true))
+
+        #expect(RemoteMetadataReadPolicy.expandedFLACReadSize(
+            fileSize: 30_000_000,
+            currentData: data
+        ) == RemoteMetadataReadPolicy.maximumHeadByteCount)
+    }
+
     @Test("A truncated MP3 duration is corrected without replacing a Xing duration")
     func truncatedMP3DurationCorrection() {
         #expect(RemoteMetadataReadPolicy.correctedMP3Duration(
@@ -173,6 +213,15 @@ struct RemoteMetadataReadPolicyTests {
             bitRateKbps: nil,
             providedByteCount: 256 * 1024
         ) == Double(5_000_000) / Double(RemoteMetadataReadPolicy.defaultMP3BitRateKbps * 125))
+    }
+
+    private func flacBlockHeader(type: UInt8, length: Int, isLast: Bool) -> Data {
+        Data([
+            type | (isLast ? 0x80 : 0),
+            UInt8((length >> 16) & 0xFF),
+            UInt8((length >> 8) & 0xFF),
+            UInt8(length & 0xFF),
+        ])
     }
 
     @Test("Large ID3 artwork is excluded from the MP3 duration estimate")

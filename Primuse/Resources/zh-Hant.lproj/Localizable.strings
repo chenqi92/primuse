@@ -438,6 +438,11 @@
 "song_details_parse_failed" = "歌曲詳情解析失敗";
 "song_details_parse_failed_message" = "已讀取檔案位元組，但目前的解析器無法確認完整詳情；這不會停用可用的播放路徑。";
 "song_details_retry" = "重試讀取";
+"reread_song_tags" = "重新讀取檔案標籤";
+"reread_song_tags_in_progress" = "正在讀取檔案標籤";
+"reread_song_tags_completed" = "已重新讀取檔案標籤。";
+"reread_song_tags_unsupported" = "此來源不提供原始檔案標籤讀取。";
+"reread_song_tags_failed" = "無法讀取檔案標籤，請檢查歌曲來源或檔案格式。";
 "song_details_check_source" = "檢查來源";
 "song_details_source_available" = "來源連線正常，已重新安排讀取。";
 "song_details_source_unavailable" = "來源仍無法使用。請檢查網路、登入狀態和檔案路徑。";

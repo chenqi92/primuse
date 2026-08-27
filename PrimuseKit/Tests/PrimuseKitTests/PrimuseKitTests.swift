@@ -115,7 +115,17 @@ import Testing
     #expect(AudioFormat.from(fileExtension: "DTS-HD") == .dts)
     #expect(AudioFormat.from(fileExtension: "ec3") == .eac3)
     #expect(AudioFormat.from(fileExtension: "oma") == .atrac)
+    #expect(AudioFormat.from(fileExtension: "asf") == .wma)
+    #expect(AudioFormat.from(fileExtension: "awb") == .amr)
     #expect(AudioFormat.from(fileExtension: "xyz") == nil)
+}
+
+@Test func embeddedMetadataBackfillRejectsTranscodedServerCatalogues() {
+    #expect(MusicSourceType.oneDrive.supportsEmbeddedMetadataBackfill)
+    #expect(MusicSourceType.smb.supportsEmbeddedMetadataBackfill)
+    #expect(!MusicSourceType.subsonic.supportsEmbeddedMetadataBackfill)
+    #expect(!MusicSourceType.jellyfin.supportsEmbeddedMetadataBackfill)
+    #expect(!MusicSourceType.fnMusic.supportsEmbeddedMetadataBackfill)
 }
 
 @Test func testTransportAwareDefaultPorts() {

@@ -452,6 +452,11 @@
 "song_details_parse_failed" = "Song details parsing failed";
 "song_details_parse_failed_message" = "File bytes were read, but the current parser could not confirm complete details. Any available playback path remains enabled.";
 "song_details_retry" = "Retry reading";
+"reread_song_tags" = "Read File Tags Again";
+"reread_song_tags_in_progress" = "Reading file tags…";
+"reread_song_tags_completed" = "File tags were read again.";
+"reread_song_tags_unsupported" = "This source does not expose the original file tags.";
+"reread_song_tags_failed" = "Unable to read file tags. Check the song source or file format.";
 "song_details_check_source" = "Check source";
 "song_details_source_available" = "The source is reachable. Reading has been scheduled again.";
 "song_details_source_unavailable" = "The source is still unavailable. Check the network, sign-in state, and file path.";

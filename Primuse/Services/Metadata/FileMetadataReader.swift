@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import PrimuseKit
+import SFBAudioEngine
 
 enum FileMetadataReader {
     struct Metadata {
@@ -71,7 +72,7 @@ enum FileMetadataReader {
         applyID3Fallback(to: &metadata, data: readID3FallbackData(from: url))
         applyFLACFallback(
             to: &metadata,
-            data: readPrefix(from: url, byteCount: flacMetadataReadLimit),
+            data: readFLACMetadataPrefix(from: url),
             fileExtension: url.pathExtension
         )
         applyWAVEFallback(
@@ -84,6 +85,16 @@ enum FileMetadataReader {
             data: readPrefix(from: url, byteCount: mpegHeaderReadLimit),
             fileExtension: url.pathExtension
         )
+        if AudioFormat.from(fileExtension: url.pathExtension) == .wma {
+            let head = readExpandableContainerHead(from: url)
+            applyContainerTagFallback(
+                to: &metadata,
+                headData: head,
+                tailData: nil,
+                fileExtension: url.pathExtension
+            )
+        }
+        applySFBAudioFallback(to: &metadata, url: url)
 
         // 注意: 不在这里用 url filename 兜底 title。
         // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
@@ -122,6 +133,12 @@ enum FileMetadataReader {
         applyFLACFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyWAVEFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyMPEGFrameFallback(to: &metadata, data: data, fileExtension: fileExtension)
+        applyContainerTagFallback(
+            to: &metadata,
+            headData: data,
+            tailData: id3TailData,
+            fileExtension: fileExtension
+        )
 
         // AVAssetResourceLoader's delegate is not retained strongly by the
         // resource loader. Keep the in-memory provider alive through every
@@ -277,11 +294,10 @@ enum FileMetadataReader {
     }
 
     private static let id3MetadataReadLimit = 4 * 1024 * 1024
-    private static let flacMetadataReadLimit = 1024 * 1024
     private static let waveHeaderReadLimit = 1024 * 1024
     private static let mpegHeaderReadLimit = 512 * 1024
     private static let isoBaseMediaExtensions: Set<String> = [
-        "m4a", "m4b", "mp4", "m4v", "mov",
+        "m4a", "m4b", "mp4", "m4v", "mov", "alac",
     ]
 
     private static func applyISOBaseMediaLyricsFallback(
@@ -352,6 +368,105 @@ enum FileMetadataReader {
         metadata.bitDepth = info.bitDepth
     }
 
+    /// SFBAudioEngine already powers the complete-file decoder and supports
+    /// the metadata families AVFoundation commonly skips (APEv2, Vorbis
+    /// comments, ASF, DSF/DFF ID3, and several legacy lossless containers).
+    /// Use it as a local-file fallback while preserving AVFoundation/native
+    /// values that were decoded successfully.
+    private static func applySFBAudioFallback(to metadata: inout Metadata, url: URL) {
+        guard let audioFile = try? AudioFile(readingPropertiesAndMetadataFrom: url) else {
+            return
+        }
+        let tags = audioFile.metadata
+        let properties = audioFile.properties
+        let frontCover = tags.attachedPictures(ofType: .frontCover).first?.imageData
+        let anyCover = tags.attachedPictures.first?.imageData
+
+        let fallback = Metadata(
+            title: tags.title,
+            artist: tags.artist,
+            albumTitle: tags.albumTitle,
+            albumArtist: tags.albumArtist,
+            trackNumber: tags.trackNumber,
+            discNumber: tags.discNumber,
+            year: parsedYear(tags.releaseDate),
+            genre: tags.genre,
+            duration: properties.duration,
+            coverArtData: frontCover ?? anyCover,
+            sampleRate: properties.sampleRate.map(Int.init),
+            bitRate: properties.bitrate.map(Int.init),
+            bitDepth: properties.bitDepth,
+            replayGainTrackGain: tags.replayGainTrackGain,
+            replayGainTrackPeak: tags.replayGainTrackPeak,
+            replayGainAlbumGain: tags.replayGainAlbumGain,
+            replayGainAlbumPeak: tags.replayGainAlbumPeak,
+            lyricsText: tags.lyrics
+        )
+        metadata.fillMissing(from: fallback)
+    }
+
+    /// Applies dependency-free parsers to bounded remote ranges. ID3 carried
+    /// inside DSF/DFF, AIFF, or RIFF is extracted first and then handed to the
+    /// same text/artwork parser used by MP3.
+    private static func applyContainerTagFallback(
+        to metadata: inout Metadata,
+        headData: Data,
+        tailData: Data?,
+        fileExtension: String
+    ) {
+        if let parsed = EmbeddedTagMetadataParser.parse(
+            head: headData,
+            tail: tailData,
+            fileExtension: fileExtension
+        ) {
+            apply(parsed, to: &metadata)
+        }
+        if let id3 = EmbeddedTagMetadataParser.embeddedID3Data(
+            head: headData,
+            tail: tailData,
+            fileExtension: fileExtension
+        ) {
+            applyID3Fallback(to: &metadata, data: id3)
+        }
+    }
+
+    private static func apply(_ parsed: EmbeddedTagMetadata, to metadata: inout Metadata) {
+        metadata.title = preferredMetadataText(current: metadata.title, rawID3: parsed.title)
+        if let artists = parsed.artists, !artists.isEmpty {
+            metadata.sourceArtistNames = artists.count > 1 ? artists : nil
+            metadata.artist = artists.count > 1
+                ? artists.joined(separator: "; ")
+                : preferredMetadataText(current: metadata.artist, rawID3: artists.first)
+        } else {
+            metadata.artist = preferredMetadataText(current: metadata.artist, rawID3: parsed.artist)
+        }
+        metadata.albumTitle = preferredMetadataText(
+            current: metadata.albumTitle,
+            rawID3: parsed.albumTitle
+        )
+        metadata.albumArtist = preferredMetadataText(
+            current: metadata.albumArtist,
+            rawID3: parsed.albumArtist
+        )
+        metadata.trackNumber = metadata.trackNumber ?? parsed.trackNumber
+        metadata.discNumber = metadata.discNumber ?? parsed.discNumber
+        metadata.year = metadata.year ?? parsed.year
+        metadata.genre = preferredMetadataText(current: metadata.genre, rawID3: parsed.genre)
+        metadata.lyricsText = metadata.lyricsText ?? parsed.lyrics
+        metadata.coverArtData = metadata.coverArtData ?? parsed.coverArtData
+        metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? parsed.replayGainTrackGain
+        metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? parsed.replayGainTrackPeak
+        metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? parsed.replayGainAlbumGain
+        metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? parsed.replayGainAlbumPeak
+    }
+
+    private static func parsedYear(_ value: String?) -> Int? {
+        guard let value else { return nil }
+        let digits = value.filter(\.isNumber)
+        guard digits.count >= 4 else { return nil }
+        return Int(digits.prefix(4))
+    }
+
     private static func applyID3Fallback(
         to metadata: inout Metadata,
         data tagData: Data,
@@ -387,6 +502,11 @@ enum FileMetadataReader {
         metadata.year = metadata.year ?? text?.year
         metadata.genre = metadata.genre ?? text?.genre
         metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
+        metadata.lyricsText = metadata.lyricsText ?? artwork?.lyricsText
+        metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? artwork?.replayGainTrackGain
+        metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? artwork?.replayGainTrackPeak
+        metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? artwork?.replayGainAlbumGain
+        metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? artwork?.replayGainAlbumPeak
     }
 
     private static func preferredMetadataText(current: String?, rawID3: String?) -> String? {
@@ -445,6 +565,11 @@ enum FileMetadataReader {
 
     private struct ID3NativeMetadata {
         var coverArtData: Data?
+        var lyricsText: String?
+        var replayGainTrackGain: Double?
+        var replayGainTrackPeak: Double?
+        var replayGainAlbumGain: Double?
+        var replayGainAlbumPeak: Double?
     }
 
     private struct ID3Picture {
@@ -473,6 +598,7 @@ enum FileMetadataReader {
 
         var cursor = id3ExtendedHeaderLength(in: tag, version: majorVersion, flags: data[5])
         var pictures: [ID3Picture] = []
+        var result = ID3NativeMetadata()
 
         while cursor < tag.count {
             if majorVersion == 2 {
@@ -489,6 +615,10 @@ enum FileMetadataReader {
 
                 if frameID == "PIC", let picture = parseID3PictureFrame(payload, isV22PIC: true) {
                     pictures.append(picture)
+                } else if frameID == "ULT" {
+                    result.lyricsText = result.lyricsText ?? parseID3LyricsFrame(payload)
+                } else if frameID == "TXX", let pair = parseID3UserTextFrame(payload) {
+                    applyID3UserText(pair, to: &result)
                 }
             } else {
                 guard cursor + 10 <= tag.count else { break }
@@ -512,13 +642,24 @@ enum FileMetadataReader {
 
                 if frameID == "APIC", let picture = parseID3PictureFrame(payload, isV22PIC: false) {
                     pictures.append(picture)
+                } else if frameID == "USLT" {
+                    result.lyricsText = result.lyricsText ?? parseID3LyricsFrame(payload)
+                } else if frameID == "TXXX", let pair = parseID3UserTextFrame(payload) {
+                    applyID3UserText(pair, to: &result)
                 }
             }
         }
 
         let preferred = pictures.first(where: { $0.type == 3 }) ?? pictures.first
-        guard let preferred else { return nil }
-        return ID3NativeMetadata(coverArtData: preferred.data)
+        result.coverArtData = preferred?.data
+        return result.coverArtData != nil
+            || result.lyricsText != nil
+            || result.replayGainTrackGain != nil
+            || result.replayGainTrackPeak != nil
+            || result.replayGainAlbumGain != nil
+            || result.replayGainAlbumPeak != nil
+            ? result
+            : nil
     }
 
     private static func id3ExtendedHeaderLength(in tag: Data, version: Int, flags: UInt8) -> Int {
@@ -558,6 +699,68 @@ enum FileMetadataReader {
         let rawImage = payload.subdata(in: imageStart..<payload.count)
         guard let imageData = normalizedEmbeddedImageData(rawImage) else { return nil }
         return ID3Picture(type: pictureType, data: imageData)
+    }
+
+    private static func parseID3LyricsFrame(_ payload: Data) -> String? {
+        guard payload.count >= 5 else { return nil }
+        let encoding = payload[0]
+        let descriptionStart = 4 // encoding + ISO-639-2 language
+        guard let lyricsStart = encodedStringTerminatorEnd(
+            in: payload,
+            from: descriptionStart,
+            encoding: encoding
+        ), lyricsStart < payload.count else {
+            return nil
+        }
+        return TextEncodingRepair.decodeID3Text(
+            payload.subdata(in: lyricsStart..<payload.count),
+            encodingByte: encoding
+        )
+    }
+
+    private static func parseID3UserTextFrame(_ payload: Data) -> (String, String)? {
+        guard payload.count >= 3 else { return nil }
+        let encoding = payload[0]
+        guard let valueStart = encodedStringTerminatorEnd(
+            in: payload,
+            from: 1,
+            encoding: encoding
+        ), valueStart < payload.count else {
+            return nil
+        }
+        let terminatorLength = (encoding == 1 || encoding == 2) ? 2 : 1
+        let descriptionEnd = valueStart - terminatorLength
+        guard descriptionEnd >= 1 else { return nil }
+        let description = TextEncodingRepair.decodeID3Text(
+            payload.subdata(in: 1..<descriptionEnd),
+            encodingByte: encoding
+        )
+        let value = TextEncodingRepair.decodeID3Text(
+            payload.subdata(in: valueStart..<payload.count),
+            encodingByte: encoding
+        )
+        guard let description, let value, !description.isEmpty, !value.isEmpty else {
+            return nil
+        }
+        return (description, value)
+    }
+
+    private static func applyID3UserText(
+        _ pair: (String, String),
+        to metadata: inout ID3NativeMetadata
+    ) {
+        switch pair.0.lowercased() {
+        case "replaygain_track_gain":
+            metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? parseReplayGainDB(pair.1)
+        case "replaygain_track_peak":
+            metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? Double(pair.1)
+        case "replaygain_album_gain":
+            metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? parseReplayGainDB(pair.1)
+        case "replaygain_album_peak":
+            metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? Double(pair.1)
+        default:
+            break
+        }
     }
 
     private static func encodedStringTerminatorEnd(in data: Data, from start: Int, encoding: UInt8) -> Int? {
@@ -675,6 +878,51 @@ enum FileMetadataReader {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }
         defer { try? handle.close() }
         return (try? handle.read(upToCount: byteCount)) ?? Data()
+    }
+
+    private static func readExpandableContainerHead(from url: URL) -> Data {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = (attributes[.size] as? NSNumber)?.int64Value,
+              fileSize > 0 else {
+            return Data()
+        }
+        var data = readPrefix(
+            from: url,
+            byteCount: RemoteMetadataReadPolicy.initialReadSize(fileSize: fileSize)
+        )
+        while let expanded = EmbeddedTagMetadataParser.expandedHeadReadSize(
+            fileSize: fileSize,
+            currentData: data,
+            fileExtension: url.pathExtension
+        ) {
+            let replacement = readPrefix(from: url, byteCount: expanded)
+            guard replacement.count > data.count else { break }
+            data = replacement
+        }
+        return data
+    }
+
+    private static func readFLACMetadataPrefix(from url: URL) -> Data {
+        guard url.pathExtension.lowercased() == "flac",
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = (attributes[.size] as? NSNumber)?.int64Value,
+              fileSize > 0 else {
+            return Data()
+        }
+
+        var data = readPrefix(
+            from: url,
+            byteCount: RemoteMetadataReadPolicy.initialReadSize(fileSize: fileSize)
+        )
+        while let expandedByteCount = RemoteMetadataReadPolicy.expandedFLACReadSize(
+            fileSize: fileSize,
+            currentData: data
+        ) {
+            let expanded = readPrefix(from: url, byteCount: expandedByteCount)
+            guard expanded.count > data.count else { break }
+            data = expanded
+        }
+        return data
     }
 
     private struct FLACNativeMetadata {

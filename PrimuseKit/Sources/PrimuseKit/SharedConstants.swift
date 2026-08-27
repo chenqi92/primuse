@@ -1363,8 +1363,8 @@ public enum PrimuseConstants {
     /// MP4 files should use `.m4a`. Including `.mp4` here led to mid-stream
     /// PCM decode errors that auto-skipped 25%+ of cloud-drive scans.
     public static let supportedAudioExtensions: Set<String> = [
-        "mp3", "aac", "m4a", "flac", "wav", "aiff", "aif", "au", "snd", "caf", "alac",
-        "ape", "dsf", "dff", "ogg", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
+        "mp3", "aac", "m4a", "flac", "wav", "wave", "aiff", "aif", "au", "snd", "caf", "alac",
+        "ape", "dsf", "dff", "ogg", "oga", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
         "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
         "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa"
     ]
@@ -2441,6 +2441,16 @@ public struct MetadataBackfillWorkReasons: OptionSet, Sendable, Equatable {
 /// is completed independently so an absent optional tag does not make a valid
 /// song eligible forever.
 public enum MetadataBackfillEligibilityPolicy {
+    /// Formats whose bounded reader can recover an embedded cover without
+    /// materializing the complete remote audio file.
+    public static let embeddedArtworkFormats: Set<AudioFormat> = [
+        .mp3, .flac, .m4a, .alac,
+        .ape, .wv, .mpc, .tta,
+        .ogg, .opus, .speex,
+        .wma, .dsf, .dff,
+        .wav, .aiff, .aif,
+    ]
+
     public static func reasons(
         duration: TimeInterval,
         format: AudioFormat,
@@ -2458,7 +2468,7 @@ public enum MetadataBackfillEligibilityPolicy {
         if duration <= 0 && !durationInspectionComplete {
             reasons.insert(.duration)
         }
-        if format == .mp3 && !hasCoverArt && !artworkGivenUp {
+        if embeddedArtworkFormats.contains(format) && !hasCoverArt && !artworkGivenUp {
             reasons.insert(.artwork)
         }
         if !titleChecked {

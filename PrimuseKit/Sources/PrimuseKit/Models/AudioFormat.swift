@@ -105,6 +105,10 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
 
     public static func from(fileExtension ext: String) -> AudioFormat? {
         switch ext.lowercased() {
+        case "asf": return .wma
+        case "oga": return .ogg
+        case "wave": return .wav
+        case "awb": return .amr
         case "ec3": return .eac3
         case "thd": return .truehd
         case "dtshd", "dts-hd", "dtswav": return .dts

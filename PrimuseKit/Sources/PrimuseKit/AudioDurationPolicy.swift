@@ -238,6 +238,54 @@ public enum RemoteMetadataReadPolicy {
         return min(Int(clamping: fileSize), limit)
     }
 
+    /// Returns the next bounded FLAC prefix needed to finish the metadata block
+    /// currently visible in `data`. FLAC stores each block's exact byte length
+    /// in its four-byte header, so large embedded pictures can be fetched
+    /// precisely instead of expanding every cover-less file to the 4 MB cap.
+    /// A final padding block needs no body bytes because it cannot contain tags.
+    public static func expandedFLACReadSize(
+        fileSize: Int64,
+        currentData data: Data
+    ) -> Int? {
+        guard let signatureOffset = flacSignatureOffset(in: data) else { return nil }
+
+        let fileLimit = fileSize > 0
+            ? min(Int(clamping: fileSize), maximumHeadByteCount)
+            : maximumHeadByteCount
+        guard fileLimit > data.count else { return nil }
+
+        var cursor = signatureOffset + 4
+        while true {
+            guard cursor <= fileLimit else { return nil }
+            guard cursor + 4 <= data.count else {
+                let requested = min(fileLimit, cursor + 4)
+                return requested > data.count ? requested : nil
+            }
+
+            let header = data[cursor]
+            let isLastBlock = (header & 0x80) != 0
+            let blockType = header & 0x7F
+            let blockLength = (Int(data[cursor + 1]) << 16)
+                | (Int(data[cursor + 2]) << 8)
+                | Int(data[cursor + 3])
+            let bodyStart = cursor + 4
+            let (bodyEnd, overflow) = bodyStart.addingReportingOverflow(blockLength)
+            guard !overflow, bodyEnd >= bodyStart else { return nil }
+
+            if bodyEnd > data.count {
+                // Padding carries no metadata. If it is the final block, the
+                // headers already prove that there is nothing useful after it.
+                if blockType == 1, isLastBlock { return nil }
+                let nextHeaderEnd = isLastBlock ? bodyEnd : bodyEnd + 4
+                let requested = min(fileLimit, nextHeaderEnd)
+                return requested > data.count ? requested : nil
+            }
+
+            cursor = bodyEnd
+            if isLastBlock { return nil }
+        }
+    }
+
     public static func expandedReadSize(
         fileSize: Int64,
         currentByteCount: Int,
@@ -264,6 +312,16 @@ public enum RemoteMetadataReadPolicy {
 
         let bounded = min(Int(clamping: fileSize), min(requested, maximumHeadByteCount))
         return bounded > currentByteCount ? bounded : nil
+    }
+
+    private static func flacSignatureOffset(in data: Data) -> Int? {
+        let signature = Data([0x66, 0x4C, 0x61, 0x43])
+        if data.count >= signature.count,
+           data.prefix(signature.count).elementsEqual(signature) {
+            return 0
+        }
+        let searchEnd = min(data.count, 64 * 1024)
+        return data.range(of: signature, in: 0..<searchEnd)?.lowerBound
     }
 
     /// Corrects the characteristic short duration reported when AVFoundation
