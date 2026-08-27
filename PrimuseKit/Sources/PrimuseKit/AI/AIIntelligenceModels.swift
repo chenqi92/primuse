@@ -341,6 +341,7 @@ public struct AIRecommendationRequest: Hashable, Sendable {
     public var preferences: [AIRecommendationPreference]
     public var candidates: [AIRecommendationCandidate]
     public var maximumResults: Int
+    public var minimumResults: Int
 
     public init(
         scene: AIRecommendationScene,
@@ -348,7 +349,8 @@ public struct AIRecommendationRequest: Hashable, Sendable {
         languageCode: String? = nil,
         preferences: [AIRecommendationPreference],
         candidates: [AIRecommendationCandidate],
-        maximumResults: Int = 8
+        maximumResults: Int = 8,
+        minimumResults: Int = 1
     ) {
         self.scene = scene
         let normalizedIntent = intent?
@@ -365,7 +367,9 @@ public struct AIRecommendationRequest: Hashable, Sendable {
         self.languageCode = languageCode
         self.preferences = Array(preferences.prefix(12))
         self.candidates = Array(candidates.prefix(36))
-        self.maximumResults = max(1, min(maximumResults, 12))
+        let availableResultCount = max(1, self.candidates.count)
+        self.maximumResults = max(1, min(min(maximumResults, 12), availableResultCount))
+        self.minimumResults = max(1, min(minimumResults, self.maximumResults))
     }
 }
 
@@ -417,7 +421,9 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
             }
         ).mapValues(\.count)
         let requiredArtistCount = min(4, min(availableArtistCount, limitedSelections.count))
-        let isSufficientlyDiverse = selectedArtistCounts.count >= requiredArtistCount
+        let hasRequiredCount = limitedSelections.count >= request.minimumResults
+        let isSufficientlyDiverse = hasRequiredCount
+            && selectedArtistCounts.count >= requiredArtistCount
             && (availableArtistCount < 4 || (selectedArtistCounts.values.max() ?? 0) <= 2)
 
         return AIRecommendationPlan(

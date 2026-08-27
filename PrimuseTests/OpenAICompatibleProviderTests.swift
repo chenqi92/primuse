@@ -143,7 +143,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                     title: "Second Candidate",
                     artist: "Artist B"
                 ),
-            ]
+            ],
+            maximumResults: 2,
+            minimumResults: 2
         )
 
         let plan = try await provider.recommendations(request)
@@ -159,6 +161,8 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue(input.contains("First Candidate"))
         XCTAssertTrue(input.contains("quiet rain and homesickness"))
         XCTAssertTrue(input.contains("\"id\":\"c0\""))
+        XCTAssertTrue(input.contains("\"maximum_results\":2"))
+        XCTAssertTrue(input.contains("\"minimum_results\":2"))
         XCTAssertFalse(input.contains("private-song-id"))
         XCTAssertFalse(input.contains("filePath"))
         XCTAssertFalse(input.contains("sourceID"))

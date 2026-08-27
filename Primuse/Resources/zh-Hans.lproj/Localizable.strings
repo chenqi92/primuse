@@ -3238,6 +3238,8 @@
 "library_recommendations_intent_settings_hint" = "在“外观 > 资料库”中管理";
 "library_recommendations_theme" = "主题";
 "library_recommendations_theme_none" = "不添加主题";
+"library_recommendations_more" = "加载更多推荐";
+"library_recommendations_more_failed" = "未能加载更多推荐，当前列表已保留。";
 "library_recommendations_local_fallback_detail" = "当前显示本机推荐；智能服务不可用时不会影响播放。";
 "library_recommendations_empty_title" = "还没有可推荐的歌曲";
 "library_recommendations_empty_description" = "添加并扫描音乐来源后，这里会按场景和感受整理歌曲。";

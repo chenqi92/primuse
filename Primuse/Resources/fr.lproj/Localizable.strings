@@ -3134,6 +3134,8 @@
 "library_recommendations_intent_settings_hint" = "Gérer dans Apparence > Bibliothèque";
 "library_recommendations_theme" = "Thème";
 "library_recommendations_theme_none" = "Aucun thème supplémentaire";
+"library_recommendations_more" = "Charger plus de recommandations";
+"library_recommendations_more_failed" = "Impossible de charger plus de recommandations. La liste actuelle a été conservée.";
 "library_recommendations_local_fallback_detail" = "Les recommandations locales sont affichées. La lecture continue si le service intelligent est indisponible.";
 "library_recommendations_empty_title" = "Aucune recommandation pour le moment";
 "library_recommendations_empty_description" = "Ajoutez et analysez une source musicale pour classer les morceaux par ambiance.";

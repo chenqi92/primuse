@@ -2921,6 +2921,8 @@
 "library_recommendations_intent_settings_hint" = "Manage in Appearance > Library";
 "library_recommendations_theme" = "Theme";
 "library_recommendations_theme_none" = "No extra theme";
+"library_recommendations_more" = "Load more recommendations";
+"library_recommendations_more_failed" = "Couldn’t load more recommendations. The current list was kept.";
 "library_recommendations_local_fallback_detail" = "Local recommendations are showing. Playback keeps working when the intelligent service is unavailable.";
 "library_recommendations_empty_title" = "Nothing to recommend yet";
 "library_recommendations_empty_description" = "Add and scan a music source to organize songs by mood and setting.";

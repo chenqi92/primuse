@@ -924,7 +924,8 @@ struct AIRecommendationPolicyTests {
             scene: .focus,
             preferences: [],
             candidates: candidates,
-            maximumResults: 8
+            maximumResults: 8,
+            minimumResults: 8
         )
         let plan = AIRecommendationPlan(
             selections: (0..<8).map { index in
@@ -933,6 +934,59 @@ struct AIRecommendationPolicyTests {
         ).normalized(for: request)
 
         #expect(plan.selections.count == 8)
+    }
+
+    @Test func recommendationPlanRejectsFewerThanRequiredSelections() {
+        let candidates = (0..<12).map { index in
+            AIRecommendationCandidate(
+                songID: "song-\(index)",
+                title: "Song \(index)",
+                artist: "Artist \(index / 2)"
+            )
+        }
+        let request = AIRecommendationRequest(
+            scene: .relaxation,
+            preferences: [],
+            candidates: candidates,
+            maximumResults: 12,
+            minimumResults: 8
+        )
+        let plan = AIRecommendationPlan(
+            selections: (0..<7).map { index in
+                AIRecommendationSelection(songID: "song-\(index)", reason: "reason")
+            }
+        ).normalized(for: request)
+
+        #expect(plan.selections.isEmpty)
+    }
+
+    @Test func recommendationRequestBoundsResultRangeToAvailableCandidates() {
+        let candidates = (0..<20).map { index in
+            AIRecommendationCandidate(
+                songID: "song-\(index)",
+                title: "Song \(index)",
+                artist: "Artist \(index)"
+            )
+        }
+        let fullPage = AIRecommendationRequest(
+            scene: .focus,
+            preferences: [],
+            candidates: candidates,
+            maximumResults: 20,
+            minimumResults: 8
+        )
+        let shortPage = AIRecommendationRequest(
+            scene: .focus,
+            preferences: [],
+            candidates: Array(candidates.prefix(5)),
+            maximumResults: 12,
+            minimumResults: 8
+        )
+
+        #expect(fullPage.maximumResults == 12)
+        #expect(fullPage.minimumResults == 8)
+        #expect(shortPage.maximumResults == 5)
+        #expect(shortPage.minimumResults == 5)
     }
 
     @Test func recommendationIntentIsSanitizedAndBounded() {

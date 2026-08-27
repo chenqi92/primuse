@@ -752,6 +752,8 @@ enum AIRecommendationContextBuilder {
         scene: AIRecommendationScene,
         intent: String? = nil,
         candidates: [Song],
+        maximumResults: Int = 8,
+        minimumResults: Int = 1,
         history: PlayHistoryStore = .shared,
         now: Date = Date()
     ) -> AIRecommendationRequest? {
@@ -803,7 +805,8 @@ enum AIRecommendationContextBuilder {
             languageCode: Locale.current.language.languageCode?.identifier,
             preferences: preferences,
             candidates: recommendationCandidates,
-            maximumResults: min(8, recommendationCandidates.count)
+            maximumResults: maximumResults,
+            minimumResults: minimumResults
         )
     }
 }
@@ -816,36 +819,49 @@ final class AIRecommendationViewModel {
     private(set) var reasonsBySongID: [String: String] = [:]
     private var generation: UInt64 = 0
 
+    @discardableResult
     func refresh(
         scene: AIRecommendationScene,
         intent: String? = nil,
         candidates: [Song],
         using intelligence: MusicIntelligenceService,
-        forceRefresh: Bool = false
-    ) async {
+        forceRefresh: Bool = false,
+        maximumResults: Int = 8,
+        minimumResults: Int = 1,
+        appending: Bool = false
+    ) async -> Bool {
         generation &+= 1
         let operationGeneration = generation
+        let previousFeedback = feedback
         guard intelligence.settingsStore.recommendationsEnabled else {
-            feedback = .idle
-            orderedSongIDs = []
-            reasonsBySongID = [:]
-            return
+            if !appending {
+                feedback = .idle
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
+            return false
         }
         guard intelligence.settingsStore.hasExplicitListeningContextConsent else {
-            feedback = .needsConsent
-            orderedSongIDs = []
-            reasonsBySongID = [:]
-            return
+            if !appending {
+                feedback = .needsConsent
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
+            return false
         }
         guard let request = AIRecommendationContextBuilder.request(
             scene: scene,
             intent: intent,
-            candidates: candidates
+            candidates: candidates,
+            maximumResults: maximumResults,
+            minimumResults: minimumResults
         ) else {
-            feedback = .idle
-            orderedSongIDs = []
-            reasonsBySongID = [:]
-            return
+            if !appending {
+                feedback = .idle
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
+            return false
         }
 
         let outcome: AIRecommendationOutcome
@@ -859,19 +875,39 @@ final class AIRecommendationViewModel {
                 forceRefresh: forceRefresh
             )
         }
-        guard operationGeneration == generation, !Task.isCancelled else { return }
+        guard operationGeneration == generation, !Task.isCancelled else { return false }
         switch outcome {
         case .unavailable:
-            feedback = .localFallback(providerName: nil, fallbackDepth: 0)
-            orderedSongIDs = []
-            reasonsBySongID = [:]
+            if appending {
+                feedback = previousFeedback
+            } else {
+                feedback = .localFallback(providerName: nil, fallbackDepth: 0)
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
+            return false
         case .success(let execution):
-            orderedSongIDs = execution.plan.selections.map(\.songID)
-            reasonsBySongID = Dictionary(
-                uniqueKeysWithValues: execution.plan.selections.map {
-                    ($0.songID, $0.reason)
+            if appending {
+                let existingIDs = Set(orderedSongIDs)
+                let additions = execution.plan.selections.filter {
+                    !existingIDs.contains($0.songID)
                 }
-            )
+                guard !additions.isEmpty else {
+                    feedback = previousFeedback
+                    return false
+                }
+                orderedSongIDs.append(contentsOf: additions.map(\.songID))
+                for selection in additions {
+                    reasonsBySongID[selection.songID] = selection.reason
+                }
+            } else {
+                orderedSongIDs = execution.plan.selections.map(\.songID)
+                reasonsBySongID = Dictionary(
+                    uniqueKeysWithValues: execution.plan.selections.map {
+                        ($0.songID, $0.reason)
+                    }
+                )
+            }
             feedback = .success(
                 summary: execution.plan.summary,
                 providerName: execution.providerName,
@@ -879,17 +915,28 @@ final class AIRecommendationViewModel {
                 scene: execution.resolvedScene,
                 isCached: execution.isCached
             )
+            return true
         case .empty(let providerName, let fallbackDepth):
-            orderedSongIDs = []
-            reasonsBySongID = [:]
-            feedback = .localFallback(
-                providerName: providerName,
-                fallbackDepth: fallbackDepth
-            )
+            if appending {
+                feedback = previousFeedback
+            } else {
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+                feedback = .localFallback(
+                    providerName: providerName,
+                    fallbackDepth: fallbackDepth
+                )
+            }
+            return false
         case .failed:
-            orderedSongIDs = []
-            reasonsBySongID = [:]
-            feedback = .localFallback(providerName: nil, fallbackDepth: 0)
+            if appending {
+                feedback = previousFeedback
+            } else {
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+                feedback = .localFallback(providerName: nil, fallbackDepth: 0)
+            }
+            return false
         }
     }
 

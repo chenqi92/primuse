@@ -32,6 +32,10 @@ private struct AIRecommendationIntentChoice: Identifiable, Hashable {
 /// always the source of playable candidates; a configured remote provider may
 /// only reorder those candidates and explain the result.
 struct AIRecommendationLibraryView: View {
+    private static let recommendationPoolSize = 36
+    private static let recommendationPageSize = 12
+    private static let minimumRecommendationPageSize = 8
+
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -46,6 +50,8 @@ struct AIRecommendationLibraryView: View {
     @State private var aiRecommendation = AIRecommendationViewModel()
     @State private var refreshGeneration: UInt64 = 0
     @State private var historyRevision = 0
+    @State private var isLoadingMore = false
+    @State private var loadMoreFailed = false
 
     private var intentChoices: [AIRecommendationIntentChoice] {
         AIRecommendationIntentChoice.all(customRawValue: customIntentsRawValue)
@@ -67,6 +73,11 @@ struct AIRecommendationLibraryView: View {
         )
         let ordered = aiRecommendation.orderedSongs(from: localResults.map(\.song))
         return ordered.compactMap { byID[$0.id] }
+    }
+
+    private var canLoadMore: Bool {
+        guard case .success = aiRecommendation.feedback else { return false }
+        return aiRecommendation.orderedSongIDs.count < localResults.count
     }
 
     private var refreshKey: String {
@@ -297,20 +308,58 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var recommendationGrid: some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.adaptive(minimum: platformCardMinimumWidth, maximum: 480), spacing: 14),
-            ],
-            alignment: .leading,
-            spacing: 14
-        ) {
-            ForEach(displayedResults) { result in
-                Button {
-                    play(result.song)
-                } label: {
-                    recommendationCard(result)
+        VStack(spacing: 14) {
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: platformCardMinimumWidth, maximum: 480), spacing: 14),
+                ],
+                alignment: .leading,
+                spacing: 14
+            ) {
+                ForEach(displayedResults) { result in
+                    Button {
+                        play(result.song)
+                    } label: {
+                        recommendationCard(result)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+            }
+
+            if canLoadMore || isLoadingMore || loadMoreFailed {
+                VStack(spacing: 8) {
+                    if loadMoreFailed {
+                        Text("library_recommendations_more_failed")
+                            .font(.caption)
+                            .foregroundStyle(platformSecondaryTextColor)
+                            .multilineTextAlignment(.center)
+                    }
+                    if canLoadMore || isLoadingMore {
+                        Button {
+                            Task { await loadMoreRecommendations() }
+                        } label: {
+                            HStack(spacing: 7) {
+                                if isLoadingMore {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "sparkles")
+                                }
+                                Text("library_recommendations_more")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 18)
+                            .frame(height: 38)
+                            .foregroundStyle(platformPrimaryTextColor)
+                            .background(platformChipBackground, in: Capsule())
+                            .overlay {
+                                Capsule().stroke(platformDividerColor, lineWidth: 0.5)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isLoadingMore)
+                    }
+                }
             }
         }
     }
@@ -381,9 +430,14 @@ struct AIRecommendationLibraryView: View {
     private func refresh(forceAIRefresh: Bool = false) async {
         refreshGeneration &+= 1
         let generation = refreshGeneration
+        loadMoreFailed = false
         let input = MusicDiscoveryEngine.recommendationInput(in: library)
+        let recommendationPoolSize = Self.recommendationPoolSize
         let results = await Task.detached(priority: .userInitiated) {
-            MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 24)
+            MusicDiscoveryEngine.dailyRecommendations(
+                from: input,
+                limit: recommendationPoolSize
+            )
         }.value
         guard generation == refreshGeneration, !Task.isCancelled else { return }
         localResults = results
@@ -392,8 +446,35 @@ struct AIRecommendationLibraryView: View {
             intent: selectedIntent.semanticIntent,
             candidates: results.map(\.song),
             using: intelligence,
-            forceRefresh: forceAIRefresh
+            forceRefresh: forceAIRefresh,
+            maximumResults: Self.recommendationPageSize,
+            minimumResults: Self.minimumRecommendationPageSize
         )
+    }
+
+    @MainActor
+    private func loadMoreRecommendations() async {
+        guard !isLoadingMore else { return }
+        let selectedIDs = Set(aiRecommendation.orderedSongIDs)
+        let remaining = localResults.filter { !selectedIDs.contains($0.song.id) }
+        guard !remaining.isEmpty else { return }
+
+        let operationRefreshKey = refreshKey
+        isLoadingMore = true
+        loadMoreFailed = false
+        defer { isLoadingMore = false }
+
+        let appended = await aiRecommendation.refresh(
+            scene: recommendationScene,
+            intent: selectedIntent.semanticIntent,
+            candidates: remaining.map(\.song),
+            using: intelligence,
+            maximumResults: Self.recommendationPageSize,
+            minimumResults: min(Self.minimumRecommendationPageSize, remaining.count),
+            appending: true
+        )
+        guard !Task.isCancelled, operationRefreshKey == refreshKey else { return }
+        loadMoreFailed = !appended
     }
 
     private func play(_ song: Song) {

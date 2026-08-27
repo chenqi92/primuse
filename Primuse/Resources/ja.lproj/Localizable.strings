@@ -3135,6 +3135,8 @@
 "library_recommendations_intent_settings_hint" = "外観 > ライブラリで管理";
 "library_recommendations_theme" = "テーマ";
 "library_recommendations_theme_none" = "追加テーマなし";
+"library_recommendations_more" = "おすすめをさらに読み込む";
+"library_recommendations_more_failed" = "おすすめを追加できませんでした。現在のリストはそのまま保持されます。";
 "library_recommendations_local_fallback_detail" = "端末内のおすすめを表示中です。スマートサービスが使えなくても再生に影響しません。";
 "library_recommendations_empty_title" = "おすすめできる曲がありません";
 "library_recommendations_empty_description" = "音楽ソースを追加してスキャンすると、気分や場面に合わせて曲を整理します。";

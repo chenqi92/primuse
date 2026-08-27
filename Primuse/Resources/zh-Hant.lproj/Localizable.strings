@@ -3111,6 +3111,8 @@
 "library_recommendations_intent_settings_hint" = "在「外觀 > 資料庫」中管理";
 "library_recommendations_theme" = "主題";
 "library_recommendations_theme_none" = "不加入主題";
+"library_recommendations_more" = "載入更多推薦";
+"library_recommendations_more_failed" = "未能載入更多推薦，目前列表已保留。";
 "library_recommendations_local_fallback_detail" = "目前顯示本機推薦；智慧服務無法使用時不會影響播放。";
 "library_recommendations_empty_title" = "還沒有可推薦的歌曲";
 "library_recommendations_empty_description" = "加入並掃描音樂來源後，這裡會依情境和感受整理歌曲。";
