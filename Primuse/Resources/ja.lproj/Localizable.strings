@@ -2948,6 +2948,9 @@
 "ai_generation_model" = "生成モデル";
 "ai_embedding_model" = "埋め込みモデル（任意）";
 "ai_api_key" = "API キー";
+"ai_openai_platform_api_key" = "OpenAI Platform API キー";
+"ai_openai_platform_billing_footer" = "この欄には OpenAI Platform API キーのみ入力できます。ChatGPT Plus、Pro、Business のサブスクリプションには汎用 API の利用枠は含まれず、OpenAI Platform では別途の利用権限と課金が必要です。";
+"ai_error_missing_openai_platform_key" = "OpenAI Platform API キーを入力してください。ChatGPT Plus、Pro、Business のサブスクリプションでは汎用 API にアクセスできません。";
 "ai_api_key_stored" = "API キーはキーチェーンに安全に保存されています";
 "ai_delete_current_api_key" = "現在の API キーを削除";
 "ai_provider_footer" = "対応する機能と許可を有効にした場合のみ、現在の検索語、翻訳対象の歌詞、または最小化されたおすすめ情報が送信されます。ライブラリ構成、ファイルパス、音声はこのデバイス内に保持されます。";
@@ -3004,7 +3007,7 @@
 "ai_error_models_response" = "サービスが未対応のモデル一覧形式を返しました。";
 "ai_provider_preset" = "プロバイダープリセット";
 "ai_provider_preset_custom" = "カスタム";
-"ai_provider_preset_openai" = "OpenAI 形式";
+"ai_provider_preset_openai" = "OpenAI API（プラットフォーム）";
 "ai_provider_preset_anthropic" = "Anthropic 形式";
 "ai_provider_preset_deepseek_openai" = "DeepSeek · OpenAI 形式";
 "ai_provider_preset_deepseek_anthropic" = "DeepSeek · Anthropic 形式";

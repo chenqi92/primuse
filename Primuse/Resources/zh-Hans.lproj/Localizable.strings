@@ -3051,6 +3051,9 @@
 "ai_generation_model" = "生成模型";
 "ai_embedding_model" = "向量模型（可选）";
 "ai_api_key" = "API 密钥";
+"ai_openai_platform_api_key" = "OpenAI Platform API 密钥";
+"ai_openai_platform_billing_footer" = "此处仅接受 OpenAI Platform API 密钥。ChatGPT Plus、Pro 或 Business 订阅不包含通用 API 用量；OpenAI Platform 需要单独授权并计费。";
+"ai_error_missing_openai_platform_key" = "请输入 OpenAI Platform API 密钥。ChatGPT Plus、Pro 或 Business 订阅不提供通用 API 访问权限。";
 "ai_api_key_stored" = "API 密钥已安全保存在钥匙串中";
 "ai_delete_current_api_key" = "删除当前 API 密钥";
 "ai_provider_footer" = "仅在启用相应能力并授权后发送当前搜索词、待翻译歌词或精简推荐上下文；曲库结构、文件路径和音频均留在本设备。";
@@ -3107,7 +3110,7 @@
 "ai_error_models_response" = "服务返回的模型列表格式不受支持。";
 "ai_provider_preset" = "服务预设";
 "ai_provider_preset_custom" = "自定义";
-"ai_provider_preset_openai" = "OpenAI";
+"ai_provider_preset_openai" = "OpenAI API";
 "ai_provider_preset_anthropic" = "Anthropic";
 "ai_provider_preset_deepseek_openai" = "DeepSeek · OpenAI 格式";
 "ai_provider_preset_deepseek_anthropic" = "DeepSeek · Anthropic 格式";

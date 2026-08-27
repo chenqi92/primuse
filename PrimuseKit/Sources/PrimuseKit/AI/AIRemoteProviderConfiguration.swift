@@ -164,7 +164,7 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
         case .custom:
             return configuration
         case .openAI:
-            configuration.displayName = "OpenAI"
+            configuration.displayName = "OpenAI API"
             configuration.baseURL = "https://api.openai.com"
             configuration.apiStyle = .responses
             configuration.apiPathMode = .appendV1
@@ -542,7 +542,11 @@ public struct AIRemoteProviderSet: Codable, Equatable, Sendable {
     ) {
         var normalizedProviders: [AIRemoteProviderConfiguration] = []
         var seen = Set<UUID>()
-        for provider in providers where seen.insert(provider.id).inserted {
+        for var provider in providers where seen.insert(provider.id).inserted {
+            if provider.displayName == "OpenAI",
+               AIProviderPreset.matching(configuration: provider) == .openAI {
+                provider.displayName = "OpenAI API"
+            }
             normalizedProviders.append(provider)
         }
         if normalizedProviders.isEmpty {
@@ -597,6 +601,20 @@ public enum AIRemoteEndpointValidationError: Error, Equatable, Sendable {
 }
 
 public enum AIRemoteEndpointPolicy {
+    public static func isOpenAIPlatformEndpoint(
+        configuration: AIRemoteProviderConfiguration
+    ) -> Bool {
+        guard let baseURL = try? validatedBaseURL(
+            configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        ) else {
+            return false
+        }
+        return baseURL.scheme?.lowercased() == "https"
+            && baseURL.host?.lowercased() == "api.openai.com"
+            && (baseURL.port == nil || baseURL.port == 443)
+    }
+
     public static func validatedBaseURL(
         _ rawValue: String,
         allowInsecureLocalHTTP: Bool

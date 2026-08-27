@@ -1236,6 +1236,47 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testOpenAIPlatformSettingsCopyAndCredentialValidationStayScopedToOfficialAPI() {
+        let editor = AISettingsEditorModel()
+        editor.applyProviderPreset(.openAI)
+
+        XCTAssertTrue(editor.usesOpenAIPlatformAPI)
+        XCTAssertEqual(
+            editor.apiKeyTitle,
+            String(localized: "ai_openai_platform_api_key")
+        )
+        XCTAssertTrue(editor.providerFooterText.contains(
+            String(localized: "ai_provider_footer")
+        ))
+        XCTAssertTrue(editor.providerFooterText.contains(
+            String(localized: "ai_openai_platform_billing_footer")
+        ))
+        XCTAssertEqual(
+            AISettingsEditorModel.message(
+                for: OpenAICompatibleProviderError.missingCredential,
+                configuration: editor.draftConfiguration
+            ),
+            String(localized: "ai_error_missing_openai_platform_key")
+        )
+
+        editor.draftConfiguration.baseURL = "https://relay.example.invalid/v1"
+
+        XCTAssertFalse(editor.usesOpenAIPlatformAPI)
+        XCTAssertEqual(editor.apiKeyTitle, String(localized: "ai_api_key"))
+        XCTAssertEqual(
+            editor.providerFooterText,
+            String(localized: "ai_provider_footer")
+        )
+        XCTAssertEqual(
+            AISettingsEditorModel.message(
+                for: OpenAICompatibleProviderError.missingCredential,
+                configuration: editor.draftConfiguration
+            ),
+            String(localized: "ai_error_missing_key")
+        )
+    }
+
+    @MainActor
     func testProviderPresetSelectionHasStableExplicitState() {
         let editor = AISettingsEditorModel()
         editor.apiKeyDraft = "temporary-key"

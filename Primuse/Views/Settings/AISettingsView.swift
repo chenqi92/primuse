@@ -90,6 +90,24 @@ final class AISettingsEditorModel {
             || !apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var usesOpenAIPlatformAPI: Bool {
+        AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: draftConfiguration
+        )
+    }
+
+    var apiKeyTitle: String {
+        String(localized: usesOpenAIPlatformAPI
+               ? "ai_openai_platform_api_key"
+               : "ai_api_key")
+    }
+
+    var providerFooterText: String {
+        let general = String(localized: "ai_provider_footer")
+        guard usesOpenAIPlatformAPI else { return general }
+        return "\(general)\n\n\(String(localized: "ai_openai_platform_billing_footer"))"
+    }
+
     var hasUnsavedChanges: Bool {
         draftProviderSet != savedProviderSet
             || semanticSearchEnabled != savedSemanticSearchEnabled
@@ -402,7 +420,10 @@ final class AISettingsEditorModel {
             status = models.isEmpty ? .modelsEmpty : .modelsLoaded(models.count)
         } catch {
             if canApplyCompletion(operationGeneration) {
-                status = .failed(Self.message(for: error), .models)
+                status = .failed(
+                    Self.message(for: error, configuration: configuration),
+                    .models
+                )
             }
         }
         isFetchingModels = false
@@ -483,7 +504,10 @@ final class AISettingsEditorModel {
             }
         } catch {
             if canApplyCompletion(operationGeneration) {
-                status = .failed(Self.message(for: error), .settings)
+                status = .failed(
+                    Self.message(for: error, configuration: configuration),
+                    .settings
+                )
             }
         }
         isWorking = false
@@ -555,7 +579,10 @@ final class AISettingsEditorModel {
         }
     }
 
-    static func message(for error: Error) -> String {
+    static func message(
+        for error: Error,
+        configuration: AIRemoteProviderConfiguration? = nil
+    ) -> String {
         if case OpenAICompatibleProviderError.invalidConfiguration(let validationError) = error {
             return message(for: validationError)
         }
@@ -563,6 +590,12 @@ final class AISettingsEditorModel {
         case let validationError as AIRemoteEndpointValidationError:
             return message(for: validationError)
         case OpenAICompatibleProviderError.missingCredential:
+            if let configuration,
+               AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+                   configuration: configuration
+               ) {
+                return String(localized: "ai_error_missing_openai_platform_key")
+            }
             return String(localized: "ai_error_missing_key")
         case OpenAICompatibleProviderError.missingGenerationModel:
             return String(localized: "ai_error_missing_model")
@@ -835,7 +868,7 @@ struct AISettingsView: View {
                     .foregroundStyle(.orange)
             }
 
-            SecureField("ai_api_key", text: editor.apiKeyBinding)
+            SecureField(editor.apiKeyTitle, text: editor.apiKeyBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
@@ -847,7 +880,7 @@ struct AISettingsView: View {
         } header: {
             Text("ai_provider_detail_section")
         } footer: {
-            Text("ai_provider_footer")
+            Text(editor.providerFooterText)
         }
     }
 

@@ -705,7 +705,7 @@ private struct MacSTIntelligenceView: View {
 
             MacSTSection(
                 String(localized: "ai_provider_detail_section"),
-                hint: String(localized: "ai_provider_footer")
+                hint: editor.providerFooterText
             ) {
                 MacSTGroup {
                     MacSTRow(String(localized: "ai_provider_preset"), divider: false) {
@@ -761,7 +761,7 @@ private struct MacSTIntelligenceView: View {
                         }
                     }
                     MacSTRow(
-                        String(localized: "ai_api_key"),
+                        editor.apiKeyTitle,
                         hint: editor.hasStoredAPIKeyForDraft && editor.apiKeyDraft.isEmpty
                             ? String(localized: "ai_api_key_stored") : nil
                     ) {

@@ -259,6 +259,45 @@ struct AIProviderRoutingTests {
 
 @Suite("AI remote endpoint policy")
 struct AIRemoteEndpointPolicyTests {
+    @Test func recognizesOnlyOfficialOpenAIPlatformEndpoints() {
+        let official = AIProviderPreset.openAI.applying(
+            to: AIRemoteProviderConfiguration()
+        )
+        #expect(AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: official
+        ))
+
+        var versioned = official
+        versioned.baseURL = "https://API.OPENAI.COM/v1/"
+        #expect(AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: versioned
+        ))
+
+        var insecure = official
+        insecure.baseURL = "http://api.openai.com"
+        #expect(!AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: insecure
+        ))
+
+        var lookalike = official
+        lookalike.baseURL = "https://api.openai.com.example.invalid/v1"
+        #expect(!AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: lookalike
+        ))
+
+        var nonstandardPort = official
+        nonstandardPort.baseURL = "https://api.openai.com:8443/v1"
+        #expect(!AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: nonstandardPort
+        ))
+
+        var relay = official
+        relay.baseURL = "https://relay.example.invalid/v1"
+        #expect(!AIRemoteEndpointPolicy.isOpenAIPlatformEndpoint(
+            configuration: relay
+        ))
+    }
+
     @Test func normalizesHTTPSBaseURLAndBuildsEndpoints() throws {
         let configuration = AIRemoteProviderConfiguration(
             baseURL: " https://api.example.com/v1/ ",
@@ -589,6 +628,37 @@ struct AIRemoteEndpointPolicyTests {
         )
         #expect(decodedCustom.prefersCustomConfiguration)
         #expect(AIProviderPreset.matching(configuration: decodedCustom) == .custom)
+    }
+
+    @Test func openAIPresetUsesExplicitAPINameAndMigratesLegacyProfiles() throws {
+        let id = UUID(uuidString: "AA2D40DE-B7C7-46DC-A291-5427BDCE96EE")!
+        let preset = AIProviderPreset.openAI.applying(
+            to: AIRemoteProviderConfiguration(id: id)
+        )
+        #expect(preset.displayName == "OpenAI API")
+
+        var legacy = preset
+        legacy.displayName = "OpenAI"
+        var expected = legacy
+        expected.displayName = "OpenAI API"
+        let migrated = AIRemoteProviderSet(
+            providers: [legacy],
+            primaryProviderID: id,
+            fallbackEnabled: false
+        ).primaryProvider
+
+        #expect(migrated == expected)
+        #expect(try AICredentialStoragePolicy.scopedAccount(configuration: migrated)
+            == AICredentialStoragePolicy.scopedAccount(configuration: legacy))
+
+        var custom = legacy
+        custom.prefersCustomConfiguration = true
+        let preserved = AIRemoteProviderSet(
+            providers: [custom],
+            primaryProviderID: id,
+            fallbackEnabled: false
+        ).primaryProvider
+        #expect(preserved.displayName == "OpenAI")
     }
 
     @Test func providerCatalogSeparatesMainlandAndInternationalServices() throws {

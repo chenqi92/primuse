@@ -2947,6 +2947,9 @@
 "ai_generation_model" = "생성 모델";
 "ai_embedding_model" = "벡터 모델(선택 사항)";
 "ai_api_key" = "API 키";
+"ai_openai_platform_api_key" = "OpenAI Platform API 키";
+"ai_openai_platform_billing_footer" = "이 필드에는 OpenAI Platform API 키만 입력할 수 있습니다. ChatGPT Plus, Pro, Business 구독에는 범용 API 사용량이 포함되지 않으며 OpenAI Platform은 별도 권한 부여 및 결제가 필요합니다.";
+"ai_error_missing_openai_platform_key" = "OpenAI Platform API 키를 입력하세요. ChatGPT Plus, Pro 또는 Business 구독은 범용 API 액세스를 제공하지 않습니다.";
 "ai_api_key_stored" = "API 키가 키체인에 안전하게 저장되어 있음";
 "ai_delete_current_api_key" = "현재 API 키 삭제";
 "ai_provider_footer" = "관련 기능과 권한을 켠 경우에만 현재 검색어, 번역할 가사 또는 최소화된 추천 컨텍스트가 전송됩니다. 보관함 구조, 파일 경로 및 오디오는 이 기기에 남습니다.";
@@ -3003,7 +3006,7 @@
 "ai_error_models_response" = "서비스가 지원되지 않는 모델 목록 형식을 반환했습니다.";
 "ai_provider_preset" = "서비스 프리셋";
 "ai_provider_preset_custom" = "사용자 지정";
-"ai_provider_preset_openai" = "OpenAI";
+"ai_provider_preset_openai" = "OpenAI API";
 "ai_provider_preset_anthropic" = "Anthropic";
 "ai_provider_preset_deepseek_openai" = "DeepSeek · OpenAI 형식";
 "ai_provider_preset_deepseek_anthropic" = "DeepSeek · Anthropic 형식";

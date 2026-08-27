@@ -2947,6 +2947,9 @@
 "ai_generation_model" = "Generierungsmodell";
 "ai_embedding_model" = "Vektormodell (optional)";
 "ai_api_key" = "API-Schlüssel";
+"ai_openai_platform_api_key" = "OpenAI-Platform-API-Schlüssel";
+"ai_openai_platform_billing_footer" = "Dieses Feld akzeptiert ausschließlich einen OpenAI-Platform-API-Schlüssel. ChatGPT Plus-, Pro- und Business-Abonnements enthalten keine allgemeine API-Nutzung; OpenAI Platform erfordert eine separate Autorisierung und Abrechnung.";
+"ai_error_missing_openai_platform_key" = "Gib einen OpenAI-Platform-API-Schlüssel ein. Ein ChatGPT Plus-, Pro- oder Business-Abonnement gewährt keinen allgemeinen API-Zugriff.";
 "ai_api_key_stored" = "Ein API-Schlüssel ist sicher im Schlüsselbund gespeichert";
 "ai_delete_current_api_key" = "Aktuellen API-Schlüssel löschen";
 "ai_provider_footer" = "Nur bei aktivierter Funktion und Zustimmung werden der aktuelle Suchtext, zu übersetzende Liedtexte oder ein minimierter Empfehlungskontext gesendet. Mediathekstruktur, Dateipfade und Audio bleiben auf diesem Gerät.";
@@ -3003,7 +3006,7 @@
 "ai_error_models_response" = "Der Dienst hat ein nicht unterstütztes Modelllistenformat zurückgegeben.";
 "ai_provider_preset" = "Anbieter-Voreinstellung";
 "ai_provider_preset_custom" = "Benutzerdefiniert";
-"ai_provider_preset_openai" = "OpenAI";
+"ai_provider_preset_openai" = "OpenAI API";
 "ai_provider_preset_anthropic" = "Anthropic";
 "ai_provider_preset_deepseek_openai" = "DeepSeek · OpenAI-Format";
 "ai_provider_preset_deepseek_anthropic" = "DeepSeek · Anthropic-Format";
