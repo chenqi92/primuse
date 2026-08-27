@@ -634,3 +634,15 @@
 "ext.tv.settings.intelligence.setup" = "プロバイダーを設定";
 "ext.tv.search.aiLoading" = "関連する概念を検索しています…";
 "ext.tv.search.aiReason" = "「%@」に関連";
+"ai_recommendation_intent_rightNow" = "今この瞬間";
+"ai_recommendation_intent_rightNow_detail" = "時刻と再生傾向から選択";
+"ai_recommendation_intent_nostalgia" = "郷愁";
+"ai_recommendation_intent_nostalgia_detail" = "故郷、記憶、遠い場所";
+"ai_recommendation_intent_unrequitedLove" = "届かない恋";
+"ai_recommendation_intent_unrequitedLove_detail" = "静かでほろ苦い想い";
+"ai_recommendation_intent_nightDrive" = "夜のドライブ";
+"ai_recommendation_intent_nightDrive_detail" = "流れ、疾走感、ネオン";
+"ai_recommendation_intent_quietFocus" = "静かな集中";
+"ai_recommendation_intent_quietFocus_detail" = "落ち着いた低刺激の流れ";
+"ai_recommendation_intent_rainySolitude" = "雨の日のひとり時間";
+"ai_recommendation_intent_rainySolitude_detail" = "静けさ、距離感、内省";

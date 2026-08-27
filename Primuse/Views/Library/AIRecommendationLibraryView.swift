@@ -28,16 +28,6 @@ private struct AIRecommendationIntentChoice: Identifiable, Hashable {
     }
 }
 
-extension AIRecommendationIntentPreset {
-    var localizedTitle: String {
-        String(localized: String.LocalizationValue("ai_recommendation_intent_\(rawValue)"))
-    }
-
-    var localizedDetail: String {
-        String(localized: String.LocalizationValue("ai_recommendation_intent_\(rawValue)_detail"))
-    }
-}
-
 /// A library-sized recommendation destination. The local discovery engine is
 /// always the source of playable candidates; a configured remote provider may
 /// only reorder those candidates and explain the result.

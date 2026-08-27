@@ -170,6 +170,14 @@ public enum AIRecommendationIntentPreset: String, Codable, CaseIterable, Hashabl
     case quietFocus
     case rainySolitude
 
+    public var localizedTitle: String {
+        PMString("ai_recommendation_intent_\(rawValue)")
+    }
+
+    public var localizedDetail: String {
+        PMString("ai_recommendation_intent_\(rawValue)_detail")
+    }
+
     public var semanticIntent: String? {
         switch self {
         case .rightNow:

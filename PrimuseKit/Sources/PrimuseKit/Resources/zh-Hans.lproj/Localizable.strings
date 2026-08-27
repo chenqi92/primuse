@@ -631,3 +631,15 @@
 "ext.tv.settings.intelligence.setup" = "配置智能服务";
 "ext.tv.search.aiLoading" = "正在查找相关概念…";
 "ext.tv.search.aiReason" = "与“%@”相关";
+"ai_recommendation_intent_rightNow" = "此刻";
+"ai_recommendation_intent_rightNow_detail" = "根据时间与常听内容";
+"ai_recommendation_intent_nostalgia" = "乡愁";
+"ai_recommendation_intent_nostalgia_detail" = "故乡、回忆与远行";
+"ai_recommendation_intent_unrequitedLove" = "爱而不得";
+"ai_recommendation_intent_unrequitedLove_detail" = "克制而苦涩的心意";
+"ai_recommendation_intent_nightDrive" = "夜间驾驶";
+"ai_recommendation_intent_nightDrive_detail" = "连贯、有速度感的夜色";
+"ai_recommendation_intent_quietFocus" = "安静专注";
+"ai_recommendation_intent_quietFocus_detail" = "低干扰、节奏平稳";
+"ai_recommendation_intent_rainySolitude" = "雨天独处";
+"ai_recommendation_intent_rainySolitude_detail" = "安静、疏离与沉思";

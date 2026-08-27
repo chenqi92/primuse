@@ -1009,6 +1009,18 @@ struct AIRequestLimitPolicyTests {
 
 @Suite("AI semantic search plan")
 struct AISemanticSearchPlanTests {
+    @Test func recommendationIntentPresetsResolveLocalizedLabels() {
+        for preset in AIRecommendationIntentPreset.allCases {
+            #expect(!preset.localizedTitle.isEmpty)
+            #expect(!preset.localizedDetail.isEmpty)
+            #expect(preset.localizedTitle != "ai_recommendation_intent_\(preset.rawValue)")
+            #expect(
+                preset.localizedDetail
+                    != "ai_recommendation_intent_\(preset.rawValue)_detail"
+            )
+        }
+    }
+
     @Test func normalizationRemovesDuplicatesOriginalAndUnsafeLengths() {
         let request = AISemanticSearchRequest(query: "乡愁", maximumExpansionTerms: 3)
         let plan = AISemanticSearchPlan(

@@ -634,3 +634,15 @@
 "ext.tv.settings.intelligence.setup" = "서비스 구성";
 "ext.tv.search.aiLoading" = "관련 개념 찾는 중…";
 "ext.tv.search.aiReason" = "‘%@’ 관련";
+"ai_recommendation_intent_rightNow" = "지금";
+"ai_recommendation_intent_rightNow_detail" = "시간과 감상 기록 기준";
+"ai_recommendation_intent_nostalgia" = "그리움";
+"ai_recommendation_intent_nostalgia_detail" = "고향, 기억과 먼 거리";
+"ai_recommendation_intent_unrequitedLove" = "이루지 못한 사랑";
+"ai_recommendation_intent_unrequitedLove_detail" = "조용하고 씁쓸한 마음";
+"ai_recommendation_intent_nightDrive" = "야간 드라이브";
+"ai_recommendation_intent_nightDrive_detail" = "흐름, 속도감과 네온";
+"ai_recommendation_intent_quietFocus" = "고요한 집중";
+"ai_recommendation_intent_quietFocus_detail" = "방해 없이 일정한 흐름";
+"ai_recommendation_intent_rainySolitude" = "비 오는 날 혼자";
+"ai_recommendation_intent_rainySolitude_detail" = "고요함, 거리감과 사색";

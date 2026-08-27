@@ -634,3 +634,15 @@
 "ext.tv.settings.intelligence.setup" = "Configurer un fournisseur";
 "ext.tv.search.aiLoading" = "Recherche de concepts associés…";
 "ext.tv.search.aiReason" = "Associé à « %@ »";
+"ai_recommendation_intent_rightNow" = "Maintenant";
+"ai_recommendation_intent_rightNow_detail" = "Selon l’heure et vos écoutes";
+"ai_recommendation_intent_nostalgia" = "Nostalgie";
+"ai_recommendation_intent_nostalgia_detail" = "Foyer, souvenirs et distance";
+"ai_recommendation_intent_unrequitedLove" = "Amour impossible";
+"ai_recommendation_intent_unrequitedLove_detail" = "Tendre, discret et doux-amer";
+"ai_recommendation_intent_nightDrive" = "Route de nuit";
+"ai_recommendation_intent_nightDrive_detail" = "Élan, fluidité et néons";
+"ai_recommendation_intent_quietFocus" = "Concentration calme";
+"ai_recommendation_intent_quietFocus_detail" = "Stable et sans distraction";
+"ai_recommendation_intent_rainySolitude" = "Solitude pluvieuse";
+"ai_recommendation_intent_rainySolitude_detail" = "Calme, distance et réflexion";

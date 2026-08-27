@@ -224,8 +224,8 @@ struct TVLibraryView: View {
         let presets = AIRecommendationIntentPreset.allCases.map { preset in
             RecommendationIntent(
                 id: "preset:\(preset.rawValue)",
-                title: PMString("ai_recommendation_intent_\(preset.rawValue)"),
-                detail: PMString("ai_recommendation_intent_\(preset.rawValue)_detail"),
+                title: preset.localizedTitle,
+                detail: preset.localizedDetail,
                 semanticIntent: preset.semanticIntent
             )
         }

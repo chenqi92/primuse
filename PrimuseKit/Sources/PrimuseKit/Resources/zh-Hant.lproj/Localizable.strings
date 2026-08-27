@@ -631,3 +631,15 @@
 "ext.tv.settings.intelligence.setup" = "設定智慧服務";
 "ext.tv.search.aiLoading" = "正在尋找相關概念…";
 "ext.tv.search.aiReason" = "與「%@」相關";
+"ai_recommendation_intent_rightNow" = "此刻";
+"ai_recommendation_intent_rightNow_detail" = "依時間與常聽內容";
+"ai_recommendation_intent_nostalgia" = "鄉愁";
+"ai_recommendation_intent_nostalgia_detail" = "故鄉、回憶與遠行";
+"ai_recommendation_intent_unrequitedLove" = "愛而不得";
+"ai_recommendation_intent_unrequitedLove_detail" = "克制而苦澀的心意";
+"ai_recommendation_intent_nightDrive" = "夜間駕駛";
+"ai_recommendation_intent_nightDrive_detail" = "連貫、有速度感的夜色";
+"ai_recommendation_intent_quietFocus" = "安靜專注";
+"ai_recommendation_intent_quietFocus_detail" = "低干擾、節奏平穩";
+"ai_recommendation_intent_rainySolitude" = "雨天獨處";
+"ai_recommendation_intent_rainySolitude_detail" = "安靜、疏離與沉思";
