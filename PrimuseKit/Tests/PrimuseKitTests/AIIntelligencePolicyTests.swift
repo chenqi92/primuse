@@ -889,6 +889,52 @@ struct AIRecommendationPolicyTests {
         #expect(plan.summary.count == 180)
     }
 
+    @Test func recommendationPlanRejectsSingleArtistConcentration() {
+        let candidates = (0..<8).map { index in
+            AIRecommendationCandidate(
+                songID: "song-\(index)",
+                title: "Song \(index)",
+                artist: index < 5 ? "Artist A" : "Artist \(index)"
+            )
+        }
+        let request = AIRecommendationRequest(
+            scene: .driving,
+            preferences: [],
+            candidates: candidates,
+            maximumResults: 8
+        )
+        let plan = AIRecommendationPlan(
+            selections: (0..<8).map { index in
+                AIRecommendationSelection(songID: "song-\(index)", reason: "reason")
+            }
+        ).normalized(for: request)
+
+        #expect(plan.selections.isEmpty)
+    }
+
+    @Test func recommendationPlanAcceptsBalancedArtistSelection() {
+        let candidates = (0..<8).map { index in
+            AIRecommendationCandidate(
+                songID: "song-\(index)",
+                title: "Song \(index)",
+                artist: "Artist \(index / 2)"
+            )
+        }
+        let request = AIRecommendationRequest(
+            scene: .focus,
+            preferences: [],
+            candidates: candidates,
+            maximumResults: 8
+        )
+        let plan = AIRecommendationPlan(
+            selections: (0..<8).map { index in
+                AIRecommendationSelection(songID: "song-\(index)", reason: "reason")
+            }
+        ).normalized(for: request)
+
+        #expect(plan.selections.count == 8)
+    }
+
     @Test func recommendationIntentIsSanitizedAndBounded() {
         let request = AIRecommendationRequest(
             scene: .relaxation,

@@ -3127,6 +3127,8 @@
 "library_recommendations_description" = "Abspielbare Titel werden zuerst auf dem Gerät ausgewählt. Ein aktivierter intelligenter Dienst sortiert sie nur neu und erklärt die Auswahl.";
 "library_recommendations_intent_title" = "Was möchtest du hören?";
 "library_recommendations_intent_settings_hint" = "Unter Darstellung > Mediathek verwalten";
+"library_recommendations_theme" = "Thema";
+"library_recommendations_theme_none" = "Kein zusätzliches Thema";
 "library_recommendations_local_fallback_detail" = "Lokale Empfehlungen werden angezeigt. Die Wiedergabe funktioniert auch ohne intelligenten Dienst.";
 "library_recommendations_empty_title" = "Noch keine Empfehlungen";
 "library_recommendations_empty_description" = "Füge eine Musikquelle hinzu und scanne sie, um Titel nach Stimmung zu ordnen.";

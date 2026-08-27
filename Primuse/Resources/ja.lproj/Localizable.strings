@@ -3128,6 +3128,8 @@
 "library_recommendations_description" = "再生可能な曲を端末内で先に選びます。スマートサービスは並べ替えと理由の説明だけを行います。";
 "library_recommendations_intent_title" = "今は何を聴きたいですか";
 "library_recommendations_intent_settings_hint" = "外観 > ライブラリで管理";
+"library_recommendations_theme" = "テーマ";
+"library_recommendations_theme_none" = "追加テーマなし";
 "library_recommendations_local_fallback_detail" = "端末内のおすすめを表示中です。スマートサービスが使えなくても再生に影響しません。";
 "library_recommendations_empty_title" = "おすすめできる曲がありません";
 "library_recommendations_empty_description" = "音楽ソースを追加してスキャンすると、気分や場面に合わせて曲を整理します。";

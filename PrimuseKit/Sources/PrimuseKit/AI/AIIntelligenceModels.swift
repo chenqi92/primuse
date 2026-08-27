@@ -405,12 +405,35 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
                 reason: String(reason.prefix(120))
             )
         }
+        let limitedSelections = Array(selections.prefix(request.maximumResults))
+        let availableArtistCount = Set(request.candidates.map(Self.artistIdentity)).count
+        let selectedArtistCounts = Dictionary(
+            grouping: limitedSelections,
+            by: { selection in
+                guard let candidate = request.candidates.first(where: {
+                    $0.songID == selection.songID
+                }) else { return "song:\(selection.songID)" }
+                return Self.artistIdentity(candidate)
+            }
+        ).mapValues(\.count)
+        let requiredArtistCount = min(4, min(availableArtistCount, limitedSelections.count))
+        let isSufficientlyDiverse = selectedArtistCounts.count >= requiredArtistCount
+            && (availableArtistCount < 4 || (selectedArtistCounts.values.max() ?? 0) <= 2)
+
         return AIRecommendationPlan(
             summary: String(
                 summary.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180)
             ),
-            selections: Array(selections.prefix(request.maximumResults))
+            selections: isSufficientlyDiverse ? limitedSelections : []
         )
+    }
+
+    private static func artistIdentity(_ candidate: AIRecommendationCandidate) -> String {
+        let artist = candidate.artist
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return artist.isEmpty ? "song:\(candidate.songID)" : artist
     }
 }
 

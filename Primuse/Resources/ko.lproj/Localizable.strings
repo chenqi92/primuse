@@ -3127,6 +3127,8 @@
 "library_recommendations_description" = "재생 가능한 곡을 기기에서 먼저 고릅니다. 지능형 서비스를 켜면 순서를 조정하고 추천 이유만 설명합니다.";
 "library_recommendations_intent_title" = "지금 무엇을 듣고 싶나요?";
 "library_recommendations_intent_settings_hint" = "모양 > 보관함에서 관리";
+"library_recommendations_theme" = "테마";
+"library_recommendations_theme_none" = "추가 테마 없음";
 "library_recommendations_local_fallback_detail" = "현재 기기 내 추천을 표시합니다. 지능형 서비스를 사용할 수 없어도 재생에는 영향이 없습니다.";
 "library_recommendations_empty_title" = "아직 추천할 곡이 없습니다";
 "library_recommendations_empty_description" = "음악 소스를 추가하고 스캔하면 기분과 상황에 맞춰 곡을 정리합니다.";

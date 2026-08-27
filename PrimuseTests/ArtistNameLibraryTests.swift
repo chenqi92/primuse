@@ -137,6 +137,71 @@ final class ArtistNameLibraryTests: XCTestCase {
     }
 }
 
+final class MusicDiscoveryRecommendationTests: XCTestCase {
+    func testDailyRecommendationsFillFromOtherArtistsBeforeRepeatingOneArtist() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let oldDate = now.addingTimeInterval(-120 * 24 * 60 * 60)
+        let dominant = (0..<8).map { index in
+            makeSong(
+                id: "artist-a-\(index)",
+                artist: "Artist A",
+                album: "Album A",
+                dateAdded: oldDate
+            )
+        }
+        let alternatives = ["Artist B", "Artist C", "Artist D"].flatMap { artist in
+            (0..<2).map { index in
+                makeSong(
+                    id: "\(artist)-\(index)",
+                    artist: artist,
+                    album: "\(artist) Album",
+                    dateAdded: oldDate
+                )
+            }
+        }
+        let songs = dominant + alternatives
+        let input = MusicDiscoveryEngine.RecommendationInput(
+            songs: songs,
+            recentWeekIDs: [],
+            recentMonthIDs: [],
+            topArtists: ["artist a"],
+            seedIDs: ["artist-a-0"],
+            now: now
+        )
+
+        let recommendations = MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 8)
+        let artistCounts = Dictionary(
+            grouping: recommendations,
+            by: { $0.song.artistName ?? "" }
+        ).mapValues(\.count)
+
+        XCTAssertEqual(recommendations.count, 8)
+        XCTAssertEqual(artistCounts.count, 4)
+        XCTAssertLessThanOrEqual(artistCounts.values.max() ?? 0, 2)
+    }
+
+    private func makeSong(
+        id: String,
+        artist: String,
+        album: String,
+        dateAdded: Date
+    ) -> Song {
+        Song(
+            id: id,
+            title: id,
+            albumID: album,
+            artistID: artist,
+            albumTitle: album,
+            artistName: artist,
+            duration: 180,
+            fileFormat: .flac,
+            filePath: "/\(id).flac",
+            sourceID: "source",
+            dateAdded: dateAdded
+        )
+    }
+}
+
 @MainActor
 final class ArtistNameSettingsStoreTests: XCTestCase {
     func testUnsupportedFutureConfigurationIsPreservedUntilUserEdits() throws {

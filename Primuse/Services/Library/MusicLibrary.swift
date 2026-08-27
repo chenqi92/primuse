@@ -1628,17 +1628,24 @@ enum MusicDiscoveryEngine {
             return lhs.song.dateAdded > rhs.song.dateAdded
         }
 
-        var unique = uniqued(results).prefix(limit).map { $0 }
-        if unique.count < limit {
-            let excluded = Set(unique.map(\.song.id)).union(input.recentWeekIDs)
-            unique.append(contentsOf: coldStartRecommendations(
+        var ranked = uniqued(results)
+        let availableArtistCount = Set(
+            songs
+                .filter { !input.recentWeekIDs.contains($0.id) }
+                .map(artistIdentity)
+        ).count
+        let targetArtistCount = min(4, min(max(0, limit), availableArtistCount))
+        let rankedArtistCount = Set(ranked.map { artistIdentity($0.song) }).count
+        if ranked.count < limit || rankedArtistCount < targetArtistCount {
+            let excluded = Set(ranked.map(\.song.id)).union(input.recentWeekIDs)
+            ranked.append(contentsOf: coldStartRecommendations(
                 from: songs,
                 excluding: excluded,
-                limit: limit - unique.count,
+                limit: max(limit * 2, limit - ranked.count),
                 now: input.now
             ))
         }
-        return unique
+        return diversifiedRecommendations(ranked, limit: limit)
     }
 
     @MainActor
@@ -1658,15 +1665,14 @@ enum MusicDiscoveryEngine {
         from input: RecommendationInput,
         limit: Int = 12
     ) -> [MusicDiscoveryResult] {
-        recommendations(from: input, limit: max(limit * 3, limit))
+        let ranked = recommendations(from: input, limit: max(limit * 3, limit))
             .sorted { lhs, rhs in
                 let left = lhs.score + stableDailyNoise(lhs.song.id, now: input.now) * 8
                 let right = rhs.score + stableDailyNoise(rhs.song.id, now: input.now) * 8
                 if left != right { return left > right }
                 return lhs.song.title.localizedCompare(rhs.song.title) == .orderedAscending
             }
-            .prefix(limit)
-            .map { $0 }
+        return diversifiedRecommendations(ranked, limit: limit)
     }
 
     @MainActor
@@ -1915,7 +1921,7 @@ enum MusicDiscoveryEngine {
         limit: Int,
         now: Date
     ) -> [MusicDiscoveryResult] {
-        songs
+        let ranked = songs
             .filter { !excludedIDs.contains($0.id) }
             .map { song -> MusicDiscoveryResult in
                 var score = song.coverArtFileName?.isEmpty == false ? 12.0 : 0.0
@@ -1934,8 +1940,47 @@ enum MusicDiscoveryEngine {
                 if lhs.score != rhs.score { return lhs.score > rhs.score }
                 return lhs.song.dateAdded > rhs.song.dateAdded
             }
-            .prefix(limit)
-            .map { $0 }
+        return diversifiedRecommendations(ranked, limit: limit)
+    }
+
+    /// Keeps the strongest tracks first while preventing one artist or album
+    /// from occupying the whole recommendation surface. The final unrestricted
+    /// pass still fills small or single-artist libraries instead of returning
+    /// an unnecessarily short queue.
+    static func diversifiedRecommendations(
+        _ rankedResults: [MusicDiscoveryResult],
+        limit: Int
+    ) -> [MusicDiscoveryResult] {
+        guard limit > 0 else { return [] }
+        let ranked = uniqued(rankedResults)
+        var output: [MusicDiscoveryResult] = []
+        var selectedIDs = Set<String>()
+        var artistCounts: [String: Int] = [:]
+        var albumCounts: [String: Int] = [:]
+
+        func appendPass(maxPerArtist: Int?, maxPerAlbum: Int?) {
+            guard output.count < limit else { return }
+            for result in ranked where output.count < limit && !selectedIDs.contains(result.song.id) {
+                let artistKey = artistIdentity(result.song)
+                let albumKey = albumIdentity(result.song, artistKey: artistKey)
+                if let maxPerArtist, artistCounts[artistKey, default: 0] >= maxPerArtist {
+                    continue
+                }
+                if let maxPerAlbum, albumCounts[albumKey, default: 0] >= maxPerAlbum {
+                    continue
+                }
+                selectedIDs.insert(result.song.id)
+                artistCounts[artistKey, default: 0] += 1
+                albumCounts[albumKey, default: 0] += 1
+                output.append(result)
+            }
+        }
+
+        appendPass(maxPerArtist: 1, maxPerAlbum: 1)
+        appendPass(maxPerArtist: 2, maxPerAlbum: 1)
+        appendPass(maxPerArtist: 2, maxPerAlbum: 2)
+        appendPass(maxPerArtist: nil, maxPerAlbum: nil)
+        return output
     }
 
     private static func uniqued(_ results: [MusicDiscoveryResult]) -> [MusicDiscoveryResult] {
@@ -1945,6 +1990,26 @@ enum MusicDiscoveryEngine {
             output.append(result)
         }
         return output
+    }
+
+    private static func artistIdentity(_ song: Song) -> String {
+        if let artistID = song.artistID, !normalized(artistID).isEmpty {
+            return "id:\(normalized(artistID))"
+        }
+        if let artistName = song.artistName, !normalized(artistName).isEmpty {
+            return "name:\(normalized(artistName))"
+        }
+        return "song:\(song.id)"
+    }
+
+    private static func albumIdentity(_ song: Song, artistKey: String) -> String {
+        if let albumID = song.albumID, !normalized(albumID).isEmpty {
+            return "id:\(normalized(albumID))"
+        }
+        if let albumTitle = song.albumTitle, !normalized(albumTitle).isEmpty {
+            return "title:\(artistKey):\(normalized(albumTitle))"
+        }
+        return "song:\(song.id)"
     }
 
     private static func nonEmptyEqual(_ lhs: String?, _ rhs: String?) -> Bool {

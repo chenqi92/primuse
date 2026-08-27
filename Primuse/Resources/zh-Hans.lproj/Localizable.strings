@@ -3231,6 +3231,8 @@
 "library_recommendations_description" = "先在本机挑选可播放歌曲；启用智能服务后，只会重新排序并说明推荐理由。";
 "library_recommendations_intent_title" = "现在想听什么";
 "library_recommendations_intent_settings_hint" = "在“外观 > 资料库”中管理";
+"library_recommendations_theme" = "主题";
+"library_recommendations_theme_none" = "不添加主题";
 "library_recommendations_local_fallback_detail" = "当前显示本机推荐；智能服务不可用时不会影响播放。";
 "library_recommendations_empty_title" = "还没有可推荐的歌曲";
 "library_recommendations_empty_description" = "添加并扫描音乐来源后，这里会按场景和感受整理歌曲。";

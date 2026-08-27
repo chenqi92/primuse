@@ -763,14 +763,24 @@ enum AIRecommendationContextBuilder {
         let metadataByID = Dictionary(
             uniqueKeysWithValues: uniqueCandidates.map { ($0.id, $0) }
         )
-        let preferences = history.topSongs(in: .year, limit: 12).map { item in
-            AIRecommendationPreference(
+        var preferenceArtistCounts: [String: Int] = [:]
+        let preferences = Array(history.topSongs(in: .year, limit: 36).compactMap {
+            item -> AIRecommendationPreference? in
+            let artist = metadataByID[item.id]?.artistName ?? item.subtitle
+            let normalizedArtist = artist
+                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let artistKey = normalizedArtist.isEmpty ? "song:\(item.id)" : normalizedArtist
+            guard preferenceArtistCounts[artistKey, default: 0] < 2 else { return nil }
+            preferenceArtistCounts[artistKey, default: 0] += 1
+            return AIRecommendationPreference(
                 title: item.title,
-                artist: item.subtitle,
+                artist: artist,
                 genre: metadataByID[item.id]?.genre,
                 playCount: item.playCount
             )
-        }
+        }.prefix(12))
         let recommendationCandidates = uniqueCandidates.prefix(36).map { song in
             let durationSeconds: Int
             if song.duration.isFinite {
@@ -889,10 +899,7 @@ final class AIRecommendationViewModel {
             candidates.map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        var ordered = orderedSongIDs.compactMap { byID[$0] }
-        let selectedIDs = Set(ordered.map(\.id))
-        ordered.append(contentsOf: candidates.filter { !selectedIDs.contains($0.id) })
-        return ordered
+        return orderedSongIDs.compactMap { byID[$0] }
     }
 
     func reason(for songID: String) -> String? {

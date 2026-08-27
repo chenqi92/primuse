@@ -39,6 +39,8 @@ struct AIRecommendationLibraryView: View {
     private var customIntentsRawValue = ""
     @AppStorage("primuse.ai.recommendationIntent.selected.v1")
     private var selectedIntentID = "preset:rightNow"
+    @AppStorage("primuse.ai.recommendationScene.v1")
+    private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
 
     @State private var localResults: [MusicDiscoveryResult] = []
     @State private var aiRecommendation = AIRecommendationViewModel()
@@ -54,6 +56,10 @@ struct AIRecommendationLibraryView: View {
             ?? intentChoices[0]
     }
 
+    private var recommendationScene: AIRecommendationScene {
+        AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
+    }
+
     private var displayedResults: [MusicDiscoveryResult] {
         let byID = Dictionary(
             localResults.map { ($0.song.id, $0) },
@@ -65,6 +71,7 @@ struct AIRecommendationLibraryView: View {
 
     private var refreshKey: String {
         [
+            recommendationSceneRawValue,
             selectedIntent.id,
             customIntentsRawValue,
             String(library.visibleSongCollectionRevision),
@@ -110,7 +117,7 @@ struct AIRecommendationLibraryView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: platformSectionSpacing) {
                 hero
-                intentRibbon
+                recommendationControls
                 statusPanel
                 recommendationGrid
             }
@@ -121,7 +128,7 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var hero: some View {
-        HStack(alignment: .bottom, spacing: 20) {
+        HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 7) {
                 Label("library_recommendations_eyebrow", systemImage: "sparkles")
                     .font(.caption.weight(.bold))
@@ -138,68 +145,100 @@ struct AIRecommendationLibraryView: View {
                     .foregroundStyle(platformSecondaryTextColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 20)
-            Image(systemName: "waveform.path.ecg.rectangle")
-                .font(.system(size: 42, weight: .light))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(platformAccentColor)
-                .accessibilityHidden(true)
+            Spacer(minLength: 12)
+            Button(action: playAll) {
+                Label("play_all", systemImage: "play.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .foregroundStyle(Color.white)
+                    .background(platformAccentColor, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(displayedResults.map(\.song).filteredPlayable().isEmpty)
         }
     }
 
-    private var intentRibbon: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var recommendationControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text("library_recommendations_intent_title")
                     .font(.headline)
                     .foregroundStyle(platformPrimaryTextColor)
                 Spacer()
-                Text("library_recommendations_intent_settings_hint")
-                    .font(.caption)
-                    .foregroundStyle(platformSecondaryTextColor)
+                Menu {
+                    Button {
+                        selectIntent("preset:rightNow")
+                    } label: {
+                        if selectedIntentID == "preset:rightNow" {
+                            Label("library_recommendations_theme_none", systemImage: "checkmark")
+                        } else {
+                            Text("library_recommendations_theme_none")
+                        }
+                    }
+                    Divider()
+                    ForEach(intentChoices.filter { $0.id != "preset:rightNow" }) { choice in
+                        Button {
+                            selectIntent(choice.id)
+                        } label: {
+                            if selectedIntentID == choice.id {
+                                Label {
+                                    Text(verbatim: choice.title)
+                                } icon: {
+                                    Image(systemName: "checkmark")
+                                }
+                            } else {
+                                Text(verbatim: choice.title)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "slider.horizontal.3")
+                        if selectedIntentID == "preset:rightNow" {
+                            Text("library_recommendations_theme")
+                                .lineLimit(1)
+                        } else {
+                            Text(verbatim: selectedIntent.title)
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(platformAccentColor)
+                }
+                .menuStyle(.borderlessButton)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
-                    ForEach(intentChoices) { choice in
+                LazyHStack(spacing: 8) {
+                    ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
                         Button {
-                            selectedIntentID = choice.id
-                            CloudKVSSync.shared.markChanged(
-                                key: CloudKVSKey.aiRecommendationSelectedIntent
-                            )
+                            recommendationSceneRawValue = scene.rawValue
                         } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(verbatim: choice.title)
-                                    .font(.subheadline.weight(.semibold))
-                                    .lineLimit(1)
-                                Text(verbatim: choice.detail)
-                                    .font(.caption2)
-                                    .lineLimit(1)
-                                    .opacity(0.76)
-                            }
+                            Text(scene.localizedName)
+                                .font(.caption.weight(.semibold))
                             .foregroundStyle(
-                                selectedIntentID == choice.id
+                                recommendationScene == scene
                                     ? Color.white
                                     : platformPrimaryTextColor
                             )
-                            .padding(.horizontal, 15)
-                            .frame(height: 54, alignment: .leading)
+                            .padding(.horizontal, 13)
+                            .frame(height: 32)
                             .background(
-                                selectedIntentID == choice.id
+                                recommendationScene == scene
                                     ? platformAccentColor
                                     : platformChipBackground,
-                                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                in: Capsule()
                             )
                             .overlay {
-                                if selectedIntentID != choice.id {
-                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                        .stroke(platformDividerColor, lineWidth: 0.5)
+                                if recommendationScene != scene {
+                                    Capsule().stroke(platformDividerColor, lineWidth: 0.5)
                                 }
                             }
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(
-                            selectedIntentID == choice.id ? .isSelected : []
+                            recommendationScene == scene ? .isSelected : []
                         )
                     }
                 }
@@ -248,7 +287,8 @@ struct AIRecommendationLibraryView: View {
                 .accessibilityLabel("ai_recommendation_refresh")
             }
         }
-        .padding(13)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(platformCardBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -348,7 +388,7 @@ struct AIRecommendationLibraryView: View {
         guard generation == refreshGeneration, !Task.isCancelled else { return }
         localResults = results
         await aiRecommendation.refresh(
-            scene: .automatic,
+            scene: recommendationScene,
             intent: selectedIntent.semanticIntent,
             candidates: results.map(\.song),
             using: intelligence,
@@ -363,6 +403,22 @@ struct AIRecommendationLibraryView: View {
         player.setQueue(queue, startAt: index)
         SiriMediaInteractionDonor.donate(song: queue[index])
         Task { await player.play(song: queue[index]) }
+    }
+
+    private func playAll() {
+        let queue = displayedResults.map(\.song).filteredPlayable()
+        guard let first = queue.first else { return }
+        player.shuffleEnabled = false
+        player.setQueue(queue, startAt: 0)
+        SiriMediaInteractionDonor.donate(song: first)
+        Task { await player.play(song: first) }
+    }
+
+    private func selectIntent(_ id: String) {
+        selectedIntentID = id
+        CloudKVSSync.shared.markChanged(
+            key: CloudKVSKey.aiRecommendationSelectedIntent
+        )
     }
 
     private var statusIcon: String {
@@ -394,10 +450,10 @@ struct AIRecommendationLibraryView: View {
     #if os(macOS)
     private var platformHorizontalPadding: CGFloat { PMSpace.xxxl }
     private var platformTopPadding: CGFloat { PMSpace.l24 }
-    private var platformSectionSpacing: CGFloat { PMSpace.xl }
+    private var platformSectionSpacing: CGFloat { PMSpace.l }
     private var platformCardMinimumWidth: CGFloat { 330 }
     private var platformArtworkSize: CGFloat { 88 }
-    private var platformTitleFont: Font { PMFont.pageTitle(32) }
+    private var platformTitleFont: Font { PMFont.pageTitle(28) }
     private var platformAccentColor: Color { PMColor.brand }
     private var platformPrimaryTextColor: Color { PMColor.text }
     private var platformSecondaryTextColor: Color { PMColor.textMuted }
@@ -407,10 +463,10 @@ struct AIRecommendationLibraryView: View {
     #else
     private var platformHorizontalPadding: CGFloat { 20 }
     private var platformTopPadding: CGFloat { 16 }
-    private var platformSectionSpacing: CGFloat { 24 }
+    private var platformSectionSpacing: CGFloat { 16 }
     private var platformCardMinimumWidth: CGFloat { 300 }
     private var platformArtworkSize: CGFloat { 96 }
-    private var platformTitleFont: Font { .largeTitle.bold() }
+    private var platformTitleFont: Font { .title.bold() }
     private var platformAccentColor: Color { .accentColor }
     private var platformPrimaryTextColor: Color { .primary }
     private var platformSecondaryTextColor: Color { .secondary }

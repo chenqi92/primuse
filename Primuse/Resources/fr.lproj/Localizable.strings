@@ -3127,6 +3127,8 @@
 "library_recommendations_description" = "Les morceaux lisibles sont d’abord choisis sur l’appareil. Un service intelligent activé ne fait que les réordonner et expliquer ses choix.";
 "library_recommendations_intent_title" = "Que voulez-vous écouter ?";
 "library_recommendations_intent_settings_hint" = "Gérer dans Apparence > Bibliothèque";
+"library_recommendations_theme" = "Thème";
+"library_recommendations_theme_none" = "Aucun thème supplémentaire";
 "library_recommendations_local_fallback_detail" = "Les recommandations locales sont affichées. La lecture continue si le service intelligent est indisponible.";
 "library_recommendations_empty_title" = "Aucune recommandation pour le moment";
 "library_recommendations_empty_description" = "Ajoutez et analysez une source musicale pour classer les morceaux par ambiance.";

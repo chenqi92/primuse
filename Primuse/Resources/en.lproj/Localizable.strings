@@ -2914,6 +2914,8 @@
 "library_recommendations_description" = "Playable songs are selected on device first. When an intelligent service is enabled, it only reorders them and explains why.";
 "library_recommendations_intent_title" = "What do you want to hear?";
 "library_recommendations_intent_settings_hint" = "Manage in Appearance > Library";
+"library_recommendations_theme" = "Theme";
+"library_recommendations_theme_none" = "No extra theme";
 "library_recommendations_local_fallback_detail" = "Local recommendations are showing. Playback keeps working when the intelligent service is unavailable.";
 "library_recommendations_empty_title" = "Nothing to recommend yet";
 "library_recommendations_empty_description" = "Add and scan a music source to organize songs by mood and setting.";
