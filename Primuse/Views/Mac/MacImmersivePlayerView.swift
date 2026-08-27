@@ -803,7 +803,8 @@ struct MacImmersivePlayerView: View {
     }
 
     private var artistName: String {
-        let value = player.currentSong?.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let value = player.currentSong.flatMap { library.artistDisplayName(for: $0) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return isPlaceholderMetadata(value, localizedKey: "unknown_artist")
             ? ImmersiveDemoContent.artist
             : value

@@ -103,6 +103,20 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Native multi-artist values round-trip without flattening")
+    func sourceArtistNamesRoundTrip() throws {
+        try withStore { store in
+            var song = makeSong(id: "collaboration", path: "/collaboration.flac", title: "Together")
+            song.artistName = "AC/DC / Simon & Garfunkel"
+            song.sourceArtistNames = ["AC/DC", "Simon & Garfunkel"]
+            try store.replaceAll(with: [song])
+
+            let loaded = try #require(try store.loadSongs().first)
+            #expect(loaded.artistName == song.artistName)
+            #expect(loaded.sourceArtistNames == ["AC/DC", "Simon & Garfunkel"])
+        }
+    }
+
     private func withStore(_ body: (IncrementalSongStore) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-song-store-\(UUID().uuidString).sqlite")

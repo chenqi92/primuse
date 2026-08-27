@@ -230,6 +230,13 @@ struct LibrarySearchOutput: Sendable {
     var cache: LibrarySearchCache
 }
 
+private func librarySearchableArtistText(_ song: Song) -> String {
+    let nativeNames = song.sourceArtistNames ?? []
+    return nativeNames.isEmpty
+        ? (song.artistName ?? "")
+        : nativeNames.joined(separator: " ")
+}
+
 enum LibrarySearchWorker {
     /// Lyrics search is intentionally held back for short queries. One- and
     /// two-character searches match too much text, and normal metadata search
@@ -275,7 +282,7 @@ enum LibrarySearchWorker {
 
             if includeMetadata {
                 consider(song.title, boost: 30)
-                consider(song.artistName, boost: 20)
+                consider(librarySearchableArtistText(song), boost: 20)
                 consider(song.albumTitle, boost: 14)
                 consider(song.genre, boost: 6)
                 consider(song.fileFormat.rawValue, boost: 2)
@@ -955,7 +962,7 @@ actor LibrarySearchIndex {
                         }
                         try db.execute(
                             sql: "INSERT INTO metadataLexicalFts (rowid, title, artist, album, genre) VALUES (?, ?, ?, ?, ?)",
-                            arguments: [stateID, change.song.title, change.song.artistName ?? "", change.song.albumTitle ?? "", change.song.genre ?? ""]
+                            arguments: [stateID, change.song.title, librarySearchableArtistText(change.song), change.song.albumTitle ?? "", change.song.genre ?? ""]
                         )
                         try db.execute(
                             sql: "INSERT INTO metadataPinyinFts (rowid, title, artist, album, initials, compact) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1265,7 +1272,7 @@ actor LibrarySearchIndex {
 
     private static func makeMetadataDocument(_ song: Song) -> MetadataDocument {
         let title = song.titlePinyin ?? PinyinTransformer.pinyin(song.title) ?? folded(song.title)
-        let artistSource = song.artistName ?? ""
+        let artistSource = librarySearchableArtistText(song)
         let albumSource = song.albumTitle ?? ""
         let artist = song.artistPinyin ?? PinyinTransformer.pinyin(artistSource) ?? folded(artistSource)
         let album = song.albumPinyin ?? PinyinTransformer.pinyin(albumSource) ?? folded(albumSource)
@@ -1364,6 +1371,7 @@ actor LibrarySearchIndex {
         digest([
             song.title,
             song.artistName ?? "",
+            song.sourceArtistNames?.joined(separator: "\u{1F}") ?? "",
             song.albumTitle ?? "",
             song.genre ?? "",
             song.titlePinyin ?? "",
@@ -1418,7 +1426,7 @@ actor LibrarySearchIndex {
     }
 
     private static func metadataContainsLiteral(_ song: Song, query: String) -> Bool {
-        [song.title, song.artistName, song.albumTitle, song.genre]
+        [song.title, librarySearchableArtistText(song), song.albumTitle, song.genre]
             .compactMap { $0 }
             .contains { $0.localizedCaseInsensitiveContains(query) }
     }
@@ -2009,6 +2017,7 @@ final class MusicLibrary {
             LibraryArrayReclaimer.release(previous)
         }
     }
+    private(set) var artistNameConfiguration: ArtistNameConfiguration
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
     private(set) var allPlaylists: [Playlist] = []
@@ -2216,7 +2225,7 @@ final class MusicLibrary {
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
     private static let startupCacheFormatVersion = 1
-    private static let loadedSongMigrationVersion = 2
+    private static let loadedSongMigrationVersion = 3
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -2239,6 +2248,7 @@ final class MusicLibrary {
             songs: songs,
             albums: albums,
             artists: artists,
+            artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
             previousVisibleSongs: visibleSongs
         )
@@ -2267,6 +2277,7 @@ final class MusicLibrary {
         songs: [Song],
         albums: [Album],
         artists: [Artist],
+        artistNameConfiguration: ArtistNameConfiguration,
         disabledSourceIDs: Set<String>,
         previousVisibleSongs: [Song]
     ) -> PreparedVisibleCache {
@@ -2281,7 +2292,10 @@ final class MusicLibrary {
             nextVisibleSongs = songs.filter { !disabledSourceIDs.contains($0.sourceID) }
             let visibleAlbumIDs = Set(nextVisibleSongs.compactMap(\.albumID))
             nextVisibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
-            let visibleArtistIDs = Set(nextVisibleSongs.compactMap(\.artistID))
+            let visibleArtistIDs = Set(nextVisibleSongs.flatMap {
+                resolvedArtistNames(for: $0, configuration: artistNameConfiguration)
+                    .map { hashID($0.lowercased()) }
+            })
             nextVisibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
         }
         let lookups = makeVisibleLookups(songs: nextVisibleSongs)
@@ -2400,8 +2414,13 @@ final class MusicLibrary {
     init(
         fileManager: FileManager = .default,
         disabledSourceIDs: Set<String> = [],
-        storageDirectory: URL? = nil
+        storageDirectory: URL? = nil,
+        artistNameConfiguration: ArtistNameConfiguration? = nil
     ) {
+        self.artistNameConfiguration = (
+            artistNameConfiguration
+                ?? ArtistNameConfiguration.load(from: .standard)
+        ).normalized()
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / SourcesStore 同目录。
         #if os(tvOS)
         let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
@@ -2441,6 +2460,17 @@ final class MusicLibrary {
         decoder.dateDecodingStrategy = .iso8601
 
         loadSnapshot()
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseArtistNameConfigurationDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let value = notification.object as? ArtistNameConfiguration else { return }
+            Task { @MainActor [weak self, value] in
+                self?.updateArtistNameConfiguration(value)
+            }
+        }
 
         // MetadataAssetStore writes the actual searchable lyrics files. Search
         // reads those files directly, so do not mirror every scrape into the
@@ -2772,7 +2802,10 @@ final class MusicLibrary {
 
         for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
             var newSong = song
-            MusicLibrary.fillDerivedIDs(&newSong)
+            MusicLibrary.fillDerivedIDs(
+                &newSong,
+                configuration: artistNameConfiguration
+            )
             if let idx = existingIndexByID[newSong.id] {
                 let existing = mergedSongs[idx]
                 if !newSong.filePath.isEmpty, newSong.filePath != existing.filePath {
@@ -3406,8 +3439,60 @@ final class MusicLibrary {
         )
     }
 
+    func artistNames(for song: Song) -> [String] {
+        Self.resolvedArtistNames(
+            for: song,
+            configuration: artistNameConfiguration
+        )
+    }
+
+    func artistDisplayName(for song: Song) -> String? {
+        song.displayArtistName(configuration: artistNameConfiguration)
+    }
+
+    func artistIDs(for song: Song) -> [String] {
+        artistNames(for: song).map { Self.hashID($0.lowercased()) }
+    }
+
+    func song(_ song: Song, includesArtistID artistID: String) -> Bool {
+        artistIDs(for: song).contains(artistID)
+    }
+
     func songs(forArtist artistID: String) -> [Song] {
-        visibleSongs.filter { $0.artistID == artistID }
+        visibleSongs.filter { song($0, includesArtistID: artistID) }
+    }
+
+    func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {
+        let value = value.normalized()
+        guard artistNameConfiguration != value else { return }
+        artistNameConfiguration = value
+
+        var nextSongs = songs
+        var changedSongs: [Song] = []
+        changedSongs.reserveCapacity(nextSongs.count)
+        for index in nextSongs.indices {
+            let previousArtistID = nextSongs[index].artistID
+            Self.fillDerivedIDs(
+                &nextSongs[index],
+                configuration: value
+            )
+            if nextSongs[index].artistID != previousArtistID {
+                changedSongs.append(nextSongs[index])
+            }
+        }
+        if !changedSongs.isEmpty {
+            songs = nextSongs
+            songIndexByID = Self.makeSongIndex(nextSongs)
+            persistSongChanges(upserts: changedSongs)
+            markPortableSnapshotDirty()
+        }
+
+        rebuildIndexGeneration &+= 1
+        rebuildIndexTask?.cancel()
+        rebuildIndexSync()
+        persistDerivedIndexCache()
+        invalidateSearchCaches()
+        LibrarySearchIndex.persistLibraryChangePending()
     }
 
     func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
@@ -4625,7 +4710,10 @@ final class MusicLibrary {
         guard let index = validatedSongIndex(for: updatedSong.id, in: currentSongs) else { return }
         let oldCoverRef = currentSongs[index].coverArtFileName
         var s = updatedSong
-        MusicLibrary.fillDerivedIDs(&s)
+        MusicLibrary.fillDerivedIDs(
+            &s,
+            configuration: artistNameConfiguration
+        )
         var nextSongs = currentSongs
         nextSongs[index] = s
         songs = nextSongs
@@ -4681,7 +4769,10 @@ final class MusicLibrary {
             }
             let oldCoverRef = nextSongs[index].coverArtFileName
             var s = updated
-            MusicLibrary.fillDerivedIDs(&s)
+            MusicLibrary.fillDerivedIDs(
+                &s,
+                configuration: artistNameConfiguration
+            )
             nextSongs[index] = s
             lastApplied = s
             appliedIDs.insert(s.id)
@@ -4842,6 +4933,7 @@ final class MusicLibrary {
         rebuildIndexGeneration &+= 1
         let myGen = rebuildIndexGeneration
         let snapshot = songs
+        let artistNameConfigurationSnapshot = artistNameConfiguration
         let disabledSourceSnapshot = disabledSourceIDs
         let previousVisibleSongs = visibleSongs
 
@@ -4853,15 +4945,22 @@ final class MusicLibrary {
                 return
             }
             guard !Task.isCancelled else { return }
-            let signature = MusicLibrary.derivedIndexSignature(for: snapshot)
+            let signature = MusicLibrary.derivedIndexSignature(
+                for: snapshot,
+                configuration: artistNameConfigurationSnapshot
+            )
             guard !Task.isCancelled,
-                  let result = MusicLibrary.computeAlbumsAndArtistsCancellable(songs: snapshot)
+                  let result = MusicLibrary.computeAlbumsAndArtistsCancellable(
+                    songs: snapshot,
+                    configuration: artistNameConfigurationSnapshot
+                  )
             else { return }
             guard !Task.isCancelled else { return }
             let visibleCache = MusicLibrary.prepareVisibleCache(
                 songs: snapshot,
                 albums: result.albums,
                 artists: result.artists,
+                artistNameConfiguration: artistNameConfigurationSnapshot,
                 disabledSourceIDs: disabledSourceSnapshot,
                 previousVisibleSongs: previousVisibleSongs
             )
@@ -4870,7 +4969,8 @@ final class MusicLibrary {
                 // generation 校验: 期间又有新的 rebuildIndex 调度过, 当前结果
                 // 已经 stale, 丢弃。
                 guard self.rebuildIndexGeneration == myGen,
-                      self.disabledSourceIDs == disabledSourceSnapshot else { return }
+                      self.disabledSourceIDs == disabledSourceSnapshot,
+                      self.artistNameConfiguration == artistNameConfigurationSnapshot else { return }
                 self.albums = result.albums
                 self.artists = result.artists
                 self.derivedIndexSignature = signature
@@ -4883,11 +4983,17 @@ final class MusicLibrary {
     /// 启动 / 测试场景下需要"调用即生效"的同步重建。比异步版本贵 (会卡
     /// main actor 一下), 但只在 init / migration 等 UI 还没起来的路径用。
     private func rebuildIndexSync(precomputedSignature: String? = nil) {
-        let result = MusicLibrary.computeAlbumsAndArtists(songs: songs)
+        let result = MusicLibrary.computeAlbumsAndArtists(
+            songs: songs,
+            configuration: artistNameConfiguration
+        )
         albums = result.albums
         artists = result.artists
         derivedIndexSignature = precomputedSignature
-            ?? MusicLibrary.derivedIndexSignature(for: songs)
+            ?? MusicLibrary.derivedIndexSignature(
+                for: songs,
+                configuration: artistNameConfiguration
+            )
         rebuildVisibleCache()
     }
 
@@ -5036,7 +5142,10 @@ final class MusicLibrary {
             || canonicalSongs == nil
             || (initialStoreState?.completedMigrationVersion ?? 0) < Self.loadedSongMigrationVersion
         let migration = shouldInspectLoadedSongs
-            ? Self.migrateLoadedSongs(&loadedSongs)
+            ? Self.migrateLoadedSongs(
+                &loadedSongs,
+                configuration: artistNameConfiguration
+            )
             : (
                 repairedTextCount: 0,
                 filledDerivedIDCount: 0,
@@ -5090,15 +5199,20 @@ final class MusicLibrary {
         // sessions). Try resolving them once on load.
         schedulePendingIdentityFlush()
         let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
+        let currentDerivedSignature = Self.derivedIndexSignature(
+            for: loadedSongs,
+            configuration: artistNameConfiguration
+        )
         let usedDerivedIndexCache: Bool
-        if let startupCache, migration.changedSongs.isEmpty {
+        if let startupCache,
+           migration.changedSongs.isEmpty,
+           startupCache.derivedIndexSignature == currentDerivedSignature {
             albums = startupCache.albums
             artists = startupCache.artists
-            derivedIndexSignature = startupCache.derivedIndexSignature
+            derivedIndexSignature = currentDerivedSignature
             rebuildVisibleCache()
             usedDerivedIndexCache = true
         } else {
-            let currentDerivedSignature = Self.derivedIndexSignature(for: loadedSongs)
             if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
                 albums = cachedIndex.albums
                 artists = cachedIndex.artists
@@ -5152,7 +5266,8 @@ final class MusicLibrary {
     }
 
     private static func migrateLoadedSongs(
-        _ songs: inout [Song]
+        _ songs: inout [Song],
+        configuration: ArtistNameConfiguration
     ) -> (
         repairedTextCount: Int,
         filledDerivedIDCount: Int,
@@ -5175,7 +5290,10 @@ final class MusicLibrary {
                 )
                 : nil
             var songWithExpectedDerivedIDs = song
-            fillDerivedIDs(&songWithExpectedDerivedIDs)
+            fillDerivedIDs(
+                &songWithExpectedDerivedIDs,
+                configuration: configuration
+            )
             let needsDerivedIDs = song.artistID != songWithExpectedDerivedIDs.artistID
                 || song.albumID != songWithExpectedDerivedIDs.albumID
 
@@ -5207,6 +5325,12 @@ final class MusicLibrary {
         var changed = false
         changed = repairLegacyChineseText(&song.title) || changed
         changed = repairLegacyChineseText(&song.artistName) || changed
+        if var sourceArtistNames = song.sourceArtistNames {
+            for index in sourceArtistNames.indices {
+                changed = repairLegacyChineseText(&sourceArtistNames[index]) || changed
+            }
+            song.sourceArtistNames = sourceArtistNames
+        }
         if var albumArtistName = song.albumArtistName,
            repairLegacyChineseText(&albumArtistName) {
             song.albumArtistName = albumArtistName
@@ -5851,9 +5975,23 @@ final class MusicLibrary {
     /// 给单首歌就近填好 albumID / artistID, 不依赖整库 rebuildIndex。这样
     /// addSongs / replaceSong 同步路径里, song 加入 library 时 IDs 立刻
     /// 可读, 后台 rebuildIndex 只负责 derive albums/artists 集合。
-    nonisolated static func fillDerivedIDs(_ song: inout Song) {
+    nonisolated static func resolvedArtistNames(
+        for song: Song,
+        configuration: ArtistNameConfiguration = .defaultValue
+    ) -> [String] {
+        let names = song.effectiveArtistNames(configuration: configuration)
+        return names.isEmpty ? [String(localized: "unknown_artist")] : names
+    }
+
+    nonisolated static func fillDerivedIDs(
+        _ song: inout Song,
+        configuration: ArtistNameConfiguration = .defaultValue
+    ) {
         let unknownArtist = String(localized: "unknown_artist")
-        let artist = song.artistName ?? unknownArtist
+        let artist = resolvedArtistNames(
+            for: song,
+            configuration: configuration
+        ).first ?? unknownArtist
         song.artistID = hashID(artist.lowercased())
         if let identity = AlbumGroupingPolicy.identity(
             albumTitle: song.albumTitle,
@@ -5869,21 +6007,34 @@ final class MusicLibrary {
 
     /// 后台 derive albums / artists 集合。纯函数 ── 给定 songs 数组, 算出
     /// 派生集合, 不操作 self。
-    nonisolated static func computeAlbumsAndArtists(songs: [Song]) -> (albums: [Album], artists: [Artist]) {
-        computeAlbumsAndArtists(songs: songs, cancellationCheck: { false })!
+    nonisolated static func computeAlbumsAndArtists(
+        songs: [Song],
+        configuration: ArtistNameConfiguration = .defaultValue
+    ) -> (albums: [Album], artists: [Artist]) {
+        computeAlbumsAndArtists(
+            songs: songs,
+            configuration: configuration,
+            cancellationCheck: { false }
+        )!
     }
 
     /// Task-aware counterpart used by the incremental rebuild worker. The old
     /// worker only checked cancellation after all filtering/grouping/sorting had
     /// completed, so every superseded task still consumed a full-library pass.
     private nonisolated static func computeAlbumsAndArtistsCancellable(
-        songs: [Song]
+        songs: [Song],
+        configuration: ArtistNameConfiguration
     ) -> (albums: [Album], artists: [Artist])? {
-        computeAlbumsAndArtists(songs: songs, cancellationCheck: { Task.isCancelled })
+        computeAlbumsAndArtists(
+            songs: songs,
+            configuration: configuration,
+            cancellationCheck: { Task.isCancelled }
+        )
     }
 
     private nonisolated static func computeAlbumsAndArtists(
         songs: [Song],
+        configuration: ArtistNameConfiguration,
         cancellationCheck: () -> Bool
     ) -> (albums: [Album], artists: [Artist])? {
         guard !cancellationCheck() else { return nil }
@@ -5920,13 +6071,35 @@ final class MusicLibrary {
         }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
         guard !cancellationCheck() else { return nil }
 
-        // Artists ── 全 songs 都参与 group
-        let artistGroups = Dictionary(grouping: songs) { $0.artistName ?? unknownArtist }
+        // Artists ── every contributor participates while album grouping stays
+        // tied to albumArtistName above. This lets a guest artist own the song
+        // without incorrectly gaining the host album.
+        let artistEntries = songs.flatMap { song in
+            resolvedArtistNames(for: song, configuration: configuration).map { ($0, song) }
+        }
+        let artistGroups = Dictionary(grouping: artistEntries) { $0.0 }
         guard !cancellationCheck() else { return nil }
-        let artists = artistGroups.map { name, songs -> Artist in
-            let albumCount = Set(songs.compactMap(\.albumTitle)).count
-            let thumbnailPath = songs.lazy.compactMap { song in
-                song.artistArtworkFileName.flatMap {
+        let artists = artistGroups.map { name, entries -> Artist in
+            let groupedSongs = entries.map(\.1)
+            let albumCount = Set(groupedSongs.compactMap { song -> String? in
+                guard let identity = AlbumGroupingPolicy.identity(
+                    albumTitle: song.albumTitle,
+                    albumArtistName: song.albumArtistName,
+                    trackArtistName: song.artistName,
+                    unknownArtistName: unknownArtist
+                ), hashID(identity.artistName.lowercased()) == hashID(name.lowercased()) else {
+                    return nil
+                }
+                return hashID("\(identity.artistName):\(identity.albumTitle)")
+            }).count
+            let thumbnailPath = groupedSongs.lazy.compactMap { song -> String? in
+                guard resolvedArtistNames(
+                    for: song,
+                    configuration: configuration
+                ).first.map({ hashID($0.lowercased()) }) == hashID(name.lowercased()) else {
+                    return nil
+                }
+                return song.artistArtworkFileName.flatMap {
                     SourceOwnedArtworkReference.make(sourceID: song.sourceID, reference: $0)
                 }
             }.first
@@ -5934,7 +6107,7 @@ final class MusicLibrary {
                 id: hashID(name.lowercased()),
                 name: name,
                 albumCount: albumCount,
-                songCount: songs.count,
+                songCount: groupedSongs.count,
                 thumbnailPath: thumbnailPath
             )
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -5947,14 +6120,19 @@ final class MusicLibrary {
     /// The derived cache is only a launch accelerator; any metadata, ordering,
     /// duration, locale, or schema change makes the digest differ and falls
     /// back to a full rebuild.
-    private nonisolated static func derivedIndexSignature(for songs: [Song]) -> String {
+    private nonisolated static func derivedIndexSignature(
+        for songs: [Song],
+        configuration: ArtistNameConfiguration
+    ) -> String {
         var input = Data()
         input.reserveCapacity(max(128, songs.count * 96))
-        appendStableString("derived-index-v3", to: &input)
+        appendStableString("derived-index-v4", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
+        appendStableString(configuration.cacheSignature, to: &input)
 
         for song in songs {
             appendStableString(song.artistName, to: &input)
+            appendStableString(song.sourceArtistNames?.joined(separator: "\u{1F}"), to: &input)
             appendStableString(song.albumArtistName, to: &input)
             appendStableString(song.albumTitle, to: &input)
             appendStableInteger(song.year.map(Int64.init) ?? Int64.min, to: &input)

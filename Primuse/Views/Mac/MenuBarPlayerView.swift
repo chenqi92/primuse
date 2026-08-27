@@ -8,6 +8,7 @@ import PrimuseKit
 struct MenuBarPlayerView: View {
     var onOpenMainWindow: () -> Void = {}
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @Environment(AudioEngine.self) private var engine
 
     @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
@@ -95,7 +96,10 @@ struct MenuBarPlayerView: View {
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-                Text(player.currentSong?.artistName ?? "")
+                Text(
+                    player.currentSong.flatMap { library.artistDisplayName(for: $0) }
+                        ?? ""
+                )
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)

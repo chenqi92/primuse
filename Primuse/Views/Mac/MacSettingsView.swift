@@ -11,7 +11,7 @@ import PrimuseKit
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     case playback, equalizer, effects, keyboard, theme
-    case scrape, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about
+    case scrape, artists, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about
 
     var id: String { rawValue }
 
@@ -22,6 +22,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .effects: return Lz("Audio Effects")
         case .keyboard: return String(localized: "keyboard_shortcuts_title")
         case .scrape: return Lz("Metadata Scraping")
+        case .artists: return String(localized: "artist_name_settings_title")
         case .lyrics: return Lz("Lyrics Translation")
         case .appleMusic: return "Apple Music"
         case .intelligence: return String(localized: "ai_settings_title")
@@ -41,6 +42,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .effects: return "waveform.badge.plus"
         case .keyboard: return "keyboard"
         case .scrape: return "tag"
+        case .artists: return "person.2"
         case .lyrics: return "character.bubble"
         case .appleMusic: return "music.note"
         case .intelligence: return "sparkles"
@@ -60,6 +62,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .effects: return "ST-03"
         case .keyboard: return "ST-13"
         case .scrape: return "ST-04"
+        case .artists: return "ST-15"
         case .lyrics: return "ST-05"
         case .appleMusic: return "ST-06"
         case .intelligence: return "ST-14"
@@ -243,6 +246,8 @@ struct MacSettingsView: View {
             MacSTKeyboardShortcutsView()
         case .scrape:
             MacSTScrapingView()
+        case .artists:
+            MacSTArtistNameView()
         case .lyrics:
             MacSTLyricsView()
         case .appleMusic:
@@ -1929,6 +1934,202 @@ private struct MacSTEffectsView: View {
         }
         .disabled(!fx.effectChainEnabled)
         .opacity(fx.effectChainEnabled ? 1 : 0.56)
+    }
+}
+
+// MARK: - ST-15 Artist Names
+
+private struct MacSTArtistNameView: View {
+    @State private var store = ArtistNameSettingsStore.shared
+    @State private var newSeparator = ""
+    @State private var newProtectedName = ""
+    @State private var displaySeparatorDraft = ""
+    @State private var showsResetConfirmation = false
+
+    private var preview: String {
+        ArtistNameParser.displayName(
+            rawName: "Artist A; Artist B",
+            configuration: store.configuration
+        ) ?? "Artist A; Artist B"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if store.hasUnsupportedStoredConfiguration {
+                MacSTSection {
+                    MacSTGroup {
+                        MacSTRow(
+                            String(localized: "artist_name_settings_newer_version_warning"),
+                            divider: false
+                        ) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(PMColor.bad)
+                        }
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "artist_name_settings_preview"),
+                hint: String(localized: "artist_name_settings_intro")
+            ) {
+                MacSTGroup {
+                    MacSTRow("Artist A; Artist B", divider: false) {
+                        MacSTInfoText(text: preview, color: PMColor.brand)
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "artist_name_settings_separators"),
+                hint: String(localized: "artist_name_settings_separators_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow("", divider: false, block: true) {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 88), alignment: .leading)],
+                            alignment: .leading,
+                            spacing: 8
+                        ) {
+                            ForEach(Array(store.configuration.separators.enumerated()), id: \.offset) { index, value in
+                                removableChip(value) {
+                                    store.removeSeparators(at: IndexSet(integer: index))
+                                }
+                            }
+                        }
+                    }
+                    MacSTRow(String(localized: "add")) {
+                        HStack(spacing: 6) {
+                            MacSTTextField(
+                                text: $newSeparator,
+                                prompt: String(localized: "artist_name_settings_separator_placeholder"),
+                                width: 250
+                            )
+                            MacSTButton(
+                                title: String(localized: "add"),
+                                systemImage: "plus",
+                                action: addSeparator
+                            )
+                            .disabled(newSeparator.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "artist_name_settings_protected_names"),
+                hint: String(localized: "artist_name_settings_protected_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow("", divider: false, block: true) {
+                        if store.configuration.protectedNames.isEmpty {
+                            MacSTInfoText(text: String(localized: "artist_name_settings_protected_empty"))
+                        } else {
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)],
+                                alignment: .leading,
+                                spacing: 8
+                            ) {
+                                ForEach(Array(store.configuration.protectedNames.enumerated()), id: \.offset) { index, value in
+                                    removableChip(value) {
+                                        store.removeProtectedNames(at: IndexSet(integer: index))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    MacSTRow(String(localized: "add")) {
+                        HStack(spacing: 6) {
+                            MacSTTextField(
+                                text: $newProtectedName,
+                                prompt: String(localized: "artist_name_settings_protected_placeholder"),
+                                width: 250
+                            )
+                            MacSTButton(
+                                title: String(localized: "add"),
+                                systemImage: "plus",
+                                action: addProtectedName
+                            )
+                            .disabled(newProtectedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+            }
+
+            MacSTSection(
+                String(localized: "artist_name_settings_display_separator"),
+                hint: String(localized: "artist_name_settings_display_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "artist_name_settings_display_separator"),
+                        divider: false
+                    ) {
+                        HStack(spacing: 6) {
+                            MacSTTextField(
+                                text: $displaySeparatorDraft,
+                                prompt: String(localized: "artist_name_settings_display_separator_placeholder"),
+                                width: 180
+                            )
+                            MacSTButton(
+                                title: String(localized: "save"),
+                                action: saveDisplaySeparator
+                            )
+                            .disabled(displaySeparatorDraft.isEmpty)
+                        }
+                    }
+                    MacSTRow(String(localized: "artist_name_settings_reset")) {
+                        MacSTButton(
+                            title: String(localized: "artist_name_settings_reset"),
+                            destructive: true
+                        ) {
+                            showsResetConfirmation = true
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear {
+            displaySeparatorDraft = store.configuration.displaySeparator
+        }
+        .onChange(of: store.revision) {
+            displaySeparatorDraft = store.configuration.displaySeparator
+        }
+        .confirmationDialog(
+            String(localized: "artist_name_settings_reset_confirm"),
+            isPresented: $showsResetConfirmation
+        ) {
+            Button(String(localized: "artist_name_settings_reset"), role: .destructive) {
+                store.resetToDefaults()
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+    }
+
+    private func removableChip(_ value: String, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            MacSTChip(text: value)
+            Button(action: action) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func addSeparator() {
+        if store.addSeparator(newSeparator) { newSeparator = "" }
+    }
+
+    private func addProtectedName() {
+        if store.addProtectedName(newProtectedName) { newProtectedName = "" }
+    }
+
+    private func saveDisplaySeparator() {
+        guard !displaySeparatorDraft.isEmpty else { return }
+        store.setDisplaySeparator(displaySeparatorDraft)
+        displaySeparatorDraft = store.configuration.displaySeparator
     }
 }
 

@@ -270,6 +270,14 @@ actor LibraryDatabase {
             }
         }
 
+        // Optional JSON array preserving authoritative multi-value artist
+        // fields. Legacy rows remain nil and continue through text parsing.
+        migrator.registerMigration("v13_song_source_artists") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "sourceArtistNames", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

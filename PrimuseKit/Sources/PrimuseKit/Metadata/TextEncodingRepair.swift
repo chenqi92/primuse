@@ -286,7 +286,17 @@ public enum TextEncodingRepair {
     /// GBK/Shift_JIS 字节时把它留成 0 (标准里是 ISO-8859-1), 所以声明只作为
     /// 候选顺序的提示, 最终仍按合理度评分定夺。
     public static func decodeID3Text(_ payload: Data, encodingByte: UInt8) -> String? {
-        guard !payload.isEmpty else { return nil }
+        decodeID3TextValues(payload, encodingByte: encodingByte).first
+    }
+
+    /// ID3v2.4 permits multiple values in one text frame separated by a null
+    /// character. Decode the complete payload before splitting so UTF-16 BOM
+    /// and byte order remain intact across every value.
+    public static func decodeID3TextValues(
+        _ payload: Data,
+        encodingByte: UInt8
+    ) -> [String] {
+        guard !payload.isEmpty else { return [] }
 
         let decoded: String?
         switch encodingByte {
@@ -303,15 +313,21 @@ public enum TextEncodingRepair {
             decoded = String(data: payload, encoding: .utf8)
                 ?? bestDecoding(of: payload, encodings: legacyTextEncodings)
         default:
-            return nil
+            return []
         }
 
-        guard let decoded else { return nil }
-        let normalized = decoded
-            .replacingOccurrences(of: "\0", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
-        return repaired(normalized) ?? normalized
+        guard let decoded else { return [] }
+        var seen = Set<String>()
+        return decoded.components(separatedBy: "\0").compactMap { value in
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { return nil }
+            let value = repaired(normalized) ?? normalized
+            let key = value.folding(
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            return seen.insert(key).inserted ? value : nil
+        }
     }
 
     /// 声明为单字节/未知编码时的候选集合。

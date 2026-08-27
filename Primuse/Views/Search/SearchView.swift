@@ -394,7 +394,7 @@ struct SearchView: View {
                     playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
                 } label: {
                     macTopCard(title: result.song.title,
-                               subtitle: result.song.artistName ?? "",
+                               subtitle: library.artistDisplayName(for: result.song) ?? "",
                                systemImage: "music.note",
                                song: result.song)
                 }
@@ -405,7 +405,7 @@ struct SearchView: View {
                 } label: {
                     macTopCard(
                         title: result.song.title,
-                        subtitle: result.song.artistName ?? "",
+                        subtitle: library.artistDisplayName(for: result.song) ?? "",
                         systemImage: "sparkles",
                         song: result.song
                     )
@@ -713,7 +713,7 @@ struct SearchView: View {
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text(result.song.artistName ?? "")
+                    Text(library.artistDisplayName(for: result.song) ?? "")
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
@@ -836,10 +836,14 @@ struct SearchView: View {
         var seen = Set<String>()
         var distinct = 0
         for r in searchResults {
-            let name = r.song.artistName ?? ""
-            guard !name.isEmpty, !seen.contains(name) else { continue }
-            seen.insert(name)
-            distinct += 1
+            for name in library.artistNames(for: r.song) where !name.isEmpty {
+                let key = name.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                    locale: .current
+                )
+                guard seen.insert(key).inserted else { continue }
+                distinct += 1
+            }
         }
         return distinct
     }

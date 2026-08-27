@@ -1,4 +1,7 @@
 // PrimuseKit strings ── 该区域暂无翻译,系统会回退到 en.lproj。
+"artist_name_settings_title" = "Noms des artistes";
+"artist_name_settings_tv_summary" = "%1$d séparateurs · %2$d protégés";
+"artist_name_settings_tv_read_only" = "Modifier sur iPhone, iPad ou Mac";
 // 当 PrimuseKit 内部有面向用户的字符串(如 cloud account auth 错误)需要
 // 翻译时,在这里覆盖对应 key。
 

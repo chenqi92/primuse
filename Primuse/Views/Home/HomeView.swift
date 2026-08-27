@@ -1713,7 +1713,7 @@ struct HomeView: View {
                     Text(pick.title)
                         .font(.subheadline).fontWeight(.medium)
                         .lineLimit(1)
-                    Text(pick.artistName ?? "")
+                    Text(library.artistDisplayName(for: pick) ?? "")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -2157,7 +2157,10 @@ struct HomeView: View {
                                         .foregroundStyle(.primary)
                                         .lineLimit(2)
 
-                                    Text(song.artistName ?? String(localized: "unknown_artist"))
+                                    Text(
+                                        library.artistDisplayName(for: song)
+                                            ?? String(localized: "unknown_artist")
+                                    )
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
@@ -2340,7 +2343,10 @@ struct HomeView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(song.artistName ?? String(localized: "unknown_artist"))
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -384,7 +384,7 @@ struct SmartPlaylistDetailView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(song.artistName ?? "—")
+                Text(library.artistDisplayName(for: song) ?? "—")
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)

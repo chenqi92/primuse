@@ -401,9 +401,12 @@ extension CarPlaySceneDelegate {
     private func searchMatches(_ query: String) -> [Song] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
-        return Array(AppServices.shared.musicLibrary.visibleSongs.lazy.filter { song in
+        let library = AppServices.shared.musicLibrary
+        return Array(library.visibleSongs.lazy.filter { song in
             song.title.localizedCaseInsensitiveContains(normalized)
-                || (song.artistName?.localizedCaseInsensitiveContains(normalized) ?? false)
+                || library.artistNames(for: song).contains {
+                    $0.localizedCaseInsensitiveContains(normalized)
+                }
                 || (song.albumTitle?.localizedCaseInsensitiveContains(normalized) ?? false)
         }.prefix(100))
     }
@@ -782,7 +785,8 @@ extension CarPlaySceneDelegate {
     private func songItem(_ song: Song, queueProvider: @escaping () -> ([Song], Int)) -> CPListItem {
         let item = CPListItem(
             text: song.title,
-            detailText: song.artistName ?? song.albumTitle,
+            detailText: AppServices.shared.musicLibrary.artistDisplayName(for: song)
+                ?? song.albumTitle,
             image: nil
         )
         loadArtwork(for: song, into: item)
@@ -1202,7 +1206,8 @@ extension CarPlaySceneDelegate {
         let items = upcoming.enumerated().map { offset, song -> CPListItem in
             let item = CPListItem(
                 text: song.title,
-                detailText: song.artistName ?? song.albumTitle,
+                detailText: AppServices.shared.musicLibrary.artistDisplayName(for: song)
+                    ?? song.albumTitle,
                 image: nil
             )
             loadArtwork(for: song, into: item)

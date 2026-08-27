@@ -1272,11 +1272,21 @@ final class AppleMusicLibraryService {
             albumArtistName: s.albums?.first?.artistName,
             trackArtistName: s.artistName
         )
+        let sourceArtistNames = s.artists?.map(\.name).reduce(into: [String]()) {
+            result, name in
+            let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  !result.contains(where: {
+                    $0.caseInsensitiveCompare(name) == .orderedSame
+                  }) else { return }
+            result.append(name)
+        } ?? []
         return PrimuseKit.Song(
             id: songID,
             title: s.title,
             albumTitle: s.albumTitle,
             artistName: s.artistName,
+            sourceArtistNames: sourceArtistNames.count > 1 ? sourceArtistNames : nil,
             albumArtistName: albumArtist,
             trackNumber: s.trackNumber,
             discNumber: s.discNumber,

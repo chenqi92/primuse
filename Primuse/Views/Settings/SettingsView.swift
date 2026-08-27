@@ -39,6 +39,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        ArtistNameSettingsView()
+                    } label: {
+                        Label("artist_name_settings_title", systemImage: "person.2")
+                    }
+
+                    NavigationLink {
                         LyricsTranslationSettingsView()
                     } label: {
                         Label("lyrics_translation_title", systemImage: "character.bubble")

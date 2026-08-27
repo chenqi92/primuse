@@ -28,7 +28,12 @@ enum SmartPlaylistEngine {
 
         // 空规则集合: 命中 library 全部 (用户可能新建后还没编辑规则就先看个全量)
         guard !ruleGroups.isEmpty else {
-            let result = sortAndLimit(songs, smart: smart, history: history)
+            let result = sortAndLimit(
+                songs,
+                smart: smart,
+                history: history,
+                artistConfiguration: library.artistNameConfiguration
+            )
             let elapsed = Date().timeIntervalSince(startedAt)
             plog(String(format: "🎯 SmartPlaylist '%@' match: 0 rules → matched=%d/%d in %.0fms",
                         smart.name, result.count, totalSongs, elapsed * 1000))
@@ -42,7 +47,12 @@ enum SmartPlaylistEngine {
             evaluate(groups: ruleGroups, groupCombinator: groupCombinator,
                      song: song, stats: stats, library: library)
         }
-        let result = sortAndLimit(matched, smart: smart, history: history)
+        let result = sortAndLimit(
+            matched,
+            smart: smart,
+            history: history,
+            artistConfiguration: library.artistNameConfiguration
+        )
         let elapsed = Date().timeIntervalSince(startedAt)
         let ruleCount = ruleGroups.reduce(0) { $0 + $1.rules.count }
         plog(String(format: "🎯 SmartPlaylist '%@' match: groups=%d rules=%d sortBy=%@ limit=%@ → matched=%d/%d (truncated to %d) in %.0fms",
@@ -125,7 +135,7 @@ enum SmartPlaylistEngine {
         case .title:
             return compareString(song.title, rule)
         case .artistName:
-            return compareString(song.artistName ?? "", rule)
+            return compareStrings(library.artistNames(for: song), rule)
         case .albumTitle:
             return compareString(song.albumTitle ?? "", rule)
         case .genre:
@@ -173,6 +183,16 @@ enum SmartPlaylistEngine {
         case .contains: return v.contains(t)
         case .notContains: return !v.contains(t)
         default: return false
+        }
+    }
+
+    private static func compareStrings(_ values: [String], _ rule: SmartPlaylistRule) -> Bool {
+        let values = values.isEmpty ? [""] : values
+        switch rule.op {
+        case .notEquals, .notContains:
+            return values.allSatisfy { compareString($0, rule) }
+        default:
+            return values.contains { compareString($0, rule) }
         }
     }
 
@@ -282,7 +302,8 @@ enum SmartPlaylistEngine {
     private static func sortAndLimit(
         _ songs: [Song],
         smart: SmartPlaylist,
-        history: PlayHistoryStore
+        history: PlayHistoryStore,
+        artistConfiguration: ArtistNameConfiguration
     ) -> [Song] {
         let safeLimit = max(0, smart.limit ?? Int.max)
         let sorted: [Song]
@@ -290,7 +311,10 @@ enum SmartPlaylistEngine {
         case .title:
             sorted = songs.sorted { ($0.title) < ($1.title) }
         case .artistName:
-            sorted = songs.sorted { ($0.artistName ?? "") < ($1.artistName ?? "") }
+            sorted = songs.sorted {
+                ($0.displayArtistName(configuration: artistConfiguration) ?? "")
+                    < ($1.displayArtistName(configuration: artistConfiguration) ?? "")
+            }
         case .albumTitle:
             sorted = songs.sorted { ($0.albumTitle ?? "") < ($1.albumTitle ?? "") }
         case .dateAdded:

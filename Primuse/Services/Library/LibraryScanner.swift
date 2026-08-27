@@ -73,7 +73,12 @@ actor LibraryScanner {
                             allowOnlineFetch: false,
                             fallbackTitle: originalBaseName
                         )
-                        let artistID = metadata.artist.map { generateArtistID(name: $0) }
+                        let artistNames = ArtistNameParser.names(
+                            rawName: metadata.artist,
+                            sourceNames: metadata.sourceArtistNames,
+                            configuration: ArtistNameConfiguration.load(from: .standard)
+                        )
+                        let artistID = artistNames.first.map { generateArtistID(name: $0) }
                         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
                             albumArtistName: metadata.albumArtist,
                             trackArtistName: metadata.artist
@@ -93,6 +98,7 @@ actor LibraryScanner {
                             artistID: artistID,
                             albumTitle: metadata.albumTitle,
                             artistName: metadata.artist,
+                            sourceArtistNames: metadata.sourceArtistNames,
                             albumArtistName: albumArtist,
                             trackNumber: metadata.trackNumber,
                             discNumber: metadata.discNumber,
@@ -119,8 +125,11 @@ actor LibraryScanner {
                         try await database.saveSong(song)
 
                         // Upsert artist
-                        if let artistID, let artistName = metadata.artist {
-                            let artist = Artist(id: artistID, name: artistName)
+                        for artistName in artistNames {
+                            let artist = Artist(
+                                id: generateArtistID(name: artistName),
+                                name: artistName
+                            )
                             try await database.saveArtist(artist)
                         }
 

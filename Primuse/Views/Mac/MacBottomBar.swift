@@ -137,7 +137,10 @@ struct MacBottomBar: View {
     }
 
     private var metaLine: String {
-        let parts = [player.currentSong?.artistName, player.currentSong?.albumTitle]
+        let parts = [
+            player.currentSong.flatMap { library.artistDisplayName(for: $0) },
+            player.currentSong?.albumTitle,
+        ]
             .compactMap { $0 }.filter { !$0.isEmpty }
         return parts.joined(separator: " · ")
     }

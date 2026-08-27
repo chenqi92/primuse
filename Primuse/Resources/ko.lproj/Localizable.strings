@@ -1,4 +1,22 @@
 // Korean — high-priority strings. Keys not present here fall back to English.
+"artist_name_settings_title" = "아티스트 이름";
+"artist_name_settings_intro" = "곡에 결합된 여러 아티스트를 분리하되 원본 태그나 앨범 아티스트는 변경하지 않습니다. 실제 다중 값 필드는 원래 경계를 유지합니다.";
+"artist_name_settings_preview" = "미리보기";
+"artist_name_settings_separators" = "분리 구분 기호";
+"artist_name_settings_separator_placeholder" = "예: ;";
+"artist_name_settings_separators_footer" = "구분 기호는 입력한 문자 그대로 일치합니다. 반각과 전각 세미콜론이 기본으로 활성화됩니다.";
+"artist_name_settings_protected_names" = "보호할 아티스트 이름";
+"artist_name_settings_protected_placeholder" = "예: AC/DC";
+"artist_name_settings_protected_footer" = "보호 이름은 구분 기호보다 먼저 일치하며 항상 한 명의 아티스트로 유지됩니다.";
+"artist_name_settings_protected_empty" = "보호할 아티스트 이름 없음";
+"artist_name_settings_display_separator" = "표시 구분 기호";
+"artist_name_settings_display_separator_placeholder" = "예: /";
+"artist_name_settings_display_footer" = "여러 아티스트를 표시할 때만 사용되며 원본 메타데이터는 변경되지 않습니다.";
+"artist_name_settings_reset" = "기본값으로 재설정";
+"artist_name_settings_reset_confirm" = "모든 아티스트 이름 규칙을 기본값으로 재설정할까요?";
+"artist_name_settings_newer_version_warning" = "이 규칙은 더 최신 버전의 Primuse에서 저장되었습니다. 직접 교체하기 전까지 원본이 유지됩니다.";
+"artist_name_settings_tv_summary" = "구분 기호 %1$d개 · 보호 이름 %2$d개";
+"artist_name_settings_tv_read_only" = "iPhone, iPad 또는 Mac에서 편집";
 // Native-speaker review recommended before App Store submission.
 
 // Tabs / Sections

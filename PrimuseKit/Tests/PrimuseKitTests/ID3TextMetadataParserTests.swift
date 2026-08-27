@@ -39,6 +39,25 @@ import Testing
     #expect(!MediaMetadataTextRepair.isSuspicious(metadata?.title))
 }
 
+@Test func preservesID3v24NullSeparatedTrackArtists() {
+    let metadata = ID3TextMetadataParser.parse(makeID3v24Tag([
+        textFrameV24("TPE1", "Artist A\0Artist B"),
+    ]))
+
+    #expect(metadata?.artists == ["Artist A", "Artist B"])
+    #expect(metadata?.artist == "Artist A; Artist B")
+}
+
+@Test func preservesRepeatedTrackArtistFrames() {
+    let metadata = ID3TextMetadataParser.parse(makeID3v23Tag([
+        textFrame("TPE1", "Artist A"),
+        textFrame("TPE1", "Artist B"),
+    ]))
+
+    #expect(metadata?.artists == ["Artist A", "Artist B"])
+    #expect(metadata?.artist == "Artist A; Artist B")
+}
+
 @Test func parsesLegacyID3TextFromGB18030Big5AndLatin1Bytes() throws {
     let gb18030 = legacyTextFrame("TIT2", bytes: [0xD6, 0xD0, 0xCE, 0xC4])
     let big5 = legacyTextFrame(

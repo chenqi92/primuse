@@ -1253,6 +1253,7 @@ actor ConnectorScanner {
         if existing.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             || MediaMetadataTextRepair.isSuspicious(existing.artistName) {
             refreshed.artistName = incoming.artistName
+            refreshed.sourceArtistNames = incoming.sourceArtistNames
             refreshed.artistID = incoming.artistID
         }
         if existing.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
@@ -1496,6 +1497,7 @@ actor ConnectorScanner {
             artistID: artistID,
             albumTitle: metadata.albumTitle,
             artistName: metadata.artist,
+            sourceArtistNames: metadata.sourceArtistNames,
             albumArtistName: albumArtist,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,

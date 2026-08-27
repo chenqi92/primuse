@@ -2002,7 +2002,10 @@ final class MusicScraperService {
     /// 一律不动; 封面/歌词也不碰(由服务端提供)。
     private func filledServerSong(_ song: Song, with m: MetadataService.SongMetadata) -> Song {
         var s = song
-        if (s.artistName?.isEmpty ?? true), let v = m.artist, !v.isEmpty { s.artistName = v }
+        if (s.artistName?.isEmpty ?? true), let v = m.artist, !v.isEmpty {
+            s.artistName = v
+            s.sourceArtistNames = m.sourceArtistNames
+        }
         if (s.albumTitle?.isEmpty ?? true), let v = m.albumTitle, !v.isEmpty { s.albumTitle = v }
         if s.albumArtistName?.isEmpty != false {
             s.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
@@ -2071,6 +2074,9 @@ final class MusicScraperService {
             scraped: scrapedArtist,
             isCueTrack: song.isCueTrack
         )
+        if merged.artistName != song.artistName {
+            merged.sourceArtistNames = metadata.sourceArtistNames
+        }
         let scrapedAlbumArtist = onlyFillMissing && song.albumArtistName?.isEmpty == false
             ? song.albumArtistName
             : AlbumGroupingPolicy.updatedAlbumArtistName(

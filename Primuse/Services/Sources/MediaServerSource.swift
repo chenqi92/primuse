@@ -1713,10 +1713,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
 
         let artist = normalizedMetadataText(song.artistName)
+        let artists = (song.sourceArtistNames ?? artist.map { [$0] } ?? [])
+            .compactMap(normalizedMetadataText)
         let albumArtist = normalizedMetadataText(song.albumArtistName) ?? artist
         item["Name"] = song.title
         item["AlbumArtist"] = albumArtist ?? ""
-        item["Artists"] = artist.map { [$0] } ?? []
+        item["Artists"] = artists
         item["Album"] = normalizedMetadataText(song.albumTitle) ?? ""
         item["IndexNumber"] = song.trackNumber.map { $0 as Any } ?? NSNull()
         item["ParentIndexNumber"] = song.discNumber.map { $0 as Any } ?? NSNull()
@@ -1768,8 +1770,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         case .title:
             return normalizedMetadataText(item.name) == normalizedMetadataText(expected.title)
         case .artist:
-            let actual = item.artists?.first ?? item.albumArtist
-            return normalizedMetadataText(actual) == normalizedMetadataText(expected.artistName)
+            let actualArtists = (item.artists ?? []).compactMap(normalizedMetadataText)
+            let expectedArtists = (expected.sourceArtistNames
+                ?? normalizedMetadataText(expected.artistName).map { [$0] }
+                ?? []).compactMap(normalizedMetadataText)
+            return actualArtists == expectedArtists
+                || (actualArtists.isEmpty
+                    && normalizedMetadataText(item.albumArtist)
+                        == normalizedMetadataText(expected.artistName))
         case .album:
             return normalizedMetadataText(item.album) == normalizedMetadataText(expected.albumTitle)
         case .genre:
@@ -2266,13 +2274,24 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let title = repairedServerTitle
             ?? MediaMetadataTextRepair.fileNameTitle(from: item.path)
             ?? item.name.replacingOccurrences(of: "\u{FFFD}", with: "")
+        var sourceArtistNames: [String] = []
+        for value in (item.artists ?? []) + (item.artistItems ?? []).map(\.name) {
+            guard let repaired = MediaMetadataTextRepair.repaired(value),
+                  !sourceArtistNames.contains(where: {
+                    $0.caseInsensitiveCompare(repaired) == .orderedSame
+                  }) else { continue }
+            sourceArtistNames.append(repaired)
+        }
         let artistCandidates = [
-            item.artists?.first,
+            sourceArtistNames.first,
             item.albumArtist,
             item.albumArtists?.first?.name
         ]
-        let artist = artistCandidates.lazy.compactMap(MediaMetadataTextRepair.repaired).first
+        let fallbackArtist = artistCandidates.lazy.compactMap(MediaMetadataTextRepair.repaired).first
             ?? MediaMetadataTextRepair.fileNameArtist(from: item.path)
+        let artist = sourceArtistNames.count > 1
+            ? sourceArtistNames.joined(separator: "; ")
+            : fallbackArtist
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: [item.albumArtist, item.albumArtists?.first?.name]
                 .lazy
@@ -2297,7 +2316,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let genre = genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil
         let dateAdded = item.dateCreated ?? dateAddedFallback
         let coverArtFileName = coverArtURL(for: item)?.absoluteString
-        let artistArtworkFileName = artistArtworkReference(for: item, artistName: artist)
+        let artistArtworkFileName = artistArtworkReference(
+            for: item,
+            artistName: sourceArtistNames.first ?? artist
+        )
 
         return Song(
             id: songID,
@@ -2306,6 +2328,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             artistID: artistID,
             albumTitle: album,
             artistName: artist,
+            sourceArtistNames: sourceArtistNames.count > 1 ? sourceArtistNames : nil,
             albumArtistName: albumArtist,
             trackNumber: item.indexNumber,
             discNumber: item.parentIndexNumber,

@@ -147,7 +147,7 @@ struct SongRowView: View {
                                 .font(.caption2)
                                 .accessibilityLabel(Text("music_video_badge"))
                         }
-                        if let artist = song.artistName {
+                        if let artist = library.artistDisplayName(for: song) {
                             if song.isStandaloneMusicVideo { Text("·") }
                             Text(artist)
                         }
@@ -228,7 +228,7 @@ struct SongRowView: View {
 
                     // Group 2: Share
                     Section {
-                        ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
+                        ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
                             Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                         }
                     }
@@ -263,7 +263,7 @@ struct SongRowView: View {
         // 仍可通过 contextMenu 使用单曲操作。
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(
-            [song.title, song.artistName]
+            [song.title, library.artistDisplayName(for: song)]
                 .compactMap { $0 }
                 .joined(separator: " — ")
         ))
@@ -343,7 +343,7 @@ struct SongRowView: View {
 
             // Group 2: Share
             Section {
-                ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
+                ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
                     Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                 }
             }
@@ -841,7 +841,7 @@ struct SimilarSongsSheet: View {
                 Text(seed.title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Text(seed.artistName ?? seed.albumTitle ?? "")
+                Text(library.artistDisplayName(for: seed) ?? seed.albumTitle ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -890,6 +890,8 @@ struct SimilarSongsSheet: View {
 }
 
 private struct LastFmSimilarRow: View {
+    @Environment(MusicLibrary.self) private var library
+
     let song: Song
     let match: Double
 
@@ -906,7 +908,10 @@ private struct LastFmSimilarRow: View {
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title).font(.subheadline).lineLimit(1)
-                Text(song.artistName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(library.artistDisplayName(for: song) ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
             if match > 0 {
@@ -921,6 +926,8 @@ private struct LastFmSimilarRow: View {
 }
 
 private struct SimilarSongResultRow: View {
+    @Environment(MusicLibrary.self) private var library
+
     let result: MusicDiscoveryResult
 
     var body: some View {
@@ -943,7 +950,7 @@ private struct SimilarSongResultRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    if let artist = song.artistName {
+                    if let artist = library.artistDisplayName(for: song) {
                         Text(artist)
                     }
                     if let album = song.albumTitle {

@@ -1,4 +1,22 @@
 // Japanese — high-priority strings. Keys not present here fall back to English
+"artist_name_settings_title" = "アーティスト名";
+"artist_name_settings_intro" = "曲目内で連結された複数のアーティストを分割します。元のタグやアルバムアーティストは変更せず、実際の複数値フィールドの境界は維持されます。";
+"artist_name_settings_preview" = "プレビュー";
+"artist_name_settings_separators" = "分割区切り文字";
+"artist_name_settings_separator_placeholder" = "例：;";
+"artist_name_settings_separators_footer" = "区切り文字は入力どおりに照合されます。半角と全角のセミコロンが初期設定で有効です。";
+"artist_name_settings_protected_names" = "保護するアーティスト名";
+"artist_name_settings_protected_placeholder" = "例：AC/DC";
+"artist_name_settings_protected_footer" = "保護する名前は区切り文字より先に照合され、常に一組のアーティストとして維持されます。";
+"artist_name_settings_protected_empty" = "保護するアーティスト名はありません";
+"artist_name_settings_display_separator" = "表示区切り文字";
+"artist_name_settings_display_separator_placeholder" = "例：/";
+"artist_name_settings_display_footer" = "複数のアーティストを表示するときだけ使用され、元のメタデータは変更されません。";
+"artist_name_settings_reset" = "初期設定に戻す";
+"artist_name_settings_reset_confirm" = "すべてのアーティスト名ルールを初期設定に戻しますか？";
+"artist_name_settings_newer_version_warning" = "これらのルールは新しいバージョンの Primuse で保存されました。置き換えるまでは元のデータが保持されます。";
+"artist_name_settings_tv_summary" = "区切り文字 %1$d 件 · 保護名 %2$d 件";
+"artist_name_settings_tv_read_only" = "iPhone、iPad、または Mac で編集";
 // (CFBundleDevelopmentRegion). Native-speaker review recommended before App
 // Store submission.
 

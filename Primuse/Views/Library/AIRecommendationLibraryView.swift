@@ -303,7 +303,10 @@ struct AIRecommendationLibraryView: View {
                     .font(.headline)
                     .foregroundStyle(platformPrimaryTextColor)
                     .lineLimit(2)
-                Text(verbatim: song.artistName ?? String(localized: "unknown_artist"))
+                Text(
+                    verbatim: library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
                     .font(.subheadline)
                     .foregroundStyle(platformSecondaryTextColor)
                     .lineLimit(1)

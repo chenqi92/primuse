@@ -157,6 +157,7 @@ final class TVPlaybackCoordinator {
             }
         }
         let playbackSong = asset.song
+        let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
         plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) video=\(asset.isVideo) path=\(playbackSong.filePath.suffix(40))")
         // 非原生格式(APE/WavPack/DSD/OGG/WMA 等 AVPlayer 解不了的):下载到本地后用
         // SFBAudioEngine 本机解码。适用所有源类型(协议 + HTTP)。
@@ -182,7 +183,7 @@ final class TVPlaybackCoordinator {
                         headers: [:],
                         fileExtension: ext,
                         title: song.title,
-                        artist: song.artistName ?? "",
+                        artist: displayArtistName,
                         album: song.albumTitle ?? "",
                         duration: song.duration,
                         isVideo: asset.isVideo)
@@ -202,7 +203,7 @@ final class TVPlaybackCoordinator {
             plog("🎬 TV play: direct protocol \(source.type.rawValue)")
             guard isCurrent(requestID, store: store) else { return }
             engine.load(reader: reader, fileExtension: ext,
-                        title: song.title, artist: song.artistName ?? "",
+                        title: song.title, artist: displayArtistName,
                         album: song.albumTitle ?? "", duration: song.duration,
                         isVideo: asset.isVideo)
             finishLoadedPlayback(
@@ -230,7 +231,7 @@ final class TVPlaybackCoordinator {
                         headers: resolved.headers,
                         fileExtension: ext,
                         title: song.title,
-                        artist: song.artistName ?? "",
+                        artist: displayArtistName,
                         album: song.albumTitle ?? "",
                         duration: song.duration,
                         isVideo: asset.isVideo)
@@ -443,7 +444,8 @@ final class TVPlaybackCoordinator {
             downloadedTempURL = tempURL
             try ensureCurrent(requestID, store: store)
             guard isCurrent(requestID, store: store) else { return }
-            engine.loadDecoded(fileURL: tempURL, title: song.title, artist: song.artistName ?? "",
+            let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
+            engine.loadDecoded(fileURL: tempURL, title: song.title, artist: displayArtistName,
                                album: song.albumTitle ?? "", duration: song.duration)
             handedOffToEngine = true
             finishLoadedPlayback(

@@ -6,6 +6,7 @@ enum FileMetadataReader {
     struct Metadata {
         var title: String?
         var artist: String?
+        var sourceArtistNames: [String]?
         var albumTitle: String?
         var albumArtist: String?
         var trackNumber: Int?
@@ -26,6 +27,10 @@ enum FileMetadataReader {
         mutating func fillMissing(from fallback: Metadata) {
             title = title ?? fallback.title
             artist = artist ?? fallback.artist
+            sourceArtistNames = sourceArtistNames ?? fallback.sourceArtistNames
+            if let sourceArtistNames, sourceArtistNames.count > 1 {
+                artist = sourceArtistNames.joined(separator: "; ")
+            }
             albumTitle = albumTitle ?? fallback.albumTitle
             albumArtist = albumArtist ?? fallback.albumArtist
             trackNumber = trackNumber ?? fallback.trackNumber
@@ -158,6 +163,7 @@ enum FileMetadataReader {
 
         // Read metadata items
         if let items = try? await asset.load(.metadata) {
+            var commonArtists: [String] = []
             for item in items {
                 guard let key = item.commonKey?.rawValue else { continue }
                 let value = try? await item.load(.value)
@@ -166,7 +172,15 @@ enum FileMetadataReader {
                 case AVMetadataKey.commonKeyTitle.rawValue:
                     metadata.title = decodedText(value)
                 case AVMetadataKey.commonKeyArtist.rawValue:
-                    metadata.artist = decodedText(value)
+                    if let artist = decodedText(value),
+                       !commonArtists.contains(where: {
+                           $0.compare(
+                            artist,
+                            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+                           ) == .orderedSame
+                       }) {
+                        commonArtists.append(artist)
+                    }
                 case AVMetadataKey.commonKeyAlbumName.rawValue:
                     metadata.albumTitle = decodedText(value)
                 case AVMetadataKey.commonKeyArtwork.rawValue:
@@ -176,6 +190,12 @@ enum FileMetadataReader {
                 default:
                     break
                 }
+            }
+            if commonArtists.count > 1 {
+                metadata.sourceArtistNames = commonArtists
+                metadata.artist = commonArtists.joined(separator: "; ")
+            } else if let artist = commonArtists.first {
+                metadata.artist = artist
             }
 
             // Try format-specific metadata for more detail
@@ -347,7 +367,19 @@ enum FileMetadataReader {
         // native parser below. Previously this fallback only recovered APIC,
         // so a readable TIT2 still fell back to the filename.
         metadata.title = preferredMetadataText(current: metadata.title, rawID3: text?.title)
-        metadata.artist = preferredMetadataText(current: metadata.artist, rawID3: text?.artist)
+        if let artists = text?.artists {
+            metadata.sourceArtistNames = artists.count > 1 ? artists : nil
+            if artists.count > 1 {
+                metadata.artist = artists.joined(separator: "; ")
+            } else {
+                metadata.artist = preferredMetadataText(
+                    current: metadata.artist,
+                    rawID3: artists.first
+                )
+            }
+        } else {
+            metadata.artist = preferredMetadataText(current: metadata.artist, rawID3: text?.artist)
+        }
         metadata.albumTitle = preferredMetadataText(current: metadata.albumTitle, rawID3: text?.albumTitle)
         metadata.albumArtist = preferredMetadataText(current: metadata.albumArtist, rawID3: text?.albumArtist)
         metadata.trackNumber = metadata.trackNumber ?? text?.trackNumber
@@ -617,7 +649,14 @@ enum FileMetadataReader {
         metadata.sampleRate = metadata.sampleRate ?? flac.sampleRate
         metadata.bitDepth = metadata.bitDepth ?? flac.bitDepth
         metadata.title = metadata.title ?? flac.title
-        metadata.artist = metadata.artist ?? flac.artist
+        if let artists = flac.sourceArtistNames {
+            metadata.sourceArtistNames = artists.count > 1 ? artists : nil
+            metadata.artist = artists.count > 1
+                ? artists.joined(separator: "; ")
+                : (metadata.artist ?? artists.first)
+        } else {
+            metadata.artist = metadata.artist ?? flac.artist
+        }
         metadata.albumTitle = metadata.albumTitle ?? flac.albumTitle
         metadata.albumArtist = metadata.albumArtist ?? flac.albumArtist
         metadata.trackNumber = metadata.trackNumber ?? flac.trackNumber
@@ -641,6 +680,7 @@ enum FileMetadataReader {
     private struct FLACNativeMetadata {
         var title: String?
         var artist: String?
+        var sourceArtistNames: [String]?
         var albumTitle: String?
         var albumArtist: String?
         var trackNumber: Int?
@@ -788,8 +828,36 @@ enum FileMetadataReader {
             return nil
         }
 
+        func all(_ keys: String...) -> [String] {
+            var result: [String] = []
+            for key in keys {
+                for value in comments[key] ?? [] {
+                    let repaired = repairLegacyChineseMojibake(
+                        value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                    guard let cleaned = repaired.nilIfEmpty,
+                          !result.contains(where: {
+                            $0.compare(
+                                cleaned,
+                                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+                            ) == .orderedSame
+                          }) else { continue }
+                    result.append(cleaned)
+                }
+            }
+            return result
+        }
+
         result.title = result.title ?? first("TITLE")
-        result.artist = result.artist ?? first("ARTIST", "ALBUMARTIST", "ALBUM ARTIST")
+        let artists = all("ARTIST")
+        result.sourceArtistNames = artists.isEmpty ? nil : artists
+        if artists.count > 1 {
+            result.artist = artists.joined(separator: "; ")
+        } else {
+            result.artist = result.artist
+                ?? artists.first
+                ?? first("ALBUMARTIST", "ALBUM ARTIST")
+        }
         result.albumTitle = result.albumTitle ?? first("ALBUM")
         result.albumArtist = result.albumArtist ?? first("ALBUMARTIST", "ALBUM ARTIST")
         result.trackNumber = result.trackNumber ?? leadingInt(first("TRACKNUMBER", "TRACK"))

@@ -415,10 +415,15 @@ actor UPnPSource: SongScanningConnector {
         }
 
         let songID = hash("\(sourceID):\(resourceURL.absoluteString)")
-        let artistID = node.artist.map { hash($0.lowercased()) }
+        let artistNames = node.artists
+        let artist = artistNames.count > 1
+            ? artistNames.joined(separator: "; ")
+            : node.artist
+        let artistID = artistNames.first.map { hash($0.lowercased()) }
+            ?? artist.map { hash($0.lowercased()) }
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: node.albumArtist,
-            trackArtistName: node.artist
+            trackArtistName: artist
         )
         let albumID: String? = if let albumArtist, let album = node.album {
             hash("\(albumArtist.lowercased()):\(album.lowercased())")
@@ -432,7 +437,8 @@ actor UPnPSource: SongScanningConnector {
             albumID: albumID,
             artistID: artistID,
             albumTitle: node.album,
-            artistName: node.artist,
+            artistName: artist,
+            sourceArtistNames: artistNames.count > 1 ? artistNames : nil,
             albumArtistName: albumArtist,
             trackNumber: node.trackNumber,
             discNumber: nil,
@@ -1172,6 +1178,7 @@ private struct UPnPNode: Sendable {
     let title: String
     let className: String?
     let artist: String?
+    let artists: [String]
     let albumArtist: String?
     let album: String?
     let resourceURL: URL?
@@ -1306,6 +1313,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
         var title: String = ""
         var className: String?
         var artist: String?
+        var artists: [String] = []
         var albumArtist: String?
         var album: String?
         var albumArtURL: URL?
@@ -1409,13 +1417,19 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
                 .lowercased()
             if normalizedRole == "albumartist", text.isEmpty == false {
                 node.albumArtist = text
-            } else if node.artist == nil, text.isEmpty == false {
-                node.artist = text
+            } else if text.isEmpty == false {
+                if !node.artists.contains(where: {
+                    $0.caseInsensitiveCompare(text) == .orderedSame
+                }) {
+                    node.artists.append(text)
+                }
+                node.artist = node.artist ?? text
             }
             currentArtistRole = nil
         case "creator":
             if node.artist == nil, text.isEmpty == false {
                 node.artist = text
+                node.artists = [text]
             }
         case "album":
             node.album = text
@@ -1454,6 +1468,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
                     title: node.title,
                     className: node.className,
                     artist: node.artist,
+                    artists: node.artists,
                     albumArtist: node.albumArtist,
                     album: node.album,
                     resourceURL: selectedResource?.url,

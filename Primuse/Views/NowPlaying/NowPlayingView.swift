@@ -274,18 +274,28 @@ struct NowPlayingView: View {
     /// Resolve the currently playing song back to the library entities used by
     /// the detail screens. Older scans may not have persisted artistID/albumID,
     /// so retain a normalized-name fallback instead of silently hiding links.
+    private var currentArtists: [Artist] {
+        guard let song = player.currentSong else { return [] }
+        let artistsByID = Dictionary(
+            library.visibleArtists.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return library.artistNames(for: song).compactMap { name in
+            let id = MusicLibrary.hashID(name.lowercased())
+            if let artist = artistsByID[id] { return artist }
+            return library.visibleArtists.first {
+                $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+            }
+        }
+    }
+
     private var currentArtist: Artist? {
-        guard let song = player.currentSong else { return nil }
-        if let artistID = song.artistID,
-           let artist = library.visibleArtists.first(where: { $0.id == artistID }) {
-            return artist
-        }
-        let artistName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !artistName.isEmpty else { return nil }
-        return library.visibleArtists.first {
-            $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(artistName) == .orderedSame
-        }
+        currentArtists.first
+    }
+
+    private var currentArtistDisplayName: String {
+        guard let song = player.currentSong else { return "" }
+        return library.artistDisplayName(for: song) ?? ""
     }
 
     private var currentAlbum: Album? {
@@ -296,7 +306,8 @@ struct NowPlayingView: View {
         }
         let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !albumTitle.isEmpty else { return nil }
-        let artistName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artistName = (song.albumArtistName ?? library.artistNames(for: song).first)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return library.visibleAlbums.first {
             let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 .localizedCaseInsensitiveCompare(albumTitle) == .orderedSame
@@ -905,7 +916,7 @@ struct NowPlayingView: View {
             isActive: player.currentSong != nil && !player.isLiveRadio
         ) { activity in
             guard let song = player.currentSong, !player.isLiveRadio else { return }
-            let by = song.artistName.map { " — \($0)" } ?? ""
+            let by = library.artistDisplayName(for: song).map { " — \($0)" } ?? ""
             activity.title = "\(song.title)\(by)"
             activity.isEligibleForHandoff = true
             // 不把 song.id 暴露给搜索 / 公开索引,handoff 直接拿去就好
@@ -979,7 +990,7 @@ struct NowPlayingView: View {
                     .foregroundStyle(appearance.primary)
                     .lineLimit(1)
 
-                Text(player.radioMetadataTitle ?? player.currentSong?.artistName ?? "")
+                Text(player.radioMetadataTitle ?? currentArtistDisplayName)
                     .font(.body)
                     .foregroundStyle(appearance.secondary)
                     .lineLimit(2)
@@ -1470,7 +1481,7 @@ struct NowPlayingView: View {
                                 Text(player.currentSong?.title ?? "")
                                     .font(.subheadline.weight(.semibold))
                                     .lineLimit(1)
-                                Text(player.currentSong?.artistName ?? "")
+                                Text(currentArtistDisplayName)
                                     .font(.caption)
                                     .foregroundStyle(appearance.secondary)
                                     .lineLimit(1)
@@ -1658,7 +1669,7 @@ struct NowPlayingView: View {
                                         Text(player.currentSong?.title ?? "")
                                             .font(.subheadline).fontWeight(.semibold).lineLimit(1)
                                             .foregroundStyle(appearance.primary)
-                                        Text(player.currentSong?.artistName ?? "")
+                                        Text(currentArtistDisplayName)
                                             .font(.caption).foregroundStyle(appearance.secondary).lineLimit(1)
                                     }
                                 }
@@ -2201,7 +2212,9 @@ struct NowPlayingView: View {
             artistID: currentArtist?.id,
             canOpenAlbum: currentAlbum != nil && onOpenAlbum != nil,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
-            shareText: player.currentSong.map { "\($0.title) - \($0.artistName ?? "")" },
+            shareText: player.currentSong.map {
+                "\($0.title) - \(library.artistDisplayName(for: $0) ?? "")"
+            },
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
@@ -2346,18 +2359,30 @@ struct NowPlayingView: View {
     /// expect from Apple Music/Spotify-style now-playing screens.
     @ViewBuilder
     private func nowPlayingMetadataLinks(font: Font) -> some View {
+        let artistName = currentArtistDisplayName
         HStack(spacing: 6) {
-            if let artist = currentArtist, onOpenArtist != nil {
+            if currentArtists.count == 1,
+               let artist = currentArtist,
+               onOpenArtist != nil {
                 Button { onOpenArtist?(artist) } label: {
-                    Text(artist.name).lineLimit(1)
+                    Text(artistName).lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("go_to_artist"))
-            } else if let artistName = player.currentSong?.artistName, !artistName.isEmpty {
+            } else if currentArtists.count > 1, onOpenArtist != nil {
+                Menu {
+                    ForEach(currentArtists) { artist in
+                        Button(artist.name) { onOpenArtist?(artist) }
+                    }
+                } label: {
+                    Text(artistName).lineLimit(1)
+                }
+                .accessibilityLabel(Text("go_to_artist"))
+            } else if !artistName.isEmpty {
                 Text(artistName).lineLimit(1)
             }
 
-            if player.currentSong?.artistName?.isEmpty == false,
+            if !artistName.isEmpty,
                player.currentSong?.albumTitle?.isEmpty == false {
                 Text("·")
             }
@@ -3428,6 +3453,7 @@ struct VolumeSlider: View {
 struct SongInfoSheet: View {
     let song: Song
     @Environment(\.dismiss) private var dismiss
+    @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var showSimilarSongs = false
     private let history = PlayHistoryStore.shared
@@ -3452,7 +3478,9 @@ struct SongInfoSheet: View {
         NavigationStack {
             List {
                 infoRow(String(localized: "title_label"), song.title)
-                if let artist = song.artistName { infoRow(String(localized: "artist_label"), artist) }
+                if let artist = library.artistDisplayName(for: song) {
+                    infoRow(String(localized: "artist_label"), artist)
+                }
                 if let album = song.albumTitle { infoRow(String(localized: "album_label"), album) }
                 if let genre = song.genre { infoRow(String(localized: "genre_label"), genre) }
                 if let year = song.year { infoRow(String(localized: "year_label"), "\(year)") }
@@ -3542,7 +3570,7 @@ struct SongInfoSheet: View {
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(2)
-                    Text(song.artistName ?? String(localized: "unknown_artist"))
+                    Text(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))
                         .font(.system(size: 13))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
@@ -3637,7 +3665,9 @@ struct SongInfoSheet: View {
         var rows: [(String, String, Bool)] = [
             (String(localized: "title_label"), song.title, false),
         ]
-        if let artist = song.artistName { rows.append((String(localized: "artist_label"), artist, false)) }
+        if let artist = library.artistDisplayName(for: song) {
+            rows.append((String(localized: "artist_label"), artist, false))
+        }
         if let album = song.albumTitle { rows.append((String(localized: "album_label"), album, false)) }
         if let genre = song.genre { rows.append((String(localized: "genre_label"), genre, false)) }
         if let year = song.year { rows.append((String(localized: "year_label"), "\(year)", false)) }
@@ -3764,7 +3794,7 @@ struct AddToPlaylistSheet: View {
                     Text("add_to_playlist")
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text(verbatim: "\(song.title) · \(song.artistName ?? String(localized: "unknown_artist"))")
+                    Text(verbatim: "\(song.title) · \(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))")
                         .font(.system(size: 11.5))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)

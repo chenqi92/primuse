@@ -1,4 +1,7 @@
 /* 繁體中文（台灣） */
+"artist_name_settings_title" = "藝人名稱";
+"artist_name_settings_tv_summary" = "%1$d 個分隔符 · %2$d 個保護名稱";
+"artist_name_settings_tv_read_only" = "請在 iPhone、iPad 或 Mac 上編輯";
 
 "src.displayName.ugreen" = "綠聯 Ugreen";
 "src.displayName.fnos" = "飛牛 fnOS";

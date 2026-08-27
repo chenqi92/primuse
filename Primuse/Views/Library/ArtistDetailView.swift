@@ -38,10 +38,14 @@ struct ArtistDetailView: View {
     }
 
     private var monthlyListenCount: Int {
-        let target = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let target = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return 0 }
         return PlayHistoryStore.shared.entries(in: .month).filter {
-            $0.artistName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
+            ArtistNameParser.contains(
+                artistName: target,
+                rawName: $0.artistName,
+                configuration: library.artistNameConfiguration
+            )
         }.count
     }
 

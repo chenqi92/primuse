@@ -13,6 +13,7 @@ struct MacMiniPlayerView: View {
     var onBottomModeChange: ((BottomMode) -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @Environment(AudioEngine.self) private var engine
     @Environment(SourceManager.self) private var sourceManager
     @Environment(ThemeService.self) private var theme
@@ -228,7 +229,11 @@ struct MacMiniPlayerView: View {
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(player.radioMetadataTitle ?? player.currentSong?.artistName ?? "")
+            Text(
+                player.radioMetadataTitle
+                    ?? player.currentSong.flatMap { library.artistDisplayName(for: $0) }
+                    ?? ""
+            )
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
@@ -595,7 +600,10 @@ struct MacMiniPlayerView: View {
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(song.title).font(.caption).lineLimit(1)
-                    Text(song.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(library.artistDisplayName(for: song) ?? "")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer()
             }

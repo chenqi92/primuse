@@ -1440,6 +1440,9 @@ struct ScrapeOptionsView: View {
             updated.title = candidateTitle
             updated.albumTitle = candidateAlbum
             updated.artistName = candidateArtist
+            if candidateArtist != song.artistName {
+                updated.sourceArtistNames = nil
+            }
             updated.trackNumber = candidateTrackNumber
             updated.discNumber = candidateDiscNumber
             updated.genre = candidateGenres?.prefix(3).joined(separator: ", ") ?? song.genre
@@ -1543,6 +1546,9 @@ struct ScrapeOptionsView: View {
         final.title = (titleChanged && applyTitle) ? u.title : song.title
         final.albumTitle = (albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle
         final.artistName = (artistChanged && applyArtist) ? u.artistName : song.artistName
+        if artistChanged && applyArtist {
+            final.sourceArtistNames = nil
+        }
         final.trackNumber = (trackChanged && applyTrack) ? u.trackNumber : song.trackNumber
         final.discNumber = allowsMetadataAndCover ? (u.discNumber ?? song.discNumber) : song.discNumber
         if !song.isCueTrack, allowsMetadataAndCover, u.duration > 0 {

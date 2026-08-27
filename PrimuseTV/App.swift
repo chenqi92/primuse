@@ -101,6 +101,7 @@ struct PrimuseTVApp: App {
                 .task {
                     CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
                     CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+                    _ = ArtistNameSettingsStore.shared
                     musicIntelligence.start()
                     FullscreenPlayerEffectSync.shared.install()
                     #if DEBUG

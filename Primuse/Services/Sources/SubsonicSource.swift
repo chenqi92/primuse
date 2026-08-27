@@ -889,8 +889,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         // 单曲艺术家常缺标签 → Subsonic 返回 "[Unknown Artist]" 占位; 回退到
         // 专辑艺术家。真正全空的归一成 nil, 让 Primuse 走自己的"未知"处理,
         // 而不是显示字面量 "[Unknown Artist]"。专辑名同理。
-        let artist = Self.cleaned(child.artist, unknown: "[Unknown Artist]")
-            ?? Self.cleaned(child.displayArtist, unknown: "[Unknown Artist]")
+        let sourceArtistNames = child.artists?.compactMap {
+            Self.cleaned($0.name, unknown: "[Unknown Artist]")
+        }.reduce(into: [String]()) { result, name in
+            guard !result.contains(where: {
+                $0.caseInsensitiveCompare(name) == .orderedSame
+            }) else { return }
+            result.append(name)
+        } ?? []
+        let artist = Self.cleaned(child.displayArtist, unknown: "[Unknown Artist]")
+            ?? (sourceArtistNames.count > 1
+                ? sourceArtistNames.joined(separator: "; ")
+                : sourceArtistNames.first)
+            ?? Self.cleaned(child.artist, unknown: "[Unknown Artist]")
             ?? Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
         let albumTitle = Self.cleaned(child.album, unknown: "[Unknown Album]")
             ?? Self.cleaned(album?.name, unknown: "[Unknown Album]")
@@ -914,6 +925,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             artistID: child.artistId,
             albumTitle: albumTitle,
             artistName: artist,
+            sourceArtistNames: sourceArtistNames.count > 1 ? sourceArtistNames : nil,
             albumArtistName: albumArtist,
             trackNumber: child.track,
             discNumber: child.discNumber,
@@ -929,7 +941,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             year: child.year,
             lastModified: child.created.flatMap(Self.parseDate),
             coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
-            artistArtworkFileName: child.artistId.flatMap { artistArtworkReference(for: $0) }
+            artistArtworkFileName: (child.artists?.first?.id ?? child.artistId)
+                .flatMap { artistArtworkReference(for: $0) }
         )
     }
 
@@ -1316,6 +1329,7 @@ private struct SubsonicChild: Decodable, Sendable {
     let album: String?
     let artist: String?
     let displayArtist: String?
+    let artists: [SubsonicArtistID3]?
     let displayAlbumArtist: String?
     let albumArtists: [SubsonicArtistID3]?
     let albumId: String?

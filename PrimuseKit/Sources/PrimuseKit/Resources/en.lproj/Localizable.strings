@@ -1,4 +1,7 @@
 // PrimuseKit framework strings — English (also used as fallback for any
+"artist_name_settings_title" = "Artist Names";
+"artist_name_settings_tv_summary" = "%1$d separators · %2$d protected";
+"artist_name_settings_tv_read_only" = "Edit on iPhone, iPad, or Mac";
 // locale without its own .lproj file inside this framework).
 "src.displayName.ugreen"     = "Ugreen";
 "src.displayName.fnos"       = "fnOS";

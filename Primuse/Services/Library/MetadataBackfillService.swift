@@ -2425,6 +2425,15 @@ final class MetadataBackfillService {
                 embedded: metadata.artist,
                 fromFileName: nameArtist
               ) ?? bare.artistName)
+        let mergedSourceArtistNames: [String]? = if bare.isCueTrack {
+            bare.artistName != nil ? bare.sourceArtistNames : metadata.sourceArtistNames
+        } else if mergedArtist == metadata.artist {
+            metadata.sourceArtistNames
+        } else if mergedArtist == bare.artistName {
+            bare.sourceArtistNames
+        } else {
+            nil
+        }
         // 专辑名没有文件名兜底源 —— 目录名不可靠(常是 "音乐"、"新建文件夹"),
         // 拿它冒充专辑比留着乱码更糟。这里只做取舍不做替换。
         let mergedAlbum = bare.isCueTrack
@@ -2464,6 +2473,7 @@ final class MetadataBackfillService {
             artistID: artistID,
             albumTitle: mergedAlbum,
             artistName: mergedArtist,
+            sourceArtistNames: mergedSourceArtistNames,
             albumArtistName: mergedAlbumArtist,
             trackNumber: bare.isCueTrack ? bare.trackNumber : (metadata.trackNumber ?? bare.trackNumber),
             discNumber: metadata.discNumber ?? bare.discNumber,

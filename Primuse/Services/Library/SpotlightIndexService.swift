@@ -40,10 +40,11 @@ final class SpotlightIndexService {
         let albums: [Album]
         let artists: [Artist]
         let playlists: [PlaylistSummary]
+        let artistNameConfiguration: ArtistNameConfiguration
     }
 
     private enum IndexPayload: Sendable {
-        case song(Song, coverContentIdentifier: String?)
+        case song(Song, artistDisplayName: String?, coverContentIdentifier: String?)
         case album(Album)
         case artist(Artist)
         case playlist(PlaylistSummary)
@@ -220,7 +221,8 @@ final class SpotlightIndexService {
             songs: library.visibleSongs,
             albums: library.visibleAlbums,
             artists: library.visibleArtists,
-            playlists: playlistSummaries
+            playlists: playlistSummaries,
+            artistNameConfiguration: library.artistNameConfiguration
         )
     }
 
@@ -491,16 +493,21 @@ final class SpotlightIndexService {
             } else {
                 coverContentIdentifier = nil
             }
+            let artistDisplayName = song.displayArtistName(
+                configuration: snapshot.artistNameConfiguration
+            )
             let signature = contentSignature([
                 song.title,
                 song.albumTitle,
-                song.artistName,
+                artistDisplayName,
+                snapshot.artistNameConfiguration.cacheSignature,
                 song.coverArtFileName,
                 coverContentIdentifier,
             ])
             records.append(SpotlightIndexRecord(identifier: identifier, signature: signature))
             payloads[identifier] = .song(
                 song,
+                artistDisplayName: artistDisplayName,
                 coverContentIdentifier: coverContentIdentifier
             )
         }
@@ -545,15 +552,15 @@ final class SpotlightIndexService {
         thumbnailDirectoryURL: URL
     ) -> (searchableItem: CSSearchableItem, thumbnailCacheMiss: Bool) {
         switch payload {
-        case let .song(song, coverContentIdentifier):
+        case let .song(song, artistDisplayName, coverContentIdentifier):
             let attrs = CSSearchableItemAttributeSet(contentType: .audio)
             attrs.title = song.title
             attrs.album = song.albumTitle
-            attrs.artist = song.artistName
-            attrs.contentDescription = [song.artistName, song.albumTitle]
+            attrs.artist = artistDisplayName
+            attrs.contentDescription = [artistDisplayName, song.albumTitle]
                 .compactMap { $0 }
                 .joined(separator: " — ")
-            attrs.keywords = [song.title, song.artistName, song.albumTitle].compactMap { $0 }
+            attrs.keywords = [song.title, artistDisplayName, song.albumTitle].compactMap { $0 }
             var thumbnailCacheMiss = false
             #if os(iOS)
             if let coverRef = song.coverArtFileName,

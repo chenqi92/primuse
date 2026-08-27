@@ -11,8 +11,8 @@ enum CloudSyncChannel: String, CaseIterable, Sendable {
     /// CloudKit `PlaybackHistory` singleton (5-min throttled).
     case playbackHistory
     /// KVS-mirrored settings + custom scraper configs in CloudKit.
-    /// Covers: playback and intelligence settings, scraper sources, lyrics font,
-    /// and recent searches.
+    /// Covers: playback and intelligence settings, artist parsing rules,
+    /// scraper sources, lyrics font, and recent searches.
     case settings
     /// iCloud Keychain `kSecAttrSynchronizable` flag for new writes.
     /// Past entries already on iCloud Keychain remain there — system-controlled.

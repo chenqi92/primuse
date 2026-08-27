@@ -705,7 +705,7 @@ struct PlaylistDetailView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(song.artistName ?? "—")
+            Text(library.artistDisplayName(for: song) ?? "—")
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
@@ -996,6 +996,7 @@ struct PlaylistReorderSheet: View {
     let onDone: ([Song]) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(MusicLibrary.self) private var library
     @State private var localSongs: [Song]
 
     init(playlist: Playlist, songs: [Song], onDone: @escaping ([Song]) -> Void) {
@@ -1029,7 +1030,7 @@ struct PlaylistReorderSheet: View {
                         )
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title).font(.subheadline).lineLimit(1)
-                            if let artist = song.artistName {
+                            if let artist = library.artistDisplayName(for: song) {
                                 Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
@@ -1199,7 +1200,10 @@ struct PlaylistReorderSheet: View {
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-                Text(song.artistName ?? String(localized: "unknown_artist"))
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)

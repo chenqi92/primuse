@@ -228,6 +228,7 @@ final class CloudKVSSync {
 
 enum CloudKVSKey {
     static let aiSettings = AISettingsStore.storageKey
+    static let artistNameConfiguration = ArtistNameConfiguration.storageKey
     static let playbackSettings = "primuse_playback_settings_v1"
     static let scraperSettings = "primuse_scraper_settings_v3"
     static let lyricsFontScale = "lyricsFontScale"

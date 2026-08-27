@@ -133,7 +133,7 @@ final class TVPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unch
                     ),
                     type: .song,
                     artwork: nil,
-                    artist: song.artistName
+                    artist: store.library.artistDisplayName(for: song)
                 )
             }
             if result.needsDisambiguation {

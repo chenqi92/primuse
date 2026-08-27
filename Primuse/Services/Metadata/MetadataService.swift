@@ -8,6 +8,7 @@ actor MetadataService {
     struct SongMetadata {
         var title: String
         var artist: String? = nil
+        var sourceArtistNames: [String]? = nil
         var albumTitle: String? = nil
         var albumArtist: String? = nil
         var trackNumber: Int? = nil
@@ -80,6 +81,7 @@ actor MetadataService {
         var result = SongMetadata(
             title: trustedEmbeddedTitle ?? titleFallback,
             artist: embedded.artist,
+            sourceArtistNames: embedded.sourceArtistNames,
             albumTitle: embedded.albumTitle,
             albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: embedded.albumArtist,
@@ -200,6 +202,9 @@ actor MetadataService {
         var result = SongMetadata(
             title: preferredTitle,
             artist: MediaMetadataTextRepair.repaired(embedded.artist),
+            sourceArtistNames: embedded.sourceArtistNames?.compactMap {
+                MediaMetadataTextRepair.repaired($0)
+            },
             albumTitle: MediaMetadataTextRepair.repaired(embedded.albumTitle),
             albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: MediaMetadataTextRepair.repaired(embedded.albumArtist),
@@ -347,6 +352,9 @@ actor MetadataService {
                 scraped: detail.artist,
                 overwrite: overwriteMetadata
             )
+            if result.artist != previousArtist {
+                result.sourceArtistNames = nil
+            }
             result.albumTitle = ScrapeMetadataApplicationPolicy.resolvedText(
                 original: result.albumTitle,
                 scraped: detail.album,

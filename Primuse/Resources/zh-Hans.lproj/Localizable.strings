@@ -1,4 +1,22 @@
 // MARK: - 标签栏
+"artist_name_settings_title" = "艺术家名称";
+"artist_name_settings_intro" = "拆分曲目中拼接的多位艺术家，不改写原始标签或专辑艺术家；来源提供的真实多值边界会保持不变。";
+"artist_name_settings_preview" = "预览";
+"artist_name_settings_separators" = "拆分分隔符";
+"artist_name_settings_separator_placeholder" = "例如 ;";
+"artist_name_settings_separators_footer" = "分隔符按原文匹配，默认启用半角和全角分号。";
+"artist_name_settings_protected_names" = "受保护的艺术家名";
+"artist_name_settings_protected_placeholder" = "例如 AC/DC";
+"artist_name_settings_protected_footer" = "受保护名称会优先于分隔符匹配，并始终保留为一位艺术家。";
+"artist_name_settings_protected_empty" = "暂无受保护的艺术家名";
+"artist_name_settings_display_separator" = "展示连接符";
+"artist_name_settings_display_separator_placeholder" = "例如 /";
+"artist_name_settings_display_footer" = "仅用于展示多位艺术家，不会修改来源元数据。";
+"artist_name_settings_reset" = "恢复默认设置";
+"artist_name_settings_reset_confirm" = "要将所有艺术家名称规则恢复为默认设置吗？";
+"artist_name_settings_newer_version_warning" = "这些规则由更高版本的 Primuse 保存；在你主动替换前会保留原数据。";
+"artist_name_settings_tv_summary" = "%1$d 个分隔符 · %2$d 个保护名称";
+"artist_name_settings_tv_read_only" = "请在 iPhone、iPad 或 Mac 上编辑";
 "library_title" = "资料库";
 "library_quick_access" = "快捷收藏";
 "library_browse" = "浏览资料库";

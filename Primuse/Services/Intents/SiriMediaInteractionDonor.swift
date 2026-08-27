@@ -35,13 +35,14 @@ enum SiriMediaInteractionDonor {
     static func donate(song: Song) {
         #if os(iOS)
         guard SiriAuthorizationRuntime.status == .authorized else { return }
+        let artistName = AppServices.shared.musicLibrary.artistDisplayName(for: song)
 
         let item = INMediaItem(
             identifier: song.id,
             title: song.title,
             type: .song,
             artwork: nil,
-            artist: song.artistName
+            artist: artistName
         )
         let container: INMediaItem?
         if let albumID = song.albumID,
@@ -52,7 +53,7 @@ enum SiriMediaInteractionDonor {
                 title: albumTitle,
                 type: .album,
                 artwork: nil,
-                artist: song.artistName
+                artist: artistName
             )
         } else {
             container = nil

@@ -298,6 +298,7 @@ struct QueuePresentationEntry: Sendable, Identifiable {
 /// audio continues in the background.
 private struct MacWidgetPlaybackPublishRequest: Sendable {
     let currentSong: Song?
+    let artistDisplayName: String?
     let isPlaying: Bool
     let currentTime: TimeInterval
     let duration: TimeInterval
@@ -395,7 +396,11 @@ private actor MacWidgetPlaybackPublisher {
                     nextCoverSongID = nil
                 }
 
-                if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
+                if recentAlbumsEnabled,
+                   let albumEntry = makeRecentAlbumEntry(
+                    for: song,
+                    artistName: request.artistDisplayName
+                   ) {
                     if let albumCoverName = albumEntry.coverImageName,
                        !sharedCoverExists(named: albumCoverName) {
                         _ = writeCover(song: song, fileName: albumCoverName, size: 200)
@@ -418,7 +423,7 @@ private actor MacWidgetPlaybackPublisher {
         let state = PlaybackState(
             currentSongID: request.currentSong?.id,
             songTitle: request.currentSong?.title,
-            artistName: request.currentSong?.artistName,
+            artistName: request.artistDisplayName,
             albumTitle: request.currentSong?.albumTitle,
             fileFormat: request.currentSong.map { $0.fileFormat.displayName },
             coverImageName: coverName,
@@ -569,10 +574,13 @@ private actor MacWidgetPlaybackPublisher {
         }
     }
 
-    private nonisolated static func makeRecentAlbumEntry(for song: Song) -> RecentAlbumEntry? {
+    private nonisolated static func makeRecentAlbumEntry(
+        for song: Song,
+        artistName: String?
+    ) -> RecentAlbumEntry? {
         guard let title = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else { return nil }
-        let artist = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artist = artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let baseKey = song.albumID ?? "\(song.sourceID)|\(title.lowercased())|\(artist.lowercased())"
         let digest = SHA256.hash(data: Data(baseKey.utf8))
         let key = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
@@ -609,6 +617,7 @@ final class AudioPlayerService {
     let audioEffectsService: AudioEffectsService
     private let sourceManager: SourceManager?
     private let library: MusicLibrary?
+    @ObservationIgnored private var artistNameConfiguration: ArtistNameConfiguration
     private let playbackSessionStore: PlaybackSessionStore
     private var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
     private var isRestoringPlaybackSession = false
@@ -714,7 +723,8 @@ final class AudioPlayerService {
     #if os(iOS)
     func makeWatchQueueDigestSnapshot(
         byteBudget: Int,
-        perItemOverhead: Int
+        perItemOverhead: Int,
+        artistConfiguration: ArtistNameConfiguration = .defaultValue
     ) -> WatchQueueDigestSnapshot {
         let safeBudget = max(0, byteBudget)
         let safeOverhead = max(0, perItemOverhead)
@@ -732,7 +742,7 @@ final class AudioPlayerService {
         for entry in queueEntries {
             let songID = entry.song.id
             let title = entry.song.title
-            let artist = entry.song.artistName ?? ""
+            let artist = entry.song.displayArtistName(configuration: artistConfiguration) ?? ""
             hasher.combine(songID)
             hasher.combine(title)
             hasher.combine(artist)
@@ -1160,6 +1170,8 @@ final class AudioPlayerService {
     ) {
         self.sourceManager = sourceManager
         self.library = library
+        artistNameConfiguration = library?.artistNameConfiguration
+            ?? ArtistNameConfiguration.load(from: .standard)
         self.playbackSettings = playbackSettings
         self.playbackSessionStore = playbackSessionStore
         audioEngine = AudioEngine()
@@ -1170,6 +1182,19 @@ final class AudioPlayerService {
         observeSpatialAudioSettings()
         observePlaybackRate()
         observeOutputPipelineSettings()
+        NotificationCenter.default.addObserver(
+            forName: .primuseArtistNameConfigurationDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let configuration = notification.object as? ArtistNameConfiguration else { return }
+            Task { @MainActor [weak self, configuration] in
+                guard let self else { return }
+                self.artistNameConfiguration = configuration.normalized()
+                self.updateNowPlayingInfo()
+                self.updatePlaybackState()
+            }
+        }
         #if os(iOS)
         observeCarAudioRouteState()
         observeLockScreenLyricsSetting()
@@ -8901,7 +8926,7 @@ final class AudioPlayerService {
         let lyrics = lockScreenLyricsSongID == song.id ? lockScreenLyrics : []
         return NowPlayingLyricsMetadataPolicy.presentation(
             canonicalTitle: song.title,
-            artistName: song.artistName,
+            artistName: displayedArtistName(for: song),
             lyrics: lyrics,
             playbackTime: currentTime,
             isEnabled: playbackSettings.lockScreenLyricsEnabled,
@@ -9016,7 +9041,7 @@ final class AudioPlayerService {
         // ownership still matches the current song.
         var info = [String: Any]()
         var publishedTitle = currentSong?.title ?? ""
-        var publishedArtist = currentSong?.artistName ?? ""
+        var publishedArtist = displayedArtistName(for: currentSong) ?? ""
         #if os(iOS)
         let lyricsPresentation = lockScreenLyricsPresentation()
         publishedTitle = lyricsPresentation.title
@@ -9783,6 +9808,7 @@ final class AudioPlayerService {
         #if os(macOS)
         let request = MacWidgetPlaybackPublishRequest(
             currentSong: currentSong,
+            artistDisplayName: displayedArtistName(for: currentSong),
             isPlaying: isPlaybackActuallyActive,
             currentTime: currentTime,
             duration: duration,
@@ -9867,7 +9893,7 @@ final class AudioPlayerService {
         let state = PlaybackState(
             currentSongID: currentSong?.id,
             songTitle: currentSong?.title,
-            artistName: currentSong?.artistName,
+            artistName: displayedArtistName(for: currentSong),
             albumTitle: currentSong?.albumTitle,
             fileFormat: currentSong.map { $0.fileFormat.displayName },
             coverImageName: coverName,
@@ -10061,7 +10087,8 @@ final class AudioPlayerService {
             return nil
         }
 
-        let artistName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artistName = displayedArtistName(for: song)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let albumKey = stableWidgetAlbumKey(for: song, albumTitle: rawAlbumTitle, artistName: artistName)
         let coverImageName = "widget_album_\(albumKey).jpg"
 
@@ -10077,6 +10104,12 @@ final class AudioPlayerService {
         let baseKey = song.albumID ?? "\(song.sourceID)|\(albumTitle.lowercased())|\(artistName.lowercased())"
         let digest = SHA256.hash(data: Data(baseKey.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func displayedArtistName(for song: Song?) -> String? {
+        guard let song else { return nil }
+        if isLiveRadio { return song.artistName }
+        return song.displayArtistName(configuration: artistNameConfiguration)
     }
 
     private func widgetTimelineSignature(for state: PlaybackState) -> String {

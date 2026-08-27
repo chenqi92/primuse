@@ -1,4 +1,22 @@
 // MARK: - Tabs
+"artist_name_settings_title" = "Artist Names";
+"artist_name_settings_intro" = "Split joined track artists without changing original tags or album artists. Native multi-value fields keep their original boundaries.";
+"artist_name_settings_preview" = "Preview";
+"artist_name_settings_separators" = "Split Separators";
+"artist_name_settings_separator_placeholder" = "For example, ;";
+"artist_name_settings_separators_footer" = "Separators are matched literally. Semicolons in both widths are enabled by default.";
+"artist_name_settings_protected_names" = "Protected Artist Names";
+"artist_name_settings_protected_placeholder" = "For example, AC/DC";
+"artist_name_settings_protected_footer" = "Protected names are matched before separators and always remain one artist.";
+"artist_name_settings_protected_empty" = "No protected artist names";
+"artist_name_settings_display_separator" = "Display Separator";
+"artist_name_settings_display_separator_placeholder" = "For example, /";
+"artist_name_settings_display_footer" = "Used only when displaying multiple artists; source metadata remains unchanged.";
+"artist_name_settings_reset" = "Reset to Defaults";
+"artist_name_settings_reset_confirm" = "Reset all artist-name rules to their defaults?";
+"artist_name_settings_newer_version_warning" = "These rules were saved by a newer Primuse version. They are preserved until you replace them.";
+"artist_name_settings_tv_summary" = "%1$d separators · %2$d protected";
+"artist_name_settings_tv_read_only" = "Edit on iPhone, iPad, or Mac";
 "library_title" = "Library";
 "library_quick_access" = "Quick Access";
 "library_browse" = "Browse Library";

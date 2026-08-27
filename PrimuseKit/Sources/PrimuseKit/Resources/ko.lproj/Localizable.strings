@@ -1,4 +1,7 @@
 // PrimuseKit strings ── 该区域暂无翻译,系统会回退到 en.lproj。
+"artist_name_settings_title" = "아티스트 이름";
+"artist_name_settings_tv_summary" = "구분 기호 %1$d개 · 보호 이름 %2$d개";
+"artist_name_settings_tv_read_only" = "iPhone, iPad 또는 Mac에서 편집";
 // 当 PrimuseKit 内部有面向用户的字符串(如 cloud account auth 错误)需要
 // 翻译时,在这里覆盖对应 key。
 

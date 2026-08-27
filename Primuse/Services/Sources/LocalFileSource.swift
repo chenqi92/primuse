@@ -563,6 +563,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             title: metadata.title,
             albumTitle: metadata.albumTitle,
             artistName: metadata.artist,
+            sourceArtistNames: metadata.sourceArtistNames,
             albumArtistName: metadata.albumArtist,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
@@ -761,6 +762,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 artistID: artist.map { Self.generateID(sourceID: "artist", path: $0) },
                 albumTitle: album,
                 artistName: artist,
+                sourceArtistNames: descriptor.track.performer == nil
+                    && descriptor.albumPerformer == nil
+                    ? metadata.sourceArtistNames
+                    : nil,
                 albumArtistName: albumArtist,
                 trackNumber: descriptor.track.number,
                 duration: end.map { max(0, $0 - start) } ?? 0,

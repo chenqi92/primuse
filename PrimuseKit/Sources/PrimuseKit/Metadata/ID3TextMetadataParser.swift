@@ -7,8 +7,10 @@ import Foundation
 public struct ID3TextMetadata: Equatable, Sendable {
     public var title: String?
     public var artist: String?
+    public var artists: [String]?
     public var albumTitle: String?
     public var albumArtist: String?
+    public var albumArtists: [String]?
     public var trackNumber: Int?
     public var discNumber: Int?
     public var year: Int?
@@ -17,8 +19,10 @@ public struct ID3TextMetadata: Equatable, Sendable {
     public init(
         title: String? = nil,
         artist: String? = nil,
+        artists: [String]? = nil,
         albumTitle: String? = nil,
         albumArtist: String? = nil,
+        albumArtists: [String]? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
         year: Int? = nil,
@@ -26,8 +30,10 @@ public struct ID3TextMetadata: Equatable, Sendable {
     ) {
         self.title = title
         self.artist = artist
+        self.artists = artists
         self.albumTitle = albumTitle
         self.albumArtist = albumArtist
+        self.albumArtists = albumArtists
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.year = year
@@ -180,7 +186,10 @@ public enum ID3TextMetadataParser {
     ) {
         metadata.title = metadata.title ?? fallback.title
         metadata.artist = metadata.artist ?? fallback.artist
+        metadata.artists = metadata.artists ?? fallback.artists
         metadata.albumTitle = metadata.albumTitle ?? fallback.albumTitle
+        metadata.albumArtist = metadata.albumArtist ?? fallback.albumArtist
+        metadata.albumArtists = metadata.albumArtists ?? fallback.albumArtists
         metadata.trackNumber = metadata.trackNumber ?? fallback.trackNumber
         metadata.year = metadata.year ?? fallback.year
     }
@@ -314,16 +323,19 @@ public enum ID3TextMetadataParser {
         payload: Data,
         to result: inout ID3TextMetadata
     ) {
-        guard let value = decodedText(payload) else { return }
+        let values = decodedTextValues(payload)
+        guard let value = values.first else { return }
         switch frameID {
         case "TIT2", "TT2":
             result.title = result.title ?? value
         case "TPE1", "TP1":
-            result.artist = result.artist ?? value
+            appendDistinct(values, to: &result.artists)
+            result.artist = result.artists?.joined(separator: "; ") ?? value
         case "TALB", "TAL":
             result.albumTitle = result.albumTitle ?? value
         case "TPE2", "TP2":
-            result.albumArtist = result.albumArtist ?? value
+            appendDistinct(values, to: &result.albumArtists)
+            result.albumArtist = result.albumArtists?.joined(separator: "; ") ?? value
         case "TRCK", "TRK":
             result.trackNumber = result.trackNumber ?? leadingInt(value)
         case "TPOS", "TPA":
@@ -338,15 +350,35 @@ public enum ID3TextMetadataParser {
     }
 
     private static func decodedText(_ frame: Data) -> String? {
-        guard let encodingByte = frame.first else { return nil }
+        decodedTextValues(frame).first
+    }
+
+    private static func decodedTextValues(_ frame: Data) -> [String] {
+        guard let encodingByte = frame.first else { return [] }
         // ID3v2.3 specifies ISO-8859-1 for encoding byte 0, but many legacy
         // taggers wrote GBK/Big5/Shift_JIS bytes while leaving the flag at
         // zero. ISO-8859-1 decoding never fails, so the candidates have to be
         // scored rather than chained with `??`.
-        return TextEncodingRepair.decodeID3Text(
+        return TextEncodingRepair.decodeID3TextValues(
             Data(frame.dropFirst()),
             encodingByte: encodingByte
         )
+    }
+
+    private static func appendDistinct(
+        _ values: [String],
+        to destination: inout [String]?
+    ) {
+        var result = destination ?? []
+        for value in values where !result.contains(where: {
+            $0.compare(
+                value,
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+            ) == .orderedSame
+        }) {
+            result.append(value)
+        }
+        destination = result.isEmpty ? nil : result
     }
 
     private static func extendedHeaderLength(in tag: Data, version: Int, flags: UInt8) -> Int {

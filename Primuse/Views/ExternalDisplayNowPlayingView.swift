@@ -138,7 +138,10 @@ struct ExternalDisplayNowPlayingView: View {
                         .foregroundStyle(.white)
                         .lineSpacing(4)
                         .lineLimit(2)
-                    Text(player.currentSong?.artistName ?? "")
+                    Text(
+                        player.currentSong.flatMap { library.artistDisplayName(for: $0) }
+                            ?? ""
+                    )
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(.white.opacity(0.70))
                         .lineLimit(1)

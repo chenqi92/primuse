@@ -592,6 +592,7 @@ final class CloudKitSyncService {
             // KVS-mirrored UserDefaults keys: poke each so timestamps update.
             for key in [CloudKVSKey.aiSettings, CloudKVSKey.playbackSettings,
                         CloudKVSKey.scraperSettings,
+                        CloudKVSKey.artistNameConfiguration,
                         CloudKVSKey.lyricsFontScale, CloudKVSKey.recentSearches] {
                 CloudKVSSync.shared.markChanged(key: key)
             }

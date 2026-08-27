@@ -218,6 +218,9 @@ private final class SongListCache {
             if !query.isEmpty,
                !song.title.localizedCaseInsensitiveContains(query),
                !(song.artistName?.localizedCaseInsensitiveContains(query) ?? false),
+               !(song.sourceArtistNames?.contains {
+                   $0.localizedCaseInsensitiveContains(query)
+               } ?? false),
                !(song.albumTitle?.localizedCaseInsensitiveContains(query) ?? false) {
                 continue
             }
@@ -1521,7 +1524,7 @@ struct SongListView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if visibleColumns.contains(.artist) {
-                    Text(song.artistName ?? "—")
+                    Text(library.artistDisplayName(for: song) ?? "—")
                         .font(.system(size: 12.5))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
@@ -1688,7 +1691,7 @@ struct SongListView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(song.artistName ?? "—")
+                Text(library.artistDisplayName(for: song) ?? "—")
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -1775,7 +1778,7 @@ struct SongListView: View {
                     .truncationMode(.tail)
                     .padding(.top, 8)
 
-                Text(song.artistName ?? "—")
+                Text(library.artistDisplayName(for: song) ?? "—")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -1847,7 +1850,7 @@ struct SongListView: View {
                       systemImage: library.isLiked(songID: song.id) ? "heart.fill" : "heart")
             }
 
-            ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
+            ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
                 Label(String(localized: "share"), systemImage: "square.and.arrow.up")
             }
         }
@@ -4572,6 +4575,8 @@ private struct IOSSongListRow: View {
 /// reachable while batch selection is active, but constructing them for every
 /// newly visible row made large flat lists hitch during a drag.
 private struct IOSSelectionSongRow: View {
+    @Environment(MusicLibrary.self) private var library
+
     let song: Song
     let isPlaying: Bool
     let membership: SongSelectionMembership
@@ -4605,13 +4610,13 @@ private struct IOSSelectionSongRow: View {
         .frame(minHeight: 52)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: [song.title, song.artistName]
+        .accessibilityLabel(Text(verbatim: [song.title, library.artistDisplayName(for: song)]
             .compactMap { $0 }
             .joined(separator: " — ")))
     }
 
     private var selectionSubtitle: String {
-        [song.artistName, song.albumTitle]
+        [library.artistDisplayName(for: song), song.albumTitle]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value

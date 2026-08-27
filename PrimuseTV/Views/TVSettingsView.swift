@@ -45,6 +45,7 @@ struct TVSettingsView: View {
     @State private var showsAISettings = false
     @State private var isSyncing = false
     @State private var syncMsg: String?
+    @State private var artistNameSettings = ArtistNameSettingsStore.shared
 
     private var immersiveEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: immersiveEffectRawValue) ?? .defaultValue
@@ -63,6 +64,13 @@ struct TVSettingsView: View {
     private var syncValue: String {
         if isSyncing { return PMString("ext.tv.settings.syncing") }
         return syncMsg ?? PMString("ext.tv.settings.tapToPull")
+    }
+    private var artistRulesValue: String {
+        PMString(
+            "artist_name_settings_tv_summary",
+            artistNameSettings.configuration.separators.count,
+            artistNameSettings.configuration.protectedNames.count
+        )
     }
 
     var body: some View {
@@ -103,6 +111,12 @@ struct TVSettingsView: View {
                                    action: { showsEffectPicker = true })
                             settingDivider
                             navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
+                            settingDivider
+                            infoRow(
+                                "person.2",
+                                PMString("artist_name_settings_title"),
+                                artistRulesValue + " · " + PMString("artist_name_settings_tv_read_only")
+                            )
                             settingDivider
                             navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
                             settingDivider

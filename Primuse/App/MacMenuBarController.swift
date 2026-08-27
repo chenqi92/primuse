@@ -52,10 +52,13 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     /// the tracking closure so we keep listening.
     private func observePlayerState() {
         let player = AppServices.shared.playerService
+        let library = AppServices.shared.musicLibrary
         withObservationTracking {
             _ = player.currentSong?.id
             _ = player.currentSong?.title
             _ = player.currentSong?.artistName
+            _ = player.currentSong?.sourceArtistNames
+            _ = library.artistNameConfiguration
             _ = player.currentSong?.coverArtFileName
             _ = player.coverRevision
             _ = player.isPlaying
@@ -96,6 +99,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     private func refreshStatusItem() {
         guard let button = statusItem?.button else { return }
         let player = AppServices.shared.playerService
+        let library = AppServices.shared.musicLibrary
 
         button.image = statusBarArtworkImage(for: player.currentSong) ?? statusBarImage()
         button.imagePosition = .imageLeading
@@ -103,7 +107,10 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         if showTitle, let title = player.currentSong?.title, !title.isEmpty {
             // Title 旁边一个空格,避免和图标贴在一起。
             button.title = " " + truncate(title, max: titleLimit)
-            button.toolTip = [title, player.currentSong?.artistName].compactMap { $0 }.joined(separator: " — ")
+            button.toolTip = [
+                title,
+                player.currentSong.flatMap { library.artistDisplayName(for: $0) },
+            ].compactMap { $0 }.joined(separator: " — ")
         } else {
             button.title = ""
             button.toolTip = "Primuse"

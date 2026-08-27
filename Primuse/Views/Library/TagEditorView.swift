@@ -1387,6 +1387,11 @@ struct TagEditorView: View {
             updated.title = (song.filePath as NSString).lastPathComponent
         }
         updated.artistName = trimmedOrNil(artist)
+        if updated.artistName != song.artistName {
+            // A manual scalar edit replaces the source-provided contributor
+            // list. The edited text can still be split by the user's rules.
+            updated.sourceArtistNames = nil
+        }
         updated.albumTitle = trimmedOrNil(album)
         updated.albumArtistName = AlbumGroupingPolicy.updatedAlbumArtistName(
             existingAlbumArtistName: song.albumArtistName,

@@ -347,6 +347,7 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+        _ = ArtistNameSettingsStore.shared
 
         // Phase 3: Apple TV relay is opt-in. Starting its listeners after the
         // first frame preserves behavior without charging launch rendering.
@@ -911,7 +912,7 @@ final class AppServices {
             // prevents the player's failure auto-advance from silently playing
             // an unrelated library song when that source is temporarily down.
             guard startIntentQueue([song]) != nil else { return nil }
-            if let artist = song.artistName, !artist.isEmpty {
+            if let artist = library.artistDisplayName(for: song), !artist.isEmpty {
                 return String(
                     format: String(localized: "intent_playing_song_by_format"),
                     song.title,

@@ -4,6 +4,7 @@ import PrimuseKit
 struct QueueView: View {
     let player: AudioPlayerService
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(MusicLibrary.self) private var library
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -103,7 +104,7 @@ struct QueueView: View {
     ) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
-        let accessibilityLabel = [song.title, song.artistName]
+        let accessibilityLabel = [song.title, library.artistDisplayName(for: song)]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value
@@ -148,7 +149,7 @@ struct QueueView: View {
                     .font(.subheadline.weight(isPlaying ? .semibold : .regular))
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
                     .lineLimit(1)
-                Text(song.artistName ?? song.albumTitle ?? "")
+                Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -261,7 +262,7 @@ struct QueueView: View {
                 Text(song.title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Text(song.artistName ?? song.albumTitle ?? "")
+                Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

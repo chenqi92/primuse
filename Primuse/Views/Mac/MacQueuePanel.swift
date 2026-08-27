@@ -152,7 +152,7 @@ struct MacQueuePanel: View {
                           allowsRemoval: Bool = false) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
-        let accessibilityLabel = [song.title, song.artistName]
+        let accessibilityLabel = [song.title, library.artistDisplayName(for: song)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: ", ")
         let row = HStack(spacing: 8) {
@@ -186,7 +186,7 @@ struct MacQueuePanel: View {
                     .font(.system(size: 12, weight: isPlaying ? .semibold : .medium))
                     .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)
                     .lineLimit(1)
-                Text(song.artistName ?? "")
+                Text(library.artistDisplayName(for: song) ?? "")
                     .font(.system(size: 10.5))
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
@@ -295,7 +295,7 @@ struct MacQueuePanel: View {
                 Text(song.title)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
-                Text(song.artistName ?? song.albumTitle ?? "")
+                Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
                     .font(.system(size: 10.5))
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)

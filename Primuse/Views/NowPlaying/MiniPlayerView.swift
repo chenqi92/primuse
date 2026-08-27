@@ -35,6 +35,7 @@ struct MiniPlayerSwipeContent: View {
     var showsSubtitle = false
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @State private var feedbackOffset: CGFloat = 0
@@ -64,7 +65,8 @@ struct MiniPlayerSwipeContent: View {
                         .foregroundStyle(.primary)
 
                     if showsSubtitle,
-                       let artist = player.currentSong?.artistName,
+                       let song = player.currentSong,
+                       let artist = library.artistDisplayName(for: song),
                        !artist.isEmpty {
                         Text(artist)
                             .font(.caption2)
@@ -114,7 +116,8 @@ struct MiniPlayerSwipeContent: View {
             player.currentSong?.title ?? ""
         ]
         if showsSubtitle,
-           let artist = player.currentSong?.artistName,
+           let song = player.currentSong,
+           let artist = library.artistDisplayName(for: song),
            !artist.isEmpty {
             parts.append(artist)
         }

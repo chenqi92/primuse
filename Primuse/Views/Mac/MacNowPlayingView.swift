@@ -309,7 +309,11 @@ struct MacNowPlayingView: View {
                     .foregroundStyle(playerPrimaryColor)
                     .lineLimit(2)
 
-                Text(player.radioMetadataTitle ?? player.currentSong?.artistName ?? "")
+                Text(
+                    player.radioMetadataTitle
+                        ?? player.currentSong.flatMap { library.artistDisplayName(for: $0) }
+                        ?? ""
+                )
                     .font(.system(size: isWindowFullScreen ? 24 : 20, weight: .medium))
                     .foregroundStyle(playerSecondaryColor)
                     .lineLimit(3)
@@ -823,7 +827,7 @@ struct MacNowPlayingView: View {
 
     private var artistAlbumLine: String {
         guard let song = player.currentSong else { return "" }
-        return [song.artistName, song.albumTitle]
+        return [library.artistDisplayName(for: song), song.albumTitle]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value

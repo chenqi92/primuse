@@ -1,4 +1,22 @@
 // French — high-priority strings. Keys not present here fall back to English.
+"artist_name_settings_title" = "Noms des artistes";
+"artist_name_settings_intro" = "Sépare les artistes regroupés dans une piste sans modifier les tags d’origine ni l’artiste de l’album. Les vrais champs multivalués conservent leurs limites.";
+"artist_name_settings_preview" = "Aperçu";
+"artist_name_settings_separators" = "Séparateurs de découpage";
+"artist_name_settings_separator_placeholder" = "Par exemple, ;";
+"artist_name_settings_separators_footer" = "Les séparateurs sont reconnus littéralement. Les deux largeurs de point-virgule sont activées par défaut.";
+"artist_name_settings_protected_names" = "Noms d’artistes protégés";
+"artist_name_settings_protected_placeholder" = "Par exemple, AC/DC";
+"artist_name_settings_protected_footer" = "Les noms protégés sont reconnus avant les séparateurs et restent toujours un seul artiste.";
+"artist_name_settings_protected_empty" = "Aucun nom d’artiste protégé";
+"artist_name_settings_display_separator" = "Séparateur d’affichage";
+"artist_name_settings_display_separator_placeholder" = "Par exemple, /";
+"artist_name_settings_display_footer" = "Utilisé uniquement pour afficher plusieurs artistes ; les métadonnées source restent inchangées.";
+"artist_name_settings_reset" = "Rétablir les valeurs par défaut";
+"artist_name_settings_reset_confirm" = "Rétablir les valeurs par défaut de toutes les règles de noms d’artistes ?";
+"artist_name_settings_newer_version_warning" = "Ces règles ont été enregistrées par une version plus récente de Primuse. Elles sont conservées jusqu’à leur remplacement.";
+"artist_name_settings_tv_summary" = "%1$d séparateurs · %2$d protégés";
+"artist_name_settings_tv_read_only" = "Modifier sur iPhone, iPad ou Mac";
 // Native-speaker review recommended before App Store submission.
 
 // Tabs / Sections

@@ -976,7 +976,11 @@ struct PlaylistImportView: View {
                             Text(song.title)
                                 .font(.system(size: 12.5, weight: .medium))
                                 .foregroundStyle(PMColor.text)
-                            Text([song.artistName, song.albumTitle].compactMap { $0 }.joined(separator: " · "))
+                            Text(
+                                [library.artistDisplayName(for: song), song.albumTitle]
+                                    .compactMap { $0 }
+                                    .joined(separator: " · ")
+                            )
                                 .font(.system(size: 11))
                                 .foregroundStyle(PMColor.textFaint)
                                 .lineLimit(1)
@@ -1014,7 +1018,7 @@ struct PlaylistImportView: View {
         let folded = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         return library.visibleSongs
             .filter { song in
-                [song.title, song.artistName, song.albumTitle]
+                [song.title, library.artistDisplayName(for: song), song.albumTitle]
                     .compactMap { $0 }
                     .joined(separator: " ")
                     .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)

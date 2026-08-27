@@ -21,6 +21,7 @@ struct LyricsEditorView: View {
     let onCommit: ((String) -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 
     @State private var document: LyricsEditorDocument
@@ -194,7 +195,9 @@ struct LyricsEditorView: View {
                 Text(String(localized: "lyrics_editor_title"))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text("\(song.title) · \(song.artistName ?? String(localized: "unknown_artist"))")
+                Text(
+                    "\(song.title) · \(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))"
+                )
                     .font(PMFont.caption)
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -356,7 +359,9 @@ struct LyricsEditorView: View {
                 Text("lyrics_editor_empty_title")
                     .font(.title3.weight(.semibold))
 
-                Text("\(song.title) · \(song.artistName ?? String(localized: "unknown_artist"))")
+                Text(
+                    "\(song.title) · \(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))"
+                )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -770,7 +775,9 @@ struct LyricsEditorView: View {
                 .font(.headline)
                 .lineLimit(1)
 
-            Text("\(song.artistName ?? String(localized: "unknown_artist")) · \(String(format: String(localized: "lyrics_editor_line_summary %lld %lld"), document.lines.count, document.stampedCount))")
+            Text(
+                "\(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist")) · \(String(format: String(localized: "lyrics_editor_line_summary %lld %lld"), document.lines.count, document.stampedCount))"
+            )
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

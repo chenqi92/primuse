@@ -104,7 +104,10 @@ enum TVMetadataEnricher {
         var out = song
         if let t = meta.title?.trimmedNonEmpty { out.title = t }
         if let al = meta.albumTitle?.trimmedNonEmpty { out.albumTitle = al }
-        if let ar = meta.artist?.trimmedNonEmpty { out.artistName = ar }
+        if let ar = meta.artist?.trimmedNonEmpty {
+            out.artistName = ar
+            out.sourceArtistNames = meta.sourceArtistNames
+        }
         out.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: meta.albumArtist?.trimmedNonEmpty ?? out.albumArtistName,
             trackArtistName: out.artistName
@@ -167,6 +170,9 @@ enum TVMetadataEnricher {
         var out = song
         out.title = descriptor.title ?? song.title
         out.artistName = descriptor.artist ?? song.artistName
+        if descriptor.artist != nil {
+            out.sourceArtistNames = nil
+        }
         out.duration = descriptor.duration ?? song.duration
         out.fileFormat = descriptor.format
         out.fileSize = 0

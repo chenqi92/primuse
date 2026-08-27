@@ -74,7 +74,6 @@ struct MacHomeView: View {
         var recentlyAddedAlbums: [Album] = []
         var artists: [Artist] = []
         var albumArtworkSongs: [String: Song] = [:]
-        var artistSongCounts: [String: Int] = [:]
         var totalDurationSec: Double = 0
         var coverCount: Int = 0
         var lyricsCount: Int = 0
@@ -243,20 +242,17 @@ struct MacHomeView: View {
         var lyricsCount = 0
         var playableCount = 0
         var songsByAlbum: [String: [Song]] = [:]
-        var artistSongCounts: [String: Int] = [:]
         for song in songs {
             totalSec += max(0, song.duration)
             if song.coverArtFileName?.isEmpty == false { coverCount += 1 }
             if song.lyricsFileName?.isEmpty == false { lyricsCount += 1 }
             if song.isPlayable { playableCount += 1 }
             if let albumID = song.albumID { songsByAlbum[albumID, default: []].append(song) }
-            if let artistID = song.artistID { artistSongCounts[artistID, default: 0] += 1 }
         }
         snapshot.totalDurationSec = totalSec
         snapshot.coverCount = coverCount
         snapshot.lyricsCount = lyricsCount
         snapshot.playableCount = playableCount
-        snapshot.artistSongCounts = artistSongCounts
         snapshot.albumArtworkSongs = songsByAlbum.mapValues { albumSongs in
             albumSongs.first { $0.coverArtFileName?.isEmpty == false } ?? albumSongs[0]
         }
@@ -1119,7 +1115,10 @@ struct MacHomeView: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-                Text(song.artistName ?? String(localized: "unknown_artist"))
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
                     .font(.system(size: 10.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -1249,7 +1248,7 @@ struct MacHomeView: View {
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-                Text(song.artistName ?? "")
+                Text(library.artistDisplayName(for: song) ?? "")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
@@ -1309,7 +1308,7 @@ struct MacHomeView: View {
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
-            Text("\(derived.artistSongCounts[artist.id, default: 0])")
+            Text("\(artist.songCount)")
                 .font(.system(size: 10.5))
                 .foregroundStyle(PMColor.textFaint)
         }

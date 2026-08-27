@@ -373,6 +373,7 @@ actor SynologyScanner {
                             }
                             if allSongs[idx].artistName == nil || MediaMetadataTextRepair.isSuspicious(allSongs[idx].artistName) {
                                 allSongs[idx].artistName = parsedArtist
+                                allSongs[idx].sourceArtistNames = nil
                             }
                             pendingMetadataInspectedSongIDs.insert(allSongs[idx].id)
                         }
@@ -529,6 +530,10 @@ actor SynologyScanner {
             song.title = descriptor.track.title
                 ?? String(format: "Track %02d", descriptor.track.number)
             song.artistName = artist
+            song.sourceArtistNames = descriptor.track.performer == nil
+                && descriptor.albumPerformer == nil
+                ? physical.sourceArtistNames
+                : nil
             song.albumArtistName = albumArtist
             song.artistID = artist.map { generateID(sourceID: "artist", path: $0.lowercased()) }
             song.albumTitle = album
@@ -740,6 +745,7 @@ actor SynologyScanner {
 
         var title = parsedTitle
         var artist = parsedArtist
+        var sourceArtistNames: [String]?
         var album: String? = genericFolders.contains(albumFromPath) ? nil : albumFromPath
         var albumArtist: String?
         var trackNumber: Int?
@@ -768,6 +774,7 @@ actor SynologyScanner {
             )
             guard readSize > 0 else {
                 return makeSong(id: songID, title: title, artist: artist, album: album,
+                               sourceArtistNames: sourceArtistNames,
                                albumArtist: albumArtist,
                                trackNumber: trackNumber, duration: duration, format: format,
                                path: item.path, size: item.size, year: year, genre: genre,
@@ -823,6 +830,7 @@ actor SynologyScanner {
 
             if let value = embedded.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 artist = embedded.artist
+                sourceArtistNames = embedded.sourceArtistNames
             }
             if let embeddedTitle = MediaMetadataTextRepair.repaired(embedded.title) {
                 title = embeddedTitle
@@ -902,6 +910,7 @@ actor SynologyScanner {
         plog("📦 Song built: \(title) | cover=\(coverArtFileName ?? "nil") | lyrics=\(lyricsFileName ?? "nil")")
 
         return makeSong(id: songID, title: title, artist: artist, album: album,
+                        sourceArtistNames: sourceArtistNames,
                         albumArtist: albumArtist,
                         trackNumber: trackNumber, duration: duration, format: format,
                         path: item.path, size: item.size, year: year, genre: genre,
@@ -914,7 +923,8 @@ actor SynologyScanner {
     }
 
     private func makeSong(
-        id: String, title: String, artist: String?, album: String?, albumArtist: String?,
+        id: String, title: String, artist: String?, album: String?,
+        sourceArtistNames: [String]? = nil, albumArtist: String?,
         trackNumber: Int?, duration: TimeInterval, format: AudioFormat,
         path: String, size: Int64, year: Int?, genre: String?,
         sampleRate: Int?, bitRate: Int?, bitDepth: Int?,
@@ -935,7 +945,9 @@ actor SynologyScanner {
 
         return Song(
             id: id, title: title, albumID: albumID, artistID: artistID,
-            albumTitle: album, artistName: artist, albumArtistName: resolvedAlbumArtist,
+            albumTitle: album, artistName: artist,
+            sourceArtistNames: sourceArtistNames,
+            albumArtistName: resolvedAlbumArtist,
             trackNumber: trackNumber, duration: duration,
             fileFormat: format, filePath: path, sourceID: sourceID,
             fileSize: size, bitRate: bitRate, sampleRate: sampleRate,

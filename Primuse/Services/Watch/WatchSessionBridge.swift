@@ -126,7 +126,7 @@ final class WatchSessionBridge: NSObject {
         let isLoading = player.isLoading
         let isLiveStream = player.isLiveRadio
         let title = song?.title ?? ""
-        let artist = song?.artistName ?? ""
+        let artist = song.flatMap { library?.artistDisplayName(for: $0) } ?? ""
         let lyric = isLiveStream ? "" : currentLyricLine(song: song, time: player.currentTime)
         let accentSignature = currentAccentSignature()
 
@@ -235,7 +235,7 @@ final class WatchSessionBridge: NSObject {
             "type": "state",
             "songID": song?.id ?? "",
             "title": song?.title ?? "",
-            "artist": song?.artistName ?? "",
+            "artist": song.flatMap { library?.artistDisplayName(for: $0) } ?? "",
             "album": song?.albumTitle ?? "",
             "isPlaying": isPlaying,
             "isLoading": isLoading,
@@ -321,7 +321,8 @@ final class WatchSessionBridge: NSObject {
         let perItemOverhead = 24  // 字典 / NSArray 元数据估算
         let snapshot = player.makeWatchQueueDigestSnapshot(
             byteBudget: byteBudget,
-            perItemOverhead: perItemOverhead
+            perItemOverhead: perItemOverhead,
+            artistConfiguration: library?.artistNameConfiguration ?? .defaultValue
         )
         if snapshot.digest == lastLibraryHash {
             // A duration/artwork-only Song mutation still advances the queue

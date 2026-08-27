@@ -901,7 +901,10 @@ struct LibraryArtworkEditorSheet: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-                Text(song.artistName ?? String(localized: "unknown_artist"))
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
                     .font(.system(size: 10.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -1060,7 +1063,10 @@ struct LibraryArtworkEditorSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
                         .lineLimit(1)
-                    Text(song.artistName ?? String(localized: "unknown_artist"))
+                    Text(
+                        library.artistDisplayName(for: song)
+                            ?? String(localized: "unknown_artist")
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

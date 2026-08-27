@@ -1,4 +1,22 @@
 // German — high-priority strings. Keys not present here fall back to English.
+"artist_name_settings_title" = "Künstlernamen";
+"artist_name_settings_intro" = "Verknüpfte Titelkünstler werden getrennt, ohne Original-Tags oder Albumkünstler zu ändern. Echte Mehrfachfelder behalten ihre Grenzen.";
+"artist_name_settings_preview" = "Vorschau";
+"artist_name_settings_separators" = "Trennzeichen";
+"artist_name_settings_separator_placeholder" = "Zum Beispiel ;";
+"artist_name_settings_separators_footer" = "Trennzeichen werden wörtlich erkannt. Beide Semikolonbreiten sind standardmäßig aktiv.";
+"artist_name_settings_protected_names" = "Geschützte Künstlernamen";
+"artist_name_settings_protected_placeholder" = "Zum Beispiel AC/DC";
+"artist_name_settings_protected_footer" = "Geschützte Namen haben Vorrang vor Trennzeichen und bleiben immer ein Künstler.";
+"artist_name_settings_protected_empty" = "Keine geschützten Künstlernamen";
+"artist_name_settings_display_separator" = "Anzeige-Trennzeichen";
+"artist_name_settings_display_separator_placeholder" = "Zum Beispiel /";
+"artist_name_settings_display_footer" = "Wird nur zur Anzeige mehrerer Künstler verwendet; Quelldaten bleiben unverändert.";
+"artist_name_settings_reset" = "Auf Standard zurücksetzen";
+"artist_name_settings_reset_confirm" = "Alle Regeln für Künstlernamen zurücksetzen?";
+"artist_name_settings_newer_version_warning" = "Diese Regeln wurden von einer neueren Primuse-Version gespeichert und bleiben erhalten, bis du sie ersetzt.";
+"artist_name_settings_tv_summary" = "%1$d Trennzeichen · %2$d geschützt";
+"artist_name_settings_tv_read_only" = "Auf iPhone, iPad oder Mac bearbeiten";
 // Native-speaker review recommended before App Store submission.
 
 // Tabs / Sections

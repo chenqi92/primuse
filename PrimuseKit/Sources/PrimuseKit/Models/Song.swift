@@ -9,6 +9,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var artistID: String?
     public var albumTitle: String?
     public var artistName: String?
+    /// Distinct track artists supplied by a source that exposes a real
+    /// multi-value field (for example repeated Vorbis comments or a media
+    /// server `artists` array). Nil keeps legacy rows and joined text tags
+    /// distinguishable from authoritative source boundaries.
+    public var sourceArtistNames: [String]?
     /// Effective album artist used for album grouping. Full metadata readers
     /// store the embedded album artist when available and otherwise fall back
     /// to the track artist, so a nil value also identifies legacy rows that
@@ -79,6 +84,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         artistID: String? = nil,
         albumTitle: String? = nil,
         artistName: String? = nil,
+        sourceArtistNames: [String]? = nil,
         albumArtistName: String? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
@@ -118,6 +124,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.artistID = artistID
         self.albumTitle = albumTitle
         self.artistName = artistName
+        self.sourceArtistNames = sourceArtistNames
         self.albumArtistName = albumArtistName
         self.trackNumber = trackNumber
         self.discNumber = discNumber
@@ -421,6 +428,7 @@ public enum SongUserMetadataPolicy {
         result.artistID = existing.artistID
         result.albumTitle = existing.albumTitle
         result.artistName = existing.artistName
+        result.sourceArtistNames = existing.sourceArtistNames
         result.albumArtistName = existing.albumArtistName ?? incoming.albumArtistName
         result.trackNumber = existing.trackNumber
         result.discNumber = existing.discNumber

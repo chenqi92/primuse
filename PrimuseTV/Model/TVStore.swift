@@ -497,7 +497,7 @@ final class TVStore {
     }
     private func map(_ s: Song) -> TVSong {
         TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName, title: s.title,
-               artist: s.artistName ?? PMString("ext.tv.unknownArtist"), duration: s.duration,
+               artist: library.artistDisplayName(for: s) ?? PMString("ext.tv.unknownArtist"), duration: s.duration,
                format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
                sampleRate: Double(s.sampleRate ?? 0) / 1000,
                sourceID: s.sourceID, plays: 0, liked: localLiked.contains(s.id))

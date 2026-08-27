@@ -238,7 +238,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 showSongInfo = true
             }
             if let song = player.currentSong {
-                ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
+                ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
                     HStack(spacing: 10) {
                         Image(systemName: "square.and.arrow.up")
                             .frame(width: 18)
@@ -333,7 +333,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-                Text(song.artistName ?? String(localized: "unknown_artist"))
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
                     .font(.caption)
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -545,7 +548,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
 
         guard let title = trimmed(song.albumTitle), !title.isEmpty else { return nil }
-        let artistName = trimmed(song.artistName)
+        let artistName = trimmed(song.albumArtistName ?? library.artistNames(for: song).first)
         return library.visibleAlbums.first { album in
             guard album.title.localizedCaseInsensitiveCompare(title) == .orderedSame else { return false }
             guard let artistName, !artistName.isEmpty else { return true }
@@ -559,7 +562,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             return artist
         }
 
-        guard let name = trimmed(song.artistName), !name.isEmpty else { return nil }
+        guard let name = trimmed(library.artistNames(for: song).first), !name.isEmpty else { return nil }
         return library.visibleArtists.first {
             $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
         }
@@ -912,7 +915,10 @@ struct MacSimilarSongsPopover: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text(row.song.artistName ?? String(localized: "unknown_artist"))
+                    Text(
+                        library.artistDisplayName(for: row.song)
+                            ?? String(localized: "unknown_artist")
+                    )
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
