@@ -738,7 +738,9 @@ public enum EmbeddedTagMetadataParser {
             artist: artists?.joined(separator: "; "),
             artists: artists,
             albumTitle: first("ALBUM", "ALBUMTITLE", "WM/ALBUMTITLE", "IPRD"),
-            albumArtist: first("ALBUMARTIST", "ALBUM ARTIST", "WM/ALBUMARTIST"),
+            albumArtist: first(
+                "ALBUMARTIST", "ALBUM ARTIST", "ALBUM_ARTIST", "WM/ALBUMARTIST"
+            ),
             trackNumber: track.flatMap(leadingInteger),
             discNumber: disc.flatMap(leadingInteger),
             year: date.flatMap(year),

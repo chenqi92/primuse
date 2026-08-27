@@ -41,6 +41,26 @@ struct EmbeddedTagMetadataParserTests {
         #expect(metadata?.coverArtData == image)
     }
 
+    @Test func parsesAPEv2AtExactTTAEnd() {
+        let tail = Data(repeating: 0x5A, count: 96) + makeAPEv2Tag([
+            apeTextItem("title", "TTA 标签标题"),
+            apeTextItem("artist", "TTA 标签歌手"),
+            apeTextItem("album_artist", "TTA 专辑歌手"),
+            apeTextItem("track", "7/10"),
+        ])
+
+        let metadata = EmbeddedTagMetadataParser.parse(
+            head: Data("TTA1".utf8),
+            tail: tail,
+            fileExtension: "tta"
+        )
+
+        #expect(metadata?.title == "TTA 标签标题")
+        #expect(metadata?.artist == "TTA 标签歌手")
+        #expect(metadata?.albumArtist == "TTA 专辑歌手")
+        #expect(metadata?.trackNumber == 7)
+    }
+
     @Test func plansExactAPEv2TailExpansionAndRejectsPayloadSignatures() {
         var footer = Data("APETAGEX".utf8)
         appendUInt32LE(2_000, to: &footer)

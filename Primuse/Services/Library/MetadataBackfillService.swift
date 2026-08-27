@@ -1513,6 +1513,11 @@ final class MetadataBackfillService {
         do {
             let connector = try await sourceManager.connectorForSong(song)
             let url = try await connector.localURL(for: song.filePath)
+            let embedded = await FileMetadataReader.read(from: url)
+            guard hasUsableLocalFileMetadata(embedded) else {
+                plog("⚠️ Single-song tag read found no readable audio metadata for '\(song.title)'")
+                return .failed
+            }
             let fallbackTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
             let metadata = await metadataService.loadMetadata(
                 for: url,
@@ -2673,6 +2678,31 @@ final class MetadataBackfillService {
         // files that don't expose duration in head, and recovers the
         // common case where tail has it.
         m.duration <= 0
+    }
+
+    private func hasUsableLocalFileMetadata(_ metadata: FileMetadataReader.Metadata) -> Bool {
+        func hasText(_ value: String?) -> Bool {
+            value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+
+        return metadata.duration?.isFinite == true && (metadata.duration ?? 0) > 0
+            || hasText(metadata.title)
+            || hasText(metadata.artist)
+            || hasText(metadata.albumTitle)
+            || hasText(metadata.albumArtist)
+            || metadata.trackNumber != nil
+            || metadata.discNumber != nil
+            || metadata.year != nil
+            || hasText(metadata.genre)
+            || metadata.coverArtData?.isEmpty == false
+            || (metadata.sampleRate ?? 0) > 0
+            || (metadata.bitRate ?? 0) > 0
+            || (metadata.bitDepth ?? 0) > 0
+            || metadata.replayGainTrackGain != nil
+            || metadata.replayGainTrackPeak != nil
+            || metadata.replayGainAlbumGain != nil
+            || metadata.replayGainAlbumPeak != nil
+            || hasText(metadata.lyricsText)
     }
 
     private func hasUsablePartialMetadata(

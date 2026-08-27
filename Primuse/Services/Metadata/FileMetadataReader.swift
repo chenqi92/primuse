@@ -85,13 +85,17 @@ enum FileMetadataReader {
             data: readPrefix(from: url, byteCount: mpegHeaderReadLimit),
             fileExtension: url.pathExtension
         )
-        if AudioFormat.from(fileExtension: url.pathExtension) == .wma {
+        let fileExtension = url.pathExtension.lowercased()
+        if boundedContainerTagExtensions.contains(fileExtension) {
             let head = readExpandableContainerHead(from: url)
+            let tail = apeTailTagExtensions.contains(fileExtension)
+                ? readExpandableContainerTail(from: url)
+                : nil
             applyContainerTagFallback(
                 to: &metadata,
                 headData: head,
-                tailData: nil,
-                fileExtension: url.pathExtension
+                tailData: tail,
+                fileExtension: fileExtension
             )
         }
         applySFBAudioFallback(to: &metadata, url: url)
@@ -298,6 +302,12 @@ enum FileMetadataReader {
     private static let mpegHeaderReadLimit = 512 * 1024
     private static let isoBaseMediaExtensions: Set<String> = [
         "m4a", "m4b", "mp4", "m4v", "mov", "alac",
+    ]
+    private static let boundedContainerTagExtensions: Set<String> = [
+        "ogg", "opus", "speex", "ape", "wv", "mpc", "tta", "wma",
+    ]
+    private static let apeTailTagExtensions: Set<String> = [
+        "ape", "wv", "mpc", "tta",
     ]
 
     private static func applyISOBaseMediaLyricsFallback(
@@ -897,6 +907,35 @@ enum FileMetadataReader {
         ) {
             let replacement = readPrefix(from: url, byteCount: expanded)
             guard replacement.count > data.count else { break }
+            data = replacement
+        }
+        return data
+    }
+
+    private static func readExpandableContainerTail(from url: URL) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
+
+        func readTail(byteCount: Int) -> Data? {
+            let bounded = min(Int(clamping: fileSize), max(0, byteCount))
+            guard bounded > 0 else { return nil }
+            try? handle.seek(toOffset: fileSize - UInt64(bounded))
+            return try? handle.read(upToCount: bounded)
+        }
+
+        guard var data = readTail(
+            byteCount: RemoteMetadataReadPolicy.initialContainerTailByteCount
+        ) else {
+            return nil
+        }
+        if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
+            fileSize: Int64(clamping: fileSize),
+            currentData: data,
+            fileExtension: url.pathExtension
+        ), expanded > data.count,
+           let replacement = readTail(byteCount: expanded),
+           replacement.count > data.count {
             data = replacement
         }
         return data
