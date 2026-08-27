@@ -29,8 +29,7 @@ struct MacContentView: View {
     /// collapsed.
     @State private var lyricsScrapeTask: Task<Void, Never>?
     @State private var isScrapingCurrentSongLyrics = false
-    @State private var lyricsGenerationTask: Task<Void, Never>?
-    @State private var isGeneratingCurrentSongLyrics = false
+    @State private var lyricsTranscriptionEditorTargetSong: Song?
     @State private var lyricsScrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
@@ -75,9 +74,9 @@ struct MacContentView: View {
                                 nowPlayingPresented = false
                             }
                         }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
-                           isGeneratingOriginalLyrics: isGeneratingCurrentSongLyrics,
+                           canTranscribeAudio: canTranscribeCurrentSongAudio,
                            onScrapeCurrentSong: startCurrentSongLyricsScrape,
-                           onGenerateOriginalLyrics: startCurrentSongLyricsGeneration,
+                           onTranscribeAudio: openCurrentSongAudioTranscriptionEditor,
                            onToggleQueue: {
                                withAnimation(.easeInOut(duration: 0.25)) {
                                    queuePresented.toggle()
@@ -151,6 +150,15 @@ struct MacContentView: View {
         }
         .sheet(item: $activeTool) { tool in
             toolSheet(tool)
+        }
+        .sheet(item: $lyricsTranscriptionEditorTargetSong) { song in
+            LyricsEditorSheet(song: song, autoStartsAudioTranscription: true) { updated in
+                guard player.currentSong?.id == updated.id else { return }
+                NotificationCenter.default.post(
+                    name: .primuseLyricsDidChange,
+                    object: updated.id
+                )
+            }
         }
         .sheet(isPresented: $showNewPlaylist) {
             MacNewPlaylistSheet(
@@ -286,7 +294,6 @@ struct MacContentView: View {
 
     private func startCurrentSongLyricsScrape() {
         guard lyricsScrapeTask == nil,
-              lyricsGenerationTask == nil,
               let displayedSong = player.currentSong else { return }
 
         scraperSettings.performSingleSongScrapeAction(
@@ -362,64 +369,20 @@ struct MacContentView: View {
         return ["lyrics": lyrics]
     }
 
-    private func startCurrentSongLyricsGeneration() {
-        guard lyricsGenerationTask == nil,
+    private var canTranscribeCurrentSongAudio: Bool {
+        guard let song = player.currentSong else { return false }
+        return intelligence.isAudioTranscriptionConfigured
+            && song.sourceID != AppleMusicLibraryIdentity.sourceID
+            && song.cueSheetPath == nil
+            && (song.duration <= 0
+                || song.duration <= AIAudioTranscriptionPolicy.maximumDuration)
+    }
+
+    private func openCurrentSongAudioTranscriptionEditor() {
+        guard canTranscribeCurrentSongAudio,
               lyricsScrapeTask == nil,
-              let displayedSong = player.currentSong else { return }
-        isGeneratingCurrentSongLyrics = true
-        lyricsGenerationTask = Task { @MainActor in
-            defer {
-                isGeneratingCurrentSongLyrics = false
-                lyricsGenerationTask = nil
-            }
-
-            let song: Song
-            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
-                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
-                if song.id != displayedSong.id {
-                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
-                        fromSongID: displayedSong.id,
-                        toSongID: song.id
-                    )
-                    guard player.currentSong?.id == displayedSong.id
-                            || player.currentSong?.id == song.id else { return }
-                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
-                }
-            } else {
-                song = displayedSong
-            }
-
-            let outcome = await intelligence.generateLyrics(for: song)
-            guard player.currentSong?.id == song.id else { return }
-            switch outcome {
-            case .unavailable:
-                lyricsScrapeAlertMessage = String(localized: "ai_lyrics_generation_unavailable")
-            case .failed:
-                lyricsScrapeAlertMessage = String(localized: "ai_lyrics_generation_failed")
-            case .success(let execution):
-                let didCache = await MetadataAssetStore.shared.cacheLyrics(
-                    execution.lines,
-                    forSongID: song.id,
-                    force: true
-                )
-                guard didCache else {
-                    lyricsScrapeAlertMessage = String(localized: "ai_lyrics_generation_failed")
-                    return
-                }
-                NotificationCenter.default.post(
-                    name: .primuseLyricsDidChange,
-                    object: song.id,
-                    userInfo: lyricsChangeUserInfo(execution.lines)
-                )
-                let key = execution.fallbackDepth > 0
-                    ? "ai_lyrics_generation_fallback_success_format"
-                    : "ai_lyrics_generation_success_format"
-                lyricsScrapeAlertMessage = String(
-                    format: String(localized: String.LocalizationValue(key)),
-                    execution.providerName
-                )
-            }
-        }
+              let song = player.currentSong else { return }
+        lyricsTranscriptionEditorTargetSong = song
     }
 
     private func selectRoute(_ route: MacRoute) {

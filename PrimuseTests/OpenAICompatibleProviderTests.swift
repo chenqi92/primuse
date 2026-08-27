@@ -165,38 +165,6 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertFalse(input.contains("lyrics"))
     }
 
-    func testOriginalLyricsGenerationUsesMetadataAndReturnsPlainDraftLines() async throws {
-        let host = "intelligence-lyrics-generation.invalid"
-        IntelligenceURLProtocol.configure(
-            host: host,
-            statusCode: 200,
-            body: #"{"output_text":"{\"draft_title\":\"Window Light\",\"lines\":[\"First new line\",\"Second new line\",\"Third new line\",\"Fourth new line\"]}"}"#
-        )
-        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
-        defer { session.invalidateAndCancel() }
-
-        let result = try await provider.generateLyrics(AILyricsGenerationRequest(
-            songTitle: "Night Window",
-            albumTitle: "Road Home",
-            genre: "Ambient",
-            languageCode: "en",
-            maximumLines: 12
-        ))
-
-        XCTAssertEqual(result.draftTitle, "Window Light")
-        XCTAssertEqual(result.lines.count, 4)
-        let sentRequest = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
-        let body = try XCTUnwrap(sentRequest.httpBody)
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        let input = try XCTUnwrap(object["input"] as? String)
-        XCTAssertTrue(input.contains("Night Window"))
-        XCTAssertTrue(input.contains("Road Home"))
-        XCTAssertTrue(input.contains("Ambient"))
-        XCTAssertFalse(input.contains("filePath"))
-        XCTAssertFalse(input.contains("sourceID"))
-        XCTAssertFalse(input.contains("artist"))
-    }
-
     func testChatCompletionsResponseIsSupportedThroughTheSameInterface() async throws {
         let host = "intelligence-chat.invalid"
         IntelligenceURLProtocol.configure(
@@ -306,6 +274,101 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         let generationConfig = try XCTUnwrap(object["generationConfig"] as? [String: Any])
         XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 320)
         XCTAssertEqual(generationConfig["responseMimeType"] as? String, "application/json")
+    }
+
+    func testGeminiAudioTranscriptionUploadsInteractsAndDeletesTemporaryFile() async throws {
+        let host = "generativelanguage.googleapis.com"
+        IntelligenceURLProtocol.configureSequence(
+            host: host,
+            responses: [
+                (
+                    200,
+                    "{}",
+                    ["x-goog-upload-url": "https://\(host)/upload-session"]
+                ),
+                (
+                    200,
+                    #"{"file":{"name":"files/primuse-test","uri":"https://generativelanguage.googleapis.com/v1beta/files/primuse-test","mimeType":"audio/mpeg"}}"#,
+                    [:]
+                ),
+                (
+                    200,
+                    #"{"output_text":"故乡 的 雨","output":[{"annotations":[{"type":"word_info","text":"故乡","start_offset":"0.2s","end_offset":"0.8s"},{"type":"word_info","text":"的","start_offset":"0.9s","end_offset":"1.1s"},{"type":"word_info","text":"雨","start_offset":"1.2s","end_offset":"1.6s"}]}]}"#,
+                    [:]
+                ),
+                (200, "{}", [:]),
+            ]
+        )
+        let configuration = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        let credentialStore = TestAICredentialStore()
+        try await credentialStore.seed("gemini-transcribe-key", configuration: configuration)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = GeminiAudioTranscriptionProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            session: session
+        )
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-transcription-\(UUID().uuidString).mp3")
+        try Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]).write(to: audioURL)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+
+        let result = try await provider.transcribeAudio(
+            AIAudioTranscriptionRequest(
+                audioFileURL: audioURL,
+                mimeType: "audio/mpeg",
+                displayName: "故乡.mp3",
+                languageCodes: ["zh-CN"],
+                customVocabulary: ["故乡", "猿音"]
+            )
+        )
+
+        XCTAssertEqual(result.transcript, "故乡 的 雨")
+        XCTAssertEqual(result.words.map(\.text), ["故乡", "的", "雨"])
+        XCTAssertEqual(result.words.first?.startTime, 0.2)
+        XCTAssertEqual(result.words.last?.endTime, 1.6)
+
+        let requests = IntelligenceURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.map { $0.url?.path }, [
+            "/upload/v1beta/files",
+            "/upload-session",
+            "/v1beta/interactions",
+            "/v1beta/files/primuse-test",
+        ])
+        XCTAssertEqual(
+            requests[0].value(forHTTPHeaderField: "x-goog-api-key"),
+            "gemini-transcribe-key"
+        )
+        XCTAssertEqual(
+            requests[1].value(forHTTPHeaderField: "X-Goog-Upload-Command"),
+            "upload, finalize"
+        )
+        XCTAssertEqual(requests[1].httpBody, Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]))
+        let interactionBody = try XCTUnwrap(requests[2].httpBody)
+        let interaction = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: interactionBody) as? [String: Any]
+        )
+        XCTAssertEqual(interaction["model"] as? String, "gemini-3.5-transcribe")
+        XCTAssertEqual(interaction["store"] as? Bool, false)
+        let generation = try XCTUnwrap(interaction["generation_config"] as? [String: Any])
+        let transcription = try XCTUnwrap(
+            generation["transcription_config"] as? [String: Any]
+        )
+        XCTAssertEqual(transcription["language_codes"] as? [String], ["zh-CN"])
+        XCTAssertEqual(transcription["custom_vocabulary"] as? [String], ["故乡", "猿音"])
+        let mode = try XCTUnwrap(transcription["mode"] as? [String: Any])
+        XCTAssertEqual(mode["type"] as? String, "verbatim")
+        XCTAssertEqual(mode["timestamp_granularities"] as? [String], ["word"])
+        XCTAssertEqual(requests[3].httpMethod, "DELETE")
+        XCTAssertEqual(
+            requests[3].value(forHTTPHeaderField: "x-goog-api-key"),
+            "gemini-transcribe-key"
+        )
     }
 
     func testGeminiModelsFollowPaginationAndOnlyReturnGenerateContentModels() async throws {
@@ -1092,6 +1155,39 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsRejectAudioTranscriptionWithoutACompatibleProvider() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let provider = AIRemoteProviderConfiguration(
+            baseURL: "https://text-only.invalid/v1",
+            generationModel: "text-only-model",
+            isEnabled: true
+        )
+        let store = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+
+        XCTAssertThrowsError(try store.save(
+            providerSet: AIRemoteProviderSet(
+                providers: [provider],
+                primaryProviderID: provider.id
+            ),
+            semanticSearchEnabled: false,
+            recommendationsEnabled: false,
+            audioTranscriptionEnabled: true,
+            hasExplicitRemoteConsent: false,
+            hasExplicitListeningContextConsent: false,
+            hasExplicitAudioUploadConsent: true
+        )) { error in
+            XCTAssertEqual(
+                error as? AIRemoteEndpointValidationError,
+                .unsupportedCapability
+            )
+        }
+        XCTAssertFalse(store.audioTranscriptionEnabled)
+        XCTAssertFalse(store.hasExplicitAudioUploadConsent)
+    }
+
+    @MainActor
     func testSettingsPersistMultipleProvidersPrimaryAndFallbackOrder() throws {
         let defaults = try XCTUnwrap(UserDefaults(
             suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
@@ -1102,11 +1198,11 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             generationModel: "first-model",
             isEnabled: true
         )
-        let second = AIRemoteProviderConfiguration(
-            displayName: "Second",
-            baseURL: "https://second.invalid/v1",
-            generationModel: "second-model",
-            isEnabled: true
+        let second = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration(
+                displayName: "Second",
+                isEnabled: true
+            )
         )
         let store = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
         try store.save(
@@ -1117,8 +1213,10 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             ),
             semanticSearchEnabled: true,
             recommendationsEnabled: true,
+            audioTranscriptionEnabled: true,
             hasExplicitRemoteConsent: true,
-            hasExplicitListeningContextConsent: true
+            hasExplicitListeningContextConsent: true,
+            hasExplicitAudioUploadConsent: true
         )
 
         let reloaded = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
@@ -1126,8 +1224,10 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue(reloaded.providerSet.fallbackEnabled)
         XCTAssertTrue(reloaded.semanticSearchEnabled)
         XCTAssertTrue(reloaded.recommendationsEnabled)
+        XCTAssertTrue(reloaded.audioTranscriptionEnabled)
         XCTAssertTrue(reloaded.hasExplicitRemoteConsent)
         XCTAssertTrue(reloaded.hasExplicitListeningContextConsent)
+        XCTAssertTrue(reloaded.hasExplicitAudioUploadConsent)
     }
 
     @MainActor
@@ -1165,6 +1265,8 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue(migrated.hasExplicitRemoteConsent)
         XCTAssertFalse(migrated.recommendationsEnabled)
         XCTAssertFalse(migrated.hasExplicitListeningContextConsent)
+        XCTAssertFalse(migrated.audioTranscriptionEnabled)
+        XCTAssertFalse(migrated.hasExplicitAudioUploadConsent)
     }
 
     @MainActor
@@ -1457,6 +1559,7 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
     private struct StubResponse {
         var statusCode: Int
         var chunks: [Data]
+        var headerFields: [String: String] = [:]
     }
 
     private struct State {
@@ -1490,6 +1593,21 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
         lock.lock()
         states[host] = State(responses: responses.map {
             StubResponse(statusCode: $0.statusCode, chunks: [Data($0.body.utf8)])
+        })
+        lock.unlock()
+    }
+
+    static func configureSequence(
+        host: String,
+        responses: [(statusCode: Int, body: String, headerFields: [String: String])]
+    ) {
+        lock.lock()
+        states[host] = State(responses: responses.map {
+            StubResponse(
+                statusCode: $0.statusCode,
+                chunks: [Data($0.body.utf8)],
+                headerFields: $0.headerFields
+            )
         })
         lock.unlock()
     }
@@ -1538,11 +1656,15 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
         Self.states[host] = state
         Self.lock.unlock()
 
+        var headerFields = stub.headerFields
+        if !headerFields.keys.contains(where: { $0.caseInsensitiveCompare("Content-Type") == .orderedSame }) {
+            headerFields["Content-Type"] = "application/json"
+        }
         guard let response = HTTPURLResponse(
             url: url,
             statusCode: stub.statusCode,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: headerFields
         ) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return

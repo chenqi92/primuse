@@ -8,6 +8,7 @@ import PrimuseKit
 /// 读进来、把编辑结果写回去，以及处理"清空歌词需要二次确认"这个破坏性分支。
 struct LyricsEditorSheet: View {
     let song: Song
+    var autoStartsAudioTranscription = false
     var onSave: ((Song) -> Void)?
 
     @Environment(MusicLibrary.self) private var library
@@ -30,7 +31,11 @@ struct LyricsEditorSheet: View {
             if isLoading {
                 loadingView
             } else {
-                LyricsEditorView(song: song, text: $text) { committed in
+                LyricsEditorView(
+                    song: song,
+                    text: $text,
+                    autoStartsAudioTranscription: autoStartsAudioTranscription
+                ) { committed in
                     handleCommit(committed)
                 }
                 .overlay {

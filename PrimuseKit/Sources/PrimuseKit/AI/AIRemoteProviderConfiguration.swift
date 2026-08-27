@@ -160,6 +160,7 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
         }
         configuration.prefersCustomConfiguration = false
         configuration.embeddingModel = ""
+        configuration.transcriptionModel = ""
         switch self {
         case .custom:
             return configuration
@@ -185,6 +186,7 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .xGoogAPIKey
             configuration.generationModel = "gemini-3.7-flash"
+            configuration.transcriptionModel = "gemini-3.5-transcribe"
         case .deepSeekOpenAI:
             configuration.displayName = "DeepSeek"
             configuration.baseURL = "https://api.deepseek.com"
@@ -360,6 +362,38 @@ public enum AIRequestTimeoutPolicy {
     }
 }
 
+public enum AIAudioTranscriptionPolicy {
+    public static let geminiModel = "gemini-3.5-transcribe"
+    public static let maximumDuration: TimeInterval = 30 * 60
+    public static let maximumFileBytes: Int64 = 2 * 1_024 * 1_024 * 1_024
+    public static let requestTimeout: TimeInterval = 15 * 60
+
+    public static func supports(
+        configuration: AIRemoteProviderConfiguration
+    ) -> Bool {
+        isCompatibleEndpoint(configuration: configuration)
+            && normalizedModel(configuration.transcriptionModel) == geminiModel
+    }
+
+    public static func isCompatibleEndpoint(
+        configuration: AIRemoteProviderConfiguration
+    ) -> Bool {
+        guard configuration.apiStyle == .geminiGenerateContent,
+              configuration.authenticationStyle == .xGoogAPIKey,
+              let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
+                  configuration.baseURL,
+                  allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+              ) else { return false }
+        return baseURL.scheme?.lowercased() == "https"
+            && baseURL.host?.lowercased() == "generativelanguage.googleapis.com"
+            && (baseURL.port == nil || baseURL.port == 443)
+    }
+
+    public static func normalizedModel(_ rawValue: String) -> String {
+        AIRemoteEndpointPolicy.normalizedGeminiModelID(rawValue)
+    }
+}
+
 public enum AIResponseSizePolicy {
     public static let maximumBytes = 2 * 1_024 * 1_024
 
@@ -389,6 +423,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     public var authenticationStyle: AIAuthenticationStyle
     public var generationModel: String
     public var embeddingModel: String
+    public var transcriptionModel: String
     public var requestTimeout: TimeInterval
     public var allowInsecureLocalHTTP: Bool
     public var isEnabled: Bool
@@ -403,6 +438,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         authenticationStyle: AIAuthenticationStyle = .automatic,
         generationModel: String = "",
         embeddingModel: String = "",
+        transcriptionModel: String = "",
         requestTimeout: TimeInterval = 12,
         allowInsecureLocalHTTP: Bool = false,
         isEnabled: Bool = false,
@@ -416,6 +452,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         self.authenticationStyle = authenticationStyle
         self.generationModel = generationModel
         self.embeddingModel = embeddingModel
+        self.transcriptionModel = transcriptionModel
         self.requestTimeout = AIRequestTimeoutPolicy.normalizedForInitialization(requestTimeout)
         self.allowInsecureLocalHTTP = allowInsecureLocalHTTP
         self.isEnabled = isEnabled
@@ -427,8 +464,10 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         if !generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             capabilities.insert(.semanticSearchInterpretation)
             capabilities.insert(.lyricsTranslation)
-            capabilities.insert(.lyricsGeneration)
             capabilities.insert(.recommendations)
+        }
+        if AIAudioTranscriptionPolicy.supports(configuration: self) {
+            capabilities.insert(.audioTranscription)
         }
         if supportsEmbeddings,
            !embeddingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -463,6 +502,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         case authenticationStyle
         case generationModel
         case embeddingModel
+        case transcriptionModel
         case requestTimeout
         case allowInsecureLocalHTTP
         case isEnabled
@@ -491,6 +531,10 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         ) ?? .automatic
         generationModel = try container.decode(String.self, forKey: .generationModel)
         embeddingModel = try container.decode(String.self, forKey: .embeddingModel)
+        transcriptionModel = try container.decodeIfPresent(
+            String.self,
+            forKey: .transcriptionModel
+        ) ?? ""
         self.requestTimeout = requestTimeout
         allowInsecureLocalHTTP = try container.decode(Bool.self, forKey: .allowInsecureLocalHTTP)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
@@ -519,6 +563,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         try container.encode(authenticationStyle, forKey: .authenticationStyle)
         try container.encode(generationModel, forKey: .generationModel)
         try container.encode(embeddingModel, forKey: .embeddingModel)
+        try container.encode(transcriptionModel, forKey: .transcriptionModel)
         try container.encode(requestTimeout, forKey: .requestTimeout)
         try container.encode(allowInsecureLocalHTTP, forKey: .allowInsecureLocalHTTP)
         try container.encode(isEnabled, forKey: .isEnabled)
@@ -691,6 +736,57 @@ public enum AIRemoteEndpointPolicy {
         }
         let baseURL = try apiBaseURL(configuration: configuration)
         return baseURL.appendingPathComponent("embeddings")
+    }
+
+    public static func geminiInteractionsEndpoint(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> URL {
+        guard AIAudioTranscriptionPolicy.supports(configuration: configuration) else {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        return try apiBaseURL(configuration: configuration)
+            .appendingPathComponent("interactions")
+    }
+
+    public static func geminiFilesUploadEndpoint(
+        configuration: AIRemoteProviderConfiguration
+    ) throws -> URL {
+        guard AIAudioTranscriptionPolicy.supports(configuration: configuration),
+              let baseURL = try? validatedBaseURL(
+                  configuration.baseURL,
+                  allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+              ),
+              var components = URLComponents(
+                  url: baseURL,
+                  resolvingAgainstBaseURL: false
+              ) else {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        components.path = "/upload/v1beta/files"
+        guard let url = components.url else {
+            throw AIRemoteEndpointValidationError.invalidURL
+        }
+        return url
+    }
+
+    public static func geminiFileDeleteEndpoint(
+        configuration: AIRemoteProviderConfiguration,
+        fileName: String
+    ) throws -> URL {
+        guard AIAudioTranscriptionPolicy.supports(configuration: configuration) else {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        let path = fileName.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let pathComponents = path.split(separator: "/").map(String.init)
+        guard pathComponents.count == 2,
+              pathComponents[0] == "files",
+              pathComponents[1].allSatisfy({ $0.isLetter || $0.isNumber || "-_".contains($0) })
+        else {
+            throw AIRemoteEndpointValidationError.invalidURL
+        }
+        return pathComponents.reduce(try apiBaseURL(configuration: configuration)) {
+            $0.appendingPathComponent($1)
+        }
     }
 
     public static func modelsEndpoint(

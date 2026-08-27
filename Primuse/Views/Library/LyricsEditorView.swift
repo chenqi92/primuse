@@ -1,5 +1,6 @@
 import SwiftUI
 import PrimuseKit
+import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -19,9 +20,12 @@ struct LyricsEditorView: View {
     /// 非 nil 时，「完成」把序列化结果交给它而不是自己 dismiss —— 独立入口
     /// 需要先落盘(可能失败/需确认)再决定关不关。
     let onCommit: ((String) -> Void)?
+    let autoStartsAudioTranscription: Bool
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var document: LyricsEditorDocument
@@ -55,6 +59,11 @@ struct LyricsEditorView: View {
     @State private var isLiveWriting = false
     @State private var liveDraft = ""
     @State private var showClearConfirm = false
+    @State private var isTranscribingAudio = false
+    @State private var audioTranscriptionTask: Task<Void, Never>?
+    @State private var didAutoStartAudioTranscription = false
+    @State private var showTranscriptionReplaceConfirm = false
+    @State private var transcriptionMessage: String?
 
     @FocusState private var focusedLine: UUID?
     @FocusState private var liveDraftFocused: Bool
@@ -80,9 +89,15 @@ struct LyricsEditorView: View {
         }
     }
 
-    init(song: Song, text: Binding<String>, onCommit: ((String) -> Void)? = nil) {
+    init(
+        song: Song,
+        text: Binding<String>,
+        autoStartsAudioTranscription: Bool = false,
+        onCommit: ((String) -> Void)? = nil
+    ) {
         self.song = song
         self._text = text
+        self.autoStartsAudioTranscription = autoStartsAudioTranscription
         self.onCommit = onCommit
         let parsed = LyricsEditorDocument(parsing: text.wrappedValue)
         _document = State(initialValue: parsed)
@@ -94,6 +109,40 @@ struct LyricsEditorView: View {
     var body: some View {
         content
             .task(id: song.id) { await trackPlaybackTime() }
+            .task(id: "\(song.id)#\(autoStartsAudioTranscription)") {
+                guard autoStartsAudioTranscription,
+                      !didAutoStartAudioTranscription,
+                      document.lines.isEmpty else { return }
+                didAutoStartAudioTranscription = true
+                await transcribeSongAudio()
+            }
+            .onDisappear {
+                audioTranscriptionTask?.cancel()
+                audioTranscriptionTask = nil
+            }
+            .confirmationDialog(
+                String(localized: "ai_audio_transcription_replace_title"),
+                isPresented: $showTranscriptionReplaceConfirm,
+                titleVisibility: .visible
+            ) {
+                Button(String(localized: "ai_audio_transcription_replace"), role: .destructive) {
+                    startAudioTranscriptionTask()
+                }
+                Button(String(localized: "cancel"), role: .cancel) {}
+            } message: {
+                Text(String(localized: "ai_audio_transcription_replace_message"))
+            }
+            .alert(
+                String(localized: "ai_audio_transcription_title"),
+                isPresented: Binding(
+                    get: { transcriptionMessage != nil },
+                    set: { if !$0 { transcriptionMessage = nil } }
+                )
+            ) {
+                Button(String(localized: "done"), role: .cancel) {}
+            } message: {
+                Text(transcriptionMessage ?? "")
+            }
     }
 
     // MARK: - 容器
@@ -203,6 +252,27 @@ struct LyricsEditorView: View {
                     .lineLimit(1)
             }
             Spacer()
+            if canTranscribeSongAudio {
+                Button {
+                    requestAudioTranscription()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isTranscribingAudio {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "waveform.badge.mic")
+                        }
+                        Text(String(localized: "ai_audio_transcription_action"))
+                    }
+                    .font(PMFont.bodyM)
+                    .foregroundStyle(PMColor.brand)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(PMColor.brand.opacity(0.12), in: .rect(cornerRadius: PMRadius.s))
+                }
+                .buttonStyle(.plain)
+                .disabled(isTranscribingAudio)
+            }
             Button {
                 openSourceEditor()
             } label: {
@@ -343,6 +413,14 @@ struct LyricsEditorView: View {
 
     // MARK: - 零歌词空状态
 
+    private var canTranscribeSongAudio: Bool {
+        intelligence.isAudioTranscriptionConfigured
+            && song.sourceID != AppleMusicLibraryIdentity.sourceID
+            && song.cueSheetPath == nil
+            && (song.duration <= 0
+                || song.duration <= AIAudioTranscriptionPolicy.maximumDuration)
+    }
+
     /// 完全没歌词时不给一个空白输入框 —— 那等于把「从哪开始」的问题丢回给用户。
     /// 给三条具体的路：剪贴板里现成的、边听边写、或者去在线匹配。
     private var emptyLyricsStack: some View {
@@ -375,6 +453,21 @@ struct LyricsEditorView: View {
             Spacer(minLength: 20)
 
             VStack(spacing: 10) {
+                if canTranscribeSongAudio {
+                    emptyOption(
+                        icon: "waveform.badge.mic",
+                        title: String(localized: isTranscribingAudio
+                                      ? "ai_audio_transcription_working"
+                                      : "ai_audio_transcription_action"),
+                        subtitle: String(localized: "ai_audio_transcription_editor_detail"),
+                        prominent: true,
+                        isWorking: isTranscribingAudio
+                    ) {
+                        requestAudioTranscription()
+                    }
+                    .disabled(isTranscribingAudio)
+                }
+
                 emptyOption(
                     icon: "doc.on.clipboard.fill",
                     title: String(localized: "lyrics_editor_paste_replace"),
@@ -432,14 +525,21 @@ struct LyricsEditorView: View {
         title: String,
         subtitle: String,
         prominent: Bool = false,
+        isWorking: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 13) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(prominent ? Color.accentColor : .secondary)
-                    .frame(width: 26)
+                Group {
+                    if isWorking {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: icon)
+                            .font(.system(size: 20))
+                    }
+                }
+                .foregroundStyle(prominent ? Color.accentColor : .secondary)
+                .frame(width: 26)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
@@ -472,6 +572,165 @@ struct LyricsEditorView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+    }
+
+    private func requestAudioTranscription() {
+        guard canTranscribeSongAudio, !isTranscribingAudio else { return }
+        guard document.lines.isEmpty else {
+            showTranscriptionReplaceConfirm = true
+            return
+        }
+        startAudioTranscriptionTask()
+    }
+
+    private func startAudioTranscriptionTask() {
+        audioTranscriptionTask?.cancel()
+        audioTranscriptionTask = Task { @MainActor in
+            await transcribeSongAudio()
+            audioTranscriptionTask = nil
+        }
+    }
+
+    private struct LocalTranscriptionInput {
+        var url: URL
+        var mimeType: String
+        var temporaryURL: URL?
+    }
+
+    private func transcribeSongAudio() async {
+        guard canTranscribeSongAudio, !isTranscribingAudio else { return }
+        isTranscribingAudio = true
+        defer { isTranscribingAudio = false }
+
+        var temporaryURL: URL?
+        do {
+            let input = try await localTranscriptionInput()
+            temporaryURL = input.temporaryURL
+            defer {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+            }
+            try Task.checkCancellation()
+            let outcome = await intelligence.transcribeAudio(
+                at: input.url,
+                mimeType: input.mimeType,
+                displayName: song.title,
+                duration: song.duration,
+                customVocabulary: [
+                    song.title,
+                    song.artistName,
+                    song.albumTitle,
+                ].compactMap { $0 }
+            )
+            try Task.checkCancellation()
+            switch outcome {
+            case .unavailable:
+                transcriptionMessage = String(
+                    localized: "ai_audio_transcription_unavailable"
+                )
+            case .failed:
+                transcriptionMessage = String(localized: "ai_audio_transcription_failed")
+            case .success(let execution):
+                let transcribed = AIAudioTranscriptionLyricsFormatter.document(
+                    from: execution.result
+                )
+                guard !transcribed.lines.isEmpty else {
+                    transcriptionMessage = String(localized: "ai_audio_transcription_no_speech")
+                    return
+                }
+                document = transcribed
+                sourceText = transcribed.serialized()
+                timingSession.reset(document: transcribed)
+                mode = .text
+                let key = execution.fallbackDepth > 0
+                    ? "ai_audio_transcription_fallback_success_format"
+                    : "ai_audio_transcription_success_format"
+                transcriptionMessage = String(
+                    format: String(localized: String.LocalizationValue(key)),
+                    execution.providerName
+                )
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            transcriptionMessage = String(localized: "ai_audio_transcription_failed")
+        }
+    }
+
+    private func localTranscriptionInput() async throws -> LocalTranscriptionInput {
+        let resolvedURL = try await sourceManager.resolveFullDownloadSourceURL(for: song)
+        if resolvedURL.isFileURL {
+            guard FileManager.default.isReadableFile(atPath: resolvedURL.path) else {
+                throw CocoaError(.fileReadNoSuchFile)
+            }
+            return LocalTranscriptionInput(
+                url: resolvedURL,
+                mimeType: Self.audioMIMEType(for: resolvedURL),
+                temporaryURL: nil
+            )
+        }
+
+        guard ["http", "https"].contains(resolvedURL.scheme?.lowercased() ?? "") else {
+            throw URLError(.unsupportedURL)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = AIAudioTranscriptionPolicy.requestTimeout
+        configuration.timeoutIntervalForResource = AIAudioTranscriptionPolicy.requestTimeout
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+        let (downloadedURL, response) = try await session.download(from: resolvedURL)
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        if response.expectedContentLength > AIAudioTranscriptionPolicy.maximumFileBytes {
+            throw CocoaError(.fileReadTooLarge)
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: downloadedURL.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        guard byteCount > 0, byteCount <= AIAudioTranscriptionPolicy.maximumFileBytes else {
+            throw CocoaError(.fileReadTooLarge)
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Primuse-AudioTranscription", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let fileExtension = resolvedURL.pathExtension.isEmpty
+            ? song.fileFormat.rawValue.lowercased()
+            : resolvedURL.pathExtension
+        let destination = directory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(fileExtension)
+        try FileManager.default.moveItem(at: downloadedURL, to: destination)
+        return LocalTranscriptionInput(
+            url: destination,
+            mimeType: response.mimeType?.hasPrefix("audio/") == true
+                ? response.mimeType!
+                : Self.audioMIMEType(for: destination),
+            temporaryURL: destination
+        )
+    }
+
+    private static func audioMIMEType(for url: URL) -> String {
+        if let type = UTType(filenameExtension: url.pathExtension),
+           let mimeType = type.preferredMIMEType,
+           mimeType.hasPrefix("audio/") {
+            return mimeType
+        }
+        switch url.pathExtension.lowercased() {
+        case "flac": return "audio/flac"
+        case "wav", "wave": return "audio/wav"
+        case "m4a", "mp4", "aac": return "audio/mp4"
+        case "ogg", "opus": return "audio/ogg"
+        default: return "audio/mpeg"
+        }
     }
 
     // MARK: - 粘贴拆句预览
@@ -1052,6 +1311,18 @@ struct LyricsEditorView: View {
 
     private var editorActionsMenu: some View {
         Menu {
+            if canTranscribeSongAudio {
+                Button {
+                    requestAudioTranscription()
+                } label: {
+                    Label(
+                        String(localized: "ai_audio_transcription_action"),
+                        systemImage: "waveform.badge.mic"
+                    )
+                }
+                .disabled(isTranscribingAudio)
+                Divider()
+            }
             Button {
                 openSourceEditor()
             } label: {

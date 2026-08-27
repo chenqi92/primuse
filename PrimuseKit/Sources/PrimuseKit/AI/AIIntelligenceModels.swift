@@ -22,7 +22,7 @@ public enum AIExecutionClass: String, Codable, CaseIterable, Sendable {
 public enum AICapability: String, Codable, CaseIterable, Sendable {
     case semanticSearchInterpretation
     case lyricsTranslation
-    case lyricsGeneration
+    case audioTranscription
     case embeddings
     case reranking
     case songAnnotation
@@ -499,64 +499,218 @@ public struct AIEmbeddingRequest: Equatable, Sendable {
     }
 }
 
-public struct AILyricsGenerationRequest: Equatable, Sendable {
-    public var songTitle: String
-    public var albumTitle: String?
-    public var genre: String?
-    public var languageCode: String?
-    public var maximumLines: Int
+public struct AIAudioTranscriptionRequest: Equatable, Sendable {
+    public var audioFileURL: URL
+    public var mimeType: String
+    public var displayName: String
+    public var languageCodes: [String]
+    public var customVocabulary: [String]
 
     public init(
-        songTitle: String,
-        albumTitle: String? = nil,
-        genre: String? = nil,
-        languageCode: String? = nil,
-        maximumLines: Int = 24
+        audioFileURL: URL,
+        mimeType: String,
+        displayName: String,
+        languageCodes: [String] = [],
+        customVocabulary: [String] = []
     ) {
-        self.songTitle = Self.clean(songTitle, limit: 160) ?? "Untitled"
-        self.albumTitle = Self.clean(albumTitle, limit: 160)
-        self.genre = Self.clean(genre, limit: 100)
-        self.languageCode = Self.clean(languageCode, limit: 24)
-        self.maximumLines = max(8, min(maximumLines, 48))
-    }
-
-    private static func clean(_ rawValue: String?, limit: Int) -> String? {
-        let value = rawValue?
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .split(whereSeparator: \Character.isWhitespace)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? nil : String(value.prefix(limit))
-    }
-}
-
-public struct AILyricsGenerationResult: Codable, Equatable, Sendable {
-    public var draftTitle: String
-    public var lines: [String]
-
-    public init(draftTitle: String = "", lines: [String] = []) {
-        self.draftTitle = draftTitle
-        self.lines = lines
-    }
-
-    public func normalized(for request: AILyricsGenerationRequest) -> AILyricsGenerationResult {
-        let title = draftTitle
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let lines = lines.compactMap { rawLine -> String? in
-            let line = rawLine
+        self.audioFileURL = audioFileURL
+        self.mimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.displayName = String(
+            displayName
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\r", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { return nil }
-            return String(line.prefix(240))
-        }
-        return AILyricsGenerationResult(
-            draftTitle: String(title.prefix(120)),
-            lines: Array(lines.prefix(request.maximumLines))
+                .prefix(120)
         )
+        self.languageCodes = Array(languageCodes.lazy.compactMap { rawValue in
+            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : String(value.prefix(24))
+        }.prefix(4))
+        var seenVocabulary = Set<String>()
+        var sanitizedVocabulary: [String] = []
+        sanitizedVocabulary.reserveCapacity(min(customVocabulary.count, 100))
+        for rawValue in customVocabulary {
+            guard sanitizedVocabulary.count < 100 else { break }
+            let value = rawValue
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .split(whereSeparator: \Character.isWhitespace)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let boundedValue = String(value.prefix(100))
+            let normalized = boundedValue.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            guard !boundedValue.isEmpty, seenVocabulary.insert(normalized).inserted else {
+                continue
+            }
+            sanitizedVocabulary.append(boundedValue)
+        }
+        self.customVocabulary = sanitizedVocabulary
+    }
+}
+
+public struct AIAudioTranscriptionWord: Codable, Equatable, Sendable {
+    public var text: String
+    public var startTime: TimeInterval
+    public var endTime: TimeInterval
+
+    public init(text: String, startTime: TimeInterval, endTime: TimeInterval) {
+        self.text = text
+        self.startTime = max(0, startTime.isFinite ? startTime : 0)
+        self.endTime = max(self.startTime, endTime.isFinite ? endTime : self.startTime)
+    }
+}
+
+public struct AIAudioTranscriptionResult: Codable, Equatable, Sendable {
+    public var transcript: String
+    public var words: [AIAudioTranscriptionWord]
+
+    public init(transcript: String = "", words: [AIAudioTranscriptionWord] = []) {
+        self.transcript = transcript
+        self.words = words
+    }
+
+    public var isEmpty: Bool {
+        transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && words.isEmpty
+    }
+}
+
+/// Turns provider word annotations into an editable ELRC document. The
+/// grouping is deliberately deterministic so changing providers later does
+/// not require rewriting the lyrics editor or playback renderer.
+public enum AIAudioTranscriptionLyricsFormatter {
+    public static func document(
+        from result: AIAudioTranscriptionResult,
+        maximumLineLength: Int = 32,
+        maximumLineDuration: TimeInterval = 8
+    ) -> LyricsEditorDocument {
+        let words = result.words
+            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted {
+                if $0.startTime != $1.startTime { return $0.startTime < $1.startTime }
+                return $0.endTime < $1.endTime
+            }
+        guard !words.isEmpty else {
+            let lines = result.transcript
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .components(separatedBy: .newlines)
+                .flatMap(splitPlainTranscript)
+                .compactMap { rawValue -> EditableLyricLine? in
+                    let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return value.isEmpty ? nil : EditableLyricLine(text: value)
+                }
+            return LyricsEditorDocument(lines: lines)
+        }
+
+        let lengthLimit = max(12, min(maximumLineLength, 80))
+        let durationLimit = max(2, min(maximumLineDuration, 20))
+        var groups: [[AIAudioTranscriptionWord]] = []
+        var current: [AIAudioTranscriptionWord] = []
+
+        func flush() {
+            guard !current.isEmpty else { return }
+            groups.append(current)
+            current.removeAll(keepingCapacity: true)
+        }
+
+        for word in words {
+            if let first = current.first, let previous = current.last {
+                let candidate = joinedText(current + [word])
+                let duration = word.endTime - first.startTime
+                let gap = word.startTime - previous.endTime
+                if candidate.count > lengthLimit || duration > durationLimit || gap > 1.2 {
+                    flush()
+                }
+            }
+            current.append(word)
+            if endsSentence(word.text), joinedText(current).count >= 8 {
+                flush()
+            }
+        }
+        flush()
+
+        let lines = groups.compactMap { group -> EditableLyricLine? in
+            guard let first = group.first else { return nil }
+            let tokens = normalizedTokens(group)
+            let text = tokens.joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return EditableLyricLine(
+                timestamp: first.startTime,
+                text: text,
+                syllables: zip(group, tokens).map { word, token in
+                    LyricSyllable(
+                        text: token,
+                        start: word.startTime,
+                        end: word.endTime
+                    )
+                }
+            )
+        }
+        return LyricsEditorDocument(lines: lines)
+    }
+
+    private static func splitPlainTranscript(_ value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        var output: [String] = []
+        var current = ""
+        for character in trimmed {
+            current.append(character)
+            if endsSentence(String(character)) || current.count >= 48 {
+                output.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { output.append(current) }
+        return output
+    }
+
+    private static func joinedText(_ words: [AIAudioTranscriptionWord]) -> String {
+        normalizedTokens(words).joined()
+    }
+
+    private static func normalizedTokens(_ words: [AIAudioTranscriptionWord]) -> [String] {
+        var output: [String] = []
+        for word in words {
+            let value = word.text
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            let needsSpace = output.last.map { previous in
+                guard let previousCharacter = previous.last,
+                      let nextCharacter = value.first else { return false }
+                return !isCJK(previousCharacter)
+                    && !isCJK(nextCharacter)
+                    && !isClosingPunctuation(nextCharacter)
+                    && !previousCharacter.isWhitespace
+            } ?? false
+            output.append((needsSpace ? " " : "") + value)
+        }
+        return output
+    }
+
+    private static func endsSentence(_ value: String) -> Bool {
+        guard let character = value.trimmingCharacters(in: .whitespacesAndNewlines).last else {
+            return false
+        }
+        return ".!?。！？；;".contains(character)
+    }
+
+    private static func isClosingPunctuation(_ character: Character) -> Bool {
+        ",.!?:;，。！？：；、)]}）】》」』".contains(character)
+    }
+
+    private static func isCJK(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            (0x2E80...0x9FFF).contains(scalar.value)
+                || (0xF900...0xFAFF).contains(scalar.value)
+                || (0x20000...0x2FA1F).contains(scalar.value)
+        }
     }
 }
 
@@ -590,10 +744,10 @@ public protocol AILyricsTranslationProviding: MusicIntelligenceProvider {
     ) async throws -> [String: String]
 }
 
-public protocol AILyricsGenerationProviding: MusicIntelligenceProvider {
-    func generateLyrics(
-        _ request: AILyricsGenerationRequest
-    ) async throws -> AILyricsGenerationResult
+public protocol AIAudioTranscriptionProviding: MusicIntelligenceProvider {
+    func transcribeAudio(
+        _ request: AIAudioTranscriptionRequest
+    ) async throws -> AIAudioTranscriptionResult
 }
 
 public protocol AIEmbeddingProviding: MusicIntelligenceProvider {

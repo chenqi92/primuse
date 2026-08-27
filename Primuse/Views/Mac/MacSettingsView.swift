@@ -690,13 +690,22 @@ private struct MacSTIntelligenceView: View {
                     ) {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
-                    MacSTRow(
-                        String(localized: "ai_capability_lyrics_generation"),
-                        hint: String(localized: "ai_lyrics_generation_original_notice")
-                    ) {
-                        Text("ai_capability_on_demand")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(PMColor.brand)
+                    if editor.hasAudioTranscriptionProvider
+                        || editor.audioTranscriptionEnabled {
+                        MacSTRow(
+                            String(localized: "ai_enable_audio_transcription"),
+                            hint: String(localized: "ai_audio_transcription_capability_detail")
+                        ) {
+                            MacSTToggle(isOn: editor.audioTranscriptionBinding)
+                        }
+                    } else {
+                        MacSTRow(
+                            String(localized: "ai_enable_audio_transcription"),
+                            hint: String(localized: "ai_audio_transcription_not_configured")
+                        ) {
+                            Image(systemName: "waveform.badge.mic")
+                                .foregroundStyle(PMColor.textFaint)
+                        }
                     }
                 }
             }
@@ -785,6 +794,19 @@ private struct MacSTIntelligenceView: View {
                             models: editor.availableModels
                         )
                     }
+                    if editor.selectedProviderCanConfigureAudioTranscription {
+                        MacSTRow(
+                            String(localized: "ai_transcription_model"),
+                            hint: String(localized: "ai_audio_transcription_model_detail")
+                        ) {
+                            MacAIModelField(
+                                text: editor.configurationBinding(\.transcriptionModel),
+                                models: editor.availableModels.filter {
+                                    $0.id.localizedCaseInsensitiveContains("transcribe")
+                                }
+                            )
+                        }
+                    }
                     if editor.draftConfiguration.supportsEmbeddings {
                         MacSTRow(String(localized: "ai_embedding_model")) {
                             MacAIModelField(
@@ -845,6 +867,14 @@ private struct MacSTIntelligenceView: View {
                         String(localized: "ai_listening_context_consent")
                     ) {
                         MacSTToggle(isOn: editor.listeningContextConsentBinding)
+                    }
+                    if editor.hasAudioTranscriptionEndpoint || editor.audioUploadConsent {
+                        MacSTRow(
+                            String(localized: "ai_audio_upload_consent"),
+                            hint: String(localized: "ai_audio_upload_consent_detail")
+                        ) {
+                            MacSTToggle(isOn: editor.audioUploadConsentBinding)
+                        }
                     }
                 }
             }

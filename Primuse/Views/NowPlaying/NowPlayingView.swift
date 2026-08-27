@@ -185,7 +185,6 @@ struct NowPlayingView: View {
     @State private var isResolvingScrapeTarget = false
     @State private var scrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
-    @State private var isGeneratingOriginalLyrics = false
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -200,6 +199,7 @@ struct NowPlayingView: View {
     @State private var showTagEditor = false
     /// 歌词编辑跟标签编辑平级；打开时冻结目标，避免自然切歌后写错歌曲。
     @State private var lyricsEditorTargetSong: Song?
+    @State private var lyricsEditorAutoStartsAudioTranscription = false
     @State private var showSimilarSongs = false
     @State private var showMusicVideoFullScreen = false
     #if os(iOS)
@@ -232,7 +232,6 @@ struct NowPlayingView: View {
 
     private var isScrapeActionUnavailable: Bool {
         isResolvingScrapeTarget
-            || isGeneratingOriginalLyrics
             || scraperService.isScraping
             || scraperService.isSingleScraping
     }
@@ -785,7 +784,10 @@ struct NowPlayingView: View {
         }
         #if os(iOS)
         .fullScreenCover(item: $lyricsEditorTargetSong) { song in
-            LyricsEditorSheet(song: song) { updated in
+            LyricsEditorSheet(
+                song: song,
+                autoStartsAudioTranscription: lyricsEditorAutoStartsAudioTranscription
+            ) { updated in
                 // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
                 guard player.currentSong?.id == updated.id else { return }
                 Task { await loadLyrics() }
@@ -793,7 +795,10 @@ struct NowPlayingView: View {
         }
         #else
         .sheet(item: $lyricsEditorTargetSong) { song in
-            LyricsEditorSheet(song: song) { updated in
+            LyricsEditorSheet(
+                song: song,
+                autoStartsAudioTranscription: lyricsEditorAutoStartsAudioTranscription
+            ) { updated in
                 // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
                 guard player.currentSong?.id == updated.id else { return }
                 Task { await loadLyrics() }
@@ -2240,7 +2245,10 @@ struct NowPlayingView: View {
             onScrape: { openScrapeForCurrentSong() },
             onShowSimilarSongs: { showSimilarSongs = true },
             onEditTags: { showTagEditor = true },
-            onEditLyrics: { lyricsEditorTargetSong = player.currentSong },
+            onEditLyrics: {
+                lyricsEditorAutoStartsAudioTranscription = false
+                lyricsEditorTargetSong = player.currentSong
+            },
             onShowSongInfo: { showSongInfo = true },
             onOpenAlbum: {
                 guard let album = currentAlbum else { return }
@@ -2342,10 +2350,10 @@ struct NowPlayingView: View {
             songID: player.currentSong?.id,
             isSceneActive: isVisualSceneActive,
             isScrapingCurrentSong: isScrapingCurrentSong,
-            isGeneratingOriginalLyrics: isGeneratingOriginalLyrics,
+            canTranscribeAudio: canTranscribeCurrentSongAudio,
             isScrapeActionUnavailable: isScrapeActionUnavailable,
             onAutomaticScrape: { startAutomaticLyricsScrape() },
-            onGenerateOriginalLyrics: { startOriginalLyricsGeneration() },
+            onTranscribeAudio: { openAudioTranscriptionEditor() },
             onBackgroundTap: {
                 if isLyricsImmersive {
                     // ScrollView owns the reliable surface gesture. Routing the
@@ -2768,64 +2776,19 @@ struct NowPlayingView: View {
         )
     }
 
-    private func startOriginalLyricsGeneration() {
-        guard !isGeneratingOriginalLyrics,
-              !scraperService.isScraping,
-              !scraperService.isSingleScraping,
-              let displayedSong = player.currentSong else { return }
-        isGeneratingOriginalLyrics = true
-        lyricsLoadRevision &+= 1
-        Task { @MainActor in
-            defer { isGeneratingOriginalLyrics = false }
+    private var canTranscribeCurrentSongAudio: Bool {
+        guard let song = player.currentSong else { return false }
+        return intelligence.isAudioTranscriptionConfigured
+            && song.sourceID != AppleMusicLibraryIdentity.sourceID
+            && song.cueSheetPath == nil
+            && (song.duration <= 0
+                || song.duration <= AIAudioTranscriptionPolicy.maximumDuration)
+    }
 
-            let song: Song
-            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
-                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
-                if song.id != displayedSong.id {
-                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
-                        fromSongID: displayedSong.id,
-                        toSongID: song.id
-                    )
-                    guard player.currentSong?.id == displayedSong.id
-                            || player.currentSong?.id == song.id else { return }
-                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
-                }
-            } else {
-                song = displayedSong
-            }
-
-            let outcome = await intelligence.generateLyrics(for: song)
-            guard player.currentSong?.id == song.id else { return }
-            switch outcome {
-            case .unavailable:
-                scrapeAlertMessage = String(localized: "ai_lyrics_generation_unavailable")
-            case .failed:
-                scrapeAlertMessage = String(localized: "ai_lyrics_generation_failed")
-            case .success(let execution):
-                let didCache = await MetadataAssetStore.shared.cacheLyrics(
-                    execution.lines,
-                    forSongID: song.id,
-                    force: true
-                )
-                guard didCache else {
-                    scrapeAlertMessage = String(localized: "ai_lyrics_generation_failed")
-                    return
-                }
-                setLyrics(execution.lines)
-                NotificationCenter.default.post(
-                    name: .primuseLyricsDidChange,
-                    object: song.id,
-                    userInfo: ["lyrics": execution.lines]
-                )
-                let key = execution.fallbackDepth > 0
-                    ? "ai_lyrics_generation_fallback_success_format"
-                    : "ai_lyrics_generation_success_format"
-                scrapeAlertMessage = String(
-                    format: String(localized: String.LocalizationValue(key)),
-                    execution.providerName
-                )
-            }
-        }
+    private func openAudioTranscriptionEditor() {
+        guard canTranscribeCurrentSongAudio, let song = player.currentSong else { return }
+        lyricsEditorAutoStartsAudioTranscription = true
+        lyricsEditorTargetSong = song
     }
 
     private func startAutomaticLyricsScrapeWithEnabledSource(_ displayedSong: Song) {
@@ -4317,10 +4280,10 @@ struct LyricsScrollView: View {
     let songID: String?
     let isSceneActive: Bool
     let isScrapingCurrentSong: Bool
-    let isGeneratingOriginalLyrics: Bool
+    let canTranscribeAudio: Bool
     let isScrapeActionUnavailable: Bool
     let onAutomaticScrape: () -> Void
-    let onGenerateOriginalLyrics: () -> Void
+    let onTranscribeAudio: () -> Void
     let onBackgroundTap: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -4609,11 +4572,13 @@ struct LyricsScrollView: View {
                 HStack(spacing: 10) { emptyLyricsActions }
                 VStack(spacing: 10) { emptyLyricsActions }
             }
-            Text("ai_lyrics_generation_original_notice")
-                .font(.caption2)
-                .foregroundStyle(appearance.faint)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+            if canTranscribeAudio {
+                Text("ai_audio_transcription_now_playing_detail")
+                    .font(.caption2)
+                    .foregroundStyle(appearance.faint)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -4640,22 +4605,18 @@ struct LyricsScrollView: View {
         .tint(appearance.primary)
         .disabled(isScrapeActionUnavailable)
 
-        Button { onGenerateOriginalLyrics() } label: {
-            HStack(spacing: 7) {
-                if isGeneratingOriginalLyrics {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(appearance.primary)
-                } else {
-                    Image(systemName: "sparkles")
+        if canTranscribeAudio {
+            Button { onTranscribeAudio() } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "waveform.badge.mic")
+                    Text("ai_audio_transcription_action")
                 }
-                Text("ai_lyrics_generate_original")
+                .font(.subheadline.weight(.semibold))
             }
-            .font(.subheadline.weight(.semibold))
+            .buttonStyle(.borderedProminent)
+            .tint(appearance.primary)
+            .disabled(isScrapeActionUnavailable)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(appearance.primary)
-        .disabled(isScrapeActionUnavailable)
     }
 
     private var lineLevelLyricsView: some View {

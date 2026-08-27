@@ -13,7 +13,11 @@ import Foundation
 ///     resolved string is treated as a format string and filled in.
 /// - Returns: The localized (and optionally formatted) string.
 public func PMString(_ key: String, _ args: CVarArg...) -> String {
-    let localized = String(localized: String.LocalizationValue(key), bundle: .primuseKit)
+    let localized = Bundle.primuseKit.localizedString(
+        forKey: key,
+        value: key,
+        table: nil
+    )
     guard !args.isEmpty else { return localized }
     return String(format: localized, arguments: args)
 }

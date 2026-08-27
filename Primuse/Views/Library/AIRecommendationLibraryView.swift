@@ -234,6 +234,18 @@ struct AIRecommendationLibraryView: View {
             if case .loading = aiRecommendation.feedback {
                 ProgressView()
                     .controlSize(.small)
+            } else if intelligence.isPersonalizedRecommendationsConfigured {
+                Button {
+                    Task { await refresh(forceAIRefresh: true) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .background(platformChipBackground, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(platformAccentColor)
+                .accessibilityLabel("ai_recommendation_refresh")
             }
         }
         .padding(13)
@@ -326,7 +338,7 @@ struct AIRecommendationLibraryView: View {
     }
 
     @MainActor
-    private func refresh() async {
+    private func refresh(forceAIRefresh: Bool = false) async {
         refreshGeneration &+= 1
         let generation = refreshGeneration
         let input = MusicDiscoveryEngine.recommendationInput(in: library)
@@ -339,7 +351,8 @@ struct AIRecommendationLibraryView: View {
             scene: .automatic,
             intent: selectedIntent.semanticIntent,
             candidates: results.map(\.song),
-            using: intelligence
+            using: intelligence,
+            forceRefresh: forceAIRefresh
         )
     }
 

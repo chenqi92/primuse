@@ -22,16 +22,15 @@ struct AILyricsTranslationExecution: Sendable {
     var fallbackDepth: Int
 }
 
-struct AILyricsGenerationExecution: Sendable {
-    var lines: [LyricLine]
-    var draftTitle: String
+struct AIAudioTranscriptionExecution: Sendable {
+    var result: AIAudioTranscriptionResult
     var providerName: String
     var fallbackDepth: Int
 }
 
-enum AILyricsGenerationOutcome: Sendable {
+enum AIAudioTranscriptionOutcome: Sendable {
     case unavailable
-    case success(AILyricsGenerationExecution)
+    case success(AIAudioTranscriptionExecution)
     case failed
 }
 
@@ -40,6 +39,7 @@ struct AIRecommendationExecution: Sendable {
     var providerName: String
     var fallbackDepth: Int
     var resolvedScene: AIRecommendationScene
+    var isCached: Bool
 }
 
 enum AIRecommendationOutcome: Sendable {
@@ -159,19 +159,21 @@ final class MusicIntelligenceService {
                 || settingsStore.hasExplicitListeningContextConsent)
     }
 
-    var isLyricsGenerationConfigured: Bool {
+    var isAudioTranscriptionConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
-        return settingsStore.providerSet.routedProviders.contains {
-            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && AIProviderRegionPolicy.allows(
-                    configuration: $0,
-                    region: regionAvailability.context.region,
-                    purpose: .generation
-                )
-        }
-            && settingsStore.hasExplicitRemoteConsent
+        return settingsStore.audioTranscriptionEnabled
+            && settingsStore.providerSet.routedProviders.contains {
+                $0.descriptor.capabilities.contains(.audioTranscription)
+                    && AIProviderRegionPolicy.allows(
+                        configuration: $0,
+                        region: regionAvailability.context.region,
+                        purpose: .generation
+                    )
+            }
+            && settingsStore.hasExplicitAudioUploadConsent
             && decision.isAllowed
-            && (!decision.requiresExplicitConsent || settingsStore.hasExplicitRemoteConsent)
+            && (!decision.requiresExplicitConsent
+                || settingsStore.hasExplicitAudioUploadConsent)
     }
 
     func semanticSearchPlan(for query: String) async -> AISemanticSearchPlan? {
@@ -334,11 +336,15 @@ final class MusicIntelligenceService {
     }
 
     func recommendationOutcome(
-        for request: AIRecommendationRequest
+        for request: AIRecommendationRequest,
+        forceRefresh: Bool = false
     ) async -> AIRecommendationOutcome {
         let regionSnapshot = regionAvailability.snapshot
         guard isPersonalizedRecommendationsConfigured,
               !request.candidates.isEmpty else { return .unavailable }
+        if !forceRefresh, let cached = cachedRecommendationOutcome(for: request) {
+            return cached
+        }
 
         let now = ProcessInfo.processInfo.systemUptime
         let providers = settingsStore.providerSet.routedProviders.filter {
@@ -366,13 +372,15 @@ final class MusicIntelligenceService {
                 request: request,
                 regionRevision: regionSnapshot.revision
             )
-            if let cached = recommendationCache[cacheKey],
+            if !forceRefresh,
+               let cached = recommendationCache[cacheKey],
                now - cached.createdAt <= Self.recommendationCacheLifetime {
                 return .success(AIRecommendationExecution(
                     plan: cached.plan,
                     providerName: configuration.displayName,
                     fallbackDepth: fallbackDepth,
-                    resolvedScene: request.scene
+                    resolvedScene: request.scene,
+                    isCached: true
                 ))
             }
 
@@ -411,7 +419,8 @@ final class MusicIntelligenceService {
                     plan: plan,
                     providerName: configuration.displayName,
                     fallbackDepth: fallbackDepth,
-                    resolvedScene: request.scene
+                    resolvedScene: request.scene,
+                    isCached: false
                 ))
             } catch is CancellationError {
                 return .failed
@@ -428,20 +437,67 @@ final class MusicIntelligenceService {
         return .failed
     }
 
-    func generateLyrics(for song: Song) async -> AILyricsGenerationOutcome {
+    func cachedRecommendationOutcome(
+        for request: AIRecommendationRequest
+    ) -> AIRecommendationOutcome? {
         let regionSnapshot = regionAvailability.snapshot
-        let songTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isLyricsGenerationConfigured, !songTitle.isEmpty else { return .unavailable }
-
-        let request = AILyricsGenerationRequest(
-            songTitle: songTitle,
-            albumTitle: song.albumTitle,
-            genre: song.genre,
-            languageCode: Locale.current.language.languageCode?.identifier,
-            maximumLines: 28
-        )
+        guard isPersonalizedRecommendationsConfigured,
+              !request.candidates.isEmpty else { return nil }
+        let now = ProcessInfo.processInfo.systemUptime
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && AIProviderRegionPolicy.allows(
+                    configuration: $0,
+                    region: regionSnapshot.context.region,
+                    purpose: .generation
+                )
+        }
+        for (fallbackDepth, configuration) in providers.enumerated() {
+            let key = RecommendationCacheKey(
+                profileID: configuration.id,
+                baseURL: configuration.baseURL,
+                model: configuration.generationModel,
+                apiStyle: configuration.apiStyle,
+                apiPathMode: configuration.apiPathMode,
+                authenticationStyle: configuration.authenticationStyle,
+                request: request,
+                regionRevision: regionSnapshot.revision
+            )
+            guard let cached = recommendationCache[key],
+                  now - cached.createdAt <= Self.recommendationCacheLifetime else {
+                continue
+            }
+            return .success(AIRecommendationExecution(
+                plan: cached.plan,
+                providerName: configuration.displayName,
+                fallbackDepth: fallbackDepth,
+                resolvedScene: request.scene,
+                isCached: true
+            ))
+        }
+        return nil
+    }
+
+    func transcribeAudio(
+        at audioFileURL: URL,
+        mimeType: String,
+        displayName: String,
+        duration: TimeInterval,
+        customVocabulary: [String] = []
+    ) async -> AIAudioTranscriptionOutcome {
+        let regionSnapshot = regionAvailability.snapshot
+        guard isAudioTranscriptionConfigured,
+              duration <= 0 || duration <= AIAudioTranscriptionPolicy.maximumDuration else {
+            return .unavailable
+        }
+        let request = AIAudioTranscriptionRequest(
+            audioFileURL: audioFileURL,
+            mimeType: mimeType,
+            displayName: displayName,
+            customVocabulary: customVocabulary
+        )
+        let providers = settingsStore.providerSet.routedProviders.filter {
+            $0.descriptor.capabilities.contains(.audioTranscription)
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
                     region: regionSnapshot.context.region,
@@ -455,11 +511,12 @@ final class MusicIntelligenceService {
                 configuration: configuration
             ) else { return .failed }
             do {
-                let generated = try await engine.generateLyrics(
+                let result = try await engine.transcribeAudio(
                     request,
                     configuration: configuration,
                     regionContext: regionSnapshot.context,
-                    hasExplicitRemoteConsent: settingsStore.hasExplicitRemoteConsent,
+                    hasExplicitAudioUploadConsent: settingsStore
+                        .hasExplicitAudioUploadConsent,
                     requestAuthorization: regionAuthorization(
                         for: regionSnapshot,
                         configuration: configuration
@@ -470,20 +527,9 @@ final class MusicIntelligenceService {
                     latest: regionAvailability.snapshot,
                     configuration: configuration
                 ) else { return .failed }
-                let lines = generated.lines.enumerated().map { index, text in
-                    LyricLine(
-                        timestamp: 0,
-                        text: text,
-                        isSynchronized: false,
-                        metadataLines: index == 0
-                            ? ["[by:Primuse original intelligent draft]"]
-                            : nil
-                    )
-                }
-                guard !lines.isEmpty else { continue }
-                return .success(AILyricsGenerationExecution(
-                    lines: lines,
-                    draftTitle: generated.draftTitle,
+                guard !result.isEmpty else { continue }
+                return .success(AIAudioTranscriptionExecution(
+                    result: result,
                     providerName: configuration.displayName,
                     fallbackDepth: fallbackDepth
                 ))
@@ -532,8 +578,10 @@ final class MusicIntelligenceService {
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool,
+        audioTranscriptionEnabled: Bool,
         hasExplicitRemoteConsent: Bool,
         hasExplicitListeningContextConsent: Bool,
+        hasExplicitAudioUploadConsent: Bool,
         apiKeys: [UUID: String]
     ) async throws {
         let decision = AIAvailabilityPolicy.decision(
@@ -558,8 +606,10 @@ final class MusicIntelligenceService {
             providerSet: normalized,
             semanticSearchEnabled: semanticSearchEnabled,
             recommendationsEnabled: recommendationsEnabled,
+            audioTranscriptionEnabled: audioTranscriptionEnabled,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent,
-            hasExplicitListeningContextConsent: hasExplicitListeningContextConsent
+            hasExplicitListeningContextConsent: hasExplicitListeningContextConsent,
+            hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
@@ -690,7 +740,8 @@ enum AIRecommendationFeedback: Equatable {
         summary: String,
         providerName: String,
         fallbackDepth: Int,
-        scene: AIRecommendationScene
+        scene: AIRecommendationScene,
+        isCached: Bool
     )
     case localFallback(providerName: String?, fallbackDepth: Int)
 }
@@ -759,7 +810,8 @@ final class AIRecommendationViewModel {
         scene: AIRecommendationScene,
         intent: String? = nil,
         candidates: [Song],
-        using intelligence: MusicIntelligenceService
+        using intelligence: MusicIntelligenceService,
+        forceRefresh: Bool = false
     ) async {
         generation &+= 1
         let operationGeneration = generation
@@ -786,8 +838,17 @@ final class AIRecommendationViewModel {
             return
         }
 
-        feedback = .loading
-        let outcome = await intelligence.recommendationOutcome(for: request)
+        let outcome: AIRecommendationOutcome
+        if !forceRefresh,
+           let cached = intelligence.cachedRecommendationOutcome(for: request) {
+            outcome = cached
+        } else {
+            feedback = .loading
+            outcome = await intelligence.recommendationOutcome(
+                for: request,
+                forceRefresh: forceRefresh
+            )
+        }
         guard operationGeneration == generation, !Task.isCancelled else { return }
         switch outcome {
         case .unavailable:
@@ -805,7 +866,8 @@ final class AIRecommendationViewModel {
                 summary: execution.plan.summary,
                 providerName: execution.providerName,
                 fallbackDepth: execution.fallbackDepth,
-                scene: execution.resolvedScene
+                scene: execution.resolvedScene,
+                isCached: execution.isCached
             )
         case .empty(let providerName, let fallbackDepth):
             orderedSongIDs = []
@@ -845,7 +907,14 @@ final class AIRecommendationViewModel {
             return String(localized: "ai_recommendation_status_loading")
         case .needsConsent:
             return String(localized: "ai_recommendation_status_needs_consent")
-        case .success(_, let providerName, let fallbackDepth, let scene):
+        case .success(_, let providerName, let fallbackDepth, let scene, let isCached):
+            if isCached {
+                return String(
+                    format: String(localized: "ai_recommendation_status_cached_format"),
+                    providerName,
+                    scene.localizedName
+                )
+            }
             let key = fallbackDepth > 0
                 ? "ai_recommendation_status_fallback_format"
                 : "ai_recommendation_status_success_format"
@@ -860,7 +929,7 @@ final class AIRecommendationViewModel {
     }
 
     var summaryText: String? {
-        guard case .success(let summary, _, _, _) = feedback else { return nil }
+        guard case .success(let summary, _, _, _, _) = feedback else { return nil }
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -1017,18 +1086,18 @@ private actor MusicIntelligenceEngine {
         }
     }
 
-    func generateLyrics(
-        _ request: AILyricsGenerationRequest,
+    func transcribeAudio(
+        _ request: AIAudioTranscriptionRequest,
         configuration: AIRemoteProviderConfiguration,
         regionContext: AIRegionContext,
-        hasExplicitRemoteConsent: Bool,
+        hasExplicitAudioUploadConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
-    ) async throws -> AILyricsGenerationResult {
+    ) async throws -> AIAudioTranscriptionResult {
         let candidates = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
-            capability: .lyricsGeneration,
+            capability: .audioTranscription,
             regionContext: regionContext,
-            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+            hasExplicitRemoteConsent: hasExplicitAudioUploadConsent
         )
         guard candidates.first?.id == configuration.id else {
             let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
@@ -1037,7 +1106,7 @@ private actor MusicIntelligenceEngine {
             throw MusicIntelligenceError.unavailable(reason)
         }
 
-        let provider = OpenAICompatibleProvider(
+        let provider = GeminiAudioTranscriptionProvider(
             configuration: configuration,
             credentialStore: credentialStore,
             requestAuthorization: requestAuthorization
@@ -1048,9 +1117,7 @@ private actor MusicIntelligenceEngine {
         case .unavailable(let reason):
             throw MusicIntelligenceError.unavailable(reason)
         }
-        return try await withTimeout(seconds: configuration.requestTimeout) {
-            try await provider.generateLyrics(request)
-        }
+        return try await provider.transcribeAudio(request)
     }
 
     private func withTimeout<Value: Sendable>(

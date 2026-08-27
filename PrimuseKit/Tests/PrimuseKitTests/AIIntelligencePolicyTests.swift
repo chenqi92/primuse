@@ -488,7 +488,7 @@ struct AIRemoteEndpointPolicyTests {
         }
     }
 
-    @Test func descriptorOnlyAdvertisesConfiguredCapabilities() {
+    @Test func descriptorOnlyAdvertisesConfiguredCapabilities() throws {
         let generationOnly = AIRemoteProviderConfiguration(
             generationModel: "chat-model",
             embeddingModel: "",
@@ -496,7 +496,7 @@ struct AIRemoteEndpointPolicyTests {
         ).descriptor
         #expect(generationOnly.capabilities.contains(.semanticSearchInterpretation))
         #expect(generationOnly.capabilities.contains(.lyricsTranslation))
-        #expect(generationOnly.capabilities.contains(.lyricsGeneration))
+        #expect(!generationOnly.capabilities.contains(.audioTranscription))
         #expect(!generationOnly.capabilities.contains(.embeddings))
         #expect(!generationOnly.capabilities.contains(.reranking))
         #expect(!generationOnly.capabilities.contains(.songAnnotation))
@@ -510,7 +510,7 @@ struct AIRemoteEndpointPolicyTests {
         ).descriptor
         #expect(!embeddingOnly.capabilities.contains(.semanticSearchInterpretation))
         #expect(!embeddingOnly.capabilities.contains(.lyricsTranslation))
-        #expect(!embeddingOnly.capabilities.contains(.lyricsGeneration))
+        #expect(!embeddingOnly.capabilities.contains(.audioTranscription))
         #expect(embeddingOnly.capabilities.contains(.embeddings))
 
         let anthropic = AIRemoteProviderConfiguration(
@@ -521,11 +521,22 @@ struct AIRemoteEndpointPolicyTests {
         )
         #expect(anthropic.descriptor.capabilities.contains(.semanticSearchInterpretation))
         #expect(anthropic.descriptor.capabilities.contains(.lyricsTranslation))
-        #expect(anthropic.descriptor.capabilities.contains(.lyricsGeneration))
+        #expect(!anthropic.descriptor.capabilities.contains(.audioTranscription))
         #expect(!anthropic.descriptor.capabilities.contains(.embeddings))
         #expect(throws: AIRemoteEndpointValidationError.unsupportedCapability) {
             try AIRemoteEndpointPolicy.embeddingsEndpoint(configuration: anthropic)
         }
+
+        let gemini = AIProviderPreset.gemini.applying(to:
+            AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        #expect(gemini.descriptor.capabilities.contains(.audioTranscription))
+        #expect(try AIRemoteEndpointPolicy.geminiInteractionsEndpoint(
+            configuration: gemini
+        ).path == "/v1beta/interactions")
+        #expect(try AIRemoteEndpointPolicy.geminiFilesUploadEndpoint(
+            configuration: gemini
+        ).path == "/upload/v1beta/files")
     }
 
     @Test func credentialAccountIsStableAndContainsNoSecretMaterial() {
@@ -924,29 +935,39 @@ struct AIRecommendationPolicyTests {
         ) == decoded)
     }
 
-    @Test func generatedLyricsAreBoundedWithoutRemovingIntentionalRepetition() {
-        let request = AILyricsGenerationRequest(
-            songTitle: "  Night\nWindow  ",
-            albumTitle: "  Home  ",
-            genre: "Ambient",
-            languageCode: "zh-Hans",
-            maximumLines: 8
-        )
-        let result = AILyricsGenerationResult(
-            draftTitle: String(repeating: "T", count: 140),
-            lines: [
-                " first ", "chorus", "chorus", " ",
-                String(repeating: "l", count: 300),
-                "fifth", "sixth", "seventh", "eighth", "ninth",
+    @Test func audioTranscriptionCreatesReviewableWordTimedLyrics() {
+        let result = AIAudioTranscriptionResult(
+            transcript: "Hello world! Home again.",
+            words: [
+                AIAudioTranscriptionWord(text: "Hello", startTime: 0.2, endTime: 0.6),
+                AIAudioTranscriptionWord(text: "world", startTime: 0.7, endTime: 1.1),
+                AIAudioTranscriptionWord(text: "!", startTime: 1.1, endTime: 1.2),
+                AIAudioTranscriptionWord(text: "Home", startTime: 2.0, endTime: 2.4),
+                AIAudioTranscriptionWord(text: "again", startTime: 2.5, endTime: 3.0),
+                AIAudioTranscriptionWord(text: ".", startTime: 3.0, endTime: 3.1),
             ]
-        ).normalized(for: request)
+        )
+        let document = AIAudioTranscriptionLyricsFormatter.document(from: result)
 
-        #expect(request.songTitle == "Night Window")
-        #expect(result.draftTitle.count == 120)
-        #expect(result.lines.count == 8)
-        #expect(result.lines[1] == "chorus")
-        #expect(result.lines[2] == "chorus")
-        #expect(result.lines[3].count == 240)
+        #expect(document.lines.map(\.text) == ["Hello world!", "Home again."])
+        #expect(document.lines.map(\.timestamp) == [0.2, 2.0])
+        #expect(document.lines[0].syllables?.map(\.text) == ["Hello", " world", "!"])
+        #expect(document.serialized().contains("<00:00.700> world"))
+    }
+
+    @Test func audioTranscriptionRequestBoundsAndDeduplicatesVocabularyHints() {
+        let request = AIAudioTranscriptionRequest(
+            audioFileURL: URL(fileURLWithPath: "/tmp/song.mp3"),
+            mimeType: " audio/mpeg ",
+            displayName: "  Song\nName  ",
+            languageCodes: [" zh-CN ", "", "en-US"],
+            customVocabulary: ["  Artist  Name ", "artist name", "专辑\n名称", ""]
+        )
+
+        #expect(request.mimeType == "audio/mpeg")
+        #expect(request.displayName == "Song Name")
+        #expect(request.languageCodes == ["zh-CN", "en-US"])
+        #expect(request.customVocabulary == ["Artist Name", "专辑 名称"])
     }
 }
 

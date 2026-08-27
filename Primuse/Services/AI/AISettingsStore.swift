@@ -6,6 +6,17 @@ import StoreKit
 @MainActor
 @Observable
 final class AISettingsStore {
+    private struct PersistedSettingsV4: Codable {
+        var schemaVersion: Int
+        var providerSet: AIRemoteProviderSet
+        var semanticSearchEnabled: Bool
+        var recommendationsEnabled: Bool
+        var audioTranscriptionEnabled: Bool
+        var hasExplicitRemoteConsent: Bool
+        var hasExplicitListeningContextConsent: Bool
+        var hasExplicitAudioUploadConsent: Bool
+    }
+
     private struct PersistedSettingsV3: Codable {
         var schemaVersion: Int
         var providerSet: AIRemoteProviderSet
@@ -35,8 +46,10 @@ final class AISettingsStore {
     private(set) var providerSet: AIRemoteProviderSet
     private(set) var semanticSearchEnabled: Bool
     private(set) var recommendationsEnabled: Bool
+    private(set) var audioTranscriptionEnabled: Bool
     private(set) var hasExplicitRemoteConsent: Bool
     private(set) var hasExplicitListeningContextConsent: Bool
+    private(set) var hasExplicitAudioUploadConsent: Bool
     private(set) var hasPersistedSettings: Bool
     private(set) var revision: UInt64 = 0
 
@@ -55,8 +68,10 @@ final class AISettingsStore {
         providerSet = loaded.providerSet
         semanticSearchEnabled = loaded.semanticSearchEnabled
         recommendationsEnabled = loaded.recommendationsEnabled
+        audioTranscriptionEnabled = loaded.audioTranscriptionEnabled
         hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
         hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
+        hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
         hasPersistedSettings = persistedData != nil
 
         if self.syncsThroughICloud {
@@ -70,28 +85,40 @@ final class AISettingsStore {
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool = false,
+        audioTranscriptionEnabled: Bool = false,
         hasExplicitRemoteConsent: Bool,
-        hasExplicitListeningContextConsent: Bool = false
+        hasExplicitListeningContextConsent: Bool = false,
+        hasExplicitAudioUploadConsent: Bool = false
     ) throws {
         let normalized = providerSet.normalized()
         for provider in normalized.providers where provider.isEnabled {
             _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
         }
-        let persisted = PersistedSettingsV3(
-            schemaVersion: 3,
+        if audioTranscriptionEnabled,
+           !normalized.routedProviders.contains(where: {
+               AIAudioTranscriptionPolicy.supports(configuration: $0)
+           }) {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        let persisted = PersistedSettingsV4(
+            schemaVersion: 4,
             providerSet: normalized,
             semanticSearchEnabled: semanticSearchEnabled,
             recommendationsEnabled: recommendationsEnabled,
+            audioTranscriptionEnabled: audioTranscriptionEnabled,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent,
-            hasExplicitListeningContextConsent: hasExplicitListeningContextConsent
+            hasExplicitListeningContextConsent: hasExplicitListeningContextConsent,
+            hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent
         )
         let data = try JSONEncoder().encode(persisted)
         defaults.set(data, forKey: Self.storageKey)
         self.providerSet = normalized
         self.semanticSearchEnabled = semanticSearchEnabled
         self.recommendationsEnabled = recommendationsEnabled
+        self.audioTranscriptionEnabled = audioTranscriptionEnabled
         self.hasExplicitRemoteConsent = hasExplicitRemoteConsent
         self.hasExplicitListeningContextConsent = hasExplicitListeningContextConsent
+        self.hasExplicitAudioUploadConsent = hasExplicitAudioUploadConsent
         hasPersistedSettings = true
         revision &+= 1
         if syncsThroughICloud {
@@ -111,8 +138,10 @@ final class AISettingsStore {
             ),
             semanticSearchEnabled: configuration.isEnabled,
             recommendationsEnabled: false,
+            audioTranscriptionEnabled: false,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent,
-            hasExplicitListeningContextConsent: false
+            hasExplicitListeningContextConsent: false,
+            hasExplicitAudioUploadConsent: false
         )
     }
 
@@ -122,8 +151,10 @@ final class AISettingsStore {
         providerSet = loaded.providerSet
         semanticSearchEnabled = loaded.semanticSearchEnabled
         recommendationsEnabled = loaded.recommendationsEnabled
+        audioTranscriptionEnabled = loaded.audioTranscriptionEnabled
         hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
         hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
+        hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
         hasPersistedSettings = persistedData != nil
         revision &+= 1
     }
@@ -134,9 +165,24 @@ final class AISettingsStore {
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool,
+        audioTranscriptionEnabled: Bool,
         hasExplicitRemoteConsent: Bool,
-        hasExplicitListeningContextConsent: Bool
+        hasExplicitListeningContextConsent: Bool,
+        hasExplicitAudioUploadConsent: Bool
     ) {
+        if let data,
+           let persisted = try? JSONDecoder().decode(PersistedSettingsV4.self, from: data),
+           persisted.schemaVersion == 4 {
+            return (
+                persisted.providerSet.normalized(),
+                persisted.semanticSearchEnabled,
+                persisted.recommendationsEnabled,
+                persisted.audioTranscriptionEnabled,
+                persisted.hasExplicitRemoteConsent,
+                persisted.hasExplicitListeningContextConsent,
+                persisted.hasExplicitAudioUploadConsent
+            )
+        }
         if let data,
            let persisted = try? JSONDecoder().decode(PersistedSettingsV3.self, from: data),
            persisted.schemaVersion == 3 {
@@ -144,8 +190,10 @@ final class AISettingsStore {
                 persisted.providerSet.normalized(),
                 persisted.semanticSearchEnabled,
                 persisted.recommendationsEnabled,
+                false,
                 persisted.hasExplicitRemoteConsent,
-                persisted.hasExplicitListeningContextConsent
+                persisted.hasExplicitListeningContextConsent,
+                false
             )
         }
         if let data,
@@ -155,7 +203,9 @@ final class AISettingsStore {
                 persisted.providerSet.normalized(),
                 persisted.semanticSearchEnabled,
                 false,
+                false,
                 persisted.hasExplicitRemoteConsent,
+                false,
                 false
             )
         }
@@ -173,11 +223,13 @@ final class AISettingsStore {
                 ),
                 semanticSearchEnabled,
                 false,
+                false,
                 persisted.hasExplicitRemoteConsent,
+                false,
                 false
             )
         }
-        return (AIRemoteProviderSet(), false, false, false, false)
+        return (AIRemoteProviderSet(), false, false, false, false, false, false)
     }
 }
 

@@ -24,8 +24,10 @@ final class AISettingsEditorModel {
     var providerPresets: [UUID: AIProviderPreset] = [:]
     var semanticSearchEnabled = false
     var recommendationsEnabled = false
+    var audioTranscriptionEnabled = false
     var consent = false
     var listeningContextConsent = false
+    var audioUploadConsent = false
     var apiKeyDrafts: [UUID: String] = [:]
     var storedAPIKeyScopes: [UUID: String] = [:]
     var availableModelsByProvider: [UUID: [AIProviderModel]] = [:]
@@ -38,8 +40,10 @@ final class AISettingsEditorModel {
     private var savedProviderSet: AIRemoteProviderSet
     private var savedSemanticSearchEnabled = false
     private var savedRecommendationsEnabled = false
+    private var savedAudioTranscriptionEnabled = false
     private var savedConsent = false
     private var savedListeningContextConsent = false
+    private var savedAudioUploadConsent = false
     private var pendingRemovedProviders: [UUID: AIRemoteProviderConfiguration] = [:]
 
     init() {
@@ -112,8 +116,10 @@ final class AISettingsEditorModel {
         draftProviderSet != savedProviderSet
             || semanticSearchEnabled != savedSemanticSearchEnabled
             || recommendationsEnabled != savedRecommendationsEnabled
+            || audioTranscriptionEnabled != savedAudioTranscriptionEnabled
             || consent != savedConsent
             || listeningContextConsent != savedListeningContextConsent
+            || audioUploadConsent != savedAudioUploadConsent
             || !pendingRemovedProviders.isEmpty
             || apiKeyDrafts.values.contains {
                 !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -131,6 +137,26 @@ final class AISettingsEditorModel {
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var hasAudioTranscriptionProvider: Bool {
+        draftProviderSet.routedProviders.contains {
+            AIAudioTranscriptionPolicy.supports(configuration: $0)
+        }
+    }
+
+    var hasAudioTranscriptionEndpoint: Bool {
+        draftProviderSet.routedProviders.contains {
+            AIAudioTranscriptionPolicy.isCompatibleEndpoint(configuration: $0)
+        }
+    }
+
+    var selectedProviderSupportsAudioTranscription: Bool {
+        AIAudioTranscriptionPolicy.supports(configuration: draftConfiguration)
+    }
+
+    var selectedProviderCanConfigureAudioTranscription: Bool {
+        AIAudioTranscriptionPolicy.isCompatibleEndpoint(configuration: draftConfiguration)
+    }
+
     func load(using intelligence: MusicIntelligenceService) async {
         guard !didLoad else { return }
         didLoad = true
@@ -146,17 +172,21 @@ final class AISettingsEditorModel {
         selectedProviderID = draftProviderSet.primaryProviderID
         semanticSearchEnabled = intelligence.settingsStore.semanticSearchEnabled
         recommendationsEnabled = intelligence.settingsStore.recommendationsEnabled
+        audioTranscriptionEnabled = intelligence.settingsStore.audioTranscriptionEnabled
         providerPresets = Dictionary(uniqueKeysWithValues: draftProviderSet.providers.map {
             ($0.id, AIProviderPreset.matching(configuration: $0))
         })
         consent = intelligence.settingsStore.hasExplicitRemoteConsent
         listeningContextConsent = intelligence.settingsStore
             .hasExplicitListeningContextConsent
+        audioUploadConsent = intelligence.settingsStore.hasExplicitAudioUploadConsent
         savedProviderSet = draftProviderSet
         savedSemanticSearchEnabled = semanticSearchEnabled
         savedRecommendationsEnabled = recommendationsEnabled
+        savedAudioTranscriptionEnabled = audioTranscriptionEnabled
         savedConsent = consent
         savedListeningContextConsent = listeningContextConsent
+        savedAudioUploadConsent = audioUploadConsent
         pendingRemovedProviders = [:]
         for provider in draftProviderSet.providers {
             if await intelligence.hasStoredAPIKey(configuration: provider),
@@ -232,11 +262,31 @@ final class AISettingsEditorModel {
         )
     }
 
+    var audioTranscriptionBinding: Binding<Bool> {
+        Binding(
+            get: { self.audioTranscriptionEnabled },
+            set: { value in
+                self.audioTranscriptionEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
     var listeningContextConsentBinding: Binding<Bool> {
         Binding(
             get: { self.listeningContextConsent },
             set: { value in
                 self.listeningContextConsent = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    var audioUploadConsentBinding: Binding<Bool> {
+        Binding(
+            get: { self.audioUploadConsent },
+            set: { value in
+                self.audioUploadConsent = value
                 self.draftDidChange()
             }
         )
@@ -433,8 +483,10 @@ final class AISettingsEditorModel {
         let providerSet = draftProviderSet
         let semanticSearchEnabled = semanticSearchEnabled
         let recommendationsEnabled = recommendationsEnabled
+        let audioTranscriptionEnabled = audioTranscriptionEnabled
         let explicitConsent = consent
         let listeningContextConsent = listeningContextConsent
+        let audioUploadConsent = audioUploadConsent
         let apiKeys = apiKeyDrafts
         let removedProviders = pendingRemovedProviders
         let operationGeneration = draftGeneration
@@ -445,8 +497,10 @@ final class AISettingsEditorModel {
                 providerSet: providerSet,
                 semanticSearchEnabled: semanticSearchEnabled,
                 recommendationsEnabled: recommendationsEnabled,
+                audioTranscriptionEnabled: audioTranscriptionEnabled,
                 hasExplicitRemoteConsent: explicitConsent,
                 hasExplicitListeningContextConsent: listeningContextConsent,
+                hasExplicitAudioUploadConsent: audioUploadConsent,
                 apiKeys: apiKeys
             )
             var failedCredentialRemovals: [UUID: AIRemoteProviderConfiguration] = [:]
@@ -474,8 +528,10 @@ final class AISettingsEditorModel {
             savedProviderSet = draftProviderSet
             savedSemanticSearchEnabled = semanticSearchEnabled
             savedRecommendationsEnabled = recommendationsEnabled
+            savedAudioTranscriptionEnabled = audioTranscriptionEnabled
             savedConsent = consent
             savedListeningContextConsent = listeningContextConsent
+            savedAudioUploadConsent = audioUploadConsent
             pendingRemovedProviders = failedCredentialRemovals
             status = failedCredentialRemovals.isEmpty
                 ? .saved
@@ -720,12 +776,18 @@ struct AISettingsView: View {
                 "ai_enable_recommendations",
                 isOn: editor.recommendationsBinding
             )
-            LabeledContent {
-                Text("ai_capability_on_demand")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } label: {
-                Label("ai_capability_lyrics_generation", systemImage: "text.badge.plus")
+            if editor.hasAudioTranscriptionProvider || editor.audioTranscriptionEnabled {
+                Toggle(isOn: editor.audioTranscriptionBinding) {
+                    Label("ai_enable_audio_transcription", systemImage: "waveform.badge.mic")
+                }
+            } else {
+                LabeledContent {
+                    Text("ai_audio_transcription_not_configured")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label("ai_enable_audio_transcription", systemImage: "waveform.badge.mic")
+                }
             }
         } footer: {
             Text("ai_capabilities_footer")
@@ -891,6 +953,18 @@ struct AISettingsView: View {
                 text: editor.configurationBinding(\.generationModel),
                 models: editor.availableModels
             )
+            if editor.selectedProviderCanConfigureAudioTranscription {
+                AIModelSelectionField(
+                    title: String(localized: "ai_transcription_model"),
+                    text: editor.configurationBinding(\.transcriptionModel),
+                    models: editor.availableModels.filter {
+                        $0.id.localizedCaseInsensitiveContains("transcribe")
+                    }
+                )
+                Label("ai_audio_transcription_model_detail", systemImage: "waveform")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if editor.draftConfiguration.supportsEmbeddings {
                 AIModelSelectionField(
                     title: String(localized: "ai_embedding_model"),
@@ -939,6 +1013,12 @@ struct AISettingsView: View {
                 "ai_listening_context_consent",
                 isOn: editor.listeningContextConsentBinding
             )
+            if editor.hasAudioTranscriptionEndpoint || editor.audioUploadConsent {
+                Toggle(
+                    "ai_audio_upload_consent",
+                    isOn: editor.audioUploadConsentBinding
+                )
+            }
         } header: {
             Text("ai_privacy_section")
         } footer: {
