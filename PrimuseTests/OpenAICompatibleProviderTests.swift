@@ -618,6 +618,247 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
     }
 
+    func testMainlandProviderControlsDisableOptionalThinking() async throws {
+        let zhipu = try await capturedSearchBody(
+            for: AIProviderPreset.zhipu.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(
+            (zhipu["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+
+        let mimo = try await capturedSearchBody(
+            for: AIProviderPreset.xiaomiMiMo.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(
+            (mimo["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+        XCTAssertEqual(mimo["max_completion_tokens"] as? Int, 320)
+        XCTAssertNil(mimo["max_tokens"])
+
+        let ark = try await capturedSearchBody(
+            for: AIProviderPreset.volcengineArk.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(
+            (ark["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+
+        let tokenHub = try await capturedSearchBody(
+            for: AIProviderPreset.tencentTokenHub.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(
+            (tokenHub["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+
+        let qianfan = try await capturedSearchBody(
+            for: AIProviderPreset.baiduQianfan.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(qianfan["model"] as? String, "ernie-4.5-turbo-32k")
+        XCTAssertNil(qianfan["thinking"])
+        XCTAssertNil(qianfan["enable_thinking"])
+
+        var qianfanDeepSeekConfiguration = AIProviderPreset.baiduQianfan.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        qianfanDeepSeekConfiguration.generationModel = "deepseek-v4-flash"
+        let qianfanDeepSeek = try await capturedSearchBody(for: qianfanDeepSeekConfiguration)
+        XCTAssertEqual(
+            (qianfanDeepSeek["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+
+        var qianfanErniePreviewConfiguration = AIProviderPreset.baiduQianfan.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        qianfanErniePreviewConfiguration.generationModel = "ernie-5.0-thinking-preview"
+        let qianfanErniePreview = try await capturedSearchBody(for: qianfanErniePreviewConfiguration)
+        XCTAssertEqual(qianfanErniePreview["enable_thinking"] as? Bool, false)
+
+        var qwenConfiguration = AIProviderPreset.qwen.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        qwenConfiguration.generationModel = "qwen3.5-plus"
+        let qwen = try await capturedSearchBody(for: qwenConfiguration)
+        XCTAssertEqual(qwen["enable_thinking"] as? Bool, false)
+
+        let qwenAlias = try await capturedSearchBody(
+            for: AIProviderPreset.qwen.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(qwenAlias["enable_thinking"] as? Bool, false)
+
+        var siliconFlowConfiguration = AIProviderPreset.siliconFlow.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        siliconFlowConfiguration.generationModel = "Qwen/Qwen3.5-235B-A22B"
+        let siliconFlow = try await capturedSearchBody(for: siliconFlowConfiguration)
+        XCTAssertEqual(siliconFlow["enable_thinking"] as? Bool, false)
+    }
+
+    func testGlobalProviderControlsMatchDocumentedReasoningParameters() async throws {
+        let openAI = try await capturedSearchBody(
+            for: AIProviderPreset.openAI.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(
+            (openAI["reasoning"] as? [String: Any])?["effort"] as? String,
+            "none"
+        )
+
+        let nvidia = try await capturedSearchBody(
+            for: AIProviderPreset.nvidiaNIM.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(
+            (nvidia["chat_template_kwargs"] as? [String: Any])?["enable_thinking"] as? Bool,
+            false
+        )
+
+        let mistral = try await capturedSearchBody(
+            for: AIProviderPreset.mistral.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(mistral["reasoning_effort"] as? String, "none")
+    }
+
+    func testReasoningOnlyProvidersUseLowEffortAndSufficientOutputBudget() async throws {
+        let gemini = try await capturedSearchBody(
+            for: AIProviderPreset.gemini.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        let generationConfig = try XCTUnwrap(gemini["generationConfig"] as? [String: Any])
+        XCTAssertEqual(
+            (generationConfig["thinkingConfig"] as? [String: Any])?["thinkingLevel"] as? String,
+            "low"
+        )
+        XCTAssertEqual(generationConfig["maxOutputTokens"] as? Int, 4_000)
+
+        let kimi = try await capturedSearchBody(
+            for: AIProviderPreset.kimi.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(kimi["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(kimi["max_tokens"] as? Int, 16_000)
+
+        let miniMax = try await capturedSearchBody(
+            for: AIProviderPreset.miniMax.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(miniMax["model"] as? String, "MiniMax-M3")
+        XCTAssertEqual(
+            (miniMax["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+        XCTAssertEqual(miniMax["max_completion_tokens"] as? Int, 320)
+        XCTAssertNil(miniMax["max_tokens"])
+
+        var miniMaxM2Configuration = AIProviderPreset.miniMax.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        miniMaxM2Configuration.generationModel = "MiniMax-M2.7"
+        let miniMaxM2 = try await capturedSearchBody(for: miniMaxM2Configuration)
+        XCTAssertEqual(miniMaxM2["reasoning_split"] as? Bool, true)
+        XCTAssertEqual(miniMaxM2["max_completion_tokens"] as? Int, 65_536)
+        XCTAssertNil(miniMaxM2["thinking"])
+        XCTAssertNil(miniMaxM2["max_tokens"])
+
+        var kimiCodeConfiguration = AIProviderPreset.kimi.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        kimiCodeConfiguration.generationModel = "kimi-k2.7-code"
+        let kimiCode = try await capturedSearchBody(for: kimiCodeConfiguration)
+        XCTAssertNil(kimiCode["reasoning_effort"])
+        XCTAssertNil(kimiCode["thinking"])
+        XCTAssertEqual(kimiCode["max_tokens"] as? Int, 16_000)
+
+        let stepFun = try await capturedSearchBody(
+            for: AIProviderPreset.stepFun.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(stepFun["model"] as? String, "step-3.5-flash-2603")
+        XCTAssertEqual(stepFun["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(stepFun["max_tokens"] as? Int, 4_000)
+
+        let xAI = try await capturedSearchBody(
+            for: AIProviderPreset.xAI.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(xAI["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(xAI["max_tokens"] as? Int, 4_000)
+
+        let groq = try await capturedSearchBody(
+            for: AIProviderPreset.groq.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(groq["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(groq["max_completion_tokens"] as? Int, 4_000)
+        XCTAssertNil(groq["max_tokens"])
+
+        let together = try await capturedSearchBody(
+            for: AIProviderPreset.togetherAI.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertEqual(together["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(together["max_tokens"] as? Int, 4_000)
+    }
+
+    func testDynamicAndCustomEndpointsDoNotReceiveUnsupportedControls() async throws {
+        let openRouter = try await capturedSearchBody(
+            for: AIProviderPreset.openRouter.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertNil(openRouter["reasoning"])
+        XCTAssertNil(openRouter["reasoning_effort"])
+
+        let fireworks = try await capturedSearchBody(
+            for: AIProviderPreset.fireworksAI.applying(
+                to: AIRemoteProviderConfiguration(isEnabled: true)
+            )
+        )
+        XCTAssertNil(fireworks["reasoning"])
+        XCTAssertNil(fireworks["reasoning_effort"])
+        XCTAssertNil(fireworks["thinking"])
+
+        let custom = try await capturedSearchBody(
+            for: AIRemoteProviderConfiguration(
+                baseURL: "https://api.deepseek.com.compat.invalid/v1",
+                apiStyle: .chatCompletions,
+                apiPathMode: .asEntered,
+                authenticationStyle: .bearer,
+                generationModel: "deepseek-v4-flash",
+                isEnabled: true
+            )
+        )
+        XCTAssertNil(custom["thinking"])
+        XCTAssertNil(custom["reasoning"])
+        XCTAssertEqual(custom["max_tokens"] as? Int, 320)
+    }
+
     func testHTTPStatusIsReportedWithoutParsingTheResponseBody() async throws {
         let host = "intelligence-status.invalid"
         IntelligenceURLProtocol.configure(
@@ -1084,6 +1325,45 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             session: session
         )
         return (provider, session)
+    }
+
+    private func capturedSearchBody(
+        for configuration: AIRemoteProviderConfiguration
+    ) async throws -> [String: Any] {
+        let host = try XCTUnwrap(URL(string: configuration.baseURL)?.host)
+        let responseBody: String
+        switch configuration.apiStyle {
+        case .responses:
+            responseBody = #"{"output_text":"{\"expanded_terms\":[\"calm\"],\"themes\":[],\"moods\":[]}"}"#
+        case .chatCompletions:
+            responseBody = #"{"choices":[{"message":{"content":"{\"expanded_terms\":[\"calm\"],\"themes\":[],\"moods\":[]}"}}]}"#
+        case .anthropicMessages:
+            responseBody = #"{"content":[{"type":"text","text":"{\"expanded_terms\":[\"calm\"],\"themes\":[],\"moods\":[]}"}]}"#
+        case .geminiGenerateContent:
+            responseBody = #"{"candidates":[{"content":{"parts":[{"text":"{\"expanded_terms\":[\"calm\"],\"themes\":[],\"moods\":[]}"}]}}]}"#
+        }
+        IntelligenceURLProtocol.configure(host: host, statusCode: 200, body: responseBody)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "provider-test-key",
+            session: session
+        )
+
+        _ = try await provider.interpretSearch(
+            AISemanticSearchRequest(query: "quiet music")
+        )
+
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let data = try XCTUnwrap(request.httpBody)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
     }
 }
 

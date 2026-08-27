@@ -233,7 +233,7 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiStyle = .chatCompletions
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .bearer
-            configuration.generationModel = "MiniMax-M2.7"
+            configuration.generationModel = "MiniMax-M3"
         case .volcengineArk:
             configuration.displayName = "Volcengine Ark"
             configuration.baseURL = "https://ark.cn-beijing.volces.com/api/v3"
@@ -254,14 +254,14 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiStyle = .chatCompletions
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .bearer
-            configuration.generationModel = "ernie-5.0"
+            configuration.generationModel = "ernie-4.5-turbo-32k"
         case .stepFun:
             configuration.displayName = "StepFun"
             configuration.baseURL = "https://api.stepfun.com/v1"
             configuration.apiStyle = .chatCompletions
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .bearer
-            configuration.generationModel = "step-3.5-flash"
+            configuration.generationModel = "step-3.5-flash-2603"
         case .siliconFlow:
             configuration.displayName = "SiliconFlow"
             configuration.baseURL = "https://api.siliconflow.cn/v1"

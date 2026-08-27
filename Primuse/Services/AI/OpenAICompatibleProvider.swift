@@ -269,6 +269,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                     ["role": "system", "content": Self.semanticSearchInstructions],
                     ["role": "user", "content": prompt],
                 ],
+                "max_tokens": 320,
             ]
         case .anthropicMessages:
             body = [
@@ -714,25 +715,264 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         guard let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
             configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        ), baseURL.host?.lowercased() == "api.deepseek.com" else {
+        ), let host = baseURL.host?.lowercased() else {
             return body
         }
 
-        // Primuse generation calls require a compact final JSON object and do
-        // not consume chain-of-thought. DeepSeek V4 enables thinking by
-        // default, which can exhaust the bounded output budget before content
-        // is emitted, so official DeepSeek endpoints explicitly request the
-        // documented non-thinking mode for these structured operations.
         var controlledBody = body
-        switch configuration.apiStyle {
-        case .chatCompletions:
+        let model = configuration.generationModel
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        func setMinimumOutputTokens(_ minimum: Int) {
+            switch configuration.apiStyle {
+            case .responses:
+                let current = controlledBody["max_output_tokens"] as? Int ?? 0
+                controlledBody["max_output_tokens"] = max(current, minimum)
+            case .chatCompletions, .anthropicMessages:
+                let current = controlledBody["max_tokens"] as? Int ?? 0
+                controlledBody["max_tokens"] = max(current, minimum)
+            case .geminiGenerateContent:
+                var generationConfig = controlledBody["generationConfig"] as? [String: Any] ?? [:]
+                let current = generationConfig["maxOutputTokens"] as? Int ?? 0
+                generationConfig["maxOutputTokens"] = max(current, minimum)
+                controlledBody["generationConfig"] = generationConfig
+            }
+        }
+
+        func disableThinking() {
             controlledBody["thinking"] = ["type": "disabled"]
-        case .responses, .anthropicMessages:
-            controlledBody["reasoning"] = ["effort": "none"]
-        case .geminiGenerateContent:
+        }
+
+        func setChatReasoningEffort(_ effort: String) {
+            controlledBody["reasoning_effort"] = effort
+        }
+
+        func useMaximumCompletionTokens() {
+            guard let legacyValue = controlledBody.removeValue(forKey: "max_tokens") as? Int else {
+                return
+            }
+            let current = controlledBody["max_completion_tokens"] as? Int ?? 0
+            controlledBody["max_completion_tokens"] = max(current, legacyValue)
+        }
+
+        switch host {
+        case "api.deepseek.com":
+            switch configuration.apiStyle {
+            case .chatCompletions:
+                disableThinking()
+            case .responses, .anthropicMessages:
+                controlledBody["reasoning"] = ["effort": "none"]
+            case .geminiGenerateContent:
+                break
+            }
+
+        case "api.openai.com":
+            if configuration.apiStyle == .responses,
+               Self.supportsDisabledOpenAIReasoning(model: model) {
+                controlledBody["reasoning"] = ["effort": "none"]
+            }
+
+        case "generativelanguage.googleapis.com":
+            guard configuration.apiStyle == .geminiGenerateContent else { break }
+            var generationConfig = controlledBody["generationConfig"] as? [String: Any] ?? [:]
+            if model.contains("gemini-3") {
+                generationConfig["thinkingConfig"] = ["thinkingLevel": "low"]
+                controlledBody["generationConfig"] = generationConfig
+                setMinimumOutputTokens(4_000)
+            } else if model.contains("gemini-2.5-flash") {
+                generationConfig["thinkingConfig"] = ["thinkingBudget": 0]
+                controlledBody["generationConfig"] = generationConfig
+            } else if model.contains("gemini-2.5-pro") {
+                generationConfig["thinkingConfig"] = ["thinkingBudget": 128]
+                controlledBody["generationConfig"] = generationConfig
+                setMinimumOutputTokens(4_000)
+            }
+
+        case "dashscope.aliyuncs.com":
+            if configuration.apiStyle == .chatCompletions,
+               Self.isOptionalThinkingQwen(model: model) {
+                controlledBody["enable_thinking"] = false
+            }
+
+        case "open.bigmodel.cn":
+            if configuration.apiStyle == .chatCompletions,
+               model.contains("glm-") {
+                disableThinking()
+            }
+
+        case "api.xiaomimimo.com":
+            if configuration.apiStyle == .chatCompletions,
+               model.contains("mimo-") {
+                disableThinking()
+                useMaximumCompletionTokens()
+            }
+
+        case "api.moonshot.cn":
+            guard configuration.apiStyle == .chatCompletions else { break }
+            if model.contains("kimi-k3") {
+                setChatReasoningEffort("low")
+                setMinimumOutputTokens(16_000)
+            } else if model.contains("kimi-k2.7-code") {
+                setMinimumOutputTokens(16_000)
+            } else if model.contains("kimi-k2.5") || model.contains("kimi-k2.6") {
+                disableThinking()
+            }
+
+        case "api.minimaxi.com":
+            if configuration.apiStyle == .chatCompletions {
+                if model.contains("minimax-m3") {
+                    disableThinking()
+                } else if model.contains("minimax-m2") {
+                    controlledBody["reasoning_split"] = true
+                    setMinimumOutputTokens(65_536)
+                }
+                useMaximumCompletionTokens()
+            }
+
+        case "ark.cn-beijing.volces.com":
+            if configuration.apiStyle == .responses {
+                disableThinking()
+            }
+
+        case "tokenhub.tencentmaas.com":
+            switch configuration.apiStyle {
+            case .chatCompletions, .anthropicMessages:
+                disableThinking()
+            case .responses:
+                controlledBody["reasoning"] = ["effort": "none"]
+            case .geminiGenerateContent:
+                break
+            }
+
+        case "qianfan.baidubce.com":
+            guard configuration.apiStyle == .chatCompletions else { break }
+            if Self.qianfanUsesThinkingObject(model: model) {
+                disableThinking()
+            } else if Self.qianfanUsesEnableThinkingFlag(model: model) {
+                controlledBody["enable_thinking"] = false
+            }
+
+        case "api.stepfun.com":
+            if configuration.apiStyle == .chatCompletions,
+               model.contains("step-3.5-flash") {
+                if model.contains("2603") {
+                    setChatReasoningEffort("low")
+                }
+                setMinimumOutputTokens(4_000)
+            }
+
+        case "api.siliconflow.cn":
+            if configuration.apiStyle == .chatCompletions,
+               Self.isOptionalThinkingQwen(model: model) {
+                controlledBody["enable_thinking"] = false
+            }
+
+        case "openrouter.ai":
+            guard configuration.apiStyle == .chatCompletions,
+                  model != "openrouter/auto" else { break }
+            if Self.isMandatoryLowEffortModel(model: model) {
+                controlledBody["reasoning"] = ["effort": "low"]
+                setMinimumOutputTokens(4_000)
+            } else if Self.supportsDisabledOpenAIReasoning(model: model)
+                        || Self.isOptionalThinkingQwen(model: model) {
+                controlledBody["reasoning"] = ["effort": "none"]
+            }
+
+        case "integrate.api.nvidia.com":
+            if configuration.apiStyle == .chatCompletions,
+               model.contains("nemotron-3-super") {
+                var templateArguments = controlledBody["chat_template_kwargs"] as? [String: Any] ?? [:]
+                templateArguments["enable_thinking"] = false
+                controlledBody["chat_template_kwargs"] = templateArguments
+            }
+
+        case "api.x.ai":
+            if configuration.apiStyle == .chatCompletions,
+               model.contains("grok-4") {
+                setChatReasoningEffort("low")
+                setMinimumOutputTokens(4_000)
+            }
+
+        case "api.mistral.ai":
+            if configuration.apiStyle == .chatCompletions,
+               model.contains("mistral-") {
+                setChatReasoningEffort("none")
+            }
+
+        case "api.groq.com":
+            guard configuration.apiStyle == .chatCompletions else { break }
+            if model.contains("gpt-oss") {
+                setChatReasoningEffort("low")
+                setMinimumOutputTokens(4_000)
+            } else if model.contains("qwen3.6") {
+                setChatReasoningEffort("none")
+            }
+            useMaximumCompletionTokens()
+
+        case "api.together.ai":
+            guard configuration.apiStyle == .chatCompletions else { break }
+            if model.contains("gpt-oss") {
+                setChatReasoningEffort("low")
+                setMinimumOutputTokens(4_000)
+            } else if Self.isOptionalThinkingQwen(model: model) {
+                controlledBody["reasoning"] = ["enabled": false]
+            }
+
+        case "api.fireworks.ai":
+            guard configuration.apiStyle == .chatCompletions else { break }
+            if model.contains("gpt-oss") {
+                setChatReasoningEffort("low")
+                setMinimumOutputTokens(4_000)
+            } else if model.contains("glm-") {
+                setChatReasoningEffort("none")
+            }
+
+        default:
             break
         }
         return controlledBody
+    }
+
+    private static func supportsDisabledOpenAIReasoning(model: String) -> Bool {
+        guard !model.contains("pro") else { return false }
+        return ["gpt-5.1", "gpt-5.2", "gpt-5.3", "gpt-5.4", "gpt-5.5", "gpt-5.6"]
+            .contains { model.contains($0) }
+    }
+
+    private static func isOptionalThinkingQwen(model: String) -> Bool {
+        let isQwen3 = model.contains("qwen3") || model.contains("qwen-3")
+        let isCommercialAlias = model == "qwen-plus"
+            || model.hasPrefix("qwen-plus-")
+            || model == "qwen-flash"
+            || model.hasPrefix("qwen-flash-")
+        return (isQwen3 || isCommercialAlias)
+            && !model.contains("instruct")
+            && !model.contains("thinking")
+            && !model.contains("qwq")
+    }
+
+    private static func qianfanUsesThinkingObject(model: String) -> Bool {
+        model.contains("deepseek-v4")
+            || model.contains("deepseek-v3.2")
+            || model.contains("kimi-k2.5")
+            || model == "glm-5"
+            || model.hasPrefix("glm-5-")
+            || model == "glm-5.1"
+            || model.hasPrefix("glm-5.1-")
+    }
+
+    private static func qianfanUsesEnableThinkingFlag(model: String) -> Bool {
+        model == "ernie-5.0-thinking-preview"
+            || model.hasPrefix("ernie-4.5-vl-28b-a3b")
+            || model.hasPrefix("qwen3-")
+    }
+
+    private static func isMandatoryLowEffortModel(model: String) -> Bool {
+        model.contains("gpt-oss")
+            || model.contains("grok-4")
+            || model.contains("gemini-3")
+            || model.contains("kimi-k3")
     }
 
     private func postJSON(
