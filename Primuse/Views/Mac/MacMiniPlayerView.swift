@@ -31,7 +31,7 @@ struct MacMiniPlayerView: View {
     @State private var preferences = MacUIPreferences.shared
 
     private var lyricsWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+        LyricWritingDirectionPolicy.resolve(in: lyrics)
     }
 
     private var lyricLayoutDirection: LayoutDirection {

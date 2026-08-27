@@ -64,6 +64,59 @@ struct LyricWritingDirectionPolicyTests {
         #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .natural)
         #expect(lines.map(\.timestamp) == [1, 2])
     }
+
+    @Test("Untagged lyrics infer common RTL scripts from their text")
+    func untaggedRightToLeftScripts() {
+        let samples = [
+            "این یک ترانه فارسی است", // Persian / Arabic script
+            "זהו שיר בעברית", // Hebrew
+            "ܗܢܐ ܙܡܪܐ ܣܘܪܝܝܐ", // Syriac
+            "މިއީ ދިވެހި ލަވައެކެވެ", // Dhivehi / Thaana
+            "ߒߞߏ ߘߐ߫ ߞߊ߬ߟߊ߲", // NKo
+            "𞤀𞤁𞤂𞤃", // Adlam
+            "𐴀𐴁𐴂𐴃", // Hanifi Rohingya
+        ]
+
+        for text in samples {
+            let lines = [LyricLine(timestamp: 0, text: text, isSynchronized: false)]
+            #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .rightToLeft)
+        }
+    }
+
+    @Test("Numbers, punctuation, and a short Latin title do not hide RTL lyrics")
+    func neutralAndEmbeddedTextDoNotHideRightToLeftLyrics() {
+        let lines = [
+            LyricLine(timestamp: 0, text: "Soghati 2026", isSynchronized: false),
+            LyricLine(timestamp: 1, text: "وقتی میای صدای پات", isSynchronized: true),
+            LyricLine(timestamp: 2, text: "از همه جاده ها میاد", isSynchronized: true),
+        ]
+
+        #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .rightToLeft)
+    }
+
+    @Test("An explicit valid language header overrides content inference")
+    func metadataOverridesContentInference() {
+        let lines = [
+            LyricLine(
+                timestamp: 0,
+                text: "این متن با جهت صریح نمایش داده می شود",
+                isSynchronized: false,
+                metadataLines: ["[la:fa-Latn]"]
+            )
+        ]
+
+        #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .leftToRight)
+    }
+
+    @Test("A small embedded RTL phrase does not flip an LTR document")
+    func incidentalRightToLeftTextRemainsNatural() {
+        let lines = [
+            LyricLine(timestamp: 0, text: "Hello world سلام", isSynchronized: false),
+            LyricLine(timestamp: 1, text: "This remains an English song", isSynchronized: true),
+        ]
+
+        #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .natural)
+    }
 }
 
 @Suite("Lyric flow placement")

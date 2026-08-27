@@ -89,7 +89,7 @@ struct MacNowPlayingView: View {
     private static let manualLyricsScrollGracePeriod: TimeInterval = 6
 
     private var lyricsWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+        LyricWritingDirectionPolicy.resolve(in: lyrics)
     }
 
     private var lyricLayoutDirection: LayoutDirection {

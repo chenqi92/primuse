@@ -20,7 +20,7 @@ struct KaraokeLineView: View {
     let activeStyle: AnyShapeStyle
     let inactiveColor: Color
     let textAlignment: TextAlignment
-    /// Presentation direction resolved from the document's `[la:...]` header.
+    /// Presentation direction resolved from document metadata or lyric text.
     /// This only mirrors the lyric subtree; syllable storage and timestamps
     /// remain in their original order.
     let writingDirection: LyricWritingDirection

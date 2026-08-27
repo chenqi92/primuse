@@ -30,7 +30,7 @@ struct ExternalDisplayNowPlayingView: View {
     private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
     private var lyricsWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+        LyricWritingDirectionPolicy.resolve(in: lyrics)
     }
 
     private var lyricLayoutDirection: LayoutDirection {

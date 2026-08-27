@@ -16,8 +16,7 @@ public struct LyricSyllable: Codable, Hashable, Sendable {
 }
 
 /// The base writing direction of one lyrics document. `natural` deliberately
-/// leaves mixed-language and untagged lyrics to the platform's Unicode bidi
-/// handling instead of guessing from a single line.
+/// leaves mixed-language lyrics to the platform's Unicode bidi handling.
 public enum LyricWritingDirection: String, Codable, Hashable, Sendable {
     case natural
     case leftToRight
@@ -26,8 +25,9 @@ public enum LyricWritingDirection: String, Codable, Hashable, Sendable {
     public var isRightToLeft: Bool { self == .rightToLeft }
 }
 
-/// Resolves the LRC/ELRC `[la:...]` header into a presentation-only writing
-/// direction. The result never changes lyric storage order or timing data.
+/// Resolves a presentation-only writing direction from an LRC/ELRC `[la:...]`
+/// header or, when the header is absent, from strongly dominant RTL text. The
+/// result never changes lyric storage order or timing data.
 public enum LyricWritingDirectionPolicy {
     /// Script identifiers Foundation can actually resolve on this OS. This
     /// prevents an arbitrary four-letter subtag from being mistaken for a
@@ -64,13 +64,40 @@ public enum LyricWritingDirectionPolicy {
         "nqo", "ps", "sd", "syr", "ug", "ur", "yi"
     ]
 
+    /// Modern RTL script blocks used by song lyrics. Alphabetic filtering
+    /// keeps punctuation and Arabic/Hebrew number forms neutral, matching the
+    /// Unicode bidi model's strong-character distinction.
+    private static let rightToLeftLetterRanges: [ClosedRange<UInt32>] = [
+        0x0590...0x05FF, // Hebrew
+        0x0600...0x06FF, // Arabic
+        0x0700...0x074F, // Syriac
+        0x0750...0x077F, // Arabic Supplement
+        0x0780...0x07BF, // Thaana
+        0x07C0...0x07FF, // NKo
+        0x0800...0x083F, // Samaritan
+        0x0840...0x085F, // Mandaic
+        0x0860...0x086F, // Syriac Supplement
+        0x0870...0x089F, // Arabic Extended-B
+        0x08A0...0x08FF, // Arabic Extended-A
+        0xFB1D...0xFB4F, // Hebrew Presentation Forms
+        0xFB50...0xFDFF, // Arabic Presentation Forms-A
+        0xFE70...0xFEFF, // Arabic Presentation Forms-B
+        0x10D00...0x10D8F, // Hanifi Rohingya and Garay
+        0x10E80...0x10EFF, // Yezidi and Arabic Extended-C
+        0x1E800...0x1E95F, // Mende Kikakui and Adlam
+        0x1EE00...0x1EEFF, // Arabic Mathematical Alphabetic Symbols
+    ]
+
+    private static let maximumInferredLetterCount = 512
+    private static let minimumRightToLeftLetterCount = 2
+
     public static func resolve(in lines: [LyricLine]) -> LyricWritingDirection {
         for line in lines {
             guard let metadataLines = line.metadataLines,
                   let direction = resolveMetadata(metadataLines) else { continue }
             return direction
         }
-        return .natural
+        return inferDirection(in: lines)
     }
 
     public static func resolve(metadataLines: [String]) -> LyricWritingDirection {
@@ -122,6 +149,71 @@ public enum LyricWritingDirectionPolicy {
             if direction != .natural { return direction }
         }
         return nil
+    }
+
+    private static func inferDirection(in lines: [LyricLine]) -> LyricWritingDirection {
+        var rightToLeftCount = 0
+        var otherLetterCount = 0
+
+        for line in lines {
+            countDirectionalLetters(
+                in: line,
+                rightToLeftCount: &rightToLeftCount,
+                otherLetterCount: &otherLetterCount
+            )
+            if rightToLeftCount + otherLetterCount >= maximumInferredLetterCount {
+                break
+            }
+        }
+
+        let totalCount = rightToLeftCount + otherLetterCount
+        guard rightToLeftCount >= minimumRightToLeftLetterCount,
+              rightToLeftCount * 5 >= totalCount * 3 else {
+            return .natural
+        }
+        return .rightToLeft
+    }
+
+    private static func countDirectionalLetters(
+        in line: LyricLine,
+        rightToLeftCount: inout Int,
+        otherLetterCount: inout Int
+    ) {
+        countDirectionalLetters(
+            in: line.text,
+            rightToLeftCount: &rightToLeftCount,
+            otherLetterCount: &otherLetterCount
+        )
+        guard rightToLeftCount + otherLetterCount < maximumInferredLetterCount else {
+            return
+        }
+        for backgroundLine in line.background ?? [] {
+            countDirectionalLetters(
+                in: backgroundLine,
+                rightToLeftCount: &rightToLeftCount,
+                otherLetterCount: &otherLetterCount
+            )
+            if rightToLeftCount + otherLetterCount >= maximumInferredLetterCount {
+                return
+            }
+        }
+    }
+
+    private static func countDirectionalLetters(
+        in text: String,
+        rightToLeftCount: inout Int,
+        otherLetterCount: inout Int
+    ) {
+        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
+            if rightToLeftLetterRanges.contains(where: { $0.contains(scalar.value) }) {
+                rightToLeftCount += 1
+            } else {
+                otherLetterCount += 1
+            }
+            if rightToLeftCount + otherLetterCount >= maximumInferredLetterCount {
+                return
+            }
+        }
     }
 
     private static func normalizedLanguageTag(_ value: String?) -> String? {

@@ -203,9 +203,7 @@ struct ImmersivePlayerView: View {
             lyricWindow: lyricWindow,
             currentLyric: currentLyricText,
             nextLyric: nextLyricText,
-            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(
-                metadataLines: lyrics.first?.metadataLines ?? []
-            ),
+            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: lyrics),
             levels: spectrumLevels,
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in

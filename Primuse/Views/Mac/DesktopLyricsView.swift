@@ -60,7 +60,7 @@ struct DesktopLyricsView: View {
     }
 
     private var lyricsWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolve(metadataLines: lyrics.first?.metadataLines ?? [])
+        LyricWritingDirectionPolicy.resolve(in: lyrics)
     }
 
     private var lyricLayoutDirection: LayoutDirection {
