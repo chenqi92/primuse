@@ -62,7 +62,12 @@ struct AlbumDetailView: View {
             VStack(spacing: 20) {
                 // Album header
                 VStack(spacing: 12) {
-                    AlbumArtworkView(album: album, size: 220, cornerRadius: 14)
+                    AlbumArtworkView(
+                        album: album,
+                        size: 220,
+                        cornerRadius: 14,
+                        presentationRole: .animatedHero
+                    )
 
                     Text(album.title)
                         .font(.title2)

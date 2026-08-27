@@ -211,7 +211,6 @@ actor SynologyScanner {
         let items = try await api.listDirectory(path: path)
 
         // Build filename lookup tables for sidecar detection.
-        let allNames = Set(items.map(\.name))
         let nameByLowercase = Dictionary(
             items.map { ($0.name.lowercased(), $0.name) },
             uniquingKeysWith: { first, _ in first }
@@ -222,14 +221,14 @@ actor SynologyScanner {
         // Detect folder-level cover sidecar (e.g., cover.jpg in this directory).
         // A broad library root like /music/cover.jpg should not become every
         // flat-folder song's cover.
-        let coverExts = ["jpg", "jpeg", "png", "webp"]
+        let coverExts = PrimuseConstants.supportedCoverExtensions
         var folderCoverPath: String?
         if !Self.isGenericMusicDirectory(path) {
             outer: for name in coverNames {
                 for ext in coverExts {
                     let fileName = "\(name).\(ext)"
-                    if allNames.contains(fileName) {
-                        folderCoverPath = (path as NSString).appendingPathComponent(fileName)
+                    if let actualName = nameByLowercase[fileName.lowercased()] {
+                        folderCoverPath = (path as NSString).appendingPathComponent(actualName)
                         break outer
                     }
                 }
@@ -246,7 +245,7 @@ actor SynologyScanner {
                 if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
                     scanStandaloneVideo(
                         item: item, ext: ext,
-                        allNames: allNames, nameByLowercase: nameByLowercase,
+                        nameByLowercase: nameByLowercase,
                         folderCoverPath: folderCoverPath,
                         allSongs: &allSongs, count: &count, totalCount: totalCount,
                         existingByPath: existingByPath,
@@ -296,17 +295,17 @@ actor SynologyScanner {
 
                 // Cover sidecar: song.jpg → song-cover.jpg → folder-level cover.jpg
                 var coverRef: String?
-                for coverExt in ["jpg", "jpeg", "png", "webp"] {
+                for coverExt in PrimuseConstants.supportedCoverExtensions {
                     // Priority 1: same-name (song.jpg)
                     let songCover = baseName + ".\(coverExt)"
-                    if allNames.contains(songCover) {
-                        coverRef = (parentDir as NSString).appendingPathComponent(songCover)
+                    if let actualName = nameByLowercase[songCover.lowercased()] {
+                        coverRef = (parentDir as NSString).appendingPathComponent(actualName)
                         break
                     }
                     // Priority 2: name-cover pattern (song-cover.jpg)
                     let nameCover = baseName + "-cover.\(coverExt)"
-                    if allNames.contains(nameCover) {
-                        coverRef = (parentDir as NSString).appendingPathComponent(nameCover)
+                    if let actualName = nameByLowercase[nameCover.lowercased()] {
+                        coverRef = (parentDir as NSString).appendingPathComponent(actualName)
                         break
                     }
                 }
@@ -558,7 +557,7 @@ actor SynologyScanner {
     /// AVPlayer 回填。
     private func scanStandaloneVideo(
         item: SynologyAPI.FileItem, ext: String,
-        allNames: Set<String>, nameByLowercase: [String: String],
+        nameByLowercase: [String: String],
         folderCoverPath: String?,
         allSongs: inout [Song], count: inout Int, totalCount: Int,
         existingByPath: [String: Int],
@@ -578,15 +577,15 @@ actor SynologyScanner {
         encounteredSongIDs.insert(generateID(sourceID: sourceID, path: item.path))
 
         var coverRef: String?
-        for coverExt in ["jpg", "jpeg", "png", "webp"] {
+        for coverExt in PrimuseConstants.supportedCoverExtensions {
             let songCover = baseName + ".\(coverExt)"
-            if allNames.contains(songCover) {
-                coverRef = (parentDir as NSString).appendingPathComponent(songCover)
+            if let actualName = nameByLowercase[songCover.lowercased()] {
+                coverRef = (parentDir as NSString).appendingPathComponent(actualName)
                 break
             }
             let nameCover = baseName + "-cover.\(coverExt)"
-            if allNames.contains(nameCover) {
-                coverRef = (parentDir as NSString).appendingPathComponent(nameCover)
+            if let actualName = nameByLowercase[nameCover.lowercased()] {
+                coverRef = (parentDir as NSString).appendingPathComponent(actualName)
                 break
             }
         }

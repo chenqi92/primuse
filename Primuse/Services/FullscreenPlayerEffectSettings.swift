@@ -3,6 +3,10 @@ import PrimuseKit
 import SwiftUI
 
 enum PlayerAppearancePreferences {
+    static let animatedArtworkEnabledKey = "primuse.player.animatedArtworkEnabled"
+    static let animatedArtworkEnabledByDefault = true
+    static let animatedArtworkUnmeteredOnlyKey = "primuse.player.animatedArtworkUnmeteredOnly"
+    static let animatedArtworkUnmeteredOnlyByDefault = true
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
     static let lyricsAlignmentKey = "primuse.player.lyricsAlignment"

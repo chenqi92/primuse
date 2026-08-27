@@ -249,6 +249,11 @@ enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {
     }
 }
 
+enum ArtworkFetchPurpose: Sendable {
+    case thumbnail
+    case originalAnimation
+}
+
 protocol MusicSourceConnector: Sendable {
     var sourceID: String { get }
     var supportsSidecarWriting: Bool { get }
@@ -268,11 +273,20 @@ protocol MusicSourceConnector: Sendable {
     /// Used by CachedArtworkView to load covers without downloading to local cache.
     func imageURL(for path: String) async throws -> URL?
 
+    /// Returns an unmodified source artwork URL when the source exposes one.
+    /// A nil result deliberately falls back to `imageURL(for:)`; connectors
+    /// whose thumbnail endpoint transforms images should override this.
+    func originalArtworkURL(for path: String) async throws -> URL?
+
     /// Resolves and downloads one bounded artwork object inside the connector
     /// operation. Adaptive wrappers can therefore observe a failed image request
     /// and retry it on the alternate route instead of returning a stale LAN URL
     /// that fails later outside the router.
-    func fetchArtworkData(for reference: String, maximumBytes: Int) async throws -> Data?
+    func fetchArtworkData(
+        for reference: String,
+        maximumBytes: Int,
+        purpose: ArtworkFetchPurpose
+    ) async throws -> Data?
 
     /// Write data to a remote path. Used by sidecar file writing (cover art, lyrics).
     func writeFile(data: Data, to path: String) async throws
@@ -405,11 +419,26 @@ extension MusicSourceConnector {
         try await streamingURL(for: path)
     }
 
-    func fetchArtworkData(for reference: String, maximumBytes: Int) async throws -> Data? {
+    func originalArtworkURL(for path: String) async throws -> URL? { nil }
+
+    func fetchArtworkData(
+        for reference: String,
+        maximumBytes: Int,
+        purpose: ArtworkFetchPurpose
+    ) async throws -> Data? {
         guard maximumBytes > 0 else { return nil }
 
         let data: Data
-        if let url = try await imageURL(for: reference) {
+        let originalURL = purpose == .originalAnimation
+            ? try await originalArtworkURL(for: reference)
+            : nil
+        let resolvedURL: URL?
+        if let originalURL {
+            resolvedURL = originalURL
+        } else {
+            resolvedURL = try await imageURL(for: reference)
+        }
+        if let url = resolvedURL {
             if url.isFileURL {
                 let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
                 guard values.isRegularFile == true,

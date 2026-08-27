@@ -2880,6 +2880,10 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量列";
 "player_volume_bar_description" = "在播放器中顯示音量列。隱藏後，其他控制項會自然填滿空出的空間。";
+"player_animated_artwork" = "動態專輯封面";
+"player_animated_artwork_description" = "在專輯詳細資訊和播放器主封面中播放來源提供的 GIF、APNG 與動態 WebP。列表一律顯示靜態首格，並遵循系統動態效果與電量設定。";
+"player_animated_artwork_unmetered_only" = "僅透過 Wi-Fi 下載原始封面";
+"player_animated_artwork_unmetered_only_description" = "僅在 Wi-Fi 或有線網路下載來源原始動態封面；已快取的動畫可離線播放。";
 "player_lyrics_section" = "歌詞";
 "player_lyrics_alignment" = "歌詞對齊";
 "player_lyrics_alignment_left" = "靠左對齊";

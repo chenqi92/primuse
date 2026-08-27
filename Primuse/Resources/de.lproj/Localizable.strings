@@ -2903,6 +2903,10 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Lautstärkeregler";
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
+"player_animated_artwork" = "Dynamisches Cover";
+"player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";
+"player_animated_artwork_unmetered_only" = "Originalcover nur über WLAN";
+"player_animated_artwork_unmetered_only_description" = "Lädt dynamische Originalcover nur über WLAN oder Ethernet. Bereits zwischengespeicherte Animationen bleiben offline verfügbar.";
 "player_lyrics_section" = "Liedtext";
 "player_lyrics_alignment" = "Liedtextausrichtung";
 "player_lyrics_alignment_left" = "Links";

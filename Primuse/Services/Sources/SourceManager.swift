@@ -758,11 +758,20 @@ private extension RoutedConnectorProxy {
         try await routing.withRead { try await $0.imageURL(for: path) }
     }
 
-    func fetchArtworkData(for reference: String, maximumBytes: Int) async throws -> Data? {
+    func originalArtworkURL(for path: String) async throws -> URL? {
+        try await routing.withRead { try await $0.originalArtworkURL(for: path) }
+    }
+
+    func fetchArtworkData(
+        for reference: String,
+        maximumBytes: Int,
+        purpose: ArtworkFetchPurpose
+    ) async throws -> Data? {
         try await routing.withRead {
             try await $0.fetchArtworkData(
                 for: reference,
-                maximumBytes: maximumBytes
+                maximumBytes: maximumBytes,
+                purpose: purpose
             )
         }
     }
@@ -5629,7 +5638,8 @@ final class SourceManager {
     func artworkData(
         for reference: String,
         sourceID: String,
-        maximumBytes: Int
+        maximumBytes: Int,
+        purpose: ArtworkFetchPurpose = .thumbnail
     ) async -> Data? {
         guard maximumBytes > 0,
               let sources = try? await sourcesProvider(),
@@ -5640,7 +5650,8 @@ final class SourceManager {
         do {
             return try await conn.fetchArtworkData(
                 for: reference,
-                maximumBytes: maximumBytes
+                maximumBytes: maximumBytes,
+                purpose: purpose
             )
         } catch {
             return nil

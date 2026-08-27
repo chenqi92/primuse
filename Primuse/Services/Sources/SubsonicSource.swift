@@ -1027,6 +1027,38 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return nil
     }
 
+    /// OpenSubsonic's optional `size` query may resize or transcode artwork.
+    /// Dynamic hero artwork therefore requests the source object without that
+    /// parameter, while ordinary list/grid loads keep using the bounded 480px
+    /// thumbnail above.
+    func originalArtworkURL(for path: String) async throws -> URL? {
+        let coverArtID: String?
+        if path.hasPrefix(Self.coverRefPrefix) {
+            coverArtID = String(path.dropFirst(Self.coverRefPrefix.count))
+        } else if let legacyURL = URL(string: path),
+                  legacyURL.scheme != nil,
+                  legacyURL.path.lowercased().contains("/rest/getcoverart") {
+            coverArtID = URLComponents(
+                url: legacyURL,
+                resolvingAgainstBaseURL: false
+            )?.queryItems?.first(where: {
+                $0.name.caseInsensitiveCompare("id") == .orderedSame
+            })?.value
+        } else {
+            coverArtID = nil
+        }
+
+        if let coverArtID, !coverArtID.isEmpty {
+            try await connect()
+            return buildRESTURL(
+                method: "getCoverArt",
+                query: [URLQueryItem(name: "id", value: coverArtID)]
+            )
+        }
+        if path.contains("://") { return URL(string: path) }
+        return nil
+    }
+
     // MARK: - HTTP / JSON plumbing
 
     private func requestJSON<C: SubsonicResponseContainer>(_ method: String, query: [URLQueryItem] = []) async throws -> C {

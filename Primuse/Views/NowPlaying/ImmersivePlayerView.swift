@@ -244,6 +244,10 @@ struct ImmersivePlayerView: View {
                         sourceID: song.sourceID,
                         filePath: song.filePath,
                         fileFormat: song.fileFormat,
+                        presentationRole: .animatedHero,
+                        animationRequiresPlayback: true,
+                        isPlaying: player.isPlaying,
+                        isAnimationVisible: isSceneActive && !showsEffectPicker,
                         revisionToken: player.coverRevision,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )

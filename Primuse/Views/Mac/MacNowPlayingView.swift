@@ -489,7 +489,11 @@ struct MacNowPlayingView: View {
                         cornerRadius: coverRadius,
                         sourceID: song.sourceID,
                         filePath: song.filePath,
-                        fileFormat: song.fileFormat
+                        fileFormat: song.fileFormat,
+                        presentationRole: .animatedHero,
+                        animationRequiresPlayback: true,
+                        isPlaying: player.isPlaying,
+                        isAnimationVisible: !showsImmersiveStage
                     )
                     .aspectRatio(1, contentMode: .fit)
                     .frame(width: coverSize, height: coverSize)

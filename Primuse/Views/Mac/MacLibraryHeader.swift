@@ -145,7 +145,8 @@ struct MacLibraryHeader: View {
             AlbumArtworkView(
                 album: album,
                 size: 160,
-                cornerRadius: PMRadius.l
+                cornerRadius: PMRadius.l,
+                presentationRole: .animatedHero
             )
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         } else if let artist = coverArtist {

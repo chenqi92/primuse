@@ -40,6 +40,8 @@ struct TVSettingsView: View {
     private var immersiveEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
+    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAISettings = false
@@ -109,6 +111,12 @@ struct TVSettingsView: View {
                             navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
                                    immersiveEffect.localizedTitle,
                                    action: { showsEffectPicker = true })
+                            settingDivider
+                            toggleRow(
+                                "photo.stack.fill",
+                                PMString("player_animated_artwork"),
+                                isOn: $animatedArtworkEnabled
+                            )
                             settingDivider
                             navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                             settingDivider

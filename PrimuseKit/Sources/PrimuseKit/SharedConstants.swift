@@ -1350,7 +1350,7 @@ public enum PrimuseConstants {
     public static let defaultCacheSizeBytes: Int64 = 2 * 1024 * 1024 * 1024 // 2 GB
     public static let smallFileThreshold: Int64 = 50 * 1024 * 1024 // 50 MB
 
-    public static let supportedCoverExtensions = ["jpg", "jpeg", "png", "webp"]
+    public static let supportedCoverExtensions = ["jpg", "jpeg", "png", "apng", "webp", "gif"]
     public static let supportedLyricsExtensions = ["lrc", "ttml"]
     public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
     public static let supportedStreamDescriptorExtensions: Set<String> = ["strm"]

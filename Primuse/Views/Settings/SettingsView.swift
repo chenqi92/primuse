@@ -276,6 +276,10 @@ struct SettingsView: View {
 
 #if os(iOS)
 private struct PlayerAppearanceSettingsView: View {
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
+    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
+    private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
@@ -360,6 +364,20 @@ private struct PlayerAppearanceSettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
+                Toggle(
+                    "player_animated_artwork_unmetered_only",
+                    isOn: $animatedArtworkUnmeteredOnly
+                )
+                .disabled(!animatedArtworkEnabled)
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("player_animated_artwork_description")
+                    Text("player_animated_artwork_unmetered_only_description")
+                }
+            }
+
             Section {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
             } footer: {

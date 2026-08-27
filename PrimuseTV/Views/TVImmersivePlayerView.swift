@@ -252,6 +252,10 @@ struct TVImmersivePlayerView: View {
                         glyph: np.glyph,
                         size: side,
                         radius: 0,
+                        presentationRole: .animatedHero,
+                        animationRequiresPlayback: true,
+                        isPlaying: store.isPlaying,
+                        isAnimationVisible: !showsModePicker && !showsQueue,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .opacity(hasResolvedArtwork ? 1 : 0)

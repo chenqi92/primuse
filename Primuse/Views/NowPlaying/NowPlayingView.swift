@@ -2043,6 +2043,10 @@ struct NowPlayingView: View {
                 sourceID: player.currentSong?.sourceID,
                 filePath: player.currentSong?.filePath,
                 fileFormat: player.currentSong?.fileFormat,
+                presentationRole: .animatedHero,
+                animationRequiresPlayback: true,
+                isPlaying: player.isPlaying,
+                isAnimationVisible: !showQueue && !isFullscreenPlayerPresented,
                 revisionToken: player.coverRevision
             )
         }

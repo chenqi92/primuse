@@ -335,6 +335,10 @@ struct AlbumArtworkView: View {
     var size: CGFloat? = nil
     var cornerRadius: CGFloat = 12
     var showsPlaceholder = true
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
+    var animationRequiresPlayback = false
+    var isPlaying = true
+    var isAnimationVisible = true
 
     @Environment(MusicLibrary.self) private var library
     @State private var uploadedImage: PlatformImage?
@@ -413,28 +417,13 @@ struct AlbumArtworkView: View {
                 )
             }
 
-            if let song = fallbackSong {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: side,
-                    cornerRadius: 0,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat,
-                    showsPlaceholder: false,
-                    revisionToken: library.artworkOverrideRevision
-                )
+            if presentationRole == .animatedHero {
+                cachedAlbumArtwork(side: side)
+                sourceFallbackArtwork(side: side)
+            } else {
+                sourceFallbackArtwork(side: side)
+                cachedAlbumArtwork(side: side)
             }
-
-            CachedArtworkView(
-                albumID: album.id,
-                albumTitle: album.title,
-                artistName: album.artistName,
-                size: side,
-                cornerRadius: cornerRadius,
-                showsPlaceholder: false
-            )
 
             if let uploadedImage, uploadedContentID != nil {
                 Image(platformImage: uploadedImage)
@@ -452,12 +441,48 @@ struct AlbumArtworkView: View {
                     filePath: song.filePath,
                     fileFormat: song.fileFormat,
                     showsPlaceholder: false,
+                    presentationRole: presentationRole,
+                    animationRequiresPlayback: animationRequiresPlayback,
+                    isPlaying: isPlaying,
+                    isAnimationVisible: isAnimationVisible,
                     revisionToken: library.artworkOverrideRevision
                 )
             }
         }
         .frame(width: side, height: side)
         .clipped()
+    }
+
+    @ViewBuilder
+    private func sourceFallbackArtwork(side: CGFloat) -> some View {
+        if let song = fallbackSong {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: side,
+                cornerRadius: 0,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat,
+                showsPlaceholder: false,
+                presentationRole: presentationRole,
+                animationRequiresPlayback: animationRequiresPlayback,
+                isPlaying: isPlaying,
+                isAnimationVisible: isAnimationVisible,
+                revisionToken: library.artworkOverrideRevision
+            )
+        }
+    }
+
+    private func cachedAlbumArtwork(side: CGFloat) -> some View {
+        CachedArtworkView(
+            albumID: album.id,
+            albumTitle: album.title,
+            artistName: album.artistName,
+            size: side,
+            cornerRadius: cornerRadius,
+            showsPlaceholder: false
+        )
     }
 }
 

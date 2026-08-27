@@ -4271,6 +4271,10 @@ private struct MacSTThemeView: View {
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
+    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
+    private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
 
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatches.map { swatch in
@@ -4378,6 +4382,19 @@ private struct MacSTThemeView: View {
 
         MacSTSection(String(localized: "player_appearance_title")) {
             MacSTGroup {
+                MacSTRow(
+                    String(localized: "player_animated_artwork"),
+                    hint: String(localized: "player_animated_artwork_description")
+                ) {
+                    MacSTToggle(isOn: $animatedArtworkEnabled)
+                }
+                MacSTRow(
+                    String(localized: "player_animated_artwork_unmetered_only"),
+                    hint: String(localized: "player_animated_artwork_unmetered_only_description")
+                ) {
+                    MacSTToggle(isOn: $animatedArtworkUnmeteredOnly)
+                        .disabled(!animatedArtworkEnabled)
+                }
                 MacSTRow(
                     String(localized: "player_volume_bar"),
                     hint: String(localized: "player_volume_bar_description"),

@@ -620,9 +620,16 @@ struct TVArtworkView: View {
     var size: CGFloat
     var height: CGFloat? = nil
     var radius: CGFloat = 0
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
+    var animationRequiresPlayback = false
+    var isPlaying = true
+    var isAnimationVisible = true
     var onResolutionChange: (Bool) -> Void = { _ in }
 
     @State private var image: UIImage? = nil
+    @State private var animatedArtworkData: Data? = nil
+    @State private var animatedArtworkDescriptor: ArtworkDescriptor? = nil
+    @State private var animatedArtworkContentKey: String? = nil
     @State private var loadedIdentity: String? = nil
     @State private var activeIdentity: String? = nil
     @State private var paletteAppliedIdentity: String? = nil
@@ -665,7 +672,22 @@ struct TVArtworkView: View {
         let h = height ?? size
         ZStack {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                if let animatedArtworkData, let animatedArtworkDescriptor {
+                    AnimatedArtworkDataView(
+                        data: animatedArtworkData,
+                        descriptor: animatedArtworkDescriptor,
+                        cacheKey: animatedArtworkContentKey ?? artworkIdentity,
+                        presentationRole: presentationRole,
+                        isVisible: isAnimationVisible,
+                        requiresPlayback: animationRequiresPlayback,
+                        isPlaying: isPlaying,
+                        maximumPixelSize: min(1_536, max(1, Int(max(size, h) * 2)))
+                    ) {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    }
+                } else {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
             } else {
                 TVMusicPlaceholder(
                     tint: tint,
@@ -689,6 +711,9 @@ struct TVArtworkView: View {
                 loadedIdentity = nil
                 paletteAppliedIdentity = nil
                 image = nil
+                animatedArtworkData = nil
+                animatedArtworkDescriptor = nil
+                animatedArtworkContentKey = nil
                 onResolutionChange(false)
                 return
             }
@@ -698,6 +723,9 @@ struct TVArtworkView: View {
             activeIdentity = identity
             paletteAppliedIdentity = nil
             image = nil
+            animatedArtworkData = nil
+            animatedArtworkDescriptor = nil
+            animatedArtworkContentKey = nil
 
             if let albumArtworkOverride {
                 switch albumArtworkOverride {
@@ -724,7 +752,8 @@ struct TVArtworkView: View {
             }
 
             let hasFnMusicCoverReference = FnMusicAPIProtocol.coverID(from: coverRef ?? "") != nil
-            if !coverKey.isEmpty, !hasFnMusicCoverReference {
+            if presentationRole != .animatedHero,
+               !coverKey.isEmpty, !hasFnMusicCoverReference {
                 // ① 优先使用已同步到本地的准确专辑封面。
                 if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: coverKey),
                    await accept(data, identity: identity, paletteKey: paletteKey) {
@@ -748,6 +777,12 @@ struct TVArtworkView: View {
                 ) {
                     return
                 }
+            }
+            if presentationRole == .animatedHero,
+               !coverKey.isEmpty, !hasFnMusicCoverReference,
+               let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: coverKey),
+               await accept(data, identity: identity, paletteKey: paletteKey) {
+                return
             }
             if !coverKey.isEmpty, !hasFnMusicCoverReference {
                 // ③ 本地准确来源都没有时，最后按 (艺术家, 专辑) 在线搜索封面。
@@ -789,6 +824,9 @@ struct TVArtworkView: View {
         loadedIdentity = nil
         paletteAppliedIdentity = nil
         image = nil
+        animatedArtworkData = nil
+        animatedArtworkDescriptor = nil
+        animatedArtworkContentKey = nil
         retryRevision &+= 1
     }
 
@@ -820,6 +858,21 @@ struct TVArtworkView: View {
               !Task.isCancelled else { return false }
         image = ui
         loadedIdentity = identity
+        if presentationRole == .animatedHero {
+            let descriptor = await Task.detached(priority: .utility) {
+                ArtworkImageCompatibility.inspect(data)
+            }.value
+            guard activeIdentity == identity, !Task.isCancelled else { return false }
+            if let descriptor, descriptor.isAnimated {
+                animatedArtworkData = data
+                animatedArtworkDescriptor = descriptor
+                animatedArtworkContentKey = "\(identity)|\(data.count)|\(data.hashValue)"
+            } else {
+                animatedArtworkData = nil
+                animatedArtworkDescriptor = nil
+                animatedArtworkContentKey = nil
+            }
+        }
 
         guard let palette = await TVArtworkPaletteLoader.shared.palette(
             for: data,
@@ -841,11 +894,19 @@ struct TVArtworkView: View {
         size: CGFloat,
         height: CGFloat? = nil,
         radius: CGFloat = 0,
+        presentationRole: ArtworkPresentationRole = .staticFirstFrame,
+        animationRequiresPlayback: Bool = false,
+        isPlaying: Bool = true,
+        isAnimationVisible: Bool = true,
         onResolutionChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.coverKey = a.id; self.artist = a.artist; self.album = a.title
         self.tint = a.tint; self.tint2 = a.tint2; self.glyph = a.glyph
         self.size = size; self.height = height; self.radius = radius
+        self.presentationRole = presentationRole
+        self.animationRequiresPlayback = animationRequiresPlayback
+        self.isPlaying = isPlaying
+        self.isAnimationVisible = isAnimationVisible
         self.onResolutionChange = onResolutionChange
     }
     init(coverKey: String, artist: String, album: String,
@@ -853,12 +914,20 @@ struct TVArtworkView: View {
          tint: Color, tint2: Color,
          glyph: String, placeholderKind: TVArtworkPlaceholderKind = .music,
          size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0,
+         presentationRole: ArtworkPresentationRole = .staticFirstFrame,
+         animationRequiresPlayback: Bool = false,
+         isPlaying: Bool = true,
+         isAnimationVisible: Bool = true,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverKey = coverKey; self.artist = artist; self.album = album
         self.songID = songID; self.coverRef = coverRef
         self.tint = tint; self.tint2 = tint2; self.glyph = glyph
         self.placeholderKind = placeholderKind
         self.size = size; self.height = height; self.radius = radius
+        self.presentationRole = presentationRole
+        self.animationRequiresPlayback = animationRequiresPlayback
+        self.isPlaying = isPlaying
+        self.isAnimationVisible = isAnimationVisible
         self.onResolutionChange = onResolutionChange
     }
 }

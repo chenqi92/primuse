@@ -2904,6 +2904,10 @@
 "player_appearance_title" = "プレーヤー";
 "player_volume_bar" = "音量スライダー";
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
+"player_animated_artwork" = "ダイナミックアートワーク";
+"player_animated_artwork_description" = "ソースが提供する GIF、APNG、アニメーション WebP をアルバム詳細とプレーヤーのメインアートワークで再生します。一覧には常に静止した先頭フレームを表示し、システムのモーション設定と電源設定に従います。";
+"player_animated_artwork_unmetered_only" = "オリジナルは Wi-Fi のみ";
+"player_animated_artwork_unmetered_only_description" = "ソース品質のダイナミックアートワークは Wi-Fi または Ethernet でのみダウンロードします。キャッシュ済みのアニメーションはオフラインでも利用できます。";
 "player_lyrics_section" = "歌詞";
 "player_lyrics_alignment" = "歌詞の配置";
 "player_lyrics_alignment_left" = "左揃え";

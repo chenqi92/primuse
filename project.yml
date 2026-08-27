@@ -545,6 +545,7 @@ targets:
       - path: Primuse/Utilities/Extensions/TimeInterval+Format.swift
       # 沉浸播放:风格枚举与共享工艺层,与 iOS / macOS 同一份实现
       - path: Primuse/Services/FullscreenPlayerEffectSettings.swift
+      - path: Primuse/Views/Components/AnimatedArtworkDataView.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageScenery.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
     resources:

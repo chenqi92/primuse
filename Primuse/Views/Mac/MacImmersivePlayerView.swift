@@ -222,6 +222,10 @@ struct MacImmersivePlayerView: View {
                         sourceID: song.sourceID,
                         filePath: song.filePath,
                         fileFormat: song.fileFormat,
+                        presentationRole: .animatedHero,
+                        animationRequiresPlayback: true,
+                        isPlaying: player.isPlaying,
+                        isAnimationVisible: !showsEffectPicker,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .frame(width: side, height: side)

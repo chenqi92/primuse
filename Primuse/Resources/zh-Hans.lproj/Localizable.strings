@@ -3007,6 +3007,10 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量条";
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
+"player_animated_artwork" = "动态专辑封面";
+"player_animated_artwork_description" = "在专辑详情和播放器主封面中播放来源自带的 GIF、APNG 与动态 WebP。列表始终显示静态首帧，并遵循系统动态效果与电量设置。";
+"player_animated_artwork_unmetered_only" = "仅通过 Wi-Fi 下载原始封面";
+"player_animated_artwork_unmetered_only_description" = "仅在 Wi-Fi 或有线网络下载来源原始动态封面；已缓存的动画可离线播放。";
 "player_lyrics_section" = "歌词";
 "player_lyrics_alignment" = "歌词对齐";
 "player_lyrics_alignment_left" = "左对齐";

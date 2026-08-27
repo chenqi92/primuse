@@ -378,7 +378,12 @@ struct TVNowPlayingView: View {
             TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 16)
             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                           songID: np.songID, coverRef: np.coverRef,
-                          tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 420, radius: 20)
+                          tint: np.tint, tint2: np.tint2, glyph: np.glyph,
+                          size: 420, radius: 20,
+                          presentationRole: .animatedHero,
+                          animationRequiresPlayback: true,
+                          isPlaying: store.isPlaying,
+                          isAnimationVisible: !showQueue && !showOptions && !showImmersive)
                 .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
             Text(np.title).font(.system(size: 48, weight: .bold)).tracking(-0.8)
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)

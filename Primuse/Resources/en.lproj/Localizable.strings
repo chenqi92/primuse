@@ -2690,6 +2690,10 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
+"player_animated_artwork" = "Dynamic Artwork";
+"player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
+"player_animated_artwork_unmetered_only" = "Wi-Fi Only for Original Artwork";
+"player_animated_artwork_unmetered_only_description" = "Only download source-quality dynamic artwork on Wi-Fi or Ethernet. Cached animation remains available offline.";
 "player_lyrics_section" = "Lyrics";
 "player_lyrics_alignment" = "Lyrics Alignment";
 "player_lyrics_alignment_left" = "Left";

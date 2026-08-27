@@ -40,6 +40,10 @@ struct CachedArtworkView: View {
     var artistName: String? = nil
     var placeholderIcon: String = "music.note"
     var showsPlaceholder: Bool = true
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
+    var animationRequiresPlayback = false
+    var isPlaying = true
+    var isAnimationVisible = true
     /// 当外部数据源 (e.g. AudioPlayerService.coverRevision) 想强制 view 重新加载,
     /// 但 coverRef / songID 这些 key 字段没变, onChange 不会触发时使用。
     /// 调用方传 player.coverRevision, 任意 bump 都会让本 view 重 loadImage。
@@ -47,11 +51,23 @@ struct CachedArtworkView: View {
     var onResolutionChange: (Bool) -> Void = { _ in }
 
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
+    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
+    private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
     @State private var image: PlatformImage?
+    @State private var animatedArtworkData: Data?
+    @State private var animatedArtworkDescriptor: ArtworkDescriptor?
+    @State private var animatedArtworkIdentity: String?
+    @State private var animatedArtworkContentKey: String?
     @State private var resolvedAppleMusicArtwork: MusicKit.Artwork?
     @State private var resolvedAppleMusicArtworkID: String?
     @State private var loadedIdentity: String?
     @State private var cacheInvalidationRevision = 0
+    @State private var animationPolicyRevision = 0
 
 
     /// Memory cache holds *already-decoded* PlatformImages. Cost is reported
@@ -73,6 +89,30 @@ struct CachedArtworkView: View {
     }()
 
     private static let failedLoadCacheTTL: TimeInterval = 5 * 60
+
+    private final class ArtworkDescriptorBox: NSObject {
+        let descriptor: ArtworkDescriptor
+        init(_ descriptor: ArtworkDescriptor) { self.descriptor = descriptor }
+    }
+
+    private final class AnimationProbeFailure: NSObject {
+        let expiresAt: Date
+        init(expiresAt: Date) { self.expiresAt = expiresAt }
+    }
+
+    nonisolated(unsafe) private static let animationDescriptorCache: NSCache<NSString, ArtworkDescriptorBox> = {
+        let cache = NSCache<NSString, ArtworkDescriptorBox>()
+        cache.countLimit = 200
+        return cache
+    }()
+    nonisolated(unsafe) private static let animationFailureCache: NSCache<NSString, AnimationProbeFailure> = {
+        let cache = NSCache<NSString, AnimationProbeFailure>()
+        cache.countLimit = 1_000
+        return cache
+    }()
+
+    private static let staticAnimationNegativeTTL: TimeInterval = 24 * 60 * 60
+    private static let transientAnimationFailureTTL: TimeInterval = 5 * 60
 
     /// Deduplicates in-flight source fetches: multiple views requesting the same cover
     /// share a single network request instead of each fetching independently.
@@ -124,6 +164,10 @@ struct CachedArtworkView: View {
          sourceID: String? = nil, filePath: String? = nil,
          fileFormat: AudioFormat? = nil,
          showsPlaceholder: Bool = true,
+         presentationRole: ArtworkPresentationRole = .staticFirstFrame,
+         animationRequiresPlayback: Bool = false,
+         isPlaying: Bool = true,
+         isAnimationVisible: Bool = true,
          revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverFileName
@@ -133,6 +177,10 @@ struct CachedArtworkView: View {
         self.filePath = filePath
         self.fileFormat = fileFormat
         self.showsPlaceholder = showsPlaceholder
+        self.presentationRole = presentationRole
+        self.animationRequiresPlayback = animationRequiresPlayback
+        self.isPlaying = isPlaying
+        self.isAnimationVisible = isAnimationVisible
         self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
@@ -143,6 +191,10 @@ struct CachedArtworkView: View {
          fileFormat: AudioFormat? = nil,
          placeholderIcon: String = "music.note",
          showsPlaceholder: Bool = true,
+         presentationRole: ArtworkPresentationRole = .staticFirstFrame,
+         animationRequiresPlayback: Bool = false,
+         isPlaying: Bool = true,
+         isAnimationVisible: Bool = true,
          revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverRef
@@ -154,6 +206,10 @@ struct CachedArtworkView: View {
         self.fileFormat = fileFormat
         self.placeholderIcon = placeholderIcon
         self.showsPlaceholder = showsPlaceholder
+        self.presentationRole = presentationRole
+        self.animationRequiresPlayback = animationRequiresPlayback
+        self.isPlaying = isPlaying
+        self.isAnimationVisible = isAnimationVisible
         self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
@@ -201,6 +257,9 @@ struct CachedArtworkView: View {
         .task(id: loadIdentity) {
             await loadImage(for: loadIdentity)
         }
+        .task(id: animationLoadIdentity) {
+            await loadAnimatedArtwork(for: animationLoadIdentity)
+        }
         .task(id: appleMusicArtworkIdentity) {
             await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
         }
@@ -210,6 +269,7 @@ struct CachedArtworkView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard shouldReload(after: note) else { return }
             Self.memoryCache.removeObject(forKey: cacheKey as NSString)
+            clearAnimatedArtworkCache()
             cacheInvalidationRevision += 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
@@ -219,6 +279,7 @@ struct CachedArtworkView: View {
                 hasResolvedImage: image != nil
             ) else { return }
             Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
+            clearAnimatedArtworkCache()
             cacheInvalidationRevision &+= 1
         }
         .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
@@ -226,7 +287,18 @@ struct CachedArtworkView: View {
             // visible covers retry immediately through the newly selected route
             // instead of honoring the normal five-minute failure suppression.
             Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
+            Self.animationFailureCache.removeObject(forKey: animationCacheKey as NSString)
             cacheInvalidationRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: Notification.Name.NSProcessInfoPowerStateDidChange
+        )) { _ in
+            animationPolicyRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: ProcessInfo.thermalStateDidChangeNotification
+        )) { _ in
+            animationPolicyRevision &+= 1
         }
     }
 
@@ -253,9 +325,26 @@ struct CachedArtworkView: View {
             }
             .aspectRatio(1, contentMode: .fit)
         } else if let image {
-            Image(platformImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+            if let animatedArtworkData, let animatedArtworkDescriptor {
+                AnimatedArtworkDataView(
+                    data: animatedArtworkData,
+                    descriptor: animatedArtworkDescriptor,
+                    cacheKey: animatedArtworkContentKey ?? animationCacheKey,
+                    presentationRole: presentationRole,
+                    isVisible: isAnimationVisible,
+                    requiresPlayback: animationRequiresPlayback,
+                    isPlaying: isPlaying,
+                    maximumPixelSize: animationMaximumPixelSize
+                ) {
+                    Image(platformImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+            } else {
+                Image(platformImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            }
         } else if showsPlaceholder {
             placeholderView
         } else {
@@ -343,6 +432,208 @@ struct CachedArtworkView: View {
         let refIdentity = coverRef ?? ""
         let sourceIdentity = "\(sourceID ?? "")|\(filePath ?? "")|\(fileFormat?.rawValue ?? "")"
         return "\(cacheKey)#ref\(refIdentity)#src\(sourceIdentity)#rev\(revisionToken)#inv\(cacheInvalidationRevision)"
+    }
+
+    private var animationCacheKey: String {
+        let components = [songID ?? "", sourceID ?? "", coverRef ?? "", filePath ?? ""]
+        return components.allSatisfy(\.isEmpty)
+            ? ""
+            : components.joined(separator: "\u{1F}")
+    }
+
+    private var animationLoadIdentity: String {
+        guard presentationRole == .animatedHero else { return "" }
+        return [
+            loadIdentity,
+            loadedIdentity ?? "",
+            String(animatedArtworkEnabled),
+            String(animatedArtworkUnmeteredOnly),
+            String(isAnimationVisible),
+            String(reduceMotion),
+            String(playAnimatedImages),
+            String(scenePhase == .active),
+            String(NetworkMonitor.shared.pathGeneration),
+            String(animationPolicyRevision),
+        ].joined(separator: "|")
+    }
+
+    private var animationMaximumPixelSize: Int {
+        switch bucket {
+        case .thumb: Self.thumbMaxPixel
+        case .card: Self.cardMaxPixel
+        case .full: Self.fullMaxPixel
+        }
+    }
+
+    @MainActor
+    private func loadAnimatedArtwork(for identity: String) async {
+        guard !identity.isEmpty,
+              loadedIdentity == loadIdentity,
+              image != nil,
+              animatedArtworkEnabled,
+              isAnimationVisible,
+              scenePhase == .active,
+              !reduceMotion,
+              playAnimatedImages,
+              sourceID != AppleMusicLibraryService.systemSourceID else {
+            animatedArtworkData = nil
+            animatedArtworkDescriptor = nil
+            animatedArtworkIdentity = nil
+            animatedArtworkContentKey = nil
+            return
+        }
+
+        let key = animationCacheKey
+        guard !key.isEmpty else { return }
+        if animatedArtworkIdentity == key,
+           animatedArtworkData != nil,
+           animatedArtworkDescriptor != nil {
+            return
+        }
+        animatedArtworkData = nil
+        animatedArtworkDescriptor = nil
+        animatedArtworkIdentity = nil
+        animatedArtworkContentKey = nil
+
+        if Self.hasRecentAnimationFailure(for: key as NSString) { return }
+
+        let cachedData = await Self.loadFromDiskCache(songID: songID, ref: coverRef)
+        if let cachedData,
+           let descriptor = await Self.animatedDescriptor(
+            for: cachedData,
+            cacheKey: key
+           ) {
+            guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+            animatedArtworkData = cachedData
+            animatedArtworkDescriptor = descriptor
+            animatedArtworkIdentity = key
+            animatedArtworkContentKey = "\(key)|\(cachedData.count)|\(cachedData.hashValue)"
+            return
+        }
+
+        let network = NetworkMonitor.shared
+        let fetchPolicy = ArtworkAnimationFetchPolicy(
+            isEnabled: animatedArtworkEnabled,
+            presentationRole: presentationRole,
+            isVisible: isAnimationVisible,
+            isReachable: network.isReachable,
+            isExpensive: network.isExpensive,
+            isConstrained: network.isConstrained,
+            isOnUnmeteredNetwork: network.isOnUnmeteredNetwork,
+            unmeteredOnly: animatedArtworkUnmeteredOnly,
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalCondition: Self.thermalCondition(ProcessInfo.processInfo.thermalState)
+        )
+        guard fetchPolicy.shouldFetchRemoteAnimation,
+              let coverRef, !coverRef.isEmpty,
+              let sourceID, !sourceID.isEmpty else {
+            return
+        }
+
+        let capturedManager = sourceManager
+        let fetched = await Self.inFlightTracker.deduplicated(key: "animation:\(key)") {
+            await capturedManager.artworkData(
+                for: coverRef,
+                sourceID: sourceID,
+                maximumBytes: ArtworkAnimationLimits.default.maximumCompressedBytes,
+                purpose: .originalAnimation
+            )
+        }
+        guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+        guard let fetched else {
+            Self.recordAnimationFailure(
+                for: key as NSString,
+                ttl: Self.transientAnimationFailureTTL
+            )
+            return
+        }
+        guard let descriptor = await Self.animatedDescriptor(
+            for: fetched,
+            cacheKey: key
+        ) else {
+            Self.recordAnimationFailure(
+                for: key as NSString,
+                ttl: Self.staticAnimationNegativeTTL
+            )
+            return
+        }
+        guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+        if let songID {
+            await MetadataAssetStore.shared.cacheCover(fetched, forSongID: songID)
+        }
+        animatedArtworkData = fetched
+        animatedArtworkDescriptor = descriptor
+        animatedArtworkIdentity = key
+        animatedArtworkContentKey = "\(key)|\(fetched.count)|\(fetched.hashValue)"
+    }
+
+    private func clearAnimatedArtworkCache() {
+        let key = animationCacheKey as NSString
+        if let animatedArtworkData {
+            Self.animationDescriptorCache.removeObject(
+                forKey: Self.animationDescriptorCacheKey(
+                    for: animatedArtworkData,
+                    cacheKey: animationCacheKey
+                )
+            )
+        }
+        Self.animationFailureCache.removeObject(forKey: key)
+        animatedArtworkData = nil
+        animatedArtworkDescriptor = nil
+        animatedArtworkIdentity = nil
+        animatedArtworkContentKey = nil
+    }
+
+    private nonisolated static func animatedDescriptor(
+        for data: Data,
+        cacheKey: String
+    ) async -> ArtworkDescriptor? {
+        let key = animationDescriptorCacheKey(for: data, cacheKey: cacheKey)
+        if let cached = animationDescriptorCache.object(forKey: key) {
+            return cached.descriptor
+        }
+        let descriptor = await Task.detached(priority: .utility) {
+            ArtworkImageCompatibility.inspect(data)
+        }.value
+        guard let descriptor, descriptor.isAnimated else { return nil }
+        animationDescriptorCache.setObject(ArtworkDescriptorBox(descriptor), forKey: key)
+        return descriptor
+    }
+
+    private nonisolated static func animationDescriptorCacheKey(
+        for data: Data,
+        cacheKey: String
+    ) -> NSString {
+        "\(cacheKey)|\(data.count)|\(data.hashValue)" as NSString
+    }
+
+    private nonisolated static func hasRecentAnimationFailure(for key: NSString) -> Bool {
+        guard let entry = animationFailureCache.object(forKey: key) else { return false }
+        if entry.expiresAt > Date() { return true }
+        animationFailureCache.removeObject(forKey: key)
+        return false
+    }
+
+    private nonisolated static func recordAnimationFailure(
+        for key: NSString,
+        ttl: TimeInterval
+    ) {
+        animationFailureCache.setObject(
+            AnimationProbeFailure(expiresAt: Date().addingTimeInterval(ttl)),
+            forKey: key
+        )
+    }
+
+    private nonisolated static func thermalCondition(
+        _ state: ProcessInfo.ThermalState
+    ) -> ArtworkThermalCondition {
+        switch state {
+        case .nominal: .nominal
+        case .fair: .fair
+        case .serious: .serious
+        case .critical: .critical
+        @unknown default: .critical
+        }
     }
 
     private func shouldReload(after note: Notification) -> Bool {

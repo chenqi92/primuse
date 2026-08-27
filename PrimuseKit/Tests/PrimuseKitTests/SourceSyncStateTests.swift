@@ -1117,6 +1117,23 @@ struct SidecarDirectoryIndexTests {
         #expect(index.sameNameMusicVideo(basename: "track")?.sidecarName == "track.mp4")
     }
 
+    @Test("Animated artwork extensions are indexed case-insensitively as source sidecars")
+    func animatedArtworkLookup() {
+        let index = SidecarDirectoryIndex([
+            sidecarItem("TRACK.GIF"),
+            sidecarItem("folder.GiF"),
+        ])
+        let apngIndex = SidecarDirectoryIndex([
+            sidecarItem("Track.ApNg"),
+        ])
+
+        #expect(PrimuseConstants.supportedCoverExtensions.contains("gif"))
+        #expect(PrimuseConstants.supportedCoverExtensions.contains("apng"))
+        #expect(index.sameNameCover(basename: "track")?.sidecarName == "TRACK.GIF")
+        #expect(index.folderCover()?.sidecarName == "folder.GiF")
+        #expect(apngIndex.sameNameCover(basename: "track")?.sidecarName == "Track.ApNg")
+    }
+
     @Test("Non-CUE fingerprints retain the committed component format")
     func legacyFingerprintFormat() {
         let cover = sidecarItem(
