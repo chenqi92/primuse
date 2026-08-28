@@ -912,7 +912,21 @@ struct HomeView: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            RadioStationPlaceholderArtwork()
+            ZStack {
+                RadioStationPlaceholderArtwork()
+                if station.logoFileName?.isEmpty == false {
+                    CachedArtworkView(
+                        coverRef: station.logoFileName,
+                        songID: station.playbackSong.id,
+                        cornerRadius: 0,
+                        sourceID: station.sourceID,
+                        filePath: station.sourcePlaybackPath ?? station.streamURL,
+                        fileFormat: station.streamFormat.audioFormat,
+                        placeholderIcon: "radio.fill",
+                        showsPlaceholder: false
+                    )
+                }
+            }
         }
     }
 
