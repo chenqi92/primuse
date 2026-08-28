@@ -914,11 +914,14 @@ public enum LyricsContentParser {
         }
 
         guard !syllables.isEmpty else { return nil }
-        for index in 0..<(syllables.count - 1) where syllables[index].end <= syllables[index].start {
+        // Relative A2/KRC marks carry an explicit duration. A zero duration is
+        // valid (for example, an instantaneous OpenSubsonic cue), so only
+        // repair genuinely invalid negative ranges here.
+        for index in 0..<(syllables.count - 1) where syllables[index].end < syllables[index].start {
             syllables[index].end = syllables[index + 1].start
         }
         if let lastIndex = syllables.indices.last,
-           syllables[lastIndex].end <= syllables[lastIndex].start {
+           syllables[lastIndex].end < syllables[lastIndex].start {
             syllables[lastIndex].end = syllables[lastIndex].start + 0.4
         }
 

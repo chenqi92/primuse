@@ -681,25 +681,30 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     /// OpenSubsonic getLyricsBySongId —— 结构化(可带时间轴)歌词。
     private func modernLyrics(songID: String) async -> String? {
-        // requestJSON 在 status != "ok" 时抛错, try? 吞掉后返回 nil。
-        guard let container: LyricsContainer = try? await requestJSON(
+        // songLyrics v2 gates cue-level karaoke timing behind enhanced=true.
+        // Most older servers ignore the optional parameter and keep returning
+        // the version 1 line array. If one rejects unknown parameters, retry
+        // the original request so enabling karaoke does not regress lyrics.
+        let enhanced: LyricsContainer? = try? await requestJSON(
+            "getLyricsBySongId",
+            query: [
+                URLQueryItem(name: "id", value: songID),
+                URLQueryItem(name: "enhanced", value: "true"),
+            ]
+        )
+        let container: LyricsContainer
+        if let enhanced {
+            container = enhanced
+        } else if let versionOne: LyricsContainer = try? await requestJSON(
             "getLyricsBySongId",
             query: [URLQueryItem(name: "id", value: songID)]
-        ),
-        let structured = container.lyricsList?.structuredLyrics?.first,
-        let lines = structured.line, !lines.isEmpty else {
+        ) {
+            container = versionOne
+        } else {
             return nil
         }
-        // 按"行是否带 start 时间戳"判定是否同步, 不依赖 `synced` 标志 ——
-        // 实测 Navidrome 0.61 对部分曲目返回带时间轴的 line[] 却不给 synced
-        // 字段(已知 bug)。有时间戳的行输出 LRC `[mm:ss.xx]`, 无时间戳的输出
-        // 裸文本, 交给 LyricsParser.parseText 统一处理(它兼容 LRC 与纯文本)。
-        let text = lines.compactMap { line -> String? in
-            guard let value = line.value, !value.isEmpty else { return nil }
-            if let start = line.start { return "\(Self.lrcTimestamp(ms: start))\(value)" }
-            return value
-        }.joined(separator: "\n")
-        return text.isEmpty ? nil : text
+        guard let tracks = container.lyricsList?.structuredLyrics else { return nil }
+        return OpenSubsonicLyricsConverter.text(from: tracks)
     }
 
     /// 老 Subsonic getLyrics —— 按 artist+title 匹配, 只返回无时间轴纯文本。
@@ -1182,15 +1187,6 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         SHA256.hash(data: Data(value.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func lrcTimestamp(ms: Int) -> String {
-        let totalCentis = ms / 10
-        let centis = totalCentis % 100
-        let totalSeconds = totalCentis / 100
-        let seconds = totalSeconds % 60
-        let minutes = totalSeconds / 60
-        return String(format: "[%02d:%02d.%02d]", minutes, seconds, centis)
-    }
-
     private static func parseDate(_ value: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1497,15 +1493,5 @@ private struct LyricsContainer: SubsonicResponseContainer {
 }
 
 private struct LyricsList: Decodable {
-    let structuredLyrics: [StructuredLyrics]?
-}
-
-private struct StructuredLyrics: Decodable {
-    let synced: Bool?
-    let line: [StructuredLyricLine]?
-}
-
-private struct StructuredLyricLine: Decodable {
-    let start: Int?     // 毫秒
-    let value: String?
+    let structuredLyrics: [OpenSubsonicLyricsConverter.Track]?
 }
