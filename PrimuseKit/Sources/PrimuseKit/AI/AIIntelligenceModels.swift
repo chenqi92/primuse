@@ -443,6 +443,20 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
     }
 }
 
+public struct AIRecommendationRefreshState: Hashable, Sendable {
+    public var contentRevision: String
+    public var isSceneActive: Bool
+
+    public init(contentRevision: String, isSceneActive: Bool) {
+        self.contentRevision = contentRevision
+        self.isSceneActive = isSceneActive
+    }
+
+    public var shouldRefresh: Bool {
+        isSceneActive
+    }
+}
+
 public struct AISemanticLibraryMatchCandidate: Equatable, Sendable {
     public var songID: String
     public var title: String

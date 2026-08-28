@@ -830,6 +830,26 @@ struct AIRecommendationPolicyTests {
         return calendar
     }()
 
+    @Test func refreshStateSuspendsInBackgroundAndResumesWithLatestRevision() {
+        let active = AIRecommendationRefreshState(
+            contentRevision: "library-1",
+            isSceneActive: true
+        )
+        let suspended = AIRecommendationRefreshState(
+            contentRevision: "library-2",
+            isSceneActive: false
+        )
+        let resumed = AIRecommendationRefreshState(
+            contentRevision: "library-2",
+            isSceneActive: true
+        )
+
+        #expect(active.shouldRefresh)
+        #expect(!suspended.shouldRefresh)
+        #expect(suspended != resumed)
+        #expect(resumed.shouldRefresh)
+    }
+
     @Test func automaticSceneUsesLocalTimeWithoutOverridingManualChoice() throws {
         let bedtime = try #require(calendar.date(
             from: DateComponents(year: 2026, month: 8, day: 26, hour: 23)

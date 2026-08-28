@@ -39,6 +39,7 @@ struct AIRecommendationLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customIntentsRawValue = ""
     @AppStorage("primuse.ai.recommendationIntent.selected.v1")
@@ -80,7 +81,7 @@ struct AIRecommendationLibraryView: View {
         return aiRecommendation.orderedSongIDs.count < localResults.count
     }
 
-    private var refreshKey: String {
+    private var contentRevision: String {
         [
             recommendationSceneRawValue,
             selectedIntent.id,
@@ -91,6 +92,13 @@ struct AIRecommendationLibraryView: View {
             String(intelligence.regionAvailability.revision),
             String(historyRevision),
         ].joined(separator: "#")
+    }
+
+    private var refreshState: AIRecommendationRefreshState {
+        AIRecommendationRefreshState(
+            contentRevision: contentRevision,
+            isSceneActive: scenePhase == .active
+        )
     }
 
     var body: some View {
@@ -108,7 +116,8 @@ struct AIRecommendationLibraryView: View {
         #if os(macOS)
         .background(PMColor.bg.ignoresSafeArea())
         #endif
-        .task(id: refreshKey) {
+        .task(id: refreshState) {
+            guard refreshState.shouldRefresh else { return }
             await refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
@@ -428,6 +437,8 @@ struct AIRecommendationLibraryView: View {
 
     @MainActor
     private func refresh(forceAIRefresh: Bool = false) async {
+        let operationRefreshState = refreshState
+        guard operationRefreshState.shouldRefresh else { return }
         refreshGeneration &+= 1
         let generation = refreshGeneration
         loadMoreFailed = false
@@ -439,7 +450,10 @@ struct AIRecommendationLibraryView: View {
                 limit: recommendationPoolSize
             )
         }.value
-        guard generation == refreshGeneration, !Task.isCancelled else { return }
+        guard generation == refreshGeneration,
+              !Task.isCancelled,
+              operationRefreshState == refreshState,
+              refreshState.shouldRefresh else { return }
         localResults = results
         await aiRecommendation.refresh(
             scene: recommendationScene,
@@ -454,12 +468,12 @@ struct AIRecommendationLibraryView: View {
 
     @MainActor
     private func loadMoreRecommendations() async {
-        guard !isLoadingMore else { return }
+        guard !isLoadingMore, refreshState.shouldRefresh else { return }
         let selectedIDs = Set(aiRecommendation.orderedSongIDs)
         let remaining = localResults.filter { !selectedIDs.contains($0.song.id) }
         guard !remaining.isEmpty else { return }
 
-        let operationRefreshKey = refreshKey
+        let operationRefreshState = refreshState
         isLoadingMore = true
         loadMoreFailed = false
         defer { isLoadingMore = false }
@@ -473,7 +487,9 @@ struct AIRecommendationLibraryView: View {
             minimumResults: min(Self.minimumRecommendationPageSize, remaining.count),
             appending: true
         )
-        guard !Task.isCancelled, operationRefreshKey == refreshKey else { return }
+        guard !Task.isCancelled,
+              operationRefreshState == refreshState,
+              refreshState.shouldRefresh else { return }
         loadMoreFailed = !appended
     }
 
