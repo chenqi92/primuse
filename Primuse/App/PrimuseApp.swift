@@ -130,9 +130,9 @@ private enum BackgroundScanResumeTask {
 
             backfill.setExecutionMode(.background)
 
-            // Resume any interrupted scans, then run backfill until the
-            // task expires or work runs out. Both phases use HTTP Range
-            // / list-only API calls — safe for iOS background quotas.
+            // Resume any interrupted scans, then run one bounded backfill
+            // snapshot. If work remains, the scheduling call below requests
+            // another BGProcessing wake instead of keeping this task busy.
             services.musicLibrary.resumePendingIdentityResolution()
             services.resumePendingLocalImportScanIfNeeded()
             if scanService.hasResumableScanWork {
@@ -166,7 +166,7 @@ private enum BackgroundScanResumeTask {
             }
 
             // If anything still has a checkpoint or pending bare songs,
-            // ask iOS to wake us again later.
+            // automatically renew the BGProcessing request for a later wake.
             scanService.scheduleBackgroundResumeIfNeeded(
                 backfillPending: backfill.hasPendingWork,
                 scrapePending: scraper.hasPendingBackgroundContinuation,

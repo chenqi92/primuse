@@ -2522,6 +2522,8 @@ public enum MetadataBackfillExecutionMode: Sendable, Equatable {
     /// remain stuck at "reading details", then leave any large remainder to
     /// background maintenance.
     case foregroundAfterSourceScan
+    /// A BGProcessing wake processes one throttled snapshot. If songs remain,
+    /// the app schedules another wake instead of monopolizing the current one.
     case background
     case backgroundDuringPlayback
 }
@@ -2573,7 +2575,8 @@ public enum MetadataBackfillExecutionPolicy {
                 workerCount: 1,
                 snapshotLimit: 24,
                 interRequestDelay: 0.75,
-                flushInterval: 15
+                flushInterval: 15,
+                snapshotPassLimit: 1
             )
         case .backgroundDuringPlayback:
             MetadataBackfillExecutionLimits(

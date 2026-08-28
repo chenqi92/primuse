@@ -3,8 +3,8 @@ import Testing
 
 @Suite("Metadata backfill execution")
 struct MetadataBackfillExecutionPolicyTests {
-    @Test("Background playback remains serial and throttled")
-    func playbackFriendlyLimits() {
+    @Test("Background work is serial, throttled, and bounded per wake")
+    func boundedBackgroundLimits() {
         let standard = MetadataBackfillExecutionPolicy.limits(for: .standard)
         let foreground = MetadataBackfillExecutionPolicy.limits(
             for: .foregroundAfterSourceScan
@@ -19,7 +19,7 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(foreground.interRequestDelay >= background.interRequestDelay)
         #expect(foreground.snapshotPassLimit == 1)
         #expect(background.workerCount == 1)
-        #expect(background.snapshotPassLimit == nil)
+        #expect(background.snapshotPassLimit == 1)
         #expect(playback.workerCount == 1)
         #expect(playback.snapshotLimit < background.snapshotLimit)
         #expect(playback.interRequestDelay > background.interRequestDelay)
