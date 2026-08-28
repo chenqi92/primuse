@@ -385,14 +385,15 @@ struct LyricsFlowLayout: Layout {
         for placement in placements {
             let index = subviews.index(subviews.startIndex, offsetBy: placement.itemIndex)
             let view = subviews[index]
-            let size = cache.sizes[placement.itemIndex]
             view.place(
                 at: CGPoint(
                     x: bounds.minX + CGFloat(placement.x),
                     y: bounds.minY + CGFloat(placement.y)
                 ),
                 anchor: UnitPoint(x: 0, y: 0),
-                proposal: ProposedViewSize(size)
+                // 缓存的理想尺寸只负责换行与坐标。放置时再次给出精确宽度会让
+                // RTL 连写字形重新塑形，并在像素取整后被 Text 截断为省略号。
+                proposal: .unspecified
             )
         }
     }

@@ -78,6 +78,101 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         XCTAssertTrue(pixels.contains { $0.alpha > 40 && Int($0.blue) - Int($0.red) > 40 })
     }
 
+    @MainActor
+    func testRightToLeftSyllablesPreserveCompletePersianWords() throws {
+        let syllableTexts = ["انگار ", "نه ", "از ", "یه ", "شهر ", "دور"]
+        let text = syllableTexts.joined()
+        let line = LyricLine(
+            timestamp: 0,
+            text: text,
+            syllables: syllableTexts.enumerated().map { index, text in
+                LyricSyllable(text: text, start: Double(index), end: Double(index + 1))
+            }
+        )
+        let font = Font.system(size: 54, weight: .bold)
+        let content = KaraokeLineView(
+            line: line,
+            fontSize: 54,
+            weight: .bold,
+            activeColor: .white,
+            inactiveColor: .white,
+            writingDirection: .rightToLeft,
+            timeAt: { _ in 0 },
+            fixedTime: 0,
+            isAnimationEnabled: false,
+            animatesSyllableBounce: false
+        )
+        .frame(width: 620, height: 90)
+
+        let reference = Text(text)
+            .font(font)
+            .foregroundStyle(.white)
+            .fixedSize()
+            .environment(\.layoutDirection, .rightToLeft)
+            .frame(width: 620, height: 90)
+
+        let contentRenderer = ImageRenderer(content: content)
+        contentRenderer.scale = 3
+        let referenceRenderer = ImageRenderer(content: reference)
+        referenceRenderer.scale = 3
+        let renderedImage = try XCTUnwrap(contentRenderer.uiImage?.cgImage)
+        let referenceImage = try XCTUnwrap(referenceRenderer.uiImage?.cgImage)
+        let renderedCoverage = try alphaCoverage(in: renderedImage)
+        let referenceCoverage = try alphaCoverage(in: referenceImage)
+
+        XCTAssertEqual(
+            renderedCoverage,
+            referenceCoverage,
+            accuracy: referenceCoverage * 0.02,
+            "RTL karaoke layout must render the complete Persian syllable instead of an ellipsis"
+        )
+    }
+
+    @MainActor
+    func testLyricFlowPlacementKeepsSubviewIdealWidth() throws {
+        let content = LyricsFlowLayout(layoutDirection: .rightToLeft) {
+            ProposalSensitiveGlyph {
+                Color.white
+            }
+        }
+        .frame(width: 100, height: 40, alignment: .topLeading)
+
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+
+        XCTAssertGreaterThanOrEqual(
+            try alphaBoundingWidth(in: image),
+            79,
+            "Measured ideal width must not be replaced by a constrained placement proposal"
+        )
+    }
+
+    private struct ProposalSensitiveGlyph: Layout {
+        func sizeThatFits(
+            proposal: ProposedViewSize,
+            subviews: Subviews,
+            cache: inout ()
+        ) -> CGSize {
+            CGSize(width: proposal.width == nil ? 80 : 20, height: 40)
+        }
+
+        func placeSubviews(
+            in bounds: CGRect,
+            proposal: ProposedViewSize,
+            subviews: Subviews,
+            cache: inout ()
+        ) {
+            for subview in subviews {
+                subview.place(
+                    at: bounds.origin,
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(bounds.size)
+                )
+            }
+        }
+    }
+
     private struct Pixel {
         let red: UInt8
         let blue: UInt8
@@ -104,5 +199,20 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         return stride(from: 0, to: bytes.count, by: bytesPerPixel).map { offset in
             Pixel(red: bytes[offset], blue: bytes[offset + 2], alpha: bytes[offset + 3])
         }
+    }
+
+    private func alphaCoverage(in image: CGImage) throws -> Double {
+        let pixels = try rgbaPixels(from: image)
+        return pixels.reduce(0) { $0 + Double($1.alpha) }
+    }
+
+    private func alphaBoundingWidth(in image: CGImage) throws -> Int {
+        let pixels = try rgbaPixels(from: image)
+        let occupiedColumns = pixels.enumerated().compactMap { index, pixel in
+            pixel.alpha > 8 ? index % image.width : nil
+        }
+        let first = try XCTUnwrap(occupiedColumns.min())
+        let last = try XCTUnwrap(occupiedColumns.max())
+        return last - first + 1
     }
 }
