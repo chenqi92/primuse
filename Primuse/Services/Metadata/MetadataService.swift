@@ -8,6 +8,10 @@ actor MetadataService {
     struct SongMetadata {
         var title: String
         var artist: String? = nil
+        /// Trustworthy identity values that came from the media bytes. `title`
+        /// itself may be a display fallback and must not be reported as a tag.
+        var embeddedTitle: String? = nil
+        var embeddedArtist: String? = nil
         var sourceArtistNames: [String]? = nil
         var albumTitle: String? = nil
         var albumArtist: String? = nil
@@ -28,9 +32,18 @@ actor MetadataService {
         var replayGainTrackPeak: Double? = nil
         var replayGainAlbumGain: Double? = nil
         var replayGainAlbumPeak: Double? = nil
+        /// True only when descriptive fields came from bytes inside the media
+        /// file. Duration/sample rate/bitrate never set this flag.
+        var hasEmbeddedDescriptiveMetadata = false
+        var hasTechnicalProperties = false
+        var hasVerifiedSidecarMetadata = false
+        var detectedFileSignature: AudioFileSignatureKind = .unknown
+        /// The connector exposed a complete local file. Metadata parsers may
+        /// still inspect only the format-defined tag regions of that file.
+        var hasCompleteFileAccess = false
     }
 
-    /// Load metadata with priority: sidecar → embedded → online
+    /// Load metadata with priority: embedded → verified sidecar → online
     ///
     /// `trustedSource`: 是否把结果直接写入 hash cache。
     /// - true（默认）: LibraryScanner / Backfill 路径,数据来自 embedded/sidecar,可信。
@@ -81,6 +94,8 @@ actor MetadataService {
         var result = SongMetadata(
             title: trustedEmbeddedTitle ?? titleFallback,
             artist: embedded.artist,
+            embeddedTitle: MediaMetadataTextRepair.repaired(trustedEmbeddedTitle),
+            embeddedArtist: MediaMetadataTextRepair.repaired(embedded.artist),
             sourceArtistNames: embedded.sourceArtistNames,
             albumTitle: embedded.albumTitle,
             albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
@@ -99,27 +114,38 @@ actor MetadataService {
             replayGainTrackGain: embedded.replayGainTrackGain,
             replayGainTrackPeak: embedded.replayGainTrackPeak,
             replayGainAlbumGain: embedded.replayGainAlbumGain,
-            replayGainAlbumPeak: embedded.replayGainAlbumPeak
+            replayGainAlbumPeak: embedded.replayGainAlbumPeak,
+            hasEmbeddedDescriptiveMetadata: embedded.hasDescriptiveMetadata,
+            hasTechnicalProperties: embedded.hasTechnicalProperties,
+            detectedFileSignature: FileMetadataReader.signature(from: url),
+            hasCompleteFileAccess: true
         )
 
-        // 2. Check sidecar files (higher priority for cover & lyrics)
-        if let coverURL = SidecarMetadataLoader.findCoverArt(for: url) {
+        // 2. Verified sidecars fill fields absent from embedded metadata.
+        if result.coverArtData == nil,
+           let coverURL = SidecarMetadataLoader.findCoverArt(for: url) {
             result.coverArtFileName = coverURL.lastPathComponent
             if let data = try? Data(contentsOf: coverURL) {
                 result.coverArtData = data
+                result.hasVerifiedSidecarMetadata = true
             }
         }
 
-        if let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
+        if embedded.lyricsText == nil,
+           let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
             result.lyricsFileName = lyricsURL.lastPathComponent
             result.lyrics = try? LyricsParser.parse(from: lyricsURL)
+            if result.lyrics?.isEmpty == false {
+                result.hasVerifiedSidecarMetadata = true
+            }
         }
 
         if let mvURL = SidecarMetadataLoader.findMusicVideo(for: url) {
             result.mvPath = mvURL.lastPathComponent
+            result.hasVerifiedSidecarMetadata = true
         }
 
-        // 2.5 Check embedded lyrics (lower priority than sidecar)
+        // 2.5 Parse embedded lyrics when present.
         if result.lyrics == nil, let lyricsText = embedded.lyricsText {
             result.lyrics = LyricsParser.parseText(lyricsText)
         }
@@ -180,16 +206,21 @@ actor MetadataService {
         cacheKey: String? = nil,
         fallbackTitle: String
     ) async -> SongMetadata {
+        let signature = AudioFileSignaturePolicy.inspect(data)
+        let parserFileExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: fileExtension,
+            signature: signature
+        )
         var embedded = await FileMetadataReader.read(
             from: data,
-            fileExtension: fileExtension,
+            fileExtension: parserFileExtension,
             id3TailData: id3TailData
         )
         if let containerTailData,
            let tailMetadata = await FileMetadataReader.readISOBaseMediaMetadata(
             head: data,
             tail: containerTailData,
-            fileExtension: fileExtension
+            fileExtension: parserFileExtension
            ) {
             embedded.fillMissing(from: tailMetadata)
         }
@@ -202,6 +233,8 @@ actor MetadataService {
         var result = SongMetadata(
             title: preferredTitle,
             artist: MediaMetadataTextRepair.repaired(embedded.artist),
+            embeddedTitle: MediaMetadataTextRepair.repaired(embedded.title),
+            embeddedArtist: MediaMetadataTextRepair.repaired(embedded.artist),
             sourceArtistNames: embedded.sourceArtistNames?.compactMap {
                 MediaMetadataTextRepair.repaired($0)
             },
@@ -222,7 +255,10 @@ actor MetadataService {
             replayGainTrackGain: embedded.replayGainTrackGain,
             replayGainTrackPeak: embedded.replayGainTrackPeak,
             replayGainAlbumGain: embedded.replayGainAlbumGain,
-            replayGainAlbumPeak: embedded.replayGainAlbumPeak
+            replayGainAlbumPeak: embedded.replayGainAlbumPeak,
+            hasEmbeddedDescriptiveMetadata: embedded.hasDescriptiveMetadata,
+            hasTechnicalProperties: embedded.hasTechnicalProperties,
+            detectedFileSignature: signature
         )
 
         if let lyricsText = embedded.lyricsText {

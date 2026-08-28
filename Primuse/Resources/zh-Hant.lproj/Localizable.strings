@@ -441,6 +441,11 @@
 "reread_song_tags" = "重新讀取檔案標籤";
 "reread_song_tags_in_progress" = "正在讀取檔案標籤";
 "reread_song_tags_completed" = "已重新讀取檔案標籤。";
+"reread_song_tags_completed_embedded" = "已讀取標準內嵌標籤。";
+"reread_song_tags_completed_sidecar" = "未發現優先級更高的內嵌值；已使用經過驗證的旁車中繼資料。";
+"reread_song_tags_completed_filename" = "未發現可用的內嵌或旁車識別標籤；已依檔名規則補全演出者或標題。";
+"reread_song_tags_completed_technical" = "未發現可用的描述標籤；已讀取檔案的技術資訊。";
+"reread_song_tags_completed_no_metadata" = "已檢查此格式支援的標籤位置；檔案本身不含可用中繼資料。";
 "reread_song_tags_unsupported" = "此來源不提供原始檔案標籤讀取。";
 "reread_song_tags_failed" = "無法讀取檔案標籤，請檢查歌曲來源或檔案格式。";
 "reread_song_tags_failed_detail_format" = "無法讀取「%1$@」的檔案標籤（格式：%2$@，來源：%3$@）：%4$@";
@@ -448,6 +453,8 @@
 "reread_song_tags_failure_song_changed" = "讀取期間歌曲或其來源已發生變化。";
 "reread_song_tags_failure_cancelled" = "標籤讀取在完成前被取消。";
 "reread_song_tags_failure_no_update" = "檔案已讀取，但沒有得到可用的標籤更新。";
+"reread_song_tags_failure_requires_complete_technical_read" = "已讀取檔案開頭，但可靠的技術資訊需要完整檔案檢查。";
+"reread_song_tags_failure_unrecognized_audio" = "檔案位元組可讀取，但檔案簽章與 Primuse 支援的音訊格式不符。";
 "song_details_check_source" = "檢查來源";
 "song_details_source_available" = "來源連線正常，已重新安排讀取。";
 "song_details_source_unavailable" = "來源仍無法使用。請檢查網路、登入狀態和檔案路徑。";

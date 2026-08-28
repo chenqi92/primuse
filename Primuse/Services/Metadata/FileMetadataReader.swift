@@ -25,6 +25,33 @@ enum FileMetadataReader {
         var replayGainAlbumPeak: Double?
         var lyricsText: String?
 
+        var hasDescriptiveMetadata: Bool {
+            func hasText(_ value: String?) -> Bool {
+                value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            }
+            return hasText(title)
+                || hasText(artist)
+                || hasText(albumTitle)
+                || hasText(albumArtist)
+                || trackNumber != nil
+                || discNumber != nil
+                || year != nil
+                || hasText(genre)
+                || coverArtData?.isEmpty == false
+                || replayGainTrackGain != nil
+                || replayGainTrackPeak != nil
+                || replayGainAlbumGain != nil
+                || replayGainAlbumPeak != nil
+                || hasText(lyricsText)
+        }
+
+        var hasTechnicalProperties: Bool {
+            duration?.isFinite == true && (duration ?? 0) > 0
+                || (sampleRate ?? 0) > 0
+                || (bitRate ?? 0) > 0
+                || (bitDepth ?? 0) > 0
+        }
+
         mutating func fillMissing(from fallback: Metadata) {
             title = title ?? fallback.title
             artist = artist ?? fallback.artist
@@ -60,36 +87,53 @@ enum FileMetadataReader {
     static func read(from url: URL) async -> Metadata {
         let asset = AVURLAsset(url: url)
         var metadata = await read(from: asset)
+        let signaturePrefix = readPrefix(from: url, byteCount: 64 * 1024)
+        let fileExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: url.pathExtension,
+            signature: AudioFileSignaturePolicy.inspect(signaturePrefix)
+        )
 
-        if let metadataFile = readISOBaseMediaMetadataFile(from: url) {
+        if let metadataFile = readISOBaseMediaMetadataFile(
+            from: url,
+            fileExtension: fileExtension
+        ) {
             applyISOBaseMediaLyricsFallback(
                 to: &metadata,
                 data: metadataFile,
-                fileExtension: url.pathExtension
+                fileExtension: fileExtension
             )
         }
 
         applyID3Fallback(to: &metadata, data: readID3FallbackData(from: url))
         applyFLACFallback(
             to: &metadata,
-            data: readFLACMetadataPrefix(from: url),
-            fileExtension: url.pathExtension
+            data: readFLACMetadataPrefix(from: url, fileExtension: fileExtension),
+            fileExtension: fileExtension
         )
         applyWAVEFallback(
             to: &metadata,
             data: readPrefix(from: url, byteCount: waveHeaderReadLimit),
-            fileExtension: url.pathExtension
+            fileExtension: fileExtension
         )
         applyMPEGFrameFallback(
             to: &metadata,
             data: readPrefix(from: url, byteCount: mpegHeaderReadLimit),
-            fileExtension: url.pathExtension
+            fileExtension: fileExtension
         )
-        let fileExtension = url.pathExtension.lowercased()
-        if boundedContainerTagExtensions.contains(fileExtension) {
-            let head = readExpandableContainerHead(from: url)
+        if boundedContainerTagExtensions.contains(fileExtension)
+            || id3ContainerTagExtensions.contains(fileExtension)
+            || genericEOFTagExtensions.contains(fileExtension) {
+            let head = readExpandableContainerHead(
+                from: url,
+                fileExtension: fileExtension
+            )
             let tail = apeTailTagExtensions.contains(fileExtension)
-                ? readExpandableContainerTail(from: url)
+                || id3ContainerTagExtensions.contains(fileExtension)
+                || genericEOFTagExtensions.contains(fileExtension)
+                ? readExpandableContainerTail(
+                    from: url,
+                    fileExtension: fileExtension
+                )
                 : nil
             applyContainerTagFallback(
                 to: &metadata,
@@ -304,10 +348,19 @@ enum FileMetadataReader {
         "m4a", "m4b", "mp4", "m4v", "mov", "alac",
     ]
     private static let boundedContainerTagExtensions: Set<String> = [
-        "ogg", "opus", "speex", "ape", "wv", "mpc", "tta", "wma",
+        "ogg", "oga", "opus", "speex", "spx", "ape", "wv", "mpc", "mpp",
+        "tta", "tak", "wma", "asf",
     ]
     private static let apeTailTagExtensions: Set<String> = [
-        "ape", "wv", "mpc", "tta",
+        "ape", "wv", "mpc", "mpp", "tta", "tak",
+    ]
+    private static let id3ContainerTagExtensions: Set<String> = [
+        "dff", "aiff", "aif", "wav", "wave",
+    ]
+    private static let genericEOFTagExtensions: Set<String> = [
+        "aac", "dts", "dtshd", "dts-hd", "dtswav", "ac3", "eac3", "ec3",
+        "mlp", "truehd", "thd", "amr", "awb", "atrac", "oma", "aa3",
+        "at3", "shn", "qoa", "au", "snd", "caf",
     ]
 
     private static func applyISOBaseMediaLyricsFallback(
@@ -322,8 +375,11 @@ enum FileMetadataReader {
         metadata.lyricsText = lyrics
     }
 
-    private static func readISOBaseMediaMetadataFile(from url: URL) -> Data? {
-        guard isoBaseMediaExtensions.contains(url.pathExtension.lowercased()),
+    private static func readISOBaseMediaMetadataFile(
+        from url: URL,
+        fileExtension: String
+    ) -> Data? {
+        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
               let handle = try? FileHandle(forReadingFrom: url) else {
             return nil
         }
@@ -550,6 +606,12 @@ enum FileMetadataReader {
         let tagSize = readSyncSafeInt(data, at: 6)
         let hasFooter = (data[5] & 0x10) != 0
         return 10 + tagSize + (hasFooter ? 10 : 0)
+    }
+
+    static func signature(from url: URL) -> AudioFileSignatureKind {
+        AudioFileSignaturePolicy.inspect(
+            readPrefix(from: url, byteCount: 64 * 1024)
+        )
     }
 
     private static func readID3FallbackData(from url: URL) -> Data {
@@ -890,7 +952,10 @@ enum FileMetadataReader {
         return (try? handle.read(upToCount: byteCount)) ?? Data()
     }
 
-    private static func readExpandableContainerHead(from url: URL) -> Data {
+    private static func readExpandableContainerHead(
+        from url: URL,
+        fileExtension: String
+    ) -> Data {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let fileSize = (attributes[.size] as? NSNumber)?.int64Value,
               fileSize > 0 else {
@@ -903,7 +968,7 @@ enum FileMetadataReader {
         while let expanded = EmbeddedTagMetadataParser.expandedHeadReadSize(
             fileSize: fileSize,
             currentData: data,
-            fileExtension: url.pathExtension
+            fileExtension: fileExtension
         ) {
             let replacement = readPrefix(from: url, byteCount: expanded)
             guard replacement.count > data.count else { break }
@@ -912,7 +977,10 @@ enum FileMetadataReader {
         return data
     }
 
-    private static func readExpandableContainerTail(from url: URL) -> Data? {
+    private static func readExpandableContainerTail(
+        from url: URL,
+        fileExtension: String
+    ) -> Data? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
@@ -932,7 +1000,7 @@ enum FileMetadataReader {
         if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
             fileSize: Int64(clamping: fileSize),
             currentData: data,
-            fileExtension: url.pathExtension
+            fileExtension: fileExtension
         ), expanded > data.count,
            let replacement = readTail(byteCount: expanded),
            replacement.count > data.count {
@@ -941,8 +1009,11 @@ enum FileMetadataReader {
         return data
     }
 
-    private static func readFLACMetadataPrefix(from url: URL) -> Data {
-        guard url.pathExtension.lowercased() == "flac",
+    private static func readFLACMetadataPrefix(
+        from url: URL,
+        fileExtension: String
+    ) -> Data {
+        guard fileExtension.lowercased() == "flac",
               let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let fileSize = (attributes[.size] as? NSNumber)?.int64Value,
               fileSize > 0 else {

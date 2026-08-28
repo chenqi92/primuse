@@ -676,6 +676,11 @@
 "reread_song_tags" = "파일 태그 다시 읽기";
 "reread_song_tags_in_progress" = "파일 태그 읽는 중…";
 "reread_song_tags_completed" = "파일 태그를 다시 읽었습니다.";
+"reread_song_tags_completed_embedded" = "표준 내장 태그를 읽었습니다.";
+"reread_song_tags_completed_sidecar" = "우선순위가 더 높은 내장 값을 찾지 못해 확인된 사이드카 메타데이터를 사용했습니다.";
+"reread_song_tags_completed_filename" = "사용할 수 있는 내장 또는 사이드카 식별 태그가 없어 파일 이름에서 아티스트나 제목을 추론했습니다.";
+"reread_song_tags_completed_technical" = "사용할 수 있는 설명 태그가 없어 파일의 기술 정보를 읽었습니다.";
+"reread_song_tags_completed_no_metadata" = "지원되는 태그 위치를 확인했지만 파일 자체에 사용할 수 있는 메타데이터가 없습니다.";
 "reread_song_tags_unsupported" = "이 소스는 원본 파일 태그를 제공하지 않습니다.";
 "reread_song_tags_failed" = "파일 태그를 읽을 수 없습니다. 음악 소스나 파일 형식을 확인하세요.";
 "reread_song_tags_failed_detail_format" = "“%1$@”의 태그를 읽을 수 없습니다(형식: %2$@, 소스: %3$@): %4$@";
@@ -683,6 +688,8 @@
 "reread_song_tags_failure_song_changed" = "태그를 읽는 동안 곡 또는 소스가 변경되었습니다.";
 "reread_song_tags_failure_cancelled" = "태그 읽기가 완료되기 전에 취소되었습니다.";
 "reread_song_tags_failure_no_update" = "파일을 읽었지만 사용할 수 있는 태그 업데이트가 없습니다.";
+"reread_song_tags_failure_requires_complete_technical_read" = "파일 헤더를 읽었지만 신뢰할 수 있는 기술 정보에는 전체 파일 검사가 필요합니다.";
+"reread_song_tags_failure_unrecognized_audio" = "파일 바이트는 읽을 수 있지만 서명이 지원되는 오디오 형식과 일치하지 않습니다.";
 "song_details_check_source" = "소스 확인";
 "song_details_source_available" = "소스에 연결할 수 있습니다. 읽기를 다시 예약했습니다.";
 "song_details_source_unavailable" = "소스를 계속 사용할 수 없습니다. 네트워크, 로그인 상태 및 파일 경로를 확인하세요.";

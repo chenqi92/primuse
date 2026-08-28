@@ -6,10 +6,27 @@ import UIKit
 #endif
 
 enum SingleSongTagReadResult: Sendable, Equatable {
-    case completed
+    case completed(MetadataReadCompletionKind)
     case alreadyReading
     case unsupported
     case failed(reason: String)
+}
+
+extension MetadataReadCompletionKind {
+    var localizedRereadResult: String {
+        switch self {
+        case .embeddedTags:
+            String(localized: "reread_song_tags_completed_embedded")
+        case .sidecarMetadata:
+            String(localized: "reread_song_tags_completed_sidecar")
+        case .filenameInference:
+            String(localized: "reread_song_tags_completed_filename")
+        case .technicalProperties:
+            String(localized: "reread_song_tags_completed_technical")
+        case .verifiedNoMetadata:
+            String(localized: "reread_song_tags_completed_no_metadata")
+        }
+    }
 }
 
 struct MetadataBackfillStatusItem: Identifiable, Sendable {
@@ -53,10 +70,7 @@ final class MetadataBackfillService {
     private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
 
     private static let fallbackTailBytes: Int64 = 256 * 1024
-    private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "mp4", "m4v", "mov", "alac"]
     private static let boundedHeadTagExtensions: Set<String> = ["ogg", "opus", "speex", "wma"]
-    private static let apeTailTagExtensions: Set<String> = ["ape", "wv", "mpc", "tta"]
-    private static let id3ContainerTailExtensions: Set<String> = ["dff", "aiff", "aif", "wav"]
 
     /// Persisted IDs whose bytes were read successfully but the expected
     /// metadata parser still produced no usable details.
@@ -1779,27 +1793,41 @@ final class MetadataBackfillService {
             guard reopenInspection(for: songID) else {
                 return .failed(reason: String(localized: "reread_song_tags_failure_song_changed"))
             }
-            let outcome = await processOne(song)
+            let outcome = await processOne(song, isExplicitReread: true)
             return applySingleSongTagReadOutcome(outcome, original: song)
         }
 
         do {
             let connector = try await sourceManager.connectorForSong(song)
             let url = try await connector.localURL(for: song.filePath)
-            let embedded = await FileMetadataReader.read(from: url)
-            guard hasUsableLocalFileMetadata(embedded) else {
-                plog("⚠️ Single-song tag read found no readable audio metadata for '\(song.title)'")
-                return .failed(
-                    reason: String(localized: "reread_song_tags_failure_no_supported_metadata")
-                )
-            }
             let fallbackTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
-            let metadata = await metadataService.loadMetadata(
+            var metadata = await metadataService.loadMetadata(
                 for: url,
                 cacheKey: song.id,
                 allowOnlineFetch: false,
                 fallbackTitle: fallbackTitle
             )
+            if song.fileFormat.requiresFFmpeg,
+               let info = try? await FFmpegAudioDecoder().fileInfo(for: url) {
+                if metadata.duration <= 0 { metadata.duration = info.duration }
+                if (metadata.sampleRate ?? 0) <= 0 {
+                    metadata.sampleRate = info.sampleRate.finiteInt()
+                }
+                if (metadata.bitRate ?? 0) <= 0 { metadata.bitRate = info.bitRate }
+                if (metadata.bitDepth ?? 0) <= 0 { metadata.bitDepth = info.bitDepth }
+                metadata.hasTechnicalProperties = metadata.hasTechnicalProperties
+                    || info.duration > 0
+                    || info.sampleRate > 0
+                    || (info.bitRate ?? 0) > 0
+                    || (info.bitDepth ?? 0) > 0
+            }
+            guard hasVerifiedAudioEvidence(metadata)
+                    || metadata.hasEmbeddedDescriptiveMetadata
+                    || metadata.hasVerifiedSidecarMetadata else {
+                return .failed(
+                    reason: String(localized: "reread_song_tags_failure_unrecognized_audio")
+                )
+            }
             guard let live = library.song(id: song.id),
                   live.sourceID == song.sourceID,
                   live.filePath == song.filePath else {
@@ -1807,7 +1835,9 @@ final class MetadataBackfillService {
             }
             let merged = mergeSong(bare: live, metadata: metadata)
             library.replaceSongs([merged])
-            return .completed
+            return .completed(
+                completionKind(for: metadata, original: live, merged: merged)
+            )
         } catch {
             plog("⚠️ Single-song tag read failed for '\(song.title)': \(error.localizedDescription)")
             return .failed(reason: error.localizedDescription)
@@ -1920,13 +1950,31 @@ final class MetadataBackfillService {
             applied = true
         }
 
+        let verifiedWithoutMutation = !applied
+            && outcome.song == nil
+            && outcome.titleInspected
+            && !outcome.markFailed
+            && !outcome.detailsIncomplete
+            && !outcome.sourceIssue
+            && !outcome.transientFailure
+        if verifiedWithoutMutation {
+            failedSongIDs.remove(songID)
+            incompleteSongIDs.remove(songID)
+            sourceIssueSongIDs.remove(songID)
+            deferredRetrySongIDs.remove(songID)
+            clearAutomaticRetryState(songID: songID, sourceID: song.sourceID)
+            clearDiagnostic(songID: songID)
+        }
+
         saveFailed()
         saveArtworkGivenUp()
         saveDeferredRetries()
         saveInspectionState()
         saveRetryCounts()
         refreshRemainingCounts(force: true)
-        if applied { return .completed }
+        if applied || verifiedWithoutMutation {
+            return .completed(outcome.completionKind)
+        }
         return .failed(
             reason: outcome.failureReason
                 ?? String(localized: "reread_song_tags_failure_no_update")
@@ -1946,6 +1994,9 @@ final class MetadataBackfillService {
     /// leave a READ or AVFoundation metadata load suspended indefinitely for a
     /// damaged or locked file. Let that file go and keep the queue moving.
     private static let perSongTimeout: TimeInterval = 45
+    /// A manual reread may materialize and probe one complete file after the
+    /// bounded ranges prove insufficient.
+    private static let explicitRereadTimeout: TimeInterval = 180
     private func runWorker() async {
         // Outer loop: take a snapshot of bare songs, process the snapshot
         // sequentially, flush in batches. We deliberately do NOT call
@@ -2415,6 +2466,7 @@ final class MetadataBackfillService {
     struct BackfillOutcome: Sendable {
         var song: Song?
         var markFailed: Bool
+        var completionKind: MetadataReadCompletionKind = .verifiedNoMetadata
         /// Header bytes were read, but a dynamic/complete-file playback path
         /// can remain playable without a duration from this bounded parser.
         var detailsIncomplete: Bool = false
@@ -2549,11 +2601,21 @@ final class MetadataBackfillService {
     /// indicating whether the attempt should be remembered as failed —
     /// the two are independent because some files parse partial tags
     /// (artist, album) but never expose duration.
-    private func processOne(_ song: Song) async -> BackfillOutcome {
+    private func processOne(
+        _ song: Song,
+        isExplicitReread: Bool = false
+    ) async -> BackfillOutcome {
         let started = Date()
         do {
-            return try await Self.withHardTimeout(seconds: Self.perSongTimeout) { [self] in
-                try await self.processOneCore(song, started: started)
+            let timeout = isExplicitReread
+                ? Self.explicitRereadTimeout
+                : Self.perSongTimeout
+            return try await Self.withHardTimeout(seconds: timeout) { [self] in
+                try await self.processOneCore(
+                    song,
+                    started: started,
+                    isExplicitReread: isExplicitReread
+                )
             }
         } catch {
             let elapsed = Date().timeIntervalSince(started)
@@ -2589,7 +2651,11 @@ final class MetadataBackfillService {
         }
     }
 
-    private func processOneCore(_ song: Song, started: Date) async throws -> BackfillOutcome {
+    private func processOneCore(
+        _ song: Song,
+        started: Date,
+        isExplicitReread: Bool
+    ) async throws -> BackfillOutcome {
         guard isStillEligible(song) else {
             return BackfillOutcome(song: nil, markFailed: false)
         }
@@ -2620,12 +2686,17 @@ final class MetadataBackfillService {
             song: song,
             cacheKey: song.id
         )
+        let declaredExtension = song.fileFormat.rawValue.lowercased()
+        var parserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: declaredExtension,
+            signature: metadata.detectedFileSignature
+        )
         let needsArtistInspection = (song.artistName?
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
             && !artistCheckedIDs.contains(song.id)
         var artistInspectionCompleted = !needsArtistInspection
             || metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        if song.fileFormat == .mp3 {
+        if parserExtension == "mp3" {
             let id3ByteCount = FileMetadataReader.id3TagByteCount(in: headData)
             let hasTruncatedID3 = (id3ByteCount ?? 0) > headData.count
             let needsDurationExpansion = metadataLooksMissing(metadata)
@@ -2661,7 +2732,7 @@ final class MetadataBackfillService {
                     throw error
                 }
             }
-        } else if song.fileFormat == .flac {
+        } else if parserExtension == "flac" {
             // FLAC metadata blocks declare their exact lengths. Walk only as
             // far as the visible block chain requires, so a 553 KB embedded
             // picture is recovered without charging every cover-less file the
@@ -2696,14 +2767,14 @@ final class MetadataBackfillService {
                     && metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             }
             if needsArtistInspection { artistInspectionCompleted = true }
-        } else if Self.boundedHeadTagExtensions.contains(song.fileFormat.rawValue) {
+        } else if Self.boundedHeadTagExtensions.contains(parserExtension) {
             // ASF declares the complete header size and Ogg pages declare each
             // packet boundary. Expand only while the tag packet is visibly
             // incomplete, bounded by the same 4 MB metadata ceiling.
             while let expandedByteCount = EmbeddedTagMetadataParser.expandedHeadReadSize(
                 fileSize: song.fileSize,
                 currentData: metadataInputData,
-                fileExtension: song.fileFormat.rawValue
+                fileExtension: parserExtension
             ) {
                 let expandedHead = try await sourceManager.fetchMetadataRange(
                     for: song,
@@ -2724,17 +2795,21 @@ final class MetadataBackfillService {
         } else if needsArtistInspection {
             artistInspectionCompleted = true
         }
-        let lowercasedExtension = song.fileFormat.rawValue.lowercased()
+        parserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: declaredExtension,
+            signature: metadata.detectedFileSignature
+        )
+        let tailStrategy = RemoteMetadataInspectionPolicy.tailStrategy(
+            fileExtension: parserExtension,
+            isExplicitReread: isExplicitReread
+        )
         let needsSecondaryArtistRange = needsArtistInspection
             && metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-            && (Self.isoBaseMediaExtensions.contains(lowercasedExtension)
-                || lowercasedExtension == "mp3")
-        let needsSecondaryArtworkRange = Self.isoBaseMediaExtensions.contains(lowercasedExtension)
+            && (tailStrategy == .isoBaseMedia || tailStrategy == .mp3ID3)
+        let needsSecondaryArtworkRange = tailStrategy == .isoBaseMedia
             && Self.needsEmbeddedArtworkBackfill(song)
             && metadata.coverArtFileName == nil
-        let needsSecondaryTagRange = (Self.apeTailTagExtensions.contains(lowercasedExtension)
-            || Self.id3ContainerTailExtensions.contains(lowercasedExtension)
-            || lowercasedExtension == "dsf")
+        let needsSecondaryTagRange = tailStrategy != .none
             && (!titleCheckedIDs.contains(song.id)
                 || needsArtistInspection
                 || (Self.needsEmbeddedArtworkBackfill(song)
@@ -2743,7 +2818,7 @@ final class MetadataBackfillService {
             || needsSecondaryArtistRange
             || needsSecondaryArtworkRange
             || needsSecondaryTagRange {
-            if Self.isoBaseMediaExtensions.contains(lowercasedExtension) {
+            if tailStrategy == .isoBaseMedia {
                 var readContainerTail = false
                 for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: song.fileSize) {
                     do {
@@ -2775,7 +2850,7 @@ final class MetadataBackfillService {
                 if needsSecondaryArtistRange, readContainerTail {
                     artistInspectionCompleted = true
                 }
-            } else if lowercasedExtension == "mp3" {
+            } else if tailStrategy == .mp3ID3 {
                 do {
                     let tailData = try await sourceManager.fetchMetadataRange(
                         for: song,
@@ -2792,7 +2867,7 @@ final class MetadataBackfillService {
                 } catch {
                     if needsSecondaryArtistRange { throw error }
                 }
-            } else if Self.apeTailTagExtensions.contains(lowercasedExtension) {
+            } else if tailStrategy == .apeV2 {
                 var tailData = try await sourceManager.fetchMetadataRange(
                     for: song,
                     offset: -Self.fallbackTailBytes,
@@ -2801,7 +2876,7 @@ final class MetadataBackfillService {
                 if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
                     fileSize: song.fileSize,
                     currentData: tailData,
-                    fileExtension: lowercasedExtension
+                    fileExtension: parserExtension
                 ), expanded > tailData.count {
                     tailData = try await sourceManager.fetchMetadataRange(
                         for: song,
@@ -2816,7 +2891,7 @@ final class MetadataBackfillService {
                     cacheKey: song.id
                 )
                 if needsArtistInspection { artistInspectionCompleted = true }
-            } else if lowercasedExtension == "dsf",
+            } else if tailStrategy == .dsfOffset,
                       let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: metadataInputData),
                       offset < song.fileSize {
                 let header = try await sourceManager.fetchMetadataRange(
@@ -2847,7 +2922,7 @@ final class MetadataBackfillService {
                     cacheKey: song.id
                 )
                 if needsArtistInspection { artistInspectionCompleted = true }
-            } else if Self.id3ContainerTailExtensions.contains(lowercasedExtension) {
+            } else if tailStrategy == .containerID3 {
                 let tailData = try await sourceManager.fetchMetadataRange(
                     for: song,
                     offset: -Self.fallbackTailBytes,
@@ -2860,7 +2935,61 @@ final class MetadataBackfillService {
                     cacheKey: song.id
                 )
                 if needsArtistInspection { artistInspectionCompleted = true }
+            } else if tailStrategy == .genericEOF {
+                var tailData = try await sourceManager.fetchMetadataRange(
+                    for: song,
+                    offset: -Self.fallbackTailBytes,
+                    length: Self.fallbackTailBytes
+                )
+                if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
+                    fileSize: song.fileSize,
+                    currentData: tailData,
+                    fileExtension: parserExtension
+                ), expanded > tailData.count {
+                    tailData = try await sourceManager.fetchMetadataRange(
+                        for: song,
+                        offset: -Int64(expanded),
+                        length: Int64(expanded)
+                    )
+                }
+                metadata = await extractMetadata(
+                    from: metadataInputData,
+                    id3TailData: tailData,
+                    song: song,
+                    cacheKey: song.id
+                )
+                if needsArtistInspection { artistInspectionCompleted = true }
             }
+        }
+
+        // Bounded ranges answer the common tag layouts. A user-initiated
+        // reread may additionally materialize one complete file when the
+        // format needs FFmpeg, the signature is still unknown, or no duration
+        // was recoverable. This is the authoritative fallback for raw DTS and
+        // other elementary streams; background maintenance never downloads a
+        // whole library for this purpose.
+        if isExplicitReread,
+           (song.fileFormat.requiresFFmpeg
+                || metadata.detectedFileSignature == .unknown
+                || metadataLooksMissing(metadata)) {
+            metadata = try await loadCompleteFileMetadata(for: song)
+            artistInspectionCompleted = true
+        }
+
+        if isExplicitReread,
+           !hasVerifiedAudioEvidence(metadata),
+           !metadata.hasEmbeddedDescriptiveMetadata,
+           !metadata.hasVerifiedSidecarMetadata,
+           !hasVerifiedSourceSidecarReference(in: song) {
+            return BackfillOutcome(
+                song: nil,
+                markFailed: true,
+                failureReason: String(
+                    localized: "reread_song_tags_failure_unrecognized_audio"
+                ),
+                titleInspected: true,
+                artistInspected: artistInspectionCompleted
+            )
         }
 
         // Raw CBR MP3s and some OpenList-backed streams have valid MPEG frames
@@ -2871,7 +3000,9 @@ final class MetadataBackfillService {
         // correction ran afterwards and was therefore unreachable for exactly
         // these rows.
         if song.fileFormat == .mp3,
-           metadata.duration <= 0 {
+           metadata.duration <= 0,
+           metadata.detectedFileSignature == .mpegAudio,
+           (metadata.bitRate ?? 0) > 0 {
             let estimated = RemoteMetadataReadPolicy.correctedMP3Duration(
                 parsed: metadata.duration,
                 fileSize: song.fileSize,
@@ -2881,6 +3012,7 @@ final class MetadataBackfillService {
             )
             if estimated > 0 {
                 metadata.duration = estimated
+                metadata.hasTechnicalProperties = true
                 plog(String(format: "📥 Backfill: '%@' recovered MP3 duration %.1fs from bounded metadata and file size", song.title, estimated))
             }
         }
@@ -2891,13 +3023,21 @@ final class MetadataBackfillService {
         // so a valid TIT2 was silently thrown away and the filename remained
         // visible until an online scrape replaced the song.
         if metadataLooksMissing(metadata) {
-            if hasUsablePartialMetadata(metadata, comparedTo: song) {
-                let partial = mergeSong(bare: song, metadata: metadata)
+            let partial = mergeSong(bare: song, metadata: metadata)
+            let partialKind = completionKind(for: metadata, original: song, merged: partial)
+            if partial != song
+                || partialKind == .embeddedTags
+                || partialKind == .sidecarMetadata
+                || partialKind == .filenameInference {
                 plog("⚠️ Backfill: '\(song.title)' has no duration after head+tail; saving verified partial tags as '\(partial.title)'")
                 return BackfillOutcome(
                     song: partial,
                     markFailed: false,
+                    completionKind: partialKind,
                     detailsIncomplete: true,
+                    failureReason: String(
+                        localized: "reread_song_tags_failure_requires_complete_technical_read"
+                    ),
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted
                 )
@@ -2907,9 +3047,10 @@ final class MetadataBackfillService {
                 return BackfillOutcome(
                     song: nil,
                     markFailed: false,
+                    completionKind: partialKind,
                     detailsIncomplete: true,
                     failureReason: String(
-                        localized: "reread_song_tags_failure_no_supported_metadata"
+                        localized: "reread_song_tags_failure_requires_complete_technical_read"
                     ),
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted
@@ -2942,7 +3083,9 @@ final class MetadataBackfillService {
         // in the field as a 13MB / 198kbps m4a being "corrected"
         // from the real 177s to a bogus 562s.
         let ext = song.fileFormat.rawValue
-        if ext == "mp3" {
+        if ext == "mp3",
+           metadata.detectedFileSignature == .mpegAudio,
+           (metadata.bitRate ?? 0) > 0 {
             let originalDuration = metadata.duration
             metadata.duration = RemoteMetadataReadPolicy.correctedMP3Duration(
                 parsed: metadata.duration,
@@ -2982,6 +3125,7 @@ final class MetadataBackfillService {
         return BackfillOutcome(
             song: merged,
             markFailed: false,
+            completionKind: completionKind(for: metadata, original: song, merged: merged),
             titleInspected: true,
             artistInspected: artistInspectionCompleted,
             artworkGivenUp: artworkStillMissing
@@ -3015,6 +3159,36 @@ final class MetadataBackfillService {
         )
     }
 
+    private func loadCompleteFileMetadata(
+        for song: Song
+    ) async throws -> MetadataService.SongMetadata {
+        let url = try await sourceManager.resolveFullDownloadSourceURL(for: song)
+        guard url.isFileURL else {
+            throw SourceError.connectionFailed("Complete metadata read did not resolve a local file")
+        }
+        let fallbackTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
+        var metadata = await metadataService.loadMetadata(
+            for: url,
+            cacheKey: song.id,
+            allowOnlineFetch: false,
+            fallbackTitle: fallbackTitle
+        )
+        if song.fileFormat.requiresFFmpeg || metadata.duration <= 0,
+           let info = try? await FFmpegAudioDecoder().fileInfo(for: url) {
+            if metadata.duration <= 0 { metadata.duration = info.duration }
+            if (metadata.sampleRate ?? 0) <= 0 { metadata.sampleRate = info.sampleRate.finiteInt() }
+            if (metadata.bitRate ?? 0) <= 0 { metadata.bitRate = info.bitRate }
+            if (metadata.bitDepth ?? 0) <= 0 { metadata.bitDepth = info.bitDepth }
+            metadata.hasTechnicalProperties = metadata.hasTechnicalProperties
+                || info.duration > 0
+                || info.sampleRate > 0
+                || (info.bitRate ?? 0) > 0
+                || (info.bitDepth ?? 0) > 0
+        }
+        metadata.hasCompleteFileAccess = true
+        return metadata
+    }
+
     private func metadataLooksMissing(_ m: MetadataService.SongMetadata) -> Bool {
         // Duration is the load-bearing field — without it the player
         // can't draw a progress bar and SFB streaming may decide the
@@ -3033,86 +3207,84 @@ final class MetadataBackfillService {
         m.duration <= 0
     }
 
-    private func hasUsableLocalFileMetadata(_ metadata: FileMetadataReader.Metadata) -> Bool {
-        func hasText(_ value: String?) -> Bool {
-            value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        }
-
-        return metadata.duration?.isFinite == true && (metadata.duration ?? 0) > 0
-            || hasText(metadata.title)
-            || hasText(metadata.artist)
-            || hasText(metadata.albumTitle)
-            || hasText(metadata.albumArtist)
-            || metadata.trackNumber != nil
-            || metadata.discNumber != nil
-            || metadata.year != nil
-            || hasText(metadata.genre)
-            || metadata.coverArtData?.isEmpty == false
-            || (metadata.sampleRate ?? 0) > 0
-            || (metadata.bitRate ?? 0) > 0
-            || (metadata.bitDepth ?? 0) > 0
-            || metadata.replayGainTrackGain != nil
-            || metadata.replayGainTrackPeak != nil
-            || metadata.replayGainAlbumGain != nil
-            || metadata.replayGainAlbumPeak != nil
-            || hasText(metadata.lyricsText)
+    private func resolvedIdentity(
+        for song: Song,
+        metadata: MetadataService.SongMetadata
+    ) -> (title: MetadataResolvedText, artist: MetadataResolvedText) {
+        let component = (song.filePath as NSString).lastPathComponent
+        let rawStem = (component as NSString).deletingPathExtension
+        let userEdited = song.userMetadataEditedAt != nil
+        let mayInferFromFilename = hasVerifiedAudioEvidence(metadata)
+        return (
+            MetadataIdentityFallbackPolicy.resolve(
+                existing: song.title,
+                embedded: metadata.embeddedTitle,
+                filenameInference: mayInferFromFilename
+                    ? MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
+                    : nil,
+                rawFileStem: rawStem,
+                isCueTrack: song.isCueTrack,
+                userEdited: userEdited
+            ),
+            MetadataIdentityFallbackPolicy.resolve(
+                existing: song.artistName,
+                embedded: metadata.embeddedArtist,
+                filenameInference: mayInferFromFilename
+                    ? MediaMetadataTextRepair.fileNameArtist(from: song.filePath)
+                    : nil,
+                rawFileStem: nil,
+                isCueTrack: song.isCueTrack,
+                userEdited: userEdited
+            )
+        )
     }
 
-    private func hasUsablePartialMetadata(
-        _ metadata: MetadataService.SongMetadata,
-        comparedTo song: Song
+    private func hasVerifiedAudioEvidence(
+        _ metadata: MetadataService.SongMetadata
     ) -> Bool {
-        let incomingTitle = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (!incomingTitle.isEmpty && incomingTitle != currentTitle)
-            || metadata.artist != nil
-            || metadata.albumTitle != nil
-            || metadata.albumArtist != nil
-            || metadata.trackNumber != nil
-            || metadata.discNumber != nil
-            || metadata.year != nil
-            || metadata.genre != nil
-            || metadata.sampleRate != nil
-            || metadata.bitRate != nil
-            || metadata.bitDepth != nil
-            || metadata.coverArtFileName != nil
-            || metadata.lyricsFileName != nil
-            || metadata.replayGainTrackGain != nil
-            || metadata.replayGainTrackPeak != nil
-            || metadata.replayGainAlbumGain != nil
-            || metadata.replayGainAlbumPeak != nil
+        MetadataReadEvidencePolicy.hasVerifiedAudioFile(
+            signature: metadata.detectedFileSignature,
+            hasTechnicalProperties: metadata.hasTechnicalProperties
+        )
+    }
+
+    private func completionKind(
+        for metadata: MetadataService.SongMetadata,
+        original song: Song,
+        merged _: Song
+    ) -> MetadataReadCompletionKind {
+        if metadata.hasEmbeddedDescriptiveMetadata { return .embeddedTags }
+        if metadata.hasVerifiedSidecarMetadata || hasVerifiedSourceSidecarReference(in: song) {
+            return .sidecarMetadata
+        }
+        let identity = resolvedIdentity(for: song, metadata: metadata)
+        if identity.title.source == .filenameInference
+            || identity.artist.source == .filenameInference {
+            return .filenameInference
+        }
+        if metadata.hasTechnicalProperties { return .technicalProperties }
+        return .verifiedNoMetadata
+    }
+
+    private func hasVerifiedSourceSidecarReference(in song: Song) -> Bool {
+        let mediaParent = (song.filePath as NSString).deletingLastPathComponent
+        return [song.coverArtFileName, song.lyricsFileName, song.mvPath]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { reference in
+                guard !reference.isEmpty,
+                      !reference.contains("://"),
+                      reference.contains("/") else { return false }
+                return (reference as NSString).deletingLastPathComponent == mediaParent
+            }
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
-        let metadataTitle = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 文件名是一条独立于内嵌标签的来源, 且通常更可信 —— 详见
-        // MediaMetadataTextRepair.preferred。之前这里只要标签非空就无条件
-        // 覆盖 bare.title(文件名), 于是标签解码猜错时, 乱码盖掉了好数据。
-        let pathTitle = MediaMetadataTextRepair.fileNameTitle(from: bare.filePath)
-        let nameTitle = MediaMetadataTextRepair.preferred(
-            embedded: bare.title,
-            fromFileName: pathTitle
-        ) ?? bare.title
-        let nameArtist = MediaMetadataTextRepair.fileNameArtist(from: bare.filePath)
-
-        // A CUE track's text belongs to the virtual track. Embedded tags in
-        // the referenced image describe the whole album and must not replace
-        // every track with the same title/track number.
-        let mergedTitle = bare.isCueTrack
-            ? bare.title
-            : (MediaMetadataTextRepair.preferred(
-                embedded: metadataTitle.isEmpty ? nil : metadata.title,
-                fromFileName: nameTitle
-              ) ?? bare.title)
-        let mergedArtist = bare.isCueTrack
-            ? (bare.artistName ?? metadata.artist)
-            : (MediaMetadataTextRepair.preferred(
-                embedded: metadata.artist,
-                fromFileName: nameArtist
-              ) ?? bare.artistName)
+        let identity = resolvedIdentity(for: bare, metadata: metadata)
+        let mergedTitle = identity.title.value ?? bare.title
+        let mergedArtist = identity.artist.value ?? bare.artistName
         let mergedSourceArtistNames: [String]? = if bare.isCueTrack {
             bare.artistName != nil ? bare.sourceArtistNames : metadata.sourceArtistNames
-        } else if mergedArtist == metadata.artist {
+        } else if identity.artist.source == .embedded {
             metadata.sourceArtistNames
         } else if mergedArtist == bare.artistName {
             bare.sourceArtistNames
@@ -3137,11 +3309,15 @@ final class MetadataBackfillService {
             nil
         }
 
-        // Sidecar references on the bare song (from listFiles sibling
-        // detection) win over anything embedded in the file — they're
-        // higher quality (full-size cover) and remote-resolvable.
-        let coverRef = bare.coverArtFileName ?? metadata.coverArtFileName
-        let lyricsRef = bare.lyricsFileName ?? metadata.lyricsFileName
+        // Embedded assets are the first objective source. Verified sidecars
+        // fill only missing embedded fields; CUE virtual-track references stay
+        // authoritative for their own track identity and assets.
+        let coverRef = bare.isCueTrack
+            ? (bare.coverArtFileName ?? metadata.coverArtFileName)
+            : (metadata.coverArtFileName ?? bare.coverArtFileName)
+        let lyricsRef = bare.isCueTrack
+            ? (bare.lyricsFileName ?? metadata.lyricsFileName)
+            : (metadata.lyricsFileName ?? bare.lyricsFileName)
         let mvRef = bare.mvPath ?? metadata.mvPath
 
         let mergedDuration: TimeInterval = if bare.isCueTrack,

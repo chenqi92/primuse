@@ -140,6 +140,16 @@ public enum EmbeddedTagMetadataParser {
             break
         }
 
+        // APEv2 is an EOF tag family rather than an audio container. Besides
+        // Monkey's Audio/WavPack/Musepack/TTA it is commonly used by TAK and
+        // can legally accompany tag-poor elementary streams. The footer is
+        // accepted only at an exact EOF position (or immediately before
+        // ID3v1), so applying this structural check across formats does not
+        // mistake compressed payload bytes for metadata.
+        if let tail, let parsed = parseAPEv2(tail) {
+            result.fillMissing(from: parsed)
+        }
+
         return result.isEmpty ? nil : result
     }
 
@@ -174,11 +184,9 @@ public enum EmbeddedTagMetadataParser {
     public static func expandedTailReadSize(
         fileSize: Int64,
         currentData: Data,
-        fileExtension: String
+        fileExtension _: String
     ) -> Int? {
-        let ext = normalizedExtension(fileExtension)
-        guard ["ape", "wv", "mpc", "tta"].contains(ext),
-              let footer = lastAPEv2Footer(in: currentData) else {
+        guard let footer = lastAPEv2Footer(in: currentData) else {
             return nil
         }
         let tagSize = readUInt32LE(currentData, at: footer + 12)
@@ -208,9 +216,6 @@ public enum EmbeddedTagMetadataParser {
         fileExtension: String
     ) -> Data? {
         let ext = normalizedExtension(fileExtension)
-        guard ["dsf", "dff", "aiff", "aif", "wav", "wave"].contains(ext) else {
-            return nil
-        }
 
         if ext == "wav" || ext == "wave" {
             if let tag = riffID3Chunk(in: head) { return tag }
@@ -218,6 +223,10 @@ public enum EmbeddedTagMetadataParser {
         } else if ext == "aiff" || ext == "aif" || ext == "dff" {
             if let tag = bigEndianID3Chunk(in: head) { return tag }
             if let tail, let tag = bigEndianID3Chunk(in: tail) { return tag }
+        } else {
+            if let tag = completeLeadingID3Tag(in: head) { return tag }
+            if let tail, let tag = completeTrailingID3Tag(in: tail) { return tag }
+            return nil
         }
 
         if let tag = completeID3Tag(in: head) { return tag }
@@ -450,6 +459,11 @@ public enum EmbeddedTagMetadataParser {
         // positions prevents audio payload bytes from masquerading as a tag.
         let candidates = [data.count - 32, data.count - 160]
         for offset in candidates where offset >= 0 && offset + 32 <= data.count {
+            if offset == data.count - 160,
+               !data[(data.count - 128)..<(data.count - 125)]
+                .elementsEqual(Data("TAG".utf8)) {
+                continue
+            }
             if data[offset..<(offset + 8)].elementsEqual(apeSignature),
                readUInt32LE(data, at: offset + 8) >= 1_000 {
                 return offset
@@ -704,6 +718,35 @@ public enum EmbeddedTagMetadataParser {
             let candidate = data.subdata(in: start..<data.count)
             if let byteCount = id3TagByteCount(in: candidate), byteCount <= candidate.count {
                 return candidate.subdata(in: 0..<byteCount)
+            }
+            searchStart = start + 1
+        }
+        return nil
+    }
+
+    private static func completeLeadingID3Tag(in data: Data) -> Data? {
+        guard let byteCount = id3TagByteCount(in: data), byteCount <= data.count else {
+            return nil
+        }
+        return data.subdata(in: 0..<byteCount)
+    }
+
+    private static func completeTrailingID3Tag(in data: Data) -> Data? {
+        var searchStart = 0
+        while searchStart + 10 <= data.count,
+              let range = data.range(of: id3Signature, in: searchStart..<data.count) {
+            let start = range.lowerBound
+            let candidate = data.subdata(in: start..<data.count)
+            if let byteCount = id3TagByteCount(in: candidate) {
+                let end = start + byteCount
+                let endsAtEOF = end == data.count
+                let endsBeforeID3v1 = end == data.count - 128
+                    && data.count >= 128
+                    && data[(data.count - 128)..<(data.count - 125)]
+                        .elementsEqual(Data("TAG".utf8))
+                if byteCount <= candidate.count, endsAtEOF || endsBeforeID3v1 {
+                    return candidate.subdata(in: 0..<byteCount)
+                }
             }
             searchStart = start + 1
         }

@@ -497,7 +497,7 @@ struct SongRowView: View {
         Task {
             let result = await backfill.rereadTags(songID: song.id)
             switch result {
-            case .completed:
+            case .completed(let kind):
                 CachedArtworkView.invalidateCache(for: song.id)
                 if let coverRef = song.coverArtFileName {
                     CachedArtworkView.invalidateCache(for: coverRef)
@@ -505,7 +505,7 @@ struct SongRowView: View {
                 if let updated = library.song(id: song.id) {
                     player.syncSongMetadata(updated)
                 }
-                tagReadMessage = String(localized: "reread_song_tags_completed")
+                tagReadMessage = kind.localizedRereadResult
             case .alreadyReading:
                 tagReadMessage = String(localized: "reread_song_tags_in_progress")
             case .unsupported:

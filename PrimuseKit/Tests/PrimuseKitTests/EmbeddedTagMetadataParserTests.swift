@@ -61,6 +61,43 @@ struct EmbeddedTagMetadataParserTests {
         #expect(metadata?.trackNumber == 7)
     }
 
+    @Test func parsesStructurallyValidAPEv2OnTAKAndRawDTS() {
+        let tail = Data(repeating: 0x5A, count: 96) + makeAPEv2Tag([
+            apeTextItem("title", "通用尾部标签"),
+            apeTextItem("artist", "尾部歌手"),
+        ])
+
+        for fileExtension in ["tak", "dts"] {
+            let metadata = EmbeddedTagMetadataParser.parse(
+                head: fileExtension == "tak"
+                    ? Data("tBaK".utf8)
+                    : Data([0x7F, 0xFE, 0x80, 0x01]),
+                tail: tail,
+                fileExtension: fileExtension
+            )
+            #expect(metadata?.title == "通用尾部标签")
+            #expect(metadata?.artist == "尾部歌手")
+        }
+    }
+
+    @Test func acceptsOnlyPositionallyValidGenericID3() {
+        let id3 = makeID3v23Title("DTS 尾部标题")
+        let dtsHead = Data([0x7F, 0xFE, 0x80, 0x01])
+        let validTail = Data(repeating: 0x5A, count: 64) + id3
+        #expect(EmbeddedTagMetadataParser.embeddedID3Data(
+            head: dtsHead,
+            tail: validTail,
+            fileExtension: "dts"
+        ) == id3)
+
+        let payloadHit = validTail + Data(repeating: 0x5A, count: 64)
+        #expect(EmbeddedTagMetadataParser.embeddedID3Data(
+            head: dtsHead,
+            tail: payloadHit,
+            fileExtension: "dts"
+        ) == nil)
+    }
+
     @Test func plansExactAPEv2TailExpansionAndRejectsPayloadSignatures() {
         var footer = Data("APETAGEX".utf8)
         appendUInt32LE(2_000, to: &footer)
@@ -83,6 +120,15 @@ struct EmbeddedTagMetadataParserTests {
             fileSize: 2_000_000,
             currentData: falsePositive,
             fileExtension: "ape"
+        ) == nil)
+
+        let fakeBeforeNonID3Tail = Data(repeating: 0, count: 96)
+            + footer
+            + Data(repeating: 0, count: 128)
+        #expect(EmbeddedTagMetadataParser.expandedTailReadSize(
+            fileSize: 2_000_000,
+            currentData: fakeBeforeNonID3Tail,
+            fileExtension: "dts"
         ) == nil)
     }
 

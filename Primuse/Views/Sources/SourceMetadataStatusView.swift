@@ -330,8 +330,8 @@ struct SourceMetadataStatusView: View {
         Task {
             let result = await backfill.rereadTags(songID: item.song.id)
             switch result {
-            case .completed:
-                resultMessage = String(localized: "reread_song_tags_completed")
+            case .completed(let kind):
+                resultMessage = kind.localizedRereadResult
             case .alreadyReading:
                 resultMessage = String(localized: "reread_song_tags_in_progress")
             case .unsupported:
