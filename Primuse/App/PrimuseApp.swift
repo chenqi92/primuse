@@ -1445,7 +1445,9 @@ struct PrimuseApp: App {
                         AppServices.shared.spotlightIndex.suspendSynchronization()
                         AppServices.shared.lyricsTextBackfill.stop()
                         metadataBackfill.stop()
-                        metadataBackfill.setExecutionMode(.standard)
+                        if !metadataBackfill.resumeUserInitiatedIfNeeded() {
+                            metadataBackfill.setExecutionMode(.standard)
+                        }
                         musicLibrary.suspendPendingIdentityResolution()
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,

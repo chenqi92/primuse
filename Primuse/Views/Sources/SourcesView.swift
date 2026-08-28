@@ -453,6 +453,12 @@ struct SourcesContentView: View {
             }
             sourceSizes = sizes
         }
+        .task(id: "metadata-status-\(sources.map(\.id).joined(separator: ","))") {
+            // Source cards read cached, disjoint metadata counts. Refresh once
+            // when the source topology changes; worker updates publish later
+            // revisions without rescanning the library from every card body.
+            backfill.refreshStatusSnapshot()
+        }
     }
 
     private func sourceCard(
@@ -637,56 +643,9 @@ struct SourcesContentView: View {
                 // inspection for this source, including work parked behind a
                 // source circuit breaker, without implying every row issued a
                 // failed request.
-                let outstanding = backfill.statusCount(forSource: source.id)
-                if outstanding > 0 {
-                    let activityState = backfill.activityState(forSource: source.id)
-                    let retryCount = backfill.deferredRetryCount(forSource: source.id)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            switch activityState {
-                            case .running:
-                                ProgressView().scaleEffect(0.7).tint(.secondary)
-                                Text("backfill_in_progress").font(.caption2)
-                            case .retrying:
-                                ProgressView().scaleEffect(0.7).tint(.secondary)
-                                Text("backfill_retry_in_progress").font(.caption2)
-                            case .waitingForWiFi:
-                                Image(systemName: "wifi.exclamationmark")
-                                Text("backfill_waiting_for_wifi").font(.caption2)
-                            case .retryPending:
-                                Image(systemName: "arrow.clockwise.circle")
-                                Text("backfill_retry_pending").font(.caption2)
-                            case .pending, .idle:
-                                Image(systemName: "clock")
-                                Text("home_pending_details").font(.caption2)
-                            }
-                            Spacer()
-                            Text(String(format: String(localized: "backfill_remaining"), outstanding))
-                                .font(.caption2).monospacedDigit()
-                        }
-                        if retryCount > 0 {
-                            Text(String(format: String(localized: "backfill_retry_count_format"), retryCount))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .monospacedDigit()
-                        }
-                        if activityState == .running || activityState == .retrying {
-                            Text("backfill_runs_in_background_hint")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                            Text("backfill_keep_app_alive_hint")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        } else if activityState == .retryPending {
-                            Text(String(
-                                format: String(localized: "backfill_retry_pending_hint"),
-                                MetadataBackfillRetryPolicy.maximumAutomaticAttempts
-                            ))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .foregroundStyle(.secondary)
+                let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
+                if metadataSummary.affectedCount > 0 {
+                    metadataStatusLink(source, summary: metadataSummary)
                 }
             }
 
@@ -839,6 +798,109 @@ struct SourcesContentView: View {
             }
             .tint(source.isEnabled ? .gray : .green)
         }
+    }
+
+    private func metadataStatusLink(
+        _ source: MusicSource,
+        summary: MetadataBackfillSourceSummary
+    ) -> some View {
+        let activityState = backfill.activityState(forSource: source.id)
+        return NavigationLink {
+            SourceMetadataStatusView(source: source)
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    metadataActivityIndicator(activityState)
+                    Text(metadataActivityTitle(activityState))
+                        .font(.caption.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Text("metadata_status_open")
+                        .font(.caption2.weight(.semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                }
+                Text(metadataSummaryText(summary))
+                    .font(.caption2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.secondary)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("metadata_status_open"))
+    }
+
+    @ViewBuilder
+    private func metadataActivityIndicator(_ state: MetadataBackfillActivityState) -> some View {
+        switch state {
+        case .running, .retrying:
+            ProgressView().scaleEffect(0.7).tint(.secondary)
+        case .waitingForWiFi:
+            Image(systemName: "wifi.exclamationmark")
+        case .retryPending:
+            Image(systemName: "arrow.clockwise.circle")
+        case .pending:
+            Image(systemName: "clock")
+        case .idle:
+            Image(systemName: "exclamationmark.circle")
+        }
+    }
+
+    private func metadataActivityTitle(
+        _ state: MetadataBackfillActivityState
+    ) -> LocalizedStringKey {
+        switch state {
+        case .running: "backfill_in_progress"
+        case .retrying: "backfill_retry_in_progress"
+        case .waitingForWiFi: "backfill_waiting_for_wifi"
+        case .retryPending: "metadata_status_state_retry"
+        case .pending, .idle: "metadata_status_title"
+        }
+    }
+
+    private func metadataSummaryText(_ summary: MetadataBackfillSourceSummary) -> String {
+        var parts: [String] = []
+        if summary.activeQueueCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_pending_format"),
+                summary.activeQueueCount
+            ))
+        }
+        if summary.retryPendingCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_retry_format"),
+                summary.retryPendingCount
+            ))
+        }
+        let sourceProblems = summary.sourceUnavailableCount + summary.fileUnavailableCount
+        if sourceProblems > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_source_problem_format"),
+                sourceProblems
+            ))
+        }
+        if summary.unreadableTagsCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_unreadable_format"),
+                summary.unreadableTagsCount
+            ))
+        }
+        if summary.playableIncompleteCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_incomplete_format"),
+                summary.playableIncompleteCount
+            ))
+        }
+        if summary.stalledCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_stalled_format"),
+                summary.stalledCount
+            ))
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Helpers

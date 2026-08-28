@@ -6,6 +6,7 @@ struct MetadataBackfillExecutionPolicyTests {
     @Test("Background work is serial, throttled, and bounded per wake")
     func boundedBackgroundLimits() {
         let standard = MetadataBackfillExecutionPolicy.limits(for: .standard)
+        let userInitiated = MetadataBackfillExecutionPolicy.limits(for: .userInitiated)
         let foreground = MetadataBackfillExecutionPolicy.limits(
             for: .foregroundAfterSourceScan
         )
@@ -14,6 +15,10 @@ struct MetadataBackfillExecutionPolicyTests {
 
         #expect(standard.workerCount == 3)
         #expect(standard.snapshotPassLimit == nil)
+        #expect(userInitiated.workerCount == 1)
+        #expect(userInitiated.snapshotLimit > foreground.snapshotLimit)
+        #expect(userInitiated.interRequestDelay > 0)
+        #expect(userInitiated.snapshotPassLimit == nil)
         #expect(foreground.workerCount == 1)
         #expect(foreground.snapshotLimit <= background.snapshotLimit)
         #expect(foreground.interRequestDelay >= background.interRequestDelay)

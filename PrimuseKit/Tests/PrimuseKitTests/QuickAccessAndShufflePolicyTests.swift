@@ -327,7 +327,7 @@ struct MetadataBackfillActivityStateTests {
         #expect(afterCellularOptIn == .running)
     }
 
-    @Test("Cancellation stays pending while transient failures are labelled for retry")
+    @Test("Normal pending work is not relabelled by a smaller retry queue")
     func interruptedWorkStaysPending() {
         let afterCancellation = MetadataBackfillActivityState.resolve(
             hasPendingWork: true,
@@ -342,7 +342,7 @@ struct MetadataBackfillActivityStateTests {
         )
 
         #expect(afterCancellation == .pending)
-        #expect(afterRetryableFailure == .retryPending)
+        #expect(afterRetryableFailure == .pending)
     }
 
     @Test("A relaunched transient request is identified as a retry")

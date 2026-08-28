@@ -20,6 +20,7 @@ struct MacSourcesView: View {
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
     @State private var diagnosingSource: MusicSource?
+    @State private var inspectingMetadataSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var sourceToDelete: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
@@ -101,8 +102,22 @@ struct MacSourcesView: View {
         .sheet(item: $diagnosingSource) { source in
             SourceDiagnosticsView(source: source)
         }
+        .sheet(item: $inspectingMetadataSource) { source in
+            NavigationStack {
+                SourceMetadataStatusView(source: source)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("done") { inspectingMetadataSource = nil }
+                        }
+                    }
+            }
+            .frame(minWidth: 720, idealWidth: 820, minHeight: 560, idealHeight: 680)
+        }
         .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
             cloudDirectoryNameRefreshID = UUID()
+        }
+        .task(id: "metadata-status-\(sources.map(\.id).joined(separator: ","))") {
+            backfill.refreshStatusSnapshot()
         }
         .confirmationDialog(
             Text("source_remove_confirm_title"),
@@ -394,50 +409,9 @@ struct MacSourcesView: View {
         } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
         } else {
-            let outstanding = backfill.statusCount(forSource: source.id)
-            if outstanding > 0 {
-                let activityState = backfill.activityState(forSource: source.id)
-                let retryCount = backfill.deferredRetryCount(forSource: source.id)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        switch activityState {
-                        case .running:
-                            ProgressView().controlSize(.small).scaleEffect(0.8)
-                            Text("backfill_in_progress").font(.system(size: 11))
-                        case .retrying:
-                            ProgressView().controlSize(.small).scaleEffect(0.8)
-                            Text("backfill_retry_in_progress").font(.system(size: 11))
-                        case .waitingForWiFi:
-                            Image(systemName: "wifi.exclamationmark")
-                            Text("backfill_waiting_for_wifi").font(.system(size: 11))
-                        case .retryPending:
-                            Image(systemName: "arrow.clockwise.circle")
-                            Text("backfill_retry_pending").font(.system(size: 11))
-                        case .pending, .idle:
-                            Image(systemName: "clock")
-                            Text("home_pending_details").font(.system(size: 11))
-                        }
-                        Text(verbatim: "·").font(.system(size: 11))
-                        Text(String(format: String(localized: "backfill_remaining"), outstanding))
-                            .font(.system(size: 11)).monospacedDigit()
-                        Spacer()
-                    }
-                    if retryCount > 0 {
-                        Text(String(format: String(localized: "backfill_retry_count_format"), retryCount))
-                            .font(.system(size: 10.5))
-                            .monospacedDigit()
-                    }
-                    if activityState == .retryPending {
-                        Text(String(
-                            format: String(localized: "backfill_retry_pending_hint"),
-                            MetadataBackfillRetryPolicy.maximumAutomaticAttempts
-                        ))
-                            .font(.system(size: 10.5))
-                    }
-                }
-                .foregroundStyle(PMColor.textMuted)
-                .padding(10)
-                .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
+            let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
+            if metadataSummary.affectedCount > 0 {
+                macMetadataStatusButton(source, summary: metadataSummary)
             } else {
                 HStack(spacing: 6) {
                     if displayedSongCount > 0 {
@@ -454,6 +428,109 @@ struct MacSourcesView: View {
                 .foregroundStyle(PMColor.textMuted)
             }
         }
+    }
+
+    private func macMetadataStatusButton(
+        _ source: MusicSource,
+        summary: MetadataBackfillSourceSummary
+    ) -> some View {
+        let activityState = backfill.activityState(forSource: source.id)
+        return Button {
+            inspectingMetadataSource = source
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    macMetadataActivityIndicator(activityState)
+                    Text(macMetadataActivityTitle(activityState))
+                        .font(.system(size: 11, weight: .semibold))
+                    Spacer(minLength: 8)
+                    Text("metadata_status_open")
+                        .font(.system(size: 10.5, weight: .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(macMetadataSummaryText(summary))
+                    .font(.system(size: 10.5))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(PMColor.textMuted)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("metadata_status_open"))
+    }
+
+    @ViewBuilder
+    private func macMetadataActivityIndicator(_ state: MetadataBackfillActivityState) -> some View {
+        switch state {
+        case .running, .retrying:
+            ProgressView().controlSize(.small).scaleEffect(0.8)
+        case .waitingForWiFi:
+            Image(systemName: "wifi.exclamationmark")
+        case .retryPending:
+            Image(systemName: "arrow.clockwise.circle")
+        case .pending:
+            Image(systemName: "clock")
+        case .idle:
+            Image(systemName: "exclamationmark.circle")
+        }
+    }
+
+    private func macMetadataActivityTitle(
+        _ state: MetadataBackfillActivityState
+    ) -> LocalizedStringKey {
+        switch state {
+        case .running: "backfill_in_progress"
+        case .retrying: "backfill_retry_in_progress"
+        case .waitingForWiFi: "backfill_waiting_for_wifi"
+        case .retryPending: "metadata_status_state_retry"
+        case .pending, .idle: "metadata_status_title"
+        }
+    }
+
+    private func macMetadataSummaryText(_ summary: MetadataBackfillSourceSummary) -> String {
+        var parts: [String] = []
+        if summary.activeQueueCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_pending_format"),
+                summary.activeQueueCount
+            ))
+        }
+        if summary.retryPendingCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_retry_format"),
+                summary.retryPendingCount
+            ))
+        }
+        let sourceProblems = summary.sourceUnavailableCount + summary.fileUnavailableCount
+        if sourceProblems > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_source_problem_format"),
+                sourceProblems
+            ))
+        }
+        if summary.unreadableTagsCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_unreadable_format"),
+                summary.unreadableTagsCount
+            ))
+        }
+        if summary.playableIncompleteCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_incomplete_format"),
+                summary.playableIncompleteCount
+            ))
+        }
+        if summary.stalledCount > 0 {
+            parts.append(String(
+                format: String(localized: "metadata_status_card_stalled_format"),
+                summary.stalledCount
+            ))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func scanBox(_ scan: ScanService.ScanState) -> some View {

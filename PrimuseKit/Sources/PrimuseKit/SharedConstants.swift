@@ -2517,6 +2517,11 @@ public enum MetadataBackfillEligibilityPolicy {
 /// becomes even gentler while audio is the user-facing foreground workload.
 public enum MetadataBackfillExecutionMode: Sendable, Equatable {
     case standard
+    /// The user explicitly asked one source to keep reading. It remains serial
+    /// and throttled, but may take additional snapshots while the scene stays
+    /// active. Per-song failures are recorded and skipped instead of ending the
+    /// source job.
+    case userInitiated
     /// A source scan just committed new bare rows while the iOS scene is
     /// interactive. Process one small serial pass so newly-added songs do not
     /// remain stuck at "reading details", then leave any large remainder to
@@ -2561,6 +2566,13 @@ public enum MetadataBackfillExecutionPolicy {
                 snapshotLimit: 500,
                 interRequestDelay: 0,
                 flushInterval: 5
+            )
+        case .userInitiated:
+            MetadataBackfillExecutionLimits(
+                workerCount: 1,
+                snapshotLimit: 64,
+                interRequestDelay: 0.35,
+                flushInterval: 10
             )
         case .foregroundAfterSourceScan:
             MetadataBackfillExecutionLimits(
@@ -2791,8 +2803,10 @@ public enum MetadataBackfillActivityState: Equatable, Sendable {
         }
         guard hasPendingWork || hasDeferredRetryWork else { return .idle }
         if hasPendingWork, isWaitingForWiFi { return .waitingForWiFi }
-        if hasDeferredRetryWork { return .retryPending }
-        return isWaitingForWiFi ? .waitingForWiFi : .pending
+        // A few deferred requests must not relabel hundreds of untouched,
+        // normally eligible rows as though the whole source had paused.
+        if hasPendingWork { return .pending }
+        return hasDeferredRetryWork ? .retryPending : .idle
     }
 }
 
