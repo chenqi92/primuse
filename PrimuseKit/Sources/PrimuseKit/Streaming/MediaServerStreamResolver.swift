@@ -180,7 +180,7 @@ public actor MediaServerStreamResolver: StreamResolver {
                                        resolvingAgainstBaseURL: false) else { return nil }
         comp.queryItems = [URLQueryItem(name: "Static", value: "true"),
                            URLQueryItem(name: "api_key", value: token)]
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 
     static func jellyfinLiveRadioStreamURL(base: URL, itemID: String, token: String) -> URL? {
@@ -194,7 +194,7 @@ public actor MediaServerStreamResolver: StreamResolver {
             URLQueryItem(name: "Container", value: "mp3"),
             URLQueryItem(name: "api_key", value: token)
         ]
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 
     static func plexStreamURL(base: URL, partKey: String, token: String) -> URL? {
@@ -202,7 +202,7 @@ public actor MediaServerStreamResolver: StreamResolver {
         guard var comp = URLComponents(url: base.appendingPathComponent(partKey),
                                        resolvingAgainstBaseURL: false) else { return nil }
         comp.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 
     static func mediaBrowserAuth(deviceID: String, token: String?) -> String {

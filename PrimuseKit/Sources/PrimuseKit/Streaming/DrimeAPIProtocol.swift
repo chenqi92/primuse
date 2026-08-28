@@ -88,7 +88,7 @@ public enum DrimeAPIProtocol {
             queryItems.append(URLQueryItem(name: "parentIds", value: folderID))
         }
         components?.queryItems = queryItems
-        return components?.url
+        return components.flatMap { FormSafeQueryURLBuilder.url(from: $0) }
     }
 
     public static func entryURL(
@@ -103,7 +103,7 @@ public enum DrimeAPIProtocol {
         components?.queryItems = [
             URLQueryItem(name: "workspaceId", value: String(workspaceID)),
         ]
-        return components?.url
+        return components.flatMap { FormSafeQueryURLBuilder.url(from: $0) }
     }
 
     public static func mediaURL(reference: String?) -> URL? {

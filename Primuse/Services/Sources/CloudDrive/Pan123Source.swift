@@ -381,7 +381,10 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
             .init(name: "grant_type", value: "refresh_token"),
             .init(name: "refresh_token", value: rt),
         ]
-        var req = URLRequest(url: comps.url!)
+        guard let tokenURL = FormSafeQueryURLBuilder.url(from: comps) else {
+            throw CloudDriveError.invalidResponse
+        }
+        var req = URLRequest(url: tokenURL)
         req.httpMethod = "POST"
         req.setValue("open_platform", forHTTPHeaderField: "Platform")
         let (data, response) = try await URLSession.shared.data(for: req)

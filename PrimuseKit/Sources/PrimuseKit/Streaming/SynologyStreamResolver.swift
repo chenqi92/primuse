@@ -186,6 +186,6 @@ public actor SynologyStreamResolver: StreamResolver {
             URLQueryItem(name: "mode", value: "download"),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 }

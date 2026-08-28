@@ -35,6 +35,6 @@ public struct RelayStreamResolver: StreamResolver {
             URLQueryItem(name: "path", value: path),
             URLQueryItem(name: "token", value: token),
         ]
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 }

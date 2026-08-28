@@ -110,7 +110,9 @@ public actor BaiduPanStreamResolver: StreamResolver {
     private func callAPI(base: String, token: String, query: [URLQueryItem]) async throws -> [String: Any] {
         guard var comp = URLComponents(string: base) else { throw StreamResolveError.cannotBuildURL }
         comp.queryItems = query + [URLQueryItem(name: "access_token", value: token)]
-        guard let url = comp.url else { throw StreamResolveError.cannotBuildURL }
+        guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
+            throw StreamResolveError.cannotBuildURL
+        }
         let (data, _) = try await session.data(from: url)
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         if let errno = json["errno"] as? Int, errno != 0 {
@@ -139,7 +141,9 @@ public actor BaiduPanStreamResolver: StreamResolver {
                 URLQueryItem(name: "client_id", value: cid),
                 URLQueryItem(name: "client_secret", value: cred.clientSecret ?? ""),
             ]
-            guard let url = comp.url else { throw StreamResolveError.cannotBuildURL }
+            guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
+                throw StreamResolveError.cannotBuildURL
+            }
             let (data, _) = try await session.data(from: url)
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["access_token"] as? String else { throw StreamResolveError.authFailed }

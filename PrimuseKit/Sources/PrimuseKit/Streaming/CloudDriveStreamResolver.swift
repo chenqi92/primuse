@@ -263,7 +263,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
             URLQueryItem(name: "$top", value: "999"),
             URLQueryItem(name: "$orderby", value: "name"),
         ]
-        guard var nextURL = components?.url else { throw StreamResolveError.cannotBuildURL }
+        guard let components,
+              var nextURL = FormSafeQueryURLBuilder.url(from: components) else {
+            throw StreamResolveError.cannotBuildURL
+        }
 
         var entries: [CloudDriveDirectoryEntry] = []
         var seenURLs: Set<String> = []
@@ -348,7 +351,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
         case .pan123:
             var comp = URLComponents(string: "https://open-api.123pan.com/api/v1/file/download_info")!
             comp.queryItems = [URLQueryItem(name: "fileId", value: fileID)]
-            var req = URLRequest(url: comp.url!)
+            guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            var req = URLRequest(url: url)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.setValue("open_platform", forHTTPHeaderField: "Platform")
             return try await send(req, bodyAuthCodes: [401, 403], parse: Self.parse123URL)

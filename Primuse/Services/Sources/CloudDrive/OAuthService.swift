@@ -280,7 +280,10 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             // 123 云盘 oauth2/access_token 用 QueryString 传参(POST, body 空)+ Platform 头。
             var comps = URLComponents(string: config.tokenURL)!
             comps.queryItems = bodyParams.keys.sorted().map { URLQueryItem(name: $0, value: bodyParams[$0]) }
-            if let u = comps.url { request.url = u }
+            guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
+                throw OAuthError.invalidConfiguration("Failed to build token URL")
+            }
+            request.url = url
             request.setValue("open_platform", forHTTPHeaderField: "Platform")
         } else {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")

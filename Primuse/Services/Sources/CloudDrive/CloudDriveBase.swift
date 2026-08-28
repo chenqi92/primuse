@@ -137,7 +137,7 @@ struct CloudDriveHelper: Sendable {
     static func formURLEncodedBody(_ items: [URLQueryItem]) -> Data? {
         var components = URLComponents()
         components.queryItems = items
-        return components.percentEncodedQuery?.data(using: .utf8)
+        return FormSafeQueryURLBuilder.percentEncodedQuery(from: components)?.data(using: .utf8)
     }
 
     /// Parses an OAuth refresh response and preserves the distinction between

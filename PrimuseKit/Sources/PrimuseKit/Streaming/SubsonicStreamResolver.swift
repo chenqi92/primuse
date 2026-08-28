@@ -121,7 +121,7 @@ public struct SubsonicStreamResolver: StreamResolver {
             items.append(URLQueryItem(name: "format", value: "raw"))
         }
         comp.queryItems = items
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 
     /// host 可能已含 scheme / 端口;basePath 逐段拼到路径。返回不含 /rest 的基址。

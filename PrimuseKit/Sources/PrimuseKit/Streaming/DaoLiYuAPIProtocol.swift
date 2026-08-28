@@ -55,7 +55,7 @@ public enum DaoLiYuAPIProtocol {
         components.path = endpoint.isEmpty ? prefix : "\(prefix)/\(endpoint)"
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         components.fragment = nil
-        return components.url
+        return FormSafeQueryURLBuilder.url(from: components)
     }
 
     public static func streamURL(serverBaseURL: URL, trackID: String) -> URL? {

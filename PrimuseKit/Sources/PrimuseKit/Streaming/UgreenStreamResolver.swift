@@ -117,7 +117,7 @@ public actor UgreenStreamResolver: StreamResolver {
         guard var comp = URLComponents(url: base.appendingPathComponent("ugreen/v1/file/download"),
                                        resolvingAgainstBaseURL: false) else { return nil }
         comp.queryItems = [URLQueryItem(name: "path", value: path), URLQueryItem(name: "token", value: token)]
-        return comp.url
+        return FormSafeQueryURLBuilder.url(from: comp)
     }
 
     static func parseToken(_ data: Data) -> String? {

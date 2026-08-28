@@ -111,7 +111,7 @@ actor UgreenAPI {
         // 旧实现把 token 放 Authorization 头, 实际登出可能根本没生效。
         var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/verify/logout")
         comps?.queryItems = [.init(name: "token", value: token)]
-        if let url = comps?.url {
+        if let comps, let url = FormSafeQueryURLBuilder.url(from: comps) {
             _ = try? await postJSON(url: url, body: [:])
         }
         invalidateSession()
@@ -190,7 +190,10 @@ actor UgreenAPI {
         comps.queryItems = [.init(name: "token", value: token)]
         let body: [String: Any] = ["path": path, "page": page, "page_size": pageSize]
 
-        let data = try await postJSON(url: comps.url!, body: body)
+        guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
+            throw URLError(.badURL)
+        }
+        let data = try await postJSON(url: url, body: body)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         let code = intValue(json["code"])
         let dataDict = json["data"] as? [String: Any]
@@ -235,8 +238,11 @@ actor UgreenAPI {
         guard let token else { throw SourceError.connectionFailed("Not logged in") }
         var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/filemgr/delete")!
         comps.queryItems = [.init(name: "token", value: token)]
+        guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
+            throw URLError(.badURL)
+        }
         let data = try await postJSON(
-            url: comps.url!,
+            url: url,
             body: ["paths": [path], "is_force": false]
         )
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -260,15 +266,14 @@ actor UgreenAPI {
         // 任一步失败 / 无 v2 凭证时退回 v1 直链 file/download?path=&token=。
         if let v2 = await resolveDownloadURLV2(path: path) { return v2 }
         guard let token else { return nil }
-        // 用 URLComponents 让系统正确编码查询值: .urlQueryAllowed 不会转义
-        // & / + / = / ?, 路径含这些字符 (R&B、AC+DC 类专辑名) 时手工拼接会
-        // 截断 path 参数导致下载/播放必败。
+        // URLComponents 负责分隔符与 Unicode 编码，FormSafeQueryURLBuilder
+        // 额外保留字面 `+`，避免旧版 UGOS 的表单式 query 解码把它当空格。
         var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/file/download")
         comps?.queryItems = [
             .init(name: "path", value: path),
             .init(name: "token", value: token),
         ]
-        return comps?.url
+        return comps.flatMap { FormSafeQueryURLBuilder.url(from: $0) }
     }
 
     // MARK: - v2 私有接口 (pewee-live/ugos_pro_api 真机逆向)
@@ -435,8 +440,11 @@ actor UgreenAPI {
     private func fetchLoginPublicKey(for account: String) async throws -> Data {
         var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/verify/check")!
         comps.queryItems = [.init(name: "token", value: "")]
+        guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
+            throw URLError(.badURL)
+        }
         let (_, response) = try await postJSONResponse(
-            url: comps.url!,
+            url: url,
             body: ["username": account]
         )
 

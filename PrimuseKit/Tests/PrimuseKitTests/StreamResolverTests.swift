@@ -106,6 +106,26 @@ import Testing
 
 // MARK: - Synology FileStation URL 构造
 
+@Test func formSafeQueryPreservesAllPathCharacters() throws {
+    let path = "/音乐/R&B + 100% #1 = 完整.flac"
+    let token = "token+with/slash="
+    var components = try #require(URLComponents(string: "https://nas.example/download"))
+    components.queryItems = [
+        URLQueryItem(name: "path", value: path),
+        URLQueryItem(name: "token", value: token),
+    ]
+
+    let url = try #require(FormSafeQueryURLBuilder.url(from: components))
+    let rebuilt = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+    let query = Dictionary(uniqueKeysWithValues:
+        (rebuilt.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+
+    #expect(rebuilt.percentEncodedQuery?.contains("+") == false)
+    #expect(rebuilt.percentEncodedQuery?.contains("%2B") == true)
+    #expect(query["path"] == path)
+    #expect(query["token"] == token)
+}
+
 @Test func synologyBaseURL() {
     #expect(SynologyStreamResolver.baseURL(host: "nas.local", port: 5001, useSsl: true)?.absoluteString
             == "https://nas.local:5001")
@@ -122,14 +142,17 @@ import Testing
 
 @Test func synologyDownloadURL() {
     let base = URL(string: "https://nas.local:5001")!
-    let url = SynologyStreamResolver.downloadURL(base: base, path: "/music/a.flac", sid: "SID123")
+    let path = "/music/AC+DC & 100% #1 = 完整.flac"
+    let sid = "SID+123"
+    let url = SynologyStreamResolver.downloadURL(base: base, path: path, sid: sid)
     let q = Dictionary(uniqueKeysWithValues:
         (URLComponents(url: url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     #expect(url?.path == "/webapi/entry.cgi")
     #expect(q["api"] == "SYNO.FileStation.Download")
     #expect(q["method"] == "download")
-    #expect(q["path"] == "/music/a.flac")
-    #expect(q["_sid"] == "SID123")
+    #expect(q["path"] == path)
+    #expect(q["_sid"] == sid)
+    #expect(URLComponents(url: url!, resolvingAgainstBaseURL: false)?.percentEncodedQuery?.contains("+") == false)
 }
 
 // MARK: - 注册表覆盖
@@ -629,12 +652,19 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
             useSsl: false
         )?.absoluteString == "https://ug.example.com:9443/ug-proxy"
     )
+    let path = "/音乐/R&B + 100% #1 = 完整.flac"
+    let token = "TKN+1"
     let url = UgreenStreamResolver.downloadURL(base: URL(string: "https://ug.local:9999")!,
-                                               path: "/音乐/a b.flac", token: "TKN")
+                                               path: path, token: token)
     let s = url?.absoluteString ?? ""
     #expect(s.hasPrefix("https://ug.local:9999/ugreen/v1/file/download?path="))
-    #expect(s.contains("&token=TKN"))
+    #expect(s.contains("&token=TKN%2B1"))
     #expect(s.contains("%20"))   // 空格已编码
+    let query = Dictionary(uniqueKeysWithValues:
+        (URLComponents(url: url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    #expect(query["path"] == path)
+    #expect(query["token"] == token)
+    #expect(URLComponents(url: url!, resolvingAgainstBaseURL: false)?.percentEncodedQuery?.contains("+") == false)
     #expect(UgreenStreamResolver.parseToken(Data(#"{"code":200,"data":{"token":"TT","uid":"u"}}"#.utf8)) == "TT")
     #expect(UgreenStreamResolver.parseToken(Data(#"{"code":200,"data":{"static_token":"ST"}}"#.utf8)) == "ST")
     #expect(UgreenStreamResolver.parseToken(Data(#"{"code":401,"data":{}}"#.utf8)) == nil)
@@ -662,12 +692,15 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
 // MARK: - QNAP / Feiniu Music
 
 @Test func nasHttpURLs() {
+    let path = "/Music/R&B + 100% #1 = 完整.flac"
+    let sid = "S+1"
     let qnap = NasHttpStreamResolver.qnapDownloadURL(
-        base: URL(string: "http://nas:8080")!, path: "/Music/a.flac", sid: "S1")
+        base: URL(string: "http://nas:8080")!, path: path, sid: sid)
     let q = Dictionary(uniqueKeysWithValues:
         (URLComponents(url: qnap!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     #expect(qnap?.path == "/cgi-bin/filemanager/utilRequest.cgi")
-    #expect(q["func"] == "download" && q["source_path"] == "/Music/a.flac" && q["sid"] == "S1")
+    #expect(q["func"] == "download" && q["source_path"] == path && q["sid"] == sid)
+    #expect(URLComponents(url: qnap!, resolvingAgainstBaseURL: false)?.percentEncodedQuery?.contains("+") == false)
 
     let fnMusic = FnMusicStreamResolver.fnMusicStreamURL(
         base: URL(string: "http://fn:5666")!, trackGUID: "track-1")

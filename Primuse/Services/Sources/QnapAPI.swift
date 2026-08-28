@@ -117,7 +117,7 @@ actor QnapAPI {
             return
         }
         components.queryItems = [URLQueryItem(name: "sid", value: sid)]
-        if let url = components.url {
+        if let url = FormSafeQueryURLBuilder.url(from: components) {
             _ = try? await TrustedHTTPTransport.data(from: url, session: session())
         }
         self.sid = nil
@@ -170,8 +170,11 @@ actor QnapAPI {
             .init(name: "sort", value: "filename"), .init(name: "dir", value: "ASC"),
             .init(name: "is_iso", value: "0"),
         ]
+        guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
+            throw URLError(.badURL)
+        }
         let (data, response) = try await TrustedHTTPTransport.data(
-            from: comps.url!,
+            from: url,
             session: session()
         )
         if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
@@ -225,7 +228,7 @@ actor QnapAPI {
             .init(name: "source_path", value: path),
             .init(name: "sid", value: sid),
         ]
-        return comps.url
+        return FormSafeQueryURLBuilder.url(from: comps)
     }
 
     func createDirectory(name: String, at path: String) async throws {
@@ -239,7 +242,10 @@ actor QnapAPI {
             .init(name: "dest_folder", value: name),
             .init(name: "dest_path", value: path.isEmpty ? "/" : path),
         ]
-        let json = try await confirmedJSONRequest(url: components.url!, operation: "create directory")
+        guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+            throw URLError(.badURL)
+        }
+        let json = try await confirmedJSONRequest(url: url, operation: "create directory")
         guard qnapStatus(json) == 1 else {
             throw SourceError.connectionFailed(
                 "QNAP create directory failed: status \(qnapStatus(json) ?? -1)"
@@ -296,7 +302,9 @@ actor QnapAPI {
             .init(name: "check_sum", value: "1"),
             .init(name: "md5", value: multipart.md5),
         ]
-        guard let url = components.url else { throw URLError(.badURL) }
+        guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+            throw URLError(.badURL)
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(
@@ -357,7 +365,10 @@ actor QnapAPI {
             .init(name: "mode", value: overwrite ? "0" : "1"),
             .init(name: "checksum", value: "1"),
         ]
-        let json = try await confirmedJSONRequest(url: components.url!, operation: "move")
+        guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+            throw URLError(.badURL)
+        }
+        let json = try await confirmedJSONRequest(url: url, operation: "move")
         guard qnapStatus(json) == 1 else {
             throw SourceError.connectionFailed(
                 "QNAP move failed: status \(qnapStatus(json) ?? -1)"
@@ -392,8 +403,11 @@ actor QnapAPI {
             .init(name: "v", value: "1"),
             .init(name: "force", value: force ? "1" : "0"),
         ]
+        guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
+            throw URLError(.badURL)
+        }
         let (data, response) = try await TrustedHTTPTransport.data(
-            from: comps.url!,
+            from: url,
             session: session()
         )
         if let http = response as? HTTPURLResponse,

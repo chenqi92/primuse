@@ -7,11 +7,7 @@ enum SynologyQueryURLBuilder {
     /// real path such as `A + B.flac` points at a different file and returns
     /// 404. Preserve the value as `%2B` for every Synology GET endpoint.
     static func url(from components: URLComponents) -> URL? {
-        var encoded = components
-        if let query = encoded.percentEncodedQuery {
-            encoded.percentEncodedQuery = query.replacingOccurrences(of: "+", with: "%2B")
-        }
-        return encoded.url
+        FormSafeQueryURLBuilder.url(from: components)
     }
 }
 

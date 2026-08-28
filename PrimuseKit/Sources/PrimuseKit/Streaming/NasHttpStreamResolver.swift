@@ -133,7 +133,7 @@ public actor NasHttpStreamResolver: StreamResolver {
             URLQueryItem(name: "source_path", value: path),
             URLQueryItem(name: "sid", value: sid),
         ]
-        return components.url
+        return FormSafeQueryURLBuilder.url(from: components)
     }
 
     static func parseQnapSID(_ data: Data) -> String? {

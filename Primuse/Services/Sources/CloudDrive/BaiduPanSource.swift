@@ -26,7 +26,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         // 1. precreate
         var pre = URLComponents(string: "\(Self.apiBase)/rest/2.0/xpan/file")!
         pre.queryItems = [.init(name: "method", value: "precreate"), .init(name: "access_token", value: token)]
-        var preReq = URLRequest(url: pre.url!)
+        guard let preURL = FormSafeQueryURLBuilder.url(from: pre) else {
+            throw CloudDriveError.invalidResponse
+        }
+        var preReq = URLRequest(url: preURL)
         preReq.httpMethod = "POST"
         preReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         preReq.httpBody = CloudDriveHelper.formURLEncodedBody([
@@ -56,7 +59,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"file\"\r\nContent-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
         body.append(data)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        var upReq = URLRequest(url: up.url!)
+        guard let upURL = FormSafeQueryURLBuilder.url(from: up) else {
+            throw CloudDriveError.invalidResponse
+        }
+        var upReq = URLRequest(url: upURL)
         upReq.httpMethod = "POST"
         upReq.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let (uploadData, uploadResponse) = try await URLSession.shared.upload(for: upReq, from: body)
@@ -76,7 +82,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         // 3. create
         var cr = URLComponents(string: "\(Self.apiBase)/rest/2.0/xpan/file")!
         cr.queryItems = [.init(name: "method", value: "create"), .init(name: "access_token", value: token)]
-        var crReq = URLRequest(url: cr.url!)
+        guard let createURL = FormSafeQueryURLBuilder.url(from: cr) else {
+            throw CloudDriveError.invalidResponse
+        }
+        var crReq = URLRequest(url: createURL)
         crReq.httpMethod = "POST"
         crReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         crReq.httpBody = CloudDriveHelper.formURLEncodedBody([
@@ -684,6 +693,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                         .init(name: "uploadid", value: uploadID),
                         .init(name: "partseq", value: String(index)),
                     ]
+                    guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+                        throw CloudDriveError.invalidResponse
+                    }
                     let boundary = "primuse-baidu-\(UUID().uuidString)"
                     var body = Data()
                     body.append(Data(
@@ -691,7 +703,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     ))
                     body.append(block)
                     body.append(Data("\r\n--\(boundary)--\r\n".utf8))
-                    var request = URLRequest(url: components.url!)
+                    var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue(
                         "multipart/form-data; boundary=\(boundary)",
@@ -922,8 +934,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         var items = comps.queryItems ?? []
         items.append(URLQueryItem(name: "access_token", value: token))
         comps.queryItems = items
-        comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        return comps.url
+        return FormSafeQueryURLBuilder.url(from: comps)
     }
 
     /// 批量预热 dlink cache, 给定一组 path, 一次 filemetas 调用拿 100 个 dlink。
@@ -1137,7 +1148,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             let token = try await getToken()
             var components = URLComponents(string: base)!
             components.queryItems = queryItems + [.init(name: "access_token", value: token)]
-            guard let url = components.url else { throw CloudDriveError.invalidResponse }
+            guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+                throw CloudDriveError.invalidResponse
+            }
             var request = URLRequest(url: url)
             if let snapshotRequestTimeout {
                 request.timeoutInterval = snapshotRequestTimeout
@@ -1239,7 +1252,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             let token = try await getToken()
             var components = URLComponents(string: base)!
             components.queryItems = queryItems + [.init(name: "access_token", value: token)]
-            guard let url = components.url else { throw CloudDriveError.invalidResponse }
+            guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+                throw CloudDriveError.invalidResponse
+            }
 
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
