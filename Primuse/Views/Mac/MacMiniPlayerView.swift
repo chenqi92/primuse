@@ -726,6 +726,40 @@ struct MacMiniPlayerView: View {
     private func miniLyricLine(line: LyricLine, index: Int, isActive: Bool) -> some View {
         let fontSize: CGFloat = isActive ? 18 : 14
         let weight: Font.Weight = isActive ? .bold : .regular
+        VStack(spacing: 3) {
+            miniSingleLyricLine(
+                line: line,
+                index: index,
+                isActive: isActive,
+                fontSize: fontSize,
+                weight: weight
+            )
+            if let backgrounds = line.background {
+                ForEach(backgrounds) { background in
+                    miniSingleLyricLine(
+                        line: background,
+                        index: index,
+                        isActive: LyricVoiceTimelinePolicy.isActive(
+                            background,
+                            at: player.currentTime
+                        ),
+                        fontSize: fontSize * 0.72,
+                        weight: .medium
+                    )
+                    .opacity(0.72)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func miniSingleLyricLine(
+        line: LyricLine,
+        index: Int,
+        isActive: Bool,
+        fontSize: CGFloat,
+        weight: Font.Weight
+    ) -> some View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
                 line: line,
@@ -734,7 +768,8 @@ struct MacMiniPlayerView: View {
                 activeColor: .primary.opacity(isActive ? 1 : 0.72),
                 inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
                 writingDirection: lyricsWritingDirection,
-                timeAt: { date in player.interpolatedTime(at: date) }
+                timeAt: { date in player.interpolatedTime(at: date) },
+                deactivationTime: line.voice == .secondary ? line.endTime : nil
             )
         } else {
             Text(line.text)

@@ -242,4 +242,57 @@ struct LyricsContentParserTests {
         changed[0].syllables?[0].start += 0.1
         #expect(!LyricsContentParser.areSemanticallyEquivalent(expected, changed))
     }
+
+    @Test("Overlapping TTML agents share one row but keep independent word timelines")
+    func groupsStructuredOverlappingVoices() throws {
+        let content = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <body><div>
+            <p begin="10s" end="14s" ttm:agent="v1">
+              <span begin="10s" end="11s">Lead </span>
+              <span begin="11s" end="14s">voice</span>
+            </p>
+            <p begin="11.5s" end="13.5s" ttm:agent="v2">
+              <span begin="11.5s" end="12.2s">Backing </span>
+              <span begin="12.2s" end="13.5s">voice</span>
+            </p>
+            <p begin="14s" end="16s" ttm:agent="v1">Next line</p>
+          </div></body>
+        </tt>
+        """
+
+        let lines = LyricsContentParser.parse(content)
+        let background = try #require(lines.first?.background?.first)
+
+        #expect(lines.count == 2)
+        #expect(lines[0].voice == .primary)
+        #expect(background.voice == .secondary)
+        #expect(background.timestamp == 11.5)
+        #expect(background.endTimestamp == 13.5)
+        #expect(background.syllables?.map(\.start) == [11.5, 12.2])
+        #expect(LyricVoiceTimelinePolicy.isActive(background, at: 12.5))
+        #expect(!LyricVoiceTimelinePolicy.isActive(background, at: 13.5))
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: lines, at: 12.5) == 0)
+
+        let roundTrip = LyricsContentParser.parse(LyricsContentParser.serializeTTML(lines))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(lines, roundTrip))
+    }
+
+    @Test("Legacy line-level voice caches infer overlap without treating parentheses as voices")
+    func groupsLegacyStructuredVoiceCache() throws {
+        let cached = [
+            LyricLine(timestamp: 10, text: "Lead", voice: .primary),
+            LyricLine(timestamp: 11, text: "Backing", voice: .secondary),
+            LyricLine(timestamp: 14, text: "Next", voice: .primary),
+        ]
+
+        let grouped = LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: cached)
+        let background = try #require(grouped.first?.background?.first)
+
+        #expect(grouped.count == 2)
+        #expect(background.text == "Backing")
+        #expect(background.endTimestamp == 14)
+    }
 }

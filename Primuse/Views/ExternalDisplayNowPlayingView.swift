@@ -177,13 +177,30 @@ struct ExternalDisplayNowPlayingView: View {
                 let line = lyrics[realIndex]
                 let current = realIndex == index
                 let distance = abs(realIndex - index)
-                Text(line.text)
-                    .font(.system(size: current ? 42 : 28, weight: current ? .bold : .semibold))
-                    .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .minimumScaleFactor(0.74)
-                    .shadow(color: current ? theme.accentColor.opacity(0.42) : .clear, radius: 18)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(line.text)
+                        .font(.system(size: current ? 42 : 28, weight: current ? .bold : .semibold))
+                        .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .minimumScaleFactor(0.74)
+                        .shadow(color: current ? theme.accentColor.opacity(0.42) : .clear, radius: 18)
+
+                    ForEach(line.background ?? []) { background in
+                        let isBackgroundActive = LyricVoiceTimelinePolicy.isActive(
+                            background,
+                            at: player.currentTime
+                        )
+                        Text(background.text)
+                            .font(.system(size: current ? 28 : 22, weight: .medium))
+                            .foregroundStyle(
+                                Color.white.opacity(isBackgroundActive ? 0.82 : 0.38)
+                            )
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .minimumScaleFactor(0.74)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

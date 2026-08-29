@@ -284,8 +284,8 @@ actor MetadataAssetStore {
               let existing = try? JSONDecoder().decode([LyricLine].self, from: data) else {
             return false
         }
-        let existingHasSyllables = existing.contains(where: { $0.isWordLevel })
-        let incomingHasSyllables = incoming.contains(where: { $0.isWordLevel })
+        let existingHasSyllables = existing.contains(where: \.containsWordLevelContent)
+        let incomingHasSyllables = incoming.contains(where: \.containsWordLevelContent)
         return existingHasSyllables && !incomingHasSyllables
     }
 
@@ -293,7 +293,8 @@ actor MetadataAssetStore {
         guard let fileName, !fileName.isEmpty else { return nil }
         do {
             let data = try Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName))
-            return try decoder.decode([LyricLine].self, from: data)
+            let lines = try decoder.decode([LyricLine].self, from: data)
+            return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
         } catch {
             plog("MetadataAssetStore: failed to read lyrics '\(fileName)': \(error.localizedDescription)")
             return nil
@@ -360,7 +361,7 @@ actor MetadataAssetStore {
     /// 的歌只能靠这条路。lines flatten 成纯文本 + 拼接, 单首歌词大小 1-2KB
     /// 量级, post 一次 notification 成本可忽略。
     nonisolated static func postLyricsCached(songID: String, lines: [LyricLine]) {
-        let text = lines
+        let text = LyricVoiceTimelinePolicy.flattenedLines(lines)
             .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
@@ -376,7 +377,8 @@ actor MetadataAssetStore {
     func cachedLyrics(forSongID songID: String) -> [LyricLine]? {
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         guard let data = try? Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName)) else { return nil }
-        return try? decoder.decode([LyricLine].self, from: data)
+        guard let lines = try? decoder.decode([LyricLine].self, from: data) else { return nil }
+        return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
     }
 
     /// Preserve lyrics written while MusicKit exposed a catalog-derived song
@@ -399,8 +401,8 @@ actor MetadataAssetStore {
         if let canonicalData = try? Data(contentsOf: canonicalURL),
            let canonicalLines = try? decoder.decode([LyricLine].self, from: canonicalData),
            !canonicalLines.isEmpty {
-            let aliasIsWordLevel = aliasLines.contains(where: \.isWordLevel)
-            let canonicalIsWordLevel = canonicalLines.contains(where: \.isWordLevel)
+            let aliasIsWordLevel = aliasLines.contains(where: \.containsWordLevelContent)
+            let canonicalIsWordLevel = canonicalLines.contains(where: \.containsWordLevelContent)
             guard aliasIsWordLevel && !canonicalIsWordLevel else { return false }
         }
 
@@ -422,7 +424,7 @@ actor MetadataAssetStore {
         for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName) {
             guard let data = try? Data(contentsOf: url),
                   let lines = try? JSONDecoder().decode([LyricLine].self, from: data) else { continue }
-            return lines
+            return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
         }
         return nil
     }
@@ -632,7 +634,7 @@ actor MetadataAssetStore {
     nonisolated func storeLyricsSync(_ lines: [LyricLine], for key: String, force: Bool = true) {
         let fileName = expectedLyricsFileName(for: key)
         let fileURL = lyricsDirectoryURL.appendingPathComponent(fileName)
-        let wordLevel = lines.contains(where: { $0.isWordLevel })
+        let wordLevel = lines.contains(where: \.containsWordLevelContent)
         plog("📝 storeLyricsSync key=\(key.prefix(8)) lines=\(lines.count) wordLevel=\(wordLevel) force=\(force)")
         if !force && wouldDowngrade(at: fileURL, against: lines) {
             plog("📝 storeLyricsSync skip downgrade")

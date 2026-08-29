@@ -416,7 +416,11 @@ final class WatchSessionBridge: NSObject {
             }
         }
         guard lower > 0 else { return "" }
-        return cachedLyrics[lower - 1].text
+        let line = cachedLyrics[lower - 1]
+        let activeBackground = cachedLyrics
+            .flatMap { $0.background ?? [] }
+            .filter { LyricVoiceTimelinePolicy.isActive($0, at: time) }
+        return ([line.text] + activeBackground.map(\.text)).joined(separator: "\n")
     }
 
     /// 换歌时调用 ── 异步把当前曲歌词读进 bridge 内部, 之后 1Hz tick 直接

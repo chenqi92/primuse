@@ -748,28 +748,40 @@ struct MacNowPlayingView: View {
         let weight: Font.Weight = .semibold
         let tint = theme.accentColor
         let distance = abs(index - currentIndex)
-        let opacity = lyricOpacity(isActive: isActive, distance: distance)
+        let hasActiveBackground = line.background?.contains {
+            LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
+        } ?? false
+        let opacity = lyricOpacity(
+            isActive: isActive || hasActiveBackground,
+            distance: distance
+        )
         let visualScale = lyricVisualScale(isActive: isActive)
 
-        Group {
-            if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
-                KaraokeLineView(
-                    line: line,
-                    fontSize: scaledSize,
-                    weight: weight,
-                    activeColor: playerPrimaryColor,
-                    inactiveColor: playerSecondaryColor,
-                    writingDirection: lyricsWritingDirection,
-                    timeAt: { date in player.interpolatedTime(at: date) }
-                )
-                .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
-            } else {
-                Text(line.text)
-                    .font(.system(size: scaledSize, weight: weight))
-                    .foregroundStyle(playerPrimaryColor)
-                    .lineSpacing(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 4) {
+            macSingleLyricLine(
+                line: line,
+                index: index,
+                isActive: isActive,
+                fontSize: scaledSize,
+                weight: weight,
+                tint: tint
+            )
+            if let backgrounds = line.background {
+                ForEach(backgrounds) { background in
+                    macSingleLyricLine(
+                        line: background,
+                        index: index,
+                        isActive: LyricVoiceTimelinePolicy.isActive(
+                            background,
+                            at: player.currentTime,
+                            lookahead: Self.wordLevelLookahead
+                        ),
+                        fontSize: scaledSize * 0.7,
+                        weight: .medium,
+                        tint: tint
+                    )
+                    .opacity(0.72)
+                }
             }
         }
         .opacity(opacity)
@@ -781,6 +793,37 @@ struct MacNowPlayingView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+
+    @ViewBuilder
+    private func macSingleLyricLine(
+        line: LyricLine,
+        index: Int,
+        isActive: Bool,
+        fontSize: CGFloat,
+        weight: Font.Weight,
+        tint: Color
+    ) -> some View {
+        if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
+            KaraokeLineView(
+                line: line,
+                fontSize: fontSize,
+                weight: weight,
+                activeColor: playerPrimaryColor,
+                inactiveColor: playerSecondaryColor,
+                writingDirection: lyricsWritingDirection,
+                timeAt: { date in player.interpolatedTime(at: date) },
+                deactivationTime: line.voice == .secondary ? line.endTime : nil
+            )
+            .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
+        } else {
+            Text(line.text)
+                .font(.system(size: fontSize, weight: weight))
+                .foregroundStyle(playerPrimaryColor)
+                .lineSpacing(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func lyricVisualScale(isActive: Bool) -> CGFloat {

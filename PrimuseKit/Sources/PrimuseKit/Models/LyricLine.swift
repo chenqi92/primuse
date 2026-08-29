@@ -468,6 +468,10 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     public var isSynchronized: Bool
     /// 字级数据；nil 表示行级歌词。
     public var syllables: [LyricSyllable]?
+    /// Explicit line end carried by structured formats such as TTML. LRC does
+    /// not provide this value. It is kept separately from syllable timing so
+    /// overlapping line-level voices can retain their source time windows.
+    public var endTimestamp: TimeInterval?
     /// 声部归属，默认主声部。
     public var voice: LyricVoice
     /// 背景和声子行（同一时间窗内附唱）。`background` 内的 background 应永远为 nil。
@@ -484,6 +488,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         text: String,
         isSynchronized: Bool? = nil,
         syllables: [LyricSyllable]? = nil,
+        endTimestamp: TimeInterval? = nil,
         voice: LyricVoice = .primary,
         background: [LyricLine]? = nil,
         metadataLines: [String]? = nil
@@ -493,22 +498,137 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         self.text = text
         self.isSynchronized = isSynchronized ?? (timestamp > 0 || syllables?.isEmpty == false)
         self.syllables = syllables
+        self.endTimestamp = endTimestamp
         self.voice = voice
         self.background = background
         self.metadataLines = metadataLines
     }
 
-    /// 行结束时间。字级行用最后一字的 end；行级行无信息，外部需要靠下一行 timestamp 推。
-    public var endTime: TimeInterval? { syllables?.last?.end }
+    /// 行结束时间。结构化行末与最后一字取较晚者；普通 LRC 无信息，外部仍需靠下一行推断。
+    public var endTime: TimeInterval? {
+        let candidates = [endTimestamp, syllables?.last?.end]
+            .compactMap { $0 }
+            .filter { $0 >= timestamp }
+        return candidates.max()
+    }
 
     public var isWordLevel: Bool { syllables?.isEmpty == false }
+
+    public var containsWordLevelContent: Bool {
+        isWordLevel || (background?.contains(where: \.containsWordLevelContent) ?? false)
+    }
+}
+
+/// Keeps explicitly identified overlapping singers on independent timelines
+/// while exposing only primary rows to ordinary playback positioning. Plain
+/// LRC/ELRC lines remain untouched because those formats carry no voice role.
+public enum LyricVoiceTimelinePolicy {
+    public static func groupingOverlappingSecondaryLines(
+        in lines: [LyricLine]
+    ) -> [LyricLine] {
+        guard lines.contains(where: { $0.voice == .secondary }) else { return lines }
+
+        var grouped = lines
+        var removedSecondaryIndexes: Set<Int> = []
+
+        for secondaryIndex in lines.indices where lines[secondaryIndex].voice == .secondary {
+            let secondary = lines[secondaryIndex]
+            guard let secondaryEnd = resolvedEnd(forLineAt: secondaryIndex, in: lines),
+                  secondaryEnd > secondary.timestamp else { continue }
+
+            var bestPrimaryIndex: Int?
+            var bestOverlap: TimeInterval = 0
+
+            for primaryIndex in lines.indices where lines[primaryIndex].voice == .primary {
+                let primary = lines[primaryIndex]
+                guard let primaryEnd = resolvedEnd(forLineAt: primaryIndex, in: lines),
+                      primaryEnd > primary.timestamp,
+                      primary.timestamp <= secondary.timestamp + 0.002 else { continue }
+
+                let overlap = min(primaryEnd, secondaryEnd)
+                    - max(primary.timestamp, secondary.timestamp)
+                guard overlap > 0.002 else { continue }
+
+                if overlap > bestOverlap + 0.002 {
+                    bestPrimaryIndex = primaryIndex
+                    bestOverlap = overlap
+                }
+            }
+
+            guard let bestPrimaryIndex else { continue }
+            var background = secondary
+            background.background = nil
+            if background.endTime == nil {
+                background.endTimestamp = secondaryEnd
+            }
+            grouped[bestPrimaryIndex].background = (
+                grouped[bestPrimaryIndex].background ?? []
+            ) + [background]
+            removedSecondaryIndexes.insert(secondaryIndex)
+        }
+
+        return grouped.enumerated().compactMap { index, line in
+            removedSecondaryIndexes.contains(index) ? nil : line
+        }
+    }
+
+    private static func resolvedEnd(
+        forLineAt index: Int,
+        in lines: [LyricLine]
+    ) -> TimeInterval? {
+        let line = lines[index]
+        if let end = line.endTime { return end }
+
+        // Legacy caches did not retain TTML paragraph ends. Prefer the next
+        // row from the same explicit voice, then fall back to the next timed
+        // row, matching ordinary line-level playback semantics.
+        if let sameVoiceEnd = lines.indices.dropFirst(index + 1).lazy
+            .map({ lines[$0] })
+            .first(where: { $0.voice == line.voice && $0.timestamp > line.timestamp })?
+            .timestamp {
+            return sameVoiceEnd
+        }
+        return lines.indices.dropFirst(index + 1).lazy
+            .map { lines[$0].timestamp }
+            .first { $0 > line.timestamp }
+    }
+
+    public static func flattenedLines(_ lines: [LyricLine]) -> [LyricLine] {
+        var flattened: [(order: Int, line: LyricLine)] = []
+        for line in lines {
+            var primary = line
+            primary.background = nil
+            flattened.append((flattened.count, primary))
+
+            for background in line.background ?? [] {
+                var child = background
+                child.background = nil
+                flattened.append((flattened.count, child))
+            }
+        }
+        return flattened.sorted {
+            if $0.line.timestamp == $1.line.timestamp { return $0.order < $1.order }
+            return $0.line.timestamp < $1.line.timestamp
+        }.map(\.line)
+    }
+
+    public static func isActive(
+        _ line: LyricLine,
+        at time: TimeInterval,
+        lookahead: TimeInterval = 0
+    ) -> Bool {
+        guard time + max(0, lookahead) >= line.timestamp else { return false }
+        guard let end = line.endTime else { return true }
+        return time < end
+    }
 }
 
 // MARK: - Codable (custom — 旧 JSON 缺 voice/background 也能解码)
 
 extension LyricLine: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, timestamp, text, isSynchronized, syllables, voice, background, metadataLines
+        case id, timestamp, text, isSynchronized, syllables, endTimestamp
+        case voice, background, metadataLines
     }
 
     public init(from decoder: Decoder) throws {
@@ -517,6 +637,7 @@ extension LyricLine: Codable {
         self.timestamp = try c.decode(TimeInterval.self, forKey: .timestamp)
         self.text = try c.decode(String.self, forKey: .text)
         self.syllables = try c.decodeIfPresent([LyricSyllable].self, forKey: .syllables)
+        self.endTimestamp = try c.decodeIfPresent(TimeInterval.self, forKey: .endTimestamp)
         self.isSynchronized = try c.decodeIfPresent(Bool.self, forKey: .isSynchronized)
             ?? (timestamp > 0 || syllables?.isEmpty == false)
         self.voice = try c.decodeIfPresent(LyricVoice.self, forKey: .voice) ?? .primary
@@ -530,6 +651,7 @@ extension LyricLine: Codable {
         try c.encode(timestamp, forKey: .timestamp)
         try c.encode(text, forKey: .text)
         try c.encodeIfPresent(syllables, forKey: .syllables)
+        try c.encodeIfPresent(endTimestamp, forKey: .endTimestamp)
         let inferredSynchronization = timestamp > 0 || syllables?.isEmpty == false
         if isSynchronized != inferredSynchronization {
             try c.encode(isSynchronized, forKey: .isSynchronized)
@@ -551,7 +673,7 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
         guard let content, !content.isEmpty else { return .plain }
         if TTMLLyricsParser.looksLikeTTML(content) {
             let lines = TTMLLyricsParser.parse(content)
-            if lines.contains(where: \.isWordLevel) { return .wordLevel }
+            if lines.contains(where: \.containsWordLevelContent) { return .wordLevel }
             if lines.contains(where: \.isSynchronized) { return .lineLevel }
             return .plain
         }
@@ -661,7 +783,7 @@ public enum LyricsFileConverter {
         let validation = LyricsContentParser.validateEditableText(normalized)
         guard validation.isValid else { throw LyricsFileConversionError.invalidContent }
 
-        let expandedLines = flattenBackgroundLines(validation.lines)
+        let expandedLines = LyricVoiceTimelinePolicy.flattenedLines(validation.lines)
         let output: String
         switch targetFormat {
         case .lrc:
@@ -683,27 +805,6 @@ public enum LyricsFileConverter {
         )
     }
 
-    private static func flattenBackgroundLines(_ lines: [LyricLine]) -> [LyricLine] {
-        var expanded: [(order: Int, line: LyricLine)] = []
-        expanded.reserveCapacity(lines.count)
-
-        for line in lines {
-            var primary = line
-            primary.background = nil
-            expanded.append((expanded.count, primary))
-
-            for background in line.background ?? [] {
-                var flattened = background
-                flattened.background = nil
-                expanded.append((expanded.count, flattened))
-            }
-        }
-
-        return expanded.sorted {
-            if $0.line.timestamp == $1.line.timestamp { return $0.order < $1.order }
-            return $0.line.timestamp < $1.line.timestamp
-        }.map(\.line)
-    }
 }
 
 public enum LyricsContentParser {
@@ -926,7 +1027,14 @@ public enum LyricsContentParser {
         for (left, right) in zip(lhs, rhs) {
             guard left.text == right.text,
                   left.isSynchronized == right.isSynchronized,
-                  abs(left.timestamp - right.timestamp) <= tolerance else {
+                  left.voice == right.voice,
+                  abs(left.timestamp - right.timestamp) <= tolerance,
+                  optionalTimesEqual(left.endTimestamp, right.endTimestamp, tolerance: tolerance),
+                  areSemanticallyEquivalent(
+                    left.background ?? [],
+                    right.background ?? [],
+                    tolerance: tolerance
+                  ) else {
                 return false
             }
             switch (left.syllables, right.syllables) {
@@ -946,6 +1054,21 @@ public enum LyricsContentParser {
             }
         }
         return true
+    }
+
+    private static func optionalTimesEqual(
+        _ lhs: TimeInterval?,
+        _ rhs: TimeInterval?,
+        tolerance: TimeInterval
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case (.some(let lhs), .some(let rhs)):
+            return abs(lhs - rhs) <= tolerance
+        default:
+            return false
+        }
     }
 
     private static func parseWordLevelLine(
@@ -1174,16 +1297,18 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         parser.shouldResolveExternalEntities = false
 
         guard parser.parse(), delegate.sawTTMLRoot else { return [] }
-        return delegate.parsedLines
+        let orderedLines = delegate.parsedLines
             .sorted {
                 if $0.line.timestamp == $1.line.timestamp { return $0.order < $1.order }
                 return $0.line.timestamp < $1.line.timestamp
             }
             .map(\.line)
+        return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: orderedLines)
     }
 
     static func serialize(_ lines: [LyricLine]) -> String {
-        let paragraphs = lines.compactMap { line -> String? in
+        let flattenedLines = LyricVoiceTimelinePolicy.flattenedLines(lines)
+        let paragraphs = flattenedLines.compactMap { line -> String? in
             let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
 
@@ -1356,6 +1481,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                     text: text,
                     isSynchronized: currentLineBegin != nil || !syllables.isEmpty,
                     syllables: syllables.isEmpty ? nil : syllables,
+                    endTimestamp: currentLineEnd,
                     voice: currentLineVoice
                 )
             ))

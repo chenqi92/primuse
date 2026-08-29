@@ -4365,7 +4365,7 @@ struct LyricsScrollView: View {
     }
 
     private var hasWordLevelLyrics: Bool {
-        lyrics.contains { $0.isWordLevel }
+        lyrics.contains(where: \.containsWordLevelContent)
     }
 
     private var hasSynchronizedLyrics: Bool {
@@ -5019,6 +5019,7 @@ struct LyricsScrollView: View {
         visualScale: CGFloat = 1
     ) -> some View {
         let isActive = index == currentLineIndex
+        let playbackTime = timelineTime ?? player.currentTime
         let fontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale)
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
         // 强调, weight 瞬时跳变只会让切句增加视觉颗粒感。
@@ -5035,7 +5036,8 @@ struct LyricsScrollView: View {
                 weight: weight,
                 textAlignment: lyricsAlignment.textAlignment,
                 dimmedByAmbient: dimmedByAmbient,
-                timelineTime: timelineTime
+                timelineTime: timelineTime,
+                deactivationTime: wordLevelDeactivationTime(for: index)
             )
                 .contentShape(Rectangle())
                 .onTapGesture { seekToLyricLine(line) }
@@ -5065,15 +5067,21 @@ struct LyricsScrollView: View {
 
             if let bgs = line.background {
                 ForEach(bgs) { bg in
+                    let isBackgroundActive = LyricVoiceTimelinePolicy.isActive(
+                        bg,
+                        at: playbackTime,
+                        lookahead: Self.wordLevelLineLookahead
+                    )
                     singleLineContent(
                         line: bg,
-                        isActive: isActive,
+                        isActive: isBackgroundActive,
                         index: index,
                         fontSize: fontSize * 0.7,
                         weight: .medium,
                         textAlignment: lyricsAlignment.textAlignment,
                         dimmedByAmbient: dimmedByAmbient,
-                        timelineTime: timelineTime
+                        timelineTime: timelineTime,
+                        deactivationTime: bg.endTime
                     )
                         .opacity(0.7)
                         .contentShape(Rectangle())
@@ -5105,7 +5113,8 @@ struct LyricsScrollView: View {
         weight: Font.Weight,
         textAlignment: TextAlignment,
         dimmedByAmbient: Bool = false,
-        timelineTime: TimeInterval? = nil
+        timelineTime: TimeInterval? = nil,
+        deactivationTime: TimeInterval? = nil
     ) -> some View {
         if line.isWordLevel {
             let animatesWords = shouldRenderWordTimeline(
@@ -5145,7 +5154,7 @@ struct LyricsScrollView: View {
                 fixedTime: fixedPlaybackTime,
                 isAnimationEnabled: animatesWords,
                 animatesSyllableBounce: visualActivityPolicy.shouldRunWordTimeline,
-                deactivationTime: dimmedByAmbient ? wordLevelDeactivationTime(for: index) : nil
+                deactivationTime: dimmedByAmbient ? deactivationTime : nil
             )
         } else {
             Text(line.text)
@@ -5195,8 +5204,11 @@ struct LyricsScrollView: View {
         guard index >= 0, index < lyrics.count else {
             return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
+        let hasActiveBackground = lyrics[index].background?.contains {
+            LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
+        } ?? false
         return RowActivity(
-            opacity: index == currentLineIndex
+            opacity: index == currentLineIndex || hasActiveBackground
                 ? 1.0
                 : (index < currentLineIndex
                     ? appearance.pastLyricOpacity
@@ -5215,6 +5227,9 @@ struct LyricsScrollView: View {
             return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
         let isActive = index == currentLineIndex
+            || (lyrics[index].background?.contains {
+                LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
+            } ?? false)
         let opacity = isActive
             ? 1.0
             : (index < currentLineIndex

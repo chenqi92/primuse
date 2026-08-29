@@ -268,6 +268,21 @@ struct DesktopLyricsView: View {
                                    weight: .medium,
                                    color: .white.opacity(0.6))
                 }
+                if active != nil {
+                    ForEach(activeStructuredBackgroundLines) { background in
+                        verticalStructuredLine(
+                            background,
+                            fontSize: fittedFontSize(
+                                text: background.text,
+                                in: size,
+                                base: activeFontSize(in: size) * 0.58
+                            ),
+                            weight: .medium,
+                            activeColor: lyricsColor.opacity(0.78),
+                            inactiveColor: .white.opacity(0.28)
+                        )
+                    }
+                }
                 if let active, active.isWordLevel {
                     verticalWordColumn(active,
                                        fontSize: fittedFontSize(text: activeText,
@@ -291,27 +306,74 @@ struct DesktopLyricsView: View {
 
     @ViewBuilder
     private func desktopLyricLine(_ line: LyricLine, size: CGFloat, color: Color) -> some View {
-        Group {
-            if line.isWordLevel {
-                KaraokeLineView(
-                    line: line,
-                    fontSize: size,
-                    weight: .semibold,
-                    activeColor: color,
-                    inactiveColor: .white.opacity(0.35),
-                    writingDirection: lyricsWritingDirection,
-                    timeAt: { date in player.interpolatedTime(at: date) }
-                )
-                .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
-            } else {
-                Text(line.text)
-                    .font(.system(size: size, weight: .semibold))
-                    .foregroundStyle(color)
-                    .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
-                    .lineLimit(2)
+        VStack(spacing: 3) {
+            desktopSingleLyricLine(line, size: size, weight: .semibold, color: color)
+            if !activeStructuredBackgroundLines.isEmpty {
+                ForEach(activeStructuredBackgroundLines) { background in
+                    desktopSingleLyricLine(
+                        background,
+                        size: size * 0.65,
+                        weight: .medium,
+                        color: color.opacity(0.78)
+                    )
+                }
             }
         }
         .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+
+    @ViewBuilder
+    private func desktopSingleLyricLine(
+        _ line: LyricLine,
+        size: CGFloat,
+        weight: Font.Weight,
+        color: Color
+    ) -> some View {
+        if line.isWordLevel {
+            KaraokeLineView(
+                line: line,
+                fontSize: size,
+                weight: weight,
+                activeColor: color,
+                inactiveColor: .white.opacity(0.35),
+                writingDirection: lyricsWritingDirection,
+                timeAt: { date in player.interpolatedTime(at: date) },
+                deactivationTime: line.voice == .secondary ? line.endTime : nil
+            )
+            .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
+        } else {
+            Text(line.text)
+                .font(.system(size: size, weight: weight))
+                .foregroundStyle(color)
+                .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
+                .lineLimit(2)
+        }
+    }
+
+    @ViewBuilder
+    private func verticalStructuredLine(
+        _ line: LyricLine,
+        fontSize: CGFloat,
+        weight: Font.Weight,
+        activeColor: Color,
+        inactiveColor: Color
+    ) -> some View {
+        if line.isWordLevel {
+            verticalWordColumn(
+                line,
+                fontSize: fontSize,
+                weight: weight,
+                activeColor: activeColor,
+                inactiveColor: inactiveColor
+            )
+        } else {
+            verticalColumn(
+                line.text,
+                fontSize: fontSize,
+                weight: weight,
+                color: activeColor
+            )
+        }
     }
 
     /// 算出能塞进 size.height 的字号:可用高度 / (字符数 × 行高系数),
@@ -600,6 +662,13 @@ struct DesktopLyricsView: View {
     private var activeLyricLine: LyricLine? {
         guard lyrics.indices.contains(currentIndex) else { return nil }
         return lyrics[currentIndex]
+    }
+
+    private var activeStructuredBackgroundLines: [LyricLine] {
+        let time = player.currentTime
+        return lyrics.flatMap { $0.background ?? [] }.filter {
+            LyricVoiceTimelinePolicy.isActive($0, at: time)
+        }
     }
 
     private var nextLyricLine: LyricLine? {
