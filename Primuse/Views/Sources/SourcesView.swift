@@ -546,6 +546,10 @@ struct SourcesContentView: View {
                 )
             }
 
+            if source.type == .navidrome {
+                navidromeAutoRefreshControl(for: source)
+            }
+
             if !dirs.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -798,6 +802,35 @@ struct SourcesContentView: View {
             }
             .tint(source.isEnabled ? .gray : .green)
         }
+    }
+
+    private func navidromeAutoRefreshControl(for source: MusicSource) -> some View {
+        Toggle(isOn: navidromeAutoRefreshBinding(for: source.id)) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("navidrome_auto_refresh")
+                    .font(.subheadline.weight(.semibold))
+                Text("navidrome_auto_refresh_description")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .toggleStyle(.switch)
+        .padding(10)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityLabel(Text("navidrome_auto_refresh"))
+        .accessibilityHint(Text("navidrome_auto_refresh_description"))
+    }
+
+    private func navidromeAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                AppServices.shared.navidromeAutoRefresh.isEnabled(for: sourceID)
+            },
+            set: { enabled in
+                AppServices.shared.navidromeAutoRefresh.setEnabled(enabled, for: sourceID)
+            }
+        )
     }
 
     private func metadataStatusLink(

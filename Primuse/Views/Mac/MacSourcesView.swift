@@ -323,6 +323,10 @@ struct MacSourcesView: View {
                 // 的卡片高度就一致了, 不会某张在扫描时突然变高、其它变矮。
                 .frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
 
+            if source.type == .navidrome {
+                navidromeAutoRefreshControl(for: source)
+            }
+
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             actionsRow(source, scanning: scanning, dirs: dirs)
@@ -358,6 +362,39 @@ struct MacSourcesView: View {
                 Label("delete", systemImage: "trash")
             }
         }
+    }
+
+    private func navidromeAutoRefreshControl(for source: MusicSource) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("navidrome_auto_refresh")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text("navidrome_auto_refresh_description")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 10)
+            Toggle("", isOn: navidromeAutoRefreshBinding(for: source.id))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .accessibilityLabel(Text("navidrome_auto_refresh"))
+                .accessibilityHint(Text("navidrome_auto_refresh_description"))
+        }
+        .padding(10)
+        .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
+    }
+
+    private func navidromeAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                AppServices.shared.navidromeAutoRefresh.isEnabled(for: sourceID)
+            },
+            set: { enabled in
+                AppServices.shared.navidromeAutoRefresh.setEnabled(enabled, for: sourceID)
+            }
+        )
     }
 
     // MARK: - Card body

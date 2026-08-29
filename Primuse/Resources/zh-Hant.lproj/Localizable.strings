@@ -57,6 +57,10 @@
 "library_cleanup_trash_count_format" = "%d 項可清理";
 "playlist_reorder" = "重新排序";
 "playlist_kind_server_mirror" = "伺服器歌單";
+"playlist_always_download" = "始終保持離線";
+"playlist_always_download_description" = "透過 Wi-Fi 在此裝置上保留此播放清單；新增或變更的歌曲會在裝置條件允許時自動下載。關閉後會保留已下載的檔案。";
+"navidrome_auto_refresh" = "Navidrome 自動重新整理";
+"navidrome_auto_refresh_description" = "App 開啟後會檢查 Navidrome 的媒體庫狀態，只有伺服器內容變更時才重新整理本機目錄，不會啟動伺服器掃描。";
 "see_all" = "查看全部";
 "welcome_title" = "歡迎使用猿音";
 "welcome_desc" = "加入音樂來源 — NAS、WebDAV 或本機資料夾 — 開始聆聽";

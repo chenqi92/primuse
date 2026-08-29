@@ -60,6 +60,10 @@
 "library_cleanup_trash_count_format" = "%d 项可清理";
 "playlist_reorder" = "重新排序";
 "playlist_kind_server_mirror" = "服务端歌单";
+"playlist_always_download" = "始终保持离线";
+"playlist_always_download_description" = "通过 Wi-Fi 在此设备上保留此歌单；新增或变化的歌曲会在设备条件允许时自动下载。关闭后保留已下载文件。";
+"navidrome_auto_refresh" = "Navidrome 自动刷新";
+"navidrome_auto_refresh_description" = "App 打开后检查 Navidrome 的资料库状态，仅在服务端内容变化时刷新本地目录，不会发起服务端扫描。";
 "see_all" = "查看全部";
 "welcome_title" = "欢迎使用猿音";
 "welcome_desc" = "添加音乐源 — NAS、WebDAV 或本地文件夹 — 开始聆听";

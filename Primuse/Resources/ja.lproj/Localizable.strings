@@ -305,6 +305,10 @@
 "library_cleanup_trash_count_format" = "%d 項目";
 "playlist_reorder" = "並べ替え";
 "playlist_kind_server_mirror" = "サーバーのプレイリスト";
+"playlist_always_download" = "常にオフラインで保持";
+"playlist_always_download_description" = "Wi-Fi 経由でこのプレイリストをこのデバイスに保存します。新規または変更された曲はデバイスの状態が許すときに自動ダウンロードされ、オフにしても既存のファイルは保持されます。";
+"navidrome_auto_refresh" = "Navidrome を自動更新";
+"navidrome_auto_refresh_description" = "App の起動後に Navidrome のライブラリ状態を確認し、サーバー側に変更がある場合だけローカルカタログを更新します。サーバースキャンは開始しません。";
 "welcome_title" = "Primuse へようこそ";
 "welcome_desc" = "音楽ソース（NAS、WebDAV、ローカルファイル）を追加して再生を始めましょう";
 "no_albums" = "アルバムなし";

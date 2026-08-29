@@ -304,6 +304,10 @@
 "library_cleanup_trash_count_format" = "%d éléments";
 "playlist_reorder" = "Réorganiser";
 "playlist_kind_server_mirror" = "Playlist du serveur";
+"playlist_always_download" = "Toujours disponible hors ligne";
+"playlist_always_download_description" = "Conserve cette playlist sur cet appareil via Wi-Fi. Les morceaux nouveaux ou modifiés sont téléchargés automatiquement lorsque l’appareil le permet ; désactiver cette option conserve les fichiers existants.";
+"navidrome_auto_refresh" = "Actualiser Navidrome automatiquement";
+"navidrome_auto_refresh_description" = "Après l’ouverture de l’app, Primuse vérifie l’état de la bibliothèque Navidrome et actualise le catalogue local uniquement si le contenu du serveur a changé. Aucune analyse du serveur n’est lancée.";
 "welcome_title" = "Bienvenue dans Primuse";
 "welcome_desc" = "Ajoutez une source musicale — votre NAS, WebDAV ou des fichiers locaux — pour commencer à écouter";
 "no_albums" = "Aucun album";

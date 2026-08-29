@@ -187,6 +187,9 @@ struct PlaylistDetailView: View {
                 }
                 .padding(.horizontal)
 
+                alwaysDownloadControl
+                    .padding(.horizontal)
+
                 // Songs
                 LazyVStack(spacing: 0) {
                     ForEach(songs) { song in
@@ -328,6 +331,50 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
+    private var alwaysDownloadControl: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("playlist_always_download")
+                    .font(.subheadline.weight(.semibold))
+                Text("playlist_always_download_description")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityHidden(true)
+
+            Spacer(minLength: 10)
+
+            Toggle("", isOn: alwaysDownloadBinding)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .accessibilityLabel(Text("playlist_always_download"))
+                .accessibilityHint(Text("playlist_always_download_description"))
+        }
+        .padding(14)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 0.5)
+        }
+    }
+
+    private var alwaysDownloadBinding: Binding<Bool> {
+        Binding(
+            get: {
+                AppServices.shared.alwaysDownload.isEnabled(for: playlist.id)
+            },
+            set: { enabled in
+                AppServices.shared.alwaysDownload.setEnabled(enabled, for: playlist.id)
+            }
+        )
+    }
+
     private var batchScrapeProgressCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -455,6 +502,8 @@ struct PlaylistDetailView: View {
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
+                    alwaysDownloadControl
+
                     if isCurrentPlaylistScraping {
                         batchScrapeProgressCard
                     }
