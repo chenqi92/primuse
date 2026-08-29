@@ -662,6 +662,18 @@ protocol SongScanningConnector: MusicSourceConnector {
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
 }
 
+struct ServerCatalogScanStatus: Sendable, Equatable {
+    let isScanning: Bool
+    let itemCount: Int64?
+    let lastCompletedScanAt: Date?
+}
+
+/// Read-only server state used to decide whether an authoritative local
+/// catalogue refresh is necessary. This capability never starts a server scan.
+protocol ServerCatalogChangeDetectingConnector: MusicSourceConnector {
+    func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus
+}
+
 /// Resolves an OpenList `.strm` source-relative target against the connector's
 /// configured WebDAV origin. Keeping this as a capability preserves the
 /// behavior when WebDAV is wrapped by adaptive route selection.

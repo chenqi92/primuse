@@ -56,14 +56,43 @@ struct OfflineDownloadBatchResult: Sendable {
     }
 }
 
+struct AlwaysDownloadDesiredSong: Sendable {
+    let song: Song
+    let playlistIDs: Set<String>
+    let contentSignature: String
+}
+
+enum AutomaticOfflineDownloadResult: Sendable {
+    case completed
+    case cancelled
+    case failed(authenticationRequired: Bool, message: String)
+}
+
 private struct OfflineDownloadSongResult: Sendable {
     let snapshot: OfflineAudioCacheSnapshot
     let fallbackByteCount: Int64
 }
 
+private enum OfflineDownloadPinIntent: Sendable {
+    case manual
+    case playlists(Set<String>)
+}
+
+private enum OfflineDownloadTransferResult: Sendable {
+    case completed(byteCount: Int64?)
+    case cancelled
+    case failed(authenticationRequired: Bool, message: String)
+}
+
 private struct OfflineDownloadTaskRecord {
     let id: UUID
-    let task: Task<Void, Never>
+    let task: Task<OfflineDownloadTransferResult, Never>
+    var requesterIDs: Set<UUID>
+}
+
+private struct OfflineDownloadTaskHandle: Sendable {
+    let task: Task<OfflineDownloadTransferResult, Never>
+    let requesterID: UUID
 }
 
 private struct BackgroundAudioCacheTaskRecord {
@@ -918,12 +947,22 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    ServerCatalogChangeDetectingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {
+                throw SourceError.connectionFailed("Server catalogue status unavailable")
+            }
+            return try await provider.fetchServerCatalogScanStatus()
+        }
+    }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
@@ -1237,6 +1276,8 @@ final class SourceManager {
     /// misleading selected/unselected flash during automatic retries.
     private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
+    @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
+    @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
     @ObservationIgnored private var automaticAudioCachingEnabled = true
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
@@ -1312,6 +1353,15 @@ final class SourceManager {
 
     func connector(for source: MusicSource) -> any MusicSourceConnector {
         return connector(for: source, cache: true)
+    }
+
+    func serverCatalogScanStatus(for source: MusicSource) async throws -> ServerCatalogScanStatus {
+        let connector = connector(for: source)
+        guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {
+            throw SourceError.connectionFailed("Server catalogue status unavailable")
+        }
+        try await connector.connect()
+        return try await provider.fetchServerCatalogScanStatus()
     }
 
     private func connector(for source: MusicSource, cache: Bool) -> any MusicSourceConnector {
@@ -2960,12 +3010,7 @@ final class SourceManager {
         if !wasPinned {
             let relativePath = audioCacheRelativePath(for: song)
             await AudioCacheManager.shared.unpin(path: relativePath)
-            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
-                state: .cached,
-                progress: nil,
-                byteCount: song.fileSize > 0 ? song.fileSize : nil,
-                errorMessage: nil
-            ), for: song.id)
+            await refreshOfflineAudioSnapshot(for: song)
         }
         return cached
     }
@@ -3162,7 +3207,9 @@ final class SourceManager {
     }
 
     func downloadForOffline(song: Song) {
-        _ = offlineDownloadTask(for: song)
+        Task { [weak self] in
+            _ = await self?.waitForOfflineDownload(song, pinIntent: .manual)
+        }
     }
 
     func downloadForOffline(songs: [Song]) {
@@ -3198,7 +3245,7 @@ final class SourceManager {
                 let song = playableSongs[nextIndex]
                 nextIndex += 1
                 group.addTask {
-                    await self.waitForOfflineDownload(song)
+                    _ = await self.waitForOfflineDownload(song, pinIntent: .manual)
                     return OfflineDownloadSongResult(
                         snapshot: await self.offlineAudioSnapshot(for: song),
                         fallbackByteCount: max(song.fileSize, 0)
@@ -3246,28 +3293,223 @@ final class SourceManager {
         offlineDownloadTasks[song.id] = nil
         deleteAudioCache(for: song)
         setOfflineAudioSnapshot(.notCached, for: song.id)
+        automaticOfflineDownloadRemovedHandler?(song.id)
     }
 
-    private func waitForOfflineDownload(_ song: Song) async {
-        let task = offlineDownloadTask(for: song)
-        await task.value
+    func reconcileAutomaticPlaylistPins(
+        _ desiredSongs: [AlwaysDownloadDesiredSong]
+    ) async -> Set<String> {
+        let previousDesired = automaticPlaylistPinnedSongsByID
+        automaticPlaylistPinnedSongsByID = Dictionary(
+            desiredSongs.map { ($0.song.id, $0.song) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let prepared = await Task.detached(priority: .utility) {
+            Self.prepareAutomaticOfflinePinReconciliation(desiredSongs)
+        }.value
+        let missingPaths = await AudioCacheManager.shared.reconcileAutomaticPlaylistPins(
+            prepared.requests
+        )
+        var missingSongIDs = Set<String>()
+        for (index, desired) in desiredSongs.enumerated() {
+            let path = prepared.pathBySongID[desired.song.id]
+                ?? audioCacheRelativePath(for: desired.song)
+            if missingPaths.contains(path) {
+                missingSongIDs.insert(desired.song.id)
+                if offlineAudioSnapshots[desired.song.id]?.isDownloading != true {
+                    setOfflineAudioSnapshot(.notCached, for: desired.song.id)
+                }
+            } else {
+                setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
+                    state: .pinned,
+                    progress: nil,
+                    byteCount: desired.song.fileSize > 0 ? desired.song.fileSize : nil,
+                    errorMessage: nil
+                ), for: desired.song.id)
+            }
+            if index.isMultiple(of: 128) { await Task.yield() }
+        }
+        for song in previousDesired.values
+        where automaticPlaylistPinnedSongsByID[song.id] == nil {
+            if offlineAudioSnapshots[song.id]?.isDownloading != true {
+                await refreshOfflineAudioSnapshot(for: song)
+            }
+        }
+        return missingSongIDs
     }
 
-    private func offlineDownloadTask(for song: Song) -> Task<Void, Never> {
-        if let record = offlineDownloadTasks[song.id] {
+    private nonisolated static func prepareAutomaticOfflinePinReconciliation(
+        _ desiredSongs: [AlwaysDownloadDesiredSong]
+    ) -> (requests: [AutomaticOfflinePinRequest], pathBySongID: [String: String]) {
+        var pathBySongID: [String: String] = [:]
+        var ownersByPath: [String: Set<String>] = [:]
+        var expectedBytesByPath: [String: Int64] = [:]
+        for desired in desiredSongs {
+            let fileName = CacheFileNamePolicy.make(
+                path: desired.song.filePath,
+                preferredExtension: desired.song.fileFormat.rawValue
+            )
+            let path = "\(desired.song.sourceID)/\(fileName)"
+            pathBySongID[desired.song.id] = path
+            ownersByPath[path, default: []].formUnion(desired.playlistIDs)
+            expectedBytesByPath[path] = max(
+                expectedBytesByPath[path] ?? 0,
+                desired.song.fileSize
+            )
+        }
+        return (
+            ownersByPath.map { path, playlistIDs in
+                AutomaticOfflinePinRequest(
+                    path: path,
+                    playlistIDs: playlistIDs,
+                    expectedByteCount: expectedBytesByPath[path] ?? 0
+                )
+            },
+            pathBySongID
+        )
+    }
+
+    func prepareAutomaticOfflineDownload(
+        song: Song,
+        forceRedownload: Bool
+    ) -> Bool {
+        guard forceRedownload else { return true }
+        // Never relabel bytes owned by an in-flight manual request as a newer
+        // content revision. Let that shared transfer finish, then the serial
+        // worker will retry this preparation and replace the stale file.
+        guard offlineDownloadTasks[song.id] == nil else { return false }
+        if let backgroundTask = backgroundAudioCacheTasks[song.id]?.task {
+            backgroundTask.cancel()
+            return false
+        }
+        let target = cacheURL(for: song)
+        Self.removeCacheFileFamily(at: target)
+        setOfflineAudioSnapshot(.notCached, for: song.id)
+        return !Self.cacheFileFamilyExists(at: target)
+    }
+
+    func downloadAutomaticallyForOffline(
+        song: Song,
+        playlistIDs: Set<String>
+    ) async -> AutomaticOfflineDownloadResult {
+        guard !playlistIDs.isEmpty else { return .cancelled }
+        await waitForBackgroundAudioCache(for: song)
+        guard !Task.isCancelled else { return .cancelled }
+        let result = await waitForOfflineDownload(
+            song,
+            pinIntent: .playlists(playlistIDs)
+        )
+        switch result {
+        case .completed:
+            return .completed
+        case .cancelled:
+            return .cancelled
+        case .failed(let authenticationRequired, let message):
+            if authenticationRequired {
+                SourceAuthAlert.report(sourceID: song.sourceID, message: message)
+            }
+            return .failed(
+                authenticationRequired: authenticationRequired,
+                message: message
+            )
+        }
+    }
+
+    private func waitForOfflineDownload(
+        _ song: Song,
+        pinIntent: OfflineDownloadPinIntent
+    ) async -> OfflineDownloadTransferResult {
+        let handle = offlineDownloadTask(for: song)
+        return await withTaskCancellationHandler {
+            let result = await handle.task.value
+            guard !Task.isCancelled else { return .cancelled }
+            if case .completed(let byteCount) = result {
+                await applyOfflinePin(
+                    pinIntent,
+                    song: song,
+                    byteCount: byteCount
+                )
+            }
+            return result
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelOfflineDownloadRequest(
+                    songID: song.id,
+                    requesterID: handle.requesterID
+                )
+            }
+        }
+    }
+
+    private func offlineDownloadTask(
+        for song: Song
+    ) -> OfflineDownloadTaskHandle {
+        let requesterID = UUID()
+        if var record = offlineDownloadTasks[song.id] {
+            record.requesterIDs.insert(requesterID)
+            offlineDownloadTasks[song.id] = record
             plog("↩️ Offline: join existing download '\(song.title)'")
-            return record.task
+            return OfflineDownloadTaskHandle(
+                task: record.task,
+                requesterID: requesterID
+            )
         }
 
         let runID = UUID()
         let songID = song.id
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.performOfflineDownload(song)
+        let task: Task<OfflineDownloadTransferResult, Never> = Task { @MainActor [weak self] in
+            guard let self else { return .cancelled }
+            let result = await self.performOfflineDownload(song)
             self.finishOfflineDownloadTask(songID: songID, runID: runID)
+            return result
         }
-        offlineDownloadTasks[songID] = OfflineDownloadTaskRecord(id: runID, task: task)
-        return task
+        offlineDownloadTasks[songID] = OfflineDownloadTaskRecord(
+            id: runID,
+            task: task,
+            requesterIDs: [requesterID]
+        )
+        return OfflineDownloadTaskHandle(task: task, requesterID: requesterID)
+    }
+
+    private func cancelOfflineDownloadRequest(
+        songID: String,
+        requesterID: UUID
+    ) {
+        guard var record = offlineDownloadTasks[songID] else { return }
+        record.requesterIDs.remove(requesterID)
+        guard !record.requesterIDs.isEmpty else {
+            record.task.cancel()
+            offlineDownloadTasks[songID] = nil
+            return
+        }
+        offlineDownloadTasks[songID] = record
+    }
+
+    private func applyOfflinePin(
+        _ pinIntent: OfflineDownloadPinIntent,
+        song: Song,
+        byteCount: Int64?
+    ) async {
+        let relativePath = audioCacheRelativePath(for: song)
+        switch pinIntent {
+        case .manual:
+            await AudioCacheManager.shared.pin(
+                path: relativePath,
+                byteCount: byteCount
+            )
+        case .playlists(let playlistIDs):
+            await AudioCacheManager.shared.pin(
+                path: relativePath,
+                byteCount: byteCount,
+                forPlaylistIDs: playlistIDs
+            )
+        }
+        setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
+            state: .pinned,
+            progress: nil,
+            byteCount: byteCount,
+            errorMessage: nil
+        ), for: song.id)
     }
 
     private func finishOfflineDownloadTask(songID: String, runID: UUID) {
@@ -3275,7 +3517,7 @@ final class SourceManager {
         offlineDownloadTasks[songID] = nil
     }
 
-    private func performOfflineDownload(_ song: Song) async {
+    private func performOfflineDownload(_ song: Song) async -> OfflineDownloadTransferResult {
         let startedAt = Date()
         let relativePath = audioCacheRelativePath(for: song)
         let target = cacheURL(for: song)
@@ -3291,14 +3533,13 @@ final class SourceManager {
             try Task.checkCancellation()
             if let cached = cachedURL(for: song) {
                 let size = fileSize(at: cached)
-                await AudioCacheManager.shared.pin(path: relativePath, byteCount: size)
                 setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
-                    state: .pinned,
+                    state: .cached,
                     progress: nil,
                     byteCount: size,
                     errorMessage: nil
                 ), for: song.id)
-                return
+                return .completed(byteCount: size)
             }
 
             guard !NetworkMonitor.shared.hasDeterminedPath || NetworkMonitor.shared.isReachable else {
@@ -3324,10 +3565,14 @@ final class SourceManager {
                         throw SourceError.connectionFailed("OpenList STRM transport unavailable")
                     }
                     let localURL = try await webDAV.localOpenListSTRMURL(for: path)
-                    try copyOfflineFile(from: localURL, to: target)
+                    try await Task.detached(priority: .utility) {
+                        try Self.installCacheFile(from: localURL, to: target, move: false)
+                    }.value
                 case .sourcePath(let path):
                     let localURL = try await connector.localURL(for: path)
-                    try copyOfflineFile(from: localURL, to: target)
+                    try await Task.detached(priority: .utility) {
+                        try Self.installCacheFile(from: localURL, to: target, move: false)
+                    }.value
                 }
             } else if let oneDrive = connector as? OneDriveSource {
                 do {
@@ -3347,24 +3592,27 @@ final class SourceManager {
                 try await downloadOfflineByRanges(song: song, connector: connector, target: target)
             } else {
                 let localURL = try await connector.localURL(for: song.filePath)
-                try copyOfflineFile(from: localURL, to: target)
+                try await Task.detached(priority: .utility) {
+                    try Self.installCacheFile(from: localURL, to: target, move: false)
+                }.value
             }
 
             try Task.checkCancellation()
             let size = fileSize(at: target)
-            await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: true)
+            await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: false)
             setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
-                state: .pinned,
+                state: .cached,
                 progress: nil,
                 byteCount: size,
                 errorMessage: nil
             ), for: song.id)
-            plog(String(format: "✅ Offline: '%@' downloaded and pinned size=%lldKB elapsed=%.1fs", song.title, (size ?? 0) / 1024, Date().timeIntervalSince(startedAt)))
+            plog(String(format: "✅ Offline: '%@' downloaded size=%lldKB elapsed=%.1fs", song.title, (size ?? 0) / 1024, Date().timeIntervalSince(startedAt)))
+            return .completed(byteCount: size)
         } catch {
             if Task.isCancelled {
                 setOfflineAudioSnapshot(.notCached, for: song.id)
                 plog(String(format: "↩️ Offline download cancelled for '%@' after %.1fs", song.title, Date().timeIntervalSince(startedAt)))
-                return
+                return .cancelled
             }
             let partial = URL(fileURLWithPath: target.path + ".offline")
             let partialSize = byteSize(at: partial)
@@ -3375,6 +3623,17 @@ final class SourceManager {
                 errorMessage: error.localizedDescription
             ), for: song.id)
             plog(String(format: "⚠️ Offline download failed for '%@' after %.1fs partial=%lldKB: %@", song.title, Date().timeIntervalSince(startedAt), partialSize / 1024, error.localizedDescription))
+            let authenticationRequired: Bool
+            if let sourceError = error as? SourceError,
+               case .authenticationFailed = sourceError {
+                authenticationRequired = true
+            } else {
+                authenticationRequired = false
+            }
+            return .failed(
+                authenticationRequired: authenticationRequired,
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -3386,23 +3645,31 @@ final class SourceManager {
         let partial = URL(fileURLWithPath: target.path + ".offline")
         let existingSize = byteSize(at: partial)
         if existingSize >= song.fileSize, song.fileSize > 0 {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: partial, to: target)
+            try await Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.moveItem(at: partial, to: target)
+            }.value
             return
         }
         if existingSize > song.fileSize {
-            try? FileManager.default.removeItem(at: partial)
+            await Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: partial)
+            }.value
         }
         if !FileManager.default.fileExists(atPath: partial.path) {
-            FileManager.default.createFile(atPath: partial.path, contents: nil)
+            await Task.detached(priority: .utility) {
+                try? FileManager.default.createDirectory(
+                    at: partial.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                FileManager.default.createFile(atPath: partial.path, contents: nil)
+            }.value
         }
-        let handle = try FileHandle(forWritingTo: partial)
         let chunkSize: Int64 = 2 * 1024 * 1024
         var offset: Int64 = max(0, min(byteSize(at: partial), song.fileSize))
         if offset > 0 {
             plog("↩️ Offline resume '\(song.title)' from \(offset / 1024)KB / \(song.fileSize / 1024)KB")
         }
-        try handle.seek(toOffset: UInt64(offset))
         setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
             progress: song.fileSize > 0 ? min(0.99, Double(offset) / Double(song.fileSize)) : nil,
@@ -3410,31 +3677,36 @@ final class SourceManager {
             errorMessage: nil
         ), for: song.id)
 
-        do {
-            while offset < song.fileSize {
-                let length = min(chunkSize, song.fileSize - offset)
-                let data = try await connector.fetchRange(path: song.filePath, offset: offset, length: length)
-                guard Int64(data.count) == length else {
-                    throw SourceError.connectionFailed(
-                        "Offline download returned an invalid chunk: \(data.count)/\(length)"
-                    )
-                }
-                try handle.write(contentsOf: data)
-                offset += Int64(data.count)
-                setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
-                    state: .downloading,
-                    progress: min(0.99, Double(offset) / Double(song.fileSize)),
-                    byteCount: song.fileSize,
-                    errorMessage: nil
-                ), for: song.id)
+        while offset < song.fileSize {
+            try Task.checkCancellation()
+            let length = min(chunkSize, song.fileSize - offset)
+            let chunkOffset = offset
+            let data = try await connector.fetchRange(
+                path: song.filePath,
+                offset: chunkOffset,
+                length: length
+            )
+            guard Int64(data.count) == length else {
+                throw SourceError.connectionFailed(
+                    "Offline download returned an invalid chunk: \(data.count)/\(length)"
+                )
             }
-            try handle.close()
+            try await Task.detached(priority: .utility) {
+                try Self.writeOfflineChunk(data, to: partial, offset: chunkOffset)
+            }.value
+            offset += Int64(data.count)
+            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
+                state: .downloading,
+                progress: min(0.99, Double(offset) / Double(song.fileSize)),
+                byteCount: song.fileSize,
+                errorMessage: nil
+            ), for: song.id)
+        }
+        try Task.checkCancellation()
+        try await Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: target)
             try FileManager.default.moveItem(at: partial, to: target)
-        } catch {
-            try? handle.close()
-            throw error
-        }
+        }.value
     }
 
     private func downloadOfflineFromDirectURL(_ url: URL, song: Song, target: URL) async throws {
@@ -3527,10 +3799,15 @@ final class SourceManager {
         try FileManager.default.moveItem(at: tempURL, to: target)
     }
 
-    private func copyOfflineFile(from source: URL, to target: URL) throws {
-        if source.standardizedFileURL == target.standardizedFileURL { return }
-        try? FileManager.default.removeItem(at: target)
-        try FileManager.default.copyItem(at: source, to: target)
+    private nonisolated static func writeOfflineChunk(
+        _ data: Data,
+        to partial: URL,
+        offset: Int64
+    ) throws {
+        let handle = try FileHandle(forWritingTo: partial)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(offset))
+        try handle.write(contentsOf: data)
     }
 
     private nonisolated func fileSize(at url: URL) -> Int64? {
@@ -4376,11 +4653,25 @@ final class SourceManager {
     }
 
     private nonisolated static func removeCacheFileFamily(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
+        for candidate in cacheFileFamilyURLs(at: url) {
+            try? FileManager.default.removeItem(at: candidate)
+        }
+    }
+
+    private nonisolated static func cacheFileFamilyExists(at url: URL) -> Bool {
+        cacheFileFamilyURLs(at: url).contains {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+    }
+
+    private nonisolated static func cacheFileFamilyURLs(at url: URL) -> [URL] {
         let partial = URL(fileURLWithPath: url.path + ".partial")
-        try? FileManager.default.removeItem(at: partial)
-        try? FileManager.default.removeItem(at: URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix))
-        try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + ".offline"))
+        return [
+            url,
+            partial,
+            URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix),
+            URL(fileURLWithPath: url.path + ".offline"),
+        ]
     }
 
     func deleteSourceCaches(sourceID: String) {

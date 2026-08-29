@@ -18,7 +18,7 @@ final class ScanService {
     @ObservationIgnored var metadataInspectionHandler: ((Set<String>) -> Void)?
     /// Successful catalogue access can reopen an exhausted metadata-read
     /// circuit breaker without coupling ScanService to the backfill worker.
-    @ObservationIgnored var successfulSourceScanHandler: ((String) -> Void)?
+    @ObservationIgnored var successfulSourceScanHandler: ((String, SourceScanLifecycleCompletion) -> Void)?
     /// AppServices injects the radio store without making every scan call site
     /// carry another dependency. Invoked only after a successful server-library
     /// catalogue commit, alongside server playlist mirroring.
@@ -116,6 +116,7 @@ final class ScanService {
         syncStates[sourceID]?.index ?? [:]
     }
 
+    @discardableResult
     func scanSource(
         _ source: MusicSource,
         mode: SourceSyncMode = .automatic,
@@ -124,14 +125,14 @@ final class ScanService {
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService? = nil
-    ) {
-        guard activeTasks[source.id] == nil else { return }
+    ) -> Bool {
+        guard activeTasks[source.id] == nil else { return false }
         guard !source.isDeleted else {
             removeCheckpoint(for: source.id)
             scanStates[source.id] = nil
-            return
+            return false
         }
-        guard source.isEnabled else { return }
+        guard source.isEnabled else { return false }
 
         // 整库来源没有额外的目录选择步骤。Local 已由用户选择的 basePath
         // 确定范围；媒体服务器与 Apple Music Library 也天然是完整资料库。
@@ -142,7 +143,7 @@ final class ScanService {
             dirs = ["/"]
         } else {
             dirs = source.scannedDirectories
-            guard !dirs.isEmpty else { return }
+            guard !dirs.isEmpty else { return false }
         }
 
         let normalizedDirs = normalizedDirectories(dirs)
@@ -160,7 +161,7 @@ final class ScanService {
         // pagination invariants. A partial checkpoint is not resumable (the
         // next request must restart at page 1), and restoring one would make
         // an incomplete catalogue visible before the retry has succeeded.
-        let requiresAtomicCatalogCommit = source.type == .fnMusic
+        let requiresAtomicCatalogCommit = source.type == .fnMusic || source.type == .navidrome
         if requiresAtomicCatalogCommit {
             removeCheckpoint(for: source.id)
         }
@@ -370,6 +371,7 @@ final class ScanService {
             }
         }
         activeTasks[source.id] = task
+        return true
     }
 
     /// Starts a fresh incremental scan after the user finishes changing a
@@ -1012,7 +1014,7 @@ final class ScanService {
     ) async {
         let connector = sourceManager.connector(for: source)
         let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
-        let requiresAtomicCatalogCommit = source.type == .fnMusic
+        let requiresAtomicCatalogCommit = source.type == .fnMusic || source.type == .navidrome
         // Pass songs from the live library (for this source) as the
         // existing-set, not just resumeSongs. Without this, re-scanning
         // a finished source would walk the full tree and yield every file
@@ -1725,6 +1727,23 @@ final class ScanService {
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
         }
+        let commitsCatalogSnapshot: Bool
+        if source?.type == .navidrome {
+            let existingSongs = library.songs.filter { $0.sourceID == sourceID }
+            commitsCatalogSnapshot = await Task.detached(priority: .utility) {
+                SourceCatalogSnapshotPolicy.hasChanges(
+                    existing: existingSongs,
+                    candidate: songs
+                )
+            }.value
+        } else {
+            commitsCatalogSnapshot = true
+        }
+
+        // #64's artwork topology has its own deterministic equality guard.
+        // Keep feeding it every complete scan: an identical catalogue is a
+        // true no-op, while an artwork-only change still persists without
+        // forcing the complete song snapshot through addSongs.
         if let syncState {
             library.updateAutomaticArtistArtworkCatalog(
                 SourceArtistArtworkCatalog(
@@ -1733,9 +1752,11 @@ final class ScanService {
                 )
             )
         }
-        library.addSongs(songs, affectedSourceIDs: Set([sourceID]))
-        guard case .success = await library.persistIncrementalNowAndWait() else {
-            throw SourceError.connectionFailed("Unable to persist the music library")
+        if commitsCatalogSnapshot {
+            library.addSongs(songs, affectedSourceIDs: Set([sourceID]))
+            guard case .success = await library.persistIncrementalNowAndWait() else {
+                throw SourceError.connectionFailed("Unable to persist the music library")
+            }
         }
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
@@ -1754,7 +1775,9 @@ final class ScanService {
             $0.songCount = acceptedCount
             $0.lastScannedAt = Date()
         }
-        scraperService?.enqueueBackgroundEnrichment(for: songs, in: library)
+        if commitsCatalogSnapshot {
+            scraperService?.enqueueBackgroundEnrichment(for: songs, in: library)
+        }
         // 注意: 这里不做整库 prewarm。之前会一首歌拉 1MB head + 256KB tail,
         // 818 首 ~ 1GB 后台流量, 大部分歌用户根本不会听。删掉, 让 prewarm
         // 走「按需」路径: AudioPlayerService.play 时调 cacheInBackground
@@ -1791,7 +1814,7 @@ final class ScanService {
         }
         publishSuccessfulScanLifecycle(
             sourceID: sourceID,
-            completion: .committedSnapshot
+            completion: commitsCatalogSnapshot ? .committedSnapshot : .committedNoChanges
         )
     }
 
@@ -1804,7 +1827,7 @@ final class ScanService {
         guard SourceScanLifecyclePolicy.shouldNotifySuccessfulScan(
             for: completion
         ) else { return }
-        successfulSourceScanHandler?(sourceID)
+        successfulSourceScanHandler?(sourceID, completion)
     }
 
     private func publishBaiduReconciliationProgress(

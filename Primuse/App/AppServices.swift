@@ -1,5 +1,357 @@
+import CryptoKit
 import Foundation
+import Observation
 import PrimuseKit
+
+@MainActor
+@Observable
+final class NavidromeAutoRefreshCoordinator {
+    private struct SourceMarker: Codable, Sendable {
+        var identityFingerprint: String
+        var lastAppliedServerScanAt: Date?
+        var itemCount: Int64?
+        var lastCheckedAt: Date
+    }
+
+    private struct PersistedState: Codable, Sendable {
+        var disabledSourceIDs: Set<String> = []
+        var markers: [String: SourceMarker] = [:]
+    }
+
+    private struct PendingMarker: Sendable {
+        let identityFingerprint: String
+        let serverScanAt: Date?
+        let itemCount: Int64?
+    }
+
+    private static let defaultsKey = "primuse.navidrome-auto-refresh.v1"
+    private static let launchDelay: Duration = .seconds(4)
+    private static let checkCooldown: TimeInterval = 15 * 60
+    private static let maximumRetryCount = 8
+
+    private let sourceManager: SourceManager
+    private let scanService: ScanService
+    private let library: MusicLibrary
+    private let sourcesStore: SourcesStore
+    private let scraperService: MusicScraperService
+    private let player: AudioPlayerService
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var markers: [String: SourceMarker]
+    @ObservationIgnored private var pendingMarkers: [String: PendingMarker] = [:]
+    @ObservationIgnored private var retryTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var deferredSourceIDs: Set<String> = []
+    @ObservationIgnored private var didScheduleColdLaunch = false
+    @ObservationIgnored private var applicationIsActive = true
+    private var disabledSourceIDs: Set<String>
+
+    init(
+        sourceManager: SourceManager,
+        scanService: ScanService,
+        library: MusicLibrary,
+        sourcesStore: SourcesStore,
+        scraperService: MusicScraperService,
+        player: AudioPlayerService,
+        defaults: UserDefaults = .standard
+    ) {
+        self.sourceManager = sourceManager
+        self.scanService = scanService
+        self.library = library
+        self.sourcesStore = sourcesStore
+        self.scraperService = scraperService
+        self.player = player
+        self.defaults = defaults
+        let state = Self.loadState(from: defaults)
+        disabledSourceIDs = state.disabledSourceIDs
+        markers = state.markers
+    }
+
+    func isEnabled(for sourceID: String) -> Bool {
+        !disabledSourceIDs.contains(sourceID)
+    }
+
+    func setEnabled(_ enabled: Bool, for sourceID: String) {
+        if enabled {
+            disabledSourceIDs.remove(sourceID)
+        } else {
+            disabledSourceIDs.insert(sourceID)
+            retryTasks.removeValue(forKey: sourceID)?.cancel()
+            deferredSourceIDs.remove(sourceID)
+            pendingMarkers.removeValue(forKey: sourceID)
+        }
+        persistState()
+        guard enabled, let source = sourcesStore.source(id: sourceID) else { return }
+        Task { @MainActor [weak self] in
+            await self?.checkSource(source, retryCount: 0, ignoresCooldown: true)
+        }
+    }
+
+    func setApplicationActive(_ active: Bool) {
+        applicationIsActive = active
+        guard active, !deferredSourceIDs.isEmpty else { return }
+        let sourceIDs = deferredSourceIDs
+        deferredSourceIDs.removeAll()
+        for sourceID in sourceIDs {
+            guard let source = sourcesStore.source(id: sourceID) else { continue }
+            Task { @MainActor [weak self] in
+                await self?.checkSource(source, retryCount: 0, ignoresCooldown: true)
+            }
+        }
+    }
+
+    func startColdLaunchRefresh() {
+        guard !didScheduleColdLaunch else { return }
+        didScheduleColdLaunch = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.launchDelay)
+            guard !Task.isCancelled, let self else { return }
+            for source in self.sourcesStore.sources
+            where source.type == .navidrome && source.isEnabled && !source.isDeleted {
+                await self.checkSource(source, retryCount: 0, ignoresCooldown: false)
+            }
+        }
+    }
+
+    func sourceScanSucceeded(
+        sourceID: String,
+        completion: SourceScanLifecycleCompletion
+    ) {
+        guard completion == .committedSnapshot || completion == .committedNoChanges,
+              let pending = pendingMarkers.removeValue(forKey: sourceID) else { return }
+        guard let currentSource = sourcesStore.source(id: sourceID) else { return }
+        guard Self.identityFingerprint(for: currentSource) == pending.identityFingerprint else {
+            scheduleRetry(sourceID: sourceID, retryCount: 0)
+            return
+        }
+        markers[sourceID] = SourceMarker(
+            identityFingerprint: pending.identityFingerprint,
+            lastAppliedServerScanAt: pending.serverScanAt,
+            itemCount: pending.itemCount,
+            lastCheckedAt: Date()
+        )
+        retryTasks.removeValue(forKey: sourceID)?.cancel()
+        deferredSourceIDs.remove(sourceID)
+        persistState()
+    }
+
+    func sourceWasDeleted(_ sourceID: String) {
+        disabledSourceIDs.remove(sourceID)
+        markers.removeValue(forKey: sourceID)
+        pendingMarkers.removeValue(forKey: sourceID)
+        deferredSourceIDs.remove(sourceID)
+        retryTasks.removeValue(forKey: sourceID)?.cancel()
+        persistState()
+    }
+
+    private func checkSource(
+        _ capturedSource: MusicSource,
+        retryCount: Int,
+        ignoresCooldown: Bool
+    ) async {
+        guard applicationIsActive,
+              let source = sourcesStore.source(id: capturedSource.id),
+              source.type == .navidrome,
+              source.isEnabled,
+              !source.isDeleted,
+              isEnabled(for: source.id) else {
+            if !applicationIsActive {
+                deferredSourceIDs.insert(capturedSource.id)
+            }
+            return
+        }
+
+        let identityFingerprint = Self.identityFingerprint(for: source)
+        let identityChanged = markers[source.id].map {
+            $0.identityFingerprint != identityFingerprint
+        } ?? false
+        let existingMarker = markers[source.id].flatMap {
+            $0.identityFingerprint == identityFingerprint ? $0 : nil
+        }
+        if !ignoresCooldown,
+           let checkedAt = existingMarker?.lastCheckedAt,
+           Date().timeIntervalSince(checkedAt) < Self.checkCooldown {
+            return
+        }
+        guard automaticWorkIsAllowed() else {
+            scheduleRetry(sourceID: source.id, retryCount: retryCount)
+            return
+        }
+
+        do {
+            let status = try await sourceManager.serverCatalogScanStatus(for: source)
+            guard applicationIsActive else {
+                deferredSourceIDs.insert(source.id)
+                return
+            }
+            guard let currentSource = sourcesStore.source(id: source.id),
+                  currentSource.type == .navidrome,
+                  currentSource.isEnabled,
+                  !currentSource.isDeleted,
+                  isEnabled(for: currentSource.id) else { return }
+            guard Self.identityFingerprint(for: currentSource) == identityFingerprint else {
+                scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                return
+            }
+            guard automaticWorkIsAllowed() else {
+                scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                return
+            }
+            let decision = ServerCatalogRefreshPolicy.decision(
+                serverIsScanning: status.isScanning,
+                lastAppliedServerScanAt: existingMarker?.lastAppliedServerScanAt,
+                lastAppliedItemCount: existingMarker?.itemCount,
+                serverLastScanAt: status.lastCompletedScanAt,
+                serverItemCount: status.itemCount,
+                localLastScannedAt: currentSource.lastScannedAt,
+                localSongCount: currentSource.songCount
+            )
+            guard decision != .deferWhileScanning else {
+                scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                return
+            }
+
+            let needsRefresh = identityChanged || decision == .refresh
+            guard needsRefresh else {
+                markers[source.id] = SourceMarker(
+                    identityFingerprint: identityFingerprint,
+                    lastAppliedServerScanAt: status.lastCompletedScanAt,
+                    itemCount: status.itemCount,
+                    lastCheckedAt: Date()
+                )
+                retryTasks.removeValue(forKey: source.id)?.cancel()
+                persistState()
+                return
+            }
+
+            pendingMarkers[source.id] = PendingMarker(
+                identityFingerprint: identityFingerprint,
+                serverScanAt: status.lastCompletedScanAt,
+                itemCount: status.itemCount
+            )
+            let didStart = scanService.scanSource(
+                currentSource,
+                mode: .automatic,
+                sourceManager: sourceManager,
+                library: library,
+                sourceStore: sourcesStore,
+                scraperService: scraperService
+            )
+            if didStart {
+                // A catalogue transfer can fail after the read-only status
+                // check. Keep one bounded follow-up pending until the scan's
+                // successful lifecycle callback commits this marker.
+                scheduleRetry(
+                    sourceID: source.id,
+                    retryCount: retryCount,
+                    minimumDelay: 300
+                )
+            } else {
+                // A user-initiated scan may already own this source. Its
+                // successful lifecycle is equally authoritative for the
+                // status marker, so keep the pending marker and only retain a
+                // bounded follow-up in case that scan fails.
+                scheduleRetry(sourceID: source.id, retryCount: retryCount)
+            }
+        } catch {
+            if let sourceError = error as? SourceError,
+               case .authenticationFailed = sourceError {
+                SourceAuthAlert.report(
+                    sourceID: source.id,
+                    message: error.localizedDescription
+                )
+                scheduleRetry(
+                    sourceID: source.id,
+                    retryCount: retryCount,
+                    minimumDelay: 15 * 60
+                )
+                return
+            }
+            scheduleRetry(sourceID: source.id, retryCount: retryCount)
+        }
+    }
+
+    private func automaticWorkIsAllowed() -> Bool {
+        let network = NetworkMonitor.shared
+        guard network.hasDeterminedPath,
+              network.isOnUnmeteredNetwork,
+              !ProcessInfo.processInfo.isLowPowerModeEnabled,
+              !player.isLoading else { return false }
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical:
+            return false
+        case .nominal, .fair:
+            return Self.availableDiskBytes() >= 512 * 1_024 * 1_024
+        @unknown default:
+            return false
+        }
+    }
+
+    private func scheduleRetry(
+        sourceID: String,
+        retryCount: Int,
+        minimumDelay: Int = 0
+    ) {
+        guard retryCount < Self.maximumRetryCount,
+              isEnabled(for: sourceID) else { return }
+        deferredSourceIDs.insert(sourceID)
+        retryTasks.removeValue(forKey: sourceID)?.cancel()
+        let exponent = min(retryCount, 3)
+        let seconds = max(minimumDelay, min(30 * (1 << exponent), 300))
+        retryTasks[sourceID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self,
+                  let source = self.sourcesStore.source(id: sourceID) else { return }
+            self.deferredSourceIDs.remove(sourceID)
+            await self.checkSource(
+                source,
+                retryCount: retryCount + 1,
+                ignoresCooldown: true
+            )
+        }
+    }
+
+    private func persistState() {
+        let state = PersistedState(
+            disabledSourceIDs: disabledSourceIDs,
+            markers: markers
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(state) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
+    }
+
+    private static func loadState(from defaults: UserDefaults) -> PersistedState {
+        guard let data = defaults.data(forKey: defaultsKey) else {
+            return PersistedState()
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(PersistedState.self, from: data)) ?? PersistedState()
+    }
+
+    private static func identityFingerprint(for source: MusicSource) -> String {
+        let components = [
+            source.id,
+            source.type.rawValue,
+            source.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "",
+            source.port.map { String($0) } ?? "",
+            source.useSsl ? "1" : "0",
+            source.basePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            source.username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            source.cloudAccountID ?? "",
+        ]
+        let digest = SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func availableDiskBytes() -> Int64 {
+        let path = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory).path
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: path),
+              let value = attributes[.systemFreeSize] as? NSNumber else { return 0 }
+        return value.int64Value
+    }
+}
 
 @MainActor
 final class AppServices {
@@ -16,6 +368,8 @@ final class AppServices {
     let cloudSync: CloudKitSyncService
     let themeService: ThemeService
     let scanService: ScanService
+    let navidromeAutoRefresh: NavidromeAutoRefreshCoordinator
+    let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
     let localReferenceRefresh: LocalReferenceRefreshService
     #endif
@@ -157,12 +511,39 @@ final class AppServices {
                 }.map(\.id))
             }
         )
+        let navidromeAutoRefresh = NavidromeAutoRefreshCoordinator(
+            sourceManager: manager,
+            scanService: scanService,
+            library: library,
+            sourcesStore: store,
+            scraperService: scraper,
+            player: player
+        )
+        let alwaysDownload = AlwaysDownloadCoordinator(
+            library: library,
+            sourcesStore: store,
+            sourceManager: manager,
+            player: player
+        )
+        manager.automaticOfflineDownloadRemovedHandler = { [weak alwaysDownload] songID in
+            alwaysDownload?.downloadedFileWasRemoved(songID: songID)
+        }
         scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }
-        scanService.successfulSourceScanHandler = { [weak metadataBackfill, weak library] sourceID in
+        scanService.successfulSourceScanHandler = {
+            [weak metadataBackfill, weak library, weak navidromeAutoRefresh, weak alwaysDownload]
+            sourceID,
+            completion in
             metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
-            library?.sourceSyncDidComplete()
+            if completion == .committedSnapshot {
+                library?.sourceSyncDidComplete()
+            }
+            navidromeAutoRefresh?.sourceScanSucceeded(
+                sourceID: sourceID,
+                completion: completion
+            )
+            alwaysDownload?.sourceScanDidComplete()
         }
         scanService.serverRadioSyncHandler = { [weak manager, weak radioStore] source in
             guard let manager, let radioStore else { return }
@@ -183,6 +564,8 @@ final class AppServices {
             )
         }
         self.scanService = scanService
+        self.navidromeAutoRefresh = navidromeAutoRefresh
+        self.alwaysDownload = alwaysDownload
         #if os(iOS) || os(macOS)
         self.localReferenceRefresh = LocalReferenceRefreshService(
             sourcesStore: store,
@@ -265,6 +648,7 @@ final class AppServices {
 
         loadPendingSourceCloudCleanups()
         observeSourceLifecycle()
+        observeApplicationActivity()
 
         wireIntentBridge()
         observeSpotlightSynchronization()
@@ -369,6 +753,8 @@ final class AppServices {
             sourcesStore: sourcesStore,
             library: musicLibrary
         )
+        alwaysDownload.start()
+        navidromeAutoRefresh.startColdLaunchRefresh()
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         let finishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
@@ -453,6 +839,7 @@ final class AppServices {
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 let capturedTombstone = note.userInfo?["source"] as? MusicSource
                 Task { @MainActor in
+                    self.navidromeAutoRefresh.sourceWasDeleted(id)
                     if let tombstone = capturedTombstone ?? self.sourcesStore.source(id: id),
                        tombstone.isDeleted {
                         self.enqueueSourceCloudCleanup(tombstone)
@@ -476,6 +863,7 @@ final class AppServices {
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 let capturedTombstone = note.userInfo?["source"] as? MusicSource
                 Task { @MainActor in
+                    self.navidromeAutoRefresh.sourceWasDeleted(id)
                     // The row may already be gone from SourcesStore. The
                     // notification carries its last tombstone so the delayed
                     // soft-delete propagation cannot be lost.
@@ -499,6 +887,33 @@ final class AppServices {
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 Task { @MainActor in
                     self.acknowledgeSourceTombstoneUpload(sourceID: id)
+                }
+            }
+        )
+    }
+
+    private func observeApplicationActivity() {
+        #if os(macOS)
+        let becameActive = Notification.Name("NSApplicationDidBecomeActiveNotification")
+        let resignedActive = Notification.Name("NSApplicationDidResignActiveNotification")
+        #else
+        let becameActive = Notification.Name("UIApplicationDidBecomeActiveNotification")
+        let resignedActive = Notification.Name("UIApplicationWillResignActiveNotification")
+        #endif
+        let nc = NotificationCenter.default
+        sourceLifecycleObserverTokens.append(
+            nc.addObserver(forName: becameActive, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.navidromeAutoRefresh.setApplicationActive(true)
+                    self?.alwaysDownload.setApplicationActive(true)
+                }
+            }
+        )
+        sourceLifecycleObserverTokens.append(
+            nc.addObserver(forName: resignedActive, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.navidromeAutoRefresh.setApplicationActive(false)
+                    self?.alwaysDownload.setApplicationActive(false)
                 }
             }
         )

@@ -15,6 +15,7 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
+    ServerCatalogChangeDetectingConnector,
     ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector {
     let sourceID: String
@@ -46,6 +47,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private static let transcodeBitRate = 320  // 转码目标码率 kbps
     private static let catalogRequestMaximumAttempts = 3
     private static let catalogSnapshotMaximumAttempts = 2
+
+    func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus {
+        let container: ScanStatusContainer = try await requestJSON("getScanStatus")
+        return ServerCatalogScanStatus(
+            isScanning: container.scanStatus?.scanning ?? false,
+            itemCount: container.scanStatus?.count,
+            lastCompletedScanAt: container.scanStatus?.lastScan.flatMap(Self.parseDate)
+        )
+    }
 
     init(
         sourceID: String,
@@ -1270,6 +1280,18 @@ private struct PingContainer: SubsonicResponseContainer {
 private struct EmptyContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
+}
+
+private struct ScanStatusContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let scanStatus: SubsonicScanStatus?
+}
+
+private struct SubsonicScanStatus: Decodable {
+    let scanning: Bool
+    let count: Int64?
+    let lastScan: String?
 }
 
 private struct GetSongContainer: SubsonicResponseContainer {
