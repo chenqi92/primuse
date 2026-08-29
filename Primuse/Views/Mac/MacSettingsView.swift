@@ -5017,114 +5017,194 @@ private struct MacSTDeletedView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var configsTick: Int = 0
+    @State private var showClearAllConfirmation = false
+    @State private var pendingPurgePlan: RecentlyDeletedPurgePlan?
+    @State private var clearAllFailureCount = 0
+
+    private var purgePlan: RecentlyDeletedPurgePlan {
+        let _ = configsTick
+        return RecentlyDeletedPurgePlan(
+            playlistIDs: Set(library.recentlyDeletedPlaylists.map(\.id)),
+            smartPlaylistIDs: Set(library.recentlyDeletedSmartPlaylists.map(\.id)),
+            sourceIDs: Set(sourcesStore.recentlyDeletedSources.map(\.id)),
+            scraperConfigurationIDs: Set(
+                ScraperConfigStore.shared.recentlyDeletedConfigs.map(\.id)
+            )
+        )
+    }
 
     private var hasAny: Bool {
         let _ = configsTick
         return !library.recentlyDeletedPlaylists.isEmpty
+            || !library.recentlyDeletedSmartPlaylists.isEmpty
             || !library.hiddenMirrorPlaylists.isEmpty
             || !sourcesStore.recentlyDeletedSources.isEmpty
             || !ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty
     }
 
     var body: some View {
-        if !hasAny {
-            VStack(spacing: 14) {
-                Image(systemName: "trash")
-                    .font(.system(size: 44))
-                    .foregroundStyle(PMColor.textFaint)
-                Text("recently_deleted_empty")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Text("recently_deleted_empty_desc")
-                    .font(PMFont.caption)
-                    .foregroundStyle(PMColor.textMuted)
+        Group {
+            if !purgePlan.isEmpty {
+                HStack {
+                    Spacer()
+                    Button("clear_all", role: .destructive) {
+                        pendingPurgePlan = purgePlan
+                        showClearAllConfirmation = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.bottom, 12)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 80)
-        }
 
-        let playlists = library.recentlyDeletedPlaylists
-        if !playlists.isEmpty {
-            MacSTSection("recently_deleted_playlists",
-                         hint: Lz("ST-09 · Recoverable Within 7 Days")) {
-                MacSTGroup {
-                    ForEach(Array(playlists.enumerated()), id: \.element.id) { index, p in
-                        MacDeletedRealRow(
-                            title: p.name,
-                            sub: deletedAtText(p.deletedAt),
-                            icon: "music.note.list",
-                            divider: index != 0,
-                            restore: { library.restorePlaylist(id: p.id) },
-                            purge:   { library.permanentlyDeletePlaylist(id: p.id) }
-                        )
+            if !hasAny {
+                VStack(spacing: 14) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 44))
+                        .foregroundStyle(PMColor.textFaint)
+                    Text("recently_deleted_empty")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text("recently_deleted_empty_desc")
+                        .font(PMFont.caption)
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 80)
+            }
+
+            let playlists = library.recentlyDeletedPlaylists
+            if !playlists.isEmpty {
+                MacSTSection("recently_deleted_playlists",
+                             hint: Lz("ST-09 · Recoverable Within 7 Days")) {
+                    MacSTGroup {
+                        ForEach(Array(playlists.enumerated()), id: \.element.id) { index, p in
+                            MacDeletedRealRow(
+                                title: p.name,
+                                sub: deletedAtText(p.deletedAt),
+                                icon: "music.note.list",
+                                divider: index != 0,
+                                restore: { library.restorePlaylist(id: p.id) },
+                                purge:   { library.permanentlyDeletePlaylist(id: p.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            let smartPlaylists = library.recentlyDeletedSmartPlaylists
+            if !smartPlaylists.isEmpty {
+                MacSTSection("recently_deleted_smart_playlists") {
+                    MacSTGroup {
+                        ForEach(Array(smartPlaylists.enumerated()), id: \.element.id) { index, p in
+                            MacDeletedRealRow(
+                                title: p.name,
+                                sub: deletedAtText(p.deletedAt),
+                                icon: "sparkles",
+                                divider: index != 0,
+                                restore: { library.restoreSmartPlaylist(id: p.id) },
+                                purge: { library.permanentlyDeleteSmartPlaylist(id: p.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            let hiddenMirrors = library.hiddenMirrorPlaylists
+            if !hiddenMirrors.isEmpty {
+                MacSTSection("hidden_source_playlists",
+                             hint: String(localized: "hidden_source_playlists_desc")) {
+                    MacSTGroup {
+                        ForEach(Array(hiddenMirrors.enumerated()), id: \.element.id) { index, suppression in
+                            MacDeletedRealRow(
+                                title: suppression.displayName,
+                                sub: String(localized: "restore_hidden_playlist"),
+                                icon: "eye.slash",
+                                divider: index != 0,
+                                restore: { library.restoreHiddenMirrorPlaylist(suppression) },
+                                purge: nil
+                            )
+                        }
+                    }
+                }
+            }
+
+            let sources = sourcesStore.recentlyDeletedSources
+            if !sources.isEmpty {
+                MacSTSection("recently_deleted_sources",
+                             hint: Lz("ST-09 · Includes Connection Credentials")) {
+                    MacSTGroup {
+                        ForEach(Array(sources.enumerated()), id: \.element.id) { index, s in
+                            MacDeletedRealRow(
+                                title: s.name,
+                                sub: sourcesStore.permanentDeletionFailureIDs.contains(s.id)
+                                    ? "\(String(localized: "status_unavailable")) · \(String(localized: "retry"))"
+                                    : deletedAtText(s.deletedAt),
+                                icon: s.type.iconName,
+                                divider: index != 0,
+                                restore: { sourcesStore.restore(id: s.id) },
+                                purge:   { sourcesStore.permanentlyDelete(id: s.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            let configs = ScraperConfigStore.shared.recentlyDeletedConfigs
+            if !configs.isEmpty {
+                MacSTSection("recently_deleted_scraper_configs",
+                             hint: Lz("ST-09 · Custom Metadata Scraping Sources")) {
+                    MacSTGroup {
+                        ForEach(Array(configs.enumerated()), id: \.element.id) { index, c in
+                            MacDeletedRealRow(
+                                title: c.name,
+                                sub: deletedAtText(c.deletedAt),
+                                icon: "wand.and.stars",
+                                divider: index != 0,
+                                restore: {
+                                    ScraperConfigStore.shared.restore(id: c.id)
+                                    configsTick &+= 1
+                                },
+                                purge: {
+                                    ScraperConfigStore.shared.permanentlyDelete(id: c.id)
+                                    configsTick &+= 1
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
-
-        let hiddenMirrors = library.hiddenMirrorPlaylists
-        if !hiddenMirrors.isEmpty {
-            MacSTSection("hidden_source_playlists",
-                         hint: String(localized: "hidden_source_playlists_desc")) {
-                MacSTGroup {
-                    ForEach(Array(hiddenMirrors.enumerated()), id: \.element.id) { index, suppression in
-                        MacDeletedRealRow(
-                            title: suppression.displayName,
-                            sub: String(localized: "restore_hidden_playlist"),
-                            icon: "eye.slash",
-                            divider: index != 0,
-                            restore: { library.restoreHiddenMirrorPlaylist(suppression) },
-                            purge: nil
-                        )
-                    }
+        .confirmationDialog(
+            "recently_deleted_clear_all_confirm_title",
+            isPresented: $showClearAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("clear_all", role: .destructive) {
+                if let pendingPurgePlan {
+                    clearAll(pendingPurgePlan)
                 }
+                pendingPurgePlan = nil
             }
+            Button("cancel", role: .cancel) { pendingPurgePlan = nil }
+        } message: {
+            Text(verbatim: String(
+                format: String(localized: "recently_deleted_clear_all_confirm_message_format"),
+                pendingPurgePlan?.count ?? 0
+            ))
         }
-
-        let sources = sourcesStore.recentlyDeletedSources
-        if !sources.isEmpty {
-            MacSTSection("recently_deleted_sources",
-                         hint: Lz("ST-09 · Includes Connection Credentials")) {
-                MacSTGroup {
-                    ForEach(Array(sources.enumerated()), id: \.element.id) { index, s in
-                        MacDeletedRealRow(
-                            title: s.name,
-                            sub: sourcesStore.permanentDeletionFailureIDs.contains(s.id)
-                                ? "\(String(localized: "status_unavailable")) · \(String(localized: "retry"))"
-                                : deletedAtText(s.deletedAt),
-                            icon: s.type.iconName,
-                            divider: index != 0,
-                            restore: { sourcesStore.restore(id: s.id) },
-                            purge:   { sourcesStore.permanentlyDelete(id: s.id) }
-                        )
-                    }
-                }
-            }
-        }
-
-        let configs = ScraperConfigStore.shared.recentlyDeletedConfigs
-        if !configs.isEmpty {
-            MacSTSection("recently_deleted_scraper_configs",
-                         hint: Lz("ST-09 · Custom Metadata Scraping Sources")) {
-                MacSTGroup {
-                    ForEach(Array(configs.enumerated()), id: \.element.id) { index, c in
-                        MacDeletedRealRow(
-                            title: c.name,
-                            sub: deletedAtText(c.deletedAt),
-                            icon: "wand.and.stars",
-                            divider: index != 0,
-                            restore: {
-                                ScraperConfigStore.shared.restore(id: c.id)
-                                configsTick &+= 1
-                            },
-                            purge: {
-                                ScraperConfigStore.shared.permanentlyDelete(id: c.id)
-                                configsTick &+= 1
-                            }
-                        )
-                    }
-                }
-            }
+        .alert(
+            "recently_deleted_clear_all_failed_title",
+            isPresented: Binding(
+                get: { clearAllFailureCount > 0 },
+                set: { if !$0 { clearAllFailureCount = 0 } }
+            )
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(verbatim: String(
+                format: String(localized: "recently_deleted_clear_all_failed_format"),
+                clearAllFailureCount
+            ))
         }
     }
 
@@ -5134,6 +5214,28 @@ private struct MacSTDeletedView: View {
         f.unitsStyle = .short
         return String(format: String(localized: "deleted_at_format"),
                       f.localizedString(for: date, relativeTo: Date()))
+    }
+
+    private func clearAll(_ plan: RecentlyDeletedPurgePlan) {
+        guard !plan.isEmpty else { return }
+        library.permanentlyDeletePlaylists(ids: plan.playlistIDs)
+        library.permanentlyDeleteSmartPlaylists(ids: plan.smartPlaylistIDs)
+        let sourceResults = sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
+        let deletedConfigIDs = ScraperConfigStore.shared.permanentlyDelete(
+            ids: plan.scraperConfigurationIDs
+        )
+        configsTick &+= 1
+
+        clearAllFailureCount = sourceResults.values.filter {
+            $0 == .credentialCleanupFailed || $0 == .deletionLedgerPersistFailed
+        }.count
+            + library.recentlyDeletedPlaylists.filter {
+                plan.playlistIDs.contains($0.id)
+            }.count
+            + library.recentlyDeletedSmartPlaylists.filter {
+                plan.smartPlaylistIDs.contains($0.id)
+            }.count
+            + plan.scraperConfigurationIDs.subtracting(deletedConfigIDs).count
     }
 }
 

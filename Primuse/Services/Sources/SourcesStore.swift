@@ -321,6 +321,17 @@ final class SourcesStore {
         return .deleted
     }
 
+    /// Batch entry point intentionally funnels every source through the
+    /// single-item credential and deletion-ledger path. A failure therefore
+    /// leaves that source visible in Recently Deleted and does not block the
+    /// remaining independent sources.
+    @discardableResult
+    func permanentlyDelete(ids: Set<String>) -> [String: PermanentDeleteResult] {
+        Dictionary(uniqueKeysWithValues: ids.sorted().map { id in
+            (id, permanentlyDelete(id: id))
+        })
+    }
+
     /// Tear down the persisted secrets and per-source storage owned outside the
     /// source row itself: Keychain passwords, cloud OAuth tokens + app
     /// credentials, security-scoped bookmarks and cloud directory

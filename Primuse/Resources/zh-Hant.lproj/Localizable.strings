@@ -3221,3 +3221,8 @@
 "metadata_status_card_unreadable_format" = "無法讀取 %d";
 "metadata_status_card_incomplete_format" = "不完整 %d";
 "metadata_status_card_stalled_format" = "無進展 %d";
+"recently_deleted_smart_playlists" = "智慧型歌單";
+"recently_deleted_clear_all_confirm_title" = "清除全部最近刪除項目？";
+"recently_deleted_clear_all_confirm_message_format" = "將從 Primuse 中永久清除 %d 個項目及其關聯的本機憑證，此操作無法復原。不會刪除來源中的原始媒體，也不會清空雲端垃圾桶。";
+"recently_deleted_clear_all_failed_title" = "部分項目未能清除";
+"recently_deleted_clear_all_failed_format" = "%d 個項目未能清除，已保留在最近刪除中。";

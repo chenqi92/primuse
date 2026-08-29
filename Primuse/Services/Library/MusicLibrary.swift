@@ -3885,22 +3885,33 @@ final class MusicLibrary {
     /// Compact a deleted playlist without dropping its tombstone. Membership
     /// is removed, while the record remains syncable for long-offline devices.
     func permanentlyDeletePlaylist(id: String) {
-        guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
-              allPlaylists[index].isDeleted else { return }
-        let original = allPlaylists[index]
-        let originalSongIDs = playlistSongIDs[id]
-        let originalPending = pendingPlaylistIdentities[id]
-        allPlaylists[index] = stampedPlaylist(allPlaylists[index], purging: true)
-        playlistSongIDs[id] = nil
-        pendingPlaylistIdentities[id] = nil
+        permanentlyDeletePlaylists(ids: [id])
+    }
+
+    /// Compact several deleted playlists with the same tombstone semantics as
+    /// the single-item action, but only one durability and snapshot write.
+    func permanentlyDeletePlaylists(ids: Set<String>) {
+        let targetIDs = Set(allPlaylists.lazy.filter {
+            ids.contains($0.id) && $0.isDeleted
+        }.map(\.id))
+        guard !targetIDs.isEmpty else { return }
+
+        let originalPlaylists = allPlaylists
+        let originalSongIDs = playlistSongIDs
+        let originalPending = pendingPlaylistIdentities
+        for index in allPlaylists.indices where targetIDs.contains(allPlaylists[index].id) {
+            allPlaylists[index] = stampedPlaylist(allPlaylists[index], purging: true)
+            playlistSongIDs[allPlaylists[index].id] = nil
+            pendingPlaylistIdentities[allPlaylists[index].id] = nil
+        }
         guard persistPlaylistDurabilityLedger() else {
-            allPlaylists[index] = original
-            playlistSongIDs[id] = originalSongIDs
-            pendingPlaylistIdentities[id] = originalPending
+            allPlaylists = originalPlaylists
+            playlistSongIDs = originalSongIDs
+            pendingPlaylistIdentities = originalPending
             return
         }
         persistSnapshot()
-        notifyPlaylistsChanged([id])
+        notifyPlaylistsChanged(Array(targetIDs))
     }
 
     /// Sweep playlists whose `deletedAt` is older than `threshold` and remove
@@ -3989,9 +4000,19 @@ final class MusicLibrary {
     }
 
     func permanentlyDeleteSmartPlaylist(id: String) {
-        allSmartPlaylists.removeAll { $0.id == id }
+        permanentlyDeleteSmartPlaylists(ids: [id])
+    }
+
+    func permanentlyDeleteSmartPlaylists(ids: Set<String>) {
+        let targetIDs = Set(allSmartPlaylists.lazy.filter {
+            ids.contains($0.id)
+        }.map(\.id))
+        guard !targetIDs.isEmpty else { return }
+        allSmartPlaylists.removeAll { targetIDs.contains($0.id) }
         persistSnapshot()
-        notifySmartPlaylistDeleted(id)
+        for id in targetIDs {
+            notifySmartPlaylistDeleted(id)
+        }
     }
 
     func pruneSmartPlaylists(deletedBefore threshold: Date) {

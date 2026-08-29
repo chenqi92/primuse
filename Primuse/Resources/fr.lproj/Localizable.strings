@@ -3244,3 +3244,8 @@
 "metadata_status_card_unreadable_format" = "Illisible %d";
 "metadata_status_card_incomplete_format" = "Incomplet %d";
 "metadata_status_card_stalled_format" = "Aucun progrès %d";
+"recently_deleted_smart_playlists" = "Playlists intelligentes";
+"recently_deleted_clear_all_confirm_title" = "Vider les suppressions récentes ?";
+"recently_deleted_clear_all_confirm_message_format" = "%d éléments et les identifiants locaux associés seront supprimés définitivement de Primuse. Cette action est irréversible. Les médias d’origine et les corbeilles cloud ne seront pas supprimés.";
+"recently_deleted_clear_all_failed_title" = "Certains éléments n’ont pas été supprimés";
+"recently_deleted_clear_all_failed_format" = "%d éléments n’ont pas pu être supprimés et restent dans les suppressions récentes.";

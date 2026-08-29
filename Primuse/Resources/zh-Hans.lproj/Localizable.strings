@@ -3348,3 +3348,8 @@
 "metadata_status_card_unreadable_format" = "无法读取 %d";
 "metadata_status_card_incomplete_format" = "不完整 %d";
 "metadata_status_card_stalled_format" = "无进展 %d";
+"recently_deleted_smart_playlists" = "智能歌单";
+"recently_deleted_clear_all_confirm_title" = "清除全部最近删除项目？";
+"recently_deleted_clear_all_confirm_message_format" = "将从 Primuse 中永久清除 %d 个项目及其关联的本地凭据，此操作无法撤销。不会删除来源中的原始媒体，也不会清空云盘废纸篓。";
+"recently_deleted_clear_all_failed_title" = "部分项目未能清除";
+"recently_deleted_clear_all_failed_format" = "%d 个项目未能清除，已保留在最近删除中。";

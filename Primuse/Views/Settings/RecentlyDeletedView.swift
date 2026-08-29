@@ -5,10 +5,26 @@ struct RecentlyDeletedView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var configsTick: Int = 0
+    @State private var showClearAllConfirmation = false
+    @State private var pendingPurgePlan: RecentlyDeletedPurgePlan?
+    @State private var clearAllFailureCount = 0
+
+    private var purgePlan: RecentlyDeletedPurgePlan {
+        let _ = configsTick
+        return RecentlyDeletedPurgePlan(
+            playlistIDs: Set(library.recentlyDeletedPlaylists.map(\.id)),
+            smartPlaylistIDs: Set(library.recentlyDeletedSmartPlaylists.map(\.id)),
+            sourceIDs: Set(sourcesStore.recentlyDeletedSources.map(\.id)),
+            scraperConfigurationIDs: Set(
+                ScraperConfigStore.shared.recentlyDeletedConfigs.map(\.id)
+            )
+        )
+    }
 
     var body: some View {
         Form {
             playlistsSection
+            smartPlaylistsSection
             hiddenMirrorPlaylistsSection
             sourcesSection
             scraperConfigsSection
@@ -19,8 +35,51 @@ struct RecentlyDeletedView: View {
         .navigationTitle("recently_deleted")
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            if !purgePlan.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("clear_all", role: .destructive) {
+                        pendingPurgePlan = purgePlan
+                        showClearAllConfirmation = true
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "recently_deleted_clear_all_confirm_title",
+            isPresented: $showClearAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("clear_all", role: .destructive) {
+                if let pendingPurgePlan {
+                    clearAll(pendingPurgePlan)
+                }
+                pendingPurgePlan = nil
+            }
+            Button("cancel", role: .cancel) { pendingPurgePlan = nil }
+        } message: {
+            Text(verbatim: String(
+                format: String(localized: "recently_deleted_clear_all_confirm_message_format"),
+                pendingPurgePlan?.count ?? 0
+            ))
+        }
+        .alert(
+            "recently_deleted_clear_all_failed_title",
+            isPresented: Binding(
+                get: { clearAllFailureCount > 0 },
+                set: { if !$0 { clearAllFailureCount = 0 } }
+            )
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(verbatim: String(
+                format: String(localized: "recently_deleted_clear_all_failed_format"),
+                clearAllFailureCount
+            ))
+        }
         .overlay {
             if library.recentlyDeletedPlaylists.isEmpty
+                && library.recentlyDeletedSmartPlaylists.isEmpty
                 && library.hiddenMirrorPlaylists.isEmpty
                 && sourcesStore.recentlyDeletedSources.isEmpty
                 && ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty {
@@ -67,6 +126,26 @@ struct RecentlyDeletedView: View {
                 }
             } header: {
                 Text("recently_deleted_playlists")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var smartPlaylistsSection: some View {
+        let items = library.recentlyDeletedSmartPlaylists
+        if !items.isEmpty {
+            Section {
+                ForEach(items) { playlist in
+                    row(
+                        title: playlist.name,
+                        deletedAt: playlist.deletedAt,
+                        systemImage: "sparkles",
+                        restore: { library.restoreSmartPlaylist(id: playlist.id) },
+                        purge: { library.permanentlyDeleteSmartPlaylist(id: playlist.id) }
+                    )
+                }
+            } header: {
+                Text("recently_deleted_smart_playlists")
             }
         }
     }
@@ -222,5 +301,33 @@ struct RecentlyDeletedView: View {
     private func daysRemaining(from deletedAt: Date) -> String {
         let days = RecoverableDeletionPolicy.daysRemaining(deletedAt: deletedAt)
         return String(format: NSLocalizedString("auto_remove_in_n_days", comment: ""), days)
+    }
+
+    private func clearAll(_ plan: RecentlyDeletedPurgePlan) {
+        guard !plan.isEmpty else { return }
+        library.permanentlyDeletePlaylists(ids: plan.playlistIDs)
+        library.permanentlyDeleteSmartPlaylists(ids: plan.smartPlaylistIDs)
+        let sourceResults = sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
+        let deletedConfigIDs = ScraperConfigStore.shared.permanentlyDelete(
+            ids: plan.scraperConfigurationIDs
+        )
+        configsTick &+= 1
+
+        let failedSourceCount = sourceResults.values.filter {
+            $0 == .credentialCleanupFailed || $0 == .deletionLedgerPersistFailed
+        }.count
+        let failedPlaylistCount = library.recentlyDeletedPlaylists.filter {
+            plan.playlistIDs.contains($0.id)
+        }.count
+        let failedSmartPlaylistCount = library.recentlyDeletedSmartPlaylists.filter {
+            plan.smartPlaylistIDs.contains($0.id)
+        }.count
+        let failedConfigCount = plan.scraperConfigurationIDs
+            .subtracting(deletedConfigIDs)
+            .count
+        clearAllFailureCount = failedSourceCount
+            + failedPlaylistCount
+            + failedSmartPlaylistCount
+            + failedConfigCount
     }
 }

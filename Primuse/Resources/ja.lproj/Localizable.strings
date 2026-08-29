@@ -3245,3 +3245,8 @@
 "metadata_status_card_unreadable_format" = "読み取り不可 %d";
 "metadata_status_card_incomplete_format" = "不完全 %d";
 "metadata_status_card_stalled_format" = "進行なし %d";
+"recently_deleted_smart_playlists" = "スマートプレイリスト";
+"recently_deleted_clear_all_confirm_title" = "最近削除した項目をすべて消去しますか？";
+"recently_deleted_clear_all_confirm_message_format" = "Primuse から %d 件の項目と関連するローカル認証情報を完全に消去します。この操作は取り消せません。配信元のオリジナルメディアやクラウドのゴミ箱は削除されません。";
+"recently_deleted_clear_all_failed_title" = "一部の項目を消去できませんでした";
+"recently_deleted_clear_all_failed_format" = "%d 件の項目を消去できなかったため、最近削除した項目に残しました。";

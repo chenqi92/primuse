@@ -374,28 +374,41 @@ final class ScraperConfigStore: @unchecked Sendable {
     /// CloudKit sync to delete the record. Also removes the sibling
     /// `<id>.secrets.json` if present.
     func permanentlyDelete(id: String) {
+        permanentlyDelete(ids: [id])
+    }
+
+    /// Batch removal shares the exact file and secret cleanup semantics with
+    /// the single-item action while holding the cache lock only once.
+    @discardableResult
+    func permanentlyDelete(ids: Set<String>) -> Set<String> {
+        guard !ids.isEmpty else { return [] }
+        var deletedIDs: Set<String> = []
         lock.lock()
-        do {
-            let fileURL = try configFileURL(for: id)
-            let secretsURL = try secretsFileURL(for: id)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.removeItem(at: fileURL)
+        for id in ids.sorted() {
+            do {
+                let fileURL = try configFileURL(for: id)
+                let secretsURL = try secretsFileURL(for: id)
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    try FileManager.default.removeItem(at: fileURL)
+                }
+                if FileManager.default.fileExists(atPath: secretsURL.path) {
+                    try FileManager.default.removeItem(at: secretsURL)
+                }
+                cache.removeValue(forKey: id)
+                deletedIDs.insert(id)
+            } catch {
+                plog("ScraperConfigStore permanent delete failed id=\(id): \(error.localizedDescription)")
             }
-            if FileManager.default.fileExists(atPath: secretsURL.path) {
-                try FileManager.default.removeItem(at: secretsURL)
-            }
-            cache.removeValue(forKey: id)
-        } catch {
-            lock.unlock()
-            plog("ScraperConfigStore permanent delete failed id=\(id): \(error.localizedDescription)")
-            return
         }
         lock.unlock()
-        NotificationCenter.default.post(
-            name: .primuseScraperConfigDidDelete,
-            object: nil,
-            userInfo: ["id": id]
-        )
+        for id in deletedIDs {
+            NotificationCenter.default.post(
+                name: .primuseScraperConfigDidDelete,
+                object: nil,
+                userInfo: ["id": id]
+            )
+        }
+        return deletedIDs
     }
 
     /// Sweep configs whose `deletedAt` is older than `threshold`. Called on

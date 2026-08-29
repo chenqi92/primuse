@@ -3031,3 +3031,8 @@
 "metadata_status_card_unreadable_format" = "Unreadable %d";
 "metadata_status_card_incomplete_format" = "Incomplete %d";
 "metadata_status_card_stalled_format" = "No progress %d";
+"recently_deleted_smart_playlists" = "Smart Playlists";
+"recently_deleted_clear_all_confirm_title" = "Clear Recently Deleted?";
+"recently_deleted_clear_all_confirm_message_format" = "This permanently removes %d items from Primuse, including associated local credentials. This cannot be undone. Original media at sources and cloud Trash are not deleted.";
+"recently_deleted_clear_all_failed_title" = "Some Items Were Not Cleared";
+"recently_deleted_clear_all_failed_format" = "%d items could not be cleared and remain in Recently Deleted.";
