@@ -830,6 +830,7 @@ struct SourcesContentView: View {
             .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
+        .navigationLinkIndicatorVisibility(.hidden)
         .accessibilityLabel(Text("metadata_status_open"))
     }
 
