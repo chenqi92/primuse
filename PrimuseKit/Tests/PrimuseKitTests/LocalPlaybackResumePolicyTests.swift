@@ -170,4 +170,48 @@ struct LocalPlaybackResumePolicyTests {
             hasPreparedAudio: true
         ) == .recoverFromInterruption)
     }
+
+    @Test("A successful paused seek retargets pending recovery")
+    func retargetsRecoveryAfterPausedSeek() {
+        #expect(LocalSeekRecoveryPolicy.updateAfterSeek(
+            targetTime: 84,
+            didSucceed: true,
+            shouldStartPlaying: false,
+            isRecovery: false,
+            needsRecovery: true
+        ) == .retarget(84))
+    }
+
+    @Test("Failed and cancelled seeks preserve the pending recovery target")
+    func preservesRecoveryAfterUnsuccessfulSeek() {
+        #expect(LocalSeekRecoveryPolicy.updateAfterSeek(
+            targetTime: 84,
+            didSucceed: false,
+            shouldStartPlaying: false,
+            isRecovery: false,
+            needsRecovery: true
+        ) == .preserve)
+    }
+
+    @Test("A playing seek does not rewrite pending recovery")
+    func preservesRecoveryDuringPlayingSeek() {
+        #expect(LocalSeekRecoveryPolicy.updateAfterSeek(
+            targetTime: 84,
+            didSucceed: true,
+            shouldStartPlaying: true,
+            isRecovery: false,
+            needsRecovery: true
+        ) == .preserve)
+    }
+
+    @Test("Explicit recovery seeks retain the existing HFP recovery path")
+    func preservesExplicitRecoverySeek() {
+        #expect(LocalSeekRecoveryPolicy.updateAfterSeek(
+            targetTime: 84,
+            didSucceed: true,
+            shouldStartPlaying: true,
+            isRecovery: true,
+            needsRecovery: true
+        ) == .preserve)
+    }
 }

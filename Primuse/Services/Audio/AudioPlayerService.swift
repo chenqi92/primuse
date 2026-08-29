@@ -6652,6 +6652,19 @@ final class AudioPlayerService {
                         showPlaybackError(String(localized: "playback_error_decode"))
                     }
                 }
+                switch LocalSeekRecoveryPolicy.updateAfterSeek(
+                    targetTime: targetTime,
+                    didSucceed: true,
+                    shouldStartPlaying: shouldStartPlaying,
+                    isRecovery: isRecovery,
+                    needsRecovery: needsPlaybackRecovery
+                ) {
+                case .preserve:
+                    break
+                case .retarget(let recoveryTime):
+                    pendingRecoveryTime = recoveryTime
+                    pendingRecoveryIsColdSessionRestore = false
+                }
                 if isRecovery, didStartPlayback || !shouldStartPlaying {
                     clearPendingPlaybackRecovery()
                 }

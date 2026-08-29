@@ -6,6 +6,33 @@ public enum LocalPlaybackResumeAction: Equatable, Sendable {
     case resumePreparedAudio
 }
 
+public enum LocalSeekRecoveryUpdate: Equatable, Sendable {
+    case preserve
+    case retarget(TimeInterval)
+}
+
+/// A successful manual seek while local playback is paused replaces the
+/// prepared buffers but must keep interruption recovery armed. Retargeting the
+/// pending time preserves any Bluetooth HFP resume ticket while ensuring the
+/// later recovery starts from the position the user selected.
+public enum LocalSeekRecoveryPolicy {
+    public static func updateAfterSeek(
+        targetTime: TimeInterval,
+        didSucceed: Bool,
+        shouldStartPlaying: Bool,
+        isRecovery: Bool,
+        needsRecovery: Bool
+    ) -> LocalSeekRecoveryUpdate {
+        guard didSucceed,
+              !shouldStartPlaying,
+              !isRecovery,
+              needsRecovery else {
+            return .preserve
+        }
+        return .retarget(max(0, targetTime))
+    }
+}
+
 /// Synchronizes the observable player state only after the audio engine has
 /// already restarted successfully. It never decides whether an interruption
 /// should resume, so phone calls and Siri retain the system policy.
