@@ -235,6 +235,7 @@
 		423E3BC26C84850AC13B5919 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		4260958BD2DEFA5C80D86EEE /* SimilarTracksService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F82086EB805A0948919DCF /* SimilarTracksService.swift */; };
 		42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
+		4281F357464488B1E4CC9C04 /* PlaylistOperationAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE674A9BB7B7A4FE7603E1C /* PlaylistOperationAvailability.swift */; };
 		42D2A57D1DE398036B6985AF /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 26DD8E7908AD9D808A2CD73D /* Localizable.strings */; };
 		42D3D23AAADAC9B441E04D87 /* MusicScraperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9081DDAD5B33D4D005479E15 /* MusicScraperProtocol.swift */; };
 		42E967953F2970DAE068FA3A /* WebDAVSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4999BBD97AF63761839AA42 /* WebDAVSource.swift */; };
@@ -1186,6 +1187,7 @@
 		3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyStreamResolver.swift; sourceTree = "<group>"; };
 		3C85D6EDF29DAED03773957A /* OAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthService.swift; sourceTree = "<group>"; };
 		3D6AA5670DB514ED0BF3B952 /* TVSourceScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceScanner.swift; sourceTree = "<group>"; };
+		3DE674A9BB7B7A4FE7603E1C /* PlaylistOperationAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistOperationAvailability.swift; sourceTree = "<group>"; };
 		3E648713A25DB3912120693A /* OneDriveSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneDriveSource.swift; sourceTree = "<group>"; };
 		3EAEEF509D406B281AA97EB5 /* TVServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TVServices.framework; path = System/Library/Frameworks/TVServices.framework; sourceTree = SDKROOT; };
 		404526370F939D7D68BB9F6E /* UgreenSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UgreenSource.swift; sourceTree = "<group>"; };
@@ -2532,6 +2534,7 @@
 		CC568C1F987228DD17220D96 /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				3DE674A9BB7B7A4FE7603E1C /* PlaylistOperationAvailability.swift */,
 				D28FEFF538F0DBE0D76205C3 /* SessionStableSnapshotCache.swift */,
 			);
 			path = Library;
@@ -3317,6 +3320,7 @@
 				574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */,
 				5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */,
 				E1E6E2746C97E7523587FBF4 /* Playlist.swift in Sources */,
+				4281F357464488B1E4CC9C04 /* PlaylistOperationAvailability.swift in Sources */,
 				AFD5B53A36622430D2016CAE /* PrimuseIntentBridge.swift in Sources */,
 				3A16590B3C55976D6DCFDC90 /* ProtocolHTTPStreamResolvers.swift in Sources */,
 				17D31FB2ACDDC55B73DB9320 /* QueueBatchRemovalPolicy.swift in Sources */,

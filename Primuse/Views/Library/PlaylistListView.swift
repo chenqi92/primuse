@@ -14,6 +14,7 @@ struct PlaylistListView: View {
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
     @State private var showSmartEditor = false
+    @State private var showPlaylistImport = false
     @State private var showNoScraperSourceAlert = false
     /// 歌单批量管理态。普通态和管理态用两个独立的列表 —— 在同一个 List 上
     /// 混 NavigationLink 与 selection，点一下到底是进歌单还是勾选会变得不确定。
@@ -32,6 +33,13 @@ struct PlaylistListView: View {
         library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }
     }
     private var smartPlaylists: [SmartPlaylist] { library.smartPlaylists }
+    private var operationAvailability: PlaylistOperationAvailability {
+        #if os(tvOS)
+        .television
+        #else
+        .standard
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -57,6 +65,15 @@ struct PlaylistListView: View {
             ))
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        .sheet(isPresented: $showPlaylistImport) {
+            #if os(iOS)
+            NavigationStack {
+                PlaylistImportView()
+            }
+            #else
+            PlaylistImportView()
+            #endif
+        }
     }
 
     @ViewBuilder
@@ -146,6 +163,13 @@ struct PlaylistListView: View {
                             showSmartEditor = true
                         } label: {
                             Label("new_smart_playlist", systemImage: "sparkles")
+                        }
+                        if operationAvailability.supportsImport {
+                            Button {
+                                showPlaylistImport = true
+                            } label: {
+                                Label("playlist_import_title", systemImage: "tray.and.arrow.down")
+                            }
                         }
                         if !playlists.isEmpty {
                             Divider()
@@ -443,6 +467,24 @@ struct PlaylistListView: View {
             }
             .buttonStyle(.plain)
             .help(Text("new_smart_playlist"))
+
+            if operationAvailability.supportsImport {
+                Button {
+                    showPlaylistImport = true
+                } label: {
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 32, height: 32)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(Text("playlist_import_title"))
+            }
 
             if !playlists.isEmpty {
                 Button {

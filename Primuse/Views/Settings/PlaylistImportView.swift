@@ -84,6 +84,9 @@ struct PlaylistImportView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("cancel") { dismiss() }
+            }
             if preview == nil {
                 // 没选文件时, 顶部一个明显的「选择文件」入口 —— Form 内的
                 // .borderedProminent 按钮在 iOS 26 偶尔渲染成跟背景同色看

@@ -269,8 +269,6 @@ struct MacSidebar: View {
         VStack(alignment: .leading, spacing: 1) {
             sectionHeader("mac_sidebar_tools")
 
-            toolItem(.playlistImport, icon: "tray.and.arrow.down",
-                     title: "Import Playlist (M3U8/JSON)")
             toolItem(.lyricsConverter, icon: "arrow.left.arrow.right",
                      title: "lyrics_converter_title")
             toolItem(.duplicates, icon: "arrow.triangle.2.circlepath",

@@ -37,7 +37,6 @@ extension MacRoute {
 /// (`.sheet`) 形式覆盖在当前页上 —— 工具是临时操作面板, 用完即关, 不该
 /// 占据主导航。`Identifiable` 让 `MacContentView` 能直接 `.sheet(item:)`。
 enum MacTool: String, Identifiable, Hashable {
-    case playlistImport
     case lyricsConverter
     case duplicates
     case scrobble

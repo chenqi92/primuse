@@ -275,10 +275,6 @@ struct MacContentView: View {
     @ViewBuilder
     private func toolSheet(_ tool: MacTool) -> some View {
         switch tool {
-        case .playlistImport:
-            // PlaylistImportView 的 macBody 现在自带固定尺寸 (620×680), 不再
-            // 套外层 frame —— 否则会像之前那样把内容挤偏 / 留白。
-            PlaylistImportView()
         case .lyricsConverter:
             LyricsFormatConverterView()
         case .duplicates:
