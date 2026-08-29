@@ -954,6 +954,7 @@ struct PrimuseApp: App {
     @State private var cloudSync: CloudKitSyncService
     @State private var themeService: ThemeService
     @State private var scanService: ScanService
+    @State private var navidromeAutoRefresh: NavidromeAutoRefreshCoordinator
     @State private var metadataBackfill: MetadataBackfillService
     @State private var updateChecker: AppUpdateChecker
     @State private var coverTintProvider: CoverTintProvider
@@ -997,6 +998,7 @@ struct PrimuseApp: App {
         _cloudSync = State(initialValue: services.cloudSync)
         _themeService = State(initialValue: services.themeService)
         _scanService = State(initialValue: services.scanService)
+        _navidromeAutoRefresh = State(initialValue: services.navidromeAutoRefresh)
         _metadataBackfill = State(initialValue: services.metadataBackfill)
         _updateChecker = State(initialValue: services.updateChecker)
         _coverTintProvider = State(initialValue: services.coverTintProvider)
@@ -1038,6 +1040,7 @@ struct PrimuseApp: App {
             .environment(scraperService)
             .environment(playbackSettingsStore)
             .environment(scanService)
+            .environment(navidromeAutoRefresh)
             .environment(cloudSync)
             .environment(metadataBackfill)
             .environment(updateChecker)
@@ -1104,6 +1107,7 @@ struct PrimuseApp: App {
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
                     await AppServices.shared.completeDeferredStartup()
+                    navidromeAutoRefresh.setApplicationActive(scenePhase == .active)
 
                     PrimuseAppDelegate.sync = cloudSync
                     // Apple Watch 桥 ── 启动 WCSession, 1Hz 推 Now Playing
@@ -1319,6 +1323,7 @@ struct PrimuseApp: App {
                     #endif
                 }
                 .onChange(of: scenePhase) { _, newPhase in
+                    navidromeAutoRefresh.setApplicationActive(newPhase == .active)
                     switch newPhase {
                     case .inactive:
                         #if os(iOS)
