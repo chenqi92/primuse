@@ -58,6 +58,19 @@ final class ArtistNameLibraryTests: XCTestCase {
         XCTAssertEqual(Set(result.artists.map(\.name)), ["AC/DC", "Simon & Garfunkel"])
     }
 
+    func testCaseVariantsCollapseIntoOneStableArtist() throws {
+        let first = makeSong(artistName: "Artist")
+        let second = makeSong(artistName: "ARTIST")
+
+        let result = MusicLibrary.computeAlbumsAndArtists(songs: [first, second])
+        let artist = try XCTUnwrap(result.artists.first)
+
+        XCTAssertEqual(result.artists.count, 1)
+        XCTAssertEqual(artist.id, MusicLibrary.hashID("artist"))
+        XCTAssertEqual(artist.name, "Artist")
+        XCTAssertEqual(artist.songCount, 2)
+    }
+
     func testMetadataSearchFindsSecondaryNativeArtist() {
         let song = makeSong(
             artistName: "Primary & Secondary",

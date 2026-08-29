@@ -2358,11 +2358,11 @@ final class MusicLibrary {
     ) -> PreparedVisibleCache {
         let nextVisibleSongs: [Song]
         let nextVisibleAlbums: [Album]
-        let nextVisibleArtists: [Artist]
+        let candidateVisibleArtists: [Artist]
         if disabledSourceIDs.isEmpty {
             nextVisibleSongs = songs
             nextVisibleAlbums = albums
-            nextVisibleArtists = artists
+            candidateVisibleArtists = artists
         } else {
             nextVisibleSongs = songs.filter { !disabledSourceIDs.contains($0.sourceID) }
             let visibleAlbumIDs = Set(nextVisibleSongs.compactMap(\.albumID))
@@ -2371,7 +2371,16 @@ final class MusicLibrary {
                 resolvedArtistNames(for: $0, configuration: artistNameConfiguration)
                     .map { hashID($0.lowercased()) }
             })
-            nextVisibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
+            candidateVisibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
+        }
+        // Older derived-index caches may contain two display-name variants
+        // that resolve to the same stable artist ID. Keep launch resilient
+        // while the disposable cache is rebuilt with the current grouping.
+        var artistByID: [String: Artist] = [:]
+        let nextVisibleArtists = candidateVisibleArtists.filter { artist in
+            guard artistByID[artist.id] == nil else { return false }
+            artistByID[artist.id] = artist
+            return true
         }
         let lookups = makeVisibleLookups(songs: nextVisibleSongs)
         let allCounts = disabledSourceIDs.isEmpty
@@ -2386,9 +2395,7 @@ final class MusicLibrary {
                 : makeSongIndex(songs),
             songIndexByID: lookups.indexByID,
             songByID: lookups.songByID,
-            artistByID: Dictionary(
-                uniqueKeysWithValues: nextVisibleArtists.map { ($0.id, $0) }
-            ),
+            artistByID: artistByID,
             songsBySourceID: lookups.songsBySourceID,
             playableBySourceID: lookups.playableBySourceID,
             countBySourceID: lookups.countBySourceID,
@@ -6262,9 +6269,12 @@ final class MusicLibrary {
         let artistEntries = songs.flatMap { song in
             resolvedArtistNames(for: song, configuration: configuration).map { ($0, song) }
         }
-        let artistGroups = Dictionary(grouping: artistEntries) { $0.0 }
+        let artistGroups = Dictionary(grouping: artistEntries) {
+            hashID($0.0.lowercased())
+        }
         guard !cancellationCheck() else { return nil }
-        let artists = artistGroups.map { name, entries -> Artist in
+        let artists = artistGroups.compactMap { id, entries -> Artist? in
+            guard let name = entries.first?.0 else { return nil }
             let groupedSongs = entries.map(\.1)
             let albumCount = Set(groupedSongs.compactMap { song -> String? in
                 guard let identity = AlbumGroupingPolicy.identity(
@@ -6301,7 +6311,7 @@ final class MusicLibrary {
                 }
             }.first
             return Artist(
-                id: hashID(name.lowercased()),
+                id: id,
                 name: name,
                 albumCount: albumCount,
                 songCount: groupedSongs.count,
@@ -6323,7 +6333,7 @@ final class MusicLibrary {
     ) -> String {
         var input = Data()
         input.reserveCapacity(max(128, songs.count * 96))
-        appendStableString("derived-index-v4", to: &input)
+        appendStableString("derived-index-v5", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
         appendStableString(configuration.cacheSignature, to: &input)
 
