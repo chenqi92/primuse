@@ -4570,13 +4570,8 @@ public enum LibraryArtworkPreviewSelectionPolicy {
                 hintsByID[candidate.id, default: false] || candidate.hasArtworkHint
         }
 
-        let ranked = hintsByID.map { id, hasArtworkHint in
-            (
-                id: id,
-                hasArtworkHint: hasArtworkHint,
-                rank: stableHash("\(randomSeed)\u{0}\(id)")
-            )
-        }.sorted { lhs, rhs in
+        typealias RankedCandidate = (id: String, hasArtworkHint: Bool, rank: UInt64)
+        func precedes(_ lhs: RankedCandidate, _ rhs: RankedCandidate) -> Bool {
             if lhs.hasArtworkHint != rhs.hasArtworkHint {
                 return lhs.hasArtworkHint
             }
@@ -4586,7 +4581,27 @@ public enum LibraryArtworkPreviewSelectionPolicy {
             return lhs.id < rhs.id
         }
 
-        return ranked.prefix(maximumCount).map(\.id)
+        var selected: [RankedCandidate] = []
+        selected.reserveCapacity(min(maximumCount, hintsByID.count))
+        for (id, hasArtworkHint) in hintsByID {
+            let candidate = (
+                id: id,
+                hasArtworkHint: hasArtworkHint,
+                rank: stableHash("\(randomSeed)\u{0}\(id)")
+            )
+            let insertionIndex = selected.firstIndex { precedes(candidate, $0) }
+                ?? selected.endIndex
+            if insertionIndex < maximumCount {
+                selected.insert(candidate, at: insertionIndex)
+                if selected.count > maximumCount {
+                    selected.removeLast()
+                }
+            } else if selected.count < maximumCount {
+                selected.append(candidate)
+            }
+        }
+
+        return selected.map(\.id)
     }
 
     private static func stableHash(_ value: String) -> UInt64 {

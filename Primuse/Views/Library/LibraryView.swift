@@ -174,6 +174,69 @@ private struct LibraryArtworkPreviewSelection: Sendable {
     var artistFallbackSongs: [String: [Song]] = [:]
 }
 
+@MainActor
+private final class LibraryArtworkPreviewSessionStore {
+    private struct InFlight {
+        let build: SessionStableSnapshotBuild
+        let task: Task<LibraryArtworkPreviewSelection, Never>
+    }
+
+    static let shared = LibraryArtworkPreviewSessionStore()
+
+    private var cache = SessionStableSnapshotCache<LibraryArtworkPreviewSelection>()
+    private var inFlight: InFlight?
+
+    func cachedSelection(for revision: String) -> LibraryArtworkPreviewSelection? {
+        cache.cachedValue(for: revision)
+    }
+
+    func invalidateForManualRefresh() {
+        cache.invalidateForManualRefresh()
+        inFlight?.task.cancel()
+    }
+
+    func selection(
+        for revision: String,
+        build: @escaping @Sendable (String) -> LibraryArtworkPreviewSelection
+    ) async -> LibraryArtworkPreviewSelection? {
+        if let cached = cache.cachedValue(for: revision) {
+            return cached
+        }
+
+        let operation: InFlight
+        if let current = inFlight,
+           current.build.revision == revision,
+           cache.isCurrentBuild(current.build) {
+            operation = current
+        } else if let current = inFlight {
+            current.task.cancel()
+            _ = await current.task.value
+            guard !Task.isCancelled else { return nil }
+            if inFlight?.build == current.build {
+                inFlight = nil
+            }
+            return await selection(for: revision, build: build)
+        } else {
+            let buildContext = cache.beginBuild(for: revision)
+            operation = InFlight(
+                build: buildContext,
+                task: Task.detached(priority: .utility) {
+                    build(buildContext.randomSeed)
+                }
+            )
+            inFlight = operation
+        }
+
+        let value = await operation.task.value
+        let accepted = cache.commit(value, for: operation.build)
+        if inFlight?.build == operation.build {
+            inFlight = nil
+        }
+        if accepted { return value }
+        return cache.cachedValue(for: revision)
+    }
+}
+
 private enum LibraryArtworkPreviewBuilder {
     static func hasReference(_ value: String?) -> Bool {
         guard let value else { return false }
@@ -270,7 +333,8 @@ struct LibraryView: View {
         }.joined(separator: "\u{0}")
         return [
             String(library.visibleSongCollectionRevision),
-            library.songReplacementToken.uuidString,
+            String(library.albumArtworkLookupRevision),
+            String(library.sourceSyncCompletionRevision),
             String(library.playlistCollectionRevision),
             String(library.artworkOverrideRevision),
             quickAccessRawValue,
@@ -355,6 +419,11 @@ struct LibraryView: View {
         }
         .task(id: previewRevision) {
             await refreshArtworkPreviews(for: previewRevision)
+        }
+        .refreshable {
+            LibraryArtworkPreviewSessionStore.shared.invalidateForManualRefresh()
+            artworkPreviewSelection = LibraryArtworkPreviewSelection()
+            await refreshArtworkPreviews(for: artworkPreviewRevision)
         }
     }
 
@@ -854,13 +923,24 @@ struct LibraryView: View {
 
     @MainActor
     private func refreshArtworkPreviews(for revision: String) async {
-        guard artworkPreviewSelection.revision != revision else { return }
+        if artworkPreviewSelection.revision == revision { return }
+        if let cached = LibraryArtworkPreviewSessionStore.shared.cachedSelection(
+            for: revision
+        ) {
+            artworkPreviewSelection = cached
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(280))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
         let songsSnapshot = songs
         let albumsSnapshot = albums
         let artistsSnapshot = artists
         let playlistsSnapshot = regularPlaylists
         let radioSnapshot = radioStationsStore.stations
-        let randomSeed = UUID().uuidString
         let pinnedAlbumIDs = Set(visiblePins.compactMap { pin in
             pin.kind == .album ? pin.itemID : nil
         })
@@ -890,7 +970,9 @@ struct LibraryView: View {
             ) ? playlist.id : nil
         })
 
-        let selection = await Task.detached(priority: .utility) {
+        let selection = await LibraryArtworkPreviewSessionStore.shared.selection(
+            for: revision
+        ) { randomSeed in
             let songsWithArtworkHint = songsSnapshot.filter(
                 LibraryArtworkPreviewBuilder.songHasArtworkHint
             )
@@ -978,9 +1060,11 @@ struct LibraryView: View {
                 albumFallbackSongs: albumFallbackSongs,
                 artistFallbackSongs: artistFallbackSongs
             )
-        }.value
+        }
 
-        guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
+        guard !Task.isCancelled,
+              artworkPreviewRevision == revision,
+              let selection else { return }
         artworkPreviewSelection = selection
     }
 

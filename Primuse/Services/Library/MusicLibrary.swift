@@ -2270,6 +2270,7 @@ final class MusicLibrary {
     /// which made a 10K-song library block AttributeGraph for several seconds.
     private(set) var visibleSongCollectionRevision: Int = 0
     private(set) var albumArtworkLookupRevision: Int = 0
+    private(set) var sourceSyncCompletionRevision: Int = 0
     private(set) var searchRevision: Int = 0
     /// Lyrics cache files are searched directly by `LibrarySearchWorker`.
     /// Keep their invalidation separate from structural library revisions so
@@ -2302,6 +2303,10 @@ final class MusicLibrary {
         guard appleMusicLibrarySyncEnabled != enabled else { return }
         appleMusicLibrarySyncEnabled = enabled
         playlistCollectionRevision &+= 1
+    }
+
+    func sourceSyncDidComplete() {
+        sourceSyncCompletionRevision &+= 1
     }
 
     var songCount: Int { visibleSongs.count }
