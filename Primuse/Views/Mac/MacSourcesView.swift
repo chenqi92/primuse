@@ -495,9 +495,12 @@ struct MacSourcesView: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("metadata_status_open"))
+        .accessibilityValue(Text(macMetadataSummaryText(summary)))
+        .accessibilityIdentifier("sources.metadataStatus.\(source.id)")
     }
 
     @ViewBuilder

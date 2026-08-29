@@ -225,6 +225,7 @@ struct SourcesContentView: View {
     @State private var undoToast: UndoDeleteToast?
     @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
+    @State private var inspectingMetadataSource: MusicSource?
     @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
     @State private var preparingCacheSourceID: String?
@@ -388,6 +389,9 @@ struct SourcesContentView: View {
             }
             .navigationDestination(isPresented: $openAppleMusicSettings) {
                 AppleMusicSettingsView()
+            }
+            .navigationDestination(item: $inspectingMetadataSource) { source in
+                SourceMetadataStatusView(source: source)
             }
             .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
                 cloudDirectoryNameRefreshID = UUID()
@@ -649,7 +653,7 @@ struct SourcesContentView: View {
                 // failed request.
                 let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
                 if metadataSummary.affectedCount > 0 {
-                    metadataStatusLink(source, summary: metadataSummary)
+                    metadataStatusButton(source, summary: metadataSummary)
                 }
             }
 
@@ -833,13 +837,13 @@ struct SourcesContentView: View {
         )
     }
 
-    private func metadataStatusLink(
+    private func metadataStatusButton(
         _ source: MusicSource,
         summary: MetadataBackfillSourceSummary
     ) -> some View {
         let activityState = backfill.activityState(forSource: source.id)
-        return NavigationLink {
-            SourceMetadataStatusView(source: source)
+        return Button {
+            inspectingMetadataSource = source
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
@@ -861,10 +865,12 @@ struct SourcesContentView: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .navigationLinkIndicatorVisibility(.hidden)
         .accessibilityLabel(Text("metadata_status_open"))
+        .accessibilityValue(Text(metadataSummaryText(summary)))
+        .accessibilityIdentifier("sources.metadataStatus.\(source.id)")
     }
 
     @ViewBuilder
