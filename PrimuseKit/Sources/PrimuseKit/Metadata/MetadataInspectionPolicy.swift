@@ -314,6 +314,26 @@ public enum MetadataReadEvidencePolicy {
     ) -> Bool {
         signature != .unknown || hasTechnicalProperties
     }
+
+    /// A complete read must prove that the media bytes are audio. Sidecar
+    /// artwork or lyrics are deliberately excluded because they describe the
+    /// library item without making an empty or placeholder media object
+    /// playable.
+    public static func completeReadIsUnrecognizedAudio(
+        providedByteCount: Int,
+        expectedFileByteCount: Int64,
+        hasCompleteFileAccess: Bool,
+        signature: AudioFileSignatureKind,
+        hasTechnicalProperties: Bool
+    ) -> Bool {
+        let coveredExpectedFile = expectedFileByteCount > 0
+            && Int64(providedByteCount) >= expectedFileByteCount
+        guard hasCompleteFileAccess || coveredExpectedFile else { return false }
+        return !hasVerifiedAudioFile(
+            signature: signature,
+            hasTechnicalProperties: hasTechnicalProperties
+        )
+    }
 }
 
 public enum MetadataResolvedTextSource: String, Codable, Sendable {

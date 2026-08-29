@@ -1859,9 +1859,13 @@ final class MetadataBackfillService {
                     || (info.bitRate ?? 0) > 0
                     || (info.bitDepth ?? 0) > 0
             }
-            guard hasVerifiedAudioEvidence(metadata)
-                    || metadata.hasEmbeddedDescriptiveMetadata
-                    || metadata.hasVerifiedSidecarMetadata else {
+            guard !MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+                providedByteCount: 0,
+                expectedFileByteCount: song.fileSize,
+                hasCompleteFileAccess: metadata.hasCompleteFileAccess,
+                signature: metadata.detectedFileSignature,
+                hasTechnicalProperties: metadata.hasTechnicalProperties
+            ) else {
                 return .failed(
                     reason: String(localized: "reread_song_tags_failure_unrecognized_audio")
                 )
@@ -3014,11 +3018,13 @@ final class MetadataBackfillService {
             artistInspectionCompleted = true
         }
 
-        if isExplicitReread,
-           !hasVerifiedAudioEvidence(metadata),
-           !metadata.hasEmbeddedDescriptiveMetadata,
-           !metadata.hasVerifiedSidecarMetadata,
-           !hasVerifiedSourceSidecarReference(in: song) {
+        if MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+            providedByteCount: metadataInputData.count,
+            expectedFileByteCount: song.fileSize,
+            hasCompleteFileAccess: metadata.hasCompleteFileAccess,
+            signature: metadata.detectedFileSignature,
+            hasTechnicalProperties: metadata.hasTechnicalProperties
+        ) {
             return BackfillOutcome(
                 song: nil,
                 markFailed: true,

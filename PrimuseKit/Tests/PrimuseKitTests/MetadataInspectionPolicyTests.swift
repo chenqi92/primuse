@@ -78,6 +78,7 @@ struct MetadataInspectionPolicyTests {
         #expect(AudioFileSignaturePolicy.inspect(
             Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0xA5, count: 1024)
         ) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(Data(repeating: 0, count: 4 * 1024)) == .unknown)
         #expect(AudioFileSignaturePolicy.inspect(Data(repeating: 0xA5, count: 128)) == .unknown)
     }
 
@@ -180,6 +181,45 @@ struct MetadataInspectionPolicyTests {
             hasTechnicalProperties: false
         ))
         #expect(MetadataReadEvidencePolicy.hasVerifiedAudioFile(
+            signature: .unknown,
+            hasTechnicalProperties: true
+        ))
+    }
+
+    @Test("Complete reads reject unknown media bytes independently of sidecars")
+    func completeReadRequiresAudioEvidence() {
+        #expect(MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+            providedByteCount: 3_276_513,
+            expectedFileByteCount: 3_276_513,
+            hasCompleteFileAccess: false,
+            signature: .unknown,
+            hasTechnicalProperties: false
+        ))
+        #expect(!MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+            providedByteCount: 256 * 1024,
+            expectedFileByteCount: 3_276_513,
+            hasCompleteFileAccess: false,
+            signature: .unknown,
+            hasTechnicalProperties: false
+        ))
+        #expect(MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+            providedByteCount: 0,
+            expectedFileByteCount: 0,
+            hasCompleteFileAccess: true,
+            signature: .unknown,
+            hasTechnicalProperties: false
+        ))
+        #expect(!MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+            providedByteCount: 3_276_513,
+            expectedFileByteCount: 3_276_513,
+            hasCompleteFileAccess: false,
+            signature: .mpegAudio,
+            hasTechnicalProperties: false
+        ))
+        #expect(!MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
+            providedByteCount: 3_276_513,
+            expectedFileByteCount: 3_276_513,
+            hasCompleteFileAccess: false,
             signature: .unknown,
             hasTechnicalProperties: true
         ))
