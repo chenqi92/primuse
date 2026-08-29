@@ -1817,7 +1817,7 @@ struct SongListView: View {
 
     private func songGridTile(_ song: Song, isCurrent: Bool, isLocated: Bool) -> some View {
         let isEmphasized = isCurrent || isLocated
-        Button { playSong(song) } label: {
+        return Button { playSong(song) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                     CachedArtworkView(
