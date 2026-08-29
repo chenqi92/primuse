@@ -36,6 +36,57 @@ struct LyricWritingDirectionPolicyTests {
         #expect(lines[0].syllables?.map(\.end) == [1.5, 2])
     }
 
+    @Test("Untagged Persian ELRC keeps centisecond carry sequential")
+    func untaggedPersianELRCCentisecondCarryIsSequential() throws {
+        let lines = LyricsContentParser.parse("""
+        [00:26.54]<00:26.54>انتظار <00:27.06>و <00:27.60>انتظار <00:28.36>(تا <00:28.44>وقتی <00:28.92>بازی <00:28.100>شروع <00:29.16>نشده)
+        [00:41.26]<00:41.26>من <00:41.68>لَش <00:42.10>هَمَش <00:42.84>رو <00:42.100>کاناپه <00:43.88>یا <00:44.24>تخت
+        """)
+
+        #expect(lines.count == 2)
+        #expect(lines[0].metadataLines == nil)
+        #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .rightToLeft)
+        #expect(lines[0].syllables?.map(\.text) == [
+            "انتظار ", "و ", "انتظار ", "(تا ", "وقتی ", "بازی ", "شروع ", "نشده)",
+        ])
+        #expect(lines[0].syllables?.map(\.start) == [
+            26.54, 27.06, 27.60, 28.36, 28.44, 28.92, 29.00, 29.16,
+        ])
+        #expect(lines[1].syllables?.map(\.start) == [
+            41.26, 41.68, 42.10, 42.84, 43.00, 43.88, 44.24,
+        ])
+        for line in lines {
+            let starts = line.syllables?.map(\.start) ?? []
+            #expect(zip(starts, starts.dropFirst()).allSatisfy { pair in
+                pair.0 <= pair.1
+            })
+        }
+    }
+
+    @Test("Standard millisecond ELRC keeps three-digit fractions")
+    func standardMillisecondELRCRemainsUnchanged() throws {
+        let line = try #require(LyricsContentParser.parse(
+            "[00:00.000]<00:00.090>مر<00:00.100>حبا"
+        ).first)
+
+        #expect(line.syllables?.map(\.start) == [0.09, 0.1])
+        #expect(line.text == "مرحبا")
+    }
+
+    @Test("Tagged Arabic ELRC preserves mixed Latin tokens")
+    func taggedArabicELRCPreservesMixedTokens() throws {
+        let lines = LyricsContentParser.parse("""
+        [la:ar-EG]
+        [00:01.000]<00:01.000>مرحبا <00:01.500>Primuse <00:02.000>بالعالم
+        """)
+
+        let line = try #require(lines.first)
+        #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .rightToLeft)
+        #expect(line.text == "مرحبا Primuse بالعالم")
+        #expect(line.syllables?.map(\.text) == ["مرحبا ", "Primuse ", "بالعالم"])
+        #expect(line.syllables?.map(\.start) == [1, 1.5, 2])
+    }
+
     @Test("LTR headers remain LTR")
     func ltrLanguageHeaders() {
         #expect(
@@ -188,5 +239,26 @@ struct LyricFlowPlacementPolicyTests {
         #expect(centered.map(\.x) == [0, 40, 15])
         #expect(trailing.map(\.x) == [0, 40, 30])
         #expect(rtlTrailing.map(\.x) == [50, 0, 0])
+    }
+
+    @Test("Wrapped RTL rows keep logical syllable order")
+    func wrappedRightToLeftRowsKeepLogicalOrder() {
+        let placements = LyricFlowPlacementPolicy.placements(
+            itemSizes: [
+                .init(width: 34, height: 10),
+                .init(width: 28, height: 12),
+                .init(width: 42, height: 9),
+                .init(width: 30, height: 11),
+                .init(width: 36, height: 10),
+            ],
+            containerWidth: 72,
+            isRightToLeft: true
+        )
+
+        #expect(placements.map(\.itemIndex) == [0, 1, 2, 3, 4])
+        #expect(placements.map(\.y) == [0, 0, 12, 12, 23])
+        #expect(placements[0].x > placements[1].x)
+        #expect(placements[2].x > placements[3].x)
+        #expect(placements[4].x == 36)
     }
 }

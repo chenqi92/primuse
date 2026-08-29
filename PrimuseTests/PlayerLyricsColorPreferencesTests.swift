@@ -129,6 +129,59 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
     }
 
     @MainActor
+    func testHighlightedPersianWordsMatchInactiveGlyphCoverageAcrossWrapping() throws {
+        let syllableTexts = ["منو ", "عِشقای ", "چِرکی ", "Primuse ", "میتواند ", "بالعالم"]
+        let line = LyricLine(
+            timestamp: 0,
+            text: syllableTexts.joined(),
+            syllables: syllableTexts.enumerated().map { index, text in
+                LyricSyllable(text: text, start: Double(index), end: Double(index + 1))
+            }
+        )
+        let active = KaraokeLineView(
+            line: line,
+            fontSize: 42,
+            weight: .bold,
+            activeColor: .white,
+            inactiveColor: .clear,
+            writingDirection: .rightToLeft,
+            timeAt: { _ in 10 },
+            fixedTime: 10,
+            animatesSyllableBounce: false
+        )
+        .frame(width: 330, height: 150, alignment: .top)
+        let inactive = KaraokeLineView(
+            line: line,
+            fontSize: 42,
+            weight: .bold,
+            activeColor: .clear,
+            inactiveColor: .white,
+            writingDirection: .rightToLeft,
+            timeAt: { _ in 10 },
+            fixedTime: 10,
+            isAnimationEnabled: false,
+            animatesSyllableBounce: false
+        )
+        .frame(width: 330, height: 150, alignment: .top)
+
+        let activeRenderer = ImageRenderer(content: active)
+        activeRenderer.scale = 3
+        let inactiveRenderer = ImageRenderer(content: inactive)
+        inactiveRenderer.scale = 3
+        let activeImage = try XCTUnwrap(activeRenderer.uiImage?.cgImage)
+        let inactiveImage = try XCTUnwrap(inactiveRenderer.uiImage?.cgImage)
+        let activeCoverage = try alphaCoverage(in: activeImage)
+        let inactiveCoverage = try alphaCoverage(in: inactiveImage)
+
+        XCTAssertEqual(
+            activeCoverage,
+            inactiveCoverage,
+            accuracy: inactiveCoverage * 0.02,
+            "The active mask must not clip Persian, Arabic, or mixed-direction glyphs"
+        )
+    }
+
+    @MainActor
     func testLyricFlowPlacementKeepsSubviewIdealWidth() throws {
         let content = LyricsFlowLayout(layoutDirection: .rightToLeft) {
             ProposalSensitiveGlyph {

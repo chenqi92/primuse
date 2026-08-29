@@ -641,7 +641,11 @@ public enum LyricsContentParser {
                 isLeadingMetadataRegion = false
                 let lineStart = (Double(head.1) ?? 0) / 1000
                 let body = String(raw[head.range.upperBound...])
-                if let parsed = parseWordLevelLine(body: body, lineStart: lineStart) {
+                if let parsed = parseWordLevelLine(
+                    body: body,
+                    lineStart: lineStart,
+                    lineFractionDigits: nil
+                ) {
                     lines.append(parsed)
                 } else {
                     let text = body.trimmingCharacters(in: .whitespaces)
@@ -658,7 +662,11 @@ public enum LyricsContentParser {
                 guard let lineStart = parseTimestamp(min: head.1, sec: head.2, frac: head.3) else {
                     continue
                 }
-                if let parsed = parseWordLevelLine(body: body, lineStart: lineStart) {
+                if let parsed = parseWordLevelLine(
+                    body: body,
+                    lineStart: lineStart,
+                    lineFractionDigits: head.3?.count
+                ) {
                     lines.append(parsed)
                 } else {
                     let text = body.trimmingCharacters(in: .whitespaces)
@@ -844,7 +852,8 @@ public enum LyricsContentParser {
 
     private static func parseWordLevelLine(
         body: String,
-        lineStart: TimeInterval
+        lineStart: TimeInterval,
+        lineFractionDigits: Int?
     ) -> LyricLine? {
         let marks = body.matches(of: inlineWordPattern)
         guard !marks.isEmpty else {
@@ -853,7 +862,14 @@ public enum LyricsContentParser {
 
         var syllables: [LyricSyllable] = []
         for (index, mark) in marks.enumerated() {
-            guard let start = parseTimestamp(min: mark.1, sec: mark.2, frac: mark.3) else {
+            let previousStart = syllables.last?.start ?? lineStart
+            guard let start = parseEnhancedWordTimestamp(
+                min: mark.1,
+                sec: mark.2,
+                frac: mark.3,
+                lineFractionDigits: lineFractionDigits,
+                previousStart: previousStart
+            ) else {
                 continue
             }
             let textStart = mark.range.upperBound
@@ -882,6 +898,35 @@ public enum LyricsContentParser {
         }
 
         return makeWordLevelLine(lineStart: lineStart, syllables: syllables)
+    }
+
+    /// Some ELRC generators write centiseconds throughout a line, then emit
+    /// `.100` for the carry into the next second. Interpreting that one marker
+    /// as milliseconds moves the word backwards (for example `.92` → `.100`)
+    /// and makes karaoke highlighting jump out of order. Only adopt the line's
+    /// shorter precision when the standard interpretation would regress and
+    /// the adjusted value restores monotonic word timing.
+    private static func parseEnhancedWordTimestamp(
+        min: Substring,
+        sec: Substring,
+        frac: Substring?,
+        lineFractionDigits: Int?,
+        previousStart: TimeInterval
+    ) -> TimeInterval? {
+        guard let standard = parseTimestamp(min: min, sec: sec, frac: frac),
+              standard < previousStart,
+              let fraction = frac,
+              let lineFractionDigits,
+              lineFractionDigits > 0,
+              lineFractionDigits < fraction.count,
+              let rawFraction = Double(fraction) else {
+            return parseTimestamp(min: min, sec: sec, frac: frac)
+        }
+
+        let standardFraction = rawFraction / pow(10, Double(fraction.count))
+        let linePrecisionFraction = rawFraction / pow(10, Double(lineFractionDigits))
+        let adjusted = standard - standardFraction + linePrecisionFraction
+        return adjusted >= previousStart ? adjusted : standard
     }
 
     private static func parseRelativeWordLevelLine(
