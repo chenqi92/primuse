@@ -854,8 +854,7 @@ struct SongListView: View {
                 }
             }
             .alert("songs_export_failed",
-                   isPresented: Binding(get: { exportError != nil },
-                                        set: { if !$0 { exportError = nil } })) {
+                   isPresented: exportErrorPresentation) {
                 Button("done", role: .cancel) {}
             } message: {
                 Text(exportError ?? "")
@@ -879,6 +878,19 @@ struct SongListView: View {
         isBrowseModeTransitioning = false
         #endif
     }
+
+    #if os(macOS)
+    private var exportErrorPresentation: Binding<Bool> {
+        Binding(
+            get: { exportError != nil },
+            set: { isPresented in
+                if !isPresented {
+                    exportError = nil
+                }
+            }
+        )
+    }
+    #endif
 
     private var songs: [Song] {
         switch scope {
