@@ -162,6 +162,7 @@ struct LyricsEditorDocumentTests {
         #expect(document.lines[0].timestamp == 13.3)
         #expect(document.lines[0].syllables?.map(\.start) == [13.3, 14.1])
         #expect(document.lines[0].syllables?.last?.end == 15.0)
+        #expect(document.lines[0].syllables?.map(\.endTiming) == [.inferred, .explicit])
     }
 
     @Test("Backward shift limit accounts for syllables ahead of their line head")
@@ -193,6 +194,7 @@ struct LyricsEditorDocumentTests {
         // 音节按 delta 平移,浮点上取不到精确的 20.8,比到毫秒即可。
         let starts = document.lines[0].syllables?.map(\.start) ?? []
         #expect(starts.count == 2)
+        #expect(document.lines[0].syllables?.map(\.endTiming) == [.inferred, .explicit])
         #expect(abs(starts[0] - 20) < 0.001)
         #expect(abs(starts[1] - 20.8) < 0.001)
     }

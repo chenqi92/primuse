@@ -181,7 +181,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 LyricSyllable(
                     text: $0.text,
                     start: max(0, $0.start + effective),
-                    end: max(0, $0.end + effective)
+                    end: max(0, $0.end + effective),
+                    endTiming: $0.endTiming
                 )
             }
         }
@@ -215,7 +216,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 LyricSyllable(
                     text: $0.text,
                     start: max(0, $0.start + delta),
-                    end: max(0, $0.end + delta)
+                    end: max(0, $0.end + delta),
+                    endTiming: $0.endTiming
                 )
             }
         } else if lines[index].syllables != nil {

@@ -3,15 +3,113 @@ import Foundation
 import FoundationXML
 #endif
 
-public struct LyricSyllable: Codable, Hashable, Sendable {
+/// Whether a syllable end came from the source document or was inferred from
+/// the next word marker. Start-only formats such as ELRC need this distinction:
+/// a distant next marker may describe silence, while an explicit end may be a
+/// deliberately held note.
+public enum LyricSyllableEndTiming: String, Codable, Hashable, Sendable {
+    case explicit
+    case inferred
+    /// Cached lyrics written before end provenance was stored. Playback uses a
+    /// conservative structural fallback for these values.
+    case legacy
+}
+
+public struct LyricSyllable: Hashable, Sendable {
     public var text: String
     public var start: TimeInterval
     public var end: TimeInterval
+    public var endTiming: LyricSyllableEndTiming
 
-    public init(text: String, start: TimeInterval, end: TimeInterval) {
+    public init(
+        text: String,
+        start: TimeInterval,
+        end: TimeInterval,
+        endTiming: LyricSyllableEndTiming = .explicit
+    ) {
         self.text = text
         self.start = start
         self.end = end
+        self.endTiming = endTiming
+    }
+}
+
+extension LyricSyllable: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case text, start, end, endTiming
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        start = try container.decode(TimeInterval.self, forKey: .start)
+        end = try container.decode(TimeInterval.self, forKey: .end)
+        endTiming = try container.decodeIfPresent(
+            LyricSyllableEndTiming.self,
+            forKey: .endTiming
+        ) ?? .legacy
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encode(start, forKey: .start)
+        try container.encode(end, forKey: .end)
+        try container.encode(endTiming, forKey: .endTiming)
+    }
+}
+
+/// Resolves the visual sweep duration without rewriting source timestamps.
+/// Explicit durations remain authoritative; inferred start-only durations are
+/// capped so a silent gap does not turn into a multi-second slow highlight.
+public enum LyricSyllablePlaybackTimingPolicy {
+    public static let minimumTransitionDuration: TimeInterval = 0.18
+
+    public static func effectiveDuration(
+        for syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval? = nil
+    ) -> TimeInterval {
+        let recordedDuration = max(0, syllable.end - syllable.start)
+        let uncappedDuration = max(recordedDuration, minimumTransitionDuration)
+        let inferredLimit = inferredDurationLimit(for: syllable.text)
+
+        switch syllable.endTiming {
+        case .explicit:
+            return uncappedDuration
+        case .inferred:
+            return min(uncappedDuration, inferredLimit)
+        case .legacy:
+            // Old caches do not carry provenance. Only cap the characteristic
+            // start-only shape where this word ends exactly at the next word's
+            // start; standalone explicit holds remain untouched.
+            guard let nextSyllableStart,
+                  abs(syllable.end - nextSyllableStart) <= 0.002,
+                  recordedDuration > inferredLimit else {
+                return uncappedDuration
+            }
+            return inferredLimit
+        }
+    }
+
+    public static func effectiveEnd(
+        for syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval? = nil
+    ) -> TimeInterval {
+        syllable.start + effectiveDuration(
+            for: syllable,
+            nextSyllableStart: nextSyllableStart
+        )
+    }
+
+    private static func inferredDurationLimit(for text: String) -> TimeInterval {
+        let significantScalarCount = text.unicodeScalars.reduce(into: 0) { count, scalar in
+            if CharacterSet.letters.contains(scalar)
+                || CharacterSet.decimalDigits.contains(scalar) {
+                count += 1
+            }
+        }
+        let count = max(1, significantScalarCount)
+        return min(0.90, 0.42 + Double(count - 1) * 0.07)
     }
 }
 
@@ -880,12 +978,18 @@ public enum LyricsContentParser {
                     syllables[syllables.count - 1] = LyricSyllable(
                         text: last.text,
                         start: last.start,
-                        end: max(last.end, start)
+                        end: max(last.end, start),
+                        endTiming: .explicit
                     )
                 }
                 continue
             }
-            syllables.append(LyricSyllable(text: chunk, start: start, end: start))
+            syllables.append(LyricSyllable(
+                text: chunk,
+                start: start,
+                end: start,
+                endTiming: .inferred
+            ))
         }
 
         guard !syllables.isEmpty else { return nil }
@@ -950,12 +1054,18 @@ public enum LyricsContentParser {
                     syllables[syllables.count - 1] = LyricSyllable(
                         text: last.text,
                         start: last.start,
-                        end: max(last.end, end)
+                        end: max(last.end, end),
+                        endTiming: .explicit
                     )
                 }
                 continue
             }
-            syllables.append(LyricSyllable(text: chunk, start: start, end: end))
+            syllables.append(LyricSyllable(
+                text: chunk,
+                start: start,
+                end: end,
+                endTiming: .explicit
+            ))
         }
 
         guard !syllables.isEmpty else { return nil }
@@ -1295,7 +1405,10 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             return LyricSyllable(
                 text: syllable.text,
                 start: syllable.start,
-                end: inferredEnd
+                end: inferredEnd,
+                endTiming: syllable.explicitEnd.map { $0 > syllable.start } == true
+                    ? .explicit
+                    : .inferred
             )
         }
     }

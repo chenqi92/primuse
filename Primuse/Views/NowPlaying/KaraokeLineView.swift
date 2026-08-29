@@ -100,9 +100,6 @@ struct KaraokeLineView: View {
     /// 扫光提前进入过渡的时间 — 让字真正唱出来的时刻已经亮了 80-90%。
     private static let lookaheadSec: TimeInterval = 0.10
 
-    /// 字内过渡跨度的下限 — 短字 (e.g. "啊" 30ms) 会瞬切, 强行至少 180ms。
-    private static let minTransitionSec: TimeInterval = 0.18
-
     /// scale bounce 的峰值幅度 (1.0 → 1 + bumpAmount → 1.0)。
     private static let bumpAmount: Double = 0.05
 
@@ -211,7 +208,13 @@ struct KaraokeLineView: View {
             textAlignment: textAlignment
         ) {
             ForEach(syllables.indices, id: \.self) { index in
-                inactiveSyllable(syllables[index], at: now)
+                inactiveSyllable(
+                    syllables[index],
+                    nextSyllableStart: syllables.indices.contains(index + 1)
+                        ? syllables[index + 1].start
+                        : nil,
+                    at: now
+                )
                     .environment(\.layoutDirection, lyricLayoutDirection)
             }
         }
@@ -230,15 +233,29 @@ struct KaraokeLineView: View {
             textAlignment: textAlignment
         ) {
             ForEach(syllables.indices, id: \.self) { index in
-                activeSyllableMask(syllables[index], at: now)
+                activeSyllableMask(
+                    syllables[index],
+                    nextSyllableStart: syllables.indices.contains(index + 1)
+                        ? syllables[index + 1].start
+                        : nil,
+                    at: now
+                )
                     .environment(\.layoutDirection, lyricLayoutDirection)
             }
         }
         .environment(\.layoutDirection, .leftToRight)
     }
 
-    private func inactiveSyllable(_ syllable: LyricSyllable, at now: TimeInterval) -> some View {
-        let scale = syllableScale(syllable, at: now)
+    private func inactiveSyllable(
+        _ syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval?,
+        at now: TimeInterval
+    ) -> some View {
+        let scale = syllableScale(
+            syllable,
+            nextSyllableStart: nextSyllableStart,
+            at: now
+        )
         return Text(syllable.text)
             .foregroundStyle(inactiveColor)
             .font(.system(size: fontSize, weight: weight))
@@ -246,9 +263,21 @@ struct KaraokeLineView: View {
             .fixedSize()
     }
 
-    private func activeSyllableMask(_ syllable: LyricSyllable, at now: TimeInterval) -> some View {
-        let sweepProgress = computeSweepProgress(syl: syllable, now: now)
-        let scale = syllableScale(syllable, at: now)
+    private func activeSyllableMask(
+        _ syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval?,
+        at now: TimeInterval
+    ) -> some View {
+        let sweepProgress = computeSweepProgress(
+            syl: syllable,
+            nextSyllableStart: nextSyllableStart,
+            now: now
+        )
+        let scale = syllableScale(
+            syllable,
+            nextSyllableStart: nextSyllableStart,
+            at: now
+        )
         return Text(syllable.text)
             .foregroundStyle(.white)
             .font(.system(size: fontSize, weight: weight))
@@ -257,9 +286,17 @@ struct KaraokeLineView: View {
             .fixedSize()
     }
 
-    private func syllableScale(_ syllable: LyricSyllable, at now: TimeInterval) -> Double {
+    private func syllableScale(
+        _ syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval?,
+        at now: TimeInterval
+    ) -> Double {
         guard animatesSyllableBounce else { return 1 }
-        let bumpProgress = computeBumpProgress(syl: syllable, now: now)
+        let bumpProgress = computeBumpProgress(
+            syl: syllable,
+            nextSyllableStart: nextSyllableStart,
+            now: now
+        )
         return 1.0 + Self.bumpAmount * bellCurve(bumpProgress)
     }
 
@@ -296,9 +333,16 @@ struct KaraokeLineView: View {
     }
 
     /// 扫光 progress 0..1: 可以提前预热, 让唱到该字时亮度已经跟上。
-    private func computeSweepProgress(syl: LyricSyllable, now: TimeInterval) -> Double {
+    private func computeSweepProgress(
+        syl: LyricSyllable,
+        nextSyllableStart: TimeInterval?,
+        now: TimeInterval
+    ) -> Double {
         let transitionStart = syl.start - Self.lookaheadSec
-        let dur = max(syl.end - syl.start, Self.minTransitionSec)
+        let dur = LyricSyllablePlaybackTimingPolicy.effectiveDuration(
+            for: syl,
+            nextSyllableStart: nextSyllableStart
+        )
         let transitionEnd = syl.start + dur
         if now <= transitionStart { return 0 }
         if now >= transitionEnd { return 1 }
@@ -307,9 +351,16 @@ struct KaraokeLineView: View {
     }
 
     /// bounce progress 不提前。切行时先切到新句, 再在新句的第一个字上弹动。
-    private func computeBumpProgress(syl: LyricSyllable, now: TimeInterval) -> Double {
+    private func computeBumpProgress(
+        syl: LyricSyllable,
+        nextSyllableStart: TimeInterval?,
+        now: TimeInterval
+    ) -> Double {
         let transitionStart = syl.start
-        let dur = max(syl.end - syl.start, Self.minTransitionSec)
+        let dur = LyricSyllablePlaybackTimingPolicy.effectiveDuration(
+            for: syl,
+            nextSyllableStart: nextSyllableStart
+        )
         let transitionEnd = syl.start + dur
         if now <= transitionStart { return 0 }
         if now >= transitionEnd { return 1 }

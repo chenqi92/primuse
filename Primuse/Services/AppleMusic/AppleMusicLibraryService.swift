@@ -1383,7 +1383,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                 currentSyllables.append(LyricSyllable(
                     text: text,
                     start: currentSpanBegin,
-                    end: currentSpanBegin   // 末位先填 begin, 下面 normalize 时改成下一字 start
+                    end: currentSpanBegin,  // 末位先填 begin, 下面 normalize 时改成下一字 start
+                    endTiming: .inferred
                 ))
                 currentText += text
             }
@@ -1411,18 +1412,29 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         guard !syllables.isEmpty else { return [] }
         guard syllables.count > 1 else {
             let only = syllables[0]
-            return [LyricSyllable(text: only.text, start: only.start, end: only.start + 0.5)]
+            return [LyricSyllable(
+                text: only.text,
+                start: only.start,
+                end: only.start + 0.5,
+                endTiming: .inferred
+            )]
         }
         var result: [LyricSyllable] = []
         for i in 0..<syllables.count - 1 {
             result.append(LyricSyllable(
                 text: syllables[i].text,
                 start: syllables[i].start,
-                end: syllables[i + 1].start
+                end: syllables[i + 1].start,
+                endTiming: .inferred
             ))
         }
         let last = syllables[syllables.count - 1]
-        result.append(LyricSyllable(text: last.text, start: last.start, end: last.start + 0.5))
+        result.append(LyricSyllable(
+            text: last.text,
+            start: last.start,
+            end: last.start + 0.5,
+            endTiming: .inferred
+        ))
         return result
     }
 
