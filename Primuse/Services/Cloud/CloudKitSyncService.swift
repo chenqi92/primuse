@@ -590,7 +590,9 @@ final class CloudKitSyncService {
         case .settings:
             scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
             // KVS-mirrored UserDefaults keys: poke each so timestamps update.
-            for key in [CloudKVSKey.aiSettings, CloudKVSKey.playbackSettings,
+            for key in [CloudKVSKey.aiSettings,
+                        CloudKVSKey.lyricsTranscriptionSettings,
+                        CloudKVSKey.playbackSettings,
                         CloudKVSKey.scraperSettings,
                         CloudKVSKey.artistNameConfiguration,
                         CloudKVSKey.lyricsFontScale, CloudKVSKey.recentSearches] {

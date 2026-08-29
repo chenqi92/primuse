@@ -1,6 +1,5 @@
 import SwiftUI
 import PrimuseKit
-import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -415,6 +414,7 @@ struct LyricsEditorView: View {
 
     private var canTranscribeSongAudio: Bool {
         intelligence.isAudioTranscriptionConfigured
+            && AIAudioTranscriptionPolicy.supportsInput(format: song.fileFormat)
             && song.sourceID != AppleMusicLibraryIdentity.sourceID
             && song.cueSheetPath == nil
             && (song.duration <= 0
@@ -660,13 +660,19 @@ struct LyricsEditorView: View {
 
     private func localTranscriptionInput() async throws -> LocalTranscriptionInput {
         let resolvedURL = try await sourceManager.resolveFullDownloadSourceURL(for: song)
+        guard let mimeType = Self.audioTranscriptionMIMEType(
+            for: resolvedURL,
+            fallbackFormat: song.fileFormat
+        ) else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
         if resolvedURL.isFileURL {
             guard FileManager.default.isReadableFile(atPath: resolvedURL.path) else {
                 throw CocoaError(.fileReadNoSuchFile)
             }
             return LocalTranscriptionInput(
                 url: resolvedURL,
-                mimeType: Self.audioMIMEType(for: resolvedURL),
+                mimeType: mimeType,
                 temporaryURL: nil
             )
         }
@@ -711,26 +717,26 @@ struct LyricsEditorView: View {
         try FileManager.default.moveItem(at: downloadedURL, to: destination)
         return LocalTranscriptionInput(
             url: destination,
-            mimeType: response.mimeType?.hasPrefix("audio/") == true
-                ? response.mimeType!
-                : Self.audioMIMEType(for: destination),
+            mimeType: mimeType,
             temporaryURL: destination
         )
     }
 
-    private static func audioMIMEType(for url: URL) -> String {
-        if let type = UTType(filenameExtension: url.pathExtension),
-           let mimeType = type.preferredMIMEType,
-           mimeType.hasPrefix("audio/") {
-            return mimeType
+    private static func audioTranscriptionMIMEType(
+        for url: URL,
+        fallbackFormat: AudioFormat
+    ) -> String? {
+        let fileExtension = url.pathExtension
+        let format: AudioFormat
+        if fileExtension.isEmpty {
+            format = fallbackFormat
+        } else {
+            guard let resolvedFormat = AudioFormat.from(fileExtension: fileExtension) else {
+                return nil
+            }
+            format = resolvedFormat
         }
-        switch url.pathExtension.lowercased() {
-        case "flac": return "audio/flac"
-        case "wav", "wave": return "audio/wav"
-        case "m4a", "mp4", "aac": return "audio/mp4"
-        case "ogg", "opus": return "audio/ogg"
-        default: return "audio/mpeg"
-        }
+        return AIAudioTranscriptionPolicy.mimeType(for: format)
     }
 
     // MARK: - 粘贴拆句预览

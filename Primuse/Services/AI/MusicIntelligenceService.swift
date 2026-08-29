@@ -53,7 +53,9 @@ enum AIRecommendationOutcome: Sendable {
 @Observable
 final class MusicIntelligenceService {
     let settingsStore: AISettingsStore
+    let lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore
     let regionAvailability: AIRegionAvailabilityService
+    private(set) var lyricsTranscriptionCredentialAvailable = false
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
@@ -102,19 +104,32 @@ final class MusicIntelligenceService {
 
     init(
         settingsStore: AISettingsStore = AISettingsStore(),
+        lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore? = nil,
         regionAvailability: AIRegionAvailabilityService = AIRegionAvailabilityService(),
         credentialStore: any AICredentialStoring = AICredentialStore()
     ) {
         self.settingsStore = settingsStore
+        self.lyricsTranscriptionSettingsStore = lyricsTranscriptionSettingsStore
+            ?? LyricsTranscriptionSettingsStore(legacySettingsStore: settingsStore)
         self.regionAvailability = regionAvailability
         self.credentialStore = credentialStore
         engine = MusicIntelligenceEngine(credentialStore: credentialStore)
+        let refreshTranscriptionSettings: () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.prepareLyricsTranscriptionCredentialMigration()
+            }
+        }
+        self.settingsStore.externalReloadHandler = refreshTranscriptionSettings
+        self.lyricsTranscriptionSettingsStore.externalReloadHandler = refreshTranscriptionSettings
     }
 
     func start() {
         regionAvailability.start { [weak self] in
             self?.semanticPlanCache.removeAll(keepingCapacity: true)
             self?.recommendationCache.removeAll(keepingCapacity: true)
+        }
+        Task { @MainActor [weak self] in
+            await self?.prepareLyricsTranscriptionCredentialMigration()
         }
     }
 
@@ -161,19 +176,19 @@ final class MusicIntelligenceService {
 
     var isAudioTranscriptionConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
-        return settingsStore.audioTranscriptionEnabled
-            && settingsStore.providerSet.routedProviders.contains {
-                $0.descriptor.capabilities.contains(.audioTranscription)
-                    && AIProviderRegionPolicy.allows(
-                        configuration: $0,
-                        region: regionAvailability.context.region,
-                        purpose: .generation
-                    )
-            }
-            && settingsStore.hasExplicitAudioUploadConsent
+        let configuration = lyricsTranscriptionSettingsStore.configuration
+        return lyricsTranscriptionSettingsStore.isEnabled
+            && AIAudioTranscriptionPolicy.supports(configuration: configuration)
+            && lyricsTranscriptionCredentialAvailable
+            && AIProviderRegionPolicy.allows(
+                configuration: configuration,
+                region: regionAvailability.context.region,
+                purpose: .generation
+            )
+            && lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent
             && decision.isAllowed
             && (!decision.requiresExplicitConsent
-                || settingsStore.hasExplicitAudioUploadConsent)
+                || lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent)
     }
 
     func semanticSearchPlan(for query: String) async -> AISemanticSearchPlan? {
@@ -486,7 +501,20 @@ final class MusicIntelligenceService {
         customVocabulary: [String] = []
     ) async -> AIAudioTranscriptionOutcome {
         let regionSnapshot = regionAvailability.snapshot
-        guard isAudioTranscriptionConfigured,
+        let configuration = await resolvedLyricsTranscriptionConfiguration()
+        let decision = regionAvailability.remoteProviderDecision
+        guard lyricsTranscriptionSettingsStore.isEnabled,
+              AIAudioTranscriptionPolicy.supports(configuration: configuration),
+              AIAudioTranscriptionPolicy.supportsInput(mimeType: mimeType),
+              AIProviderRegionPolicy.allows(
+                  configuration: configuration,
+                  region: regionSnapshot.context.region,
+                  purpose: .generation
+              ),
+              lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent,
+              decision.isAllowed,
+              (!decision.requiresExplicitConsent
+                  || lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent),
               duration <= 0 || duration <= AIAudioTranscriptionPolicy.maximumDuration else {
             return .unavailable
         }
@@ -496,8 +524,8 @@ final class MusicIntelligenceService {
             displayName: displayName,
             customVocabulary: customVocabulary
         )
-        let providers = settingsStore.providerSet.routedProviders.filter {
-            $0.descriptor.capabilities.contains(.audioTranscription)
+        let providers = [configuration].filter {
+            AIAudioTranscriptionPolicy.supports(configuration: $0)
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
                     region: regionSnapshot.context.region,
@@ -515,7 +543,7 @@ final class MusicIntelligenceService {
                     request,
                     configuration: configuration,
                     regionContext: regionSnapshot.context,
-                    hasExplicitAudioUploadConsent: settingsStore
+                    hasExplicitAudioUploadConsent: lyricsTranscriptionSettingsStore
                         .hasExplicitAudioUploadConsent,
                     requestAuthorization: regionAuthorization(
                         for: regionSnapshot,
@@ -542,6 +570,133 @@ final class MusicIntelligenceService {
         return .failed
     }
 
+    func prepareLyricsTranscriptionCredentialMigration() async {
+        _ = await hasStoredLyricsTranscriptionAPIKey()
+    }
+
+    func hasStoredLyricsTranscriptionAPIKey() async -> Bool {
+        let configuration = await resolvedLyricsTranscriptionConfiguration()
+        let isAvailable: Bool
+        if case .ready = await credentialStore.lookupAPIKey(configuration: configuration) {
+            isAvailable = true
+        } else {
+            isAvailable = false
+        }
+        lyricsTranscriptionCredentialAvailable = isAvailable
+        return isAvailable
+    }
+
+    func saveLyricsTranscriptionSettings(
+        configuration: AIRemoteProviderConfiguration,
+        isEnabled: Bool,
+        hasExplicitAudioUploadConsent: Bool,
+        apiKey: String?
+    ) async throws {
+        let normalized = LyricsTranscriptionSettingsStore
+            .normalizedGoogleConfiguration(configuration)
+        let decision = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: regionAvailability.context
+        )
+        guard decision.isAllowed else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
+        guard AIAudioTranscriptionPolicy.isCompatibleEndpoint(
+            configuration: normalized
+        ) else {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+
+        _ = await resolvedLyricsTranscriptionConfiguration()
+        var hasDedicatedCredential = false
+        if let apiKey,
+           !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            _ = try await credentialStore.saveAPIKey(apiKey, configuration: normalized)
+            hasDedicatedCredential = true
+        } else if case .ready = await credentialStore.lookupAPIKey(
+            configuration: normalized
+        ) {
+            hasDedicatedCredential = true
+        }
+
+        try lyricsTranscriptionSettingsStore.save(
+            configuration: normalized,
+            isEnabled: isEnabled,
+            hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
+            credentialMigrationCompleted: hasDedicatedCredential
+                || lyricsTranscriptionSettingsStore.legacyCredentialConfiguration == nil
+        )
+        _ = await hasStoredLyricsTranscriptionAPIKey()
+    }
+
+    func deleteLyricsTranscriptionAPIKey() async throws {
+        try await credentialStore.deleteAPIKey(
+            configuration: lyricsTranscriptionSettingsStore.configuration
+        )
+        lyricsTranscriptionSettingsStore.markCredentialMigrationCompleted()
+        lyricsTranscriptionCredentialAvailable = false
+    }
+
+    private func resolvedLyricsTranscriptionConfiguration() async
+        -> AIRemoteProviderConfiguration {
+        _ = lyricsTranscriptionSettingsStore.adoptLegacySettingsIfNeeded(
+            from: settingsStore
+        )
+        let dedicated = lyricsTranscriptionSettingsStore.configuration
+        guard !lyricsTranscriptionSettingsStore.credentialMigrationCompleted,
+              let legacy = lyricsTranscriptionSettingsStore
+                .legacyCredentialConfiguration else {
+            return dedicated
+        }
+
+        switch await credentialStore.lookupAPIKey(configuration: dedicated) {
+        case .ready:
+            lyricsTranscriptionSettingsStore.markCredentialMigrationCompleted()
+            return dedicated
+        case .notConfigured:
+            switch await credentialStore.lookupAPIKey(configuration: legacy) {
+            case .ready(let apiKey):
+                do {
+                    _ = try await credentialStore.saveAPIKey(
+                        apiKey,
+                        configuration: dedicated
+                    )
+                    lyricsTranscriptionSettingsStore.markCredentialMigrationCompleted()
+                    return dedicated
+                } catch {
+                    return Self.configuration(
+                        dedicated,
+                        usingCredentialScopeFrom: legacy
+                    )
+                }
+            case .notConfigured:
+                lyricsTranscriptionSettingsStore.markCredentialMigrationCompleted()
+                return dedicated
+            case .temporarilyUnavailable, .failed:
+                return Self.configuration(
+                    dedicated,
+                    usingCredentialScopeFrom: legacy
+                )
+            }
+        case .temporarilyUnavailable, .failed:
+            return dedicated
+        }
+    }
+
+    private static func configuration(
+        _ configuration: AIRemoteProviderConfiguration,
+        usingCredentialScopeFrom legacy: AIRemoteProviderConfiguration
+    ) -> AIRemoteProviderConfiguration {
+        var resolved = configuration
+        resolved.id = legacy.id
+        resolved.baseURL = legacy.baseURL
+        resolved.apiStyle = legacy.apiStyle
+        resolved.apiPathMode = legacy.apiPathMode
+        resolved.authenticationStyle = legacy.authenticationStyle
+        resolved.allowInsecureLocalHTTP = legacy.allowInsecureLocalHTTP
+        return resolved
+    }
+
     func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
         if case .ready = await credentialStore.lookupAPIKey(configuration: configuration) {
             return true
@@ -561,6 +716,7 @@ final class MusicIntelligenceService {
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
+        await prepareLyricsTranscriptionCredentialMigration()
         _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: configuration)
         if let apiKey,
            !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -578,10 +734,8 @@ final class MusicIntelligenceService {
         providerSet: AIRemoteProviderSet,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool,
-        audioTranscriptionEnabled: Bool,
         hasExplicitRemoteConsent: Bool,
         hasExplicitListeningContextConsent: Bool,
-        hasExplicitAudioUploadConsent: Bool,
         apiKeys: [UUID: String]
     ) async throws {
         let decision = AIAvailabilityPolicy.decision(
@@ -591,6 +745,7 @@ final class MusicIntelligenceService {
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
+        await prepareLyricsTranscriptionCredentialMigration()
         let normalized = providerSet.normalized()
         for provider in normalized.providers where provider.isEnabled {
             _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
@@ -602,20 +757,36 @@ final class MusicIntelligenceService {
             }
             _ = try await credentialStore.saveAPIKey(apiKey, configuration: provider)
         }
+        let preservesLegacyAudioSettings = settingsStore.audioTranscriptionEnabled
+            && normalized.routedProviders.contains {
+                AIAudioTranscriptionPolicy.supports(configuration: $0)
+            }
         try settingsStore.save(
             providerSet: normalized,
             semanticSearchEnabled: semanticSearchEnabled,
             recommendationsEnabled: recommendationsEnabled,
-            audioTranscriptionEnabled: audioTranscriptionEnabled,
+            audioTranscriptionEnabled: preservesLegacyAudioSettings,
             hasExplicitRemoteConsent: hasExplicitRemoteConsent,
             hasExplicitListeningContextConsent: hasExplicitListeningContextConsent,
-            hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent
+            hasExplicitAudioUploadConsent: preservesLegacyAudioSettings
+                && settingsStore.hasExplicitAudioUploadConsent
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
     }
 
     func deleteAPIKey(configuration: AIRemoteProviderConfiguration) async throws {
+        _ = lyricsTranscriptionSettingsStore.adoptLegacySettingsIfNeeded(
+            from: settingsStore
+        )
+        if !lyricsTranscriptionSettingsStore.credentialMigrationCompleted,
+           lyricsTranscriptionSettingsStore.legacyCredentialConfiguration?.id
+                == configuration.id {
+            await prepareLyricsTranscriptionCredentialMigration()
+            guard lyricsTranscriptionSettingsStore.credentialMigrationCompleted else {
+                throw AICredentialStoreError.persistenceFailed
+            }
+        }
         try await credentialStore.deleteAPIKey(configuration: configuration)
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)

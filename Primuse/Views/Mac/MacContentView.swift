@@ -368,6 +368,7 @@ struct MacContentView: View {
     private var canTranscribeCurrentSongAudio: Bool {
         guard let song = player.currentSong else { return false }
         return intelligence.isAudioTranscriptionConfigured
+            && AIAudioTranscriptionPolicy.supportsInput(format: song.fileFormat)
             && song.sourceID != AppleMusicLibraryIdentity.sourceID
             && song.cueSheetPath == nil
             && (song.duration <= 0

@@ -186,7 +186,6 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .xGoogAPIKey
             configuration.generationModel = "gemini-3.7-flash"
-            configuration.transcriptionModel = "gemini-3.5-transcribe"
         case .deepSeekOpenAI:
             configuration.displayName = "DeepSeek"
             configuration.baseURL = "https://api.deepseek.com"
@@ -363,16 +362,55 @@ public enum AIRequestTimeoutPolicy {
 }
 
 public enum AIAudioTranscriptionPolicy {
-    public static let geminiModel = "gemini-3.5-transcribe"
     public static let maximumDuration: TimeInterval = 30 * 60
     public static let maximumFileBytes: Int64 = 2 * 1_024 * 1_024 * 1_024
     public static let requestTimeout: TimeInterval = 15 * 60
+
+    /// File formats explicitly documented by Google's transcription endpoint.
+    /// Keep this conservative: playback support is broader than remote
+    /// transcription support, and relabelling an unknown payload as MP3 only
+    /// postpones an otherwise preventable upload failure.
+    public static let supportedInputFormats: Set<AudioFormat> = [
+        .mp3, .aac, .flac, .wav, .aiff, .aif, .ogg,
+    ]
+
+    public static func supportsInput(format: AudioFormat) -> Bool {
+        supportedInputFormats.contains(format)
+    }
+
+    public static func mimeType(for format: AudioFormat) -> String? {
+        switch format {
+        case .mp3: return "audio/mpeg"
+        case .aac: return "audio/aac"
+        case .flac: return "audio/flac"
+        case .wav: return "audio/wav"
+        case .aiff, .aif: return "audio/aiff"
+        case .ogg: return "audio/ogg"
+        default: return nil
+        }
+    }
+
+    public static func supportsInput(mimeType rawValue: String) -> Bool {
+        let mimeType = rawValue
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        return [
+            "audio/mpeg", "audio/mp3",
+            "audio/aac",
+            "audio/flac",
+            "audio/wav", "audio/wave", "audio/x-wav",
+            "audio/aiff", "audio/x-aiff",
+            "audio/ogg",
+        ].contains(mimeType)
+    }
 
     public static func supports(
         configuration: AIRemoteProviderConfiguration
     ) -> Bool {
         isCompatibleEndpoint(configuration: configuration)
-            && normalizedModel(configuration.transcriptionModel) == geminiModel
+            && isSupportedModelID(configuration.transcriptionModel)
     }
 
     public static func isCompatibleEndpoint(
@@ -391,6 +429,23 @@ public enum AIAudioTranscriptionPolicy {
 
     public static func normalizedModel(_ rawValue: String) -> String {
         AIRemoteEndpointPolicy.normalizedGeminiModelID(rawValue)
+    }
+
+    /// Google exposes transcription models through its authenticated model
+    /// catalog. Match the capability family instead of pinning a release name
+    /// that will age out; the endpoint gate above still prevents every other
+    /// vendor or compatibility relay from advertising support.
+    public static func isSupportedModelID(_ rawValue: String) -> Bool {
+        let model = normalizedModel(rawValue).lowercased()
+        return !model.isEmpty
+            && model.contains("transcribe")
+            && !model.contains("live")
+    }
+
+    public static func supportedModels(
+        from models: [AIProviderModel]
+    ) -> [AIProviderModel] {
+        models.filter { isSupportedModelID($0.id) }
     }
 }
 

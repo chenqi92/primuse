@@ -303,9 +303,10 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                 (200, "{}", [:]),
             ]
         )
-        let configuration = AIProviderPreset.gemini.applying(
+        var configuration = AIProviderPreset.gemini.applying(
             to: AIRemoteProviderConfiguration(isEnabled: true)
         )
+        configuration.transcriptionModel = "gemini-test-transcribe"
         let credentialStore = TestAICredentialStore()
         try await credentialStore.seed("gemini-transcribe-key", configuration: configuration)
         let sessionConfiguration = URLSessionConfiguration.ephemeral
@@ -357,7 +358,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         let interaction = try XCTUnwrap(
             JSONSerialization.jsonObject(with: interactionBody) as? [String: Any]
         )
-        XCTAssertEqual(interaction["model"] as? String, "gemini-3.5-transcribe")
+        XCTAssertEqual(interaction["model"] as? String, "gemini-test-transcribe")
         XCTAssertEqual(interaction["store"] as? Bool, false)
         let generation = try XCTUnwrap(interaction["generation_config"] as? [String: Any])
         let transcription = try XCTUnwrap(
@@ -386,7 +387,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                 ),
                 (
                     200,
-                    #"{"models":[{"name":"models/gemini-pro","supportedGenerationMethods":["generateContent","countTokens"]}]}"#
+                    #"{"models":[{"name":"models/gemini-future-transcribe","supportedGenerationMethods":["generateContent"]},{"name":"models/gemini-pro","supportedGenerationMethods":["generateContent","countTokens"]}]}"#
                 ),
             ]
         )
@@ -409,8 +410,12 @@ final class OpenAICompatibleProviderTests: XCTestCase {
 
         let models = try await provider.listModels()
 
-        XCTAssertEqual(models.map(\.id), ["gemini-flash", "gemini-pro"])
+        XCTAssertEqual(models.map(\.id), ["gemini-flash", "gemini-future-transcribe", "gemini-pro"])
         XCTAssertTrue(models.allSatisfy { $0.ownedBy == "Google" })
+        XCTAssertEqual(
+            AIAudioTranscriptionPolicy.supportedModels(from: models).map(\.id),
+            ["gemini-future-transcribe"]
+        )
         let requests = IntelligenceURLProtocol.requests(host: host)
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(requests[0].value(forHTTPHeaderField: "x-goog-api-key"), "gemini-api-key")
@@ -1202,12 +1207,13 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             generationModel: "first-model",
             isEnabled: true
         )
-        let second = AIProviderPreset.gemini.applying(
+        var second = AIProviderPreset.gemini.applying(
             to: AIRemoteProviderConfiguration(
                 displayName: "Second",
                 isEnabled: true
             )
         )
+        second.transcriptionModel = "gemini-legacy-transcribe"
         let store = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
         try store.save(
             providerSet: AIRemoteProviderSet(
@@ -1274,6 +1280,263 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testLyricsTranscriptionSettingsMigrateWithoutChangingGeneralIntelligence() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        var legacyProvider = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        legacyProvider.transcriptionModel = "gemini-legacy-transcribe"
+        let general = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        try general.save(
+            providerSet: AIRemoteProviderSet(
+                providers: [legacyProvider],
+                primaryProviderID: legacyProvider.id,
+                fallbackEnabled: false
+            ),
+            semanticSearchEnabled: true,
+            recommendationsEnabled: true,
+            audioTranscriptionEnabled: true,
+            hasExplicitRemoteConsent: true,
+            hasExplicitListeningContextConsent: true,
+            hasExplicitAudioUploadConsent: true
+        )
+        let dedicatedID = UUID()
+
+        let lyrics = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: dedicatedID
+        )
+
+        XCTAssertEqual(lyrics.configuration.id, dedicatedID)
+        XCTAssertNotEqual(lyrics.configuration.id, legacyProvider.id)
+        XCTAssertEqual(
+            lyrics.configuration.transcriptionModel,
+            legacyProvider.transcriptionModel
+        )
+        XCTAssertTrue(lyrics.configuration.generationModel.isEmpty)
+        XCTAssertTrue(lyrics.isEnabled)
+        XCTAssertTrue(lyrics.hasExplicitAudioUploadConsent)
+        XCTAssertFalse(lyrics.credentialMigrationCompleted)
+        XCTAssertEqual(lyrics.legacyCredentialConfiguration?.id, legacyProvider.id)
+        XCTAssertEqual(general.providerSet.primaryProvider.id, legacyProvider.id)
+        XCTAssertTrue(general.semanticSearchEnabled)
+        XCTAssertTrue(general.recommendationsEnabled)
+
+        let reloaded = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        XCTAssertEqual(reloaded.configuration.id, dedicatedID)
+    }
+
+    @MainActor
+    func testLyricsTranscriptionCredentialMigrationCopiesWithoutRemovingLegacyKey() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        var legacyProvider = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        legacyProvider.transcriptionModel = "gemini-legacy-transcribe"
+        let general = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        try general.save(
+            providerSet: AIRemoteProviderSet(
+                providers: [legacyProvider],
+                primaryProviderID: legacyProvider.id,
+                fallbackEnabled: false
+            ),
+            semanticSearchEnabled: false,
+            recommendationsEnabled: false,
+            audioTranscriptionEnabled: true,
+            hasExplicitRemoteConsent: false,
+            hasExplicitListeningContextConsent: false,
+            hasExplicitAudioUploadConsent: true
+        )
+        let lyrics = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        let credentials = TestAICredentialStore()
+        let ephemeralCredential = UUID().uuidString
+        try await credentials.seed(ephemeralCredential, configuration: legacyProvider)
+        let service = MusicIntelligenceService(
+            settingsStore: general,
+            lyricsTranscriptionSettingsStore: lyrics,
+            credentialStore: credentials
+        )
+
+        await service.prepareLyricsTranscriptionCredentialMigration()
+        XCTAssertTrue(service.lyricsTranscriptionCredentialAvailable)
+
+        guard case .ready(let dedicatedCredential) = await credentials.lookupAPIKey(
+            configuration: lyrics.configuration
+        ), dedicatedCredential == ephemeralCredential else {
+            XCTFail("The dedicated transcription credential should be copied")
+            return
+        }
+        guard case .ready(let preservedCredential) = await credentials.lookupAPIKey(
+            configuration: legacyProvider
+        ), preservedCredential == ephemeralCredential else {
+            XCTFail("The general intelligence credential should remain available")
+            return
+        }
+        XCTAssertTrue(lyrics.credentialMigrationCompleted)
+    }
+
+    @MainActor
+    func testGeneralCredentialDeletionIsBlockedUntilTranscriptionCopySucceeds() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        var legacyProvider = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        legacyProvider.transcriptionModel = "gemini-legacy-transcribe"
+        let general = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        try general.save(
+            providerSet: AIRemoteProviderSet(
+                providers: [legacyProvider],
+                primaryProviderID: legacyProvider.id,
+                fallbackEnabled: false
+            ),
+            semanticSearchEnabled: false,
+            recommendationsEnabled: false,
+            audioTranscriptionEnabled: true,
+            hasExplicitRemoteConsent: false,
+            hasExplicitListeningContextConsent: false,
+            hasExplicitAudioUploadConsent: true
+        )
+        let lyrics = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        let credentials = TestAICredentialStore(
+            blockedSaveProfileIDs: [lyrics.configuration.id]
+        )
+        let ephemeralCredential = UUID().uuidString
+        try await credentials.seed(ephemeralCredential, configuration: legacyProvider)
+        let service = MusicIntelligenceService(
+            settingsStore: general,
+            lyricsTranscriptionSettingsStore: lyrics,
+            credentialStore: credentials
+        )
+
+        do {
+            try await service.deleteAPIKey(configuration: legacyProvider)
+            XCTFail("The legacy key must remain while the dedicated copy cannot be written")
+        } catch {
+            XCTAssertTrue(error is AICredentialStoreError)
+        }
+        guard case .ready(let preservedCredential) = await credentials.lookupAPIKey(
+            configuration: legacyProvider
+        ), preservedCredential == ephemeralCredential else {
+            XCTFail("The legacy credential must remain available after a failed copy")
+            return
+        }
+        XCTAssertFalse(lyrics.credentialMigrationCompleted)
+
+        await credentials.allowSaves(for: lyrics.configuration.id)
+        try await service.deleteAPIKey(configuration: legacyProvider)
+
+        guard case .ready(let dedicatedCredential) = await credentials.lookupAPIKey(
+            configuration: lyrics.configuration
+        ), dedicatedCredential == ephemeralCredential else {
+            XCTFail("The dedicated credential should exist before the legacy key is removed")
+            return
+        }
+        guard case .notConfigured = await credentials.lookupAPIKey(
+            configuration: legacyProvider
+        ) else {
+            XCTFail("The legacy credential should be removed after the copy succeeds")
+            return
+        }
+        XCTAssertTrue(lyrics.credentialMigrationCompleted)
+    }
+
+    @MainActor
+    func testFreshLyricsTranscriptionSettingsDoNotAssumeModelRelease() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let general = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let lyrics = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+
+        XCTAssertTrue(lyrics.configuration.transcriptionModel.isEmpty)
+        XCTAssertFalse(lyrics.isEnabled)
+        XCTAssertTrue(lyrics.credentialMigrationCompleted)
+        XCTAssertTrue(lyrics.awaitsLegacySettingsMigration)
+        XCTAssertNotNil(defaults.data(forKey: LyricsTranscriptionSettingsStore.storageKey))
+    }
+
+    @MainActor
+    func testLyricsTranscriptionSettingsAdoptLegacyConfigurationThatArrivesLater() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let general = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let dedicatedID = UUID()
+        let lyrics = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: dedicatedID
+        )
+        var legacyProvider = AIProviderPreset.gemini.applying(
+            to: AIRemoteProviderConfiguration(isEnabled: true)
+        )
+        legacyProvider.transcriptionModel = "gemini-later-transcribe"
+        try general.save(
+            providerSet: AIRemoteProviderSet(
+                providers: [legacyProvider],
+                primaryProviderID: legacyProvider.id,
+                fallbackEnabled: false
+            ),
+            semanticSearchEnabled: true,
+            recommendationsEnabled: true,
+            audioTranscriptionEnabled: true,
+            hasExplicitRemoteConsent: true,
+            hasExplicitListeningContextConsent: true,
+            hasExplicitAudioUploadConsent: true
+        )
+
+        XCTAssertTrue(lyrics.adoptLegacySettingsIfNeeded(from: general))
+        XCTAssertEqual(lyrics.configuration.id, dedicatedID)
+        XCTAssertEqual(
+            lyrics.configuration.transcriptionModel,
+            legacyProvider.transcriptionModel
+        )
+        XCTAssertTrue(lyrics.isEnabled)
+        XCTAssertTrue(lyrics.hasExplicitAudioUploadConsent)
+        XCTAssertEqual(lyrics.legacyCredentialConfiguration?.id, legacyProvider.id)
+        XCTAssertFalse(lyrics.credentialMigrationCompleted)
+        XCTAssertFalse(lyrics.awaitsLegacySettingsMigration)
+
+        let reloaded = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        XCTAssertEqual(reloaded.configuration.id, dedicatedID)
+        XCTAssertFalse(reloaded.awaitsLegacySettingsMigration)
+    }
+
+    @MainActor
     func testSystemAndIntelligentLyricsCachesRemainMutuallyExclusive() {
         let cache = LyricsTranslationCache.shared
         cache.clearAll()
@@ -1336,6 +1599,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         editor.draftConfiguration.baseURL = "https://api.example.com/v1"
         editor.draftConfiguration.generationModel = "test-model"
 
+        XCTAssertFalse(editor.canFetchModels)
+        XCTAssertFalse(editor.canTestConnection)
+        editor.didLoad = true
         XCTAssertTrue(editor.canFetchModels)
         XCTAssertTrue(editor.canTestConnection)
         XCTAssertFalse(editor.consent)
@@ -1516,6 +1782,15 @@ final class OpenAICompatibleProviderTests: XCTestCase {
 
 private actor TestAICredentialStore: AICredentialStoring {
     private var keys: [String: String] = [:]
+    private var blockedSaveProfileIDs: Set<UUID>
+
+    init(blockedSaveProfileIDs: Set<UUID> = []) {
+        self.blockedSaveProfileIDs = blockedSaveProfileIDs
+    }
+
+    func allowSaves(for profileID: UUID) {
+        blockedSaveProfileIDs.remove(profileID)
+    }
 
     func seed(
         _ key: String,
@@ -1544,6 +1819,9 @@ private actor TestAICredentialStore: AICredentialStoring {
         _ rawValue: String,
         configuration: AIRemoteProviderConfiguration
     ) throws -> Bool {
+        guard !blockedSaveProfileIDs.contains(configuration.id) else {
+            throw AICredentialStoreError.persistenceFailed
+        }
         let key = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let account = try account(for: configuration)
         keys[account] = key.isEmpty ? nil : key

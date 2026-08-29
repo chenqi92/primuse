@@ -42,6 +42,7 @@ final class AISettingsStore {
     nonisolated static let storageKey = "ai.settings.v1"
     private let defaults: UserDefaults
     private let syncsThroughICloud: Bool
+    @ObservationIgnored var externalReloadHandler: (() -> Void)?
 
     private(set) var providerSet: AIRemoteProviderSet
     private(set) var semanticSearchEnabled: Bool
@@ -157,6 +158,7 @@ final class AISettingsStore {
         hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
         hasPersistedSettings = persistedData != nil
         revision &+= 1
+        externalReloadHandler?()
     }
 
     private static func decodeSettings(
@@ -230,6 +232,242 @@ final class AISettingsStore {
             )
         }
         return (AIRemoteProviderSet(), false, false, false, false, false, false)
+    }
+}
+
+@MainActor
+@Observable
+final class LyricsTranscriptionSettingsStore {
+    private struct PersistedSettingsV1: Codable {
+        var schemaVersion: Int
+        var configuration: AIRemoteProviderConfiguration
+        var isEnabled: Bool
+        var hasExplicitAudioUploadConsent: Bool
+        var legacyCredentialConfiguration: AIRemoteProviderConfiguration?
+        var credentialMigrationCompleted: Bool
+        var awaitsLegacySettingsMigration: Bool?
+    }
+
+    nonisolated static let storageKey = "lyrics.transcription.settings.v1"
+
+    private let defaults: UserDefaults
+    private let syncsThroughICloud: Bool
+    @ObservationIgnored var externalReloadHandler: (() -> Void)?
+    private(set) var configuration: AIRemoteProviderConfiguration
+    private(set) var isEnabled: Bool
+    private(set) var hasExplicitAudioUploadConsent: Bool
+    private(set) var legacyCredentialConfiguration: AIRemoteProviderConfiguration?
+    private(set) var credentialMigrationCompleted: Bool
+    private(set) var awaitsLegacySettingsMigration: Bool
+    private(set) var revision: UInt64 = 0
+
+    init(
+        defaults: UserDefaults = .standard,
+        legacySettingsStore: AISettingsStore? = nil,
+        syncsThroughICloud: Bool? = nil,
+        identifier: @autoclosure () -> UUID = UUID()
+    ) {
+        self.defaults = defaults
+        self.syncsThroughICloud = syncsThroughICloud ?? (defaults === UserDefaults.standard)
+
+        if let data = defaults.data(forKey: Self.storageKey),
+           let persisted = try? JSONDecoder().decode(PersistedSettingsV1.self, from: data),
+           persisted.schemaVersion == 1 {
+            let normalized = Self.normalizedGoogleConfiguration(persisted.configuration)
+            configuration = normalized
+            isEnabled = persisted.isEnabled
+                && AIAudioTranscriptionPolicy.supports(configuration: normalized)
+            hasExplicitAudioUploadConsent = persisted.hasExplicitAudioUploadConsent
+            legacyCredentialConfiguration = persisted.legacyCredentialConfiguration
+            credentialMigrationCompleted = persisted.credentialMigrationCompleted
+            awaitsLegacySettingsMigration = persisted.awaitsLegacySettingsMigration
+                ?? (persisted.legacyCredentialConfiguration == nil
+                    && normalized.transcriptionModel.isEmpty)
+        } else if let legacySettingsStore,
+                  let legacy = Self.legacyConfiguration(from: legacySettingsStore) {
+            var migrated = Self.normalizedGoogleConfiguration(legacy)
+            migrated.id = identifier()
+            configuration = migrated
+            isEnabled = legacySettingsStore.audioTranscriptionEnabled
+                && AIAudioTranscriptionPolicy.supports(configuration: migrated)
+            hasExplicitAudioUploadConsent = legacySettingsStore
+                .hasExplicitAudioUploadConsent
+            legacyCredentialConfiguration = legacy
+            credentialMigrationCompleted = false
+            awaitsLegacySettingsMigration = false
+            persistCurrentSettings()
+        } else {
+            configuration = Self.defaultConfiguration(id: identifier())
+            isEnabled = false
+            hasExplicitAudioUploadConsent = false
+            legacyCredentialConfiguration = nil
+            credentialMigrationCompleted = true
+            awaitsLegacySettingsMigration = true
+            // Keep a concrete disabled value in UserDefaults. A manual settings
+            // sync must not interpret a fresh device's missing value as a
+            // deletion of transcription settings configured on another device.
+            persistCurrentSettings()
+        }
+
+        if self.syncsThroughICloud {
+            CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
+                self?.reloadFromDefaults()
+            }
+        }
+    }
+
+    static func defaultConfiguration(id: UUID = UUID()) -> AIRemoteProviderConfiguration {
+        AIRemoteProviderConfiguration(
+            id: id,
+            displayName: "Google",
+            baseURL: "https://generativelanguage.googleapis.com/v1beta",
+            apiStyle: .geminiGenerateContent,
+            apiPathMode: .asEntered,
+            authenticationStyle: .xGoogAPIKey,
+            generationModel: "",
+            embeddingModel: "",
+            transcriptionModel: "",
+            isEnabled: true
+        )
+    }
+
+    func save(
+        configuration: AIRemoteProviderConfiguration,
+        isEnabled: Bool,
+        hasExplicitAudioUploadConsent: Bool,
+        credentialMigrationCompleted: Bool = true
+    ) throws {
+        let normalized = Self.normalizedGoogleConfiguration(configuration)
+        guard AIAudioTranscriptionPolicy.isCompatibleEndpoint(
+            configuration: normalized
+        ) else {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        if isEnabled,
+           !AIAudioTranscriptionPolicy.supports(configuration: normalized) {
+            throw AIRemoteEndpointValidationError.unsupportedCapability
+        }
+        let persisted = PersistedSettingsV1(
+            schemaVersion: 1,
+            configuration: normalized,
+            isEnabled: isEnabled,
+            hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
+            legacyCredentialConfiguration: legacyCredentialConfiguration,
+            credentialMigrationCompleted: credentialMigrationCompleted,
+            awaitsLegacySettingsMigration: false
+        )
+        defaults.set(try JSONEncoder().encode(persisted), forKey: Self.storageKey)
+        self.configuration = normalized
+        self.isEnabled = isEnabled
+        self.hasExplicitAudioUploadConsent = hasExplicitAudioUploadConsent
+        self.credentialMigrationCompleted = credentialMigrationCompleted
+        awaitsLegacySettingsMigration = false
+        revision &+= 1
+        if syncsThroughICloud {
+            CloudKVSSync.shared.markChanged(key: Self.storageKey)
+        }
+    }
+
+    func markCredentialMigrationCompleted() {
+        guard !credentialMigrationCompleted else { return }
+        credentialMigrationCompleted = true
+        persistCurrentSettings()
+        revision &+= 1
+        if syncsThroughICloud {
+            CloudKVSSync.shared.markChanged(key: Self.storageKey)
+        }
+    }
+
+    private func reloadFromDefaults() {
+        guard let data = defaults.data(forKey: Self.storageKey),
+              let persisted = try? JSONDecoder().decode(PersistedSettingsV1.self, from: data),
+              persisted.schemaVersion == 1 else { return }
+        configuration = Self.normalizedGoogleConfiguration(persisted.configuration)
+        isEnabled = persisted.isEnabled
+            && AIAudioTranscriptionPolicy.supports(configuration: configuration)
+        hasExplicitAudioUploadConsent = persisted.hasExplicitAudioUploadConsent
+        legacyCredentialConfiguration = persisted.legacyCredentialConfiguration
+        credentialMigrationCompleted = persisted.credentialMigrationCompleted
+        awaitsLegacySettingsMigration = persisted.awaitsLegacySettingsMigration
+            ?? (persisted.legacyCredentialConfiguration == nil
+                && configuration.transcriptionModel.isEmpty)
+        revision &+= 1
+        externalReloadHandler?()
+    }
+
+    private func persistCurrentSettings() {
+        let persisted = PersistedSettingsV1(
+            schemaVersion: 1,
+            configuration: configuration,
+            isEnabled: isEnabled,
+            hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
+            legacyCredentialConfiguration: legacyCredentialConfiguration,
+            credentialMigrationCompleted: credentialMigrationCompleted,
+            awaitsLegacySettingsMigration: awaitsLegacySettingsMigration
+        )
+        if let data = try? JSONEncoder().encode(persisted) {
+            defaults.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    @discardableResult
+    func adoptLegacySettingsIfNeeded(from store: AISettingsStore) -> Bool {
+        guard awaitsLegacySettingsMigration,
+              legacyCredentialConfiguration == nil,
+              configuration.transcriptionModel.isEmpty,
+              !isEnabled,
+              !hasExplicitAudioUploadConsent,
+              let legacy = Self.legacyConfiguration(from: store) else {
+            return false
+        }
+
+        var migrated = Self.normalizedGoogleConfiguration(legacy)
+        migrated.id = configuration.id
+        configuration = migrated
+        isEnabled = store.audioTranscriptionEnabled
+            && AIAudioTranscriptionPolicy.supports(configuration: migrated)
+        hasExplicitAudioUploadConsent = store.hasExplicitAudioUploadConsent
+        legacyCredentialConfiguration = legacy
+        credentialMigrationCompleted = false
+        awaitsLegacySettingsMigration = false
+        persistCurrentSettings()
+        revision &+= 1
+        if syncsThroughICloud {
+            CloudKVSSync.shared.markChanged(key: Self.storageKey)
+        }
+        return true
+    }
+
+    private static func legacyConfiguration(
+        from store: AISettingsStore
+    ) -> AIRemoteProviderConfiguration? {
+        let routed = store.providerSet.routedProviders
+        let routedIDs = Set(routed.map(\.id))
+        let remaining = store.providerSet.providers.filter { !routedIDs.contains($0.id) }
+        return (routed + remaining).first {
+            AIAudioTranscriptionPolicy.isCompatibleEndpoint(configuration: $0)
+                && AIAudioTranscriptionPolicy.isSupportedModelID($0.transcriptionModel)
+        }
+    }
+
+    static func normalizedGoogleConfiguration(
+        _ source: AIRemoteProviderConfiguration
+    ) -> AIRemoteProviderConfiguration {
+        var configuration = source
+        configuration.displayName = "Google"
+        configuration.baseURL = "https://generativelanguage.googleapis.com/v1beta"
+        configuration.apiStyle = .geminiGenerateContent
+        configuration.apiPathMode = .asEntered
+        configuration.authenticationStyle = .xGoogAPIKey
+        configuration.generationModel = ""
+        configuration.embeddingModel = ""
+        configuration.transcriptionModel = AIAudioTranscriptionPolicy.normalizedModel(
+            source.transcriptionModel
+        )
+        configuration.allowInsecureLocalHTTP = false
+        configuration.isEnabled = true
+        configuration.prefersCustomConfiguration = false
+        return configuration
     }
 }
 

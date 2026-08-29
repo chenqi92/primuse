@@ -39,9 +39,9 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        LyricsTranslationSettingsView()
+                        LyricsSettingsView()
                     } label: {
-                        Label("lyrics_translation_title", systemImage: "character.bubble")
+                        Label("lyrics_settings_title", systemImage: "character.bubble")
                     }
 
                     NavigationLink {

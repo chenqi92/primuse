@@ -23,7 +23,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .keyboard: return String(localized: "keyboard_shortcuts_title")
         case .scrape: return Lz("Metadata Scraping")
         case .artists: return String(localized: "artist_name_settings_title")
-        case .lyrics: return Lz("Lyrics Translation")
+        case .lyrics: return String(localized: "lyrics_settings_title")
         case .appleMusic: return "Apple Music"
         case .intelligence: return String(localized: "ai_settings_title")
         case .widgets: return Lz("Widgets")
@@ -690,23 +690,6 @@ private struct MacSTIntelligenceView: View {
                     ) {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
-                    if editor.hasAudioTranscriptionProvider
-                        || editor.audioTranscriptionEnabled {
-                        MacSTRow(
-                            String(localized: "ai_enable_audio_transcription"),
-                            hint: String(localized: "ai_audio_transcription_capability_detail")
-                        ) {
-                            MacSTToggle(isOn: editor.audioTranscriptionBinding)
-                        }
-                    } else {
-                        MacSTRow(
-                            String(localized: "ai_enable_audio_transcription"),
-                            hint: String(localized: "ai_audio_transcription_not_configured")
-                        ) {
-                            Image(systemName: "waveform.badge.mic")
-                                .foregroundStyle(PMColor.textFaint)
-                        }
-                    }
                 }
             }
 
@@ -794,19 +777,6 @@ private struct MacSTIntelligenceView: View {
                             models: editor.availableModels
                         )
                     }
-                    if editor.selectedProviderCanConfigureAudioTranscription {
-                        MacSTRow(
-                            String(localized: "ai_transcription_model"),
-                            hint: String(localized: "ai_audio_transcription_model_detail")
-                        ) {
-                            MacAIModelField(
-                                text: editor.configurationBinding(\.transcriptionModel),
-                                models: editor.availableModels.filter {
-                                    $0.id.localizedCaseInsensitiveContains("transcribe")
-                                }
-                            )
-                        }
-                    }
                     if editor.draftConfiguration.supportsEmbeddings {
                         MacSTRow(String(localized: "ai_embedding_model")) {
                             MacAIModelField(
@@ -868,14 +838,6 @@ private struct MacSTIntelligenceView: View {
                     ) {
                         MacSTToggle(isOn: editor.listeningContextConsentBinding)
                     }
-                    if editor.hasAudioTranscriptionEndpoint || editor.audioUploadConsent {
-                        MacSTRow(
-                            String(localized: "ai_audio_upload_consent"),
-                            hint: String(localized: "ai_audio_upload_consent_detail")
-                        ) {
-                            MacSTToggle(isOn: editor.audioUploadConsentBinding)
-                        }
-                    }
                 }
             }
 
@@ -911,7 +873,9 @@ private struct MacSTIntelligenceView: View {
                             ) {
                                 Task { await editor.save(using: intelligence) }
                             }
-                            .disabled(editor.isWorking || editor.isFetchingModels)
+                            .disabled(
+                                !editor.didLoad || editor.isWorking || editor.isFetchingModels
+                            )
                         }
                     }
                     MacSTRow(
@@ -2986,62 +2950,86 @@ private struct MacSTLyricsView: View {
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
+    @State private var showTranscriptionSettings = false
 
     var body: some View {
-        // 删了"离线模型"/"翻译颜色"/"仅 NowPlaying 展开时显示翻译" 三行 —— 这些 mock
-        // 控件没接到任何 Store, 之前是纯视觉占位, 真翻译走的是 Apple 本地
-        // Translation Framework (LyricsTranslationSettingsStore)。
-        MacSTSection(Lz("Translate Lyrics")) {
-            MacSTGroup {
-                MacSTRow(Lz("Enable Translation"), hint: Lz("L-08 · Two-Line Display"), divider: false) {
-                    MacSTToggle(isOn: Binding(
-                        get: { settings.isEnabled },
-                        set: { settings.isEnabled = $0 }
-                    ))
+        VStack(alignment: .leading, spacing: 0) {
+            MacSTSection(String(localized: "lyrics_translation_section")) {
+                MacSTGroup {
+                    MacSTRow(String(localized: "lyrics_translation_enabled"), divider: false) {
+                        MacSTToggle(isOn: Binding(
+                            get: { settings.isEnabled },
+                            set: { settings.isEnabled = $0 }
+                        ))
+                    }
+                    MacSTRow(String(localized: "lyrics_translation_mode")) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: {
+                                    intelligence.shouldExposeRemoteConfiguration
+                                        ? settings.mode.rawValue : LyricsTranslationMode.system.rawValue
+                                },
+                                set: { settings.mode = LyricsTranslationMode(rawValue: $0) ?? .system }
+                            ),
+                            options: lyricsTranslationModeOptions
+                        )
+                    }
+                    MacSTRow(String(localized: "lyrics_translation_target")) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { settings.targetLanguageCode },
+                                set: { settings.targetLanguageCode = $0 }
+                            ),
+                            options: languageCatalog
+                                .options(including: settings.targetLanguageCode)
+                                .map {
+                                    ($0, languageCatalog.displayName(for: $0))
+                                }
+                        )
+                    }
                 }
-                MacSTRow(String(localized: "lyrics_translation_mode")) {
-                    MacSTPicker(
-                        selection: Binding(
-                            get: {
-                                intelligence.shouldExposeRemoteConfiguration
-                                    ? settings.mode.rawValue : LyricsTranslationMode.system.rawValue
-                            },
-                            set: { settings.mode = LyricsTranslationMode(rawValue: $0) ?? .system }
-                        ),
-                        options: lyricsTranslationModeOptions
-                    )
+            }
+
+            MacSTSection(
+                String(localized: "lyrics_audio_tools_section"),
+                hint: String(localized: "lyrics_audio_tools_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "lyrics_transcription_settings_title"),
+                        divider: false
+                    ) {
+                        MacSTButton(
+                            title: intelligence.isAudioTranscriptionConfigured
+                                ? String(localized: "lyrics_transcription_status_ready")
+                                : String(localized: "lyrics_transcription_configure"),
+                            systemImage: "waveform.badge.mic"
+                        ) {
+                            showTranscriptionSettings = true
+                        }
+                    }
                 }
-                MacSTRow(Lz("Target Language")) {
-                    MacSTPicker(
-                        selection: Binding(
-                            get: { settings.targetLanguageCode },
-                            set: { settings.targetLanguageCode = $0 }
-                        ),
-                        options: languageCatalog
-                            .options(including: settings.targetLanguageCode)
-                            .map {
-                                ($0, languageCatalog.displayName(for: $0))
-                            }
-                    )
+            }
+
+            MacSTSection(String(localized: "lyrics_display_section")) {
+                MacSTGroup {
+                    MacSTRow(String(localized: "lyrics_font_size"), divider: false) {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { lyricsFontScale * 100 },
+                                set: { lyricsFontScale = $0 / 100 }
+                            ),
+                            in: 70...180,
+                            formatter: { String(format: "%.0f%%", $0) }
+                        )
+                    }
                 }
             }
         }
-        .task {
-            await languageCatalog.refresh()
-        }
-
-        MacSTSection(Lz("Display Style")) {
-            MacSTGroup {
-                MacSTRow(String(localized: "lyrics_font_size"), divider: false) {
-                    MacSTSlider(
-                        value: Binding(
-                            get: { lyricsFontScale * 100 },
-                            set: { lyricsFontScale = $0 / 100 }
-                        ),
-                        in: 70...180,
-                        formatter: { String(format: "%.0f%%", $0) }
-                    )
-                }
+        .task { await languageCatalog.refresh() }
+        .sheet(isPresented: $showTranscriptionSettings) {
+            NavigationStack {
+                GoogleLyricsTranscriptionSettingsView()
             }
         }
     }

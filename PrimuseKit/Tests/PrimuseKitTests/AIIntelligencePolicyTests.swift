@@ -527,9 +527,13 @@ struct AIRemoteEndpointPolicyTests {
             try AIRemoteEndpointPolicy.embeddingsEndpoint(configuration: anthropic)
         }
 
-        let gemini = AIProviderPreset.gemini.applying(to:
+        let geminiTextOnly = AIProviderPreset.gemini.applying(to:
             AIRemoteProviderConfiguration(isEnabled: true)
         )
+        #expect(!geminiTextOnly.descriptor.capabilities.contains(.audioTranscription))
+
+        var gemini = geminiTextOnly
+        gemini.transcriptionModel = "gemini-future-transcribe"
         #expect(gemini.descriptor.capabilities.contains(.audioTranscription))
         #expect(try AIRemoteEndpointPolicy.geminiInteractionsEndpoint(
             configuration: gemini
@@ -537,6 +541,49 @@ struct AIRemoteEndpointPolicyTests {
         #expect(try AIRemoteEndpointPolicy.geminiFilesUploadEndpoint(
             configuration: gemini
         ).path == "/upload/v1beta/files")
+
+        var liveModel = gemini
+        liveModel.transcriptionModel = "gemini-live-transcribe"
+        #expect(!liveModel.descriptor.capabilities.contains(.audioTranscription))
+
+        var generationModel = gemini
+        generationModel.transcriptionModel = "gemini-future-flash"
+        #expect(!generationModel.descriptor.capabilities.contains(.audioTranscription))
+
+        var nonGoogleEndpoint = gemini
+        nonGoogleEndpoint.baseURL = "https://compatible.example.com/v1"
+        #expect(!nonGoogleEndpoint.descriptor.capabilities.contains(.audioTranscription))
+
+        let catalog = AIAudioTranscriptionPolicy.supportedModels(from: [
+            AIProviderModel(id: "gemini-future-flash"),
+            AIProviderModel(id: "models/gemini-future-transcribe"),
+            AIProviderModel(id: "gemini-live-transcribe"),
+        ])
+        #expect(catalog.map(\.id) == ["models/gemini-future-transcribe"])
+    }
+
+    @Test func audioTranscriptionInputGateMatchesDocumentedFormats() {
+        for format in [
+            AudioFormat.mp3, .aac, .flac, .wav, .aiff, .aif, .ogg,
+        ] {
+            #expect(AIAudioTranscriptionPolicy.supportsInput(format: format))
+            #expect(AIAudioTranscriptionPolicy.mimeType(for: format) != nil)
+        }
+
+        for format in [
+            AudioFormat.m4a, .mp4, .alac, .opus, .wma, .ape, .dsf, .dff,
+        ] {
+            #expect(!AIAudioTranscriptionPolicy.supportsInput(format: format))
+            #expect(AIAudioTranscriptionPolicy.mimeType(for: format) == nil)
+        }
+
+        #expect(AIAudioTranscriptionPolicy.mimeType(for: .mp3) == "audio/mpeg")
+        #expect(AIAudioTranscriptionPolicy.mimeType(for: .aac) == "audio/aac")
+        #expect(AIAudioTranscriptionPolicy.mimeType(for: .aiff) == "audio/aiff")
+        #expect(AIAudioTranscriptionPolicy.mimeType(for: .ogg) == "audio/ogg")
+        #expect(AIAudioTranscriptionPolicy.supportsInput(mimeType: "audio/x-wav; rate=44100"))
+        #expect(!AIAudioTranscriptionPolicy.supportsInput(mimeType: "audio/opus"))
+        #expect(!AIAudioTranscriptionPolicy.supportsInput(mimeType: "video/mp4"))
     }
 
     @Test func credentialAccountIsStableAndContainsNoSecretMaterial() {
