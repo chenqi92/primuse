@@ -138,7 +138,9 @@ struct AIRecommendationLibraryView: View {
             LazyVStack(alignment: .leading, spacing: platformSectionSpacing) {
                 hero
                 recommendationControls
-                statusPanel
+                if showsActionableStatus {
+                    statusPanel
+                }
                 recommendationGrid
             }
             .padding(.horizontal, platformHorizontalPadding)
@@ -160,10 +162,6 @@ struct AIRecommendationLibraryView: View {
                     .font(platformTitleFont)
                     .foregroundStyle(platformPrimaryTextColor)
 
-                Text("library_recommendations_description")
-                    .font(.subheadline)
-                    .foregroundStyle(platformSecondaryTextColor)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
             Button(action: playAll) {
@@ -290,21 +288,34 @@ struct AIRecommendationLibraryView: View {
                 }
             }
             Spacer(minLength: 8)
-            if case .loading = aiRecommendation.feedback {
-                ProgressView()
-                    .controlSize(.small)
-            } else if intelligence.isPersonalizedRecommendationsConfigured {
-                Button {
-                    Task { await refresh(forceAIRefresh: true) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                        .background(platformChipBackground, in: Circle())
+            HStack(spacing: 6) {
+                if intelligence.isPersonalizedRecommendationsConfigured {
+                    Button {
+                        Task { await refresh(forceAIRefresh: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background(platformChipBackground, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(platformAccentColor)
+                    .accessibilityLabel("ai_recommendation_refresh")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(platformAccentColor)
-                .accessibilityLabel("ai_recommendation_refresh")
+
+                if intelligence.shouldExposeRemoteConfiguration {
+                    NavigationLink {
+                        AISettingsView()
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background(platformChipBackground, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(platformAccentColor)
+                    .accessibilityLabel("ai_settings_title")
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -538,10 +549,19 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var showsLocalFallbackDetail: Bool {
-        if case .success = aiRecommendation.feedback {
+        if case .localFallback = aiRecommendation.feedback {
+            return true
+        }
+        return false
+    }
+
+    private var showsActionableStatus: Bool {
+        switch aiRecommendation.feedback {
+        case .needsConsent, .localFallback:
+            return true
+        case .idle, .loading, .success:
             return false
         }
-        return true
     }
 
     #if os(macOS)
