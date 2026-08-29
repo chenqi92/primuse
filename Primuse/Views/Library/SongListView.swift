@@ -836,21 +836,7 @@ struct SongListView: View {
                     cancelExplicitSortForSelection()
                 }
             }
-            .onDisappear {
-                cancelExplicitSortForNavigation()
-                locationHighlightTask?.cancel()
-                locationHighlightTask = nil
-                locatedSongID = nil
-                downloadedFilterGeneration &+= 1
-                downloadedFilterTask?.cancel()
-                downloadedFilterTask = nil
-                isDownloadedFilterLoading = false
-                #if os(iOS)
-                browseModeTransitionTask?.cancel()
-                browseModeTransitionTask = nil
-                isBrowseModeTransitioning = false
-                #endif
-            }
+            .onDisappear(perform: handleViewDisappear)
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
                 BatchAddToPlaylistSheet(songs: filteredSongs.filteredPlayable())
@@ -876,6 +862,22 @@ struct SongListView: View {
             }
             #endif
             .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+    }
+
+    private func handleViewDisappear() {
+        cancelExplicitSortForNavigation()
+        locationHighlightTask?.cancel()
+        locationHighlightTask = nil
+        locatedSongID = nil
+        downloadedFilterGeneration &+= 1
+        downloadedFilterTask?.cancel()
+        downloadedFilterTask = nil
+        isDownloadedFilterLoading = false
+        #if os(iOS)
+        browseModeTransitionTask?.cancel()
+        browseModeTransitionTask = nil
+        isBrowseModeTransitioning = false
+        #endif
     }
 
     private var songs: [Song] {
