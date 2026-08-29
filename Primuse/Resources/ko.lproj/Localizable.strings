@@ -693,6 +693,7 @@
 "reread_song_tags_failure_cancelled" = "태그 읽기가 완료되기 전에 취소되었습니다.";
 "reread_song_tags_failure_no_update" = "파일을 읽었지만 사용할 수 있는 태그 업데이트가 없습니다.";
 "reread_song_tags_failure_requires_complete_technical_read" = "파일 헤더를 읽었지만 신뢰할 수 있는 기술 정보에는 전체 파일 검사가 필요합니다.";
+"metadata_status_incomplete_unverified_reason" = "이 기록은 아직 동일한 파일을 전체 읽기하지 않아 원본 파일에 태그가 없는 것인지 읽기 또는 분석이 완료되지 않은 것인지 구분할 수 없습니다. 확인하려면 이 곡의 태그를 다시 읽으십시오.";
 "reread_song_tags_failure_unrecognized_audio" = "파일 바이트는 읽을 수 있지만 서명이 지원되는 오디오 형식과 일치하지 않습니다.";
 "song_details_check_source" = "소스 확인";
 "song_details_source_available" = "소스에 연결할 수 있습니다. 읽기를 다시 예약했습니다.";

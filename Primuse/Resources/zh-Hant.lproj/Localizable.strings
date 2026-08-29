@@ -458,6 +458,7 @@
 "reread_song_tags_failure_cancelled" = "標籤讀取在完成前被取消。";
 "reread_song_tags_failure_no_update" = "檔案已讀取，但沒有得到可用的標籤更新。";
 "reread_song_tags_failure_requires_complete_technical_read" = "已讀取檔案開頭，但可靠的技術資訊需要完整檔案檢查。";
+"metadata_status_incomplete_unverified_reason" = "目前記錄尚未完成同一檔案的完整檢查，無法判斷是來源檔案沒有標籤，還是讀取或解析未完成。請重新讀取此歌曲以確認。";
 "reread_song_tags_failure_unrecognized_audio" = "檔案位元組可讀取，但檔案簽章與 Primuse 支援的音訊格式不符。";
 "song_details_check_source" = "檢查來源";
 "song_details_source_available" = "來源連線正常，已重新安排讀取。";

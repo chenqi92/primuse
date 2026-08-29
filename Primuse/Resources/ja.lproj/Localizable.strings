@@ -694,6 +694,7 @@
 "reread_song_tags_failure_cancelled" = "The tag read was cancelled before it completed.";
 "reread_song_tags_failure_no_update" = "The file was read, but it did not produce any usable tag update.";
 "reread_song_tags_failure_requires_complete_technical_read" = "The file header was read, but reliable technical properties require a complete-file inspection.";
+"metadata_status_incomplete_unverified_reason" = "この記録では同じファイルの完全な読み取りがまだ完了していないため、元ファイルにタグがないのか、読み取りまたは解析が未完了なのかを判別できません。確認するにはこの曲を再読み取りしてください。";
 "reread_song_tags_failure_unrecognized_audio" = "The file bytes are readable, but their signature does not match a supported audio format.";
 "song_details_check_source" = "Check source";
 "song_details_source_available" = "The source is reachable. Reading has been scheduled again.";

@@ -472,6 +472,7 @@
 "reread_song_tags_failure_cancelled" = "The tag read was cancelled before it completed.";
 "reread_song_tags_failure_no_update" = "The file was read, but it did not produce any usable tag update.";
 "reread_song_tags_failure_requires_complete_technical_read" = "The file header was read, but reliable technical properties require a complete-file inspection.";
+"metadata_status_incomplete_unverified_reason" = "This record has not completed a full read of the same file, so it cannot yet distinguish missing source tags from an incomplete read or parse. Reread this song to confirm.";
 "reread_song_tags_failure_unrecognized_audio" = "The file bytes are readable, but their signature does not match a supported audio format.";
 "song_details_check_source" = "Check source";
 "song_details_source_available" = "The source is reachable. Reading has been scheduled again.";

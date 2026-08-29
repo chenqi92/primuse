@@ -693,6 +693,7 @@
 "reread_song_tags_failure_cancelled" = "Das Lesen der Tags wurde vor Abschluss abgebrochen.";
 "reread_song_tags_failure_no_update" = "Die Datei wurde gelesen, lieferte aber keine verwendbare Tag-Aktualisierung.";
 "reread_song_tags_failure_requires_complete_technical_read" = "Der Dateikopf wurde gelesen, verlässliche technische Informationen erfordern jedoch eine vollständige Dateiprüfung.";
+"metadata_status_incomplete_unverified_reason" = "Dieser Eintrag wurde noch nicht vollständig aus derselben Datei gelesen. Daher lässt sich noch nicht unterscheiden, ob Quelldatei-Tags fehlen oder Lesen beziehungsweise Analyse unvollständig war. Lesen Sie den Titel erneut.";
 "reread_song_tags_failure_unrecognized_audio" = "Die Datei ist lesbar, ihre Signatur entspricht jedoch keinem unterstützten Audioformat.";
 "song_details_check_source" = "Quelle prüfen";
 "song_details_source_available" = "Die Quelle ist erreichbar. Das Einlesen wurde erneut eingeplant.";

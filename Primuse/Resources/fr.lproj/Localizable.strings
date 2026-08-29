@@ -693,6 +693,7 @@
 "reread_song_tags_failure_cancelled" = "La lecture des tags a été annulée avant la fin.";
 "reread_song_tags_failure_no_update" = "Le fichier a été lu, mais aucun tag utilisable n’a été obtenu.";
 "reread_song_tags_failure_requires_complete_technical_read" = "L’en-tête du fichier a été lu, mais des propriétés techniques fiables nécessitent une inspection du fichier complet.";
+"metadata_status_incomplete_unverified_reason" = "Cet enregistrement n’a pas encore fait l’objet d’une lecture complète du même fichier. Il est donc impossible de distinguer des tags source absents d’une lecture ou analyse incomplète. Relisez ce morceau pour confirmer.";
 "reread_song_tags_failure_unrecognized_audio" = "Le fichier est lisible, mais sa signature ne correspond à aucun format audio pris en charge.";
 "song_details_check_source" = "Vérifier la source";
 "song_details_source_available" = "La source est accessible. Une nouvelle lecture a été programmée.";

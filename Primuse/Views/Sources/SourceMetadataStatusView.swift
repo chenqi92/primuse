@@ -410,7 +410,7 @@ struct SourceMetadataStatusView: View {
         case .unreadableTags:
             String(localized: "reread_song_tags_failure_no_supported_metadata")
         case .playableIncomplete:
-            String(localized: "song_details_incomplete_message")
+            String(localized: "metadata_status_incomplete_unverified_reason")
         case .stalled:
             String(localized: "metadata_status_stalled_reason")
         }
