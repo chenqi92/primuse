@@ -2909,7 +2909,10 @@
 "artwork_edit" = "Change Artwork";
 "artwork_editor_title" = "Choose Artwork";
 "artwork_mode_automatic" = "Automatic";
+"artwork_restore_automatic" = "自動認識に戻す";
 "artwork_upload" = "Upload an Image";
+"artwork_choose_photo" = "写真から選択";
+"artwork_choose_file" = "ファイルから選択";
 "artwork_choose_song" = "Choose from Songs";
 "artwork_no_songs" = "There are no songs to choose from.";
 "artwork_storage_hint" = "A selected song is saved as a cross-device reference. Uploaded images are stored in Primuse and included when library sync is enabled.";

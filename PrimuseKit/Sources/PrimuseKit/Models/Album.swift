@@ -56,6 +56,7 @@ public enum AlbumArtworkFallbackPolicy {
 public struct LibraryArtworkOwner: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case album
+        case artist
         case playlist
     }
 

@@ -150,10 +150,8 @@ struct MacLibraryHeader: View {
             )
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         } else if let artist = coverArtist {
-            CachedArtworkView(
-                artistID: artist.id,
-                artistName: artist.name,
-                artworkReference: artist.thumbnailPath,
+            ArtistArtworkView(
+                artist: artist,
                 size: 160,
                 cornerRadius: 80
             )

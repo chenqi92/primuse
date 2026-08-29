@@ -168,19 +168,36 @@ public enum SourceOwnedArtworkReference {
     public struct Resolved: Equatable, Sendable {
         public let sourceID: String
         public let reference: String
+        /// Changes the local decode/cache identity without mutating the
+        /// connector-owned reference that is used for the actual fetch.
+        public let cacheDiscriminator: String?
 
-        public init(sourceID: String, reference: String) {
+        public init(
+            sourceID: String,
+            reference: String,
+            cacheDiscriminator: String? = nil
+        ) {
             self.sourceID = sourceID
             self.reference = reference
+            self.cacheDiscriminator = cacheDiscriminator
         }
     }
 
     private static let prefix = "primuse-source-artwork:"
 
-    public static func make(sourceID: String, reference: String) -> String? {
+    public static func make(
+        sourceID: String,
+        reference: String,
+        cacheDiscriminator: String? = nil
+    ) -> String? {
         guard !sourceID.isEmpty, !reference.isEmpty,
-              !sourceID.contains("\0"), !reference.contains("\0") else { return nil }
-        let payload = Data((sourceID + "\0" + reference).utf8)
+              !sourceID.contains("\0"), !reference.contains("\0"),
+              cacheDiscriminator?.contains("\0") != true else { return nil }
+        var components = [sourceID, reference]
+        if let cacheDiscriminator, !cacheDiscriminator.isEmpty {
+            components.append(cacheDiscriminator)
+        }
+        let payload = Data(components.joined(separator: "\0").utf8)
         let encoded = payload.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -195,12 +212,22 @@ public enum SourceOwnedArtworkReference {
             .replacingOccurrences(of: "_", with: "/")
         let padding = (4 - encoded.count % 4) % 4
         if padding > 0 { encoded.append(String(repeating: "=", count: padding)) }
-        guard let payload = Data(base64Encoded: encoded),
-              let separator = payload.firstIndex(of: 0),
-              let sourceID = String(data: payload[..<separator], encoding: .utf8),
-              let reference = String(data: payload[payload.index(after: separator)...], encoding: .utf8),
+        guard let payload = Data(base64Encoded: encoded) else { return nil }
+        let components = payload.split(separator: 0, omittingEmptySubsequences: false)
+        guard (2...3).contains(components.count),
+              let sourceID = String(data: components[0], encoding: .utf8),
+              let reference = String(data: components[1], encoding: .utf8),
               !sourceID.isEmpty, !reference.isEmpty else { return nil }
-        return Resolved(sourceID: sourceID, reference: reference)
+        let cacheDiscriminator = components.count == 3
+            ? String(data: components[2], encoding: .utf8)
+            : nil
+        return Resolved(
+            sourceID: sourceID,
+            reference: reference,
+            cacheDiscriminator: cacheDiscriminator?.isEmpty == true
+                ? nil
+                : cacheDiscriminator
+        )
     }
 }
 

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
-@Suite("Album and playlist artwork overrides")
+@Suite("Library artwork overrides")
 struct LibraryArtworkOverrideTests {
     @Test("Album fallback prefers the first explicit song cover and otherwise keeps album order")
     func albumFallbackSelection() {
@@ -24,10 +24,11 @@ struct LibraryArtworkOverrideTests {
         ) == nil)
     }
 
-    @Test("Album and playlist owners round-trip through reserved CloudKit IDs")
+    @Test("Library artwork owners round-trip through reserved CloudKit IDs")
     func ownerCloudRecordRoundTrip() {
         let owners = [
             LibraryArtworkOwner(kind: .album, id: "album:artist/title"),
+            LibraryArtworkOwner(kind: .artist, id: "artist:with/slash"),
             LibraryArtworkOwner(kind: .playlist, id: "playlist:with:colons"),
         ]
 
@@ -130,7 +131,7 @@ struct LibraryArtworkOverrideTests {
 
     @Test("The same policy result is shared by phone, Mac, TV, and CarPlay adapters")
     func sharedCrossPlatformResolution() {
-        let owner = LibraryArtworkOwner(kind: .playlist, id: "shared")
+        let owner = LibraryArtworkOwner(kind: .artist, id: "shared")
         let value = LibraryArtworkOverride(
             owner: owner,
             mode: .selectedSong,

@@ -161,13 +161,24 @@ struct SourceOwnedArtworkReferenceTests {
     func roundTrips() throws {
         let encoded = try #require(SourceOwnedArtworkReference.make(
             sourceID: "server/上海",
-            reference: "subsonic-artist/ar+1/2"
+            reference: "subsonic-artist/ar+1/2",
+            cacheDiscriminator: "revision-2"
         ))
 
         #expect(!encoded.contains("://"))
         #expect(SourceOwnedArtworkReference.resolve(encoded) == .init(
             sourceID: "server/上海",
-            reference: "subsonic-artist/ar+1/2"
+            reference: "subsonic-artist/ar+1/2",
+            cacheDiscriminator: "revision-2"
+        ))
+
+        let legacy = try #require(SourceOwnedArtworkReference.make(
+            sourceID: "server",
+            reference: "artist/legacy"
+        ))
+        #expect(SourceOwnedArtworkReference.resolve(legacy) == .init(
+            sourceID: "server",
+            reference: "artist/legacy"
         ))
     }
 

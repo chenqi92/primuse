@@ -2087,7 +2087,9 @@ final class MusicLibrary {
     /// `playlists` filters this down.
     private(set) var allPlaylists: [Playlist] = []
     private var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
-    /// Lightweight invalidation token for album/playlist artwork surfaces.
+    @ObservationIgnored
+    private var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
+    /// Lightweight invalidation token for album, artist, and playlist artwork surfaces.
     /// It is intentionally separate from song and playlist collection
     /// revisions so choosing a cover does not rebuild unrelated lists.
     private(set) var artworkOverrideRevision: Int = 0
@@ -2232,6 +2234,7 @@ final class MusicLibrary {
     @ObservationIgnored private var songIndexByID: [String: Int] = [:]
     @ObservationIgnored private var visibleSongIndexByID: [String: Int] = [:]
     @ObservationIgnored private var visibleSongByID: [String: Song] = [:]
+    @ObservationIgnored private var visibleArtistByID: [String: Artist] = [:]
     @ObservationIgnored private var visibleSongsBySourceID: [String: [Song]] = [:]
     /// Source cards are re-rendered frequently while scanning/backfilling.
     /// Keep the source grouping beside the other visible caches so those
@@ -2257,6 +2260,7 @@ final class MusicLibrary {
         let allSongIndexByID: [String: Int]
         let songIndexByID: [String: Int]
         let songByID: [String: Song]
+        let artistByID: [String: Artist]
         let songsBySourceID: [String: [Song]]
         let playableBySourceID: [String: [Song]]
         let countBySourceID: [String: Int]
@@ -2332,6 +2336,7 @@ final class MusicLibrary {
         songIndexByID = prepared.allSongIndexByID
         visibleSongIndexByID = prepared.songIndexByID
         visibleSongByID = prepared.songByID
+        visibleArtistByID = prepared.artistByID
         visibleSongsBySourceID = prepared.songsBySourceID
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
         visibleSongCountBySourceID = prepared.countBySourceID
@@ -2381,6 +2386,9 @@ final class MusicLibrary {
                 : makeSongIndex(songs),
             songIndexByID: lookups.indexByID,
             songByID: lookups.songByID,
+            artistByID: Dictionary(
+                uniqueKeysWithValues: nextVisibleArtists.map { ($0.id, $0) }
+            ),
             songsBySourceID: lookups.songsBySourceID,
             playableBySourceID: lookups.playableBySourceID,
             countBySourceID: lookups.countBySourceID,
@@ -2876,6 +2884,7 @@ final class MusicLibrary {
                 &newSong,
                 configuration: artistNameConfiguration
             )
+            applyAutomaticArtistArtwork(to: &newSong)
             if let idx = existingIndexByID[newSong.id] {
                 let existing = mergedSongs[idx]
                 if !newSong.filePath.isEmpty, newSong.filePath != existing.filePath {
@@ -3155,10 +3164,16 @@ final class MusicLibrary {
     /// O(sourceCount × librarySize) on the main actor.
     func removeSongsForSources(_ sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
+        let removedCatalog = sourceIDs.reduce(into: false) { removed, sourceID in
+            if automaticArtistArtworkCatalogsBySource.removeValue(forKey: sourceID) != nil {
+                removed = true
+            }
+        }
         let removedSongs = songs.filter { sourceIDs.contains($0.sourceID) }
         disabledSourceIDs.subtract(sourceIDs)
         guard !removedSongs.isEmpty else {
             rebuildVisibleCache()
+            if removedCatalog { persistSnapshot() }
             return
         }
 
@@ -3195,6 +3210,13 @@ final class MusicLibrary {
     func visibleSong(id: String) -> Song? {
         _ = visibleSongsReference
         return visibleSongByID[id]
+    }
+
+    /// O(1) artist lookup for artwork cells. Reading the reference preserves
+    /// Observation invalidation when a scan rebuilds automatic artwork.
+    func visibleArtist(id: String) -> Artist? {
+        _ = visibleArtistsReference
+        return visibleArtistByID[id]
     }
 
     /// O(1) lookup for views whose structural invalidation is driven by
@@ -3299,7 +3321,7 @@ final class MusicLibrary {
         albumArtworkLookupRevision &+= 1
     }
 
-    // MARK: - User-selected album / playlist artwork
+    // MARK: - User-selected library artwork
 
     func artworkOverride(for owner: LibraryArtworkOwner) -> LibraryArtworkOverride? {
         artworkOverridesByOwner[owner.storageKey]
@@ -3357,6 +3379,8 @@ final class MusicLibrary {
             switch owner.kind {
             case .album:
                 isEligible = song.albumID == owner.id
+            case .artist:
+                isEligible = self.song(song, includesArtistID: owner.id)
             case .playlist:
                 isEligible = playlistSongIDs[owner.id]?.contains(resolvedSongID) == true
             }
@@ -3380,6 +3404,59 @@ final class MusicLibrary {
             eligibleSongs: eligibleSongs
         ) else { return nil }
         return eligibleSongs.first(where: { $0.id == songID })
+    }
+
+    /// Replaces one source's authoritative directory-artwork topology and
+    /// reapplies it to songs whose artist metadata is already known. Bare
+    /// first-scan rows are resolved later by `replaceSong(s)` after metadata
+    /// backfill fills their artist names.
+    func updateAutomaticArtistArtworkCatalog(_ catalog: SourceArtistArtworkCatalog) {
+        guard !catalog.sourceID.isEmpty,
+              automaticArtistArtworkCatalogsBySource[catalog.sourceID] != catalog else {
+            return
+        }
+        automaticArtistArtworkCatalogsBySource[catalog.sourceID] = catalog
+
+        var nextSongs = songs
+        var changedSongs: [Song] = []
+        for index in nextSongs.indices where nextSongs[index].sourceID == catalog.sourceID {
+            let previousReference = nextSongs[index].artistArtworkFileName
+            applyAutomaticArtistArtwork(to: &nextSongs[index])
+            if nextSongs[index].artistArtworkFileName != previousReference {
+                changedSongs.append(nextSongs[index])
+            }
+        }
+        guard !changedSongs.isEmpty else {
+            persistSnapshot()
+            return
+        }
+        songs = nextSongs
+        songIndexByID = Self.makeSongIndex(nextSongs)
+        rebuildVisibleCache()
+        lastReplacedSong = changedSongs.count == 1 ? changedSongs.first : nil
+        lastReplacedSongIDs = Set(changedSongs.map(\.id))
+        songReplacementToken = UUID()
+        rebuildIndex()
+        persistSongChanges(upserts: changedSongs)
+    }
+
+    private func applyAutomaticArtistArtwork(to song: inout Song) {
+        // A media server's own artist image is authoritative automatic
+        // artwork. Directory discovery only owns values carrying its marker.
+        if let current = song.artistArtworkFileName,
+           AutomaticArtistArtworkReference.resolve(current) == nil {
+            return
+        }
+        guard let catalog = automaticArtistArtworkCatalogsBySource[song.sourceID] else {
+            return
+        }
+        song.artistArtworkFileName = catalog.automaticReference(
+            forSongID: song.id,
+            artistNames: Self.resolvedArtistNames(
+                for: song,
+                configuration: artistNameConfiguration
+            )
+        )
     }
 
     @discardableResult
@@ -3542,11 +3619,14 @@ final class MusicLibrary {
         changedSongs.reserveCapacity(nextSongs.count)
         for index in nextSongs.indices {
             let previousArtistID = nextSongs[index].artistID
+            let previousArtistArtwork = nextSongs[index].artistArtworkFileName
             Self.fillDerivedIDs(
                 &nextSongs[index],
                 configuration: value
             )
-            if nextSongs[index].artistID != previousArtistID {
+            applyAutomaticArtistArtwork(to: &nextSongs[index])
+            if nextSongs[index].artistID != previousArtistID
+                || nextSongs[index].artistArtworkFileName != previousArtistArtwork {
                 changedSongs.append(nextSongs[index])
             }
         }
@@ -4805,6 +4885,7 @@ final class MusicLibrary {
             &s,
             configuration: artistNameConfiguration
         )
+        applyAutomaticArtistArtwork(to: &s)
         var nextSongs = currentSongs
         nextSongs[index] = s
         songs = nextSongs
@@ -4864,6 +4945,7 @@ final class MusicLibrary {
                 &s,
                 configuration: artistNameConfiguration
             )
+            applyAutomaticArtistArtwork(to: &s)
             nextSongs[index] = s
             lastApplied = s
             appliedIDs.insert(s.id)
@@ -5259,6 +5341,11 @@ final class MusicLibrary {
         songs = loadedSongs
         songIndexByID = Self.makeSongIndex(loadedSongs)
         allPlaylists = snapshot.playlists
+        automaticArtistArtworkCatalogsBySource = Dictionary(
+            uniqueKeysWithValues: (snapshot.automaticArtistArtworkCatalogs ?? []).map {
+                ($0.sourceID, $0)
+            }
+        )
         artworkOverridesByOwner = Dictionary(
             (snapshot.artworkOverrides ?? []).map { ($0.owner.storageKey, $0) },
             uniquingKeysWith: { local, remote in
@@ -5719,6 +5806,9 @@ final class MusicLibrary {
             songs: songs,
             playlists: allPlaylists,
             artworkOverrides: allArtworkOverrides.isEmpty ? nil : allArtworkOverrides,
+            automaticArtistArtworkCatalogs: automaticArtistArtworkCatalogsBySource
+                .values
+                .sorted { $0.sourceID < $1.sourceID },
             artworkAssets: nil,
             mirrorPlaylistSuppressions: hiddenMirrorPlaylists.isEmpty ? nil : hiddenMirrorPlaylists,
             smartPlaylists: allSmartPlaylists.isEmpty ? nil : allSmartPlaylists,
@@ -5868,6 +5958,10 @@ final class MusicLibrary {
                 snapshot.songs,
                 sources: cloudSources
             )
+            let retainedSourceIDs = Set(snapshot.songs.map(\.sourceID))
+            snapshot.automaticArtistArtworkCatalogs?.removeAll {
+                !retainedSourceIDs.contains($0.sourceID)
+            }
             let retainedSongIDs = Set(snapshot.songs.map(\.id))
             if var playlistSongIDs = snapshot.playlistSongIDs {
                 for playlistID in playlistSongIDs.keys {
@@ -6184,14 +6278,26 @@ final class MusicLibrary {
                 return hashID("\(identity.artistName):\(identity.albumTitle)")
             }).count
             let thumbnailPath = groupedSongs.lazy.compactMap { song -> String? in
+                if let automatic = AutomaticArtistArtworkReference.resolve(
+                    song.artistArtworkFileName
+                ), let entry = automatic.entry(forArtistName: name) {
+                    return SourceOwnedArtworkReference.make(
+                        sourceID: song.sourceID,
+                        reference: entry.reference,
+                        cacheDiscriminator: entry.cacheDiscriminator
+                    )
+                }
                 guard resolvedArtistNames(
                     for: song,
                     configuration: configuration
                 ).first.map({ hashID($0.lowercased()) }) == hashID(name.lowercased()) else {
                     return nil
                 }
-                return song.artistArtworkFileName.flatMap {
-                    SourceOwnedArtworkReference.make(sourceID: song.sourceID, reference: $0)
+                return song.artistArtworkFileName.flatMap { reference in
+                    SourceOwnedArtworkReference.make(
+                        sourceID: song.sourceID,
+                        reference: reference
+                    )
                 }
             }.first
             return Artist(
@@ -6287,6 +6393,7 @@ final class MusicLibrary {
         var songs: [Song]
         var playlists: [Playlist]
         var artworkOverrides: [LibraryArtworkOverride]? = nil
+        var automaticArtistArtworkCatalogs: [SourceArtistArtworkCatalog]? = nil
         /// Transport-only copies used by the Apple TV/LAN library snapshot.
         /// Normal local persistence always writes nil; images remain canonical
         /// in MetadataAssetStore's durable custom directory.

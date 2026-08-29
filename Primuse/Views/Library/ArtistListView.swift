@@ -42,9 +42,11 @@ struct ArtistListView: View {
             List(filteredArtists) { artist in
                 NavigationLink(value: artist) {
                     HStack(spacing: 12) {
-                        CachedArtworkView(artistID: artist.id, artistName: artist.name,
-                                          artworkReference: artist.thumbnailPath,
-                                          size: 44, cornerRadius: 22)
+                        ArtistArtworkView(
+                            artist: artist,
+                            size: 44,
+                            cornerRadius: 22
+                        )
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(displayName(for: artist))
@@ -164,9 +166,11 @@ struct ArtistListView: View {
             selectedArtistID = artist.id
         } label: {
             HStack(spacing: 10) {
-                CachedArtworkView(artistID: artist.id, artistName: artist.name,
-                                  artworkReference: artist.thumbnailPath,
-                                  size: 36, cornerRadius: 18)
+                ArtistArtworkView(
+                    artist: artist,
+                    size: 36,
+                    cornerRadius: 18
+                )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(displayName(for: artist))
                         .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))

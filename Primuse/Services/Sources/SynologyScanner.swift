@@ -67,6 +67,7 @@ actor SynologyScanner {
                     let initialCount = max(existingSongs.count, startingCount)
                     var count = initialCount
                     let usableResumeState = resumeState?.isUsable == true ? resumeState : nil
+                    var syncIndex = usableResumeState?.index ?? [:]
                     var encounteredSongIDs = usableResumeState?.encounteredSongIDs ?? []
                     var pendingSet: Set<String> = []
                     let initialPending = usableResumeState?.pendingDirectories ?? dirs
@@ -86,7 +87,7 @@ actor SynologyScanner {
                             resumeState: SourceScanResumeState(
                                 pendingDirectories: pendingDirectories,
                                 encounteredSongIDs: encounteredSongIDs,
-                                index: usableResumeState?.index ?? [:]
+                                index: syncIndex
                             )
                         )
                     )
@@ -98,7 +99,7 @@ actor SynologyScanner {
                         let inFlightResumeState = SourceScanResumeState(
                             pendingDirectories: pendingDirectories + [directory] + failedDirectories,
                             encounteredSongIDs: encounteredSongIDs,
-                            index: usableResumeState?.index ?? [:]
+                            index: syncIndex
                         )
                         continuation.yield(
                             ScanUpdate(
@@ -119,6 +120,7 @@ actor SynologyScanner {
                                 existingByPath: existingByPath,
                                 existingByID: existingByID,
                                 encounteredSongIDs: &encounteredSongIDs,
+                                syncIndex: &syncIndex,
                                 resumeState: inFlightResumeState,
                                 continuation: continuation
                             )
@@ -137,7 +139,7 @@ actor SynologyScanner {
                                     resumeState: SourceScanResumeState(
                                         pendingDirectories: pendingDirectories + failedDirectories,
                                         encounteredSongIDs: encounteredSongIDs,
-                                        index: usableResumeState?.index ?? [:]
+                                        index: syncIndex
                                     )
                                 )
                             )
@@ -158,7 +160,7 @@ actor SynologyScanner {
                                     resumeState: SourceScanResumeState(
                                         pendingDirectories: pendingDirectories + failedDirectories,
                                         encounteredSongIDs: encounteredSongIDs,
-                                        index: usableResumeState?.index ?? [:]
+                                        index: syncIndex
                                     )
                                 )
                             )
@@ -179,7 +181,7 @@ actor SynologyScanner {
                             resumeState: SourceScanResumeState(
                                 pendingDirectories: failedDirectories,
                                 encounteredSongIDs: encounteredSongIDs,
-                                index: usableResumeState?.index ?? [:]
+                                index: syncIndex
                             )
                         )
                     )
@@ -204,6 +206,7 @@ actor SynologyScanner {
         existingByPath: [String: Int],
         existingByID: [String: Int],
         encounteredSongIDs: inout Set<String>,
+        syncIndex: inout [String: SourceSyncIndexedItem],
         resumeState: SourceScanResumeState,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) async throws -> [String] {
@@ -240,9 +243,25 @@ actor SynologyScanner {
             try Task.checkCancellation()
             if item.isDirectory {
                 childDirectories.append(item.path)
+                recordSyncItem(item, parentPath: path, songIDs: [], in: &syncIndex)
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
+                if SourceArtistArtworkCatalog.isSupportedCandidateFileName(item.name) {
+                    recordSyncItem(item, parentPath: path, songIDs: [], in: &syncIndex)
+                }
                 if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
+                    let baseName = (item.name as NSString).deletingPathExtension
+                    if !Self.hasSameNameAudio(
+                        baseName: baseName,
+                        nameByLowercase: nameByLowercase
+                    ) {
+                        recordSyncItem(
+                            item,
+                            parentPath: path,
+                            songIDs: [generateID(sourceID: sourceID, path: item.path)],
+                            in: &syncIndex
+                        )
+                    }
                     scanStandaloneVideo(
                         item: item, ext: ext,
                         nameByLowercase: nameByLowercase,
@@ -259,6 +278,12 @@ actor SynologyScanner {
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) || isSTRM else { continue }
                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
                     let cueSongs = await buildCueSongs(from: item, descriptors: descriptors)
+                    recordSyncItem(
+                        item,
+                        parentPath: path,
+                        songIDs: cueSongs.map(\.id),
+                        in: &syncIndex
+                    )
                     for var song in cueSongs {
                         pendingMetadataInspectedSongIDs.insert(song.id)
                         encounteredSongIDs.insert(song.id)
@@ -279,7 +304,14 @@ actor SynologyScanner {
                     ))
                     continue
                 }
-                encounteredSongIDs.insert(generateID(sourceID: sourceID, path: item.path))
+                let songID = generateID(sourceID: sourceID, path: item.path)
+                encounteredSongIDs.insert(songID)
+                recordSyncItem(
+                    item,
+                    parentPath: path,
+                    songIDs: [songID],
+                    in: &syncIndex
+                )
 
                 // Detect sidecar files by name (no download needed)
                 let baseName = (item.name as NSString).deletingPathExtension
@@ -433,6 +465,26 @@ actor SynologyScanner {
             }
         }
         return childDirectories
+    }
+
+    private func recordSyncItem(
+        _ item: SynologyAPI.FileItem,
+        parentPath: String,
+        songIDs: [String],
+        in index: inout [String: SourceSyncIndexedItem]
+    ) {
+        let stableKey = "path:\(item.path.lowercased())"
+        index[stableKey] = SourceSyncIndexedItem(
+            stableKey: stableKey,
+            path: item.path,
+            displayName: item.name,
+            parentPath: parentPath,
+            isDirectory: item.isDirectory,
+            songIDs: songIDs,
+            size: item.size,
+            modifiedDate: item.modifiedTime,
+            revision: nil
+        )
     }
 
     private struct CueTrackDescriptor: Sendable {

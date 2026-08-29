@@ -66,6 +66,7 @@ struct ArtistDetailView: View {
     ]
 
     @State private var selection = SongSelectionModel()
+    @State private var showArtworkEditor = false
 
     var body: some View {
         Group {
@@ -83,6 +84,27 @@ struct ArtistDetailView: View {
             orderedIDs: { selectableSongIDs },
             resolve: { library.song(id: $0) }
         )
+        #if os(iOS) || os(macOS)
+        .sheet(isPresented: $showArtworkEditor) {
+            LibraryArtworkEditorSheet(
+                owner: LibraryArtworkOwner(kind: .artist, id: artist.id),
+                title: String(localized: "artwork_editor_title"),
+                songs: songs
+            )
+        }
+        #endif
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showArtworkEditor = true
+                } label: {
+                    Image(systemName: "photo.badge.plus")
+                }
+                .accessibilityLabel(Text("artwork_edit"))
+            }
+        }
+        #endif
     }
 
     /// macOS 的艺术家页只铺「热门」那 8 首，"全选"就不该把用户看不到的
@@ -147,8 +169,19 @@ struct ArtistDetailView: View {
             backAccessibilityIdentifier: "artistInlineBack",
             onPlay: { playAll() },
             onShuffle: shuffleAll,
-            showsMoreButton: false
+            moreMenu: artistMoreMenu
         )
+    }
+
+    private var artistMoreMenu: AnyView {
+        AnyView(MacHeaderMoreMenu(sections: [[
+            .init(
+                icon: "photo.badge.plus",
+                title: String(localized: "artwork_edit")
+            ) {
+                showArtworkEditor = true
+            },
+        ]]))
     }
 
     private var macTopSongs: some View {
@@ -393,10 +426,8 @@ struct ArtistDetailView: View {
     #if os(macOS)
     private var macHeader: some View {
         HStack(alignment: .center, spacing: 20) {
-            CachedArtworkView(
-                artistID: artist.id,
-                artistName: artist.name,
-                artworkReference: artist.thumbnailPath,
+            ArtistArtworkView(
+                artist: artist,
                 size: 140,
                 cornerRadius: 70
             )
@@ -421,9 +452,11 @@ struct ArtistDetailView: View {
 
     private var iosHeader: some View {
         VStack(spacing: 8) {
-            CachedArtworkView(artistID: artist.id, artistName: artist.name,
-                              artworkReference: artist.thumbnailPath,
-                              size: 120, cornerRadius: 60)
+            ArtistArtworkView(
+                artist: artist,
+                size: 120,
+                cornerRadius: 60
+            )
 
             Text(displayArtistName)
                 .font(.title)

@@ -249,6 +249,108 @@ struct SourceSyncStateTests {
     }
 }
 
+@Suite("Automatic artist artwork catalog")
+struct SourceArtistArtworkCatalogTests {
+    @Test("Nearest exact same-name image wins for every credited artist")
+    func nearestAncestorAndContributorResolution() throws {
+        let index = makeIndex([
+            item(path: "/Music/Adele", name: "Adele", parent: "/Music", directory: true),
+            item(path: "/Music/Adele/25", name: "25", parent: "/Music/Adele", directory: true),
+            item(path: "/Music/Adele/Adele.jpg", name: "Adele.jpg", parent: "/Music/Adele", revision: "artist-v1"),
+            item(path: "/Music/Adele/Guest.png", name: "Guest.png", parent: "/Music/Adele", revision: "guest-v1"),
+            item(path: "/Music/Adele/25/Adele.png", name: "Adele.png", parent: "/Music/Adele/25", revision: "artist-v2"),
+            item(path: "/Music/Adele/25/track.flac", name: "track.flac", parent: "/Music/Adele/25", songIDs: ["song"]),
+        ])
+        let catalog = SourceArtistArtworkCatalog(sourceID: "source", index: index)
+        let persisted = try JSONDecoder().decode(
+            SourceArtistArtworkCatalog.self,
+            from: JSONEncoder().encode(catalog)
+        )
+        let encoded = try #require(catalog.automaticReference(
+            forSongID: "song",
+            artistNames: ["Adèle", "Guest"]
+        ))
+        let resolved = try #require(AutomaticArtistArtworkReference.resolve(encoded))
+
+        #expect(persisted == catalog)
+        #expect(resolved.entry(forArtistName: "Adele")?.reference == "/Music/Adele/25/Adele.png")
+        #expect(resolved.entry(forArtistName: "Guest")?.reference == "/Music/Adele/Guest.png")
+        #expect(resolved.entry(forArtistName: "Adele")?.cacheDiscriminator.contains("artist-v2") == true)
+    }
+
+    @Test("Generic, song-cover, hidden, and sibling images are rejected")
+    func rejectsLikelyMismatches() {
+        let index = makeIndex([
+            item(path: "/Music/Artist", name: "Artist", parent: "/Music", directory: true),
+            item(path: "/Music/Other", name: "Other", parent: "/Music", directory: true),
+            item(path: "/Music/Artist/Artist.flac", name: "Artist.flac", parent: "/Music/Artist", songIDs: ["song"]),
+            item(path: "/Music/Artist/Artist.jpg", name: "Artist.jpg", parent: "/Music/Artist"),
+            item(path: "/Music/Artist/cover.png", name: "cover.png", parent: "/Music/Artist"),
+            item(path: "/Music/Artist/.Artist.png", name: ".Artist.png", parent: "/Music/Artist"),
+            item(path: "/Music/Other/Artist.png", name: "Artist.png", parent: "/Music/Other"),
+        ])
+        let catalog = SourceArtistArtworkCatalog(sourceID: "source", index: index)
+
+        #expect(catalog.automaticReference(
+            forSongID: "song",
+            artistNames: ["Artist"]
+        ) == nil)
+    }
+
+    @Test("Candidate revision changes the cache identity without changing its source path")
+    func revisionInvalidatesCacheIdentity() throws {
+        func catalog(revision: String) -> SourceArtistArtworkCatalog {
+            SourceArtistArtworkCatalog(sourceID: "source", index: makeIndex([
+                item(path: "/Artist", name: "Artist", parent: "/", directory: true),
+                item(path: "/Artist/Artist.jpg", name: "Artist.jpg", parent: "/Artist", revision: revision),
+                item(path: "/Artist/song.flac", name: "song.flac", parent: "/Artist", songIDs: ["song"]),
+            ]))
+        }
+        let first = try #require(AutomaticArtistArtworkReference.resolve(
+            catalog(revision: "v1").automaticReference(
+                forSongID: "song",
+                artistNames: ["Artist"]
+            )
+        )?.entry(forArtistName: "Artist"))
+        let second = try #require(AutomaticArtistArtworkReference.resolve(
+            catalog(revision: "v2").automaticReference(
+                forSongID: "song",
+                artistNames: ["Artist"]
+            )
+        )?.entry(forArtistName: "Artist"))
+
+        #expect(first.reference == second.reference)
+        #expect(first.cacheDiscriminator != second.cacheDiscriminator)
+    }
+
+    private func makeIndex(
+        _ items: [SourceSyncIndexedItem]
+    ) -> [String: SourceSyncIndexedItem] {
+        Dictionary(uniqueKeysWithValues: items.map { ($0.stableKey, $0) })
+    }
+
+    private func item(
+        path: String,
+        name: String,
+        parent: String,
+        directory: Bool = false,
+        songIDs: [String] = [],
+        revision: String? = nil
+    ) -> SourceSyncIndexedItem {
+        SourceSyncIndexedItem(
+            stableKey: "path:\(path.lowercased())",
+            path: path,
+            displayName: name,
+            parentPath: parent,
+            isDirectory: directory,
+            songIDs: songIDs,
+            size: directory ? 0 : 123,
+            modifiedDate: nil,
+            revision: revision
+        )
+    }
+}
+
 @Suite("Local reference refresh policy")
 struct LocalReferenceRefreshPolicyTests {
     @Test("Only active device-local bookmark sources are monitored")
@@ -308,7 +410,7 @@ struct BaiduSnapshotReconciliationTests {
         let state = try JSONDecoder().decode(SourceSyncState.self, from: data)
 
         #expect(state.schemaVersion == 1)
-        #expect(SourceSyncState.currentSchemaVersion == 1)
+        #expect(SourceSyncState.currentSchemaVersion == 2)
         #expect(state.identityScopeFingerprint == nil)
         #expect(state.index["path:/music/a.flac"]?.songIDs == ["song-a"])
         #expect(state.identityAliases.isEmpty)

@@ -2908,7 +2908,10 @@
 "artwork_edit" = "Modifier l’illustration";
 "artwork_editor_title" = "Choisir l’illustration";
 "artwork_mode_automatic" = "Automatique";
+"artwork_restore_automatic" = "Rétablir l’illustration automatique";
 "artwork_upload" = "Importer une image";
+"artwork_choose_photo" = "Choisir dans Photos";
+"artwork_choose_file" = "Choisir dans Fichiers";
 "artwork_choose_song" = "Choisir parmi les morceaux";
 "artwork_no_songs" = "Aucun morceau n’est disponible.";
 "artwork_storage_hint" = "Un morceau choisi est enregistré comme référence multiappareil. Les images importées sont stockées dans Primuse et transférées lorsque la synchronisation de la bibliothèque est activée.";

@@ -2908,7 +2908,10 @@
 "artwork_edit" = "Cover ändern";
 "artwork_editor_title" = "Cover auswählen";
 "artwork_mode_automatic" = "Automatisch";
+"artwork_restore_automatic" = "Automatisches Cover wiederherstellen";
 "artwork_upload" = "Bild hochladen";
+"artwork_choose_photo" = "Aus Fotos auswählen";
+"artwork_choose_file" = "Aus Dateien auswählen";
 "artwork_choose_song" = "Aus Titeln auswählen";
 "artwork_no_songs" = "Es sind keine Titel zur Auswahl vorhanden.";
 "artwork_storage_hint" = "Ein ausgewählter Titel wird als geräteübergreifender Verweis gespeichert. Hochgeladene Bilder werden in Primuse gespeichert und bei aktivierter Mediatheksynchronisierung übertragen.";

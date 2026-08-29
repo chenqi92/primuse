@@ -1296,10 +1296,8 @@ struct MacHomeView: View {
 
     private func artistChip(_ artist: Artist) -> some View {
         VStack(spacing: 8) {
-            CachedArtworkView(
-                artistID: artist.id,
-                artistName: artist.name,
-                artworkReference: artist.thumbnailPath,
+            ArtistArtworkView(
+                artist: artist,
                 size: 92,
                 cornerRadius: 46
             )

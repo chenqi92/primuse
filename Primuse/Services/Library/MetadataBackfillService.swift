@@ -3389,6 +3389,7 @@ final class MetadataBackfillService {
             lastModified: bare.lastModified,
             dateAdded: bare.dateAdded,
             coverArtFileName: coverRef,
+            artistArtworkFileName: bare.artistArtworkFileName,
             lyricsFileName: lyricsRef,
             mvPath: mvRef,
             replayGainTrackGain: metadata.replayGainTrackGain ?? bare.replayGainTrackGain,

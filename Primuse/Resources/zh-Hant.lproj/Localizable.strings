@@ -2885,7 +2885,10 @@
 "artwork_edit" = "更換封面";
 "artwork_editor_title" = "選擇封面";
 "artwork_mode_automatic" = "自動";
+"artwork_restore_automatic" = "恢復自動識別";
 "artwork_upload" = "上傳圖片";
+"artwork_choose_photo" = "從照片中選擇";
+"artwork_choose_file" = "從「檔案」中選擇";
 "artwork_choose_song" = "從歌曲中選擇";
 "artwork_no_songs" = "沒有可供選擇的歌曲。";
 "artwork_storage_hint" = "選擇歌曲時儲存可跨裝置解析的歌曲識別碼；上傳的圖片儲存在 Primuse 持久資源目錄中，啟用資料庫同步時會一併傳輸。";

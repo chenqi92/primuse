@@ -3012,7 +3012,10 @@
 "artwork_edit" = "更换封面";
 "artwork_editor_title" = "选择封面";
 "artwork_mode_automatic" = "自动";
+"artwork_restore_automatic" = "恢复自动识别";
 "artwork_upload" = "上传图片";
+"artwork_choose_photo" = "从照片中选择";
+"artwork_choose_file" = "从“文件”中选择";
 "artwork_choose_song" = "从歌曲中选择";
 "artwork_no_songs" = "没有可供选择的歌曲。";
 "artwork_storage_hint" = "选择歌曲时保存可跨设备解析的歌曲标识；上传的图片保存在 Primuse 持久资源目录中，开启资料库同步时会一并传输。";

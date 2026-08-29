@@ -1725,6 +1725,14 @@ final class ScanService {
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
         }
+        if let syncState {
+            library.updateAutomaticArtistArtworkCatalog(
+                SourceArtistArtworkCatalog(
+                    sourceID: sourceID,
+                    index: syncState.index
+                )
+            )
+        }
         library.addSongs(songs, affectedSourceIDs: Set([sourceID]))
         guard case .success = await library.persistIncrementalNowAndWait() else {
             throw SourceError.connectionFailed("Unable to persist the music library")

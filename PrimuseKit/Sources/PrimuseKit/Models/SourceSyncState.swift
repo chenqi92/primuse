@@ -10,7 +10,10 @@ public enum SourceSyncMode: String, Codable, Sendable, CaseIterable {
 /// Device-local discovery state. Provider cursors are deliberately kept out of
 /// MusicSource/CloudKit because they describe one device's committed snapshot.
 public struct SourceSyncState: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+    /// Version 2 adds indexed artist-image files. Existing cursors cannot
+    /// discover images that were already present before the upgrade, so their
+    /// next refresh intentionally performs one complete directory walk.
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var sourceID: String
@@ -301,7 +304,10 @@ public enum SourceSyncFolderTopologyPolicy {
 /// failed walk must never advance provider cursors or become authoritative for
 /// deletion, but it can safely resume from the remaining directory queue.
 public struct SourceScanResumeState: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+    /// A v1 checkpoint may have already skipped artist-image entries in
+    /// completed directories. Restart once rather than commit an incomplete
+    /// automatic-artwork catalogue.
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var pendingDirectories: [String]

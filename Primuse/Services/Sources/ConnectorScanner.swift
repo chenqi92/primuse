@@ -170,6 +170,22 @@ actor ConnectorScanner {
             }
             for rawItem in siblings where !rawItem.isDirectory {
                 try Task.checkCancellation()
+                if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                    try validateStableIdentity(
+                        for: rawItem,
+                        observedPaths: &observedStablePaths
+                    )
+                    let stableKey = rawItem.providerID
+                        ?? "path:\(rawItem.path.lowercased())"
+                    rebuiltStableKeys.insert(stableKey)
+                    recordSyncItem(
+                        rawItem,
+                        songIDs: [],
+                        seenEpoch: scanEpoch,
+                        in: &index
+                    )
+                    continue
+                }
                 guard let item = SidecarHintResolver.scannableItem(
                     rawItem,
                     index: sidecarIndex
@@ -609,6 +625,19 @@ actor ConnectorScanner {
                             }
                             let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
                             for rawItem in siblings where !rawItem.isDirectory {
+                                if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                                    try validateStableIdentity(
+                                        for: rawItem,
+                                        observedPaths: &observedStablePaths
+                                    )
+                                    recordSyncItem(
+                                        rawItem,
+                                        songIDs: [],
+                                        seenEpoch: scanEpoch,
+                                        in: &syncIndex
+                                    )
+                                    continue
+                                }
                                 guard let item = SidecarHintResolver.scannableItem(
                                     rawItem,
                                     index: sidecarIndex

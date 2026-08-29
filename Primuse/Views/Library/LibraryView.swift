@@ -828,10 +828,8 @@ struct LibraryView: View {
                 fallbackSongArtwork(song, size: size)
             }
 
-            CachedArtworkView(
-                artistID: artist.id,
-                artistName: artist.name,
-                artworkReference: artist.thumbnailPath,
+            ArtistArtworkView(
+                artist: artist,
                 size: size,
                 cornerRadius: cornerRadius,
                 showsPlaceholder: false
@@ -956,6 +954,14 @@ struct LibraryView: View {
                 ? album.id
                 : nil
         })
+        let artistOverrideIDs = Set(artistsSnapshot.compactMap { artist -> String? in
+            let presentation = library.artworkPresentation(
+                for: LibraryArtworkOwner(kind: .artist, id: artist.id)
+            )
+            return presentation.uploadedContentID != nil || presentation.selectedSong != nil
+                ? artist.id
+                : nil
+        })
         let playlistOverrideIDs = Set(playlistsSnapshot.compactMap { playlist -> String? in
             let presentation = library.artworkPresentation(
                 for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
@@ -999,7 +1005,8 @@ struct LibraryView: View {
                 randomSeed: "\(randomSeed)#artists",
                 id: \Artist.id
             ) { artist in
-                LibraryArtworkPreviewBuilder.hasReference(artist.thumbnailPath)
+                artistOverrideIDs.contains(artist.id)
+                    || LibraryArtworkPreviewBuilder.hasReference(artist.thumbnailPath)
                     || MetadataAssetStore.shared.hasArtistImage(forArtistID: artist.id)
                     || artistIDsWithSongArtworkHint.contains(artist.id)
             }
@@ -1279,10 +1286,8 @@ private struct LibraryQuickAccessEditor: View {
                             pinButton(
                                 LibraryPinReference(kind: .artist, itemID: artist.id)
                             ) {
-                                CachedArtworkView(
-                                    artistID: artist.id,
-                                    artistName: artist.name,
-                                    artworkReference: artist.thumbnailPath,
+                                ArtistArtworkView(
+                                    artist: artist,
                                     size: 42,
                                     cornerRadius: 21
                                 )
@@ -1358,10 +1363,8 @@ private struct LibraryQuickAccessEditor: View {
         case .artist:
             if let artist = library.visibleArtists.first(where: { $0.id == pin.itemID }) {
                 pinButton(pin) {
-                    CachedArtworkView(
-                        artistID: artist.id,
-                        artistName: artist.name,
-                        artworkReference: artist.thumbnailPath,
+                    ArtistArtworkView(
+                        artist: artist,
                         size: 42,
                         cornerRadius: 21
                     )

@@ -2908,7 +2908,10 @@
 "artwork_edit" = "표지 변경";
 "artwork_editor_title" = "표지 선택";
 "artwork_mode_automatic" = "자동";
+"artwork_restore_automatic" = "자동 표지 복원";
 "artwork_upload" = "이미지 업로드";
+"artwork_choose_photo" = "사진에서 선택";
+"artwork_choose_file" = "파일에서 선택";
 "artwork_choose_song" = "곡에서 선택";
 "artwork_no_songs" = "선택할 곡이 없습니다.";
 "artwork_storage_hint" = "선택한 곡은 기기 간 참조로 저장됩니다. 업로드한 이미지는 Primuse에 저장되며 보관함 동기화가 활성화되면 함께 전송됩니다.";
