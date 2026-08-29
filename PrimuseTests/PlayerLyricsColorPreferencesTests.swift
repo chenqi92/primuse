@@ -122,6 +122,49 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
     }
 
     @MainActor
+    func testWordLevelHighlightWaitsForFirstSyllableTimestamp() throws {
+        let line = LyricLine(
+            timestamp: 0,
+            text: "First",
+            syllables: [
+                LyricSyllable(text: "First", start: 3.1, end: 3.6),
+            ]
+        )
+        let beforeStart = KaraokeLineView(
+            line: line,
+            fontSize: 54,
+            weight: .bold,
+            activeColor: .white,
+            inactiveColor: .clear,
+            timeAt: { _ in 0 },
+            fixedTime: 0,
+            animatesSyllableBounce: false
+        )
+        .frame(width: 240, height: 90, alignment: .leading)
+        let afterStart = KaraokeLineView(
+            line: line,
+            fontSize: 54,
+            weight: .bold,
+            activeColor: .white,
+            inactiveColor: .clear,
+            timeAt: { _ in 3.1 },
+            fixedTime: 3.1,
+            animatesSyllableBounce: false
+        )
+        .frame(width: 240, height: 90, alignment: .leading)
+
+        let beforeRenderer = ImageRenderer(content: beforeStart)
+        beforeRenderer.scale = 1
+        let afterRenderer = ImageRenderer(content: afterStart)
+        afterRenderer.scale = 1
+        let beforeImage = try XCTUnwrap(beforeRenderer.uiImage?.cgImage)
+        let afterImage = try XCTUnwrap(afterRenderer.uiImage?.cgImage)
+
+        XCTAssertEqual(try alphaCoverage(in: beforeImage), 0)
+        XCTAssertGreaterThan(try alphaCoverage(in: afterImage), 0)
+    }
+
+    @MainActor
     func testRightToLeftSyllablesPreserveCompletePersianWords() throws {
         let syllableTexts = ["انگار ", "نه ", "از ", "یه ", "شهر ", "دور"]
         let text = syllableTexts.joined()

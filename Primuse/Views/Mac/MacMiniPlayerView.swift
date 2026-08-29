@@ -22,7 +22,7 @@ struct MacMiniPlayerView: View {
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @State private var lyrics: [LyricLine] = []
-    @State private var currentIndex: Int = 0
+    @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
@@ -748,7 +748,7 @@ struct MacMiniPlayerView: View {
 
     private func shouldRenderWordTimeline(line: LyricLine, index: Int, isActive: Bool) -> Bool {
         guard line.isWordLevel else { return false }
-        return isActive || abs(index - currentIndex) == 1
+        return isActive || (currentIndex >= 0 && abs(index - currentIndex) == 1)
     }
 
     private func refreshLyrics() async {
@@ -765,9 +765,9 @@ struct MacMiniPlayerView: View {
 
     private func reloadLyrics() async {
         guard let song = player.currentSong else {
-            lyrics = []; currentIndex = 0; return
+            lyrics = []; currentIndex = -1; return
         }
-        lyrics = []; currentIndex = 0
+        lyrics = []; currentIndex = -1
         let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
@@ -779,7 +779,10 @@ struct MacMiniPlayerView: View {
         guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
             at: time
-        ) else { return nil }
+        ) else {
+            if currentIndex != -1 { currentIndex = -1 }
+            return nil
+        }
         if currentIndex != index { currentIndex = index }
         return index
     }

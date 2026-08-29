@@ -74,7 +74,8 @@ public enum LyricPlaybackPositionPolicy {
     }
 
     /// Returns the lyric row that should be active at the supplied playback
-    /// time. Parsed lyric lines are expected to be ordered by timestamp.
+    /// time, or `nil` while playback is still before the first timestamp.
+    /// Parsed lyric lines are expected to be ordered by timestamp.
     public static func activeLineIndex(
         in lyrics: [LyricLine],
         at playbackTime: TimeInterval,
@@ -107,7 +108,8 @@ public enum LyricPlaybackPositionPolicy {
                 upper = middle
             }
         }
-        return max(0, lower - 1)
+        guard lower > 0 else { return nil }
+        return lower - 1
     }
 
     /// Keeps the semantic active row unchanged during a long instrumental

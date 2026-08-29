@@ -25,7 +25,7 @@ struct ExternalDisplayNowPlayingView: View {
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     @State private var lyrics: [LyricLine] = []
-    @State private var currentLyricIndex = 0
+    @State private var currentLyricIndex = -1
     @AppStorage(AppThemePreferences.ambientStrengthKey)
     private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
@@ -192,21 +192,13 @@ struct ExternalDisplayNowPlayingView: View {
 
     private func updateLyricIndex(for time: TimeInterval) {
         guard !lyrics.isEmpty else {
-            currentLyricIndex = 0
+            currentLyricIndex = -1
             return
         }
-
-        var lower = 0
-        var upper = lyrics.count
-        while lower < upper {
-            let middle = (lower + upper) / 2
-            if lyrics[middle].timestamp <= time {
-                lower = middle + 1
-            } else {
-                upper = middle
-            }
-        }
-        let nextIndex = max(0, lower - 1)
+        let nextIndex = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: time
+        ) ?? -1
         if nextIndex != currentLyricIndex {
             currentLyricIndex = nextIndex
         }
@@ -230,7 +222,11 @@ struct ExternalDisplayNowPlayingView: View {
     /// 不写,所以不需要参与 scrape / Tier2/3 fallback —— 主屏 NowPlayingView
     /// 已经处理,把 cache 填好后,这里能立刻读到。
     private func loadLyrics() async {
-        guard let song = player.currentSong else { lyrics = []; return }
+        guard let song = player.currentSong else {
+            lyrics = []
+            currentLyricIndex = -1
+            return
+        }
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
             lyrics = cached
         } else {

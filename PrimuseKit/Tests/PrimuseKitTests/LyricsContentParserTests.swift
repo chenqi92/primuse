@@ -52,6 +52,19 @@ struct LyricsContentParserTests {
         #expect(lines[9].syllables?.last?.start == 55.95)
     }
 
+    @Test("ELRC keeps a delayed first word after an earlier line timestamp")
+    func preservesDelayedFirstWordTimestamp() throws {
+        let line = try #require(
+            LyricsContentParser.parse("[00:00.00]<00:03.10>First<00:03.60> word").first
+        )
+        let syllables = try #require(line.syllables)
+
+        #expect(line.timestamp == 0)
+        #expect(syllables.map(\.text) == ["First", " word"])
+        #expect(syllables[0].start == 3.1)
+        #expect(syllables[0].end == 3.6)
+    }
+
     @Test("Issue 27 Apple Music TTML keeps line, word, and voice timing")
     func parsesIssue27TTMLFixture() throws {
         let lines = LyricsContentParser.parse(issue27TTML)

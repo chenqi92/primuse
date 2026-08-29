@@ -265,26 +265,34 @@ struct KaraokeLineView: View {
 
     /// 「扫光」mask: 沿文档书写方向推进；只改变字内的视觉填充方向，
     /// syllable 的存储顺序与时间轴保持不变。
+    @ViewBuilder
     private func sweepMask(progress: Double) -> some View {
-        let half = Self.maskEdgeWidth / 2
-        let leftEnd = max(0, progress - half)
-        let rightStart = min(1, progress + half)
-        let startPoint = lyricLayoutDirection == .rightToLeft
-            ? UnitPoint.trailing
-            : UnitPoint.leading
-        let endPoint = lyricLayoutDirection == .rightToLeft
-            ? UnitPoint.leading
-            : UnitPoint.trailing
-        return LinearGradient(
-            stops: [
-                .init(color: .black, location: 0),
-                .init(color: .black, location: leftEnd),
-                .init(color: .clear, location: rightStart),
-                .init(color: .clear, location: 1),
-            ],
-            startPoint: startPoint,
-            endPoint: endPoint
-        )
+        let clampedProgress = max(0, min(1, progress))
+        if clampedProgress <= 0 {
+            Color.clear
+        } else if clampedProgress >= 1 {
+            Color.black
+        } else {
+            let half = Self.maskEdgeWidth / 2
+            let leftEnd = max(0, clampedProgress - half)
+            let rightStart = min(1, clampedProgress + half)
+            let startPoint = lyricLayoutDirection == .rightToLeft
+                ? UnitPoint.trailing
+                : UnitPoint.leading
+            let endPoint = lyricLayoutDirection == .rightToLeft
+                ? UnitPoint.leading
+                : UnitPoint.trailing
+            LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: leftEnd),
+                    .init(color: .clear, location: rightStart),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: startPoint,
+                endPoint: endPoint
+            )
+        }
     }
 
     /// 扫光 progress 0..1: 可以提前预热, 让唱到该字时亮度已经跟上。

@@ -415,7 +415,8 @@ final class WatchSessionBridge: NSObject {
                 upper = middle
             }
         }
-        return cachedLyrics[max(0, lower - 1)].text
+        guard lower > 0 else { return "" }
+        return cachedLyrics[lower - 1].text
     }
 
     /// 换歌时调用 ── 异步把当前曲歌词读进 bridge 内部, 之后 1Hz tick 直接

@@ -31,6 +31,30 @@ struct LyricPlaybackPositionPolicyTests {
         ) == 1)
     }
 
+    @Test("Playback waits before the first synchronized lyric")
+    func waitsBeforeFirstLyric() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 3.1, text: "First"),
+            LyricLine(id: "second", timestamp: 8, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: 2.99,
+            lookahead: 0.1
+        ) == nil)
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 2.99,
+            lookahead: 0.1
+        ) == nil)
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: 3,
+            lookahead: 0.1
+        ) == 0)
+    }
+
     @Test("Empty lyrics have no active row")
     func emptyLyricsHaveNoActiveRow() {
         #expect(LyricPlaybackPositionPolicy.activeLineIndex(

@@ -26,7 +26,7 @@ struct DesktopLyricsView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @State private var lyrics: [LyricLine] = []
-    @State private var currentIndex: Int = 0
+    @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var isHovering = false
@@ -598,7 +598,7 @@ struct DesktopLyricsView: View {
     // MARK: - Lyrics state
 
     private var activeLyricLine: LyricLine? {
-        guard !lyrics.isEmpty, currentIndex < lyrics.count else { return nil }
+        guard lyrics.indices.contains(currentIndex) else { return nil }
         return lyrics[currentIndex]
     }
 
@@ -638,8 +638,8 @@ struct DesktopLyricsView: View {
     }
 
     private func reloadLyrics() async {
-        guard let song = player.currentSong else { lyrics = []; currentIndex = 0; return }
-        lyrics = []; currentIndex = 0
+        guard let song = player.currentSong else { lyrics = []; currentIndex = -1; return }
+        lyrics = []; currentIndex = -1
         let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
@@ -651,7 +651,10 @@ struct DesktopLyricsView: View {
         guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
             at: time
-        ) else { return nil }
+        ) else {
+            if currentIndex != -1 { currentIndex = -1 }
+            return nil
+        }
         if currentIndex != index { currentIndex = index }
         return index
     }

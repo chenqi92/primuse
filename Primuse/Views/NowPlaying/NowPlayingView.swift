@@ -4314,7 +4314,7 @@ struct LyricsScrollView: View {
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
-    @State private var currentLineIndex = 0
+    @State private var currentLineIndex = -1
     @State private var activeInterludeAfterLineIndex: Int? = nil
     @State private var visualPlaybackTime: TimeInterval = 0
     @State private var isRestoringVisualPosition = false
@@ -4489,8 +4489,8 @@ struct LyricsScrollView: View {
             }
         }
         .onChange(of: songID) { _, _ in
-            // 切歌时把行索引清零 + 让自动滚动重新 anchor
-            currentLineIndex = 0
+            // 换歌后先等待新歌首句时间戳，再恢复高亮与自动滚动。
+            currentLineIndex = -1
             activeInterludeAfterLineIndex = nil
             lastLyricRowTapAt = .distantPast
             lastUserScrollTime = .distantPast
@@ -5312,7 +5312,22 @@ struct LyricsScrollView: View {
             in: lyrics,
             at: time,
             lookahead: lookahead
-        ) else { return nil }
+        ) else {
+            let clearActiveLine = {
+                if currentLineIndex != -1 { currentLineIndex = -1 }
+                if activeInterludeAfterLineIndex != nil {
+                    activeInterludeAfterLineIndex = nil
+                }
+            }
+            if disableAnimations {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction, clearActiveLine)
+            } else {
+                clearActiveLine()
+            }
+            return nil
+        }
 
         let activeIndex: Int
         let interludeAfterLineIndex: Int?
