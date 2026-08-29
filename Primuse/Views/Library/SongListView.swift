@@ -705,62 +705,7 @@ struct SongListView: View {
     #endif
 
     var body: some View {
-        content
-            .songBatchActions(
-                selection: selection,
-                context: batchActionContext,
-                orderedIDs: { batchOrderedSongIDs },
-                resolve: { library.unobservedVisibleSong(id: $0) }
-            )
-            .onAppear {
-                // NavigationStack keeps this destination alive while another
-                // tab is selected. Reuse its existing order instead of
-                // sorting 10K songs again on every return.
-                if listCache.isEmpty {
-                    scheduleSortedRecompute(pruneRowModels: false)
-                }
-                scheduleFolderIndexRecompute()
-                if songFilter == .downloaded {
-                    scheduleDownloadedFilterRefresh()
-                }
-                handleLocationRequest(locationRequest)
-            }
-            .onChange(of: locationRequest) { _, request in
-                handleLocationRequest(request)
-            }
-            .onChange(of: library.visibleSongCollectionRevision) { _, _ in
-                scheduleSortedRecompute(
-                    delay: .milliseconds(180),
-                    pruneRowModels: true
-                )
-                scheduleFolderIndexRecompute(delay: .milliseconds(180))
-                if songFilter == .downloaded {
-                    scheduleDownloadedFilterRefresh(delay: .milliseconds(180))
-                }
-            }
-            .onChange(of: configuredFolderSourceDescriptors) { _, _ in
-                folderSourceRevision &+= 1
-                scheduleFolderIndexRecompute(delay: .milliseconds(80))
-            }
-            .onChange(of: scanService.folderHierarchyRevision) { _, _ in
-                folderSourceRevision &+= 1
-                scheduleFolderIndexRecompute(delay: .milliseconds(80))
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: CloudDirectoryNameStore.didChangeNotification
-                )
-            ) { notification in
-                guard let sourceID = notification.object as? String,
-                      configuredFolderSourceDescriptors.contains(where: {
-                          $0.sourceID == sourceID
-                      }) else { return }
-                folderSourceRevision &+= 1
-                scheduleFolderIndexRecompute(delay: .milliseconds(80))
-            }
-            .onChange(of: library.playlistCollectionRevision) { _, _ in
-                scheduleFolderIndexRecompute(delay: .milliseconds(80))
-            }
+        observedContent
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
                 storedBrowseModeRawValue = mode.rawValue
@@ -861,6 +806,65 @@ struct SongListView: View {
             }
             #endif
             .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+    }
+
+    private var observedContent: some View {
+        content
+            .songBatchActions(
+                selection: selection,
+                context: batchActionContext,
+                orderedIDs: { batchOrderedSongIDs },
+                resolve: { library.unobservedVisibleSong(id: $0) }
+            )
+            .onAppear {
+                // NavigationStack keeps this destination alive while another
+                // tab is selected. Reuse its existing order instead of
+                // sorting 10K songs again on every return.
+                if listCache.isEmpty {
+                    scheduleSortedRecompute(pruneRowModels: false)
+                }
+                scheduleFolderIndexRecompute()
+                if songFilter == .downloaded {
+                    scheduleDownloadedFilterRefresh()
+                }
+                handleLocationRequest(locationRequest)
+            }
+            .onChange(of: locationRequest) { _, request in
+                handleLocationRequest(request)
+            }
+            .onChange(of: library.visibleSongCollectionRevision) { _, _ in
+                scheduleSortedRecompute(
+                    delay: .milliseconds(180),
+                    pruneRowModels: true
+                )
+                scheduleFolderIndexRecompute(delay: .milliseconds(180))
+                if songFilter == .downloaded {
+                    scheduleDownloadedFilterRefresh(delay: .milliseconds(180))
+                }
+            }
+            .onChange(of: configuredFolderSourceDescriptors) { _, _ in
+                folderSourceRevision &+= 1
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
+            .onChange(of: scanService.folderHierarchyRevision) { _, _ in
+                folderSourceRevision &+= 1
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: CloudDirectoryNameStore.didChangeNotification
+                )
+            ) { notification in
+                guard let sourceID = notification.object as? String,
+                      configuredFolderSourceDescriptors.contains(where: {
+                          $0.sourceID == sourceID
+                      }) else { return }
+                folderSourceRevision &+= 1
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
+            .onChange(of: library.playlistCollectionRevision) { _, _ in
+                scheduleFolderIndexRecompute(delay: .milliseconds(80))
+            }
     }
 
     private func handleViewDisappear() {
