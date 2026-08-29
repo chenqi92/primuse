@@ -332,7 +332,8 @@ private struct LargeNowPlayingView: View {
                     #if os(macOS)
                     if !state.isLiveStream {
                         NowPlayingLyricsPreview(state: state)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
                     }
                     #endif
 
@@ -458,30 +459,44 @@ private struct NowPlayingControls: View {
 private struct NowPlayingLyricsPreview: View {
     let state: PlaybackState
 
-    private var lines: [String] {
+    private var lyricContent: (
+        lines: [WidgetLyricLine],
+        anchorIndex: Int,
+        preferredDirection: LyricWritingDirection?
+    ) {
         guard let snapshot = LyricsSnapshot.load(),
               snapshot.songID == state.currentSongID,
               snapshot.lines.isEmpty == false else {
-            return [PMString("ext.widget.lyricsPreview.empty1"),
-                    PMString("ext.widget.lyricsPreview.empty2"),
-                    PMString("ext.widget.lyricsPreview.empty3")]
+            return (
+                lines: [
+                    WidgetLyricLine(time: 0, text: PMString("ext.widget.lyricsPreview.empty1")),
+                    WidgetLyricLine(time: 1, text: PMString("ext.widget.lyricsPreview.empty2")),
+                    WidgetLyricLine(time: 2, text: PMString("ext.widget.lyricsPreview.empty3")),
+                ],
+                anchorIndex: 1,
+                preferredDirection: nil
+            )
         }
 
-        let start = max(0, snapshot.anchorIndex - 1)
-        return Array(snapshot.lines.dropFirst(start).prefix(3)).map(\.text)
+        return (
+            lines: snapshot.lines,
+            anchorIndex: snapshot.anchorIndex,
+            preferredDirection: snapshot.writingDirection
+        )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                Text(verbatim: line)
-                    .font(.system(size: index == 1 ? 12.5 : 11.5, weight: index == 1 ? .semibold : .medium))
-                    .foregroundStyle(index == 1 ? WidgetDesign.strongText : WidgetDesign.tertiaryText)
-                    .lineLimit(1)
-            }
-        }
+        let content = lyricContent
+        AdaptiveWidgetLyricsView(
+            lines: content.lines,
+            anchorIndex: content.anchorIndex,
+            preferredDirection: content.preferredDirection,
+            typography: .compact
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(Color.primary.opacity(0.055), in: .rect(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)

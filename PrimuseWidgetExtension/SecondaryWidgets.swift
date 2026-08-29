@@ -158,9 +158,6 @@ struct LyricsWidgetView: View {
     }
 
     private func content(_ snap: LyricsSnapshot) -> some View {
-        let tint = WidgetDesign.brandTint
-        let idx = min(max(snap.anchorIndex, 0), snap.lines.count - 1)
-        let window = (max(0, idx - 1)..<min(snap.lines.count, idx + 2))
         return WidgetCanvas(padding: 16) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
@@ -178,16 +175,143 @@ struct LyricsWidgetView: View {
                 }
                 .padding(.bottom, 10)
 
-                ForEach(Array(window), id: \.self) { i in
-                    let isCurrent = i == idx
-                    Text(snap.lines[i].text)
-                        .font(.system(size: isCurrent ? 18 : 13, weight: isCurrent ? .bold : .medium))
-                        .foregroundStyle(isCurrent ? tint : WidgetDesign.tertiaryText)
-                        .lineLimit(1)
-                        .padding(.bottom, 5)
-                }
+                AdaptiveWidgetLyricsView(
+                    lines: snap.lines,
+                    anchorIndex: snap.anchorIndex,
+                    preferredDirection: snap.writingDirection,
+                    typography: .standalone
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .clipped()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+}
+
+enum WidgetLyricsTypography: Equatable {
+    case standalone
+    case compact
+}
+
+/// Fits the richest lyric context the widget's remaining height can hold. The
+/// final fallback is current-line-only and deliberately bounded because no
+/// fixed widget family can guarantee full display for an arbitrarily long row.
+struct AdaptiveWidgetLyricsView: View {
+    let lines: [WidgetLyricLine]
+    let anchorIndex: Int
+    let preferredDirection: LyricWritingDirection?
+    let typography: WidgetLyricsTypography
+
+    @ScaledMetric(relativeTo: .headline) private var standaloneCurrentSize: CGFloat = 18
+    @ScaledMetric(relativeTo: .subheadline) private var standaloneAdjacentSize: CGFloat = 13
+    @ScaledMetric(relativeTo: .subheadline) private var compactCurrentSize: CGFloat = 12.5
+    @ScaledMetric(relativeTo: .caption) private var compactAdjacentSize: CGFloat = 11.5
+
+    init(
+        lines: [WidgetLyricLine],
+        anchorIndex: Int,
+        preferredDirection: LyricWritingDirection?,
+        typography: WidgetLyricsTypography
+    ) {
+        self.lines = lines
+        self.anchorIndex = anchorIndex
+        self.preferredDirection = preferredDirection
+        self.typography = typography
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ViewThatFits(in: .vertical) {
+                lyricRows(maximumRowCount: 3, currentLineLimit: 2, adjacentLineLimit: 2)
+                lyricRows(maximumRowCount: 2, currentLineLimit: 2, adjacentLineLimit: 2)
+                lyricRows(
+                    maximumRowCount: 1,
+                    currentLineLimit: typography == .standalone ? 3 : 2,
+                    adjacentLineLimit: 2
+                )
+            }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height,
+                alignment: .topLeading
+            )
+            .modifier(WidgetLyricsDirectionModifier(direction: writingDirection))
+        }
+    }
+
+    private var writingDirection: LyricWritingDirection {
+        WidgetLyricsPresentationPolicy.writingDirection(
+            for: lines,
+            preferredDirection: preferredDirection
+        )
+    }
+
+    private var currentFontSize: CGFloat {
+        typography == .standalone ? standaloneCurrentSize : compactCurrentSize
+    }
+
+    private var adjacentFontSize: CGFloat {
+        typography == .standalone ? standaloneAdjacentSize : compactAdjacentSize
+    }
+
+    private var rowSpacing: CGFloat {
+        typography == .standalone ? 5 : 3
+    }
+
+    private var currentColor: Color {
+        typography == .standalone ? WidgetDesign.brandTint : WidgetDesign.strongText
+    }
+
+    private func lyricRows(
+        maximumRowCount: Int,
+        currentLineLimit: Int,
+        adjacentLineLimit: Int
+    ) -> some View {
+        let rows = WidgetLyricsPresentationPolicy.rows(
+            in: lines,
+            anchorIndex: anchorIndex,
+            maximumRowCount: maximumRowCount
+        )
+
+        return VStack(alignment: .leading, spacing: rowSpacing) {
+            ForEach(rows) { row in
+                let isCurrent = row.role == .current
+                Text(verbatim: row.text)
+                    .font(.system(
+                        size: isCurrent ? currentFontSize : adjacentFontSize,
+                        weight: isCurrent ? .bold : .medium
+                    ))
+                    .foregroundStyle(isCurrent ? currentColor : WidgetDesign.tertiaryText)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(isCurrent ? currentLineLimit : adjacentLineLimit)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(isCurrent ? 2 : 1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct WidgetLyricsDirectionModifier: ViewModifier {
+    @Environment(\.layoutDirection) private var inheritedDirection
+
+    let direction: LyricWritingDirection
+
+    func body(content: Content) -> some View {
+        content.environment(\.layoutDirection, effectiveDirection)
+    }
+
+    private var effectiveDirection: LayoutDirection {
+        switch direction {
+        case .rightToLeft:
+            return .rightToLeft
+        case .leftToRight:
+            return .leftToRight
+        case .natural:
+            return inheritedDirection
         }
     }
 }

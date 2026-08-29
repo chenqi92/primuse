@@ -153,7 +153,7 @@ public enum WidgetSettings {
 // MARK: - Lyrics
 
 /// Trimmed lyric line for the widget — drops syllable/voice detail (the widget
-/// only renders plain centered lines) to keep the App Group payload small.
+/// only renders plain lines) to keep the App Group payload small.
 public struct WidgetLyricLine: Codable, Sendable, Hashable {
     public var time: TimeInterval
     public var text: String
@@ -173,10 +173,14 @@ public struct LyricsSnapshot: Codable, Sendable {
     /// Index of the line that was current when this snapshot was written.
     public var anchorIndex: Int
     public var isPlaying: Bool
+    /// Presentation direction resolved from the source document's language
+    /// metadata or text. `nil` identifies snapshots written by older builds.
+    public var writingDirection: LyricWritingDirection?
     public var updatedAt: Date
 
     public init(songID: String, title: String, artist: String, coverImageName: String?,
-                lines: [WidgetLyricLine], anchorIndex: Int, isPlaying: Bool, updatedAt: Date = Date()) {
+                lines: [WidgetLyricLine], anchorIndex: Int, isPlaying: Bool,
+                writingDirection: LyricWritingDirection? = nil, updatedAt: Date = Date()) {
         self.songID = songID
         self.title = title
         self.artist = artist
@@ -184,6 +188,7 @@ public struct LyricsSnapshot: Codable, Sendable {
         self.lines = lines
         self.anchorIndex = anchorIndex
         self.isPlaying = isPlaying
+        self.writingDirection = writingDirection
         self.updatedAt = updatedAt
     }
 

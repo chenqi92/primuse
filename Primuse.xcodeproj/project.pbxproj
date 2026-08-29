@@ -606,6 +606,7 @@
 		AF0477B123E1E458EE651D73 /* SmartPlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */; };
 		AFA18D8A09161106B1311158 /* SmartTransitionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17991F821D80A04544F35DD /* SmartTransitionPolicy.swift */; };
 		A68C00000000000000000002 /* CrossfadePlaybackClockPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68C00000000000000000001 /* CrossfadePlaybackClockPolicy.swift */; };
+		A68C00000000000000000004 /* WidgetLyricsPresentationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68C00000000000000000003 /* WidgetLyricsPresentationPolicy.swift */; };
 		AFA4DFE14009BB0E2FA358C6 /* CloudPlaybackSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */; };
 		AFB973435BA9B6C543BC8E6D /* PrimuseWatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C208EEAE5B4BC5D1329D5DCD /* PrimuseWatchWidgetsBundle.swift */; };
 		AFD084D1F26725C1FEABFD5B /* MacMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3CA857E144784647DBFEC6 /* MacMenuBarController.swift */; };
@@ -1428,6 +1429,7 @@
 		A41F54083A82815533AA0C36 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		A5BE81CEAC830E3A3AF8EF9B /* ArtistNameConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistNameConfiguration.swift; sourceTree = "<group>"; };
 		A68C00000000000000000001 /* CrossfadePlaybackClockPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossfadePlaybackClockPolicy.swift; sourceTree = "<group>"; };
+		A68C00000000000000000003 /* WidgetLyricsPresentationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetLyricsPresentationPolicy.swift; sourceTree = "<group>"; };
 		A620EA0CD2EEF9F08E3A131D /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		A7480FCEBE3DAE7ABBFEEF62 /* YearlyReportAutoTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReportAutoTrigger.swift; sourceTree = "<group>"; };
 		A796306024AE3678DB56D02A /* AppIconService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconService.swift; sourceTree = "<group>"; };
@@ -1965,6 +1967,7 @@
 				0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */,
 				A231BC160FFDDA890692D36A /* SpotlightIndexPlanning.swift */,
 				BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */,
+				A68C00000000000000000003 /* WidgetLyricsPresentationPolicy.swift */,
 			);
 			path = PrimuseKit;
 			sourceTree = "<group>";
@@ -3367,6 +3370,7 @@
 				4E64E573D19CAC351BD640C6 /* TopShelfShared.swift in Sources */,
 				CC2F6112F008D100288922BA /* UgreenStreamResolver.swift in Sources */,
 				785F0F6AA934D5F04071DE06 /* WidgetSnapshots.swift in Sources */,
+				A68C00000000000000000004 /* WidgetLyricsPresentationPolicy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

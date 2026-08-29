@@ -3538,7 +3538,8 @@ enum MacWidgetDataPublisher {
             coverImageName: playback?.coverImageName,
             lines: widgetLines,
             anchorIndex: anchor,
-            isPlaying: player.isPlaying
+            isPlaying: player.isPlaying,
+            writingDirection: LyricWritingDirectionPolicy.resolve(in: lines)
         ).save()
         WidgetCenter.shared.reloadAllTimelines()
     }
