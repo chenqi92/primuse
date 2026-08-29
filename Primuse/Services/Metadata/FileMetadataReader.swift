@@ -226,8 +226,12 @@ enum FileMetadataReader {
             }
         }
 
-        // Read metadata items
-        if let items = try? await asset.load(.metadata) {
+        // Read common and format-specific metadata. Some Apple-produced M4A
+        // files expose their title only in the iTunes or QuickTime key space,
+        // where `commonKey` is nil.
+        let items = await metadataItems(from: asset)
+        if !items.isEmpty {
+            var titleCandidates: [EmbeddedTitleCandidate] = []
             var commonArtists: [String] = []
             for item in items {
                 guard let key = item.commonKey?.rawValue else { continue }
@@ -235,7 +239,9 @@ enum FileMetadataReader {
 
                 switch key {
                 case AVMetadataKey.commonKeyTitle.rawValue:
-                    metadata.title = decodedText(value)
+                    if let title = decodedText(value) {
+                        titleCandidates.append(.init(value: title, source: .common))
+                    }
                 case AVMetadataKey.commonKeyArtist.rawValue:
                     if let artist = decodedText(value),
                        !commonArtists.contains(where: {
@@ -269,6 +275,42 @@ enum FileMetadataReader {
                 let value = try? await item.load(.value)
 
                 switch identifier {
+                case .iTunesMetadataSongName:
+                    if let title = decodedText(value) {
+                        titleCandidates.append(.init(value: title, source: .iTunesSongName))
+                    }
+                case .quickTimeMetadataTitle:
+                    if let title = decodedText(value) {
+                        titleCandidates.append(.init(value: title, source: .quickTimeMetadataTitle))
+                    }
+                case .quickTimeMetadataDisplayName:
+                    if let title = decodedText(value) {
+                        titleCandidates.append(.init(value: title, source: .quickTimeMetadataDisplayName))
+                    }
+                case .quickTimeUserDataFullName:
+                    if let title = decodedText(value) {
+                        titleCandidates.append(.init(value: title, source: .quickTimeUserDataFullName))
+                    }
+                case .quickTimeUserDataTrackName:
+                    if let title = decodedText(value) {
+                        titleCandidates.append(.init(value: title, source: .quickTimeUserDataTrackName))
+                    }
+                case .iTunesMetadataArtist,
+                     .quickTimeMetadataArtist,
+                     .quickTimeMetadataAuthor,
+                     .quickTimeUserDataArtist,
+                     .quickTimeUserDataAuthor:
+                    metadata.artist = metadata.artist ?? decodedText(value)
+                case .iTunesMetadataAlbum,
+                     .quickTimeMetadataAlbum,
+                     .quickTimeUserDataAlbum:
+                    metadata.albumTitle = metadata.albumTitle ?? decodedText(value)
+                case .iTunesMetadataAlbumArtist:
+                    metadata.albumArtist = metadata.albumArtist ?? decodedText(value)
+                case .iTunesMetadataCoverArt, .quickTimeMetadataArtwork:
+                    if metadata.coverArtData == nil, let data = value as? Data {
+                        metadata.coverArtData = data
+                    }
                 case .id3MetadataTrackNumber, .iTunesMetadataTrackNumber:
                     if let str = decodedText(value) {
                         metadata.trackNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
@@ -279,12 +321,26 @@ enum FileMetadataReader {
                     if let str = decodedText(value) {
                         metadata.discNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
                     }
+                case .iTunesMetadataDiscNumber:
+                    if let str = decodedText(value) {
+                        metadata.discNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
+                    } else if let num = value as? Int {
+                        metadata.discNumber = num
+                    }
                 case .id3MetadataYear, .id3MetadataRecordingTime:
                     if let str = decodedText(value) {
                         metadata.year = Int(String(str.prefix(4)))
                     }
+                case .iTunesMetadataReleaseDate,
+                     .quickTimeMetadataYear,
+                     .quickTimeUserDataCreationDate:
+                    metadata.year = metadata.year ?? parsedYear(decodedText(value))
                 case .id3MetadataContentType:
                     metadata.genre = decodedText(value)
+                case .iTunesMetadataUserGenre,
+                     .quickTimeMetadataGenre,
+                     .quickTimeUserDataGenre:
+                    metadata.genre = metadata.genre ?? decodedText(value)
                 case .id3MetadataUnsynchronizedLyric:
                     if let text = decodedText(value), !text.isEmpty {
                         metadata.lyricsText = text
@@ -315,6 +371,9 @@ enum FileMetadataReader {
                     break
                 }
             }
+            metadata.title = MetadataTitleResolutionPolicy.preferredEmbeddedTitle(
+                from: titleCandidates
+            )
         }
 
         // Get audio format details
@@ -339,6 +398,21 @@ enum FileMetadataReader {
         }
 
         return metadata
+    }
+
+    private static func metadataItems(from asset: AVAsset) async -> [AVMetadataItem] {
+        var items = (try? await asset.load(.commonMetadata)) ?? []
+        if let formats = try? await asset.load(.availableMetadataFormats) {
+            for format in formats {
+                if let formatItems = try? await asset.loadMetadata(for: format) {
+                    items.append(contentsOf: formatItems)
+                }
+            }
+        }
+        if let fallbackItems = try? await asset.load(.metadata) {
+            items.append(contentsOf: fallbackItems)
+        }
+        return items
     }
 
     private static let id3MetadataReadLimit = 4 * 1024 * 1024

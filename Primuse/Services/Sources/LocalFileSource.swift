@@ -18,6 +18,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private static let ffmpegMetadataProbeExtensions =
         FFmpegAudioDecoder.preferredExtensions
     private static let minimumReadableAudioBytes: Int64 = 1024
+    private static let metadataTitleRepairVersion = "v2026_08_formatSpecificTitles"
     /// Sandboxed local references require holding every resolved security scope
     /// for the connector lifetime. A virtual path component is present for
     /// individual files and multi-root selections; one folder keeps `/` as its
@@ -332,6 +333,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             existingSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        let titleRepairKey = Self.metadataTitleRepairKey(sourceID: sourceID, path: path)
+        let shouldRepairFileNameTitles = !UserDefaults.standard.bool(forKey: titleRepairKey)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -392,6 +395,20 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
                         if let existing = existingByID[physicalID],
                            Self.fingerprintMatches(existing: existing, item: item) {
+                            if shouldRepairFileNameTitles,
+                               MetadataTitleResolutionPolicy.shouldReinspectFileNameFallback(
+                                currentTitle: existing.title,
+                                filePath: item.name,
+                                userEdited: existing.userMetadataEditedAt != nil,
+                                isCueTrack: existing.isCueTrack
+                               ) {
+                                let refreshed = try await self.buildTitleRefreshedSong(
+                                    from: item,
+                                    existing: existing
+                                )
+                                continuation.yield(refreshed)
+                                continue
+                            }
                             var refreshed = existing
                             if refreshed.revision == nil { refreshed.revision = item.revision }
                             if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }
@@ -405,6 +422,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                         if let scanned = try await self.buildScannedSong(from: item) {
                             continuation.yield(scanned)
                         }
+                    }
+                    if shouldRepairFileNameTitles {
+                        UserDefaults.standard.set(true, forKey: titleRepairKey)
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -599,6 +619,37 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             song: song,
             displayName: item.name,
             titleMetadataInspected: false
+        )
+    }
+
+    private func buildTitleRefreshedSong(
+        from item: RemoteFileItem,
+        existing: Song
+    ) async throws -> ConnectorScannedSong {
+        let fileURL = try await localURL(for: item.path)
+        let originalBaseName = ((item.name as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+        let metadata = await metadataService.loadMetadata(
+            for: fileURL,
+            cacheKey: existing.id,
+            allowOnlineFetch: false,
+            fallbackTitle: originalBaseName
+        )
+        var refreshed = existing
+        if refreshed.revision == nil { refreshed.revision = item.revision }
+        if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }
+        if let embeddedTitle = metadata.embeddedTitle,
+           embeddedTitle.compare(
+            existing.title,
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+           ) != .orderedSame {
+            refreshed.title = embeddedTitle
+            refreshed.titlePinyin = nil
+        }
+        return ConnectorScannedSong(
+            song: refreshed,
+            displayName: item.name,
+            titleMetadataInspected: true
         )
     }
 
@@ -1001,6 +1052,16 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             return abs(lhs.timeIntervalSince(rhs)) < 0.001
         }
         return true
+    }
+
+    private nonisolated static func metadataTitleRepairKey(
+        sourceID: String,
+        path: String
+    ) -> String {
+        let digest = SHA256.hash(data: Data(path.utf8)).prefix(8).map {
+            String(format: "%02x", $0)
+        }.joined()
+        return "primuse.localMetadataTitleRepair.\(metadataTitleRepairVersion).\(sourceID).\(digest)"
     }
 }
 

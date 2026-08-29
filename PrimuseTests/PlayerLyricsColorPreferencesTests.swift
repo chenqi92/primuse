@@ -5,6 +5,49 @@ import XCTest
 @testable import Primuse
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
+    func testLightAmbientOverlayKeepsDefaultAppearance() {
+        let overlay = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: true,
+            usesIncreasedContrast: false,
+            strength: AppThemePreferences.defaultAmbientStrength
+        )
+
+        XCTAssertEqual(overlay.topOpacity, 0.24, accuracy: 0.000_001)
+        XCTAssertEqual(overlay.bottomOpacity, 0.10, accuracy: 0.000_001)
+    }
+
+    func testLightAmbientOverlayRevealsMoreArtworkColorAtHigherStrength() {
+        let neutral = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: true,
+            usesIncreasedContrast: false,
+            strength: 0
+        )
+        let vivid = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: true,
+            usesIncreasedContrast: false,
+            strength: 1
+        )
+
+        XCTAssertGreaterThan(neutral.topOpacity, vivid.topOpacity)
+        XCTAssertGreaterThan(neutral.bottomOpacity, vivid.bottomOpacity)
+    }
+
+    func testLightAmbientOverlayPreservesIncreasedContrastFloor() {
+        let standard = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: true,
+            usesIncreasedContrast: false,
+            strength: 1
+        )
+        let increased = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: true,
+            usesIncreasedContrast: true,
+            strength: 1
+        )
+
+        XCTAssertGreaterThan(increased.topOpacity, standard.topOpacity)
+        XCTAssertGreaterThan(increased.bottomOpacity, standard.bottomOpacity)
+    }
+
     func testDefaultModePreservesExistingLyricsAppearance() {
         XCTAssertEqual(PlayerLyricsColorMode.defaultValue, .defaultColor)
         XCTAssertEqual(PlayerLyricsColorMode.defaultValue.rawValue, "default")

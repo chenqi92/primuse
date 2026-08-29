@@ -2287,6 +2287,11 @@ struct NowPlayingView: View {
             let lowerAccentOpacity = (hasArtworkTheme
                 ? appearance.artworkLowerAccentOpacity
                 : appearance.fallbackLowerAccentOpacity) * strength
+            let lightOverlay = AmbientLightOverlayPolicy.resolve(
+                hasArtworkTheme: hasArtworkTheme,
+                usesIncreasedContrast: colorSchemeContrast == .increased,
+                strength: strength
+            )
 
             ZStack {
                 appearance.backgroundBase
@@ -2310,12 +2315,8 @@ struct NowPlayingView: View {
                     // washing the cover-driven hue back to near-neutral.
                     LinearGradient(
                         colors: [
-                            .white.opacity(hasArtworkTheme
-                                ? (colorSchemeContrast == .increased ? 0.34 : 0.24)
-                                : (colorSchemeContrast == .increased ? 0.52 : 0.38)),
-                            .white.opacity(hasArtworkTheme
-                                ? (colorSchemeContrast == .increased ? 0.20 : 0.10)
-                                : (colorSchemeContrast == .increased ? 0.38 : 0.22))
+                            .white.opacity(lightOverlay.topOpacity),
+                            .white.opacity(lightOverlay.bottomOpacity)
                         ],
                         startPoint: .top,
                         endPoint: .bottom

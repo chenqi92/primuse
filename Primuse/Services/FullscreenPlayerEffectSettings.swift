@@ -175,6 +175,62 @@ enum AppThemePreferences {
     }
 }
 
+struct AmbientLightOverlay: Equatable, Sendable {
+    let topOpacity: Double
+    let bottomOpacity: Double
+}
+
+enum AmbientLightOverlayPolicy {
+    static func resolve(
+        hasArtworkTheme: Bool,
+        usesIncreasedContrast: Bool,
+        strength: Double
+    ) -> AmbientLightOverlay {
+        guard hasArtworkTheme else {
+            return usesIncreasedContrast
+                ? AmbientLightOverlay(topOpacity: 0.52, bottomOpacity: 0.38)
+                : AmbientLightOverlay(topOpacity: 0.38, bottomOpacity: 0.22)
+        }
+
+        let value = AppThemePreferences.normalizedAmbientStrength(strength)
+        let neutral = usesIncreasedContrast
+            ? AmbientLightOverlay(topOpacity: 0.52, bottomOpacity: 0.38)
+            : AmbientLightOverlay(topOpacity: 0.38, bottomOpacity: 0.22)
+        let defaultAppearance = usesIncreasedContrast
+            ? AmbientLightOverlay(topOpacity: 0.34, bottomOpacity: 0.20)
+            : AmbientLightOverlay(topOpacity: 0.24, bottomOpacity: 0.10)
+        let vivid = usesIncreasedContrast
+            ? AmbientLightOverlay(topOpacity: 0.22, bottomOpacity: 0.10)
+            : AmbientLightOverlay(topOpacity: 0.10, bottomOpacity: 0.02)
+        let defaultStrength = AppThemePreferences.defaultAmbientStrength
+
+        if value <= defaultStrength {
+            return interpolate(
+                from: neutral,
+                to: defaultAppearance,
+                progress: value / defaultStrength
+            )
+        }
+        return interpolate(
+            from: defaultAppearance,
+            to: vivid,
+            progress: (value - defaultStrength) / (1 - defaultStrength)
+        )
+    }
+
+    private static func interpolate(
+        from start: AmbientLightOverlay,
+        to end: AmbientLightOverlay,
+        progress: Double
+    ) -> AmbientLightOverlay {
+        let value = min(max(progress, 0), 1)
+        return AmbientLightOverlay(
+            topOpacity: start.topOpacity + (end.topOpacity - start.topOpacity) * value,
+            bottomOpacity: start.bottomOpacity + (end.bottomOpacity - start.bottomOpacity) * value
+        )
+    }
+}
+
 /// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverFlow

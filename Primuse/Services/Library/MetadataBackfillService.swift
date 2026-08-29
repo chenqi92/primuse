@@ -795,6 +795,44 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: expandedTagFormatsKey)
         }
 
+        // Apple-produced M4A/ALAC files can store the song name only in an
+        // iTunes or QuickTime metadata key that older readers skipped when
+        // `commonKey` was nil. Reopen only untouched, non-CUE rows that still
+        // carry a filename-derived title.
+        let formatSpecificTitleKey = "primuse.backfillState.v2026_08_formatSpecificTitles"
+        if !UserDefaults.standard.bool(forKey: formatSpecificTitleKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let formats: Set<AudioFormat> = [.m4a, .alac]
+            let retryIDs = Set(library.songs.lazy.filter { song in
+                sourceIDs.contains(song.sourceID)
+                    && formats.contains(song.fileFormat)
+                    && MetadataTitleResolutionPolicy.shouldReinspectFileNameFallback(
+                        currentTitle: song.title,
+                        filePath: song.filePath,
+                        userEdited: song.userMetadataEditedAt != nil,
+                        isCueTrack: song.isCueTrack
+                    )
+            }.map(\.id))
+            if !retryIDs.isEmpty {
+                failedSongIDs.subtract(retryIDs)
+                incompleteSongIDs.subtract(retryIDs)
+                sourceIssueSongIDs.subtract(retryIDs)
+                sessionGivenUpIDs.subtract(retryIDs)
+                sessionNetworkParkedIDs.subtract(retryIDs)
+                sessionStallParkedIDs.subtract(retryIDs)
+                deferredRetrySongIDs.subtract(retryIDs)
+                titleCheckedIDs.subtract(retryIDs)
+                for id in retryIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveDeferredRetries()
+                saveInspectionState()
+                saveRetryCounts()
+                plog("📥 Backfill: reopening \(retryIDs.count) ISO media rows for embedded titles")
+            }
+            markQueueDirty()
+            UserDefaults.standard.set(true, forKey: formatSpecificTitleKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by
