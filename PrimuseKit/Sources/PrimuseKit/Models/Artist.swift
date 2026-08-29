@@ -140,7 +140,7 @@ public struct SourceArtistArtworkCatalog: Codable, Equatable, Sendable {
                     if PrimuseConstants.supportedAudioExtensions.contains(ext)
                         || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                         audioBasenamesByDirectory[parent, default: []].insert(
-                            normalizedArtistName(fileName.deletingPathExtension)
+                            Self.normalizedArtistName(fileName.deletingPathExtension)
                         )
                     }
                 }

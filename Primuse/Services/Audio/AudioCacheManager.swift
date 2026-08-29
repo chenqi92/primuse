@@ -907,7 +907,7 @@ private actor AlwaysDownloadWorker {
 
     private func resourceSnapshot() async -> ResourceSnapshot {
         let player = self.player
-        await MainActor.run {
+        return await MainActor.run {
             let network = NetworkMonitor.shared
             let thermal = ProcessInfo.processInfo.thermalState
             return ResourceSnapshot(

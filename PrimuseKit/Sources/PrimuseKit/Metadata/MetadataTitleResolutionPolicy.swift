@@ -23,7 +23,12 @@ public enum MetadataTitleResolutionPolicy {
     public static func preferredEmbeddedTitle(
         from candidates: [EmbeddedTitleCandidate]
     ) -> String? {
-        candidates.enumerated().compactMap { index, candidate in
+        candidates.enumerated().compactMap { index, candidate -> (
+            value: String,
+            isSuspicious: Bool,
+            sourcePriority: Int,
+            index: Int
+        )? in
             let trimmed = candidate.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             let repaired = MediaMetadataTextRepair.repaired(trimmed) ?? trimmed
