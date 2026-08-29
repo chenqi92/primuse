@@ -8,6 +8,8 @@ import PrimuseKit
 struct MacDetailContainer: View {
     let route: MacRoute
     @Binding var searchText: String
+    @Binding var songLocationRequest: SongLibraryLocationRequest?
+    let onShowSongInLibrary: (Song) -> Void
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var path = NavigationPath()
@@ -94,7 +96,7 @@ struct MacDetailContainer: View {
             MacSourcesView()
                 .navigationTitle("sources_title")
         case .search:
-            SearchView(searchText: $searchText)
+            SearchView(searchText: $searchText, onShowInLibrary: onShowSongInLibrary)
                 .navigationTitle("search_title")
         case .section(let section):
             switch section {
@@ -102,7 +104,7 @@ struct MacDetailContainer: View {
                 AIRecommendationLibraryView()
                     .navigationTitle(section.title)
             case .songs:
-                SongListView()
+                SongListView(locationRequest: $songLocationRequest)
                     .navigationTitle(section.title)
             case .albums:
                 AlbumGridView()

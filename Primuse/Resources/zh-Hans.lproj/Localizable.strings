@@ -2539,6 +2539,7 @@
 "stats_play_count" = "播放次数";
 "songs_column_rating" = "评分";
 "songs_column_bitrate" = "比特率";
+"show_in_library" = "在资料库中显示";
 "songs_export_failed" = "导出失败";
 "songs_view_options" = "视图选项";
 "queue_all_songs" = "全部加入队列";

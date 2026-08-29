@@ -3484,8 +3484,11 @@ struct SongInfoSheet: View {
 
                 Section(String(localized: "technical_info")) {
                     infoRow(String(localized: "format_label"), song.fileFormat.displayName)
-                    if let quality = song.qualitySpecText {
-                        infoRow(String(localized: "audio_quality_label"), quality)
+                    if let sampleRate = song.formattedSampleRate {
+                        infoRow(String(localized: "sample_rate_label"), sampleRate)
+                    }
+                    if let bitDepth = song.formattedBitDepth {
+                        infoRow(String(localized: "bit_depth_label"), bitDepth)
                     }
                     if let bitRate = song.formattedBitRate {
                         infoRow(String(localized: "songs_column_bitrate"), bitRate)
@@ -3653,8 +3656,11 @@ struct SongInfoSheet: View {
             rows.append((String(localized: "last_modified_label"), lastModified.formatted(date: .abbreviated, time: .shortened), false))
         }
         rows.append((String(localized: "format_label"), song.fileFormat.displayName, false))
-        if let quality = song.qualitySpecText {
-            rows.append((String(localized: "audio_quality_label"), quality, false))
+        if let sampleRate = song.formattedSampleRate {
+            rows.append((String(localized: "sample_rate_label"), sampleRate, false))
+        }
+        if let bitDepth = song.formattedBitDepth {
+            rows.append((String(localized: "bit_depth_label"), bitDepth, false))
         }
         if let bitRate = song.formattedBitRate {
             rows.append((String(localized: "songs_column_bitrate"), bitRate, false))

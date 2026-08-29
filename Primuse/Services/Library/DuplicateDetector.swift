@@ -65,7 +65,7 @@ enum DuplicateDetector {
         if isLossless(song.fileFormat) { score += 10000 }
         if let bd = song.bitDepth { score += bd * 500 }
         if let sr = song.sampleRate { score += sr / 1000 }
-        if let br = song.bitRate { score += br / 1000 }
+        if let br = song.bitRate { score += br }
         score += Int(song.fileSize / (1024 * 1024))
         return score
     }

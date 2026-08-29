@@ -1086,8 +1086,7 @@ struct DuplicateSongsView: View {
     }
 
     private func bitrateText(_ song: Song) -> String {
-        guard let bitRate = song.bitRate, bitRate > 0 else { return "—" }
-        return "\(bitRate / 1000)k"
+        song.formattedBitRate ?? "—"
     }
 
     private func sampleRateText(_ song: Song) -> String {
@@ -1135,13 +1134,8 @@ struct DuplicateSongsView: View {
     }
 
     private func qualityDescription(_ song: Song) -> String {
-        var parts: [String] = []
-        if let br = song.bitRate, br > 0 { parts.append("\(br / 1000) kbps") }
-        if let sr = song.sampleRate, sr > 0 {
-            let kHz = Double(sr) / 1000
-            parts.append(String(format: "%.1f kHz", kHz))
-        }
-        if let bd = song.bitDepth, bd > 0 { parts.append("\(bd)-bit") }
+        var parts = [song.formattedBitRate, song.formattedSampleRate, song.formattedBitDepth]
+            .compactMap { $0 }
         if song.fileSize > 0 {
             parts.append(ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file))
         }

@@ -2435,6 +2435,7 @@
 "stats_play_count" = "Lectures";
 "songs_column_rating" = "Note";
 "songs_column_bitrate" = "Débit";
+"show_in_library" = "Afficher dans la bibliothèque";
 "songs_export_failed" = "Échec de l’export";
 "songs_view_options" = "Options d’affichage";
 "queue_all_songs" = "Tout ajouter à la file";

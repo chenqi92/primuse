@@ -2436,6 +2436,7 @@
 "stats_play_count" = "再生回数";
 "songs_column_rating" = "評価";
 "songs_column_bitrate" = "ビットレート";
+"show_in_library" = "ライブラリで表示";
 "songs_export_failed" = "書き出しに失敗";
 "songs_view_options" = "表示オプション";
 "queue_all_songs" = "すべてキューに追加";

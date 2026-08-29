@@ -2435,6 +2435,7 @@
 "stats_play_count" = "재생 횟수";
 "songs_column_rating" = "평점";
 "songs_column_bitrate" = "비트레이트";
+"show_in_library" = "보관함에서 보기";
 "songs_export_failed" = "내보내기 실패";
 "songs_view_options" = "보기 옵션";
 "queue_all_songs" = "모두 대기열에 추가";

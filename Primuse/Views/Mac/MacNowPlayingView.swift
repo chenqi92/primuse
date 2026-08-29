@@ -849,12 +849,14 @@ struct MacNowPlayingView: View {
     private var nowPlayingInfoLine: String {
         guard let song = player.currentSong else { return "" }
         var parts = [String(localized: "now_playing"), song.fileFormat.displayName]
-        if let bitRate = song.bitRate, bitRate > 0 {
-            let kbps = bitRate > 10_000 ? bitRate / 1_000 : bitRate
-            parts.append("\(kbps)kbps")
+        if let bitRate = song.formattedBitRate {
+            parts.append(bitRate)
         }
-        if let sampleRate = song.sampleRate, sampleRate > 0 {
-            parts.append(formattedSampleRate(sampleRate))
+        if let sampleRate = song.formattedSampleRate {
+            parts.append(sampleRate)
+        }
+        if let bitDepth = song.formattedBitDepth {
+            parts.append(bitDepth)
         }
         return parts.joined(separator: " · ")
     }
@@ -880,14 +882,6 @@ struct MacNowPlayingView: View {
 
     private func artworkScrubberRow(width: CGFloat) -> some View {
         MacNowPlayingProgressRow(width: width, accent: theme.accentColor)
-    }
-
-    private func formattedSampleRate(_ sampleRate: Int) -> String {
-        let khz = Double(sampleRate) / 1_000
-        if khz.rounded() == khz {
-            return "\(Int(khz))kHz"
-        }
-        return String(format: "%.1fkHz", khz)
     }
 
     // MARK: - Floating controls (top-right of the window)

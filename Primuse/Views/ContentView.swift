@@ -8,7 +8,7 @@ import UIKit
 /// (rawValueTab 暴露 0/1/2/3 给 `selectedTab` mirror),Library 还细分到
 /// 子列表 (.libraryAlbums / .librarySongs 等) 直接路由 detail,少一层
 /// 点击。
-private enum SidebarItem: Hashable, Identifiable, CaseIterable {
+private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     case home
     case library
     case libraryRecommendations
@@ -100,11 +100,12 @@ struct ContentView: View {
     /// 走 TabView。Apple 推荐用 horizontalSizeClass 而不是 idiom 来判断,以
     /// 适配 Stage Manager / 分屏 / 折叠态。
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var selectedTab = 0
+    @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
     /// 保持联动 (sidebar 改 → selectedTab 也改; selectedTab 改 → sidebar
     /// 跟到对应顶级项, 但子项不自动猜测)。
-    @State private var sidebarSelection: SidebarItem = .home
+    @AppStorage("primuse.navigation.sidebarItem.v1")
+    private var sidebarSelection: SidebarItem = .home
     @State private var searchText = ""
     @State private var showNowPlaying = false
     @State private var nowPlayingPresentationID = UUID()
@@ -143,7 +144,7 @@ struct ContentView: View {
             }
 
             Tab(value: 2, role: .search) {
-                SearchView(searchText: $searchText)
+                SearchView(searchText: $searchText, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
             }
 
@@ -251,7 +252,7 @@ struct ContentView: View {
         case .libraryRadio:
             librarySubpane(title: "radio_title") { RadioStationsView() }
         case .search:
-            SearchView(searchText: $searchText)
+            SearchView(searchText: $searchText, onShowInLibrary: showSongInLibrary)
         case .settings:
             SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
         }
@@ -329,6 +330,10 @@ struct ContentView: View {
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
         // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。
         .task {
+            if !(0...3).contains(selectedTab) {
+                selectedTab = 0
+                sidebarSelection = .home
+            }
             // 展示前就写入“一次性”标记。这样即使用户在导览期间直接杀掉
             // App，下次启动也不会再次自动弹出；设置页仍可手动重看。
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
@@ -520,6 +525,10 @@ struct ContentView: View {
         selectedTab = 1
         sidebarSelection = .library
         libraryDeepLink = link
+    }
+
+    private func showSongInLibrary(_ song: PrimuseKit.Song) {
+        openLibraryDeepLink(.song(song.id))
     }
 }
 

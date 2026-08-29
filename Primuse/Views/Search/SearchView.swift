@@ -57,6 +57,7 @@ struct SearchView: View {
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Binding var searchText: String
+    let onShowInLibrary: (PrimuseKit.Song) -> Void
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var matchingAlbums: [PrimuseKit.Album] = []
     @State private var semanticResults: [SemanticLibrarySearchResult] = []
@@ -76,6 +77,14 @@ struct SearchView: View {
     @State private var renderedQuery: String = ""
     @State private var intelligenceRenderedQuery: String = ""
     @State private var selection = SongSelectionModel()
+
+    init(
+        searchText: Binding<String>,
+        onShowInLibrary: @escaping (PrimuseKit.Song) -> Void = { _ in }
+    ) {
+        self._searchText = searchText
+        self.onShowInLibrary = onShowInLibrary
+    }
 
     private var visibleSemanticResults: [SemanticLibrarySearchResult] {
         guard intelligenceRenderedQuery == searchText else { return [] }
@@ -399,6 +408,9 @@ struct SearchView: View {
                                song: result.song)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    showInLibraryButton(for: result.song)
+                }
             } else if let result = visibleSemanticResults.first {
                 Button {
                     playSong(result.song)
@@ -411,6 +423,9 @@ struct SearchView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    showInLibraryButton(for: result.song)
+                }
             }
         }
     }
@@ -648,6 +663,9 @@ struct SearchView: View {
             .pmRowBackground(cornerRadius: 6)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            showInLibraryButton(for: result.song)
+        }
     }
 
     private func macTopCard(title: String,
@@ -733,6 +751,8 @@ struct SearchView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            showInLibraryButton(for: result.song)
+            Divider()
             Button {
                 selection.activate(seed: result.song.id)
             } label: {
@@ -771,6 +791,15 @@ struct SearchView: View {
             .background(PMColor.rowHover, in: .rect(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            showInLibraryButton(for: result.song)
+            Divider()
+            Button {
+                selection.activate(seed: result.song.id)
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
+            }
+        }
     }
 
     private func macSummaryTile(value: String, label: LocalizedStringKey, icon: String) -> some View {
@@ -1103,6 +1132,13 @@ struct SearchView: View {
                         selection: selection,
                         orderedIDs: { selectableSongIDs }
                     )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        showInLibraryButton(for: result.song)
+                            .tint(.accentColor)
+                    }
+                    .accessibilityAction(named: Text("show_in_library")) {
+                        onShowInLibrary(result.song)
+                    }
                 }
             } header: {
                 Text(titleKey)
@@ -1144,6 +1180,13 @@ struct SearchView: View {
                         selection: selection,
                         orderedIDs: { selectableSongIDs }
                     )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        showInLibraryButton(for: result.song)
+                            .tint(.accentColor)
+                    }
+                    .accessibilityAction(named: Text("show_in_library")) {
+                        onShowInLibrary(result.song)
+                    }
                 }
             } header: {
                 Label("search_ai_section", systemImage: "sparkles")
@@ -1464,12 +1507,7 @@ struct SearchView: View {
     }
 
     private func playSong(_ song: PrimuseKit.Song, lyricsHint: String? = nil, matchKind: LibrarySearchMatchKind? = nil) {
-        var seenSongIDs = Set<String>()
-        let queue = (searchResults.map(\.song) + visibleSemanticResults.map(\.song))
-            .filter { seenSongIDs.insert($0.id).inserted }
-            .filteredPlayable()
-        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(queue, startAt: index)
+        guard let insertedIndex = player.insertNextInQueue([song]) else { return }
         // 歌词命中: 让 NowPlayingView 加载完歌词后自动 seek 到那行;
         // 同时打开全屏 NowPlayingView 让用户能立刻看到上下文。
         if matchKind == .lyrics, let snippet = lyricsHint, !snippet.isEmpty {
@@ -1477,8 +1515,16 @@ struct SearchView: View {
             NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
         }
         SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(song: song) }
+        Task { await player.playFromQueue(at: insertedIndex) }
         addRecentSearch(searchText)
+    }
+
+    private func showInLibraryButton(for song: PrimuseKit.Song) -> some View {
+        Button {
+            onShowInLibrary(song)
+        } label: {
+            Label("show_in_library", systemImage: "music.note.list")
+        }
     }
 
     private func loadRecentSearches() {

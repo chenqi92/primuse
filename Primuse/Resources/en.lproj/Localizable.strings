@@ -2263,6 +2263,7 @@
 "stats_play_count" = "Play Count";
 "songs_column_rating" = "Rating";
 "songs_column_bitrate" = "Bit Rate";
+"show_in_library" = "Show in Library";
 "songs_export_failed" = "Export Failed";
 "songs_view_options" = "View Options";
 "queue_all_songs" = "Add All to Queue";

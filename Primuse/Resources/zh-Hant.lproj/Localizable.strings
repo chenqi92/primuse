@@ -2412,6 +2412,7 @@
 "stats_play_count" = "播放次數";
 "songs_column_rating" = "評分";
 "songs_column_bitrate" = "位元率";
+"show_in_library" = "在資料庫中顯示";
 "songs_export_failed" = "匯出失敗";
 "songs_view_options" = "檢視選項";
 "queue_all_songs" = "全部加入佇列";

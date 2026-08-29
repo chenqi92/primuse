@@ -8,6 +8,21 @@ import UIKit
 import AppKit
 #endif
 
+struct SongLibraryLocationRequest: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let songID: String
+
+    init(songID: String, id: UUID = UUID()) {
+        self.id = id
+        self.songID = songID
+    }
+}
+
+private struct SongLocationScrollTrigger: Equatable {
+    let songID: String?
+    let rowOrderRevision: Int
+}
+
 /// Reference-backed storage prevents AttributeGraph from applying
 /// `Array<Song>.==` to the list cache whenever metadata changes. Song's
 /// synthesized equality includes lyricsText, so a value-backed SwiftUI state
@@ -147,6 +162,10 @@ private final class SongListCache {
     func row(at position: Int) -> SongListRowIdentity? {
         guard let snapshot, snapshot.rows.indices.contains(position) else { return nil }
         return snapshot.rows[position]
+    }
+
+    func position(of songID: String) -> Int? {
+        snapshot?.orderedSongIDs.firstIndex(of: songID)
     }
 
     func positionModel(at position: Int) -> SongListPositionModel {
@@ -416,6 +435,9 @@ struct SongListView: View {
     /// here made SwiftUI/AttributeGraph compare every Song (including its full
     /// lyricsText) whenever an ancestor refreshed.
     private let scope: Scope
+    @Binding private var locationRequest: SongLibraryLocationRequest?
+    @State private var locatedSongID: String?
+    @State private var locationHighlightTask: Task<Void, Never>?
     @State private var sortOrder: SongSortOrder = .title
     @State private var songFilter: SongFilter
     @State private var downloadedSongIDs: Set<String> = []
@@ -520,8 +542,12 @@ struct SongListView: View {
         }
     }
 
-    init(sourceID: String? = nil) {
+    init(
+        sourceID: String? = nil,
+        locationRequest: Binding<SongLibraryLocationRequest?> = .constant(nil)
+    ) {
         scope = sourceID.map(Scope.source) ?? .library
+        self._locationRequest = locationRequest
         let initialSortOrder = LibrarySongSortOrderPreference.load()
         _sortOrder = State(initialValue: SongSortOrder(libraryOrder: initialSortOrder))
         let initialSongFilter = UserDefaults.standard
@@ -652,11 +678,13 @@ struct SongListView: View {
     }
 
     private enum MacSongsColumn: String, CaseIterable, Hashable, Identifiable {
-        case artist, album, format, duration, plays, source, year, rating, dateAdded, bitRate
+        case artist, album, format, duration, plays, source, year, rating, dateAdded, bitRate, bitDepth
 
         var id: String { rawValue }
 
-        static let defaultVisible: Set<MacSongsColumn> = [.artist, .album, .format, .duration, .plays, .source]
+        static let defaultVisible: Set<MacSongsColumn> = [
+            .artist, .album, .format, .duration, .plays, .source, .bitRate, .bitDepth,
+        ]
 
         var title: String {
             switch self {
@@ -670,6 +698,7 @@ struct SongListView: View {
             case .rating: return String(localized: "songs_column_rating")
             case .dateAdded: return String(localized: "sort_date_added")
             case .bitRate: return String(localized: "songs_column_bitrate")
+            case .bitDepth: return String(localized: "bit_depth_label")
             }
         }
     }
@@ -694,6 +723,10 @@ struct SongListView: View {
                 if songFilter == .downloaded {
                     scheduleDownloadedFilterRefresh()
                 }
+                handleLocationRequest(locationRequest)
+            }
+            .onChange(of: locationRequest) { _, request in
+                handleLocationRequest(request)
             }
             .onChange(of: library.visibleSongCollectionRevision) { _, _ in
                 scheduleSortedRecompute(
@@ -805,6 +838,9 @@ struct SongListView: View {
             }
             .onDisappear {
                 cancelExplicitSortForNavigation()
+                locationHighlightTask?.cancel()
+                locationHighlightTask = nil
+                locatedSongID = nil
                 downloadedFilterGeneration &+= 1
                 downloadedFilterTask?.cancel()
                 downloadedFilterTask = nil
@@ -976,6 +1012,7 @@ struct SongListView: View {
                             cache: listCache,
                             rowOrderRevision: listCache.rowOrderRevision,
                             sectionIndexEntries: listCache.sectionIndexEntries,
+                            locatedSongID: locatedSongID,
                             selection: selection,
                             onPlay: playSong
                         )
@@ -1088,71 +1125,82 @@ struct SongListView: View {
     }
 
     private var macSongList: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                MacLibraryHeader(
-                    eyebrow: "library_title",
-                    title: String(localized: "tab_songs"),
-                    subtitle: librarySubtitle,
-                    iconSystemName: "music.note",
-                    coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
-                    onPlay: { playLibrary(shuffled: false) },
-                    onShuffle: { playLibrary(shuffled: true) },
-                    moreMenu: listMoreMenu
-                )
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    MacLibraryHeader(
+                        eyebrow: "library_title",
+                        title: String(localized: "tab_songs"),
+                        subtitle: librarySubtitle,
+                        iconSystemName: "music.note",
+                        coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
+                        onPlay: { playLibrary(shuffled: false) },
+                        onShuffle: { playLibrary(shuffled: true) },
+                        moreMenu: listMoreMenu
+                    )
 
-                VStack(alignment: .leading, spacing: PMSpace.l) {
-                    if !showsFolderBrowser {
-                        sourceFilterChips
-                    }
-                    macToolbarRow
-
-                    if showsFolderBrowser {
-                        if macFolderPath.isEmpty {
-                            LibraryFolderRootContent(
-                                folderCache: folderCache,
-                                listCache: listCache,
-                                rootSourceID: folderRootSourceID,
-                                selection: selection,
-                                sortOrder: sortOrderBinding,
-                                onOpenFolder: openMacFolder
-                            )
-                        } else {
-                            MacLibraryFolderInlineContent(
-                                folderPath: macFolderPath,
-                                folderCache: folderCache,
-                                listCache: listCache,
-                                selection: selection,
-                                sortOrder: sortOrderBinding,
-                                onOpenFolder: openMacFolder,
-                                onNavigate: navigateMacFolder
-                            )
+                    VStack(alignment: .leading, spacing: PMSpace.l) {
+                        if !showsFolderBrowser {
+                            sourceFilterChips
                         }
-                    } else if filteredRows.isEmpty {
-                        if songFilter == .downloaded {
-                            ContentUnavailableView(
-                                "filter_downloaded",
-                                systemImage: "arrow.down.circle",
-                                description: Text("filter_downloaded_empty_desc")
-                            )
-                            .padding(.top, 48)
-                        } else {
-                            ContentUnavailableView.search(text: searchText)
+                        macToolbarRow
+
+                        if showsFolderBrowser {
+                            if macFolderPath.isEmpty {
+                                LibraryFolderRootContent(
+                                    folderCache: folderCache,
+                                    listCache: listCache,
+                                    rootSourceID: folderRootSourceID,
+                                    selection: selection,
+                                    sortOrder: sortOrderBinding,
+                                    onOpenFolder: openMacFolder
+                                )
+                            } else {
+                                MacLibraryFolderInlineContent(
+                                    folderPath: macFolderPath,
+                                    folderCache: folderCache,
+                                    listCache: listCache,
+                                    selection: selection,
+                                    sortOrder: sortOrderBinding,
+                                    onOpenFolder: openMacFolder,
+                                    onNavigate: navigateMacFolder
+                                )
+                            }
+                        } else if filteredRows.isEmpty {
+                            if songFilter == .downloaded {
+                                ContentUnavailableView(
+                                    "filter_downloaded",
+                                    systemImage: "arrow.down.circle",
+                                    description: Text("filter_downloaded_empty_desc")
+                                )
                                 .padding(.top, 48)
+                            } else {
+                                ContentUnavailableView.search(text: searchText)
+                                    .padding(.top, 48)
+                            }
+                        } else {
+                            macSongsContent
                         }
-                    } else {
-                        macSongsContent
                     }
+                    .padding(.horizontal, PMSpace.xxxl)
+                    .padding(.top, PMSpace.m14)
                 }
-                .padding(.horizontal, PMSpace.xxxl)
-                .padding(.top, PMSpace.m14)
+                .padding(.bottom, 112)
             }
-            .padding(.bottom, 112)
+            .onScrollPhaseChange { _, newPhase in
+                updateListInteraction(for: newPhase)
+            }
+            .task(id: SongLocationScrollTrigger(
+                songID: locatedSongID,
+                rowOrderRevision: listCache.rowOrderRevision
+            )) {
+                guard let locatedSongID else { return }
+                await Task.yield()
+                guard !Task.isCancelled, self.locatedSongID == locatedSongID else { return }
+                proxy.scrollTo(locatedSongID, anchor: .center)
+            }
         }
         .background(PMColor.bg.ignoresSafeArea())
-        .onScrollPhaseChange { _, newPhase in
-            updateListInteraction(for: newPhase)
-        }
         .onAppear { rebuildPlayCounts() }
         .onChange(of: selectedSourceID) { _, _ in
             pruneSelection()
@@ -1414,6 +1462,7 @@ struct SongListView: View {
                                 orderedIDs: { filteredSongIDs },
                                 defaultAction: { playSong(song) }
                             )
+                            .id(row.id)
                     }
                 }
             }
@@ -1458,7 +1507,10 @@ struct SongListView: View {
                 Text("sort_date_added").frame(width: 92, alignment: .trailing)
             }
             if visibleColumns.contains(.bitRate) {
-                Text("Bitrate").frame(width: 70, alignment: .trailing)
+                Text("songs_column_bitrate").frame(width: 84, alignment: .trailing)
+            }
+            if visibleColumns.contains(.bitDepth) {
+                Text("bit_depth_label").frame(width: 70, alignment: .trailing)
             }
         }
         .font(.system(size: 10.5, weight: .semibold))
@@ -1480,6 +1532,8 @@ struct SongListView: View {
     @ViewBuilder
     private func songTableRow(_ song: Song, index: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
+        let isLocated = locatedSongID == song.id
+        let isEmphasized = isCurrent || isLocated
         let liked = playlistContains(song)
         let plays = playCountsBySongID[song.id] ?? 0
         let source = sourcesStore.sources.first(where: { $0.id == song.sourceID })
@@ -1511,8 +1565,8 @@ struct SongListView: View {
                 // Title + (optional heart)
                 HStack(spacing: 6) {
                     Text(song.title)
-                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
-                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                        .font(.system(size: 12.5, weight: isEmphasized ? .semibold : .medium))
+                        .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if liked {
@@ -1544,8 +1598,8 @@ struct SongListView: View {
                 if visibleColumns.contains(.format) {
                     HStack(spacing: 6) {
                         PMFormatPill.forFormat(song.fileFormat.displayName)
-                        if let sr = song.sampleRate, sr > 0 {
-                            Text(verbatim: "\(sr / 1000)k")
+                        if let sampleRate = song.formattedSampleRate {
+                            Text(verbatim: sampleRate)
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(PMColor.textFaint)
                         }
@@ -1594,7 +1648,14 @@ struct SongListView: View {
                 }
 
                 if visibleColumns.contains(.bitRate) {
-                    Text(song.bitRate.map { "\($0 / 1000)k" } ?? "—")
+                    Text(song.formattedBitRate ?? "—")
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 84, alignment: .trailing)
+                }
+
+                if visibleColumns.contains(.bitDepth) {
+                    Text(song.formattedBitDepth ?? "—")
                         .font(.system(size: 11.5, design: .monospaced))
                         .foregroundStyle(PMColor.textMuted)
                         .frame(width: 70, alignment: .trailing)
@@ -1602,7 +1663,7 @@ struct SongListView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, macRowDensity.verticalPadding)
-            .pmRowBackground(selected: isCurrent)
+            .pmRowBackground(selected: isEmphasized)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1655,6 +1716,7 @@ struct SongListView: View {
                             orderedIDs: { filteredSongIDs },
                             defaultAction: { playSong(song) }
                         )
+                        .id(row.id)
                 }
             }
         }
@@ -1663,6 +1725,8 @@ struct SongListView: View {
 
     private func compactSongRow(_ song: Song, index: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
+        let isLocated = locatedSongID == song.id
+        let isEmphasized = isCurrent || isLocated
         return Button { playSong(song) } label: {
             HStack(spacing: 12) {
                 ZStack(alignment: .leading) {
@@ -1680,8 +1744,8 @@ struct SongListView: View {
 
                 HStack(spacing: 5) {
                     Text(song.title)
-                        .font(.system(size: 12, weight: isCurrent ? .semibold : .medium))
-                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                        .font(.system(size: 12, weight: isEmphasized ? .semibold : .medium))
+                        .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
                         .lineLimit(1)
                     if playlistContains(song) {
                         Image(systemName: "heart.fill")
@@ -1699,13 +1763,13 @@ struct SongListView: View {
 
                 HStack(spacing: 4) {
                     PMFormatPill.forFormat(song.fileFormat.displayName)
-                    if let sr = song.sampleRate, sr > 0 {
-                        Text(verbatim: "\(sr / 1000)k")
+                    if let sampleRate = song.formattedSampleRate {
+                        Text(verbatim: sampleRate)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
                     }
                 }
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 100, alignment: .leading)
 
                 Text(song.duration.formattedDuration)
                     .font(.system(size: 11, design: .monospaced))
@@ -1714,7 +1778,7 @@ struct SongListView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
-            .background(isCurrent ? PMColor.brand.opacity(0.16) : .clear, in: .rect(cornerRadius: 4))
+            .background(isEmphasized ? PMColor.brand.opacity(0.16) : .clear, in: .rect(cornerRadius: 4))
             .overlay(alignment: .bottom) {
                 Rectangle().fill(PMColor.divider).frame(height: 0.5)
             }
@@ -1732,7 +1796,11 @@ struct SongListView: View {
         ) {
             ForEach(filteredRows) { row in
                 if let song = library.unobservedVisibleSong(id: row.id) {
-                    songGridTile(song, highlighted: player.currentSong?.id == song.id)
+                    songGridTile(
+                        song,
+                        isCurrent: player.currentSong?.id == song.id,
+                        isLocated: locatedSongID == song.id
+                    )
                         .songSelectable(
                             songID: row.id,
                             selection: selection,
@@ -1740,13 +1808,15 @@ struct SongListView: View {
                             orderedIDs: { filteredSongIDs },
                             defaultAction: { playSong(song) }
                         )
+                        .id(row.id)
                 }
             }
         }
         .padding(.top, 12)
     }
 
-    private func songGridTile(_ song: Song, highlighted: Bool) -> some View {
+    private func songGridTile(_ song: Song, isCurrent: Bool, isLocated: Bool) -> some View {
+        let isEmphasized = isCurrent || isLocated
         Button { playSong(song) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
@@ -1760,7 +1830,7 @@ struct SongListView: View {
                     )
                     .aspectRatio(1, contentMode: .fit)
 
-                    if highlighted {
+                    if isCurrent {
                         Image(systemName: "play.fill")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white)
@@ -1773,7 +1843,7 @@ struct SongListView: View {
 
                 Text(song.title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(highlighted ? PMColor.brand : PMColor.text)
+                    .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.top, 8)
@@ -1788,6 +1858,13 @@ struct SongListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .background {
+            if isLocated {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PMColor.brand.opacity(0.12))
+                    .padding(-6)
+            }
+        }
         .contextMenu { macSongContextMenu(for: song) }
     }
 
@@ -2860,6 +2937,40 @@ struct SongListView: View {
         #endif
     }
 
+    private func handleLocationRequest(_ request: SongLibraryLocationRequest?) {
+        guard let request else { return }
+        guard case .library = scope,
+              library.visibleSong(id: request.songID) != nil else {
+            locationRequest = nil
+            return
+        }
+
+        locationHighlightTask?.cancel()
+        selection.deactivate()
+        searchText = ""
+        songFilter = .all
+        let wasAlreadyFlat = browseMode == .flat
+        browseMode = .flat
+        #if os(iOS)
+        if wasAlreadyFlat && presentedBrowseMode != .flat {
+            scheduleBrowseModeTransition(to: .flat)
+        }
+        #endif
+        #if os(macOS)
+        selectedSourceID = nil
+        macFolderPath.removeAll()
+        #endif
+
+        locatedSongID = request.songID
+        locationRequest = nil
+        locationHighlightTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled, locatedSongID == request.songID else { return }
+            locatedSongID = nil
+            locationHighlightTask = nil
+        }
+    }
+
     private func playSong(_ song: Song) {
         let visibleQueue = filteredSongs
         guard let index = visibleQueue.firstIndex(where: { $0.id == song.id }) else { return }
@@ -2887,6 +2998,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let rowOrderRevision: Int
     let sectionIndexEntries: [SongListSectionIndexEntry]
+    let locatedSongID: String?
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
 
@@ -2897,6 +3009,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         lhs.cache === rhs.cache
             && lhs.rowOrderRevision == rhs.rowOrderRevision
             && lhs.sectionIndexEntries == rhs.sectionIndexEntries
+            && lhs.locatedSongID == rhs.locatedSongID
             && lhs.selection === rhs.selection
     }
 
@@ -2910,6 +3023,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                             isLast: position == cache.positionCount - 1,
                             trailingPadding: showsSectionIndex ? 42 : 16,
                             cache: cache,
+                            locatedSongID: locatedSongID,
                             selection: selection,
                             onPlay: onPlay
                         )
@@ -2947,6 +3061,18 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             }
             scrollPosition.scrollTo(id: request.rowOffset, anchor: .top)
         }
+        .task(id: SongLocationScrollTrigger(
+            songID: locatedSongID,
+            rowOrderRevision: rowOrderRevision
+        )) {
+            guard let locatedSongID,
+                  let rowOffset = cache.position(of: locatedSongID) else { return }
+            await Task.yield()
+            guard !Task.isCancelled,
+                  self.locatedSongID == locatedSongID,
+                  rowOrderRevision == cache.rowOrderRevision else { return }
+            scrollPosition.scrollTo(id: rowOffset, anchor: .center)
+        }
         .onChange(of: rowOrderRevision) { _, _ in
             indexScrollRequest = nil
         }
@@ -2976,6 +3102,7 @@ private struct IOSSongListPositionSlot: View {
     let isLast: Bool
     let trailingPadding: CGFloat
     let cache: SongListCache
+    let locatedSongID: String?
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
 
@@ -2984,6 +3111,7 @@ private struct IOSSongListPositionSlot: View {
             IOSSongListPositionRow(
                 position: position,
                 cache: cache,
+                locatedSongID: locatedSongID,
                 selection: selection,
                 onPlay: onPlay
             )
@@ -4204,6 +4332,7 @@ private struct IOSSongListPositionRow: View {
 
     let position: Int
     let cache: SongListCache
+    let locatedSongID: String?
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
 
@@ -4217,7 +4346,12 @@ private struct IOSSongListPositionRow: View {
                    song: library.unobservedVisibleSong(id: row.id)
                ) {
                 #if os(iOS)
-                IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                IOSSongListRow(
+                    model: model,
+                    selection: selection,
+                    onPlay: onPlay,
+                    isLocated: row.id == locatedSongID
+                )
                     // The structural List identity stays bound to `position`,
                     // while VoiceOver tracks the song currently occupying it.
                     .accessibilityIdentifier("songRow.\(row.id)")
@@ -4501,6 +4635,7 @@ private struct IOSSongListRow: View {
     let model: SongListRowModel
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
+    var isLocated = false
 
     var body: some View {
         let song = model.song
@@ -4528,6 +4663,13 @@ private struct IOSSongListRow: View {
                 )
             }
         }
+        .background {
+            if isLocated {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.16))
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: isLocated)
         .contentShape(Rectangle())
         .onTapGesture {
             if selection.isActive {

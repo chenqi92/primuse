@@ -2435,6 +2435,7 @@
 "stats_play_count" = "Wiedergaben";
 "songs_column_rating" = "Bewertung";
 "songs_column_bitrate" = "Bitrate";
+"show_in_library" = "In Mediathek anzeigen";
 "songs_export_failed" = "Export fehlgeschlagen";
 "songs_view_options" = "Darstellungsoptionen";
 "queue_all_songs" = "Alle zur Warteschlange hinzufügen";

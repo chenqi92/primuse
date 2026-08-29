@@ -6840,12 +6840,13 @@ final class AudioPlayerService {
 
     /// Insert songs immediately after the current queue position. If there is
     /// no queue yet, this behaves like `setQueue`.
-    func insertNextInQueue(_ songs: [Song]) {
+    @discardableResult
+    func insertNextInQueue(_ songs: [Song]) -> Int? {
         let playable = songs.filteredPlayable()
-        guard !playable.isEmpty else { return }
+        guard !playable.isEmpty else { return nil }
         guard !queueEntries.isEmpty else {
             setQueue(playable, startAt: 0)
-            return
+            return 0
         }
         let insertionIndex = min(currentIndex + 1, queueEntries.count)
         invalidateQueueTransitions()
@@ -6857,6 +6858,7 @@ final class AudioPlayerService {
         pendingNextShuffleIndices = nil
         if shuffleEnabled { rebuildShuffleOrder() }
         persistPlaybackSession()
+        return insertionIndex
     }
     /// Remove every occurrence of the target songs from the canonical queue
     /// before their library records or source files disappear. If the active

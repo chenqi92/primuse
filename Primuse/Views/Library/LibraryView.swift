@@ -129,6 +129,7 @@ enum LibraryDeepLink: Equatable, Sendable {
     case album(Album)
     case artist(Artist)
     case playlist(Playlist)
+    case song(String)
 }
 
 typealias LibraryPinKind = QuickAccessPinKind
@@ -275,7 +276,11 @@ struct LibraryView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Binding private var deepLink: LibraryDeepLink?
     @State private var navigationPath = NavigationPath()
+    @State private var songLocationRequest: SongLibraryLocationRequest?
+    @State private var didRestorePersistedPage = false
     @State private var showQuickAccessEditor = false
+    @AppStorage("primuse.navigation.libraryPage.v1")
+    private var persistedPageID = ""
     @AppStorage(LibraryPinStorage.defaultsKey)
     private var quickAccessRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
@@ -361,16 +366,37 @@ struct LibraryView: View {
                 destination(for: section)
                     .navigationTitle(section.title)
                     .toolbarTitleDisplayMode(.inline)
+                    .onAppear {
+                        persistedPageID = "section:\(section.rawValue)"
+                    }
             }
-            .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-            .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
-            .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
+            .navigationDestination(for: Album.self) { album in
+                AlbumDetailView(album: album)
+                    .onAppear { persistedPageID = "album:\(album.id)" }
+            }
+            .navigationDestination(for: Artist.self) { artist in
+                ArtistDetailView(artist: artist)
+                    .onAppear { persistedPageID = "artist:\(artist.id)" }
+            }
+            .navigationDestination(for: Playlist.self) { playlist in
+                PlaylistDetailView(playlist: playlist)
+                    .onAppear { persistedPageID = "playlist:\(playlist.id)" }
+            }
             .onAppear {
                 sanitizeStoredPins()
-                applyDeepLink(deepLink)
+                if deepLink == nil {
+                    restorePersistedPageIfNeeded()
+                } else {
+                    applyDeepLink(deepLink)
+                }
             }
             .onChange(of: deepLink) { _, newValue in
                 applyDeepLink(newValue)
+            }
+            .onChange(of: navigationPath.count) { _, count in
+                if didRestorePersistedPage && count == 0 {
+                    persistedPageID = ""
+                }
             }
             .task(id: SongListSnapshotVersion(
                 collectionRevision: library.visibleSongCollectionRevision,
@@ -1105,7 +1131,7 @@ struct LibraryView: View {
         case .recommendations:
             AIRecommendationLibraryView()
         case .songs:
-            SongListView()
+            SongListView(locationRequest: $songLocationRequest)
         case .albums:
             AlbumGridView()
         case .artists:
@@ -1161,6 +1187,7 @@ struct LibraryView: View {
 
     private func applyDeepLink(_ link: LibraryDeepLink?) {
         guard let link else { return }
+        didRestorePersistedPage = true
         var path = NavigationPath()
         switch link {
         case .album(let album):
@@ -1169,9 +1196,48 @@ struct LibraryView: View {
             path.append(artist)
         case .playlist(let playlist):
             path.append(playlist)
+        case .song(let songID):
+            songLocationRequest = SongLibraryLocationRequest(songID: songID)
+            persistedPageID = "section:\(LibrarySection.songs.rawValue)"
+            path.append(LibrarySection.songs)
         }
         navigationPath = path
         deepLink = nil
+    }
+
+    private func restorePersistedPageIfNeeded() {
+        guard !didRestorePersistedPage else { return }
+        didRestorePersistedPage = true
+        var path = NavigationPath()
+        if let rawValue = identifier(in: persistedPageID, after: "section:"),
+           let section = LibrarySection(rawValue: rawValue),
+           visibleLibrarySections.contains(section) {
+            path.append(section)
+        } else if let itemID = identifier(in: persistedPageID, after: "album:"),
+                  let album = albums.first(where: { $0.id == itemID }) {
+            path.append(album)
+        } else if let itemID = identifier(in: persistedPageID, after: "artist:"),
+                  let artist = artists.first(where: { $0.id == itemID }) {
+            path.append(artist)
+        } else if let itemID = identifier(in: persistedPageID, after: "playlist:") {
+            if let playlist = library.playlists.first(where: { $0.id == itemID }) {
+                path.append(playlist)
+            } else if itemID == MusicLibrary.likedSongsPlaylistID {
+                path.append(likedPlaylist)
+            } else {
+                persistedPageID = ""
+                return
+            }
+        } else {
+            persistedPageID = ""
+            return
+        }
+        navigationPath = path
+    }
+
+    private func identifier(in value: String, after prefix: String) -> String? {
+        guard value.hasPrefix(prefix) else { return nil }
+        return String(value.dropFirst(prefix.count))
     }
 }
 

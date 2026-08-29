@@ -15,6 +15,8 @@ struct MacContentView: View {
     @State private var isWindowFullScreen = false
     @State private var hostWindow: NSWindow?
     @State private var searchText = ""
+    @State private var songLocationRequest: SongLibraryLocationRequest?
+    @State private var didRestorePersistedRoute = false
     @State private var preferences = MacUIPreferences.shared
     @State private var showNewPlaylist = false
     @State private var showSmartEditor = false
@@ -44,6 +46,7 @@ struct MacContentView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
+    @AppStorage("primuse.navigation.macRoute.v1") private var persistedRouteID = "home"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,7 +68,12 @@ struct MacContentView: View {
                 }
 
                 ZStack {
-                    MacDetailContainer(route: selection, searchText: $searchText)
+                    MacDetailContainer(
+                        route: selection,
+                        searchText: $searchText,
+                        songLocationRequest: $songLocationRequest,
+                        onShowSongInLibrary: showSongInLibrary
+                    )
                         .background(PMColor.bg.ignoresSafeArea())
 
                     if nowPlayingPresented {
@@ -202,6 +210,7 @@ struct MacContentView: View {
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .task {
+            restorePersistedRouteIfNeeded()
             MainWindowOpener.register(openWindow)
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
                 hasSeenOnboarding = true
@@ -212,6 +221,9 @@ struct MacContentView: View {
             // `.system` 下 AppKit 不会重新调用偏好 setter；由根视图监听实际
             // effective appearance，重绘带明暗资源变体的 Dock 图标。
             preferences.applyAppIcon()
+        }
+        .onChange(of: selection) { _, route in
+            persistedRouteID = persistenceID(for: route)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewPlaylist)) { _ in
             newPlaylistName = ""
@@ -388,6 +400,70 @@ struct MacContentView: View {
         withTransaction(transaction) {
             selection = route
         }
+    }
+
+    private func showSongInLibrary(_ song: Song) {
+        songLocationRequest = SongLibraryLocationRequest(songID: song.id)
+        selectRoute(.section(.songs))
+    }
+
+    private func restorePersistedRouteIfNeeded() {
+        guard !didRestorePersistedRoute else { return }
+        didRestorePersistedRoute = true
+        selection = route(for: persistedRouteID) ?? .home
+    }
+
+    private func persistenceID(for route: MacRoute) -> String {
+        switch route {
+        case .home: return "home"
+        case .stats: return "stats"
+        case .search: return "search"
+        case .sources: return "sources"
+        case .section(let section): return "section:\(section.rawValue)"
+        case .liked: return "liked"
+        case .playlist(let playlist): return "playlist:\(playlist.id)"
+        case .smartPlaylist(let smartPlaylist): return "smart:\(smartPlaylist.id)"
+        case .source(let sourceID): return "source:\(sourceID)"
+        }
+    }
+
+    private func route(for persistedID: String) -> MacRoute? {
+        switch persistedID {
+        case "home": return .home
+        case "stats": return .stats
+        case "search": return .search
+        case "sources": return .sources
+        case "liked": return .liked
+        default: break
+        }
+
+        if let rawValue = identifier(in: persistedID, after: "section:"),
+           let section = LibrarySection(rawValue: rawValue) {
+            return .section(section)
+        }
+        if let playlistID = identifier(in: persistedID, after: "playlist:") {
+            guard let playlist = library.playlists.first(where: { $0.id == playlistID }) else {
+                return .section(.playlists)
+            }
+            return .playlist(playlist)
+        }
+        if let smartPlaylistID = identifier(in: persistedID, after: "smart:") {
+            guard let smartPlaylist = library.smartPlaylists.first(where: { $0.id == smartPlaylistID }) else {
+                return .section(.playlists)
+            }
+            return .smartPlaylist(smartPlaylist)
+        }
+        if let sourceID = identifier(in: persistedID, after: "source:") {
+            return sourcesStore.sources.contains(where: { $0.id == sourceID })
+                ? .source(sourceID)
+                : .sources
+        }
+        return nil
+    }
+
+    private func identifier(in value: String, after prefix: String) -> String? {
+        guard value.hasPrefix(prefix) else { return nil }
+        return String(value.dropFirst(prefix.count))
     }
 }
 

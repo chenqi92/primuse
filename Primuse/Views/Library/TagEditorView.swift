@@ -1073,10 +1073,8 @@ struct TagEditorView: View {
     }
 
     private var macAudioSpec: String {
-        var parts: [String] = []
-        if let sr = song.sampleRate, sr > 0 { parts.append("\(sr / 1000) kHz") }
-        if let depth = song.bitDepth, depth > 0 { parts.append("\(depth)-bit") }
-        if let bitrate = song.bitRate, bitrate > 0 { parts.append("\(bitrate / 1000) kbps") }
+        let parts = [song.formattedSampleRate, song.formattedBitDepth, song.formattedBitRate]
+            .compactMap { $0 }
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }
 
