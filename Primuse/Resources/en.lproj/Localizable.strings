@@ -2883,6 +2883,13 @@
 "ai_compatibility_gemini" = "Gemini generateContent (native)";
 "ai_provider_region_blocked" = "This service is unavailable in the current storefront. Its settings are kept, but no requests will be sent.";
 "ai_service_address" = "Service address";
+"ai_primuse_relay_name" = "Primuse built-in AI";
+"ai_primuse_relay_enabled" = "Use built-in AI experience";
+"ai_primuse_relay_consent_required" = "Choose the AI features you want and grant the corresponding data permission";
+"ai_primuse_relay_section" = "Built-in AI experience";
+"ai_primuse_relay_footer" = "Built-in AI is intended as a trial for people who haven't configured their own AI service. Shared quotas, upstream rate limits, and bandwidth may cause delays or temporary unavailability. For more reliable use, add your own AI service and API key. Built-in AI can't generate lyrics from a song; configure a compatible Google AI model for that feature. Free trial availability is subject to Google's current policy.";
+"ai_primuse_relay_unsupported" = "This device can't verify access to built-in AI with App Attest.";
+"ai_primuse_relay_ready" = "Built-in AI experience is ready";
 "search_ai_success_format" = "%@ is active — %d intelligent matches found";
 "search_ai_success_fallback_format" = "Fell back to %@ — %d intelligent matches found";
 "search_ai_no_matches_format" = "%@ responded, but no songs in your library matched";

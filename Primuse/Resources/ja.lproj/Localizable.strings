@@ -3097,6 +3097,13 @@
 "ai_compatibility_gemini" = "Gemini generateContent（ネイティブ）";
 "ai_provider_region_blocked" = "このサービスは現在のストア地域では利用できません。設定は保持されますが、リクエストは送信されません。";
 "ai_service_address" = "サービスアドレス";
+"ai_primuse_relay_name" = "Primuse 内蔵 AI";
+"ai_primuse_relay_enabled" = "内蔵 AI の体験版を使用";
+"ai_primuse_relay_consent_required" = "使用する AI 機能を選び、対応するデータ送信を許可してください";
+"ai_primuse_relay_section" = "内蔵 AI の体験版";
+"ai_primuse_relay_footer" = "内蔵 AI は、独自の AI サービスを設定していない方の体験用です。共有クォータ、上流サービスのレート制限、ネットワーク帯域により、応答の遅延や一時的な利用不能が発生する場合があります。安定した利用には、独自の AI サービスと API キーを追加してください。内蔵 AI は曲から歌詞を生成できません。この機能には対応する Google AI モデルを設定してください。無料試用の提供状況は Google の現行ポリシーに従います。";
+"ai_primuse_relay_unsupported" = "このデバイスでは App Attest を使用して内蔵 AI へのアクセスを検証できません。";
+"ai_primuse_relay_ready" = "内蔵 AI の体験版を利用できます";
 "search_ai_success_format" = "%@ が有効です — %d 件の候補";
 "search_ai_success_fallback_format" = "%@ に切り替えました — %d 件の候補";
 "search_ai_no_matches_format" = "%@ は応答しましたが、ライブラリに候補がありません";

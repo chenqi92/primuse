@@ -3073,6 +3073,13 @@
 "ai_compatibility_gemini" = "Gemini generateContent（原生）";
 "ai_provider_region_blocked" = "此服務不適用於目前上架地區，可保留設定但不會發出請求";
 "ai_service_address" = "服務位址";
+"ai_primuse_relay_name" = "Primuse 內建 AI";
+"ai_primuse_relay_enabled" = "使用內建 AI 體驗";
+"ai_primuse_relay_consent_required" = "請選擇需要的 AI 功能，並授予相應的資料傳送權限";
+"ai_primuse_relay_section" = "內建 AI 體驗";
+"ai_primuse_relay_footer" = "內建 AI 主要供尚未設定自有 AI 管道與金鑰的使用者體驗。受共用額度、上游限流與網路頻寬影響，回應可能延遲或暫時無法使用；建議長期使用時自行設定 AI 管道與金鑰。內建 AI 不支援依歌曲生成歌詞；如需此功能，請自行設定支援該能力的 Google AI 模型。Google 免費試用以其現行政策為準。";
+"ai_primuse_relay_unsupported" = "此裝置無法透過 App Attest 驗證內建 AI 存取。";
+"ai_primuse_relay_ready" = "內建 AI 體驗已就緒";
 "search_ai_success_format" = "%@ 已生效，找到 %d 個智慧配對";
 "search_ai_success_fallback_format" = "已自動降級至 %@，找到 %d 個智慧配對";
 "search_ai_no_matches_format" = "%@ 已回應，但資料庫中沒有對應歌曲";

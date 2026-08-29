@@ -134,6 +134,7 @@ targets:
     resources:
       - path: Primuse/Resources
     dependencies:
+      - sdk: DeviceCheck.framework
       - package: GRDB
       - package: AMSMB2
         embed: true

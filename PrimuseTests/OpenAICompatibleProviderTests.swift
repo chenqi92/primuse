@@ -1271,6 +1271,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
 
         let migrated = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
 
+        XCTAssertFalse(migrated.primuseRelayEnabled)
         XCTAssertTrue(migrated.semanticSearchEnabled)
         XCTAssertTrue(migrated.hasExplicitRemoteConsent)
         XCTAssertFalse(migrated.recommendationsEnabled)

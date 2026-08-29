@@ -3200,6 +3200,13 @@
 "ai_compatibility_gemini" = "Gemini generateContent（原生）";
 "ai_provider_region_blocked" = "该服务不适用于当前上架地区，可保留配置但不会发起请求";
 "ai_service_address" = "服务地址";
+"ai_primuse_relay_name" = "Primuse 内置 AI";
+"ai_primuse_relay_enabled" = "使用内置 AI 体验";
+"ai_primuse_relay_consent_required" = "请选择需要的 AI 功能，并授予相应的数据发送权限";
+"ai_primuse_relay_section" = "内置 AI 体验";
+"ai_primuse_relay_footer" = "内置 AI 主要供尚未配置自有 AI 渠道和密钥的用户体验。受共享额度、上游限流和网络带宽影响，响应可能延迟或暂时不可用；建议长期使用时自行配置 AI 渠道与密钥。内置 AI 不支持根据歌曲生成歌词；如需该功能，请自行配置支持该能力的 Google AI 模型。Google 免费试用以其当前政策为准。";
+"ai_primuse_relay_unsupported" = "此设备无法通过 App Attest 验证内置 AI 访问。";
+"ai_primuse_relay_ready" = "内置 AI 体验已就绪";
 "search_ai_success_format" = "%@ 已生效，找到 %d 个智能匹配";
 "search_ai_success_fallback_format" = "已自动降级到 %@，找到 %d 个智能匹配";
 "search_ai_no_matches_format" = "%@ 已响应，但曲库中没有对应歌曲";

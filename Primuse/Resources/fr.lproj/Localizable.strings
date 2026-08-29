@@ -3096,6 +3096,13 @@
 "ai_compatibility_gemini" = "Gemini generateContent (natif)";
 "ai_provider_region_blocked" = "Ce service n’est pas disponible dans la boutique actuelle. Ses réglages sont conservés, mais aucune requête ne sera envoyée.";
 "ai_service_address" = "Adresse du service";
+"ai_primuse_relay_name" = "IA intégrée de Primuse";
+"ai_primuse_relay_enabled" = "Utiliser l’expérience d’IA intégrée";
+"ai_primuse_relay_consent_required" = "Choisissez les fonctions d’IA souhaitées et accordez l’autorisation d’envoyer les données correspondantes";
+"ai_primuse_relay_section" = "Expérience d’IA intégrée";
+"ai_primuse_relay_footer" = "L’IA intégrée sert principalement d’essai aux personnes qui n’ont pas configuré leur propre service d’IA. Les quotas partagés, les limitations des fournisseurs et la bande passante peuvent entraîner des délais ou une indisponibilité temporaire. Pour une utilisation plus fiable, ajoutez votre propre service d’IA et votre clé API. L’IA intégrée ne peut pas générer les paroles d’un morceau ; configurez un modèle Google AI compatible pour cette fonction. La disponibilité d’un essai gratuit dépend de la politique actuelle de Google.";
+"ai_primuse_relay_unsupported" = "Cet appareil ne peut pas vérifier l’accès à l’IA intégrée avec App Attest.";
+"ai_primuse_relay_ready" = "L’expérience d’IA intégrée est prête";
 "search_ai_success_format" = "%@ est actif — %d correspondances intelligentes";
 "search_ai_success_fallback_format" = "Repli sur %@ — %d correspondances intelligentes";
 "search_ai_no_matches_format" = "%@ a répondu, mais aucun titre ne correspond";

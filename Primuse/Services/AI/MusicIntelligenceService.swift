@@ -59,10 +59,21 @@ final class MusicIntelligenceService {
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
+    #if os(iOS)
+    private let primuseRelayClient: PrimuseAIRelayClient
+    #endif
     @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
     @ObservationIgnored private var recommendationCache: [
         RecommendationCacheKey: RecommendationCacheEntry
     ] = [:]
+    #if os(iOS)
+    @ObservationIgnored private var primuseRelaySemanticPlanCache: [
+        PrimuseRelaySemanticCacheKey: SemanticPlanCacheEntry
+    ] = [:]
+    @ObservationIgnored private var primuseRelayRecommendationCache: [
+        PrimuseRelayRecommendationCacheKey: RecommendationCacheEntry
+    ] = [:]
+    #endif
 
     private struct SemanticPlanCacheKey: Hashable {
         var profileID: UUID
@@ -81,6 +92,14 @@ final class MusicIntelligenceService {
         var createdAt: TimeInterval
     }
 
+    #if os(iOS)
+    private struct PrimuseRelaySemanticCacheKey: Hashable {
+        var query: String
+        var languageCode: String
+        var regionRevision: UInt64
+    }
+    #endif
+
     private struct RecommendationCacheKey: Hashable {
         var profileID: UUID
         var baseURL: String
@@ -96,6 +115,13 @@ final class MusicIntelligenceService {
         var plan: AIRecommendationPlan
         var createdAt: TimeInterval
     }
+
+    #if os(iOS)
+    private struct PrimuseRelayRecommendationCacheKey: Hashable {
+        var request: AIRecommendationRequest
+        var regionRevision: UInt64
+    }
+    #endif
 
     private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
     private static let semanticPlanCacheLimit = 64
@@ -114,6 +140,9 @@ final class MusicIntelligenceService {
         self.regionAvailability = regionAvailability
         self.credentialStore = credentialStore
         engine = MusicIntelligenceEngine(credentialStore: credentialStore)
+        #if os(iOS)
+        primuseRelayClient = PrimuseAIRelayClient()
+        #endif
         let refreshTranscriptionSettings: () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 await self?.prepareLyricsTranscriptionCredentialMigration()
@@ -127,6 +156,10 @@ final class MusicIntelligenceService {
         regionAvailability.start { [weak self] in
             self?.semanticPlanCache.removeAll(keepingCapacity: true)
             self?.recommendationCache.removeAll(keepingCapacity: true)
+            #if os(iOS)
+            self?.primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
+            self?.primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
+            #endif
         }
         Task { @MainActor [weak self] in
             await self?.prepareLyricsTranscriptionCredentialMigration()
@@ -141,10 +174,46 @@ final class MusicIntelligenceService {
         settingsStore.recommendationsEnabled && shouldExposeRemoteConfiguration
     }
 
+    private var isPrimuseRelayAvailable: Bool {
+        #if os(iOS)
+        let decision = AIAvailabilityPolicy.decision(
+            for: .bundledRemote,
+            regionContext: regionAvailability.context
+        )
+        return settingsStore.primuseRelayEnabled
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+            && decision.isAllowed
+        #else
+        return false
+        #endif
+    }
+
+    #if os(iOS)
+    private var primuseRelayProviderName: String {
+        String(localized: "ai_primuse_relay_name")
+    }
+
+    private func canUsePrimuseRelay(
+        captured: AIRegionSnapshot,
+        latest: AIRegionSnapshot,
+        hasRequiredConsent: Bool
+    ) -> Bool {
+        guard captured == latest,
+              hasRequiredConsent,
+              settingsStore.primuseRelayEnabled,
+              PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return false }
+        return AIAvailabilityPolicy.decision(
+            for: .bundledRemote,
+            regionContext: latest.context
+        ).isAllowed
+    }
+    #endif
+
     var isSemanticSearchConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
-        return settingsStore.semanticSearchEnabled
-            && settingsStore.providerSet.routedProviders.contains {
+        guard settingsStore.semanticSearchEnabled,
+              settingsStore.hasExplicitRemoteConsent else { return false }
+        let hasCustomProvider = settingsStore.providerSet.routedProviders.contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && AIProviderRegionPolicy.allows(
                         configuration: $0,
@@ -152,15 +221,16 @@ final class MusicIntelligenceService {
                         purpose: .generation
                     )
             }
-            && settingsStore.hasExplicitRemoteConsent
             && decision.isAllowed
             && (!decision.requiresExplicitConsent || settingsStore.hasExplicitRemoteConsent)
+        return isPrimuseRelayAvailable || hasCustomProvider
     }
 
     var isPersonalizedRecommendationsConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
-        return settingsStore.recommendationsEnabled
-            && settingsStore.providerSet.routedProviders.contains {
+        guard settingsStore.recommendationsEnabled,
+              settingsStore.hasExplicitListeningContextConsent else { return false }
+        let hasCustomProvider = settingsStore.providerSet.routedProviders.contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && AIProviderRegionPolicy.allows(
                         configuration: $0,
@@ -168,10 +238,10 @@ final class MusicIntelligenceService {
                         purpose: .generation
                     )
             }
-            && settingsStore.hasExplicitListeningContextConsent
             && decision.isAllowed
             && (!decision.requiresExplicitConsent
                 || settingsStore.hasExplicitListeningContextConsent)
+        return isPrimuseRelayAvailable || hasCustomProvider
     }
 
     var isAudioTranscriptionConfigured: Bool {
@@ -207,6 +277,75 @@ final class MusicIntelligenceService {
 
         let languageCode = Locale.current.language.languageCode?.identifier ?? ""
         let now = ProcessInfo.processInfo.systemUptime
+        let normalizedQuery = trimmedQuery.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )
+        var lastEmptyProvider: (name: String, fallbackDepth: Int)?
+        var customFallbackOffset = 0
+
+        #if os(iOS)
+        if isPrimuseRelayAvailable {
+            guard canUsePrimuseRelay(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+            ) else { return .failed }
+            customFallbackOffset = 1
+            let cacheKey = PrimuseRelaySemanticCacheKey(
+                query: normalizedQuery,
+                languageCode: languageCode,
+                regionRevision: regionSnapshot.revision
+            )
+            if let cached = primuseRelaySemanticPlanCache[cacheKey],
+               now - cached.createdAt <= Self.semanticPlanCacheLifetime {
+                return .success(AISemanticSearchExecution(
+                    plan: cached.plan,
+                    providerID: PrimuseAIRelayClient.providerID,
+                    providerName: primuseRelayProviderName,
+                    fallbackDepth: 0
+                ))
+            }
+
+            do {
+                let request = AISemanticSearchRequest(
+                    query: trimmedQuery,
+                    languageCode: languageCode.isEmpty ? nil : languageCode
+                )
+                let plan = try await primuseRelayClient.interpretSearch(request)
+                guard canUsePrimuseRelay(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                ) else { return .failed }
+                guard !plan.expandedTerms.isEmpty || !plan.themes.isEmpty || !plan.moods.isEmpty else {
+                    lastEmptyProvider = (primuseRelayProviderName, 0)
+                    throw PrimuseAIRelayError.invalidResponse
+                }
+                primuseRelaySemanticPlanCache[cacheKey] = SemanticPlanCacheEntry(
+                    plan: plan,
+                    createdAt: now
+                )
+                if primuseRelaySemanticPlanCache.count > Self.semanticPlanCacheLimit,
+                   let oldestKey = primuseRelaySemanticPlanCache.min(by: {
+                       $0.value.createdAt < $1.value.createdAt
+                   })?.key {
+                    primuseRelaySemanticPlanCache[oldestKey] = nil
+                }
+                return .success(AISemanticSearchExecution(
+                    plan: plan,
+                    providerID: PrimuseAIRelayClient.providerID,
+                    providerName: primuseRelayProviderName,
+                    fallbackDepth: 0
+                ))
+            } catch is CancellationError {
+                return .failed
+            } catch {
+                // A user-configured provider remains available as a fallback.
+            }
+        }
+        #endif
+
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
@@ -215,8 +354,8 @@ final class MusicIntelligenceService {
                     purpose: .generation
                 )
         }
-        var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         for (fallbackDepth, configuration) in providers.enumerated() {
+            let effectiveFallbackDepth = fallbackDepth + customFallbackOffset
             guard AIRegionRequestPolicy.canSendRemoteRequest(
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
@@ -229,10 +368,7 @@ final class MusicIntelligenceService {
                 apiStyle: configuration.apiStyle,
                 apiPathMode: configuration.apiPathMode,
                 authenticationStyle: configuration.authenticationStyle,
-                query: trimmedQuery.folding(
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    locale: .current
-                ),
+                query: normalizedQuery,
                 languageCode: languageCode,
                 regionRevision: regionSnapshot.revision
             )
@@ -242,7 +378,7 @@ final class MusicIntelligenceService {
                     plan: cached.plan,
                     providerID: configuration.id,
                     providerName: configuration.displayName,
-                    fallbackDepth: fallbackDepth
+                    fallbackDepth: effectiveFallbackDepth
                 ))
             }
 
@@ -266,7 +402,7 @@ final class MusicIntelligenceService {
                     configuration: configuration
                 ) else { return .failed }
                 guard !plan.expandedTerms.isEmpty || !plan.themes.isEmpty || !plan.moods.isEmpty else {
-                    lastEmptyProvider = (configuration.displayName, fallbackDepth)
+                    lastEmptyProvider = (configuration.displayName, effectiveFallbackDepth)
                     continue
                 }
                 semanticPlanCache[cacheKey] = SemanticPlanCacheEntry(plan: plan, createdAt: now)
@@ -280,7 +416,7 @@ final class MusicIntelligenceService {
                     plan: plan,
                     providerID: configuration.id,
                     providerName: configuration.displayName,
-                    fallbackDepth: fallbackDepth
+                    fallbackDepth: effectiveFallbackDepth
                 ))
             } catch is CancellationError {
                 return .failed
@@ -303,15 +439,48 @@ final class MusicIntelligenceService {
     ) async -> AILyricsTranslationExecution? {
         let regionSnapshot = regionAvailability.snapshot
         let consent = settingsStore.hasExplicitRemoteConsent
+        guard consent, !candidates.isEmpty else { return nil }
+
+        var customFallbackOffset = 0
+        #if os(iOS)
+        if isPrimuseRelayAvailable {
+            guard canUsePrimuseRelay(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+            ) else { return nil }
+            customFallbackOffset = 1
+            do {
+                let translations = try await primuseRelayClient.translateLyrics(
+                    candidates,
+                    targetLanguageCode: targetLanguageCode
+                )
+                guard canUsePrimuseRelay(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                ), !translations.isEmpty else { return nil }
+                return AILyricsTranslationExecution(
+                    translations: translations,
+                    providerName: primuseRelayProviderName,
+                    fallbackDepth: 0
+                )
+            } catch is CancellationError {
+                return nil
+            } catch {
+                // Continue with the user's configured fallback providers.
+            }
+        }
+        #endif
+
         let decision = AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
             regionContext: regionSnapshot.context
         )
-        guard decision.isAllowed,
-              consent,
-              !candidates.isEmpty else { return nil }
+        guard decision.isAllowed else { return nil }
 
         for (fallbackDepth, configuration) in settingsStore.providerSet.routedProviders.enumerated() {
+            let effectiveFallbackDepth = fallbackDepth + customFallbackOffset
             guard !configuration.generationModel
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   AIRegionRequestPolicy.canSendRemoteRequest(
@@ -339,7 +508,7 @@ final class MusicIntelligenceService {
                 return AILyricsTranslationExecution(
                     translations: translations,
                     providerName: configuration.displayName,
-                    fallbackDepth: fallbackDepth
+                    fallbackDepth: effectiveFallbackDepth
                 )
             } catch is CancellationError {
                 return nil
@@ -362,6 +531,57 @@ final class MusicIntelligenceService {
         }
 
         let now = ProcessInfo.processInfo.systemUptime
+        var lastEmptyProvider: (name: String, fallbackDepth: Int)?
+        var customFallbackOffset = 0
+
+        #if os(iOS)
+        if isPrimuseRelayAvailable {
+            guard canUsePrimuseRelay(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
+            ) else { return .failed }
+            customFallbackOffset = 1
+            let cacheKey = PrimuseRelayRecommendationCacheKey(
+                request: request,
+                regionRevision: regionSnapshot.revision
+            )
+            do {
+                let plan = try await primuseRelayClient.recommendations(request)
+                guard canUsePrimuseRelay(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
+                ) else { return .failed }
+                guard !plan.selections.isEmpty else {
+                    lastEmptyProvider = (primuseRelayProviderName, 0)
+                    throw PrimuseAIRelayError.invalidResponse
+                }
+                primuseRelayRecommendationCache[cacheKey] = RecommendationCacheEntry(
+                    plan: plan,
+                    createdAt: now
+                )
+                if primuseRelayRecommendationCache.count > Self.recommendationCacheLimit,
+                   let oldestKey = primuseRelayRecommendationCache.min(by: {
+                       $0.value.createdAt < $1.value.createdAt
+                   })?.key {
+                    primuseRelayRecommendationCache[oldestKey] = nil
+                }
+                return .success(AIRecommendationExecution(
+                    plan: plan,
+                    providerName: primuseRelayProviderName,
+                    fallbackDepth: 0,
+                    resolvedScene: request.scene,
+                    isCached: false
+                ))
+            } catch is CancellationError {
+                return .failed
+            } catch {
+                // A user-configured provider remains available as a fallback.
+            }
+        }
+        #endif
+
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
@@ -370,8 +590,8 @@ final class MusicIntelligenceService {
                     purpose: .generation
                 )
         }
-        var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         for (fallbackDepth, configuration) in providers.enumerated() {
+            let effectiveFallbackDepth = fallbackDepth + customFallbackOffset
             guard AIRegionRequestPolicy.canSendRemoteRequest(
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
@@ -393,7 +613,7 @@ final class MusicIntelligenceService {
                 return .success(AIRecommendationExecution(
                     plan: cached.plan,
                     providerName: configuration.displayName,
-                    fallbackDepth: fallbackDepth,
+                    fallbackDepth: effectiveFallbackDepth,
                     resolvedScene: request.scene,
                     isCached: true
                 ))
@@ -417,7 +637,7 @@ final class MusicIntelligenceService {
                     configuration: configuration
                 ) else { return .failed }
                 guard !plan.selections.isEmpty else {
-                    lastEmptyProvider = (configuration.displayName, fallbackDepth)
+                    lastEmptyProvider = (configuration.displayName, effectiveFallbackDepth)
                     continue
                 }
                 recommendationCache[cacheKey] = RecommendationCacheEntry(
@@ -433,7 +653,7 @@ final class MusicIntelligenceService {
                 return .success(AIRecommendationExecution(
                     plan: plan,
                     providerName: configuration.displayName,
-                    fallbackDepth: fallbackDepth,
+                    fallbackDepth: effectiveFallbackDepth,
                     resolvedScene: request.scene,
                     isCached: false
                 ))
@@ -459,6 +679,26 @@ final class MusicIntelligenceService {
         guard isPersonalizedRecommendationsConfigured,
               !request.candidates.isEmpty else { return nil }
         let now = ProcessInfo.processInfo.systemUptime
+        var customFallbackOffset = 0
+        #if os(iOS)
+        if isPrimuseRelayAvailable {
+            customFallbackOffset = 1
+            let key = PrimuseRelayRecommendationCacheKey(
+                request: request,
+                regionRevision: regionSnapshot.revision
+            )
+            if let cached = primuseRelayRecommendationCache[key],
+               now - cached.createdAt <= Self.recommendationCacheLifetime {
+                return .success(AIRecommendationExecution(
+                    plan: cached.plan,
+                    providerName: primuseRelayProviderName,
+                    fallbackDepth: 0,
+                    resolvedScene: request.scene,
+                    isCached: true
+                ))
+            }
+        }
+        #endif
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
@@ -468,6 +708,7 @@ final class MusicIntelligenceService {
                 )
         }
         for (fallbackDepth, configuration) in providers.enumerated() {
+            let effectiveFallbackDepth = fallbackDepth + customFallbackOffset
             let key = RecommendationCacheKey(
                 profileID: configuration.id,
                 baseURL: configuration.baseURL,
@@ -485,7 +726,7 @@ final class MusicIntelligenceService {
             return .success(AIRecommendationExecution(
                 plan: cached.plan,
                 providerName: configuration.displayName,
-                fallbackDepth: fallbackDepth,
+                fallbackDepth: effectiveFallbackDepth,
                 resolvedScene: request.scene,
                 isCached: true
             ))
@@ -728,10 +969,15 @@ final class MusicIntelligenceService {
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
+        #if os(iOS)
+        primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
+        primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
+        #endif
     }
 
     func save(
         providerSet: AIRemoteProviderSet,
+        primuseRelayEnabled: Bool,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool,
         hasExplicitRemoteConsent: Bool,
@@ -763,6 +1009,7 @@ final class MusicIntelligenceService {
             }
         try settingsStore.save(
             providerSet: normalized,
+            primuseRelayEnabled: primuseRelayEnabled,
             semanticSearchEnabled: semanticSearchEnabled,
             recommendationsEnabled: recommendationsEnabled,
             audioTranscriptionEnabled: preservesLegacyAudioSettings,
@@ -773,6 +1020,10 @@ final class MusicIntelligenceService {
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
+        #if os(iOS)
+        primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
+        primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
+        #endif
     }
 
     func deleteAPIKey(configuration: AIRemoteProviderConfiguration) async throws {
@@ -790,6 +1041,10 @@ final class MusicIntelligenceService {
         try await credentialStore.deleteAPIKey(configuration: configuration)
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
+        #if os(iOS)
+        primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
+        primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
+        #endif
     }
 
     func availableModels(

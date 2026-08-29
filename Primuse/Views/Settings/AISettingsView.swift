@@ -22,6 +22,7 @@ final class AISettingsEditorModel {
     var draftProviderSet: AIRemoteProviderSet
     var selectedProviderID: UUID
     var providerPresets: [UUID: AIProviderPreset] = [:]
+    var primuseRelayEnabled = false
     var semanticSearchEnabled = false
     var recommendationsEnabled = false
     var consent = false
@@ -37,6 +38,7 @@ final class AISettingsEditorModel {
 
     private var draftGeneration: UInt64 = 0
     private var savedProviderSet: AIRemoteProviderSet
+    private var savedPrimuseRelayEnabled = false
     private var savedSemanticSearchEnabled = false
     private var savedRecommendationsEnabled = false
     private var savedConsent = false
@@ -111,6 +113,7 @@ final class AISettingsEditorModel {
 
     var hasUnsavedChanges: Bool {
         draftProviderSet != savedProviderSet
+            || primuseRelayEnabled != savedPrimuseRelayEnabled
             || semanticSearchEnabled != savedSemanticSearchEnabled
             || recommendationsEnabled != savedRecommendationsEnabled
             || consent != savedConsent
@@ -147,6 +150,7 @@ final class AISettingsEditorModel {
             draftProviderSet.providers[0] = recommendedPreset.applying(to: firstProvider)
         }
         selectedProviderID = draftProviderSet.primaryProviderID
+        primuseRelayEnabled = intelligence.settingsStore.primuseRelayEnabled
         semanticSearchEnabled = intelligence.settingsStore.semanticSearchEnabled
         recommendationsEnabled = intelligence.settingsStore.recommendationsEnabled
         providerPresets = Dictionary(uniqueKeysWithValues: draftProviderSet.providers.map {
@@ -156,6 +160,7 @@ final class AISettingsEditorModel {
         listeningContextConsent = intelligence.settingsStore
             .hasExplicitListeningContextConsent
         savedProviderSet = draftProviderSet
+        savedPrimuseRelayEnabled = primuseRelayEnabled
         savedSemanticSearchEnabled = semanticSearchEnabled
         savedRecommendationsEnabled = recommendationsEnabled
         savedConsent = consent
@@ -221,6 +226,16 @@ final class AISettingsEditorModel {
             get: { self.semanticSearchEnabled },
             set: { value in
                 self.semanticSearchEnabled = value
+                self.draftDidChange()
+            }
+        )
+    }
+
+    var primuseRelayBinding: Binding<Bool> {
+        Binding(
+            get: { self.primuseRelayEnabled },
+            set: { value in
+                self.primuseRelayEnabled = value
                 self.draftDidChange()
             }
         )
@@ -435,6 +450,7 @@ final class AISettingsEditorModel {
 
     func save(using intelligence: MusicIntelligenceService) async {
         let providerSet = draftProviderSet
+        let primuseRelayEnabled = primuseRelayEnabled
         let semanticSearchEnabled = semanticSearchEnabled
         let recommendationsEnabled = recommendationsEnabled
         let explicitConsent = consent
@@ -447,6 +463,7 @@ final class AISettingsEditorModel {
         do {
             try await intelligence.save(
                 providerSet: providerSet,
+                primuseRelayEnabled: primuseRelayEnabled,
                 semanticSearchEnabled: semanticSearchEnabled,
                 recommendationsEnabled: recommendationsEnabled,
                 hasExplicitRemoteConsent: explicitConsent,
@@ -476,6 +493,7 @@ final class AISettingsEditorModel {
             storedAPIKeyScopes = savedScopes
             apiKeyDrafts = [:]
             savedProviderSet = draftProviderSet
+            savedPrimuseRelayEnabled = primuseRelayEnabled
             savedSemanticSearchEnabled = semanticSearchEnabled
             savedRecommendationsEnabled = recommendationsEnabled
             savedConsent = consent
@@ -659,6 +677,9 @@ struct AISettingsView: View {
                     )
                 }
             } else {
+                #if os(iOS)
+                primuseRelaySection
+                #endif
                 connectionSummary
                 capabilitySection
                 providerListSection
@@ -686,20 +707,31 @@ struct AISettingsView: View {
     }
 
     private var connectionSummary: some View {
-        Section {
+        #if os(iOS)
+        let usesRelay = editor.primuseRelayEnabled
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+        let relayReady = usesRelay && (editor.consent || editor.listeningContextConsent)
+        #else
+        let usesRelay = false
+        let relayReady = false
+        #endif
+        let isReady = relayReady || editor.hasUsableAPIKey
+        return Section {
             HStack(spacing: 14) {
-                Image(systemName: editor.hasUsableAPIKey ? "sparkles" : "key.horizontal")
+                Image(systemName: isReady ? "sparkles" : "key.horizontal")
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 38, height: 38)
                     .background(
                         Color.accentColor.opacity(0.12),
                         in: RoundedRectangle(cornerRadius: 10)
-                    )
+                )
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(editor.draftConfiguration.displayName.isEmpty
-                         ? String(localized: "ai_provider_default_name")
-                         : editor.draftConfiguration.displayName)
+                    Text(usesRelay
+                         ? String(localized: "ai_primuse_relay_name")
+                         : (editor.draftConfiguration.displayName.isEmpty
+                            ? String(localized: "ai_provider_default_name")
+                            : editor.draftConfiguration.displayName))
                         .font(.headline)
                     Text(verbatim: connectionSummaryText)
                         .font(.caption)
@@ -707,12 +739,37 @@ struct AISettingsView: View {
                 }
                 Spacer()
                 Circle()
-                    .fill(editor.hasUsableAPIKey ? Color.green : Color.secondary.opacity(0.35))
+                    .fill(isReady ? Color.green : Color.secondary.opacity(0.35))
                     .frame(width: 8, height: 8)
             }
             .padding(.vertical, 4)
         }
     }
+
+    #if os(iOS)
+    private var primuseRelaySection: some View {
+        Section {
+            Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
+            LabeledContent("ai_service_address") {
+                Text(verbatim: "primuse.yzs.ai")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                Label(
+                    "ai_primuse_relay_unsupported",
+                    systemImage: "exclamationmark.shield"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("ai_primuse_relay_section")
+        } footer: {
+            Text("ai_primuse_relay_footer")
+        }
+    }
+    #endif
 
     private var capabilitySection: some View {
         Section {
@@ -1018,6 +1075,17 @@ struct AISettingsView: View {
         case .failed(let message, _):
             return message
         default:
+            #if os(iOS)
+            if editor.primuseRelayEnabled {
+                if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    guard editor.consent || editor.listeningContextConsent else {
+                        return String(localized: "ai_primuse_relay_consent_required")
+                    }
+                    return String(localized: "ai_primuse_relay_ready")
+                }
+                return String(localized: "ai_primuse_relay_unsupported")
+            }
+            #endif
             return String(
                 format: String(localized: "ai_provider_count_format"),
                 editor.draftProviderSet.providers.count

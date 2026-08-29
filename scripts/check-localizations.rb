@@ -9,6 +9,13 @@ ROOT = Pathname(__dir__).parent.freeze
 SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant].freeze
 
 REQUIRED_APP_LOCALIZATION_KEYS = [
+  "ai_primuse_relay_enabled",
+  "ai_primuse_relay_consent_required",
+  "ai_primuse_relay_footer",
+  "ai_primuse_relay_name",
+  "ai_primuse_relay_ready",
+  "ai_primuse_relay_section",
+  "ai_primuse_relay_unsupported",
   "insecure_http_continue",
   "insecure_http_warning_message %@",
   "insecure_http_warning_title"

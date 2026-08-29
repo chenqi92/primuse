@@ -3096,6 +3096,13 @@
 "ai_compatibility_gemini" = "Gemini generateContent (nativ)";
 "ai_provider_region_blocked" = "Dieser Dienst ist im aktuellen Store nicht verfügbar. Die Einstellungen bleiben erhalten, es werden jedoch keine Anfragen gesendet.";
 "ai_service_address" = "Dienstadresse";
+"ai_primuse_relay_name" = "Integrierte Primuse-KI";
+"ai_primuse_relay_enabled" = "Integrierte KI zum Ausprobieren verwenden";
+"ai_primuse_relay_consent_required" = "Wähle die gewünschten KI-Funktionen aus und erteile die entsprechende Datenfreigabe";
+"ai_primuse_relay_section" = "Integrierte KI zum Ausprobieren";
+"ai_primuse_relay_footer" = "Die integrierte KI ist zum Ausprobieren für Personen gedacht, die keinen eigenen KI-Dienst eingerichtet haben. Gemeinsame Kontingente, Begrenzungen der Anbieter und die Netzwerkbandbreite können zu Verzögerungen oder vorübergehender Nichtverfügbarkeit führen. Für eine zuverlässigere Nutzung sollte ein eigener KI-Dienst mit API-Schlüssel hinzugefügt werden. Die integrierte KI kann keine Liedtexte aus einem Song erzeugen; dafür ist ein kompatibles Google-AI-Modell zu konfigurieren. Ein kostenloser Test richtet sich nach den jeweils geltenden Google-Bedingungen.";
+"ai_primuse_relay_unsupported" = "Dieses Gerät kann den Zugriff auf die integrierte KI nicht mit App Attest verifizieren.";
+"ai_primuse_relay_ready" = "Die integrierte KI ist einsatzbereit";
 "search_ai_success_format" = "%@ ist aktiv – %d intelligente Treffer";
 "search_ai_success_fallback_format" = "Auf %@ ausgewichen – %d intelligente Treffer";
 "search_ai_no_matches_format" = "%@ hat geantwortet, aber keine Titel passten";

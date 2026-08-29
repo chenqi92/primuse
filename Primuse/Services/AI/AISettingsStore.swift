@@ -6,6 +6,18 @@ import StoreKit
 @MainActor
 @Observable
 final class AISettingsStore {
+    private struct PersistedSettingsV5: Codable {
+        var schemaVersion: Int
+        var providerSet: AIRemoteProviderSet
+        var primuseRelayEnabled: Bool
+        var semanticSearchEnabled: Bool
+        var recommendationsEnabled: Bool
+        var audioTranscriptionEnabled: Bool
+        var hasExplicitRemoteConsent: Bool
+        var hasExplicitListeningContextConsent: Bool
+        var hasExplicitAudioUploadConsent: Bool
+    }
+
     private struct PersistedSettingsV4: Codable {
         var schemaVersion: Int
         var providerSet: AIRemoteProviderSet
@@ -45,6 +57,7 @@ final class AISettingsStore {
     @ObservationIgnored var externalReloadHandler: (() -> Void)?
 
     private(set) var providerSet: AIRemoteProviderSet
+    private(set) var primuseRelayEnabled: Bool
     private(set) var semanticSearchEnabled: Bool
     private(set) var recommendationsEnabled: Bool
     private(set) var audioTranscriptionEnabled: Bool
@@ -67,6 +80,7 @@ final class AISettingsStore {
         let persistedData = defaults.data(forKey: Self.storageKey)
         let loaded = Self.decodeSettings(from: persistedData)
         providerSet = loaded.providerSet
+        primuseRelayEnabled = loaded.primuseRelayEnabled
         semanticSearchEnabled = loaded.semanticSearchEnabled
         recommendationsEnabled = loaded.recommendationsEnabled
         audioTranscriptionEnabled = loaded.audioTranscriptionEnabled
@@ -84,6 +98,7 @@ final class AISettingsStore {
 
     func save(
         providerSet: AIRemoteProviderSet,
+        primuseRelayEnabled: Bool = false,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool = false,
         audioTranscriptionEnabled: Bool = false,
@@ -101,9 +116,10 @@ final class AISettingsStore {
            }) {
             throw AIRemoteEndpointValidationError.unsupportedCapability
         }
-        let persisted = PersistedSettingsV4(
-            schemaVersion: 4,
+        let persisted = PersistedSettingsV5(
+            schemaVersion: 5,
             providerSet: normalized,
+            primuseRelayEnabled: primuseRelayEnabled,
             semanticSearchEnabled: semanticSearchEnabled,
             recommendationsEnabled: recommendationsEnabled,
             audioTranscriptionEnabled: audioTranscriptionEnabled,
@@ -114,6 +130,7 @@ final class AISettingsStore {
         let data = try JSONEncoder().encode(persisted)
         defaults.set(data, forKey: Self.storageKey)
         self.providerSet = normalized
+        self.primuseRelayEnabled = primuseRelayEnabled
         self.semanticSearchEnabled = semanticSearchEnabled
         self.recommendationsEnabled = recommendationsEnabled
         self.audioTranscriptionEnabled = audioTranscriptionEnabled
@@ -137,6 +154,7 @@ final class AISettingsStore {
                 primaryProviderID: configuration.id,
                 fallbackEnabled: false
             ),
+            primuseRelayEnabled: primuseRelayEnabled,
             semanticSearchEnabled: configuration.isEnabled,
             recommendationsEnabled: false,
             audioTranscriptionEnabled: false,
@@ -150,6 +168,7 @@ final class AISettingsStore {
         let persistedData = defaults.data(forKey: Self.storageKey)
         let loaded = Self.decodeSettings(from: persistedData)
         providerSet = loaded.providerSet
+        primuseRelayEnabled = loaded.primuseRelayEnabled
         semanticSearchEnabled = loaded.semanticSearchEnabled
         recommendationsEnabled = loaded.recommendationsEnabled
         audioTranscriptionEnabled = loaded.audioTranscriptionEnabled
@@ -165,6 +184,7 @@ final class AISettingsStore {
         from data: Data?
     ) -> (
         providerSet: AIRemoteProviderSet,
+        primuseRelayEnabled: Bool,
         semanticSearchEnabled: Bool,
         recommendationsEnabled: Bool,
         audioTranscriptionEnabled: Bool,
@@ -173,10 +193,25 @@ final class AISettingsStore {
         hasExplicitAudioUploadConsent: Bool
     ) {
         if let data,
+           let persisted = try? JSONDecoder().decode(PersistedSettingsV5.self, from: data),
+           persisted.schemaVersion == 5 {
+            return (
+                persisted.providerSet.normalized(),
+                persisted.primuseRelayEnabled,
+                persisted.semanticSearchEnabled,
+                persisted.recommendationsEnabled,
+                persisted.audioTranscriptionEnabled,
+                persisted.hasExplicitRemoteConsent,
+                persisted.hasExplicitListeningContextConsent,
+                persisted.hasExplicitAudioUploadConsent
+            )
+        }
+        if let data,
            let persisted = try? JSONDecoder().decode(PersistedSettingsV4.self, from: data),
            persisted.schemaVersion == 4 {
             return (
                 persisted.providerSet.normalized(),
+                false,
                 persisted.semanticSearchEnabled,
                 persisted.recommendationsEnabled,
                 persisted.audioTranscriptionEnabled,
@@ -190,6 +225,7 @@ final class AISettingsStore {
            persisted.schemaVersion == 3 {
             return (
                 persisted.providerSet.normalized(),
+                false,
                 persisted.semanticSearchEnabled,
                 persisted.recommendationsEnabled,
                 false,
@@ -203,6 +239,7 @@ final class AISettingsStore {
            persisted.schemaVersion == 2 {
             return (
                 persisted.providerSet.normalized(),
+                false,
                 persisted.semanticSearchEnabled,
                 false,
                 false,
@@ -223,6 +260,7 @@ final class AISettingsStore {
                     primaryProviderID: provider.id,
                     fallbackEnabled: false
                 ),
+                false,
                 semanticSearchEnabled,
                 false,
                 false,
@@ -231,7 +269,7 @@ final class AISettingsStore {
                 false
             )
         }
-        return (AIRemoteProviderSet(), false, false, false, false, false, false)
+        return (AIRemoteProviderSet(), false, false, false, false, false, false, false)
     }
 }
 
