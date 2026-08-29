@@ -695,13 +695,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let container: LyricsContainer
         if let enhanced {
             container = enhanced
-        } else if let versionOne: LyricsContainer = try? await requestJSON(
-            "getLyricsBySongId",
-            query: [URLQueryItem(name: "id", value: songID)]
-        ) {
-            container = versionOne
         } else {
-            return nil
+            guard !Task.isCancelled,
+                  let versionOne: LyricsContainer = try? await requestJSON(
+                      "getLyricsBySongId",
+                      query: [URLQueryItem(name: "id", value: songID)]
+                  ) else {
+                return nil
+            }
+            container = versionOne
         }
         guard let tracks = container.lyricsList?.structuredLyrics else { return nil }
         return OpenSubsonicLyricsConverter.text(from: tracks)

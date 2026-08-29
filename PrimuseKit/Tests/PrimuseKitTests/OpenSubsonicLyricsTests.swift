@@ -87,6 +87,26 @@ struct OpenSubsonicLyricsTests {
         #expect(line.syllables?.count == 2)
     }
 
+    @Test("Does not replace the main lyrics with a secondary language layer")
+    func rejectsSecondaryTrackWithoutMainLyrics() throws {
+        let tracks = try decodeTracks(#"""
+        [
+          {
+            "kind": "translation",
+            "synced": true,
+            "line": [{"start": 1000, "value": "Translated line"}]
+          },
+          {
+            "kind": "pronunciation",
+            "synced": true,
+            "line": [{"start": 1000, "value": "Romanized line"}]
+          }
+        ]
+        """#)
+
+        #expect(OpenSubsonicLyricsConverter.text(from: tracks) == nil)
+    }
+
     @Test("Infers cue ends when a server returns start-only enhanced LRC data")
     func infersMissingCueEnds() throws {
         let tracks = try decodeTracks(#"""
@@ -115,7 +135,9 @@ struct OpenSubsonicLyricsTests {
         let syllables = try #require(line.syllables)
 
         #expect(syllables[0] == LyricSyllable(text: "la ", start: 5.1, end: 5.6))
-        #expect(syllables[1] == LyricSyllable(text: "la", start: 5.6, end: 6.2))
+        #expect(syllables[1].text == "la")
+        #expect(abs(syllables[1].start - 5.6) < 0.000_001)
+        #expect(abs(syllables[1].end - 6.2) < 0.000_001)
     }
 
     @Test("Uses UTF-8 byte offsets to retain spaces and untimed text")
@@ -150,6 +172,41 @@ struct OpenSubsonicLyricsTests {
 
         #expect(line.text == "Oh love love me tonight")
         #expect(syllables.map(\.text) == ["Oh love ", "love ", "me ", "tonight"])
+    }
+
+    @Test("Uses byte offsets across multibyte UTF-8 text")
+    func retainsMultibyteCueLineText() throws {
+        let tracks = try decodeTracks(#"""
+        [
+          {
+            "kind": "main",
+            "synced": true,
+            "line": [{"start": 2747, "value": "눈을 뜬 순간"}],
+            "cueLine": [
+              {
+                "index": 0,
+                "start": 2747,
+                "end": 6214,
+                "value": "눈을 뜬 순간",
+                "cue": [
+                  {"start": 2747, "end": 3018, "value": "눈", "byteStart": 0, "byteEnd": 2},
+                  {"start": 3018, "end": 3179, "value": "을", "byteStart": 3, "byteEnd": 5},
+                  {"start": 3179, "end": 3582, "value": " ", "byteStart": 6, "byteEnd": 6},
+                  {"start": 3582, "end": 4100, "value": "뜬", "byteStart": 7, "byteEnd": 9},
+                  {"start": 4100, "end": 4500, "value": " ", "byteStart": 10, "byteEnd": 10},
+                  {"start": 4500, "end": 5200, "value": "순", "byteStart": 11, "byteEnd": 13},
+                  {"start": 5200, "end": 6214, "value": "간", "byteStart": 14, "byteEnd": 16}
+                ]
+              }
+            ]
+          }
+        ]
+        """#)
+
+        let text = try #require(OpenSubsonicLyricsConverter.text(from: tracks))
+        let syllables = try #require(LyricsContentParser.parseText(text).first?.syllables)
+
+        #expect(syllables.map(\.text) == ["눈", "을", " ", "뜬", " ", "순", "간"])
     }
 
     @Test("Keeps version one line lyrics as a backward-compatible fallback")
@@ -208,6 +265,45 @@ struct OpenSubsonicLyricsTests {
         #expect(syllables[1] == LyricSyllable(text: "me", start: 1.25, end: 1.75))
     }
 
+    @Test("Accepts fractional line starts and track offsets")
+    func acceptsFractionalLineTiming() throws {
+        let tracks = try decodeTracks(#"""
+        [
+          {
+            "kind": "main",
+            "synced": true,
+            "offset": 100.5,
+            "line": [{"start": 1000.5, "value": "Float"}],
+            "cueLine": [
+              {
+                "index": 0,
+                "end": 1500,
+                "value": "Float",
+                "cue": [
+                  {
+                    "start": 1200,
+                    "end": 1500,
+                    "value": "Float",
+                    "byteStart": 0,
+                    "byteEnd": 4
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+        """#)
+
+        let text = try #require(OpenSubsonicLyricsConverter.text(from: tracks))
+        let line = try #require(LyricsContentParser.parseText(text).first)
+        let syllable = try #require(line.syllables?.first)
+
+        #expect(abs(line.timestamp - 0.9) < 0.000_001)
+        #expect(syllable.text == "Float")
+        #expect(abs(syllable.start - 1.1) < 0.000_001)
+        #expect(abs(syllable.end - 1.4) < 0.000_001)
+    }
+
     @Test("Preserves an explicitly instantaneous cue")
     func preservesZeroDurationCue() throws {
         let tracks = try decodeTracks(#"""
@@ -235,6 +331,40 @@ struct OpenSubsonicLyricsTests {
         #expect(syllable.end == 1.1)
     }
 
+    @Test("Does not stretch a non-final instantaneous cue")
+    func preservesNonFinalZeroDurationCue() throws {
+        let tracks = try decodeTracks(#"""
+        [
+          {
+            "kind": "main",
+            "synced": true,
+            "line": [{"start": 1000, "value": "Now go"}],
+            "cueLine": [
+              {
+                "index": 0,
+                "start": 1000,
+                "end": 1800,
+                "value": "Now go",
+                "cue": [
+                  {"start": 1100, "end": 1100, "value": "Now ", "byteStart": 0, "byteEnd": 3},
+                  {"start": 1300, "end": 1800, "value": "go", "byteStart": 4, "byteEnd": 5}
+                ]
+              }
+            ]
+          }
+        ]
+        """#)
+
+        let text = try #require(OpenSubsonicLyricsConverter.text(from: tracks))
+        let syllables = try #require(LyricsContentParser.parseText(text).first?.syllables)
+
+        #expect(syllables.count == 2)
+        #expect(syllables[0].text == "Now ")
+        #expect(syllables[0].start == 1.1)
+        #expect(syllables[0].end == 1.1)
+        #expect(syllables[1].text == "go")
+    }
+
     @Test("Uses the first cue line as the lead layer for parallel vocal agents")
     func keepsLeadCueLine() throws {
         let tracks = try decodeTracks(#"""
@@ -243,17 +373,25 @@ struct OpenSubsonicLyricsTests {
             "kind": "main",
             "synced": true,
             "line": [{"start": 1000, "value": "Lead backing"}],
+            "agents": [
+              {"id": "lead", "role": "main", "name": "Lead Vocal"},
+              {"id": "backing", "role": "bg"}
+            ],
             "cueLine": [
               {
                 "index": 0,
+                "agentId": "lead",
                 "start": 1000,
                 "end": 1800,
+                "value": "Lead",
                 "cue": [{"start": 1000, "end": 1800, "value": "Lead"}]
               },
               {
                 "index": 0,
+                "agentId": "backing",
                 "start": 1200,
                 "end": 1800,
+                "value": "backing",
                 "cue": [{"start": 1200, "end": 1800, "value": "backing"}]
               }
             ]

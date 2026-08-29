@@ -6,13 +6,13 @@ public enum OpenSubsonicLyricsConverter {
     public struct Track: Decodable, Sendable {
         public let kind: String?
         public let synced: Bool?
-        public let offset: Int?
+        public let offset: Double?
         public let line: [Line]?
         public let cueLine: [CueLine]?
     }
 
     public struct Line: Decodable, Sendable {
-        public let start: Int?
+        public let start: Double?
         public let value: String?
     }
 
@@ -37,8 +37,6 @@ public enum OpenSubsonicLyricsConverter {
         let main = candidates.filter { normalizedKind($0.kind) == "main" }
         let track = main.first(where: hasRenderableCues)
             ?? main.first
-            ?? candidates.first(where: hasRenderableCues)
-            ?? candidates.first
         guard let track, let lines = track.line else {
             return nil
         }
@@ -88,7 +86,7 @@ public enum OpenSubsonicLyricsConverter {
         _ cueLine: CueLine,
         parent: Line,
         nextLineStart: Int?,
-        timingOffset: Int
+        timingOffset: Double
     ) -> String? {
         let cues = (cueLine.cue ?? []).enumerated().compactMap { order, cue -> TimedCue? in
             guard let start = cue.start, start >= 0,
@@ -109,7 +107,9 @@ public enum OpenSubsonicLyricsConverter {
             return nil
         }
 
-        let declaredLineStart = (cueLine.start ?? parent.start).map {
+        let declaredLineStart = cueLine.start.map {
+            adjustedTimestamp($0, offset: timingOffset)
+        } ?? parent.start.map {
             adjustedTimestamp($0, offset: timingOffset)
         }
         let lineStart = min(declaredLineStart ?? cues[0].start, cues[0].start)
@@ -192,14 +192,18 @@ public enum OpenSubsonicLyricsConverter {
 
     /// OpenSubsonic defines a positive track offset as displaying lyrics
     /// earlier, and a negative offset as displaying them later.
-    private static func adjustedTimestamp(_ timestamp: Int, offset: Int) -> Int {
-        let nonnegativeTimestamp = max(0, timestamp)
-        if offset >= 0 {
-            return offset >= nonnegativeTimestamp ? 0 : nonnegativeTimestamp - offset
-        }
-        guard offset != .min else { return .max }
-        let (adjusted, overflow) = nonnegativeTimestamp.addingReportingOverflow(-offset)
-        return overflow ? .max : adjusted
+    private static func adjustedTimestamp(_ timestamp: Int, offset: Double) -> Int {
+        adjustedTimestamp(Double(timestamp), offset: offset)
+    }
+
+    /// The API permits fractional line starts and offsets, while Primuse's
+    /// relative A2 representation has millisecond precision.
+    private static func adjustedTimestamp(_ timestamp: Double, offset: Double) -> Int {
+        guard timestamp.isFinite, offset.isFinite else { return 0 }
+        let adjusted = max(0, timestamp) - offset
+        if adjusted <= 0 { return 0 }
+        if adjusted >= Double(Int.max) { return .max }
+        return Int(adjusted.rounded())
     }
 
     private static func addingMilliseconds(_ milliseconds: Int, to timestamp: Int) -> Int {
