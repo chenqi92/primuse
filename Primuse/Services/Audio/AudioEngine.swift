@@ -932,9 +932,23 @@ final class AudioEngine {
     // MARK: - Time Tracking
 
     var currentTime: TimeInterval? {
-        guard let playerNode,
-              let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+        playbackTime(for: playerNode, sampleTimeOffset: sampleTimeOffset)
+    }
+
+    /// The incoming node owns the visible song as soon as a crossfade commits,
+    /// even though it does not become the primary node until the ramp ends.
+    var crossfadeCurrentTime: TimeInterval? {
+        playbackTime(for: crossfadePlayerNode, sampleTimeOffset: 0)
+    }
+
+    private func playbackTime(
+        for node: AVAudioPlayerNode?,
+        sampleTimeOffset: Int64
+    ) -> TimeInterval? {
+        guard let node,
+              let nodeTime = node.lastRenderTime,
+              let playerTime = node.playerTime(forNodeTime: nodeTime),
+              playerTime.sampleRate > 0 else {
             return nil
         }
         let adjustedSampleTime = playerTime.sampleTime - sampleTimeOffset

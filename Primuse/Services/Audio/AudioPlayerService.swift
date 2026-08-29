@@ -1016,10 +1016,9 @@ final class AudioPlayerService {
     private var crossfadeTimerAttemptID: UUID?
     private var crossfadeTriggered = false
     @ObservationIgnored private var silenceProfiles: [String: AudioSilenceProfile] = [:]
-    /// crossfade 进行中 —— 用来让 startTimeUpdater 跳过 currentTime 更新。
-    /// crossfade 期间 audioEngine.currentTime 还是旧曲的 primary node 时间,
-    /// 但 UI 已经切到新曲, 这两值对不上, 直接刷会让进度条乱跳。crossfade
-    /// 完成 swap 后 isCrossfading 清零, currentTime 跟随新 primary node。
+    /// Crossfade 提交后 currentSong 已经切到淡入曲, 但 primary node 在 ramp
+    /// 完成前仍属于淡出曲。进度更新据此改读 crossfade node 的独立时钟,
+    /// swap 后再无缝回到 primary node。
     private var isCrossfading = false
     private var playID: UUID?
     @ObservationIgnored private var activeDecodedBufferGate: AsyncBufferGate?
@@ -2091,8 +2090,20 @@ final class AudioPlayerService {
             currentTime = max(0, seconds)
             return
         }
-        guard let engineTime = audioEngine.currentTime, engineTime.isFinite else { return }
+        let decision = localPlaybackClockDecision(isTransitioning: isCrossfading)
+        guard let engineTime = decision.visibleTime else { return }
         currentTime = max(0, engineTime)
+    }
+
+    private func localPlaybackClockDecision(
+        isTransitioning: Bool
+    ) -> CrossfadePlaybackClockDecision {
+        CrossfadePlaybackClockPolicy.decision(
+            currentTime: currentTime,
+            primaryNodeTime: audioEngine.currentTime,
+            incomingNodeTime: audioEngine.crossfadeCurrentTime,
+            isTransitioning: isTransitioning
+        )
     }
 
     func toggleMusicVideoMode() {
@@ -5687,8 +5698,8 @@ final class AudioPlayerService {
             return
         }
         // During a committed fade currentSong already names the incoming
-        // track, while currentTime is intentionally frozen. Complete the node
-        // swap first so the renderer resumes the right track at its real time.
+        // track while the primary node still names the outgoing one. Complete
+        // the node swap before handing the incoming track and time to casting.
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
         syncPlaybackProgressFromEngine()
         let resumeSong = currentSong
@@ -8068,6 +8079,10 @@ final class AudioPlayerService {
         nextDecoderKind: DecoderKind
     ) {
         guard crossfadeAttemptID == attemptID, playID == completedPlayID else { return }
+        // Capture the incoming node while it still has its crossfade identity.
+        // The same physical node becomes primary below, so this anchors the
+        // visible clock across normal completion, pause, and route recovery.
+        syncPlaybackProgressFromEngine()
         // Stop old decoding
         decodingTask?.cancel()
         decodingTask = nil
@@ -8091,7 +8106,7 @@ final class AudioPlayerService {
         crossfadeAttemptID = nil
         committedCrossfade = nil
         crossfadeStartupTask = nil
-        crossfadeTriggered = false; isCrossfading = false
+        crossfadeTriggered = false
         isCrossfading = false
         startTimeUpdater()
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
@@ -8370,11 +8385,11 @@ final class AudioPlayerService {
                     }
                     return
                 }
-                // crossfade 期间 audioEngine 报的还是旧曲 primary node 时间,
-                // 但 UI 已经切到新曲, 直接刷会让进度条乱跳。等 swap 完成
-                // (isCrossfading=false) 再继续。
-                if self.isCrossfading { return }
-                if let time = self.audioEngine.currentTime {
+                let transitionWasActive = self.isCrossfading
+                let clockDecision = self.localPlaybackClockDecision(
+                    isTransitioning: transitionWasActive
+                )
+                if let time = clockDecision.visibleTime {
                     self.currentTime = time.sanitizedDuration
                     let madeProgress = self.lastEngineProgressSample.map {
                         self.currentTime > $0 + 0.01
@@ -8390,7 +8405,8 @@ final class AudioPlayerService {
                         self.duration - 0.75,
                         self.duration * 0.98
                     )
-                    if self.duration > 0,
+                    if clockDecision.shouldRunTrackEndWatchdog,
+                       self.duration > 0,
                        self.currentTime >= nearEndThreshold,
                        !self.isLoading,
                        self.isPlaying,
@@ -8401,8 +8417,10 @@ final class AudioPlayerService {
                     }
                     let exceededReportedEnd = self.duration > 0
                         && self.currentTime >= self.duration + 1.0
-                    if exceededReportedEnd
-                        || self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold {
+                    let watchdogShouldAdvance = clockDecision.shouldRunTrackEndWatchdog
+                        && (exceededReportedEnd
+                            || self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold)
+                    if watchdogShouldAdvance {
                         plog("⚠️ Track-end watchdog: progress ended at \(self.currentTime)/\(self.duration), forcing queue advance")
                         self.stopTimeUpdater()
                         if let watchdogTicket {
@@ -8418,11 +8436,18 @@ final class AudioPlayerService {
                     // 传真实 tick 增量而非 currentTime: 否则用户拖进度条到歌曲后段
                     // 一松手就立刻满足 50% 阈值, 一秒没真听就误上报到 Last.fm/Navidrome。
                     // PlayHistoryStore.tick 维护的是 position high-water mark, 仍传 currentTime。
-                    ScrobbleService.shared.handleProgressTick(playedDelta: Self.timeUpdateInterval); PlayHistoryStore.shared.tick(elapsed: self.currentTime)
+                    if clockDecision.shouldRecordListeningProgress {
+                        ScrobbleService.shared.handleProgressTick(
+                            playedDelta: Self.timeUpdateInterval
+                        )
+                        PlayHistoryStore.shared.tick(elapsed: self.currentTime)
+                    }
                 }
-                await self.sampleDecodedBufferHealth()
-                // Check if crossfade should start
-                self.checkCrossfade()
+                if !transitionWasActive {
+                    await self.sampleDecodedBufferHealth()
+                    // Check if crossfade should start
+                    self.checkCrossfade()
+                }
             }
         }
         // A scheduled timer is installed in the default run-loop mode, which
