@@ -455,6 +455,7 @@ actor LibrarySearchIndex {
     private static let substringSchemaVersion = "v2_compact_pinyin_substring"
     private static let externalContentSchemaVersion = "v3_external_lyrics_content"
     private static let displayPathSchemaVersion = "v4_user_visible_song_path"
+    private static let incrementalAllSongsSchemaVersion = "v5_incremental_all_songs"
     /// FTS5 external-content triggers touch several indexes per transaction.
     /// Larger utility batches drastically reduce WAL checkpoints/write
     /// amplification while the short inter-batch pause keeps reads responsive.
@@ -470,17 +471,70 @@ actor LibrarySearchIndex {
     private let dbPool: DatabasePool?
     private var lastMetadataRevisionKey: String?
     private var isPreparing = false
-    private var pendingPreparationSongs: [Song]?
+
+    private struct PendingFullPreparation {
+        let songs: [Song]
+        let generation: Int
+    }
+
+    private struct PendingLyricsRefresh {
+        let fallbackText: String?
+    }
+
+    private struct PendingSearchDelta {
+        var upserts: [String: Song] = [:]
+        var mutations = IncrementalLibrarySearchMutationState()
+        var lyricsRefreshes: [String: PendingLyricsRefresh] = [:]
+        var firstGeneration: Int?
+        var lastGeneration = 0
+
+        var isEmpty: Bool {
+            mutations.isEmpty && lyricsRefreshes.isEmpty
+        }
+
+        mutating func merge(
+            upserts songs: [Song],
+            deletingIDs ids: Set<String>,
+            generation nextGeneration: Int
+        ) {
+            if firstGeneration == nil { firstGeneration = nextGeneration }
+            mutations.recordUpserts(songs.map(\.id))
+            mutations.recordDeletions(ids)
+            for song in songs {
+                upserts[song.id] = song
+            }
+            for id in ids {
+                upserts.removeValue(forKey: id)
+            }
+            lastGeneration = nextGeneration
+        }
+
+        mutating func mergeLyricsRefresh(
+            songID: String,
+            fallbackText: String?,
+            generation nextGeneration: Int
+        ) {
+            if firstGeneration == nil { firstGeneration = nextGeneration }
+            lyricsRefreshes[songID] = PendingLyricsRefresh(fallbackText: fallbackText)
+            lastGeneration = nextGeneration
+        }
+    }
+
+    private var pendingFullPreparation: PendingFullPreparation?
+    private var pendingSearchDelta = PendingSearchDelta()
 
     /// Set synchronously from the library Observation callback. Persisting the
     /// generation closes the crash window between a song mutation and the next
     /// background index pass, while still letting a clean index skip all 14K
     /// metadata/lyrics fingerprint reads on later launches.
-    nonisolated static func persistLibraryChangePending() {
+    @discardableResult
+    nonisolated static func persistLibraryChangePending() -> Int {
         let defaults = UserDefaults.standard
         let current = defaults.integer(forKey: preparationGenerationKey)
-        defaults.set(current == .max ? 1 : current + 1, forKey: preparationGenerationKey)
+        let generation = current == .max ? 1 : current + 1
+        defaults.set(generation, forKey: preparationGenerationKey)
         defaults.set(true, forKey: preparationPendingKey)
+        return generation
     }
 
     private nonisolated static var isPreparationPending: Bool {
@@ -494,8 +548,31 @@ actor LibrarySearchIndex {
         isPreparationPending
     }
 
-    private nonisolated static var preparationGeneration: Int {
+    nonisolated static var pendingPreparationGeneration: Int {
         UserDefaults.standard.integer(forKey: preparationGenerationKey)
+    }
+
+    private nonisolated static func markPreparationCompleted(generation: Int) {
+        let defaults = UserDefaults.standard
+        defaults.set(generation, forKey: completedPreparationGenerationKey)
+        if generation == defaults.integer(forKey: preparationGenerationKey) {
+            defaults.set(false, forKey: preparationPendingKey)
+        }
+    }
+
+    private nonisolated static func markIncrementalPreparationCompleted(
+        firstGeneration: Int,
+        lastGeneration: Int
+    ) {
+        let defaults = UserDefaults.standard
+        let completed = defaults.integer(forKey: completedPreparationGenerationKey)
+        // Never mark a crash-recovery gap clean merely because a later delta
+        // succeeded. A launch-time full pass remains responsible for the gap.
+        guard LibraryIndexMaintenancePolicy.canCompleteIncrementally(
+            completedGeneration: completed,
+            firstPendingGeneration: firstGeneration
+        ) else { return }
+        markPreparationCompleted(generation: lastGeneration)
     }
 
     private init(fileManager: FileManager = .default) {
@@ -635,6 +712,13 @@ actor LibrarySearchIndex {
             // every existing metadata row must be refreshed once.
             UserDefaults.standard.set(true, forKey: preparationPendingKey)
         }
+        migrator.registerMigration(incrementalAllSongsSchemaVersion) { _ in
+            // Older builds indexed only the currently visible source set. The
+            // incremental index keeps all library rows and filters results
+            // against the caller's visible snapshot, so rebuild once when the
+            // policy changes.
+            UserDefaults.standard.set(true, forKey: preparationPendingKey)
+        }
         try migrator.migrate(pool)
         let needsVacuum = try pool.read { db in
             try Bool.fetchOne(
@@ -650,85 +734,155 @@ actor LibrarySearchIndex {
         }
     }
 
-    /// Runs at utility/background priority. Calls made while an older snapshot
-    /// is being prepared replace the pending snapshot instead of starting a
-    /// second transliteration job.
-    func prepare(songs: [Song]) async {
+    /// Runs at utility/background priority. Full reconciliation is reserved
+    /// for first launch, schema migration, or crash recovery. Routine library
+    /// mutations enter through `applyChanges` and touch only changed rows.
+    func prepare(songs: [Song], generation: Int) async {
         guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending else { return }
-        if isPreparing {
-            pendingPreparationSongs = songs
-            return
-        }
+        pendingFullPreparation = PendingFullPreparation(
+            songs: songs,
+            generation: generation
+        )
+        // A newer full snapshot contains every earlier metadata mutation.
+        pendingSearchDelta = PendingSearchDelta()
+        await drainPendingWork()
+    }
 
-        isPreparing = true
-        defer {
-            isPreparing = false
-            if Task.isCancelled {
-                pendingPreparationSongs = nil
-            }
-        }
-        var currentSongs = songs
-        while true {
-            let preparationGeneration = Self.preparationGeneration
-            guard await synchronizeMetadata(songs: currentSongs, revisionKey: nil),
-                  !Task.isCancelled,
-                  await synchronizeLyrics(songs: currentSongs),
-                  !Task.isCancelled else { return }
-
-            if let pending = pendingPreparationSongs {
-                pendingPreparationSongs = nil
-                currentSongs = pending
-            } else {
-                let defaults = UserDefaults.standard
-                defaults.set(
-                    preparationGeneration,
-                    forKey: Self.completedPreparationGenerationKey
-                )
-                if preparationGeneration == Self.preparationGeneration {
-                    defaults.set(false, forKey: Self.preparationPendingKey)
-                }
-                break
-            }
-        }
-
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: .primuseLibrarySearchIndexDidChange,
-                object: nil
-            )
-        }
+    /// Applies a durable, bounded search-index delta. Reentrant calls merge
+    /// into one latest-value batch while the actor is writing the current one.
+    func applyChanges(
+        upserts: [Song],
+        deletingIDs: Set<String>,
+        generation: Int
+    ) async {
+        guard dbPool != nil, !upserts.isEmpty || !deletingIDs.isEmpty else { return }
+        pendingSearchDelta.merge(
+            upserts: upserts,
+            deletingIDs: deletingIDs,
+            generation: generation
+        )
+        await drainPendingWork()
     }
 
     /// Index a newly written lyric immediately. The normal background pass
     /// remains the source of truth and repairs any interrupted update later.
-    func refreshLyrics(songID: String, fallbackText: String?) async {
-        guard let pool = dbPool else { return }
-        let store = MetadataAssetStore.shared
-        let signature = store.cachedLyricsSearchSignature(songID: songID, lyricsFileName: nil)
-        // Keep the signature namespace identical to the background indexer.
-        // Without the `file:` prefix, an immediate scraper notification and
-        // the next library pass alternated between two signatures for the same
-        // lyric and rewrote every FTS posting list each time.
-        let resolvedSignature = signature.map { "file:\($0)" }
-            ?? "inline:\(Self.digest(fallbackText ?? ""))"
-        do {
-            // Scrapers may publish the same cached lyric more than once while
-            // metadata is being merged. Updating an unchanged external-content
-            // row makes all FTS triggers rewrite their posting lists.
-            if try Self.lyricsSignature(songID: songID, in: pool) == resolvedSignature {
-                return
+    func refreshLyrics(
+        songID: String,
+        fallbackText: String?,
+        generation: Int
+    ) async {
+        guard dbPool != nil else { return }
+        pendingSearchDelta.mergeLyricsRefresh(
+            songID: songID,
+            fallbackText: fallbackText,
+            generation: generation
+        )
+        await drainPendingWork()
+    }
+
+    private func drainPendingWork() async {
+        guard !isPreparing else { return }
+        isPreparing = true
+        var didCompleteWork = false
+
+        while !Task.isCancelled {
+            if let full = pendingFullPreparation {
+                pendingFullPreparation = nil
+                guard await synchronizeMetadata(songs: full.songs, revisionKey: nil),
+                      !Task.isCancelled,
+                      await synchronizeLyrics(songs: full.songs),
+                      !Task.isCancelled else { break }
+                Self.markPreparationCompleted(generation: full.generation)
+                didCompleteWork = true
+                continue
             }
-            let lines = store.cachedLyricsForSearch(songID: songID, lyricsFileName: nil)
-                ?? Self.lines(fromPlainText: fallbackText)
-            guard let lines, !lines.isEmpty else { return }
-            let document = Self.makeLyricsDocument(
-                songID: songID,
-                signature: resolvedSignature,
-                lines: lines
-            )
-            try Self.upsertLyricsDocuments([document], in: pool)
+
+            if !pendingSearchDelta.isEmpty {
+                let work = pendingSearchDelta
+                pendingSearchDelta = PendingSearchDelta()
+                let upserts = Array(work.upserts.values)
+                guard await synchronizeMetadataChanges(
+                    upserts: upserts,
+                    deletingIDs: work.mutations.deletingIDs
+                ), !Task.isCancelled,
+                await synchronizeLyricsChanges(
+                    upserts: upserts,
+                    deletingIDs: work.mutations.deletingIDs
+                ), !Task.isCancelled,
+                synchronizeLyricsRefreshes(work.lyricsRefreshes),
+                !Task.isCancelled else { break }
+                if let firstGeneration = work.firstGeneration {
+                    Self.markIncrementalPreparationCompleted(
+                        firstGeneration: firstGeneration,
+                        lastGeneration: work.lastGeneration
+                    )
+                }
+                didCompleteWork = true
+                continue
+            }
+            break
+        }
+
+        let wasCancelled = Task.isCancelled
+        if wasCancelled {
+            // A lifecycle cancellation must stop the whole-library recovery
+            // pass. Its durable dirty bit remains set for the next allowed
+            // window, while row deltas that arrived during the pass are kept.
+            pendingFullPreparation = nil
+        }
+        isPreparing = false
+        if !pendingSearchDelta.isEmpty || (!wasCancelled && pendingFullPreparation != nil) {
+            // A cancelled recovery caller must not strand deltas that arrived
+            // while its actor method was suspended.
+            Task.detached(priority: .utility) { await self.drainPendingWork() }
+        }
+
+        if didCompleteWork {
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .primuseLibrarySearchIndexDidChange,
+                    object: nil
+                )
+            }
+        }
+    }
+
+    private func synchronizeLyricsRefreshes(
+        _ refreshes: [String: PendingLyricsRefresh]
+    ) -> Bool {
+        guard !refreshes.isEmpty else { return true }
+        guard let pool = dbPool else { return false }
+        let store = MetadataAssetStore.shared
+        do {
+            var documents: [LyricsDocument] = []
+            for (songID, refresh) in refreshes {
+                if Task.isCancelled { return false }
+                let signature = store.cachedLyricsSearchSignature(
+                    songID: songID,
+                    lyricsFileName: nil
+                )
+                // Keep the signature namespace identical to the background
+                // indexer so a notification and recovery pass cannot alternate
+                // between two signatures for the same lyric.
+                let resolvedSignature = signature.map { "file:\($0)" }
+                    ?? "inline:\(Self.digest(refresh.fallbackText ?? ""))"
+                if try Self.lyricsSignature(songID: songID, in: pool) == resolvedSignature {
+                    continue
+                }
+                let lines = store.cachedLyricsForSearch(songID: songID, lyricsFileName: nil)
+                    ?? Self.lines(fromPlainText: refresh.fallbackText)
+                guard let lines, !lines.isEmpty else { continue }
+                documents.append(Self.makeLyricsDocument(
+                    songID: songID,
+                    signature: resolvedSignature,
+                    lines: lines
+                ))
+            }
+            try Self.upsertLyricsDocuments(documents, in: pool)
+            return true
         } catch {
             plog("🔎 Failed to refresh lyrics index: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -755,14 +909,10 @@ actor LibrarySearchIndex {
             )
         }
 
-        if Self.isPreparationPending {
-            _ = await synchronizeMetadata(songs: songs, revisionKey: metadataRevisionKey)
-        } else {
-            // The durable clean marker proves the persistent metadata index
-            // already matches this library. Avoid an O(librarySize) fingerprint
-            // comparison on the first search after every process launch.
-            lastMetadataRevisionKey = metadataRevisionKey
-        }
+        // Mutation paths update the persistent index directly. A query must
+        // remain an FTS read even while crash recovery is pending; SearchView
+        // listens for the completion notification and reruns automatically.
+        lastMetadataRevisionKey = metadataRevisionKey
 
         do {
             let songByID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
@@ -1057,6 +1207,137 @@ actor LibrarySearchIndex {
         }
     }
 
+    private func synchronizeMetadataChanges(
+        upserts: [Song],
+        deletingIDs: Set<String>
+    ) async -> Bool {
+        guard !upserts.isEmpty || !deletingIDs.isEmpty else { return true }
+        guard let pool = dbPool else { return false }
+
+        do {
+            let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
+            let existing = try Self.metadataStates(songIDs: requestedIDs, in: pool)
+            var changes: [(song: Song, fingerprint: String, stateID: Int64?)] = []
+            changes.reserveCapacity(upserts.count)
+            for (offset, song) in upserts.enumerated() {
+                if offset.isMultiple(of: 64), Task.isCancelled { return false }
+                let fingerprint = Self.metadataFingerprint(song)
+                if existing[song.id]?.fingerprint != fingerprint {
+                    changes.append((song, fingerprint, existing[song.id]?.id))
+                }
+            }
+            let removed = deletingIDs.compactMap { existing[$0]?.id }
+            let metadataChanges = changes
+
+            if !metadataChanges.isEmpty || !removed.isEmpty {
+                try await pool.write { db in
+                    for id in removed {
+                        if Task.isCancelled { throw CancellationError() }
+                        try db.execute(
+                            sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?",
+                            arguments: [id]
+                        )
+                        try db.execute(
+                            sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?",
+                            arguments: [id]
+                        )
+                        try db.execute(
+                            sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?",
+                            arguments: [id]
+                        )
+                        try db.execute(
+                            sql: "DELETE FROM metadataPathFts WHERE rowid = ?",
+                            arguments: [id]
+                        )
+                        try db.execute(
+                            sql: "DELETE FROM metadataSearchState WHERE id = ?",
+                            arguments: [id]
+                        )
+                    }
+
+                    for (offset, change) in metadataChanges.enumerated() {
+                        if offset.isMultiple(of: 32), Task.isCancelled {
+                            throw CancellationError()
+                        }
+                        let document = Self.makeMetadataDocument(change.song)
+                        let stateID: Int64
+                        if let existingID = change.stateID {
+                            stateID = existingID
+                            try db.execute(
+                                sql: "UPDATE metadataSearchState SET fingerprint = ? WHERE id = ?",
+                                arguments: [change.fingerprint, existingID]
+                            )
+                            try db.execute(
+                                sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?",
+                                arguments: [existingID]
+                            )
+                            try db.execute(
+                                sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?",
+                                arguments: [existingID]
+                            )
+                            try db.execute(
+                                sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?",
+                                arguments: [existingID]
+                            )
+                            try db.execute(
+                                sql: "DELETE FROM metadataPathFts WHERE rowid = ?",
+                                arguments: [existingID]
+                            )
+                        } else {
+                            try db.execute(
+                                sql: "INSERT INTO metadataSearchState (songID, fingerprint) VALUES (?, ?)",
+                                arguments: [change.song.id, change.fingerprint]
+                            )
+                            stateID = db.lastInsertedRowID
+                        }
+                        try db.execute(
+                            sql: "INSERT INTO metadataLexicalFts (rowid, title, artist, album, genre) VALUES (?, ?, ?, ?, ?)",
+                            arguments: [
+                                stateID,
+                                change.song.title,
+                                librarySearchableArtistText(change.song),
+                                change.song.albumTitle ?? "",
+                                change.song.genre ?? "",
+                            ]
+                        )
+                        try db.execute(
+                            sql: "INSERT INTO metadataPinyinFts (rowid, title, artist, album, initials, compact) VALUES (?, ?, ?, ?, ?, ?)",
+                            arguments: [
+                                stateID,
+                                document.title,
+                                document.artist,
+                                document.album,
+                                document.initials,
+                                document.compact,
+                            ]
+                        )
+                        try db.execute(
+                            sql: "INSERT INTO metadataPinyinSubstringFts (rowid, compact, initials) VALUES (?, ?, ?)",
+                            arguments: [stateID, document.compact, document.initials]
+                        )
+                        try db.execute(
+                            sql: "INSERT INTO metadataPathFts (rowid, path) VALUES (?, ?)",
+                            arguments: [
+                                stateID,
+                                SongPathPresentationPolicy.displayPath(
+                                    filePath: change.song.filePath,
+                                    sourceID: change.song.sourceID
+                                ) ?? "",
+                            ]
+                        )
+                    }
+                }
+            }
+            lastMetadataRevisionKey = nil
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            plog("🔎 Metadata index delta failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private func synchronizeLyrics(songs: [Song]) async -> Bool {
         guard let pool = dbPool else { return false }
         do {
@@ -1134,6 +1415,73 @@ actor LibrarySearchIndex {
         }
     }
 
+    private func synchronizeLyricsChanges(
+        upserts: [Song],
+        deletingIDs: Set<String>
+    ) async -> Bool {
+        guard !upserts.isEmpty || !deletingIDs.isEmpty else { return true }
+        guard let pool = dbPool else { return false }
+
+        do {
+            let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
+            var existing = try Self.lyricsStates(songIDs: requestedIDs, in: pool)
+            let store = MetadataAssetStore.shared
+            var documents: [LyricsDocument] = []
+            var removalIDs = Set<Int64>()
+
+            for (offset, song) in upserts.enumerated() {
+                if offset.isMultiple(of: 32), Task.isCancelled { return false }
+                let fileSignature = store.cachedLyricsSearchSignature(
+                    songID: song.id,
+                    lyricsFileName: song.lyricsFileName
+                )
+                let inlineText = song.lyricsText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let signature: String?
+                if let fileSignature {
+                    signature = "file:\(fileSignature)"
+                } else if let inlineText, !inlineText.isEmpty {
+                    signature = "inline:\(Self.digest(inlineText))"
+                } else {
+                    signature = nil
+                }
+
+                guard let signature else {
+                    if let old = existing.removeValue(forKey: song.id), old.id >= 0 {
+                        removalIDs.insert(old.id)
+                    }
+                    continue
+                }
+                if existing[song.id]?.signature == signature { continue }
+                let lines = store.cachedLyricsForSearch(
+                    songID: song.id,
+                    lyricsFileName: song.lyricsFileName
+                ) ?? Self.lines(fromPlainText: inlineText)
+                guard let lines, !lines.isEmpty else { continue }
+                documents.append(Self.makeLyricsDocument(
+                    songID: song.id,
+                    signature: signature,
+                    lines: lines
+                ))
+            }
+
+            for id in deletingIDs {
+                if let old = existing[id], old.id >= 0 {
+                    removalIDs.insert(old.id)
+                }
+            }
+            if !removalIDs.isEmpty {
+                try Self.removeLyricsDocuments(ids: Array(removalIDs), in: pool)
+            }
+            if !documents.isEmpty {
+                try Self.upsertLyricsDocuments(documents, in: pool)
+            }
+            return !Task.isCancelled
+        } catch {
+            plog("🔎 Lyrics index delta failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private struct StoredMetadataState {
         let id: Int64
         let fingerprint: String
@@ -1185,6 +1533,29 @@ actor LibrarySearchIndex {
         }
     }
 
+    private static func metadataStates(
+        songIDs: Set<String>,
+        in pool: DatabasePool
+    ) throws -> [String: StoredMetadataState] {
+        guard !songIDs.isEmpty else { return [:] }
+        return try pool.read { db in
+            var result: [String: StoredMetadataState] = [:]
+            result.reserveCapacity(songIDs.count)
+            for songID in songIDs {
+                if let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT id, fingerprint FROM metadataSearchState WHERE songID = ?",
+                    arguments: [songID]
+                ) {
+                    let id: Int64 = row["id"]
+                    let fingerprint: String = row["fingerprint"]
+                    result[songID] = StoredMetadataState(id: id, fingerprint: fingerprint)
+                }
+            }
+            return result
+        }
+    }
+
     private static func lyricsStates(in pool: DatabasePool) throws -> [String: StoredLyricsState] {
         try pool.read { db in
             let rows = try Row.fetchAll(db, sql: "SELECT id, songID, signature FROM lyricsSearchDocuments")
@@ -1194,6 +1565,29 @@ actor LibrarySearchIndex {
                 let signature: String = row["signature"]
                 return (songID, StoredLyricsState(id: id, signature: signature))
             })
+        }
+    }
+
+    private static func lyricsStates(
+        songIDs: Set<String>,
+        in pool: DatabasePool
+    ) throws -> [String: StoredLyricsState] {
+        guard !songIDs.isEmpty else { return [:] }
+        return try pool.read { db in
+            var result: [String: StoredLyricsState] = [:]
+            result.reserveCapacity(songIDs.count)
+            for songID in songIDs {
+                if let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT id, signature FROM lyricsSearchDocuments WHERE songID = ?",
+                    arguments: [songID]
+                ) {
+                    let id: Int64 = row["id"]
+                    let signature: String = row["signature"]
+                    result[songID] = StoredLyricsState(id: id, signature: signature)
+                }
+            }
+            return result
         }
     }
 
@@ -2131,6 +2525,11 @@ enum MusicDiscoveryEngine {
 }
 
 /// Global in-memory music library shared across the app
+enum LibraryMaintenanceDisposition: Sendable {
+    case immediate
+    case deferred
+}
+
 @MainActor
 @Observable
 final class MusicLibrary {
@@ -2360,6 +2759,9 @@ final class MusicLibrary {
     private(set) var albumArtworkLookupRevision: Int = 0
     private(set) var sourceSyncCompletionRevision: Int = 0
     private(set) var searchRevision: Int = 0
+    /// Whole-library Spotlight snapshots follow this explicit checkpoint,
+    /// rather than every row-level replacement token.
+    private(set) var spotlightIndexRevision: Int = 0
     /// Lyrics cache files are searched directly by `LibrarySearchWorker`.
     /// Keep their invalidation separate from structural library revisions so
     /// each scraped lyric does not refresh Home and other whole-library views.
@@ -2385,6 +2787,7 @@ final class MusicLibrary {
         guard disabledSourceIDs != ids else { return }
         disabledSourceIDs = ids
         rebuildVisibleCache()
+        spotlightIndexRevision &+= 1
     }
 
     func updateAppleMusicLibrarySyncEnabled(_ enabled: Bool) {
@@ -2601,6 +3004,73 @@ final class MusicLibrary {
         searchRevision &+= 1
     }
 
+    private func enqueueSearchIndexChanges(
+        upserts: [Song],
+        deletingIDs: Set<String>,
+        generation: Int,
+        after durableWrite: Task<Int64?, Never>?
+    ) {
+        let previous = searchIndexUpdateTask
+        searchIndexUpdateTask = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            if let durableWrite, await durableWrite.value == nil {
+                // Keep the synchronously-persisted dirty generation. A later
+                // full recovery will reconcile the index with the last
+                // successfully committed song-store snapshot.
+                return
+            }
+            await LibrarySearchIndex.shared.applyChanges(
+                upserts: upserts,
+                deletingIDs: deletingIDs,
+                generation: generation
+            )
+        }
+    }
+
+    /// Captures the full recovery snapshot and its durable generation in one
+    /// main-actor turn, then places it in the same queue as row-level updates.
+    /// A later mutation therefore cannot be marked complete by an older full
+    /// snapshot, even if the search actor is busy when this request is made.
+    func prepareSearchIndexIfNeeded() async {
+        guard LibrarySearchIndex.hasPendingPreparation else { return }
+        let snapshot = songs
+        let generation = LibrarySearchIndex.pendingPreparationGeneration
+        let previous = searchIndexUpdateTask
+        let pendingSongStoreWrite = songStoreWriteTask
+        let task = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            if let pendingSongStoreWrite, await pendingSongStoreWrite.value == nil {
+                return
+            }
+            await LibrarySearchIndex.shared.prepare(
+                songs: snapshot,
+                generation: generation
+            )
+        }
+        searchIndexUpdateTask = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func enqueueLyricsSearchIndexRefresh(
+        songID: String,
+        fallbackText: String?,
+        generation: Int
+    ) {
+        let previous = searchIndexUpdateTask
+        searchIndexUpdateTask = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            await LibrarySearchIndex.shared.refreshLyrics(
+                songID: songID,
+                fallbackText: fallbackText,
+                generation: generation
+            )
+        }
+    }
+
     init(
         fileManager: FileManager = .default,
         disabledSourceIDs: Set<String> = [],
@@ -2676,13 +3146,14 @@ final class MusicLibrary {
                   let info = note.userInfo,
                   let songID = info["songID"] as? String else { return }
             let fallbackText = info["lyricsText"] as? String
-            Task(priority: .utility) {
-                await LibrarySearchIndex.shared.refreshLyrics(
+            let generation = LibrarySearchIndex.persistLibraryChangePending()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.enqueueLyricsSearchIndexRefresh(
                     songID: songID,
-                    fallbackText: fallbackText
+                    fallbackText: fallbackText,
+                    generation: generation
                 )
-            }
-            Task { @MainActor in
                 self.scheduleLyricsSearchInvalidation()
             }
         }
@@ -2693,6 +3164,7 @@ final class MusicLibrary {
     /// flush 时只用最新值, 中间快照丢弃。
     private var pendingLyricsText: [String: String] = [:]
     private var pendingLyricsFlushTask: Task<Void, Never>?
+    private var searchIndexUpdateTask: Task<Void, Never>?
     private var lyricsSearchInvalidationTask: Task<Void, Never>?
     private var deferredLyricsSearchInvalidation = false
     private var isDeferringSceneTransitionPublications = false
@@ -3102,7 +3574,7 @@ final class MusicLibrary {
         // a CloudKit playlist/history record arrived before the local scan.
         schedulePendingIdentityFlush()
         invalidateSearchCaches()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(.immediate)
         let persistedIncoming = persistedSongIDs.compactMap { id in
             existingIndexByID[id].map { mergedSongs[$0] }
         }
@@ -3207,7 +3679,7 @@ final class MusicLibrary {
         deletedSongIdentities.insert(identityKey(for: song))
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(deletingIDs: [song.id], needsPromptCompatibilitySnapshot: true)
         postSongsRemoved([song])
         return songs.filter { $0.sourceID == song.sourceID }.count
@@ -3237,7 +3709,7 @@ final class MusicLibrary {
         }
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(deletingIDs: idsToDelete, needsPromptCompatibilitySnapshot: true)
         postSongsRemoved(songsToDelete)
         return remainingCounts
@@ -3294,7 +3766,7 @@ final class MusicLibrary {
         invalidateSearchCaches()
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(
             deletingIDs: Set(removedSongs.map(\.id)),
             needsPromptCompatibilitySnapshot: true
@@ -3548,7 +4020,7 @@ final class MusicLibrary {
         lastReplacedSong = changedSongs.count == 1 ? changedSongs.first : nil
         lastReplacedSongIDs = Set(changedSongs.map(\.id))
         songReplacementToken = UUID()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(upserts: changedSongs)
     }
 
@@ -3750,12 +4222,8 @@ final class MusicLibrary {
             markPortableSnapshotDirty()
         }
 
-        rebuildIndexGeneration &+= 1
-        rebuildIndexTask?.cancel()
-        rebuildIndexSync()
-        persistDerivedIndexCache()
+        requestLibraryIndexMaintenance(.immediate)
         invalidateSearchCaches()
-        LibrarySearchIndex.persistLibraryChangePending()
     }
 
     func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
@@ -4992,7 +5460,8 @@ final class MusicLibrary {
     func replaceSong(_ updatedSong: Song) {
         let currentSongs = songs
         guard let index = validatedSongIndex(for: updatedSong.id, in: currentSongs) else { return }
-        let oldCoverRef = currentSongs[index].coverArtFileName
+        let previousSong = currentSongs[index]
+        let oldCoverRef = previousSong.coverArtFileName
         var s = updatedSong
         MusicLibrary.fillDerivedIDs(
             &s,
@@ -5010,7 +5479,11 @@ final class MusicLibrary {
             postArtworkInvalidation(songID: s.id, oldRef: oldCoverRef, newRef: s.coverArtFileName)
         }
         invalidateSearchCaches()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(
+            .immediate,
+            rebuildDerivedCollections: LibraryIndexMaintenancePolicy
+                .derivedCollectionsChanged(from: previousSong, to: s)
+        )
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Backfill may have just filled in title/artist/duration that lets
@@ -5024,7 +5497,10 @@ final class MusicLibrary {
     /// persistSnapshot once per batch instead of per song keeps the UI
     /// responsive when the backfill worker is at full speed (otherwise
     /// the artists/albums grouping is recomputed dozens of times a second).
-    func replaceSongs(_ updatedSongs: [Song]) {
+    func replaceSongs(
+        _ updatedSongs: [Song],
+        maintenance: LibraryMaintenanceDisposition = .immediate
+    ) {
         guard !updatedSongs.isEmpty else { return }
         let originalSongs = songs
         var nextSongs = originalSongs
@@ -5034,6 +5510,7 @@ final class MusicLibrary {
         var appliedIDs: Set<String> = []
         var missedIDs: [String] = []
         var artworkChanges: [(songID: String, oldRef: String?, newRef: String?)] = []
+        var derivedCollectionsChanged = false
         var repairedIndexLookup = false
         for updated in updatedSongs {
             var index = idToIndex[updated.id]
@@ -5052,13 +5529,20 @@ final class MusicLibrary {
                 missedIDs.append(updated.id)
                 continue
             }
-            let oldCoverRef = nextSongs[index].coverArtFileName
+            let previousSong = nextSongs[index]
+            let oldCoverRef = previousSong.coverArtFileName
             var s = updated
             MusicLibrary.fillDerivedIDs(
                 &s,
                 configuration: artistNameConfiguration
             )
             applyAutomaticArtistArtwork(to: &s)
+            if LibraryIndexMaintenancePolicy.derivedCollectionsChanged(
+                from: previousSong,
+                to: s
+            ) {
+                derivedCollectionsChanged = true
+            }
             nextSongs[index] = s
             lastApplied = s
             appliedIDs.insert(s.id)
@@ -5092,7 +5576,10 @@ final class MusicLibrary {
             postArtworkInvalidations(artworkChanges)
         }
         invalidateSearchCaches()
-        rebuildIndex()
+        requestLibraryIndexMaintenance(
+            maintenance,
+            rebuildDerivedCollections: derivedCollectionsChanged
+        )
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Batch backfill may have surfaced enough metadata for a chunk of
@@ -5164,8 +5651,21 @@ final class MusicLibrary {
         // 10K+ entries.
         songs = nextSongs
         visibleSongs = nextVisibleSongs
+        let updatesByID = Dictionary(
+            uniqueKeysWithValues: visibleUpdates.map { ($0.song.id, $0.song) }
+        )
         for update in visibleUpdates {
             visibleSongByID[update.song.id] = update.song
+        }
+        for sourceID in Set(visibleUpdates.map(\.song.sourceID)) {
+            guard var sourceSongs = visibleSongsBySourceID[sourceID] else { continue }
+            for index in sourceSongs.indices {
+                if let replacement = updatesByID[sourceSongs[index].id] {
+                    sourceSongs[index] = replacement
+                }
+            }
+            visibleSongsBySourceID[sourceID] = sourceSongs
+            visiblePlayableSongsBySourceID[sourceID] = sourceSongs.filteredPlayable()
         }
         return true
     }
@@ -5208,62 +5708,173 @@ final class MusicLibrary {
     ///
     /// generation 检查防止 stale 结果覆盖最新数据 ── 短时间多次 rebuildIndex
     /// 时只有最后一次的结果会 apply。
+    private struct DerivedIndexRequest: Sendable {
+        let generation: Int
+        let songs: [Song]
+        let artistNameConfiguration: ArtistNameConfiguration
+        let disabledSourceIDs: Set<String>
+        let previousVisibleSongs: [Song]
+    }
+
+    private struct DerivedIndexComputation: Sendable {
+        let signature: String
+        let albums: [Album]
+        let artists: [Artist]
+        let visibleCache: PreparedVisibleCache
+    }
+
     private var rebuildIndexTask: Task<Void, Never>?
     private var rebuildIndexGeneration: Int = 0
+    private var rebuildIndexWorkState = LatestOnlyLibraryIndexWorkState()
+    private var pendingRebuildIndexRequest: DerivedIndexRequest?
+    private var deferredLibraryMaintenancePending = false
+    private var deferredDerivedIndexMaintenancePending = false
+    private var deferredLibraryMaintenanceTask: Task<Void, Never>?
     /// Collapse mutations published in the same run-loop burst before starting
     /// a full-library grouping/sort. More importantly, cancellation can happen
     /// while the task is still sleeping instead of after expensive work began.
     private static let rebuildIndexDebounce: Duration = .milliseconds(250)
 
+    private func requestLibraryIndexMaintenance(
+        _ disposition: LibraryMaintenanceDisposition,
+        rebuildDerivedCollections: Bool = true
+    ) {
+        switch disposition {
+        case .immediate:
+            let shouldRebuildDerivedCollections = rebuildDerivedCollections
+                || deferredDerivedIndexMaintenancePending
+            deferredLibraryMaintenanceTask?.cancel()
+            deferredLibraryMaintenanceTask = nil
+            deferredLibraryMaintenancePending = false
+            deferredDerivedIndexMaintenancePending = false
+            spotlightIndexRevision &+= 1
+            if shouldRebuildDerivedCollections { rebuildIndex() }
+        case .deferred:
+            deferredLibraryMaintenancePending = true
+            deferredDerivedIndexMaintenancePending =
+                deferredDerivedIndexMaintenancePending || rebuildDerivedCollections
+            guard deferredLibraryMaintenanceTask == nil else { return }
+            deferredLibraryMaintenanceTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await Task.sleep(
+                        for: .seconds(
+                            LibraryIndexMaintenancePolicy.maximumDeferredMaintenanceInterval
+                        )
+                    )
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                self.flushDeferredLibraryMaintenance()
+            }
+        }
+    }
+
+    /// Metadata backfill calls this at every bounded snapshot exit. It keeps
+    /// album/artist/source caches and Spotlight fresh without one global pass
+    /// per small persistence batch.
+    func flushDeferredLibraryMaintenance() {
+        deferredLibraryMaintenanceTask?.cancel()
+        deferredLibraryMaintenanceTask = nil
+        guard deferredLibraryMaintenancePending else { return }
+        deferredLibraryMaintenancePending = false
+        let shouldRebuildDerivedCollections = deferredDerivedIndexMaintenancePending
+        deferredDerivedIndexMaintenancePending = false
+        spotlightIndexRevision &+= 1
+        if shouldRebuildDerivedCollections { rebuildIndex() }
+    }
+
     private func rebuildIndex() {
         rebuildIndexGeneration &+= 1
-        let myGen = rebuildIndexGeneration
-        let snapshot = songs
-        let artistNameConfigurationSnapshot = artistNameConfiguration
-        let disabledSourceSnapshot = disabledSourceIDs
-        let previousVisibleSongs = visibleSongs
+        let request = DerivedIndexRequest(
+            generation: rebuildIndexGeneration,
+            songs: songs,
+            artistNameConfiguration: artistNameConfiguration,
+            disabledSourceIDs: disabledSourceIDs,
+            previousVisibleSongs: visibleSongs
+        )
 
-        rebuildIndexTask?.cancel()
+        switch rebuildIndexWorkState.submit(generation: request.generation) {
+        case .start:
+            startIndexRebuild(request)
+        case .replacePending:
+            pendingRebuildIndexRequest = request
+            rebuildIndexTask?.cancel()
+        }
+    }
+
+    private func startIndexRebuild(_ request: DerivedIndexRequest) {
         rebuildIndexTask = Task.detached(priority: .utility) { [weak self] in
+            var computation: DerivedIndexComputation?
             do {
                 try await Task.sleep(for: Self.rebuildIndexDebounce)
             } catch {
+                await MainActor.run {
+                    self?.finishIndexRebuild(request: request, computation: nil)
+                }
                 return
             }
-            guard !Task.isCancelled else { return }
-            let signature = MusicLibrary.derivedIndexSignature(
-                for: snapshot,
-                configuration: artistNameConfigurationSnapshot
-            )
-            guard !Task.isCancelled,
-                  let result = MusicLibrary.computeAlbumsAndArtistsCancellable(
-                    songs: snapshot,
-                    configuration: artistNameConfigurationSnapshot
-                  )
-            else { return }
-            guard !Task.isCancelled else { return }
-            let visibleCache = MusicLibrary.prepareVisibleCache(
-                songs: snapshot,
-                albums: result.albums,
-                artists: result.artists,
-                artistNameConfiguration: artistNameConfigurationSnapshot,
-                disabledSourceIDs: disabledSourceSnapshot,
-                previousVisibleSongs: previousVisibleSongs
-            )
+            if !Task.isCancelled {
+                let signature = MusicLibrary.derivedIndexSignature(
+                    for: request.songs,
+                    configuration: request.artistNameConfiguration
+                )
+                if !Task.isCancelled,
+                   let result = MusicLibrary.computeAlbumsAndArtistsCancellable(
+                    songs: request.songs,
+                    configuration: request.artistNameConfiguration
+                   ), !Task.isCancelled {
+                    let visibleCache = MusicLibrary.prepareVisibleCache(
+                        songs: request.songs,
+                        albums: result.albums,
+                        artists: result.artists,
+                        artistNameConfiguration: request.artistNameConfiguration,
+                        disabledSourceIDs: request.disabledSourceIDs,
+                        previousVisibleSongs: request.previousVisibleSongs
+                    )
+                    if !Task.isCancelled {
+                        computation = DerivedIndexComputation(
+                            signature: signature,
+                            albums: result.albums,
+                            artists: result.artists,
+                            visibleCache: visibleCache
+                        )
+                    }
+                }
+            }
             await MainActor.run { [weak self] in
-                guard let self else { return }
-                // generation 校验: 期间又有新的 rebuildIndex 调度过, 当前结果
-                // 已经 stale, 丢弃。
-                guard self.rebuildIndexGeneration == myGen,
-                      self.disabledSourceIDs == disabledSourceSnapshot,
-                      self.artistNameConfiguration == artistNameConfigurationSnapshot else { return }
-                self.albums = result.albums
-                self.artists = result.artists
-                self.derivedIndexSignature = signature
-                self.applyPreparedVisibleCache(visibleCache)
-                self.persistDerivedIndexCache()
+                self?.finishIndexRebuild(request: request, computation: computation)
             }
         }
+    }
+
+    private func finishIndexRebuild(
+        request: DerivedIndexRequest,
+        computation: DerivedIndexComputation?
+    ) {
+        guard rebuildIndexWorkState.activeGeneration == request.generation else { return }
+        if let computation,
+           rebuildIndexGeneration == request.generation,
+           disabledSourceIDs == request.disabledSourceIDs,
+           artistNameConfiguration == request.artistNameConfiguration {
+            albums = computation.albums
+            artists = computation.artists
+            derivedIndexSignature = computation.signature
+            applyPreparedVisibleCache(computation.visibleCache)
+            persistDerivedIndexCache()
+        }
+
+        let nextGeneration = rebuildIndexWorkState.complete(generation: request.generation)
+        rebuildIndexTask = nil
+        guard let nextGeneration,
+              let nextRequest = pendingRebuildIndexRequest,
+              nextRequest.generation == nextGeneration else {
+            pendingRebuildIndexRequest = nil
+            return
+        }
+        pendingRebuildIndexRequest = nil
+        startIndexRebuild(nextRequest)
     }
 
     /// 启动 / 测试场景下需要"调用即生效"的同步重建。比异步版本贵 (会卡
@@ -5800,6 +6411,10 @@ final class MusicLibrary {
         needsPromptCompatibilitySnapshot: Bool = false
     ) {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else { return }
+        // Persist the dirty generation before the song-store transaction can
+        // start. A process exit can therefore leave extra recovery work, but
+        // can never commit new songs while leaving the old index marked clean.
+        let searchIndexGeneration = LibrarySearchIndex.persistLibraryChangePending()
 
         if let songStore {
             let previous = songStoreWriteTask
@@ -5821,6 +6436,13 @@ final class MusicLibrary {
                 }
             }
         }
+
+        enqueueSearchIndexChanges(
+            upserts: upserts,
+            deletingIDs: deletingIDs,
+            generation: searchIndexGeneration,
+            after: songStoreWriteTask
+        )
 
         // The SQLite transaction is the durable local commit. Keep producing
         // the existing portable JSON for iCloud/TV, but coalesce ordinary
@@ -6410,24 +7032,33 @@ final class MusicLibrary {
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
 
-        // Albums ── 只 group 有 albumTitle 的歌曲
-        let songsWithAlbum = songs.compactMap { song -> (Song, AlbumGroupingIdentity)? in
+        // Albums ── 只 group 有 albumTitle 的歌曲。Use explicit loops so a
+        // superseded request can stop inside the 10K-row phases, not merely
+        // between them.
+        var albumGroups: [AlbumGroupingIdentity: [Song]] = [:]
+        for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 64), cancellationCheck() { return nil }
             guard let identity = AlbumGroupingPolicy.identity(
                 albumTitle: song.albumTitle,
                 albumArtistName: song.albumArtistName,
                 trackArtistName: song.artistName,
                 unknownArtistName: unknownArtist
-            ) else { return nil }
-            return (song, identity)
+            ) else { continue }
+            albumGroups[identity, default: []].append(song)
         }
         guard !cancellationCheck() else { return nil }
-        let albumGroups = Dictionary(grouping: songsWithAlbum) { entry in
-            entry.1
-        }
-        guard !cancellationCheck() else { return nil }
-        let albums = albumGroups.map { identity, entries -> Album in
-            let groupedSongs = entries.map(\.0)
-            return Album(
+        var albums: [Album] = []
+        albums.reserveCapacity(albumGroups.count)
+        for (offset, entry) in albumGroups.enumerated() {
+            if offset.isMultiple(of: 16), cancellationCheck() { return nil }
+            let identity = entry.key
+            let groupedSongs = entry.value
+            var totalDuration: TimeInterval = 0
+            for (songOffset, song) in groupedSongs.enumerated() {
+                if songOffset.isMultiple(of: 128), cancellationCheck() { return nil }
+                totalDuration += song.duration.sanitizedDuration
+            }
+            albums.append(Album(
                 id: hashID("\(identity.artistName):\(identity.albumTitle)"),
                 title: identity.albumTitle,
                 artistID: hashID(identity.artistName.lowercased()),
@@ -6435,67 +7066,74 @@ final class MusicLibrary {
                 year: groupedSongs.first?.year,
                 genre: groupedSongs.first?.genre,
                 songCount: groupedSongs.count,
-                totalDuration: groupedSongs.reduce(0) { $0 + $1.duration.sanitizedDuration },
+                totalDuration: totalDuration,
                 sourceID: groupedSongs.first?.sourceID
-            )
-        }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+            ))
+        }
+        albums.sort { $0.title.localizedCompare($1.title) == .orderedAscending }
         guard !cancellationCheck() else { return nil }
 
         // Artists ── every contributor participates while album grouping stays
         // tied to albumArtistName above. This lets a guest artist own the song
         // without incorrectly gaining the host album.
-        let artistEntries = songs.flatMap { song in
-            resolvedArtistNames(for: song, configuration: configuration).map { ($0, song) }
-        }
-        let artistGroups = Dictionary(grouping: artistEntries) {
-            hashID($0.0.lowercased())
+        var artistGroups: [String: [(name: String, song: Song)]] = [:]
+        for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 64), cancellationCheck() { return nil }
+            for name in resolvedArtistNames(for: song, configuration: configuration) {
+                artistGroups[hashID(name.lowercased()), default: []].append((name, song))
+            }
         }
         guard !cancellationCheck() else { return nil }
-        let artists = artistGroups.compactMap { id, entries -> Artist? in
-            guard let name = entries.first?.0 else { return nil }
-            let groupedSongs = entries.map(\.1)
-            let albumCount = Set(groupedSongs.compactMap { song -> String? in
-                guard let identity = AlbumGroupingPolicy.identity(
+        var artists: [Artist] = []
+        artists.reserveCapacity(artistGroups.count)
+        for (offset, entry) in artistGroups.enumerated() {
+            if offset.isMultiple(of: 16), cancellationCheck() { return nil }
+            let id = entry.key
+            let entries = entry.value
+            guard let name = entries.first?.name else { continue }
+            var albumIDs: Set<String> = []
+            var thumbnailPath: String?
+            for (songOffset, artistEntry) in entries.enumerated() {
+                if songOffset.isMultiple(of: 64), cancellationCheck() { return nil }
+                let song = artistEntry.song
+                if let identity = AlbumGroupingPolicy.identity(
                     albumTitle: song.albumTitle,
                     albumArtistName: song.albumArtistName,
                     trackArtistName: song.artistName,
                     unknownArtistName: unknownArtist
-                ), hashID(identity.artistName.lowercased()) == hashID(name.lowercased()) else {
-                    return nil
+                ), hashID(identity.artistName.lowercased()) == id {
+                    albumIDs.insert(hashID("\(identity.artistName):\(identity.albumTitle)"))
                 }
-                return hashID("\(identity.artistName):\(identity.albumTitle)")
-            }).count
-            let thumbnailPath = groupedSongs.lazy.compactMap { song -> String? in
-                if let automatic = AutomaticArtistArtworkReference.resolve(
-                    song.artistArtworkFileName
-                ), let entry = automatic.entry(forArtistName: name) {
-                    return SourceOwnedArtworkReference.make(
-                        sourceID: song.sourceID,
-                        reference: entry.reference,
-                        cacheDiscriminator: entry.cacheDiscriminator
-                    )
+                if thumbnailPath == nil {
+                    if let automatic = AutomaticArtistArtworkReference.resolve(
+                        song.artistArtworkFileName
+                    ), let artwork = automatic.entry(forArtistName: name) {
+                        thumbnailPath = SourceOwnedArtworkReference.make(
+                            sourceID: song.sourceID,
+                            reference: artwork.reference,
+                            cacheDiscriminator: artwork.cacheDiscriminator
+                        )
+                    } else if resolvedArtistNames(
+                        for: song,
+                        configuration: configuration
+                    ).first.map({ hashID($0.lowercased()) }) == id,
+                    let reference = song.artistArtworkFileName {
+                        thumbnailPath = SourceOwnedArtworkReference.make(
+                            sourceID: song.sourceID,
+                            reference: reference
+                        )
+                    }
                 }
-                guard resolvedArtistNames(
-                    for: song,
-                    configuration: configuration
-                ).first.map({ hashID($0.lowercased()) }) == hashID(name.lowercased()) else {
-                    return nil
-                }
-                return song.artistArtworkFileName.flatMap { reference in
-                    SourceOwnedArtworkReference.make(
-                        sourceID: song.sourceID,
-                        reference: reference
-                    )
-                }
-            }.first
-            return Artist(
+            }
+            artists.append(Artist(
                 id: id,
                 name: name,
-                albumCount: albumCount,
-                songCount: groupedSongs.count,
+                albumCount: albumIDs.count,
+                songCount: entries.count,
                 thumbnailPath: thumbnailPath
-            )
-        }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            ))
+        }
+        artists.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         guard !cancellationCheck() else { return nil }
 
         return (albums, artists)

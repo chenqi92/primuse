@@ -2140,6 +2140,7 @@ final class MetadataBackfillService {
     /// every `flushBatchSize` successes (or every `flushInterval` seconds).
     /// Each song in the snapshot is touched exactly once.
     private func processSnapshot(_ snapshot: [Song]) async {
+        defer { library.flushDeferredLibraryMaintenance() }
         var pendingFlush: [Song] = []
         var pendingArtistInspectionIDs: Set<String> = []
         var lastFlushAt = Date()
@@ -2379,7 +2380,7 @@ final class MetadataBackfillService {
                     pendingFlush.removeAll(keepingCapacity: true)
                     lastFlushAt = Date()
                     if !batch.isEmpty {
-                        library.replaceSongs(batch)
+                        library.replaceSongs(batch, maintenance: .deferred)
                         markArtistsInspected(
                             songIDs: pendingArtistInspectionIDs.intersection(batch.map(\.id))
                         )
@@ -2410,7 +2411,7 @@ final class MetadataBackfillService {
             let batch = pendingFlush.compactMap(backfillResultForApply)
             pendingFlush.removeAll()
             if !batch.isEmpty {
-                library.replaceSongs(batch)
+                library.replaceSongs(batch, maintenance: .deferred)
                 markArtistsInspected(
                     songIDs: pendingArtistInspectionIDs.intersection(batch.map(\.id))
                 )

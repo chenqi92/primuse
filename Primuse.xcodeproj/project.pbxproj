@@ -373,6 +373,7 @@
 		63259BF946E30D768662FE86 /* AppSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F72C30C0410A874441AA /* AppSecrets.swift */; };
 		632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
 		63A8681ED1A2091DC4C1004B /* AudioDurationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448C0693B4F051488B4E0CD1 /* AudioDurationPolicy.swift */; };
+		9D4F2B71C6E3085A14B9D027 /* LibraryIndexMaintenancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9C1A7B4D2F8365C0A17E42 /* LibraryIndexMaintenancePolicy.swift */; };
 		63B5A50955FF23FF9A9F573C /* EmbeddedMetadataWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */; };
 		642241C2B56B3D284AC021B0 /* EmbeddedMetadataWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */; };
 		642970477DCF868695187EAD /* FnMusicAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83ED706EE476BAD28EE3B6AE /* FnMusicAPI.swift */; };
@@ -1226,6 +1227,7 @@
 		4430B0204E343AF011F490F1 /* StreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamResolver.swift; sourceTree = "<group>"; };
 		44849CCD8EA5C644E0EBDE13 /* LyricsEditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsEditorDocument.swift; sourceTree = "<group>"; };
 		448C0693B4F051488B4E0CD1 /* AudioDurationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDurationPolicy.swift; sourceTree = "<group>"; };
+		0E9C1A7B4D2F8365C0A17E42 /* LibraryIndexMaintenancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIndexMaintenancePolicy.swift; sourceTree = "<group>"; };
 		44B4D0FC334BC388026F33AF /* NFSBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSBrowserView.swift; sourceTree = "<group>"; };
 		44E0FB1BC9956D86766A605B /* Primuse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Primuse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		44E113AD72F97F6A8D8165A7 /* RecentlyDeletedPurgePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyDeletedPurgePlan.swift; sourceTree = "<group>"; };
@@ -1973,6 +1975,7 @@
 				C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */,
 				9A978F51041E03E752100B64 /* LibraryFolderIndex.swift */,
 				E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */,
+				0E9C1A7B4D2F8365C0A17E42 /* LibraryIndexMaintenancePolicy.swift */,
 				5B89002BB9DE5179461BC5B7 /* LibrarySongBrowseMode.swift */,
 				2555ED6B08291C7E7B7202E4 /* Localization.swift */,
 				B5AF0A502ADBF66BB885795B /* LocalPlaybackResumePolicy.swift */,
@@ -3356,6 +3359,7 @@
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				0757EA4AC03FA3EC01640B00 /* LibraryFolderIndex.swift in Sources */,
 				F7001D7ED68D7FC3F771FD35 /* LibraryFolderSelectionIndex.swift in Sources */,
+				9D4F2B71C6E3085A14B9D027 /* LibraryIndexMaintenancePolicy.swift in Sources */,
 				7838A8CFB758F37EE9CAB726 /* LibrarySongBrowseMode.swift in Sources */,
 				FDF3E2D0BE3263207874AB7A /* LocalImportFileTransaction.swift in Sources */,
 				44173A0D5CA82A1BF899F9FB /* LocalPlaybackResumePolicy.swift in Sources */,

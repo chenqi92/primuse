@@ -129,7 +129,6 @@ final class SpotlightIndexService {
     /// running, the latest snapshot is queued instead of overlapping two batch
     /// sessions on the same named index.
     func scheduleSynchronization(library: MusicLibrary) {
-        markSynchronizationPending()
         guard !isSynchronizationSuspended else { return }
         enqueueSynchronization(library: library, delay: Self.debounceDuration)
     }
@@ -177,7 +176,7 @@ final class SpotlightIndexService {
     /// cancellation is observed before any subsequent batch or manifest save.
     func cancelPendingSynchronization() {
         guard workPhase != .idle else { return }
-        markSynchronizationPending()
+        persistSynchronizationPending()
         queuedSnapshot = nil
         pendingTask?.cancel()
 
@@ -299,10 +298,6 @@ final class SpotlightIndexService {
                 persistSynchronizationPending()
             }
         }
-    }
-
-    private func markSynchronizationPending() {
-        persistSynchronizationPending()
     }
 
     private func persistSynchronizationPending() {

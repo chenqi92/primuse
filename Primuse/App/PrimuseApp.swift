@@ -818,15 +818,14 @@ private final class BackgroundLibraryMaintenanceCoordinator {
     func sceneDidEnterBackground(library: MusicLibrary) {
         cancel()
         if LibrarySearchIndex.hasPendingPreparation {
-            let songs = library.visibleSongs
-            searchIndexTask = Task.detached(priority: .utility) {
+            searchIndexTask = Task(priority: .utility) { @MainActor [weak library] in
                 do {
                     try await Task.sleep(for: .seconds(3))
                 } catch {
                     return
                 }
-                guard !Task.isCancelled else { return }
-                await LibrarySearchIndex.shared.prepare(songs: songs)
+                guard !Task.isCancelled, let library else { return }
+                await library.prepareSearchIndexIfNeeded()
             }
         }
         if ScheduledFileMaintenance.isDue() {
@@ -1213,11 +1212,10 @@ struct PrimuseApp: App {
                     // throttled utility batches and skips unchanged files by
                     // signature, so cold start and interactive searches never
                     // transliterate the whole library.
-                    let searchSongs = musicLibrary.visibleSongs
-                    Task(priority: .utility) {
+                    Task(priority: .utility) { @MainActor in
                         try? await Task.sleep(for: .seconds(12))
                         guard !Task.isCancelled else { return }
-                        await LibrarySearchIndex.shared.prepare(songs: searchSongs)
+                        await musicLibrary.prepareSearchIndexIfNeeded()
                     }
                     if ScheduledFileMaintenance.isDue() {
                         Task.detached(priority: .background) {

@@ -1287,7 +1287,6 @@ final class AppServices {
         }
 
         observeSpotlightLibraryToken(library: library, index: index)
-        observeSearchLibraryToken(library: library)
     }
 
     private func observeSpotlightLibraryToken(
@@ -1295,8 +1294,7 @@ final class AppServices {
         index: SpotlightIndexService
     ) {
         withObservationTracking {
-            _ = library.songReplacementToken
-            _ = library.visibleSongCollectionRevision
+            _ = library.spotlightIndexRevision
             _ = library.playlistCollectionRevision
         } onChange: { [weak library, weak index] in
             SpotlightIndexService.persistLibraryChangePending()
@@ -1305,27 +1303,6 @@ final class AppServices {
                 index.scheduleSynchronization(library: library)
                 self?.scheduleSourceSongCountReconciliation()
                 self?.observeSpotlightLibraryToken(library: library, index: index)
-            }
-        }
-    }
-
-    /// Search indexing follows only metadata/lyrics revisions. Playlist edits
-    /// still update Spotlight, but no longer dirty the 14K-row FTS database.
-    private func observeSearchLibraryToken(library: MusicLibrary) {
-        withObservationTracking {
-            _ = library.searchRevision
-            _ = library.lyricsSearchRevision
-        } onChange: { [weak library] in
-            LibrarySearchIndex.persistLibraryChangePending()
-            Task { @MainActor [weak self] in
-                guard let library else { return }
-                #if os(macOS)
-                let songs = library.visibleSongs
-                Task(priority: .utility) {
-                    await LibrarySearchIndex.shared.prepare(songs: songs)
-                }
-                #endif
-                self?.observeSearchLibraryToken(library: library)
             }
         }
     }
