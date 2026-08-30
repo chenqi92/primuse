@@ -71,6 +71,68 @@ final class ArtistNameLibraryTests: XCTestCase {
         XCTAssertEqual(artist.songCount, 2)
     }
 
+    @MainActor
+    func testArtistSongLookupIncludesContributorsAndTracksVisibility() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ArtistSongLookupTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(
+            storageDirectory: storageDirectory,
+            artistNameConfiguration: .defaultValue
+        )
+        let duet = makeSong(
+            id: "duet",
+            artistName: "Host; Guest",
+            sourceArtistNames: ["Host", "Guest"],
+            sourceID: "source-a"
+        )
+        let solo = makeSong(
+            id: "solo",
+            artistName: "Guest",
+            sourceID: "source-b"
+        )
+        let legacyNativeValue = makeSong(
+            id: "legacy-native-value",
+            artistName: " ",
+            sourceArtistNames: ["Guest; Legacy"],
+            sourceID: "source-c"
+        )
+        library.addSongs(
+            [duet, solo, legacyNativeValue],
+            affectedSourceIDs: [duet.sourceID, solo.sourceID, legacyNativeValue.sourceID]
+        )
+
+        let guestID = MusicLibrary.hashID("guest")
+        for _ in 0..<200 where library.songs(forArtist: guestID).count != 3 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let expectedGuestSongIDs = ["duet", "solo", "legacy-native-value"]
+        XCTAssertEqual(library.songs(forArtist: guestID).map(\.id), expectedGuestSongIDs)
+        XCTAssertEqual(library.songs(forArtist: guestID).map(\.id), expectedGuestSongIDs)
+
+        let guestOwner = LibraryArtworkOwner(kind: .artist, id: guestID)
+        XCTAssertTrue(library.setArtwork(for: guestOwner, to: duet))
+        let artworkPresentation = library.artworkPresentation(for: guestOwner)
+        XCTAssertEqual(artworkPresentation.resolution, .selectedSong(duet.id))
+        XCTAssertEqual(artworkPresentation.selectedSong?.id, duet.id)
+
+        library.updateDisabledSourceIDs([duet.sourceID])
+        XCTAssertEqual(
+            library.songs(forArtist: guestID).map(\.id),
+            ["solo", "legacy-native-value"]
+        )
+
+        library.updateDisabledSourceIDs([])
+        XCTAssertEqual(library.songs(forArtist: guestID).map(\.id), expectedGuestSongIDs)
+        _ = await library.persistNowAndWait()
+    }
+
     func testMetadataSearchFindsSecondaryNativeArtist() {
         let song = makeSong(
             artistName: "Primary & Secondary",
@@ -130,13 +192,15 @@ final class ArtistNameLibraryTests: XCTestCase {
     }
 
     private func makeSong(
+        id: String = UUID().uuidString,
         artistName: String,
         sourceArtistNames: [String]? = nil,
         albumArtistName: String? = nil,
-        albumTitle: String? = nil
+        albumTitle: String? = nil,
+        sourceID: String = "source"
     ) -> Song {
         Song(
-            id: UUID().uuidString,
+            id: id,
             title: "Track",
             albumTitle: albumTitle,
             artistName: artistName,
@@ -145,7 +209,7 @@ final class ArtistNameLibraryTests: XCTestCase {
             duration: 180,
             fileFormat: .flac,
             filePath: "/track.flac",
-            sourceID: "source"
+            sourceID: sourceID
         )
     }
 }

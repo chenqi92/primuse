@@ -96,12 +96,9 @@ struct ArtistDetailView: View {
         #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
+                Button("artwork_edit") {
                     showArtworkEditor = true
-                } label: {
-                    Image(systemName: "photo.badge.plus")
                 }
-                .accessibilityLabel(Text("artwork_edit"))
             }
         }
         #endif

@@ -2235,6 +2235,10 @@ final class MusicLibrary {
     @ObservationIgnored private var visibleSongIndexByID: [String: Int] = [:]
     @ObservationIgnored private var visibleSongByID: [String: Song] = [:]
     @ObservationIgnored private var visibleArtistByID: [String: Artist] = [:]
+    /// Artist detail bodies can ask for the same slice several times per frame.
+    /// Keep stable IDs here and resolve through `visibleSongByID` so lightweight
+    /// lyrics/artwork patches remain current without rescanning or reparsing the library.
+    @ObservationIgnored private var visibleSongIDsByArtistID: [String: [String]] = [:]
     @ObservationIgnored private var visibleSongsBySourceID: [String: [Song]] = [:]
     /// Source cards are re-rendered frequently while scanning/backfilling.
     /// Keep the source grouping beside the other visible caches so those
@@ -2261,6 +2265,7 @@ final class MusicLibrary {
         let songIndexByID: [String: Int]
         let songByID: [String: Song]
         let artistByID: [String: Artist]
+        let songIDsByArtistID: [String: [String]]
         let songsBySourceID: [String: [Song]]
         let playableBySourceID: [String: [Song]]
         let countBySourceID: [String: Int]
@@ -2337,6 +2342,7 @@ final class MusicLibrary {
         visibleSongIndexByID = prepared.songIndexByID
         visibleSongByID = prepared.songByID
         visibleArtistByID = prepared.artistByID
+        visibleSongIDsByArtistID = prepared.songIDsByArtistID
         visibleSongsBySourceID = prepared.songsBySourceID
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
         visibleSongCountBySourceID = prepared.countBySourceID
@@ -2382,7 +2388,10 @@ final class MusicLibrary {
             artistByID[artist.id] = artist
             return true
         }
-        let lookups = makeVisibleLookups(songs: nextVisibleSongs)
+        let lookups = makeVisibleLookups(
+            songs: nextVisibleSongs,
+            artistNameConfiguration: artistNameConfiguration
+        )
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
@@ -2396,6 +2405,7 @@ final class MusicLibrary {
             songIndexByID: lookups.indexByID,
             songByID: lookups.songByID,
             artistByID: artistByID,
+            songIDsByArtistID: lookups.songIDsByArtistID,
             songsBySourceID: lookups.songsBySourceID,
             playableBySourceID: lookups.playableBySourceID,
             countBySourceID: lookups.countBySourceID,
@@ -2413,29 +2423,45 @@ final class MusicLibrary {
     }
 
     private nonisolated static func makeVisibleLookups(
-        songs: [Song]
+        songs: [Song],
+        artistNameConfiguration: ArtistNameConfiguration
     ) -> (
         indexByID: [String: Int],
         songByID: [String: Song],
+        songIDsByArtistID: [String: [String]],
         songsBySourceID: [String: [Song]],
         playableBySourceID: [String: [Song]],
         countBySourceID: [String: Int]
     ) {
         var indexByID: [String: Int] = [:]
         var songByID: [String: Song] = [:]
+        var songIDsByArtistID: [String: [String]] = [:]
         var songsBySourceID: [String: [Song]] = [:]
         var playableBySourceID: [String: [Song]] = [:]
         var countBySourceID: [String: Int] = [:]
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             if songByID[song.id] == nil { songByID[song.id] = song }
+            for artistID in resolvedArtistIDs(
+                for: song,
+                configuration: artistNameConfiguration
+            ) {
+                songIDsByArtistID[artistID, default: []].append(song.id)
+            }
             songsBySourceID[song.sourceID, default: []].append(song)
             countBySourceID[song.sourceID, default: 0] += 1
             if song.isPlayable {
                 playableBySourceID[song.sourceID, default: []].append(song)
             }
         }
-        return (indexByID, songByID, songsBySourceID, playableBySourceID, countBySourceID)
+        return (
+            indexByID,
+            songByID,
+            songIDsByArtistID,
+            songsBySourceID,
+            playableBySourceID,
+            countBySourceID
+        )
     }
 
     private nonisolated static func makeSongCountsBySourceID(
@@ -3387,7 +3413,7 @@ final class MusicLibrary {
             case .album:
                 isEligible = song.albumID == owner.id
             case .artist:
-                isEligible = self.song(song, includesArtistID: owner.id)
+                isEligible = visibleSongIDsByArtistID[owner.id]?.contains(resolvedSongID) == true
             case .playlist:
                 isEligible = playlistSongIDs[owner.id]?.contains(resolvedSongID) == true
             }
@@ -3613,7 +3639,8 @@ final class MusicLibrary {
     }
 
     func songs(forArtist artistID: String) -> [Song] {
-        visibleSongs.filter { song($0, includesArtistID: artistID) }
+        _ = visibleSongsReference
+        return visibleSongIDsByArtistID[artistID]?.compactMap { visibleSongByID[$0] } ?? []
     }
 
     func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {
@@ -6173,6 +6200,44 @@ final class MusicLibrary {
     ) -> [String] {
         let names = song.effectiveArtistNames(configuration: configuration)
         return names.isEmpty ? [String(localized: "unknown_artist")] : names
+    }
+
+    private nonisolated static func resolvedArtistIDs(
+        for song: Song,
+        configuration: ArtistNameConfiguration
+    ) -> [String] {
+        if let primaryID = song.artistID, !primaryID.isEmpty {
+            var firstNativeName: String?
+            var nativeNameCount = 0
+            for value in song.sourceArtistNames ?? [] {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                if firstNativeName == nil { firstNativeName = trimmed }
+                nativeNameCount += 1
+                if nativeNameCount == 2 { break }
+            }
+            let rawName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidate = rawName.flatMap { $0.isEmpty ? nil : $0 }
+                ?? firstNativeName
+                ?? ""
+            let containsConfiguredSeparator = configuration.separators.contains { separator in
+                guard !separator.isEmpty else { return false }
+                return candidate.range(
+                    of: separator,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: Locale(identifier: "en_US_POSIX")
+                ) != nil
+            }
+            if nativeNameCount <= 1, !containsConfiguredSeparator {
+                return [primaryID]
+            }
+        }
+
+        var seen = Set<String>()
+        return resolvedArtistNames(for: song, configuration: configuration).compactMap { name in
+            let id = hashID(name.lowercased())
+            return seen.insert(id).inserted ? id : nil
+        }
     }
 
     nonisolated static func fillDerivedIDs(
