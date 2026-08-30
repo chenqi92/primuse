@@ -1105,7 +1105,7 @@ struct BaiduSnapshotReconciliationTests {
             SourceSyncState.self,
             from: JSONEncoder().encode(state)
         )
-        #expect(decoded.schemaVersion == 1)
+        #expect(decoded.schemaVersion == SourceSyncState.currentSchemaVersion)
         #expect(decoded.cursors == rawCursors)
         #expect(Set(decoded.index.keys) == Set(rawProviderKeys))
         for key in rawProviderKeys {
