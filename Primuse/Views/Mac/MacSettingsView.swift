@@ -910,11 +910,6 @@ private struct MacSTIntelligenceView: View {
                 MacSTRow(String(localized: "ai_primuse_relay_enabled"), divider: false) {
                     MacSTToggle(isOn: editor.primuseRelayBinding)
                 }
-                MacSTRow(String(localized: "ai_service_address")) {
-                    Text(verbatim: "primuse.yzs.ai")
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-                }
                 MacSTRow(
                     String(localized: "ai_primuse_relay_test_connection"),
                     hint: String(localized: "ai_primuse_relay_test_footer")

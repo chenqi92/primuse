@@ -936,11 +936,6 @@ struct AISettingsView: View {
     private var primuseRelaySection: some View {
         Section {
             Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
-            LabeledContent("ai_service_address") {
-                Text(verbatim: "primuse.yzs.ai")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
             Button {
                 Task { await editor.testPrimuseRelayConnection(using: intelligence) }
             } label: {
