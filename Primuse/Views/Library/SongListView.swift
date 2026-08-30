@@ -29,6 +29,13 @@ private struct MacSongLocationScrollRequest: Equatable {
     let rowOrderRevision: Int
     let rowOffset: Int?
     let rowCount: Int
+    let targetY: CGFloat?
+    let resetKey: String
+}
+
+private struct MacSongScrollWindowMetrics: Equatable {
+    let firstVisibleRow: Int
+    let viewportHeight: Int
 }
 
 /// Own the mutable scroll position below `SongListView` so user scrolling does
@@ -37,17 +44,26 @@ private struct MacSongLocationScrollModifier: ViewModifier {
     let request: MacSongLocationScrollRequest
 
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
+    @State private var previousResetKey: String?
 
     func body(content: Content) -> some View {
         content
             .scrollPosition($scrollPosition)
             .task(id: request) {
-                guard request.songID != nil,
-                      let rowOffset = request.rowOffset,
-                      (0..<request.rowCount).contains(rowOffset) else { return }
+                let shouldResetToTop = previousResetKey.map { $0 != request.resetKey } ?? false
+                if previousResetKey != request.resetKey {
+                    previousResetKey = request.resetKey
+                }
                 await Task.yield()
                 guard !Task.isCancelled, self.request == request else { return }
-                scrollPosition.scrollTo(id: rowOffset, anchor: .center)
+                if let targetY = request.targetY {
+                    scrollPosition.scrollTo(y: targetY)
+                } else if let rowOffset = request.rowOffset,
+                          (0..<request.rowCount).contains(rowOffset) {
+                    scrollPosition.scrollTo(id: rowOffset, anchor: .center)
+                } else if shouldResetToTop {
+                    scrollPosition.scrollTo(y: 0)
+                }
             }
     }
 }
@@ -528,6 +544,9 @@ struct SongListView: View {
     @State private var contextSongInfoSong: Song?
     @State private var contextTagEditorSong: Song?
     @State private var exportError: String?
+    @State private var macFirstVisibleRow = 0
+    @State private var macSongListChromeHeight: CGFloat = 0
+    @State private var macSongListViewportHeight: CGFloat = 0
     /// songID → 播放次数, 由 PlayHistory 一次性折叠而来。重建只发生在
     /// onAppear 和 PlayHistory 变更通知时, 而不是每行重算 (否则 LazyVStack
     /// 滚动时每实例化一行都要 O(5000) 折叠+建字典)。
@@ -1184,10 +1203,27 @@ struct SongListView: View {
         let scrollTargetCount = macViewMode == .grid
             ? (rows.count + gridColumnCount - 1) / gridColumnCount
             : rows.count
+        let scrollTargetY: CGFloat? = {
+            guard macViewMode != .grid, let locatedRowOffset else { return nil }
+            let rowHeight = macVirtualRowHeight
+            let centeredOffset = macSongListChromeHeight
+                + CGFloat(locatedRowOffset) * rowHeight
+                - max(0, (macSongListViewportHeight - rowHeight) / 2)
+            return max(0, centeredOffset)
+        }()
+        let scrollResetKey = [
+            scope.snapshotCacheKey,
+            selectedSourceID ?? "*",
+            songFilter.rawValue,
+            searchText,
+            browseMode.rawValue,
+            macViewMode.rawValue,
+            macRowDensity.rawValue,
+        ].joined(separator: "\u{1F}")
 
         return Group {
             if !showsFolderBrowser, !rows.isEmpty {
-                macVirtualizedSongList(rows: rows, gridColumnCount: gridColumnCount)
+                macVirtualizedSongList(rows: rows)
             } else {
                 macScrollableSongList(rows: rows)
             }
@@ -1199,8 +1235,10 @@ struct SongListView: View {
             MacSongLocationScrollModifier(request: MacSongLocationScrollRequest(
                 songID: locatedSongID,
                 rowOrderRevision: listCache.rowOrderRevision,
-                rowOffset: scrollTargetOffset,
-                rowCount: scrollTargetCount
+                rowOffset: scrollTargetY == nil ? scrollTargetOffset : nil,
+                rowCount: scrollTargetCount,
+                targetY: scrollTargetY,
+                resetKey: scrollResetKey
             ))
         )
         .background(PMColor.bg.ignoresSafeArea())
@@ -1213,96 +1251,131 @@ struct SongListView: View {
         }
     }
 
-    /// `LazyVStack` delays row creation, but macOS keeps the realized SwiftUI
-    /// graph around as the user traverses a long list. `List` delegates row
-    /// lifetime to the native reusable-row container, keeping the live graph
-    /// bounded to the viewport for every flat presentation mode.
-    private func macVirtualizedSongList(
-        rows: [SongListRowIdentity],
-        gridColumnCount: Int
-    ) -> some View {
-        List {
-            macVirtualizedSongListChrome
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-
-            switch macViewMode {
-            case .list:
-                ForEach(rows.indices, id: \.self) { position in
-                    Group {
-                        let row = rows[position]
-                        if let song = library.unobservedVisibleSong(id: row.id) {
-                            songTableRow(song, index: row.offset)
-                                .songSelectable(
-                                    songID: row.id,
-                                    selection: selection,
-                                    orderedIDs: { filteredSongIDs },
-                                    defaultAction: { playSong(song) }
-                                )
-                        } else {
-                            Color.clear.frame(height: 32)
-                        }
-                    }
-                    .padding(.horizontal, PMSpace.xxxl)
-                    .id(position)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-
-            case .compact:
-                ForEach(rows.indices, id: \.self) { position in
-                    Group {
-                        let row = rows[position]
-                        if let song = library.unobservedVisibleSong(id: row.id) {
-                            compactSongRow(song, index: row.offset)
-                                .songSelectable(
-                                    songID: row.id,
-                                    selection: selection,
-                                    orderedIDs: { filteredSongIDs },
-                                    defaultAction: { playSong(song) }
-                                )
-                        } else {
-                            Color.clear.frame(height: 24)
-                        }
-                    }
-                    .padding(.horizontal, PMSpace.xxxl)
-                    .id(position)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-
-            case .grid:
-                let gridRowCount = (rows.count + gridColumnCount - 1) / gridColumnCount
-                ForEach(0..<gridRowCount, id: \.self) { gridRow in
-                    songGridVirtualRow(
-                        rows: rows,
-                        gridRow: gridRow,
-                        columnCount: gridColumnCount
-                    )
-                    .padding(.horizontal, PMSpace.xxxl)
-                    .padding(.bottom, 20)
-                    .id(gridRow)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-            }
-
-            Color.clear
-                .frame(height: 112)
-                .accessibilityHidden(true)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+    /// SwiftUI `List` still recursively diffs every `ForEach` child on macOS.
+    /// Keep only a small, overscanned slice in the view tree and represent the
+    /// skipped rows with fixed-height spacers so the scrollbar remains exact.
+    @ViewBuilder
+    private func macVirtualizedSongList(rows: [SongListRowIdentity]) -> some View {
+        switch macViewMode {
+        case .list, .compact:
+            macWindowedSongList(rows: rows)
+        case .grid:
+            macScrollableSongList(rows: rows)
         }
-        .listStyle(.plain)
-        .environment(\.defaultMinListRowHeight, 1)
-        .contentMargins(.all, 0, for: .scrollContent)
-        .scrollContentBackground(.hidden)
-        .scrollIndicators(.hidden)
+    }
+
+    private var macVirtualRowHeight: CGFloat {
+        switch macViewMode {
+        case .list:
+            return 28 + macRowDensity.verticalPadding * 2
+        case .compact:
+            return 24
+        case .grid:
+            return 1
+        }
+    }
+
+    private func macVirtualRowRange(totalCount: Int) -> Range<Int> {
+        guard totalCount > 0 else { return 0..<0 }
+        let rowHeight = max(1, macVirtualRowHeight)
+        let estimatedVisibleCount = max(
+            1,
+            Int(ceil(max(macSongListViewportHeight, 720) / rowHeight))
+        )
+        let leadingOverscan = 24
+        let windowCount = max(96, estimatedVisibleCount + 64)
+        let preferredLowerBound = max(0, macFirstVisibleRow - leadingOverscan)
+        let lowerBound = min(
+            preferredLowerBound,
+            max(0, totalCount - windowCount)
+        )
+        let upperBound = min(totalCount, lowerBound + windowCount)
+        return lowerBound..<upperBound
+    }
+
+    private func macWindowedSongList(rows: [SongListRowIdentity]) -> some View {
+        let rowHeight = macVirtualRowHeight
+        let visibleRange = macVirtualRowRange(totalCount: rows.count)
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                macVirtualizedSongListChrome
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        guard abs(macSongListChromeHeight - height) > 0.5 else { return }
+                        macSongListChromeHeight = height
+                    }
+
+                Color.clear
+                    .frame(height: CGFloat(visibleRange.lowerBound) * rowHeight)
+                    .accessibilityHidden(true)
+
+                switch macViewMode {
+                case .list:
+                    ForEach(visibleRange, id: \.self) { position in
+                        Group {
+                            let row = rows[position]
+                            if let song = library.unobservedVisibleSong(id: row.id) {
+                                songTableRow(song, index: row.offset)
+                                    .songSelectable(
+                                        songID: row.id,
+                                        selection: selection,
+                                        orderedIDs: { filteredSongIDs },
+                                        defaultAction: { playSong(song) }
+                                    )
+                            } else {
+                                Color.clear.frame(height: 32)
+                            }
+                        }
+                        .frame(height: rowHeight)
+                        .padding(.horizontal, PMSpace.xxxl)
+                    }
+
+                case .compact:
+                    ForEach(visibleRange, id: \.self) { position in
+                        Group {
+                            let row = rows[position]
+                            if let song = library.unobservedVisibleSong(id: row.id) {
+                                compactSongRow(song, index: row.offset)
+                                    .songSelectable(
+                                        songID: row.id,
+                                        selection: selection,
+                                        orderedIDs: { filteredSongIDs },
+                                        defaultAction: { playSong(song) }
+                                    )
+                            } else {
+                                Color.clear.frame(height: 24)
+                            }
+                        }
+                        .frame(height: rowHeight)
+                        .padding(.horizontal, PMSpace.xxxl)
+                    }
+
+                case .grid:
+                    EmptyView()
+                }
+
+                Color.clear
+                    .frame(height: CGFloat(rows.count - visibleRange.upperBound) * rowHeight + 112)
+                    .accessibilityHidden(true)
+            }
+        }
+        .onScrollGeometryChange(for: MacSongScrollWindowMetrics.self) { geometry in
+            let rowsOffset = max(0, geometry.visibleRect.minY - macSongListChromeHeight)
+            let rawFirstVisibleRow = Int(rowsOffset / max(1, rowHeight))
+            let firstVisibleRow = (rawFirstVisibleRow / 16) * 16
+            return MacSongScrollWindowMetrics(
+                firstVisibleRow: firstVisibleRow,
+                viewportHeight: Int(geometry.containerSize.height.rounded())
+            )
+        } action: { _, metrics in
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                macFirstVisibleRow = metrics.firstVisibleRow
+                macSongListViewportHeight = CGFloat(metrics.viewportHeight)
+            }
+        }
     }
 
     private var macVirtualizedSongListChrome: some View {
@@ -1330,42 +1403,6 @@ struct SongListView: View {
             }
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.top, PMSpace.m14)
-        }
-    }
-
-    private func songGridVirtualRow(
-        rows: [SongListRowIdentity],
-        gridRow: Int,
-        columnCount: Int
-    ) -> some View {
-        let start = gridRow * columnCount
-        return HStack(alignment: .top, spacing: 20) {
-            ForEach(start..<(start + columnCount), id: \.self) { position in
-                Group {
-                    if rows.indices.contains(position) {
-                        let row = rows[position]
-                        if let song = library.unobservedVisibleSong(id: row.id) {
-                            songGridTile(
-                                song,
-                                isCurrent: player.currentSong?.id == song.id,
-                                isLocated: locatedSongID == song.id
-                            )
-                            .songSelectable(
-                                songID: row.id,
-                                selection: selection,
-                                style: .overlay,
-                                orderedIDs: { filteredSongIDs },
-                                defaultAction: { playSong(song) }
-                            )
-                        } else {
-                            Color.clear
-                        }
-                    } else {
-                        Color.clear
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .top)
-            }
         }
     }
 
@@ -2948,9 +2985,12 @@ struct SongListView: View {
     private func updateListInteraction(for phase: ScrollPhase) {
         switch phase {
         case .tracking, .interacting, .decelerating:
+            guard !isListInteracting else { return }
             isListInteracting = true
         case .idle:
-            isListInteracting = false
+            if isListInteracting {
+                isListInteracting = false
+            }
             guard let pendingSnapshot else { return }
             let pruneRowModels = pendingSnapshotPrunesRows
             let isExplicitSort = pendingSnapshotIsExplicitSort
