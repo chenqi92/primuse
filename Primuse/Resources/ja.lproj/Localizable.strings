@@ -3305,3 +3305,4 @@
 "password_ascii_hint" = "半角英数字を使用してください";
 "rating" = "評価";
 "volume" = "音量";
+"similar_songs_accessibility_hint" = "この曲に似た曲を表示します。";

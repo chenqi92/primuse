@@ -3408,3 +3408,4 @@
 "password_ascii_hint" = "建议使用英文和半角字符";
 "rating" = "评分";
 "volume" = "音量";
+"similar_songs_accessibility_hint" = "显示与这首歌相似的歌曲。";

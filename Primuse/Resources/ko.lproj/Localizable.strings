@@ -3304,3 +3304,4 @@
 "password_ascii_hint" = "영문 및 반각 문자를 사용하세요";
 "rating" = "평점";
 "volume" = "음량";
+"similar_songs_accessibility_hint" = "이 곡과 비슷한 노래를 표시합니다.";

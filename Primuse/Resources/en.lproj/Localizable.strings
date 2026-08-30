@@ -3091,3 +3091,4 @@
 "password_ascii_hint" = "Use English letters and ASCII characters";
 "rating" = "Rating";
 "volume" = "Volume";
+"similar_songs_accessibility_hint" = "Shows songs similar to this track.";

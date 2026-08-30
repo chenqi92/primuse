@@ -3281,3 +3281,4 @@
 "password_ascii_hint" = "建議使用英文與半形字元";
 "rating" = "評分";
 "volume" = "音量";
+"similar_songs_accessibility_hint" = "顯示與這首歌相似的歌曲。";

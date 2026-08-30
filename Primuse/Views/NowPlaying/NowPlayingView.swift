@@ -768,8 +768,7 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
                 SongInfoSheet(song: song)
-                    .presentationDetents([.medium])
-                    .presentationDragIndicator(.visible)
+                    .songInfoPresentationStyle()
             }
         }
         .sheet(isPresented: $showTagEditor) {
@@ -3423,6 +3422,26 @@ struct VolumeSlider: View {
 
 // MARK: - Song Info Sheet
 
+enum SongInfoPresentationConfiguration {
+    static let detents: Set<PresentationDetent> = [.medium, .large]
+}
+
+extension View {
+    @ViewBuilder
+    func songInfoPresentationStyle() -> some View {
+        #if os(macOS)
+        self
+        #else
+        self
+            .presentationDetents(SongInfoPresentationConfiguration.detents)
+            .presentationDragIndicator(.visible)
+            // The sheet grows to its largest detent before its List/ScrollView
+            // consumes the upward gesture, avoiding nested-scroll dead zones.
+            .presentationContentInteraction(.automatic)
+        #endif
+    }
+}
+
 struct SongInfoSheet: View {
     let song: Song
     @Environment(\.dismiss) private var dismiss
@@ -3437,6 +3456,14 @@ struct SongInfoSheet: View {
 
     private var sourceName: String? {
         sourcesStore.source(id: song.sourceID)?.name
+    }
+
+    private var displayPath: String? {
+        SongPathPresentationPolicy.displayPath(
+            filePath: song.filePath,
+            sourceID: song.sourceID,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
+        )
     }
 
     var body: some View {
@@ -3480,6 +3507,13 @@ struct SongInfoSheet: View {
                     if let sourceName {
                         infoRow(String(localized: "source_label"), sourceName)
                     }
+                    if let displayPath {
+                        infoRow(
+                            String(localized: "file_location_label"),
+                            displayPath,
+                            monospaced: true
+                        )
+                    }
                 }
 
                 Section(String(localized: "technical_info")) {
@@ -3499,17 +3533,18 @@ struct SongInfoSheet: View {
                     infoRow(String(localized: "duration_label"), formatDuration(song.duration))
                 }
 
-                Section {
+            }
+            .navigationTitle(String(localized: "song_info"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
                         showSimilarSongs = true
                     } label: {
                         Label(String(localized: "similar_songs"), systemImage: "sparkles")
                     }
+                    .accessibilityHint(Text("similar_songs_accessibility_hint"))
                 }
-            }
-            .navigationTitle(String(localized: "song_info"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(String(localized: "done")) { dismiss() }
                 }
@@ -3554,6 +3589,20 @@ struct SongInfoSheet: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
+                    Button {
+                        showSimilarSongs = true
+                    } label: {
+                        Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                            .padding(.horizontal, 12)
+                            .frame(height: 28)
+                            .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text("similar_songs"))
+                    .accessibilityHint(Text("similar_songs_accessibility_hint"))
+                    .padding(.top, 5)
                 }
 
                 Spacer()
@@ -3578,6 +3627,7 @@ struct SongInfoSheet: View {
                             Text(row.label)
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(PMColor.textMuted)
+                                .accessibilityHidden(true)
                             Text(row.value)
                                 .font(row.monospace
                                       ? .system(size: 12.5, design: .monospaced)
@@ -3585,6 +3635,8 @@ struct SongInfoSheet: View {
                                 .foregroundStyle(PMColor.text)
                                 .lineLimit(row.monospace ? 3 : 1)
                                 .textSelection(.enabled)
+                                .accessibilityLabel(Text(row.label))
+                                .accessibilityValue(Text(row.value))
                         }
                     }
                     Text(playbackHistoryNote)
@@ -3598,18 +3650,6 @@ struct SongInfoSheet: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             HStack {
-                Button {
-                    showSimilarSongs = true
-                } label: {
-                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(PMColor.text)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-
                 Spacer()
 
                 Button(String(localized: "done")) { dismiss() }
@@ -3672,7 +3712,9 @@ struct SongInfoSheet: View {
         if let sourceName {
             rows.append((String(localized: "source_label"), sourceName, false))
         }
-        rows.append((String(localized: "file_location_label"), song.filePath, true))
+        if let displayPath {
+            rows.append((String(localized: "file_location_label"), displayPath, true))
+        }
         return rows.map { ($0.0, $0.1, $0.2) }
     }
     #endif
@@ -3688,12 +3730,24 @@ struct SongInfoSheet: View {
         return ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file)
     }
 
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        HStack {
+    private func infoRow(
+        _ label: String,
+        _ value: String,
+        monospaced: Bool = false
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             Text(label).foregroundStyle(.secondary)
             Spacer()
-            Text(value).fontWeight(.medium)
+            Text(value)
+                .font(monospaced ? .callout.monospaced() : .body)
+                .fontWeight(.medium)
+                .lineLimit(monospaced ? 3 : 1)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.trailing)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(label))
+        .accessibilityValue(Text(value))
     }
 
     private func formatDuration(_ t: TimeInterval) -> String {

@@ -69,6 +69,71 @@ struct SongDetailsStateTests {
     }
 }
 
+@Suite("Song path presentation")
+struct SongPathPresentationPolicyTests {
+    @Test("Signed URLs expose only their decoded path")
+    func signedURLIsSanitized() {
+        let path = SongPathPresentationPolicy.displayPath(
+            filePath: "https://user:password@example.com/Music/Song%20Name.flac?X-Amz-Signature=secret#token",
+            sourceID: "webdav"
+        )
+
+        #expect(path == "/Music/Song Name.flac")
+        #expect(path?.contains("example.com") == false)
+        #expect(path?.contains("secret") == false)
+    }
+
+    @Test("Local sandbox and home paths hide private container components")
+    func localPathsAreReadable() {
+        #expect(SongPathPresentationPolicy.displayPath(
+            filePath: "/private/var/mobile/Containers/Data/Application/UUID/Documents/Music/Track.flac",
+            sourceID: "local",
+            sourceType: .local
+        ) == "Documents/Music/Track.flac")
+        #expect(SongPathPresentationPolicy.displayPath(
+            filePath: "/Users/private-name/Music/Track.flac",
+            sourceID: "local",
+            sourceType: .local
+        ) == "~/Music/Track.flac")
+    }
+
+    @Test("NFS selection tokens become a source-relative path")
+    func nfsSelectionIsDecoded() {
+        let export = base64URL("/volume/Music")
+        let relative = base64URL("/Live/Track.flac")
+        #expect(SongPathPresentationPolicy.displayPath(
+            filePath: "nfs::\(export)::\(relative)",
+            sourceID: "nfs",
+            sourceType: .nfs
+        ) == "Music/Live/Track.flac")
+    }
+
+    @Test("Opaque identifiers and Apple Music paths are hidden")
+    func privateOrMeaninglessPathsAreHidden() {
+        #expect(SongPathPresentationPolicy.displayPath(
+            filePath: "01HZX8QXJ2M7",
+            sourceID: "cloud"
+        ) == nil)
+        #expect(SongPathPresentationPolicy.displayPath(
+            filePath: "/Music/Track.m4a",
+            sourceID: AppleMusicLibraryIdentity.sourceID
+        ) == nil)
+        #expect(SongPathPresentationPolicy.displayPath(
+            filePath: "/Music/Track.m4a",
+            sourceID: "legacy-apple-source",
+            sourceType: .appleMusicLibrary
+        ) == nil)
+    }
+
+    private func base64URL(_ value: String) -> String {
+        Data(value.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
 @Suite("Backfill state policies")
 struct BackfillStatePolicyTests {
     @Test("Unknown duration can complete independently from title inspection")

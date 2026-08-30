@@ -401,8 +401,7 @@ struct SongRowView: View {
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
         .sheet(isPresented: $showSongInfo) {
             SongInfoSheet(song: song)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+                .songInfoPresentationStyle()
         }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}

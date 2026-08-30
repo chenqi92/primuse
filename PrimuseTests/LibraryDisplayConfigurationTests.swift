@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Primuse
 
 final class LibraryDisplayConfigurationTests: XCTestCase {
@@ -31,5 +32,12 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
 
         XCTAssertEqual(Set(decoded), Set(LibrarySection.allCases))
         XCTAssertEqual(decoded.count, LibrarySection.allCases.count)
+    }
+
+    func testSongInfoSupportsMediumAndLargeDetents() {
+        XCTAssertEqual(
+            SongInfoPresentationConfiguration.detents,
+            Set([PresentationDetent.medium, .large])
+        )
     }
 }
