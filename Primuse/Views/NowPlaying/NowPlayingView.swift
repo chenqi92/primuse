@@ -3474,6 +3474,7 @@ struct SongInfoSheet: View {
         #endif
     }
 
+    #if !os(macOS)
     private var legacyBody: some View {
         NavigationStack {
             List {
@@ -3556,6 +3557,7 @@ struct SongInfoSheet: View {
             }
         }
     }
+    #endif
 
     #if os(macOS)
     private var macBody: some View {
