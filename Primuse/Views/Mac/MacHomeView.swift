@@ -60,6 +60,7 @@ struct MacHomeView: View {
     // (searchRevision)或播放历史变化时重算一次, 跟 iOS HomeView / MacSimilarSongsPopover
     // 一致。
     @State private var derived = DerivedSnapshot()
+    @State private var hasPreparedDerivedSnapshot = false
     @State private var activeSection: HomeSectionDestination?
     // 合并 searchRevision 风暴 —— MusicLibrary 在扫描的每个 upsert 批次都 bump
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
@@ -84,6 +85,13 @@ struct MacHomeView: View {
     }
 
     private var hasContent: Bool { derived.songCount > 0 }
+
+    private var homePresentationState: DeferredContentPresentationState {
+        DeferredContentPresentationPolicy.resolve(
+            isPrepared: hasPreparedDerivedSnapshot,
+            hasContent: hasContent
+        )
+    }
 
     @ViewBuilder
     var body: some View {
@@ -146,39 +154,160 @@ struct MacHomeView: View {
                     updateBanner
                 }
 
-                heroSection
-                if showRadio,
-                   player.isLiveRadio,
-                   let currentStation = player.currentRadioStation {
-                    radioNowPlayingStrip(currentStation)
-                }
-
-                if hasContent {
-                    statsRow
-                    if intelligence.shouldShowRemoteRecommendations,
-                       !derived.recommendationResults.isEmpty {
-                        recommendationSection
-                    }
-                    pipelineSection
-                    recentlyAddedSection
-                    recentlyPlayedSection
-                    if showRadio, !radioStationsStore.stations.isEmpty {
-                        radioSpotlightSection
-                    }
-                    if !derived.artists.isEmpty {
-                        artistsSection
-                    }
-                } else {
-                    emptyState
-                    if showRadio, !radioStationsStore.stations.isEmpty {
-                        radioSpotlightSection
-                    }
+                switch homePresentationState {
+                case .loading:
+                    homeLoadingSkeleton
+                case .content:
+                    resolvedDashboardContent(hasContent: true)
+                case .empty:
+                    resolvedDashboardContent(hasContent: false)
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.top, PMSpace.l24)
             .padding(.bottom, 104)
         }
+    }
+
+    @ViewBuilder
+    private func resolvedDashboardContent(hasContent: Bool) -> some View {
+        heroSection
+        if showRadio,
+           player.isLiveRadio,
+           let currentStation = player.currentRadioStation {
+            radioNowPlayingStrip(currentStation)
+        }
+
+        if hasContent {
+            statsRow
+            if intelligence.shouldShowRemoteRecommendations,
+               !derived.recommendationResults.isEmpty {
+                recommendationSection
+            }
+            pipelineSection
+            recentlyAddedSection
+            recentlyPlayedSection
+            if showRadio, !radioStationsStore.stations.isEmpty {
+                radioSpotlightSection
+            }
+            if !derived.artists.isEmpty {
+                artistsSection
+            }
+        } else {
+            emptyState
+            if showRadio, !radioStationsStore.stations.isEmpty {
+                radioSpotlightSection
+            }
+        }
+    }
+
+    private var homeLoadingSkeleton: some View {
+        LoadingSkeletonGroup {
+            VStack(alignment: .leading, spacing: PMSpace.xxl) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
+                        .fill(PMColor.bgElev)
+
+                    HStack(spacing: 36) {
+                        homeSkeletonBlock(
+                            width: 240,
+                            height: 240,
+                            cornerRadius: PMRadius.xl
+                        )
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            homeSkeletonBlock(width: 82, height: 12)
+                            homeSkeletonBlock(height: 42, cornerRadius: PMRadius.m)
+                                .frame(maxWidth: 510, alignment: .leading)
+                            homeSkeletonBlock(height: 16)
+                                .frame(maxWidth: 390, alignment: .leading)
+                            HStack(spacing: PMSpace.s10) {
+                                homeSkeletonBlock(width: 152, height: 38, cornerRadius: PMRadius.pill)
+                                homeSkeletonBlock(width: 122, height: 38, cornerRadius: PMRadius.pill)
+                            }
+                            .padding(.top, 8)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, PMSpace.xxl)
+                    .padding(.vertical, PMSpace.l24)
+                }
+                .frame(height: 296)
+                .clipShape(RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.adaptive(minimum: 220, maximum: 360), spacing: PMSpace.m16),
+                    ],
+                    spacing: PMSpace.m16
+                ) {
+                    ForEach(0..<3, id: \.self) { index in
+                        HStack(spacing: PMSpace.m14) {
+                            homeSkeletonBlock(
+                                width: 42,
+                                height: 42,
+                                cornerRadius: PMRadius.m10
+                            )
+                            VStack(alignment: .leading, spacing: PMSpace.s8) {
+                                homeSkeletonBlock(width: 76 + CGFloat(index * 14), height: 12)
+                                homeSkeletonBlock(width: 128, height: 20)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(PMSpace.l)
+                        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: PMSpace.m16) {
+                    homeSkeletonBlock(width: 148, height: 20)
+
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.adaptive(minimum: 180, maximum: 240), spacing: PMSpace.m16),
+                        ],
+                        spacing: PMSpace.m16
+                    ) {
+                        ForEach(0..<5, id: \.self) { index in
+                            VStack(alignment: .leading, spacing: PMSpace.s8) {
+                                homeSkeletonBlock(height: 122, cornerRadius: PMRadius.m10)
+                                    .frame(maxWidth: .infinity)
+                                homeSkeletonBlock(
+                                    width: 104 + CGFloat((index % 3) * 18),
+                                    height: 13
+                                )
+                                homeSkeletonBlock(width: 72, height: 10)
+                            }
+                            .padding(PMSpace.s10)
+                            .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func homeSkeletonBlock(
+        width: CGFloat? = nil,
+        height: CGFloat,
+        cornerRadius: CGFloat = PMRadius.s
+    ) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(PMColor.glassBtn)
+            .frame(width: width, height: height)
     }
 
     /// 合并 searchRevision 风暴: cancel 上一次再重启计时, 只有最后一次 revision
@@ -195,7 +324,7 @@ struct MacHomeView: View {
     /// 首次出现时如果缓存还没填(songCount 与当前 visibleSongs 不一致)就算一次,
     /// 避免每次回到首页都重跑全库。
     private func refreshDerivedIfNeeded() {
-        if derived.songCount != library.visibleSongs.count {
+        if !hasPreparedDerivedSnapshot || derived.songCount != library.visibleSongs.count {
             refreshDerived()
         }
     }
@@ -222,6 +351,7 @@ struct MacHomeView: View {
             }.value
             guard !Task.isCancelled else { return }
             derived = snapshot
+            hasPreparedDerivedSnapshot = true
         }
     }
 

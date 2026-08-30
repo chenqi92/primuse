@@ -18,3 +18,30 @@ struct VisibleLibraryPresencePolicyTests {
         #expect(VisibleLibraryPresencePolicy.hasContent(songCount: 0, albumCount: 1))
     }
 }
+
+@Suite("Deferred Content Presentation Policy")
+struct DeferredContentPresentationPolicyTests {
+    @Test("Unprepared projections never masquerade as empty")
+    func unresolvedProjectionShowsLoading() {
+        #expect(DeferredContentPresentationPolicy.resolve(
+            isPrepared: false,
+            hasContent: false
+        ) == .loading)
+        #expect(DeferredContentPresentationPolicy.resolve(
+            isPrepared: false,
+            hasContent: true
+        ) == .loading)
+    }
+
+    @Test("Prepared projections distinguish content from a real empty result")
+    func preparedProjectionUsesResolvedResult() {
+        #expect(DeferredContentPresentationPolicy.resolve(
+            isPrepared: true,
+            hasContent: true
+        ) == .content)
+        #expect(DeferredContentPresentationPolicy.resolve(
+            isPrepared: true,
+            hasContent: false
+        ) == .empty)
+    }
+}

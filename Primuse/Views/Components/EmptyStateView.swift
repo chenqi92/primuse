@@ -1,5 +1,39 @@
 import SwiftUI
 
+/// Lightweight pulse shared by full-page loading placeholders. It animates a
+/// single container opacity instead of driving every skeleton block on its own,
+/// keeping large dashboards inexpensive while still making the loading state
+/// feel alive. Reduce Motion keeps the same layout without animation.
+struct LoadingSkeletonGroup<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isDimmed = false
+
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .opacity(reduceMotion ? 0.82 : (isDimmed ? 0.58 : 0.92))
+            .animation(
+                reduceMotion
+                    ? nil
+                    : .easeInOut(duration: 1.08).repeatForever(autoreverses: true),
+                value: isDimmed
+            )
+            .onAppear {
+                isDimmed = !reduceMotion
+            }
+            .onChange(of: reduceMotion) { _, newValue in
+                isDimmed = !newValue
+            }
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+    }
+}
+
 /// Reusable empty-state view for sub-pages (library lists, queue,
 /// recently deleted, smart playlist no-match, etc.). Three goals:
 ///

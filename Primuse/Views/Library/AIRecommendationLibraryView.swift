@@ -53,6 +53,7 @@ struct AIRecommendationLibraryView: View {
     @State private var historyRevision = 0
     @State private var isLoadingMore = false
     @State private var loadMoreFailed = false
+    @State private var preparedLocalContentRevision: String?
 
     private var intentChoices: [AIRecommendationIntentChoice] {
         AIRecommendationIntentChoice.all(customRawValue: customIntentsRawValue)
@@ -92,6 +93,22 @@ struct AIRecommendationLibraryView: View {
             String(intelligence.regionAvailability.revision),
             String(historyRevision),
         ].joined(separator: "#")
+    }
+
+    private var localContentRevision: String {
+        [
+            String(library.visibleSongCollectionRevision),
+            library.songReplacementToken.uuidString,
+            String(historyRevision),
+        ].joined(separator: "#")
+    }
+
+    private var recommendationPresentationState: DeferredContentPresentationState {
+        DeferredContentPresentationPolicy.resolve(
+            isPrepared: preparedLocalContentRevision == localContentRevision
+                || !localResults.isEmpty,
+            hasContent: !displayedResults.isEmpty
+        )
     }
 
     private var refreshState: AIRecommendationRefreshState {
@@ -344,21 +361,13 @@ struct AIRecommendationLibraryView: View {
 
     private var recommendationGrid: some View {
         VStack(spacing: 14) {
-            LazyVGrid(
-                columns: [
-                    GridItem(.adaptive(minimum: platformCardMinimumWidth, maximum: 480), spacing: 14),
-                ],
-                alignment: .leading,
-                spacing: 14
-            ) {
-                ForEach(displayedResults) { result in
-                    Button {
-                        play(result.song)
-                    } label: {
-                        recommendationCard(result)
-                    }
-                    .buttonStyle(.plain)
-                }
+            switch recommendationPresentationState {
+            case .loading:
+                recommendationLoadingGrid
+            case .content:
+                recommendationResultsGrid
+            case .empty:
+                recommendationResolvedEmptyState
             }
 
             if canLoadMore || isLoadingMore || loadMoreFailed {
@@ -397,6 +406,101 @@ struct AIRecommendationLibraryView: View {
                 }
             }
         }
+    }
+
+    private var recommendationResultsGrid: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.adaptive(minimum: platformCardMinimumWidth, maximum: 480), spacing: 14),
+            ],
+            alignment: .leading,
+            spacing: 14
+        ) {
+            ForEach(displayedResults) { result in
+                Button {
+                    play(result.song)
+                } label: {
+                    recommendationCard(result)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var recommendationLoadingGrid: some View {
+        LoadingSkeletonGroup {
+            LazyVGrid(
+                columns: [
+                    GridItem(
+                        .adaptive(minimum: platformCardMinimumWidth, maximum: 480),
+                        spacing: 14
+                    ),
+                ],
+                alignment: .leading,
+                spacing: 14
+            ) {
+                ForEach(0..<6, id: \.self) { index in
+                    HStack(spacing: 13) {
+                        recommendationSkeletonBlock(
+                            width: platformArtworkSize,
+                            height: platformArtworkSize,
+                            cornerRadius: 12
+                        )
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            recommendationSkeletonBlock(
+                                width: 78 + CGFloat((index % 3) * 12),
+                                height: 10
+                            )
+                            recommendationSkeletonBlock(
+                                height: 18
+                            )
+                                .frame(
+                                    maxWidth: 156 + CGFloat((index % 2) * 28),
+                                    alignment: .leading
+                                )
+                            recommendationSkeletonBlock(width: 112, height: 13)
+                            Spacer(minLength: 0)
+                            recommendationSkeletonBlock(width: 64, height: 11)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(12)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: platformArtworkSize + 24,
+                        alignment: .leading
+                    )
+                    .background(
+                        platformCardBackground,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(platformDividerColor, lineWidth: 0.5)
+                    }
+                }
+            }
+        }
+    }
+
+    private var recommendationResolvedEmptyState: some View {
+        ContentUnavailableView {
+            Label("library_recommendations_empty_title", systemImage: "sparkles")
+        } description: {
+            Text("library_recommendations_empty_description")
+        }
+        .frame(maxWidth: .infinity, minHeight: 260)
+    }
+
+    private func recommendationSkeletonBlock(
+        width: CGFloat? = nil,
+        height: CGFloat,
+        cornerRadius: CGFloat = 5
+    ) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(platformSkeletonFill)
+            .frame(width: width, height: height)
     }
 
     private func recommendationCard(_ result: MusicDiscoveryResult) -> some View {
@@ -464,6 +568,7 @@ struct AIRecommendationLibraryView: View {
     @MainActor
     private func refresh(forceAIRefresh: Bool = false) async {
         let operationRefreshState = refreshState
+        let operationLocalContentRevision = localContentRevision
         guard operationRefreshState.shouldRefresh else { return }
         refreshGeneration &+= 1
         let generation = refreshGeneration
@@ -481,6 +586,7 @@ struct AIRecommendationLibraryView: View {
               operationRefreshState == refreshState,
               refreshState.shouldRefresh else { return }
         localResults = results
+        preparedLocalContentRevision = operationLocalContentRevision
         await aiRecommendation.refresh(
             scene: recommendationScene,
             intent: selectedIntent.semanticIntent,
@@ -592,6 +698,7 @@ struct AIRecommendationLibraryView: View {
     private var platformCardBackground: Color { PMColor.bgElev }
     private var platformChipBackground: Color { PMColor.glassBtn }
     private var platformDividerColor: Color { PMColor.dividerStrong }
+    private var platformSkeletonFill: Color { PMColor.glassBtn }
     #else
     private var platformHorizontalPadding: CGFloat { 20 }
     private var platformTopPadding: CGFloat { 16 }
@@ -605,5 +712,6 @@ struct AIRecommendationLibraryView: View {
     private var platformCardBackground: Color { Color.secondary.opacity(0.075) }
     private var platformChipBackground: Color { Color.secondary.opacity(0.09) }
     private var platformDividerColor: Color { Color.secondary.opacity(0.18) }
+    private var platformSkeletonFill: Color { Color.secondary.opacity(0.14) }
     #endif
 }

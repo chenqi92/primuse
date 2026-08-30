@@ -1256,31 +1256,30 @@ struct HomeView: View {
     }
 
     private var initialLoadingView: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(homeCardSurface)
-                .frame(height: 154)
-                .padding(.horizontal, 16)
+        LoadingSkeletonGroup {
+            VStack(alignment: .leading, spacing: 24) {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(homeCardSurface)
+                    .frame(height: 154)
+                    .padding(.horizontal, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.secondary.opacity(0.14))
-                    .frame(width: 116, height: 20)
+                VStack(alignment: .leading, spacing: 12) {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.secondary.opacity(0.14))
+                        .frame(width: 116, height: 20)
 
-                HStack(spacing: 12) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(homeCardSurface)
-                            .frame(maxWidth: .infinity)
-                            .aspectRatio(0.9, contentMode: .fit)
+                    HStack(spacing: 12) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(homeCardSurface)
+                                .frame(maxWidth: .infinity)
+                                .aspectRatio(0.9, contentMode: .fit)
+                        }
                     }
                 }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
         }
-        .opacity(0.72)
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
     }
 
     private func refreshHomeSnapshot(force: Bool) {
