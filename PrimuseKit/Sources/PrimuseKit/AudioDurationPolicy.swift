@@ -5,6 +5,10 @@ import Foundation
 /// decoder that required a complete local file has already seen the full
 /// payload and must be trusted over a size-based estimate.
 public enum AudioDurationPolicy {
+    private static let provisionalDTSFileExtensions: Set<String> = [
+        "dts", "dtswav", "wav", "wave",
+    ]
+
     public static func fallbackEstimate(
         fileSize: Int64,
         format: AudioFormat
@@ -24,6 +28,72 @@ public enum AudioDurationPolicy {
             assumedBitRate = 192_000
         }
         return Double(fileSize) * 8.0 / assumedBitRate
+    }
+
+    /// Returns a provisional duration for a standalone DTS core stream when a
+    /// remote scanner knows the complete byte count but cannot seek through the
+    /// complete payload. WAV is accepted only after the caller has verified a
+    /// DTS sync word; DTS-HD extensions are deliberately excluded because a
+    /// core-rate estimate cannot describe their extension payload reliably.
+    public static func provisionalStandaloneDTSDuration(
+        fileSize: Int64,
+        bitRateKbps: Int? = nil,
+        fileExtension: String
+    ) -> TimeInterval? {
+        guard fileSize > 0 else { return nil }
+        let normalizedExtension = fileExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        guard provisionalDTSFileExtensions.contains(normalizedExtension) else {
+            return nil
+        }
+
+        let bitRate: Double
+        if let bitRateKbps, bitRateKbps > 0, bitRateKbps <= 100_000 {
+            bitRate = Double(bitRateKbps) * 1_000.0
+        } else {
+            bitRate = 1_536_000.0
+        }
+        let duration = Double(fileSize) * 8.0 / bitRate
+        return duration.isFinite && duration > 0 ? duration : nil
+    }
+
+    /// Repairs only provisional DTS values. Positive decoder/server durations
+    /// remain untouched, while a zero value and the characteristic legacy
+    /// 192-kbps estimate are replaced with the best available core estimate.
+    public static func repairedStoredDTSDuration(
+        stored: TimeInterval,
+        fileSize: Int64,
+        bitRateKbps: Int?,
+        fileExtension: String,
+        format: AudioFormat
+    ) -> TimeInterval? {
+        guard format == .dts,
+              provisionalStandaloneDTSDuration(
+                fileSize: fileSize,
+                fileExtension: fileExtension
+              ) != nil else {
+            return nil
+        }
+
+        if let corrected = correctedLegacyStoredDuration(
+            stored: stored,
+            fileSize: fileSize,
+            format: format
+        ) {
+            return provisionalStandaloneDTSDuration(
+                fileSize: fileSize,
+                bitRateKbps: bitRateKbps,
+                fileExtension: fileExtension
+            ) ?? corrected
+        }
+        guard !stored.isFinite || stored <= 0 else { return nil }
+        return provisionalStandaloneDTSDuration(
+            fileSize: fileSize,
+            bitRateKbps: bitRateKbps,
+            fileExtension: fileExtension
+        )
     }
 
     /// A gapless or crossfade preparation keeps a value snapshot of the next

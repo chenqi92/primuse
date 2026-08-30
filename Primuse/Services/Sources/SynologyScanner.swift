@@ -917,8 +917,16 @@ actor SynologyScanner {
                 )
             }
 
-            // Estimate duration from file size and bitrate
-            if duration == 0, let br = bitRate, br > 0 {
+            // A bounded prefix cannot expose a raw DTS stream's total frame
+            // count. Use its verified core extension plus complete byte count;
+            // DTS-HD remains unresolved until a complete-file read.
+            if duration == 0, format == .dts {
+                duration = AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                    fileSize: item.size,
+                    bitRateKbps: bitRate,
+                    fileExtension: ext
+                ) ?? 0
+            } else if duration == 0, let br = bitRate, br > 0 {
                 duration = Double(item.size) * 8.0 / Double(br * 1000)
             }
 
@@ -929,7 +937,7 @@ actor SynologyScanner {
             // Last resort: estimate from file size using a format-aware
             // bitrate. Raw DTS is commonly 1,536 kbps; treating it like the
             // generic 192 kbps fallback inflates its duration by exactly 8x.
-            if duration == 0 && item.size > 0 {
+            if duration == 0 && item.size > 0 && format != .dts {
                 duration = AudioDurationPolicy.fallbackEstimate(
                     fileSize: item.size,
                     format: format
@@ -939,10 +947,18 @@ actor SynologyScanner {
         } catch {
             // Metadata extraction failed — still estimate duration from file size
             if duration == 0 && item.size > 0 {
-                duration = AudioDurationPolicy.fallbackEstimate(
-                    fileSize: item.size,
-                    format: format
-                )
+                if format == .dts {
+                    duration = AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                        fileSize: item.size,
+                        bitRateKbps: bitRate,
+                        fileExtension: ext
+                    ) ?? 0
+                } else {
+                    duration = AudioDurationPolicy.fallbackEstimate(
+                        fileSize: item.size,
+                        format: format
+                    )
+                }
             }
         }
 

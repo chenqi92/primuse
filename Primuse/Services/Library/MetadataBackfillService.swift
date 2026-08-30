@@ -687,6 +687,39 @@ final class MetadataBackfillService {
             )
         }
 
+        // Standalone DTS rows that were previously inspected from a bounded
+        // prefix were persisted as playable-but-incomplete because the prefix
+        // cannot expose the stream's total frame count. MusicLibrary repairs
+        // their duration from the complete remote byte count before this
+        // service is constructed; clear the stale technical-failure state once
+        // so those rows do not remain permanently excluded from normal status.
+        let dtsDurationStateRepairKey = "primuse.backfillState.v2026_08_dtsDuration"
+        if !defaults.bool(forKey: dtsDurationStateRepairKey) {
+            let completedDTSIDs = Set(library.songs.lazy.filter { song in
+                song.fileFormat == .dts
+                    && song.duration.isFinite
+                    && song.duration > 0
+                    && AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                        fileSize: song.fileSize,
+                        bitRateKbps: song.bitRate,
+                        fileExtension: (song.filePath as NSString).pathExtension
+                    ) != nil
+            }.map(\.id))
+            let staleStateIDs = completedDTSIDs.intersection(
+                incompleteSongIDs.union(failedSongIDs)
+            )
+            if !staleStateIDs.isEmpty {
+                incompleteSongIDs.subtract(staleStateIDs)
+                failedSongIDs.subtract(staleStateIDs)
+                for id in staleStateIDs { diagnosticRecords[id] = nil }
+                saveFailed()
+                saveDiagnostics()
+                markQueueDirty()
+                plog("📥 Backfill: cleared stale DTS duration state for \(staleStateIDs.count) song(s)")
+            }
+            defaults.set(true, forKey: dtsDurationStateRepairKey)
+        }
+
         // Remote rows produced by the lossy-title path could be locked in both
         // titleCheckedIDs and incompleteSongIDs. Retry suspicious titles once
         // with the raw-ID3/filename policy, and retry incomplete remote MP3s
@@ -3061,6 +3094,26 @@ final class MetadataBackfillService {
             }
         }
 
+        // Raw DTS and verified DTS-in-WAV streams do not publish their total
+        // frame count in a bounded head/tail slice. Their complete remote byte
+        // count and core bitrate still provide a stable provisional duration;
+        // explicit rereads and playback use the complete file and therefore
+        // keep their authoritative decoder duration instead.
+        let hasVerifiedDTSCore = metadata.detectedFileSignature == .dts
+            || metadata.detectedFileSignature == .dtsInWave
+        if song.fileFormat == .dts,
+           (!metadata.duration.isFinite || metadata.duration <= 0),
+           hasVerifiedDTSCore,
+           let estimated = AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                fileSize: song.fileSize,
+                bitRateKbps: metadata.bitRate ?? song.bitRate,
+                fileExtension: (song.filePath as NSString).pathExtension
+           ) {
+            metadata.duration = estimated
+            metadata.hasTechnicalProperties = true
+            plog(String(format: "📥 Backfill: '%@' recovered DTS duration %.1fs from bounded metadata and file size", song.title, estimated))
+        }
+
         // Duration can fail independently from the ID3 text frames. Preserve
         // any title/artist/album/cover we did recover, then mark the row failed
         // only to stop repeated network reads. Older code returned nil here,
@@ -3248,7 +3301,7 @@ final class MetadataBackfillService {
         // costs one extra Range request for the small minority of
         // files that don't expose duration in head, and recovers the
         // common case where tail has it.
-        m.duration <= 0
+        !m.duration.isFinite || m.duration <= 0
     }
 
     private func resolvedIdentity(

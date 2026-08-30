@@ -2379,7 +2379,7 @@ final class MusicLibrary {
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
     private static let startupCacheFormatVersion = 1
-    private static let loadedSongMigrationVersion = 3
+    private static let loadedSongMigrationVersion = 4
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -5435,7 +5435,7 @@ final class MusicLibrary {
             : (
                 repairedTextCount: 0,
                 filledDerivedIDCount: 0,
-                correctedLegacyDTSDurationCount: 0,
+                repairedDTSDurationCount: 0,
                 changedSongs: []
             )
         let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
@@ -5545,12 +5545,12 @@ final class MusicLibrary {
         if migration.repairedTextCount > 0 {
             plog("📚 repaired legacy Chinese metadata text for \(migration.repairedTextCount) song(s)")
         }
-        if migration.correctedLegacyDTSDurationCount > 0 {
-            plog("📚 corrected legacy DTS duration for \(migration.correctedLegacyDTSDurationCount) song(s)")
+        if migration.repairedDTSDurationCount > 0 {
+            plog("📚 repaired missing or legacy DTS duration for \(migration.repairedDTSDurationCount) song(s)")
         }
         if migration.repairedTextCount > 0
             || migration.filledDerivedIDCount > 0
-            || migration.correctedLegacyDTSDurationCount > 0 {
+            || migration.repairedDTSDurationCount > 0 {
             markPortableSnapshotDirty()
             persistNow()
         }
@@ -5562,24 +5562,18 @@ final class MusicLibrary {
     ) -> (
         repairedTextCount: Int,
         filledDerivedIDCount: Int,
-        correctedLegacyDTSDurationCount: Int,
+        repairedDTSDurationCount: Int,
         changedSongs: [Song]
     ) {
         var repairedTextCount = 0
         var filledDerivedIDCount = 0
-        var correctedLegacyDTSDurationCount = 0
+        var repairedDTSDurationCount = 0
         var changedSongs: [Song] = []
 
         for index in songs.indices {
             var song = songs[index]
             let repairedText = repairLegacyChineseMetadataText(in: &song)
-            let correctedLegacyDTSDuration = !song.isCueTrack
-                ? AudioDurationPolicy.correctedLegacyStoredDuration(
-                    stored: song.duration,
-                    fileSize: song.fileSize,
-                    format: song.fileFormat
-                )
-                : nil
+            let repairedDTSDuration = Self.repairedDTSDuration(for: song)
             var songWithExpectedDerivedIDs = song
             fillDerivedIDs(
                 &songWithExpectedDerivedIDs,
@@ -5588,28 +5582,68 @@ final class MusicLibrary {
             let needsDerivedIDs = song.artistID != songWithExpectedDerivedIDs.artistID
                 || song.albumID != songWithExpectedDerivedIDs.albumID
 
-            if let correctedLegacyDTSDuration {
-                song.duration = correctedLegacyDTSDuration
+            if let repairedDTSDuration {
+                song.duration = repairedDTSDuration.duration
+                if let inferredCueEndTime = repairedDTSDuration.inferredCueEndTime {
+                    song.cueEndTime = inferredCueEndTime
+                }
             }
             if needsDerivedIDs {
                 song.artistID = songWithExpectedDerivedIDs.artistID
                 song.albumID = songWithExpectedDerivedIDs.albumID
             }
-            if repairedText || needsDerivedIDs || correctedLegacyDTSDuration != nil {
+            if repairedText || needsDerivedIDs || repairedDTSDuration != nil {
                 songs[index] = song
                 changedSongs.append(song)
             }
             if repairedText { repairedTextCount += 1 }
             if needsDerivedIDs { filledDerivedIDCount += 1 }
-            if correctedLegacyDTSDuration != nil { correctedLegacyDTSDurationCount += 1 }
+            if repairedDTSDuration != nil { repairedDTSDurationCount += 1 }
         }
 
         return (
             repairedTextCount,
             filledDerivedIDCount,
-            correctedLegacyDTSDurationCount,
+            repairedDTSDurationCount,
             changedSongs
         )
+    }
+
+    private static func repairedDTSDuration(
+        for song: Song
+    ) -> (duration: TimeInterval, inferredCueEndTime: TimeInterval?)? {
+        guard song.fileFormat == .dts,
+              !song.duration.isFinite || song.duration <= 0 else {
+            return AudioDurationPolicy.repairedStoredDTSDuration(
+                stored: song.duration,
+                fileSize: song.fileSize,
+                bitRateKbps: song.bitRate,
+                fileExtension: (song.filePath as NSString).pathExtension,
+                format: song.fileFormat
+            ).map { ($0, nil) }
+        }
+
+        if song.isCueTrack, let start = song.cueStartTime {
+            if let end = song.cueEndTime, end.isFinite, end > start {
+                return (end - start, nil)
+            }
+            if let containerDuration = AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                fileSize: song.fileSize,
+                bitRateKbps: song.bitRate,
+                fileExtension: (song.filePath as NSString).pathExtension
+            ), containerDuration > start {
+                return (containerDuration - start, containerDuration)
+            }
+            return nil
+        }
+
+        return AudioDurationPolicy.repairedStoredDTSDuration(
+            stored: song.duration,
+            fileSize: song.fileSize,
+            bitRateKbps: song.bitRate,
+            fileExtension: (song.filePath as NSString).pathExtension,
+            format: song.fileFormat
+        ).map { ($0, nil) }
     }
 
     private static func repairLegacyChineseMetadataText(in song: inout Song) -> Bool {

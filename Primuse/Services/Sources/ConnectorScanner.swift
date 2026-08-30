@@ -846,6 +846,15 @@ actor ConnectorScanner {
                                             refreshed.revision = item.revision ?? existing.revision
                                             applySidecarHints(from: item, to: &refreshed)
                                             refreshSuspiciousSourceTitle(in: &refreshed, from: item)
+                                            if let repairedDuration = AudioDurationPolicy.repairedStoredDTSDuration(
+                                                stored: refreshed.duration,
+                                                fileSize: refreshed.fileSize,
+                                                bitRateKbps: refreshed.bitRate,
+                                                fileExtension: (refreshed.filePath as NSString).pathExtension,
+                                                format: refreshed.fileFormat
+                                            ) {
+                                                refreshed.duration = repairedDuration
+                                            }
                                             allSongs[idx] = refreshed
                                             existingByID[songID] = refreshed
                                         }
@@ -1159,7 +1168,14 @@ actor ConnectorScanner {
     ) -> [Song] {
         descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
+            let inferredContainerDuration = descriptor.format == .dts
+                ? AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                    fileSize: item.size,
+                    fileExtension: (item.name as NSString).pathExtension
+                )
+                : nil
             let end = descriptor.track.endTime
+                ?? inferredContainerDuration.flatMap { $0 > start ? $0 : nil }
             let artist = descriptor.track.performer ?? descriptor.albumPerformer
             let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: descriptor.albumPerformer,
@@ -1373,10 +1389,10 @@ actor ConnectorScanner {
         return refs
     }
 
-    /// Build a Song with no metadata extraction — title is the filename, all
-    /// metadata fields (artist, album, duration, bitRate, etc.) are nil. The
-    /// MetadataBackfillService is responsible for filling these in later by
-    /// reading just the file's header via HTTP Range.
+    /// Build a Song with no descriptive metadata extraction. A verified
+    /// standalone DTS core receives a provisional size-based duration because
+    /// its total length cannot be recovered from a bounded prefix; complete
+    /// playback or an explicit reread remains authoritative.
     private func buildBareSong(from item: RemoteFileItem, songID: String) async -> Song {
         let ext = (item.name as NSString).pathExtension.lowercased()
         var format = AudioFormat.from(fileExtension: ext) ?? .mp3
@@ -1393,6 +1409,12 @@ actor ConnectorScanner {
             format = .dts
         }
         let fileBaseName = sourceTitle(from: item)
+        let provisionalDuration = format == .dts
+            ? AudioDurationPolicy.provisionalStandaloneDTSDuration(
+                fileSize: item.size,
+                fileExtension: ext
+              ) ?? 0
+            : 0
         return Song(
             id: songID,
             title: fileBaseName,
@@ -1402,7 +1424,7 @@ actor ConnectorScanner {
             artistName: nil,
             trackNumber: nil,
             discNumber: nil,
-            duration: 0,  // 0 = not yet extracted; backfill service watches for this
+            duration: provisionalDuration,
             fileFormat: format,
             filePath: item.path,
             sourceID: sourceID,

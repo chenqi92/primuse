@@ -13,6 +13,83 @@ struct AudioDurationPolicyTests {
         #expect(abs(duration - 316.768) < 0.001)
     }
 
+    @Test("Standalone DTS uses a parsed bitrate when available")
+    func standaloneDTSUsesParsedBitRate() throws {
+        let duration = try #require(AudioDurationPolicy.provisionalStandaloneDTSDuration(
+            fileSize: 57_600_000,
+            bitRateKbps: 768,
+            fileExtension: ".DTS"
+        ))
+        #expect(abs(duration - 600) < 0.001)
+    }
+
+    @Test("Standalone DTS falls back to full-rate core duration")
+    func standaloneDTSUsesCoreFallback() throws {
+        let duration = try #require(AudioDurationPolicy.provisionalStandaloneDTSDuration(
+            fileSize: 60_819_456,
+            fileExtension: "dts"
+        ))
+        #expect(abs(duration - 316.768) < 0.001)
+    }
+
+    @Test("DTS-in-WAV is estimated only after the caller classifies it")
+    func dtsInWaveUsesCoreFallback() throws {
+        let duration = try #require(AudioDurationPolicy.provisionalStandaloneDTSDuration(
+            fileSize: 60_819_456,
+            fileExtension: "wav"
+        ))
+        #expect(abs(duration - 316.768) < 0.001)
+    }
+
+    @Test("DTS-HD containers are not estimated from the core bitrate")
+    func dtsHDEstimateIsRejected() {
+        #expect(AudioDurationPolicy.provisionalStandaloneDTSDuration(
+            fileSize: 60_819_456,
+            fileExtension: "dtshd"
+        ) == nil)
+        #expect(AudioDurationPolicy.provisionalStandaloneDTSDuration(
+            fileSize: 60_819_456,
+            fileExtension: "dts-hd"
+        ) == nil)
+    }
+
+    @Test("A zero DTS duration is repaired without replacing a valid value")
+    func storedDTSDurationRepair() throws {
+        let repaired = try #require(AudioDurationPolicy.repairedStoredDTSDuration(
+            stored: 0,
+            fileSize: 60_819_456,
+            bitRateKbps: nil,
+            fileExtension: "dts",
+            format: .dts
+        ))
+        #expect(abs(repaired - 316.768) < 0.001)
+        #expect(AudioDurationPolicy.repairedStoredDTSDuration(
+            stored: 316.813,
+            fileSize: 60_819_456,
+            bitRateKbps: nil,
+            fileExtension: "dts",
+            format: .dts
+        ) == nil)
+    }
+
+    @Test("Stored DTS repair rejects non-DTS formats and DTS-HD files")
+    func storedDTSRepairScope() {
+        #expect(AudioDurationPolicy.repairedStoredDTSDuration(
+            stored: 0,
+            fileSize: 60_819_456,
+            bitRateKbps: nil,
+            fileExtension: "dts",
+            format: .mp3
+        ) == nil)
+        #expect(AudioDurationPolicy.repairedStoredDTSDuration(
+            stored: 0,
+            fileSize: 60_819_456,
+            bitRateKbps: nil,
+            fileExtension: "dtshd",
+            format: .dts
+        ) == nil)
+    }
+
     @Test("Complete-file decoder corrects an inflated scan duration")
     func completeFileDurationIsAuthoritative() {
         #expect(!AudioDurationPolicy.shouldIgnoreResolvedDuration(
