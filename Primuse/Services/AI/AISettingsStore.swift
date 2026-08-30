@@ -509,6 +509,43 @@ final class LyricsTranscriptionSettingsStore {
     }
 }
 
+private enum AIStoreDistributionEnvironmentResolver {
+    static func current() async -> AIDistributionEnvironment {
+        #if DEBUG || targetEnvironment(simulator)
+        return .testing
+        #else
+        if hasEmbeddedProvisioningProfile {
+            return .testing
+        }
+
+        do {
+            let result = try await AppTransaction.shared
+            guard case .verified(let transaction) = result else {
+                return .production
+            }
+            if transaction.environment == .sandbox || transaction.environment == .xcode {
+                return .testing
+            }
+        } catch {
+            return .production
+        }
+        return .production
+        #endif
+    }
+
+    private static var hasEmbeddedProvisioningProfile: Bool {
+        #if os(macOS)
+        let profileURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("embedded.provisionprofile", isDirectory: false)
+        #else
+        let profileURL = Bundle.main.bundleURL
+            .appendingPathComponent("embedded.mobileprovision", isDirectory: false)
+        #endif
+        return FileManager.default.fileExists(atPath: profileURL.path)
+    }
+}
+
 @MainActor
 @Observable
 final class AIRegionAvailabilityService {
@@ -551,21 +588,24 @@ final class AIRegionAvailabilityService {
         defer { isRefreshing = false }
 
         let generation = invalidateContext()
+        let distributionEnvironment = await AIStoreDistributionEnvironmentResolver.current()
         let storefront = await Storefront.current
         guard generation == refreshGeneration else { return }
         publishContext(AIRegionResolver.resolve(
             storefrontCountryCode: storefront?.countryCode,
-            localeRegionCode: Locale.current.region?.identifier
+            localeRegionCode: Locale.current.region?.identifier,
+            distributionEnvironment: distributionEnvironment
         ))
     }
 
     private func applyStorefrontUpdate(countryCode: String) async {
         let generation = invalidateContext()
-        await Task.yield()
+        let distributionEnvironment = await AIStoreDistributionEnvironmentResolver.current()
         guard generation == refreshGeneration else { return }
         publishContext(AIRegionResolver.resolve(
             storefrontCountryCode: countryCode,
-            localeRegionCode: Locale.current.region?.identifier
+            localeRegionCode: Locale.current.region?.identifier,
+            distributionEnvironment: distributionEnvironment
         ))
     }
 

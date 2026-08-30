@@ -12,22 +12,56 @@ public enum AIRegionSource: String, Codable, Equatable, Sendable {
     case unresolved
 }
 
+public enum AIDistributionEnvironment: String, Codable, Equatable, Sendable {
+    case production
+    case testing
+}
+
 public struct AIRegionContext: Codable, Equatable, Sendable {
     public var region: AICommercialRegion
     public var source: AIRegionSource
     public var countryCode: String?
+    public var distributionEnvironment: AIDistributionEnvironment
 
     public init(
         region: AICommercialRegion,
         source: AIRegionSource,
-        countryCode: String? = nil
+        countryCode: String? = nil,
+        distributionEnvironment: AIDistributionEnvironment = .production
     ) {
         self.region = region
         self.source = source
         self.countryCode = countryCode
+        self.distributionEnvironment = distributionEnvironment
     }
 
     public static let unknown = AIRegionContext(region: .unknown, source: .unresolved)
+
+    private enum CodingKeys: String, CodingKey {
+        case region
+        case source
+        case countryCode
+        case distributionEnvironment
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        region = try container.decode(AICommercialRegion.self, forKey: .region)
+        source = try container.decode(AIRegionSource.self, forKey: .source)
+        countryCode = try container.decodeIfPresent(String.self, forKey: .countryCode)
+        distributionEnvironment = try container.decodeIfPresent(
+            AIDistributionEnvironment.self,
+            forKey: .distributionEnvironment
+        ) ?? .production
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(region, forKey: .region)
+        try container.encode(source, forKey: .source)
+        try container.encodeIfPresent(countryCode, forKey: .countryCode)
+        try container.encode(distributionEnvironment, forKey: .distributionEnvironment)
+    }
 }
 
 public struct AIRegionSnapshot: Equatable, Sendable {
@@ -247,13 +281,15 @@ public enum AIRegionResolver {
     /// international access.
     public static func resolve(
         storefrontCountryCode: String?,
-        localeRegionCode: String?
+        localeRegionCode: String?,
+        distributionEnvironment: AIDistributionEnvironment = .production
     ) -> AIRegionContext {
         if let storefrontCode = normalizedCountryCode(storefrontCountryCode) {
             return AIRegionContext(
                 region: mainlandChinaCodes.contains(storefrontCode) ? .mainlandChina : .international,
                 source: .appStorefront,
-                countryCode: storefrontCode
+                countryCode: storefrontCode,
+                distributionEnvironment: distributionEnvironment
             )
         }
 
@@ -262,11 +298,16 @@ public enum AIRegionResolver {
             return AIRegionContext(
                 region: .mainlandChina,
                 source: .localeFallback,
-                countryCode: localeCode
+                countryCode: localeCode,
+                distributionEnvironment: distributionEnvironment
             )
         }
 
-        return .unknown
+        return AIRegionContext(
+            region: .unknown,
+            source: .unresolved,
+            distributionEnvironment: distributionEnvironment
+        )
     }
 
     private static func normalizedCountryCode(_ rawValue: String?) -> String? {
@@ -330,6 +371,13 @@ public enum AIAvailabilityPolicy {
                     denialReason: .regionUndetermined
                 )
             }
+
+        case .bundledRemote where regionContext.distributionEnvironment == .testing:
+            return AIAccessDecision(
+                isAllowed: true,
+                shouldExposeConfiguration: true,
+                requiresExplicitConsent: true
+            )
 
         case .appleSystemModel, .bundledRemote:
             switch regionContext.region {
