@@ -49,22 +49,35 @@ final class SourcesStore {
     private let storeURL: URL
     private let accountsURL: URL
     private let sourceDeletionsURL: URL
+    private let sourceDataWriter: (Data, URL) throws -> Void
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        storageDirectoryURL: URL? = nil,
+        sourceDataWriter: @escaping (Data, URL) throws -> Void = { data, url in
+            try data.write(to: url, options: .atomic)
+        }
+    ) {
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / MusicLibrary 同目录。
-        #if os(tvOS)
-        let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
-        #else
-        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
-        #endif
-        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        let directory: URL
+        if let storageDirectoryURL {
+            directory = storageDirectoryURL
+        } else {
+            #if os(tvOS)
+            let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
+            #else
+            let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
+            #endif
+            directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        }
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         self.storeURL = directory.appendingPathComponent("sources.json")
         self.accountsURL = directory.appendingPathComponent("cloudAccounts.json")
         self.sourceDeletionsURL = directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
+        self.sourceDataWriter = sourceDataWriter
         self.allSources = []
         self.allAccounts = []
         self.sourceDeletionRecords = []
@@ -166,14 +179,45 @@ final class SourcesStore {
 
     /// User-facing edit. Bumps `modifiedAt` and triggers an iCloud sync push.
     func update(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
-        guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return }
+        guard applyUserUpdate(sourceID, mutate: mutate) else { return }
+        persist()
+        notifyChanged([sourceID])
+    }
+
+    /// User-facing edit that is reported as successful only after the updated
+    /// source has been atomically persisted. The in-memory row is restored if
+    /// the write fails so callers can keep credentials and configuration in one
+    /// transaction.
+    @discardableResult
+    func updateDurably(
+        _ sourceID: String,
+        mutate: (inout MusicSource) -> Void
+    ) throws -> Bool {
+        let previousSources = allSources
+        guard applyUserUpdate(sourceID, mutate: mutate) else { return false }
+        do {
+            try persistThrowing()
+        } catch {
+            allSources = previousSources
+            throw error
+        }
+        notifyChanged([sourceID])
+        return true
+    }
+
+    private func applyUserUpdate(
+        _ sourceID: String,
+        mutate: (inout MusicSource) -> Void
+    ) -> Bool {
+        guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else {
+            return false
+        }
         mutate(&allSources[index])
         let selectedDirectories = Set(allSources[index].scannedDirectories)
         allSources[index].scannedDirectoryDisplayNames = allSources[index]
             .scannedDirectoryDisplayNames.filter { selectedDirectories.contains($0.key) }
         allSources[index].modifiedAt = Date()
-        persist()
-        notifyChanged([sourceID])
+        return true
     }
 
     /// Device-local update — used by the scanner for fields that are derived
@@ -729,7 +773,7 @@ final class SourcesStore {
 
     private func persistThrowing() throws {
         let data = try encoder.encode(allSources)
-        try data.write(to: storeURL, options: .atomic)
+        try sourceDataWriter(data, storeURL)
     }
 
     // MARK: - CloudAccount CRUD (stage 2: internal, not exposed to UI)

@@ -277,15 +277,32 @@ enum TVCredentialStore {
         password: String,
         accessCode: String? = nil
     ) -> Bool {
-        let account = localAccount(sourceID)
         let preservedAccessCode = accessCode
             ?? loadLocalCredential(sourceID: sourceID)?.accessCode
+        return replaceLocalCredential(
+            sourceID: sourceID,
+            username: username,
+            password: password,
+            accessCode: preservedAccessCode
+        )
+    }
+
+    /// Replaces the complete local credential payload. Unlike
+    /// `saveLocalCredential`, a nil access code is written as nil rather than
+    /// inheriting the currently stored value, which is required for rollback.
+    @discardableResult
+    static func replaceLocalCredential(
+        sourceID: String,
+        username: String,
+        password: String,
+        accessCode: String?
+    ) -> Bool {
         guard let data = try? JSONEncoder().encode(
-            LocalCred(u: username, p: password, a: preservedAccessCode)
+            LocalCred(u: username, p: password, a: accessCode)
         ) else {
             return false
         }
-        return upsert(data: data, account: account)
+        return upsert(data: data, account: localAccount(sourceID))
     }
 
     static func loadLocalCredential(

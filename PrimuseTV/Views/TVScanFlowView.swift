@@ -2,6 +2,25 @@
 import PrimuseKit
 import SwiftUI
 
+enum TVScanProgressPresentationState: Equatable, Sendable {
+    case scanning
+    case complete
+    case failed
+}
+
+enum TVScanProgressPresentationPolicy {
+    static func state(for phase: TVSourceScanner.Phase) -> TVScanProgressPresentationState {
+        switch phase {
+        case .done:
+            return .complete
+        case .failed:
+            return .failed
+        default:
+            return .scanning
+        }
+    }
+}
+
 /// 添加新源后(或长按源菜单)的扫描流程。目录型源选择目录，飞牛音乐直接扫描服务端曲库。
 struct TVScanFlowView: View {
     @Environment(TVStore.self) private var store
@@ -28,10 +47,15 @@ struct TVScanFlowView: View {
                 TVScanningView(
                     source: source,
                     onDone: { dismiss() },
+                    onRetry: {
+                        store.scanner.phase = .idle
+                        started = false
+                    },
                     onCancel: {
                         scanTask?.cancel()
                         dismiss()
-                    }
+                    },
+                    canCancel: scanTask != nil
                 )
             } else if source.type == .fnMusic || source.type == .daoliyu {
                 fnMusicPickView
@@ -43,6 +67,10 @@ struct TVScanFlowView: View {
             loadTask?.cancel()
         }
         .onAppear {
+            if store.activeScanSourceID == source.id {
+                started = true
+                return
+            }
             if source.type != .fnMusic && source.type != .daoliyu, lister == nil {
                 lister = store.makeLister(for: source)
                 selected = Set(source.scannedDirectories)   // 回填上次扫描勾选的目录
@@ -78,6 +106,11 @@ struct TVScanFlowView: View {
                     .padding(.horizontal, 46)
                     .padding(.vertical, 20)
                     .background(TVColor.brand.opacity(focused ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            if let browseError {
+                Text(browseError)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(TVColor.warn)
             }
             TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { focused in
                 Text(PMString("ext.tv.sources.cancel"))
@@ -253,13 +286,23 @@ struct TVScanFlowView: View {
         let dirs = selected.isEmpty ? [path] : Array(selected)
         loadTask?.cancel()
         started = true
-        scanTask = Task { await store.runScan(source: source, lister: lister, dirs: dirs) }
+        scanTask = Task {
+            let admitted = await store.runScan(source: source, lister: lister, dirs: dirs)
+            guard !admitted, !Task.isCancelled else { return }
+            browseError = PMString("ext.tv.scan.busy")
+            started = false
+        }
     }
 
     private func startFnMusicScan() {
         loadTask?.cancel()
         started = true
-        scanTask = Task { await store.runFnMusicScan(source: source) }
+        scanTask = Task {
+            let admitted = await store.runFnMusicScan(source: source)
+            guard !admitted, !Task.isCancelled else { return }
+            browseError = PMString("ext.tv.scan.busy")
+            started = false
+        }
     }
 
 }
@@ -270,32 +313,44 @@ private struct TVScanningView: View {
     @Environment(TVStore.self) private var store
     let source: MusicSource
     var onDone: () -> Void = {}
+    var onRetry: () -> Void = {}
     var onCancel: () -> Void = {}
+    var canCancel = true
 
     private var phase: TVSourceScanner.Phase { store.scanner.phase }
-    private var done: Bool { phase == .done }
+    private var presentationState: TVScanProgressPresentationState {
+        TVScanProgressPresentationPolicy.state(for: phase)
+    }
+    private var done: Bool { presentationState == .complete }
+    private var failed: Bool { presentationState == .failed }
 
     var body: some View {
         VStack(spacing: 0) {
             ring.padding(.bottom, 40)
-            Text(done ? PMString("ext.tv.scan.completedSource", source.name) : PMString("ext.tv.scan.scanningSource", source.name))
+            Text(title)
                 .font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 10)
             Text(currentLine).font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint)
                 .lineLimit(1).truncationMode(.middle).frame(maxWidth: 900).padding(.bottom, 36)
 
             HStack(spacing: 56) {
                 stat("\(store.scanner.indexed)", PMString("ext.tv.scan.indexed"))
-                stat(done ? PMString("ext.tv.scan.complete") : PMString("ext.tv.scan.inProgress"), PMString("ext.tv.scan.status"))
+                stat(statusText, PMString("ext.tv.scan.status"))
             }
             .padding(.bottom, 40)
 
-            TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 5, action: onDone) { f in
-                Text(done ? PMString("ext.tv.scan.listen") : PMString("ext.tv.scan.continueBackground"))
+            TVFocusButton(
+                radius: 14,
+                accent: TVColor.brand,
+                scale: 1.05,
+                lift: 5,
+                action: failed ? onRetry : onDone
+            ) { f in
+                Text(primaryActionTitle)
                     .font(.system(size: 22, weight: .bold)).foregroundStyle(TVColor.onBrand)
                     .padding(.horizontal, 44).padding(.vertical, 18)
                     .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            if !done {
+            if !done && !failed && canCancel {
                 TVFocusButton(radius: 14, scale: 1.03, lift: 0, action: onCancel) { focused in
                     Text(PMString("ext.tv.scan.cancelScan"))
                         .font(.system(size: 19, weight: .medium)).foregroundStyle(TVColor.text)
@@ -321,6 +376,11 @@ private struct TVScanningView: View {
                 Circle().trim(from: 0, to: 1).stroke(TVColor.ok, style: StrokeStyle(lineWidth: 14, lineCap: .round))
                     .frame(width: 232, height: 232).rotationEffect(.degrees(-90))
                 Image(systemName: "checkmark").font(.system(size: 72, weight: .bold)).foregroundStyle(TVColor.ok)
+            } else if failed {
+                Circle().stroke(TVColor.bad, lineWidth: 14).frame(width: 232, height: 232)
+                Image(systemName: "exclamationmark")
+                    .font(.system(size: 72, weight: .bold))
+                    .foregroundStyle(TVColor.bad)
             } else {
                 SpinnerArc().frame(width: 232, height: 232)
                 VStack(spacing: 4) {
@@ -336,6 +396,33 @@ private struct TVScanningView: View {
         return done
             ? PMString("ext.tv.scan.totalIndexed", store.scanner.indexed)
             : (store.scanner.currentFile.isEmpty ? PMString("ext.tv.scan.walking") : store.scanner.currentFile)
+    }
+
+    private var title: String {
+        switch presentationState {
+        case .complete:
+            return PMString("ext.tv.scan.completedSource", source.name)
+        case .failed:
+            return PMString("ext.tv.scan.failedSource", source.name)
+        case .scanning:
+            return PMString("ext.tv.scan.scanningSource", source.name)
+        }
+    }
+
+    private var statusText: String {
+        switch presentationState {
+        case .complete: return PMString("ext.tv.scan.complete")
+        case .failed: return PMString("ext.tv.scan.failed")
+        case .scanning: return PMString("ext.tv.scan.inProgress")
+        }
+    }
+
+    private var primaryActionTitle: String {
+        switch presentationState {
+        case .complete: return PMString("ext.tv.scan.listen")
+        case .failed: return PMString("ext.tv.scan.retry")
+        case .scanning: return PMString("ext.tv.scan.continueBackground")
+        }
     }
 
     private func stat(_ v: String, _ k: String) -> some View {

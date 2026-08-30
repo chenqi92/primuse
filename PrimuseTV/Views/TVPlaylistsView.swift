@@ -11,6 +11,7 @@ struct TVPlaylistsView: View {
     private let gap: CGFloat = 36
 
     var body: some View {
+        let playlists = store.playlists
         ZStack {
             TVColor.bg.ignoresSafeArea()
             GeometryReader { geo in
@@ -20,12 +21,12 @@ struct TVPlaylistsView: View {
                     VStack(alignment: .leading, spacing: 30) {
                         VStack(alignment: .leading, spacing: 6) {
                             TVEyebrow(text: PMString("ext.tv.playlists.eyebrow"))
-                            Text(PMString("ext.tv.playlists.title", store.playlists.count))
+                            Text(PMString("ext.tv.playlists.title", playlists.count))
                                 .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols),
                                   alignment: .leading, spacing: gap) {
-                            ForEach(store.playlists) { p in
+                            ForEach(playlists) { p in
                                 TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
                             }
                         }
@@ -110,10 +111,9 @@ private struct TVPlaylistArtworkView: View {
     @State private var reloadRevision = 0
 
     private var overrideResolution: LibraryArtworkOverrideResolution {
-        store.library.artworkOverrideResolution(
-            for: LibraryArtworkOwner(kind: .playlist, id: playlist.id),
-            eligibleSongs: store.library.songs(forPlaylist: playlist.id)
-        )
+        store.library.artworkPresentation(
+            for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
+        ).resolution
     }
 
     private var overrideIdentity: String {

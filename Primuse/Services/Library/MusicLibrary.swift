@@ -3,6 +3,74 @@ import PrimuseKit
 import CryptoKit
 import GRDB
 
+struct PlaylistBrowseArtworkAccumulator {
+    private struct RankedCandidate {
+        let song: Song
+        let hasArtworkReference: Bool
+        let rank: UInt64
+        let identity: String
+    }
+
+    private let limit: Int
+    private let seed: UInt64
+    private var rankedCandidates: [RankedCandidate] = []
+    private(set) var visibleCount = 0
+
+    init(playlistID: String, limit: Int) {
+        self.limit = max(0, limit)
+        self.seed = Self.stableHash(playlistID)
+        rankedCandidates.reserveCapacity(self.limit)
+    }
+
+    mutating func consider(_ song: Song) {
+        visibleCount += 1
+        guard limit > 0 else { return }
+        let artworkReference = song.coverArtFileName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let identity = [
+            song.id,
+            artworkReference ?? "",
+            song.sourceID,
+            song.filePath,
+        ].joined(separator: "\u{1F}")
+        let candidate = RankedCandidate(
+            song: song,
+            hasArtworkReference: artworkReference?.isEmpty == false,
+            rank: Self.stableHash(identity, startingAt: seed),
+            identity: identity
+        )
+        if rankedCandidates.count < limit {
+            rankedCandidates.append(candidate)
+            rankedCandidates.sort(by: Self.precedes)
+        } else if let last = rankedCandidates.last, Self.precedes(candidate, last) {
+            rankedCandidates[rankedCandidates.count - 1] = candidate
+            rankedCandidates.sort(by: Self.precedes)
+        }
+    }
+
+    var artworkCandidates: [Song] { rankedCandidates.map(\.song) }
+
+    private static func precedes(_ lhs: RankedCandidate, _ rhs: RankedCandidate) -> Bool {
+        if lhs.hasArtworkReference != rhs.hasArtworkReference {
+            return lhs.hasArtworkReference
+        }
+        if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+        return lhs.identity < rhs.identity
+    }
+
+    private static func stableHash(
+        _ value: String,
+        startingAt initialHash: UInt64 = 14_695_981_039_346_656_037
+    ) -> UInt64 {
+        var hash = initialHash
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return hash
+    }
+}
+
 /// Observation's Equatable fast path is counterproductive for large model
 /// arrays: comparing two `[Song]` values also compares lyricsText. Publishing
 /// an immutable reference keeps the same observation semantics while making
@@ -2040,15 +2108,22 @@ enum MusicDiscoveryEngine {
 
     private static func recommendations(
         from input: RecommendationInput,
-        limit: Int
+        limit: Int,
+        isCancelled: @Sendable () -> Bool = { false }
     ) -> [MusicDiscoveryResult] {
         let songs = input.songs
-        guard !songs.isEmpty else { return [] }
+        guard !songs.isEmpty, !isCancelled() else { return [] }
 
         // 10K+ 曲库里，推荐算法的热点不是打分本身，而是内层循环反复做
         // String.folding / 路径拆分。先把每首歌的比较特征归一化一次，
         // 后续 candidate × seed 只做普通值比较。
-        let normalizedSongs = songs.map(NormalizedSong.init)
+        var normalizedSongs: [NormalizedSong] = []
+        normalizedSongs.reserveCapacity(songs.count)
+        for (index, song) in songs.enumerated() {
+            if index.isMultiple(of: 128), isCancelled() { return [] }
+            normalizedSongs.append(NormalizedSong(song: song))
+        }
+        guard !isCancelled() else { return [] }
         let byID = Dictionary(
             normalizedSongs.map { ($0.song.id, $0) },
             uniquingKeysWith: { current, _ in current }
@@ -2056,12 +2131,21 @@ enum MusicDiscoveryEngine {
         let seeds = input.seedIDs.compactMap { byID[$0] }
 
         guard !seeds.isEmpty else {
-            return coldStartRecommendations(from: songs, excluding: [], limit: limit, now: input.now)
+            return coldStartRecommendations(
+                from: songs,
+                excluding: [],
+                limit: limit,
+                now: input.now,
+                isCancelled: isCancelled
+            )
         }
 
-        var results = normalizedSongs.compactMap { candidate -> MusicDiscoveryResult? in
+        var results: [MusicDiscoveryResult] = []
+        results.reserveCapacity(normalizedSongs.count)
+        for (index, candidate) in normalizedSongs.enumerated() {
+            if index.isMultiple(of: 128), isCancelled() { return [] }
             let song = candidate.song
-            guard !input.recentWeekIDs.contains(song.id) else { return nil }
+            guard !input.recentWeekIDs.contains(song.id) else { continue }
 
             var best = Match(score: 0, reasons: [])
             for seed in seeds where seed.song.id != song.id {
@@ -2091,15 +2175,17 @@ enum MusicDiscoveryEngine {
                 score += 3
             }
 
-            guard score >= 16 else { return nil }
+            guard score >= 16 else { continue }
             if reasons.isEmpty { reasons = [.libraryPick] }
-            return MusicDiscoveryResult(song: song, score: score, reasons: reasons)
+            results.append(MusicDiscoveryResult(song: song, score: score, reasons: reasons))
         }
 
+        guard !isCancelled() else { return [] }
         results.sort { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             return lhs.song.dateAdded > rhs.song.dateAdded
         }
+        guard !isCancelled() else { return [] }
 
         var ranked = uniqued(results)
         let availableArtistCount = Set(
@@ -2115,9 +2201,11 @@ enum MusicDiscoveryEngine {
                 from: songs,
                 excluding: excluded,
                 limit: max(limit * 2, limit - ranked.count),
-                now: input.now
+                now: input.now,
+                isCancelled: isCancelled
             ))
         }
+        guard !isCancelled() else { return [] }
         return diversifiedRecommendations(ranked, limit: limit)
     }
 
@@ -2136,15 +2224,22 @@ enum MusicDiscoveryEngine {
 
     static func dailyRecommendations(
         from input: RecommendationInput,
-        limit: Int = 12
+        limit: Int = 12,
+        isCancelled: @Sendable () -> Bool = { false }
     ) -> [MusicDiscoveryResult] {
-        let ranked = recommendations(from: input, limit: max(limit * 3, limit))
+        guard !isCancelled() else { return [] }
+        let ranked = recommendations(
+            from: input,
+            limit: max(limit * 3, limit),
+            isCancelled: isCancelled
+        )
             .sorted { lhs, rhs in
                 let left = lhs.score + stableDailyNoise(lhs.song.id, now: input.now) * 8
                 let right = rhs.score + stableDailyNoise(rhs.song.id, now: input.now) * 8
                 if left != right { return left > right }
                 return lhs.song.title.localizedCompare(rhs.song.title) == .orderedAscending
             }
+        guard !isCancelled() else { return [] }
         return diversifiedRecommendations(ranked, limit: limit)
     }
 
@@ -2392,27 +2487,31 @@ enum MusicDiscoveryEngine {
         from songs: [Song],
         excluding excludedIDs: Set<String>,
         limit: Int,
-        now: Date
+        now: Date,
+        isCancelled: @Sendable () -> Bool = { false }
     ) -> [MusicDiscoveryResult] {
-        let ranked = songs
-            .filter { !excludedIDs.contains($0.id) }
-            .map { song -> MusicDiscoveryResult in
-                var score = song.coverArtFileName?.isEmpty == false ? 12.0 : 0.0
-                score += max(0, 10 - now.timeIntervalSince(song.dateAdded) / (7 * 24 * 60 * 60))
-                if song.artistName?.isEmpty == false { score += 3 }
-                if song.albumTitle?.isEmpty == false { score += 3 }
-                if song.genre?.isEmpty == false { score += 2 }
-                score += stableNoise(song.id)
+        var ranked: [MusicDiscoveryResult] = []
+        ranked.reserveCapacity(songs.count)
+        for (index, song) in songs.enumerated() where !excludedIDs.contains(song.id) {
+            if index.isMultiple(of: 128), isCancelled() { return [] }
+            var score = song.coverArtFileName?.isEmpty == false ? 12.0 : 0.0
+            score += max(0, 10 - now.timeIntervalSince(song.dateAdded) / (7 * 24 * 60 * 60))
+            if song.artistName?.isEmpty == false { score += 3 }
+            if song.albumTitle?.isEmpty == false { score += 3 }
+            if song.genre?.isEmpty == false { score += 2 }
+            score += stableNoise(song.id)
 
-                let reason: MusicDiscoveryReason = now.timeIntervalSince(song.dateAdded) <= 30 * 24 * 60 * 60
-                    ? .newToLibrary
-                    : .libraryPick
-                return MusicDiscoveryResult(song: song, score: score, reasons: [reason])
-            }
-            .sorted { lhs, rhs in
-                if lhs.score != rhs.score { return lhs.score > rhs.score }
-                return lhs.song.dateAdded > rhs.song.dateAdded
-            }
+            let reason: MusicDiscoveryReason = now.timeIntervalSince(song.dateAdded) <= 30 * 24 * 60 * 60
+                ? .newToLibrary
+                : .libraryPick
+            ranked.append(MusicDiscoveryResult(song: song, score: score, reasons: [reason]))
+        }
+        guard !isCancelled() else { return [] }
+        ranked.sort { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.song.dateAdded > rhs.song.dateAdded
+        }
+        guard !isCancelled() else { return [] }
         return diversifiedRecommendations(ranked, limit: limit)
     }
 
@@ -4258,6 +4357,25 @@ final class MusicLibrary {
         return (first, count)
     }
 
+    /// Returns an exact visible count plus only the small candidate window a
+    /// browse surface needs for artwork. This avoids materializing a 10K+
+    /// member playlist merely to render its card.
+    func playlistBrowseSummary(
+        forPlaylist playlistID: String,
+        artworkCandidateLimit: Int
+    ) -> (artworkCandidates: [Song], count: Int) {
+        _ = visibleSongsReference
+        var accumulator = PlaylistBrowseArtworkAccumulator(
+            playlistID: playlistID,
+            limit: artworkCandidateLimit
+        )
+        for songID in playlistSongIDs[playlistID] ?? [] {
+            guard let song = visibleSongByID[songID] else { continue }
+            accumulator.consider(song)
+        }
+        return (accumulator.artworkCandidates, accumulator.visibleCount)
+    }
+
     func songCount(forPlaylist playlistID: String) -> Int {
         songSummary(forPlaylist: playlistID).count
     }
@@ -5412,6 +5530,7 @@ final class MusicLibrary {
     }
 
     private func notifySmartPlaylistsChanged(_ ids: [String]) {
+        playlistCollectionRevision &+= 1
         NotificationCenter.default.post(
             name: .primuseSmartPlaylistsDidChange,
             object: nil,
@@ -5420,6 +5539,7 @@ final class MusicLibrary {
     }
 
     private func notifySmartPlaylistDeleted(_ id: String) {
+        playlistCollectionRevision &+= 1
         NotificationCenter.default.post(
             name: .primuseSmartPlaylistDidDelete,
             object: nil,
@@ -5430,7 +5550,9 @@ final class MusicLibrary {
     /// 删除来自远端 (CloudKit) 的智能歌单。不触发 changed notification 避免
     /// 回声同步。
     func deleteSmartPlaylistFromRemote(id: String) {
+        guard allSmartPlaylists.contains(where: { $0.id == id }) else { return }
         allSmartPlaylists.removeAll { $0.id == id }
+        playlistCollectionRevision &+= 1
         persistSnapshot()
     }
 
@@ -5438,11 +5560,13 @@ final class MusicLibrary {
     /// songID 解析问题, 因为 SmartPlaylist 只存规则定义不存歌曲列表。
     func applyRemoteSmartPlaylist(_ smart: SmartPlaylist) {
         if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
+            guard allSmartPlaylists[idx] != smart else { return }
             allSmartPlaylists[idx] = smart
         } else {
             allSmartPlaylists.append(smart)
         }
         sortSmartPlaylists()
+        playlistCollectionRevision &+= 1
         persistSnapshot()
     }
 

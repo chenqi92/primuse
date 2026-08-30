@@ -30,6 +30,10 @@ struct TVSourceTypePicker: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 5)
 
+    private var locallyAddableDevices: [DiscoveredDevice] {
+        store.discoveredDevices.filter { TVStore.canBuildLibraryOnTV($0.sourceType) }
+    }
+
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.4)
@@ -45,17 +49,15 @@ struct TVSourceTypePicker: View {
                         .frame(maxWidth: 1100, alignment: .leading).padding(.bottom, 36)
 
                     // 内网自动发现的设备(Bonjour)优先展示。
-                    if !store.discoveredDevices.isEmpty {
+                    if !locallyAddableDevices.isEmpty {
                         TVEyebrow(text: PMString("ext.tv.sources.discovered")).padding(.bottom, 14)
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-                            ForEach(store.discoveredDevices) { d in
+                            ForEach(locallyAddableDevices) { d in
                                 typeCard(icon: d.sourceType.iconName, label: d.name,
-                                         hint: d.sourceType.isAwaitingPublicAPI ? d.sourceType.subtitle : "\(d.host):\(d.port)",
-                                         badge: d.sourceType.isAwaitingPublicAPI
-                                             ? PMString("ext.tv.sources.apiPending")
-                                             : Self.shortProtocol(d.sourceType),
+                                         hint: "\(d.host):\(d.port)",
+                                         badge: Self.shortProtocol(d.sourceType),
                                          accentIcon: true,
-                                         isEnabled: !d.sourceType.isAwaitingPublicAPI) {
+                                         isEnabled: true) {
                                     onPick(d.sourceType, (d.host, d.port, d.name, d.preferredUseSsl))
                                 }
                             }
@@ -67,9 +69,9 @@ struct TVSourceTypePicker: View {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                         ForEach(Array(TVStore.addableTypes.enumerated()), id: \.element) { idx, t in
                             typeCard(icon: t.iconName, label: t.displayName, hint: Self.hint(for: t),
-                                     badge: t.isAwaitingPublicAPI ? PMString("ext.tv.sources.apiPending") : nil,
+                                     badge: Self.shortProtocol(t),
                                      accentIcon: idx == 0,
-                                     isEnabled: !t.isAwaitingPublicAPI) { onPick(t, nil) }
+                                     isEnabled: true) { onPick(t, nil) }
                         }
                     }
                     Text(PMString("ext.tv.sources.chooseTypeFooter"))
@@ -165,6 +167,7 @@ struct TVSourceFormView: View {
     var prefillPort: Int? = nil
     var prefillName: String? = nil
     var prefillUseSsl: Bool? = nil
+    let onSaved: (MusicSource, Bool) -> Void
 
     @State private var name = ""
     @State private var host = ""
@@ -325,10 +328,10 @@ struct TVSourceFormView: View {
                   newValue == .fnConnect else { return }
             useSsl = true
         }
-        .alert(PMString("ext.tv.sources.cred.saveFailedTitle"), isPresented: $saveFailed) {
+        .alert(PMString("ext.tv.sources.saveFailed"), isPresented: $saveFailed) {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
         } message: {
-            Text(PMString("ext.tv.sources.cred.saveFailedBody"))
+            Text(PMString("ext.tv.sources.saveFailedBody"))
         }
     }
 
@@ -797,6 +800,7 @@ struct TVSourceFormView: View {
             saveFailed = true
             return
         }
+        onSaved(store.source(id: src.id) ?? src, editing == nil)
         dismiss()
     }
 }

@@ -12,6 +12,40 @@ private enum TVSpectrumConfiguration {
     static let bandCount = 32
 }
 
+enum TVPlaybackInput: CaseIterable, Equatable, Sendable {
+    case direction
+    case focusChanged
+    case menu
+    case modalDismissed
+    case systemPlay
+    case systemPause
+    case systemToggle
+}
+
+enum TVPlaybackRoutingAction: Equatable, Sendable {
+    case none
+    case resume
+    case pause
+    case toggle
+}
+
+enum TVPlaybackCommandOwner: Equatable, Sendable {
+    case mediaRemoteCommandCenter
+}
+
+enum TVPlaybackCommandRoutingPolicy {
+    static let globalOwner: TVPlaybackCommandOwner = .mediaRemoteCommandCenter
+
+    static func action(for input: TVPlaybackInput) -> TVPlaybackRoutingAction {
+        switch input {
+        case .systemPlay: return .resume
+        case .systemPause: return .pause
+        case .systemToggle: return .toggle
+        case .direction, .focusChanged, .menu, .modalDismissed: return .none
+        }
+    }
+}
+
 /// tvOS 真实音频播放引擎 —— AVPlayer + AVAudioSession + Now Playing Info / 遥控中心。
 /// 只播纯 https 流(由 PrimuseKit 的 StreamResolver 解析得到的 URL)。
 @MainActor
@@ -975,34 +1009,19 @@ final class TVAudioEngine {
         c.nextTrackCommand.isEnabled = false
         c.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                if let onRemotePlay = self.onRemotePlay {
-                    onRemotePlay()
-                } else {
-                    self.play()
-                }
+                self?.handleRemotePlaybackInput(.systemPlay)
             }
             return .success
         }
         c.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                if let onRemotePause = self.onRemotePause {
-                    onRemotePause()
-                } else {
-                    self.pause()
-                }
+                self?.handleRemotePlaybackInput(.systemPause)
             }
             return .success
         }
         c.togglePlayPauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                if let onRemoteTogglePlayPause = self.onRemoteTogglePlayPause {
-                    onRemoteTogglePlayPause()
-                } else {
-                    self.togglePlayPause()
-                }
+                self?.handleRemotePlaybackInput(.systemToggle)
             }
             return .success
         }
@@ -1040,6 +1059,23 @@ final class TVAudioEngine {
             }
             Task { @MainActor in onRemoteNextTrack() }
             return .success
+        }
+    }
+
+    private func handleRemotePlaybackInput(_ input: TVPlaybackInput) {
+        switch TVPlaybackCommandRoutingPolicy.action(for: input) {
+        case .resume:
+            if let onRemotePlay { onRemotePlay() } else { play() }
+        case .pause:
+            if let onRemotePause { onRemotePause() } else { pause() }
+        case .toggle:
+            if let onRemoteTogglePlayPause {
+                onRemoteTogglePlayPause()
+            } else {
+                togglePlayPause()
+            }
+        case .none:
+            break
         }
     }
 

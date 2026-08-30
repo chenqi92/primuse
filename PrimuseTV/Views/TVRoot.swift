@@ -9,6 +9,7 @@ import PrimuseKit
 enum TVContentFocusTab: Equatable, Sendable {
     case library
     case nowPlaying
+    case sources
     case search
     case other
 }
@@ -29,6 +30,7 @@ enum TVNowPlayingFocusTarget: Hashable, Sendable {
 enum TVContentFocusTarget: Equatable, Sendable {
     case libraryDefault
     case nowPlaying(TVNowPlayingFocusTarget)
+    case sourcesPrimary
     case searchField
 }
 
@@ -54,6 +56,8 @@ enum TVContentFocusRoutingPolicy {
             case .song:
                 return .nowPlaying(.songPrimary)
             }
+        case .sources:
+            return .sourcesPrimary
         case .search:
             return .searchField
         case .other:
@@ -148,10 +152,13 @@ struct TVRoot: View {
     @State private var showOptions = false
     @State private var libraryFocusRequest = 0
     @State private var nowPlayingFocusRequest: TVContentFocusRequest?
+    @State private var sourcesFocusRequest = 0
     @State private var searchFocusRequest: TVContentFocusRequest?
     @State private var contentFocusRouting = TVContentFocusRoutingState()
     @State private var tabFocusRequest = 0
     @State private var isTabBarFocused = true
+    @State private var suppressesFocusDrivenTabSelection = false
+    @State private var modalFocusRecoveryGeneration = 0
     @State private var certificateTrustStore = TVServerCertificateTrustStore.shared
 
     init() {
@@ -173,10 +180,6 @@ struct TVRoot: View {
             .modifier(TVReturnToTabsModifier(enabled: !isTabBarFocused) {
                 returnFocusToTabs()
             })
-            .onPlayPauseCommand {
-                guard store.hasNowPlaying else { return }
-                store.togglePlayPause()
-            }
             .alert(
                 PMString("ext.tv.certificate.title"),
                 isPresented: Binding(
@@ -232,12 +235,16 @@ struct TVRoot: View {
                         onSelect: { tab = $0 },
                         onContentDown: requestContentFocus,
                         focusRequest: tabFocusRequest,
+                        allowsFocusDrivenSelection: !suppressesFocusDrivenTabSelection,
                         onFocusChanged: tabBarFocusChanged,
                         onSettings: { showSettings = true }
                     )
                     Spacer(minLength: 0)
                 }
             }
+        }
+        .onChange(of: rootModalPresentationCount) { _, count in
+            modalActivityChanged(count > 0)
         }
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
@@ -315,7 +322,11 @@ struct TVRoot: View {
                 onReturnToTabs: returnFocusToTabs
             )
         case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
-        case .sources:   TVSourcesView()
+        case .sources:
+            TVSourcesView(
+                focusRequest: sourcesFocusRequest,
+                onModalActivityChanged: modalActivityChanged
+            )
         case .search:
             TVSearchView(
                 openPlayer: { tab = .nowPlaying },
@@ -327,6 +338,33 @@ struct TVRoot: View {
     private var nowPlayingFocusMode: TVNowPlayingFocusMode {
         guard store.hasNowPlaying else { return .empty }
         return store.isLiveRadio ? .liveRadio : .song
+    }
+
+    private var rootModalPresentationCount: Int {
+        [showSettings, showQueue, showOptions].filter { $0 }.count
+    }
+
+    private func modalActivityChanged(_ active: Bool) {
+        modalFocusRecoveryGeneration &+= 1
+        let generation = modalFocusRecoveryGeneration
+        suppressesFocusDrivenTabSelection = true
+        guard !active else { return }
+
+        Task { @MainActor in
+            await Task.yield()
+            guard generation == modalFocusRecoveryGeneration else { return }
+            if TVContentFocusRoutingPolicy.target(
+                for: focusRoutingTab(tab),
+                nowPlayingMode: nowPlayingFocusMode
+            ) != nil {
+                requestContentFocus(from: tab)
+            } else {
+                returnFocusToTabs()
+            }
+            await Task.yield()
+            guard generation == modalFocusRecoveryGeneration else { return }
+            suppressesFocusDrivenTabSelection = false
+        }
     }
 
     private func requestContentFocus(from tab: Tab) {
@@ -362,7 +400,7 @@ struct TVRoot: View {
 
     private func tabBarFocusChanged(_ focused: Bool) {
         isTabBarFocused = focused
-        guard focused else { return }
+        guard focused, !suppressesFocusDrivenTabSelection else { return }
         // A horizontal tab transition is still tab-bar navigation. Clear any
         // previous content route so a newly appeared page cannot reclaim focus
         // until the user explicitly moves down again.
@@ -377,6 +415,8 @@ struct TVRoot: View {
             libraryFocusRequest = request.id
         case .nowPlaying:
             nowPlayingFocusRequest = request
+        case .sourcesPrimary:
+            sourcesFocusRequest = request.id
         case .searchField:
             searchFocusRequest = request
         }
@@ -386,9 +426,25 @@ struct TVRoot: View {
         switch tab {
         case .library: return .library
         case .nowPlaying: return .nowPlaying
+        case .sources: return .sources
         case .search: return .search
         default: return .other
         }
+    }
+}
+
+enum TVTabFocusSelectionPolicy {
+    static func selection(
+        focused: TVRoot.Tab?,
+        active: TVRoot.Tab,
+        allowsFocusDrivenSelection: Bool
+    ) -> TVRoot.Tab? {
+        guard allowsFocusDrivenSelection,
+              let focused,
+              focused != active else {
+            return nil
+        }
+        return focused
     }
 }
 
@@ -399,6 +455,7 @@ struct TVTabBar: View {
     var onSelect: (TVRoot.Tab) -> Void
     var onContentDown: (TVRoot.Tab) -> Void
     var focusRequest: Int
+    var allowsFocusDrivenSelection = true
     var onFocusChanged: (Bool) -> Void
     var onSettings: () -> Void
     @FocusState private var focusedTab: TVRoot.Tab?
@@ -472,7 +529,13 @@ struct TVTabBar: View {
             .focusSection()
             .onChange(of: focusedTab) { _, focused in
                 onFocusChanged(focused != nil)
-                if let focused, focused != active { onSelect(focused) }
+                if let selection = TVTabFocusSelectionPolicy.selection(
+                    focused: focused,
+                    active: active,
+                    allowsFocusDrivenSelection: allowsFocusDrivenSelection
+                ) {
+                    onSelect(selection)
+                }
             }
             .onChange(of: focusRequest) {
                 focusedTab = active

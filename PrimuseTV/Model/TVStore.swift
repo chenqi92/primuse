@@ -57,6 +57,27 @@ enum TVTrackNavigationAvailabilityPolicy {
     }
 }
 
+enum TVSourceLocalLibraryCapability: Equatable, Sendable {
+    /// Apple TV can authenticate, enumerate the source, and build its own catalogue.
+    case directScan
+    /// The source can be consumed after a completed library is paired or synced from another device.
+    case pairedLibrary
+    /// The provider API is not available, so the UI must not present it as usable.
+    case unavailable
+}
+
+enum TVSourceLocalLibraryPolicy {
+    static func capability(for type: MusicSourceType) -> TVSourceLocalLibraryCapability {
+        if type.isAwaitingPublicAPI { return .unavailable }
+        switch type {
+        case .smb, .fnMusic, .daoliyu:
+            return .directScan
+        default:
+            return .pairedLibrary
+        }
+    }
+}
+
 // MARK: - 轻量 view-model 类型
 //
 // UI 层数据契约。TVStore 现在由真实 MusicLibrary + SourcesStore 驱动(读取
@@ -122,6 +143,29 @@ struct TVPlaylist: Identifiable, Hashable {
 
 enum TVSourceStatus { case connected, scanning, authFailed, disabled }
 
+enum TVSourceInitialScanState: Equatable, Sendable {
+    case notRequired
+    case pending
+    case complete
+}
+
+enum TVSourceInitialScanPolicy {
+    static func state(
+        canScan: Bool,
+        lastScannedAt: Date?,
+        actualSongCount: Int
+    ) -> TVSourceInitialScanState {
+        guard canScan else { return .notRequired }
+        return lastScannedAt == nil && actualSongCount == 0 ? .pending : .complete
+    }
+}
+
+enum TVScanAdmissionPolicy {
+    static func canStart(activeSourceID: String?, requestedSourceID _: String) -> Bool {
+        activeSourceID == nil
+    }
+}
+
 /// 该源能否在 Apple TV 上直接播放。
 enum TVPlayability: Equatable {
     case ok                 // 有可用凭据(或 relay 端点),类型受支持
@@ -144,6 +188,8 @@ struct TVSource: Identifiable, Hashable {
     let canEnterCredential: Bool     // 是否适合在 TV 上手动输入账号密码(服务端登录类源)
     let supports2FA: Bool            // NAS 类:支持两步验证(可在 TV 上输 OTP 申请受信设备)
     let canScan: Bool                // 能否在 TV 上执行本机扫描(SMB 目录或飞牛音乐整库)
+    let initialScanState: TVSourceInitialScanState
+    var needsInitialScan: Bool { initialScanState == .pending }
     static func == (l: TVSource, r: TVSource) -> Bool { l.id == r.id }
     func hash(into h: inout Hasher) { h.combine(id) }
 }
@@ -216,7 +262,7 @@ struct TVNowPlaying {
 @Observable
 final class TVStore {
     let library = MusicLibrary()
-    let sourcesStore = SourcesStore()
+    let sourcesStore: SourcesStore
     @ObservationIgnored let engine = TVAudioEngine()
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
@@ -224,7 +270,8 @@ final class TVStore {
     @ObservationIgnored private var radioReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var radioReconnectAttempt = 0
 
-    init() {
+    init(sourcesStore: SourcesStore = SourcesStore()) {
+        self.sourcesStore = sourcesStore
         engine.onEnded = { [weak self] in self?.handlePlaybackEnded() }
         engine.onFailure = { [weak self] message in
             guard let self, self.isLiveRadio else { return }
@@ -256,7 +303,7 @@ final class TVStore {
     }
 
     var hasRealLibrary: Bool {
-        _ = libraryViewRevision
+        _ = libraryContentRevision
         return VisibleLibraryPresencePolicy.hasContent(
             songCount: cachedSongs.count,
             albumCount: cachedAlbums.count
@@ -305,6 +352,7 @@ final class TVStore {
 
     // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
+    private(set) var activeScanSourceID: String?
 
     // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
     @ObservationIgnored let discovery = NetworkDiscoveryService()
@@ -342,12 +390,31 @@ final class TVStore {
     // 在 refreshVisibility()(reload / 改源后)重建,曲库快照变更即失效。
     @ObservationIgnored private var songByID: [String: TVSong] = [:]
     @ObservationIgnored private var albumByID: [String: TVAlbum] = [:]
+    @ObservationIgnored private var cachedAlbumIndexByID: [String: Int] = [:]
     @ObservationIgnored private var cachedSongs: [TVSong] = []
+    @ObservationIgnored private var cachedSongIDs: [String] = []
     @ObservationIgnored private var cachedAlbums: [TVAlbum] = []
     @ObservationIgnored private var cachedArtists: [TVArtist] = []
+    @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
+    @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
+    @ObservationIgnored private var normalPlaylistCacheRevision = -1
+    @ObservationIgnored private var smartPlaylistCacheRevision = -1
+    @ObservationIgnored private var normalPlaylistCollectionRevision = -1
+    @ObservationIgnored private var smartPlaylistCollectionRevision = -1
     @ObservationIgnored private var visibleSongCountsBySource: [String: Int] = [:]
     @ObservationIgnored private var artworkPalettes: [String: TVArtworkPalette] = [:]
-    private var libraryViewRevision = 0
+    private enum ArtworkPaletteInvalidationScope: Hashable {
+        case album
+        case song
+    }
+    @ObservationIgnored private var pendingArtworkPaletteInvalidationScopes:
+        Set<ArtworkPaletteInvalidationScope> = []
+    @ObservationIgnored private var artworkPaletteInvalidationTask: Task<Void, Never>?
+    @ObservationIgnored private var recommendationWorker: Task<[Song], Never>?
+    @ObservationIgnored private var recommendationWorkerGeneration = 0
+    private var libraryContentRevision = 0
+    private var albumArtworkPaletteRevision = 0
+    private var songArtworkPaletteRevision = 0
 
     // uploadNow 单飞:串行化改源后的快照上传,避免快速连续切源时
     // 两个 detached 任务交错 delete + save。
@@ -406,18 +473,25 @@ final class TVStore {
 
     // MARK: 浏览数据(全部来自真实曲库;为空即显示空态)
 
-    var albums: [TVAlbum] { _ = libraryViewRevision; return cachedAlbums }
-    var songs: [TVSong] { _ = libraryViewRevision; return cachedSongs }
-    var artists: [TVArtist] { _ = libraryViewRevision; return cachedArtists }
-    var playlists: [TVPlaylist] {
-        let normal = library.playlists.map {
-            mapPlaylist($0, kind: $0.id == MusicLibrary.likedSongsPlaylistID ? .liked : .normal)
-        }
-        let liked = normal.filter { $0.kind == .liked }
-        let plain = normal.filter { $0.kind != .liked }
-        let smart = library.smartPlaylists.map { self.mapSmart($0) }
-        return liked + plain + smart
+    var albums: [TVAlbum] {
+        _ = libraryContentRevision
+        _ = albumArtworkPaletteRevision
+        return cachedAlbums
     }
+    var songs: [TVSong] { _ = libraryContentRevision; return cachedSongs }
+    var songIDs: [String] { _ = libraryContentRevision; return cachedSongIDs }
+    var artists: [TVArtist] { _ = libraryContentRevision; return cachedArtists }
+    var normalPlaylists: [TVPlaylist] {
+        _ = libraryContentRevision
+        rebuildNormalPlaylistCacheIfNeeded()
+        return cachedNormalPlaylists
+    }
+    var smartPlaylists: [TVPlaylist] {
+        _ = libraryContentRevision
+        rebuildSmartPlaylistCacheIfNeeded()
+        return cachedSmartPlaylists
+    }
+    var playlists: [TVPlaylist] { normalPlaylists + smartPlaylists }
     var sources: [TVSource] {
         _ = sourcesRevision   // 建立观察依赖:bump 即触发本视图刷新
         return sourcesStore.sources.map { self.map($0) }
@@ -510,21 +584,55 @@ final class TVStore {
         library.recentlyPlayedSongs(limit: 12).map { self.map($0) }
     }
     var recentlyAddedAlbums: [TVAlbum] {
-        _ = libraryViewRevision
+        _ = libraryContentRevision
+        _ = albumArtworkPaletteRevision
         return library.recentlyAddedAlbums(limit: 12).map { self.map($0) }
     }
     var recommended: [TVAlbum] {
-        _ = libraryViewRevision
+        _ = libraryContentRevision
+        _ = albumArtworkPaletteRevision
         return cachedAlbums.count > 6 ? Array(cachedAlbums.suffix(6)) : cachedAlbums
     }
 
-    var recommendationRevision: Int { libraryViewRevision }
+    var recommendationRevision: Int { libraryContentRevision }
+    var artworkPalettePublicationRevisions: (album: Int, song: Int) {
+        (albumArtworkPaletteRevision, songArtworkPaletteRevision)
+    }
 
     func recommendationCandidates(limit: Int = 12) async -> [Song] {
+        recommendationWorkerGeneration &+= 1
+        let generation = recommendationWorkerGeneration
+        let previousWorker = recommendationWorker
+        recommendationWorker = nil
+        previousWorker?.cancel()
+        if let previousWorker {
+            _ = await previousWorker.value
+        }
+        guard !Task.isCancelled, generation == recommendationWorkerGeneration else {
+            return []
+        }
+
         let input = MusicDiscoveryEngine.recommendationInput(in: library)
-        return await Task.detached(priority: .utility) {
-            MusicDiscoveryEngine.dailyRecommendations(from: input, limit: limit).map(\.song)
-        }.value
+        let worker = Task.detached(priority: .utility) {
+            MusicDiscoveryEngine.dailyRecommendations(
+                from: input,
+                limit: limit,
+                isCancelled: { Task.isCancelled }
+            ).map(\.song)
+        }
+        recommendationWorker = worker
+        let result = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        if generation == recommendationWorkerGeneration {
+            recommendationWorker = nil
+        }
+        guard !Task.isCancelled, generation == recommendationWorkerGeneration else {
+            return []
+        }
+        return result
     }
 
     func isLiked(_ id: String) -> Bool { localLiked.contains(id) }
@@ -556,7 +664,9 @@ final class TVStore {
         let secondary = palette.secondary.color
 
         var updatedAlbum = false
-        if let index = cachedAlbums.firstIndex(where: { $0.id == albumID }) {
+        if let index = cachedAlbumIndexByID[albumID],
+           cachedAlbums.indices.contains(index),
+           cachedAlbums[index].id == albumID {
             cachedAlbums[index].tint = primary
             cachedAlbums[index].tint2 = secondary
             albumByID[albumID] = cachedAlbums[index]
@@ -567,7 +677,7 @@ final class TVStore {
             nowPlaying.tint2 = secondary
             updateAutomaticThemePalette(palette)
         }
-        if updatedAlbum { libraryViewRevision &+= 1 }
+        if updatedAlbum { scheduleArtworkPaletteInvalidation(.album) }
     }
 
     /// 歌曲级真实封面的调色板按 Song.id 独立缓存；播放器和歌曲卡片都
@@ -583,15 +693,32 @@ final class TVStore {
             nowPlaying.tint2 = palette.secondary.color
             updateAutomaticThemePalette(palette)
         }
-        libraryViewRevision &+= 1
+        scheduleArtworkPaletteInvalidation(.song)
     }
 
     func artworkColors(forSongID songID: String) -> (primary: Color, secondary: Color)? {
-        _ = libraryViewRevision
+        _ = songArtworkPaletteRevision
         guard let palette = artworkPalettes[Self.songArtworkPaletteKey(songID)] else {
             return nil
         }
         return (palette.primary.color, palette.secondary.color)
+    }
+
+    /// Artwork resolves independently for every visible card. Coalesce those
+    /// completions so a large grid/list cannot rebuild once per decoded image,
+    /// and keep album and song observers isolated from one another.
+    private func scheduleArtworkPaletteInvalidation(_ scope: ArtworkPaletteInvalidationScope) {
+        pendingArtworkPaletteInvalidationScopes.insert(scope)
+        guard artworkPaletteInvalidationTask == nil else { return }
+        artworkPaletteInvalidationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self else { return }
+            let scopes = pendingArtworkPaletteInvalidationScopes
+            pendingArtworkPaletteInvalidationScopes.removeAll(keepingCapacity: true)
+            artworkPaletteInvalidationTask = nil
+            if scopes.contains(.album) { albumArtworkPaletteRevision &+= 1 }
+            if scopes.contains(.song) { songArtworkPaletteRevision &+= 1 }
+        }
     }
 
     private static func songArtworkPaletteKey(_ songID: String) -> String {
@@ -626,14 +753,29 @@ final class TVStore {
         return TVArtist(id: a.id, name: a.name, tint: t1, tint2: t2,
                         glyph: Self.glyph(a.name), songCount: a.songCount)
     }
+    static let playlistArtworkCandidateLimit = 16
+
     private func mapPlaylist(_ p: Playlist, kind: TVPlaylistKind) -> TVPlaylist {
-        let songs = library.songs(forPlaylist: p.id)
-        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let plan = PlaylistArtworkResolutionPolicy.makePlan(playlist: p, songs: songs)
+        let summary = library.playlistBrowseSummary(
+            forPlaylist: p.id,
+            artworkCandidateLimit: Self.playlistArtworkCandidateLimit
+        )
+        let plan = PlaylistArtworkResolutionPolicy.makePlan(
+            playlist: p,
+            songs: summary.artworkCandidates
+        )
+        let limitedPlanCandidates = Array(plan.candidates.prefix(Self.playlistArtworkCandidateLimit))
+        let neededSongIDs = Set(limitedPlanCandidates.compactMap(\.songID))
+        let songsByID = Dictionary(
+            summary.artworkCandidates.lazy
+                .filter { neededSongIDs.contains($0.id) }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let dedicatedSourceID = MirrorPlaylistSuppressionPolicy
             .key(forPlaylistID: p.id)?
             .sourceID
-        let candidates = plan.candidates.compactMap { candidate -> TVPlaylistArtworkCandidate? in
+        let candidates = limitedPlanCandidates.compactMap { candidate -> TVPlaylistArtworkCandidate? in
             switch candidate.kind {
             case .dedicated:
                 return TVPlaylistArtworkCandidate(
@@ -659,8 +801,8 @@ final class TVStore {
             id: p.id,
             name: p.name,
             kind: kind,
-            count: songs.count,
-            artworkSignature: plan.signature,
+            count: summary.count,
+            artworkSignature: "\(library.playlistCollectionRevision):\(p.syncRevision):\(plan.signature)",
             artworkCandidates: candidates
         )
     }
@@ -668,9 +810,39 @@ final class TVStore {
         TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: 0,
                    artworkSignature: "smart:\(sp.id)", artworkCandidates: [])
     }
+
+    private func rebuildNormalPlaylistCacheIfNeeded() {
+        let playlistRevision = library.playlistCollectionRevision
+        guard normalPlaylistCacheRevision != libraryContentRevision
+                || normalPlaylistCollectionRevision != playlistRevision else {
+            return
+        }
+        let normal = library.playlists.map {
+            mapPlaylist(
+                $0,
+                kind: $0.id == MusicLibrary.likedSongsPlaylistID ? .liked : .normal
+            )
+        }
+        let liked = normal.filter { $0.kind == .liked }
+        cachedNormalPlaylists = liked + normal.filter { $0.kind != .liked }
+        normalPlaylistCacheRevision = libraryContentRevision
+        normalPlaylistCollectionRevision = playlistRevision
+    }
+
+    private func rebuildSmartPlaylistCacheIfNeeded() {
+        let playlistRevision = library.playlistCollectionRevision
+        guard smartPlaylistCacheRevision != libraryContentRevision
+                || smartPlaylistCollectionRevision != playlistRevision else {
+            return
+        }
+        cachedSmartPlaylists = library.smartPlaylists.map { self.mapSmart($0) }
+        smartPlaylistCacheRevision = libraryContentRevision
+        smartPlaylistCollectionRevision = playlistRevision
+    }
     private func map(_ s: MusicSource) -> TVSource {
         let cnt = hasRealLibrary ? (visibleSongCountsBySource[s.id] ?? 0) : s.songCount
         let (c, _) = Self.tint(s.id)
+        let canScan = Self.tvScannableTypes.contains(s.type)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
                          iconName: s.type.iconName,
                          host: s.connectionSummary ?? s.basePath ?? s.type.displayName,
@@ -679,7 +851,12 @@ final class TVStore {
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
                          supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
-                         canScan: Self.tvScannableTypes.contains(s.type))
+                         canScan: canScan,
+                         initialScanState: TVSourceInitialScanPolicy.state(
+                            canScan: canScan,
+                            lastScannedAt: s.lastScannedAt,
+                            actualSongCount: cnt
+                         ))
     }
 
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
@@ -879,6 +1056,18 @@ final class TVStore {
             }
         }
         guard let song = library.songs.first(where: { $0.sourceID == id }) else {
+            if source.type == .smb {
+                guard let lister = scanner.makeLister(source: source, credential: cred) else {
+                    return PMString("ext.tv.test.unsupported", source.type.displayName)
+                }
+                do {
+                    _ = try await scanner.browse(lister: lister, path: "/")
+                    return PMString("ext.tv.test.connectedPrefix")
+                        + (source.host ?? PMString("ext.tv.test.resolved"))
+                } catch {
+                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                }
+            }
             return PMString("ext.tv.test.noSongs")
         }
         // 协议直连(SMB/NFS/FTP):测真实字节读取器(与播放同路径),不走中继。
@@ -1429,6 +1618,7 @@ final class TVStore {
     private func rebuildLookupCaches() {
         let visibleSongs = library.visibleSongs
         cachedSongs = visibleSongs.map { self.map($0) }
+        cachedSongIDs = cachedSongs.map(\.id)
         cachedAlbums = library.visibleAlbums.map { self.map($0) }
         cachedArtists = library.visibleArtists.map { self.map($0) }
         visibleSongCountsBySource = Dictionary(grouping: visibleSongs, by: \.sourceID)
@@ -1437,7 +1627,11 @@ final class TVStore {
                               uniquingKeysWith: { first, _ in first })
         albumByID = Dictionary(cachedAlbums.map { ($0.id, $0) },
                                uniquingKeysWith: { first, _ in first })
-        libraryViewRevision &+= 1
+        cachedAlbumIndexByID = Dictionary(
+            cachedAlbums.indices.map { (cachedAlbums[$0].id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        libraryContentRevision &+= 1
         syncTrackNavigationCommands()
     }
 
@@ -1485,14 +1679,15 @@ final class TVStore {
         return sourcesStore.recentlyDeletedSources.map { self.map($0) }
     }
 
-    /// 可在 TV 上直接新增的源类型:服务端登录类 + 协议类。云盘(OAuth,TV 无浏览器)、
-    /// 本地 / Apple Music 不在内。
+    /// 只展示能由 Apple TV 自行建立曲库的来源。其余来源必须先在 iPhone / Mac
+    /// 完成授权与扫描，再通过配对或同步传入完整曲库，不能保存成一个空来源冒充成功。
     static let addableTypes: [MusicSourceType] = [
-        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
-        .jellyfin, .emby, .plex,
-        .synology, .qnap, .ugreen,
-        .webdav, .smb, .ftp, .sftp, .nfs,
+        .fnMusic, .daoliyu, .smb,
     ]
+
+    nonisolated static func canBuildLibraryOnTV(_ type: MusicSourceType) -> Bool {
+        TVSourceLocalLibraryPolicy.capability(for: type) == .directScan
+    }
 
     /// TV 上新增源:写入 sources + 存本地凭据 + 回传快照。
     @discardableResult
@@ -1501,9 +1696,16 @@ final class TVStore {
         password: String?,
         fnConnectAccessCode: String? = nil
     ) -> Bool {
+        guard Self.canBuildLibraryOnTV(source.type) else { return false }
+        let previousCredential = TVCredentialStore.loadLocalCredential(sourceID: source.id)
         guard saveLocalCred(source, password, fnConnectAccessCode) else { return false }
+        do {
+            try sourcesStore.addDurably(source)
+        } catch {
+            _ = restoreLocalCredential(previousCredential, sourceID: source.id)
+            return false
+        }
         scanner.invalidateFnMusicClient(sourceID: source.id)
-        sourcesStore.add(source)
         afterSourceMutation()
         return true
     }
@@ -1515,9 +1717,18 @@ final class TVStore {
         password: String?,
         fnConnectAccessCode: String? = nil
     ) -> Bool {
+        let previousCredential = TVCredentialStore.loadLocalCredential(sourceID: source.id)
         guard saveLocalCred(source, password, fnConnectAccessCode) else { return false }
+        do {
+            guard try sourcesStore.updateDurably(source.id, mutate: { $0 = source }) else {
+                _ = restoreLocalCredential(previousCredential, sourceID: source.id)
+                return false
+            }
+        } catch {
+            _ = restoreLocalCredential(previousCredential, sourceID: source.id)
+            return false
+        }
         scanner.invalidateFnMusicClient(sourceID: source.id)
-        sourcesStore.update(source.id) { $0 = source }
         if let s = sourcesStore.source(id: source.id) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: s) }
         }
@@ -1538,8 +1749,7 @@ final class TVStore {
         _ fnConnectAccessCode: String?
     ) -> Bool {
         if source.authType == .none {
-            TVCredentialStore.clearLocalCredential(sourceID: source.id)
-            return true
+            return TVCredentialStore.clearLocalCredential(sourceID: source.id)
         }
         let existing = TVCredentialStore.loadLocalCredential(sourceID: source.id)
         let newPassword = password?.isEmpty == false ? password : nil
@@ -1553,6 +1763,22 @@ final class TVStore {
             username: storedUsername,
             password: newPassword ?? existing?.password ?? "",
             accessCode: newAccessCode ?? existing?.accessCode
+        )
+    }
+
+    @discardableResult
+    private func restoreLocalCredential(
+        _ credential: (username: String, password: String, accessCode: String?)?,
+        sourceID: String
+    ) -> Bool {
+        guard let credential else {
+            return TVCredentialStore.clearLocalCredential(sourceID: sourceID)
+        }
+        return TVCredentialStore.replaceLocalCredential(
+            sourceID: sourceID,
+            username: credential.username,
+            password: credential.password,
+            accessCode: credential.accessCode
         )
     }
 
@@ -1588,9 +1814,33 @@ final class TVStore {
     }
 
     /// 走查选中目录扫描,落库(addSongs 按确定性 id 去重合并)+ 持久化 + 记录已扫目录 + 回传源。
-    func runScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String]) async {
+    @discardableResult
+    func runScan(
+        source: MusicSource,
+        lister: TVDirectoryLister,
+        dirs: [String]
+    ) async -> Bool {
+        guard TVScanAdmissionPolicy.canStart(
+            activeSourceID: activeScanSourceID,
+            requestedSourceID: source.id
+        ) else {
+            return false
+        }
+        activeScanSourceID = source.id
+        defer {
+            if activeScanSourceID == source.id {
+                activeScanSourceID = nil
+            }
+        }
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        guard let songs = await scanner.scan(source: source, lister: lister, dirs: dirs, credential: cred) else { return }
+        guard let songs = await scanner.scan(
+            source: source,
+            lister: lister,
+            dirs: dirs,
+            credential: cred
+        ) else {
+            return true
+        }
         library.addSongs(songs, affectedSourceIDs: [source.id])
         library.persistNow()
         sourcesStore.updateLocal(source.id) {
@@ -1612,16 +1862,24 @@ final class TVStore {
         refreshVisibility()
         sourcesRevision += 1
         enqueueSnapshotUpload()
+        return true
     }
 
     /// 飞牛音乐没有目录选择步骤，直接从服务端分页读取完整曲库。
-    func runFnMusicScan(source: MusicSource) async {
+    @discardableResult
+    func runFnMusicScan(source: MusicSource) async -> Bool {
+        guard TVScanAdmissionPolicy.canStart(
+            activeSourceID: activeScanSourceID,
+            requestedSourceID: source.id
+        ) else {
+            return false
+        }
         guard source.type == .fnMusic || source.type == .daoliyu,
               let lister = makeLister(for: source) else {
             scanner.phase = .failed(PMString("ext.tv.scan.connectFailed"))
-            return
+            return true
         }
-        await runScan(source: source, lister: lister, dirs: [])
+        return await runScan(source: source, lister: lister, dirs: [])
     }
 
     /// 串行化 sources 上传:快速连续改源时,前一个上传跑完再发下一个,

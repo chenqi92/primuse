@@ -2,6 +2,12 @@
 import SwiftUI
 import PrimuseKit
 
+enum TVLibraryBackgroundWorkPolicy {
+    static func refreshesRecommendations(for filter: TVLibraryView.Filter) -> Bool {
+        filter == .recommendations
+    }
+}
+
 /// tvOS 资料库 — 筛选条 + 网格(对应 tvos.jsx 的 TVLibraryArtboard)。
 struct TVLibraryView: View {
     @Environment(TVStore.self) private var store
@@ -66,12 +72,20 @@ struct TVLibraryView: View {
         .onChange(of: hiddenRecommendationPresetsRawValue) { _, _ in
             normalizeRecommendationIntentSelectionIfNeeded()
         }
-        .task(id: recommendationRefreshKey) {
-            recommendationCandidates = await store.recommendationCandidates(limit: 24)
+        .task(id: recommendationTaskKey) {
+            guard TVLibraryBackgroundWorkPolicy.refreshesRecommendations(for: filter) else {
+                return
+            }
+            let candidates = await store.recommendationCandidates(limit: 24)
+            guard !Task.isCancelled,
+                  TVLibraryBackgroundWorkPolicy.refreshesRecommendations(for: filter) else {
+                return
+            }
+            recommendationCandidates = candidates
             await aiRecommendation.refresh(
                 scene: .automatic,
                 intent: selectedRecommendationIntent?.semanticIntent,
-                candidates: recommendationCandidates,
+                candidates: candidates,
                 using: intelligence
             )
         }
@@ -83,8 +97,8 @@ struct TVLibraryView: View {
         case .recommendations: return PMString("library_recommendations_title")
         case .artists: return PMString("ext.tv.library.title.artists", store.artists.count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
-        case .playlists: return PMString("ext.tv.library.title.playlists", store.playlists.filter { $0.kind != .smart }.count)
-        case .smart: return PMString("ext.tv.library.title.smart", store.playlists.filter { $0.kind == .smart }.count)
+        case .playlists: return PMString("ext.tv.library.title.playlists", store.normalPlaylists.count)
+        case .smart: return PMString("ext.tv.library.title.smart", store.smartPlaylists.count)
         }
     }
 
@@ -211,19 +225,21 @@ struct TVLibraryView: View {
             }
         case .songs:
             LazyVStack(spacing: 10) {
-                ForEach(store.songs) { song in
-                    TVSongRow(song: song, action: openPlayer)
+                ForEach(store.songIDs, id: \.self) { songID in
+                    if let song = store.song(songID) {
+                        TVSongRow(song: song, action: openPlayer)
+                    }
                 }
             }
         case .playlists:
             LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
-                ForEach(store.playlists.filter { $0.kind != .smart }) { p in
+                ForEach(store.normalPlaylists) { p in
                     TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
                 }
             }
         case .smart:
             LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
-                ForEach(store.playlists.filter { $0.kind == .smart }) { p in
+                ForEach(store.smartPlaylists) { p in
                     TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
                 }
             }
@@ -293,6 +309,12 @@ struct TVLibraryView: View {
             String(intelligence.settingsStore.revision),
             String(intelligence.regionAvailability.revision),
         ].joined(separator: "#")
+    }
+
+    private var recommendationTaskKey: String {
+        TVLibraryBackgroundWorkPolicy.refreshesRecommendations(for: filter)
+            ? "active#\(recommendationRefreshKey)"
+            : "inactive"
     }
 
     private func normalizeRecommendationIntentSelectionIfNeeded() {

@@ -5,6 +5,11 @@ import PrimuseKit
 /// tvOS 音乐源 — 列出经 iCloud 同步过来的音乐源,并标出能否在 TV 播放;
 /// 可在长按菜单里直接为某个源输入登录凭据、或测试连接。
 struct TVSourcesView: View {
+    private enum PrimaryAction: Hashable {
+        case addSource
+        case recycleBin
+    }
+
     @Environment(TVStore.self) private var store
     @State private var pendingDelete: TVSource?
     @State private var credentialEditor: TVSource?
@@ -12,9 +17,30 @@ struct TVSourcesView: View {
     @State private var testResult: TVTestResult?
     @State private var typePicker = false           // 新增源:先选类型
     @State private var sourceForm: TVSourceForm?    // 新增 / 编辑源表单
+    @State private var pendingSourceForm: TVSourceForm?
+    @State private var pendingScanAfterSave: MusicSource?
     @State private var recycleBin = false           // 回收站
     @State private var otpSource: TVSource?         // 两步验证(OTP)输入
     @State private var scanSource: MusicSource?     // 选目录 + 扫描流程
+    @FocusState private var focusedPrimaryAction: PrimaryAction?
+
+    var focusRequest = 0
+    var onModalActivityChanged: (Bool) -> Void = { _ in }
+
+    private var activePresentationCount: Int {
+        [
+            pendingDelete != nil,
+            credentialEditor != nil,
+            testResult != nil,
+            typePicker,
+            sourceForm != nil,
+            pendingSourceForm != nil,
+            pendingScanAfterSave != nil,
+            recycleBin,
+            otpSource != nil,
+            scanSource != nil,
+        ].filter { $0 }.count
+    }
 
     var body: some View {
         ZStack {
@@ -41,7 +67,23 @@ struct TVSourcesView: View {
                                 ForEach(store.sources) { s in
                                     TVSourceRow(source: s,
                                                 testing: testing == s.id,
-                                                onSelect: { store.setSourceEnabled(s.id, s.status == .disabled) },
+                                                onSelect: {
+                                                    if s.needsInitialScan,
+                                                       let source = store.source(id: s.id) {
+                                                        scanSource = source
+                                                    } else {
+                                                        store.setSourceEnabled(
+                                                            s.id,
+                                                            s.status == .disabled
+                                                        )
+                                                    }
+                                                },
+                                                onToggle: {
+                                                    store.setSourceEnabled(
+                                                        s.id,
+                                                        s.status == .disabled
+                                                    )
+                                                },
                                                 onDelete: { pendingDelete = s },
                                                 onEnterCredential: { credentialEditor = s },
                                                 onTestConnection: { runTest(s) },
@@ -64,25 +106,47 @@ struct TVSourcesView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     TVEyebrow(text: PMString("ext.tv.sources.addSource"))
                     TVSourcesInfoCard()
-                    TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.02, lift: 0,
-                                  action: { typePicker = true }) { focused in
+                    Button { typePicker = true } label: {
                         Label(PMString("ext.tv.sources.addOnTV"), systemImage: "plus.circle.fill")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
+                            .foregroundStyle(focusedPrimaryAction == .addSource ? TVColor.onBrand : TVColor.text)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focused ? TVColor.brand : TVColor.surface,
+                            .background(focusedPrimaryAction == .addSource ? TVColor.brand : TVColor.surface,
                                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .tvFocusRing(
+                                focusedPrimaryAction == .addSource,
+                                radius: 16,
+                                accent: TVColor.brand,
+                                scale: 1.02,
+                                lift: 0
+                            )
                     }
-                    TVFocusButton(radius: 16, scale: 1.02, lift: 0,
-                                  action: { recycleBin = true }) { focused in
+                    .buttonStyle(TVBareButtonStyle())
+                    .focused($focusedPrimaryAction, equals: .addSource)
+                    .focusEffectDisabled()
+                    .accessibilityLabel(PMString("ext.tv.sources.addOnTV"))
+                    .accessibilityHint(PMString("ext.tv.sources.chooseTypeBody"))
+                    .accessibilityIdentifier("tv.sources.addOnTV")
+
+                    Button { recycleBin = true } label: {
                         Label(PMString("ext.tv.sources.recycleBin"), systemImage: "trash.circle")
                             .font(.system(size: 20, weight: .semibold)).foregroundStyle(TVColor.text)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                            .background(focusedPrimaryAction == .recycleBin ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
                                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .tvFocusRing(
+                                focusedPrimaryAction == .recycleBin,
+                                radius: 16,
+                                scale: 1.02,
+                                lift: 0
+                            )
                     }
+                    .buttonStyle(TVBareButtonStyle())
+                    .focused($focusedPrimaryAction, equals: .recycleBin)
+                    .focusEffectDisabled()
+                    .accessibilityIdentifier("tv.sources.recycleBin")
                 }
                 .frame(width: 520)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -90,12 +154,26 @@ struct TVSourcesView: View {
             }
             .tvPage()
         }
+        .onChange(of: focusRequest) { _, request in
+            guard request > 0 else { return }
+            focusedPrimaryAction = .addSource
+        }
+        .onChange(of: activePresentationCount) { _, count in
+            onModalActivityChanged(count > 0)
+        }
         .alert(PMString("ext.tv.sources.removeTitle"), isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         ), presenting: pendingDelete) { source in
-            Button(PMString("ext.tv.sources.remove"), role: .destructive) { store.deleteSource(source.id); pendingDelete = nil }
-            Button(PMString("ext.tv.sources.cancel"), role: .cancel) { pendingDelete = nil }
+            Button(PMString("ext.tv.sources.remove"), role: .destructive) {
+                store.deleteSource(source.id)
+                pendingDelete = nil
+                restorePrimaryFocus()
+            }
+            Button(PMString("ext.tv.sources.cancel"), role: .cancel) {
+                pendingDelete = nil
+                restorePrimaryFocus()
+            }
         } message: { source in
             Text(PMString("ext.tv.sources.removeBody", source.name))
         }
@@ -103,36 +181,51 @@ struct TVSourcesView: View {
             get: { testResult != nil },
             set: { if !$0 { testResult = nil } }
         ), presenting: testResult) { _ in
-            Button(PMString("ext.tv.sources.ok"), role: .cancel) { testResult = nil }
+            Button(PMString("ext.tv.sources.ok"), role: .cancel) {
+                testResult = nil
+                restorePrimaryFocus()
+            }
         } message: { r in
             Text(PMString("ext.tv.test.resultBody", r.sourceName, r.message))
         }
-        .sheet(item: $credentialEditor) { src in
+        .sheet(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
             TVCredentialEditorView(source: src).environment(store)
         }
-        .fullScreenCover(isPresented: $typePicker) {
+        .fullScreenCover(isPresented: $typePicker, onDismiss: finishTypePickerDismissal) {
             TVSourceTypePicker { type, prefill in
+                pendingSourceForm = TVSourceForm(
+                    editing: nil,
+                    type: type,
+                    prefillHost: prefill?.host,
+                    prefillPort: prefill?.port,
+                    prefillName: prefill?.name,
+                    prefillUseSsl: prefill?.useSsl
+                )
                 typePicker = false
-                sourceForm = TVSourceForm(editing: nil, type: type,
-                                          prefillHost: prefill?.host, prefillPort: prefill?.port,
-                                          prefillName: prefill?.name,
-                                          prefillUseSsl: prefill?.useSsl)
             }
             .environment(store)
         }
-        .fullScreenCover(item: $sourceForm) { form in
+        .fullScreenCover(item: $sourceForm, onDismiss: finishSourceFormDismissal) { form in
             TVSourceFormView(editing: form.editing, type: form.type,
                              prefillHost: form.prefillHost, prefillPort: form.prefillPort,
                              prefillName: form.prefillName,
-                             prefillUseSsl: form.prefillUseSsl).environment(store)
+                             prefillUseSsl: form.prefillUseSsl) { savedSource, isNew in
+                if TVSourceSaveContinuationPolicy.destination(
+                    isNewSource: isNew,
+                    type: savedSource.type
+                ) == .scan {
+                    pendingScanAfterSave = savedSource
+                }
+            }
+            .environment(store)
         }
-        .fullScreenCover(isPresented: $recycleBin) {
+        .fullScreenCover(isPresented: $recycleBin, onDismiss: restorePrimaryFocus) {
             TVRecycleBinView().environment(store)
         }
-        .fullScreenCover(item: $otpSource) { src in
+        .fullScreenCover(item: $otpSource, onDismiss: restorePrimaryFocus) { src in
             TVOTPEntryView(source: src).environment(store)
         }
-        .fullScreenCover(item: $scanSource) { src in
+        .fullScreenCover(item: $scanSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src).environment(store)
         }
         #if DEBUG
@@ -148,6 +241,31 @@ struct TVSourcesView: View {
             let msg = await store.testConnection(forSourceID: s.id)
             testing = nil
             testResult = TVTestResult(sourceName: s.name, message: msg)
+        }
+    }
+
+    private func finishTypePickerDismissal() {
+        guard let nextForm = pendingSourceForm else {
+            restorePrimaryFocus()
+            return
+        }
+        pendingSourceForm = nil
+        sourceForm = nextForm
+    }
+
+    private func finishSourceFormDismissal() {
+        guard let source = pendingScanAfterSave else {
+            restorePrimaryFocus()
+            return
+        }
+        pendingScanAfterSave = nil
+        scanSource = source
+    }
+
+    private func restorePrimaryFocus() {
+        Task { @MainActor in
+            await Task.yield()
+            focusedPrimaryAction = .addSource
         }
     }
 
@@ -181,6 +299,22 @@ struct TVSourcesView: View {
         }
     }
     #endif
+}
+
+enum TVSourcePostSaveDestination: Equatable, Sendable {
+    case sources
+    case scan
+}
+
+enum TVSourceSaveContinuationPolicy {
+    static func destination(
+        isNewSource: Bool,
+        type: MusicSourceType
+    ) -> TVSourcePostSaveDestination {
+        isNewSource && TVStore.canBuildLibraryOnTV(type)
+            ? .scan
+            : .sources
+    }
 }
 
 private struct TVTestResult: Identifiable {
@@ -234,6 +368,7 @@ private struct TVSourceRow: View {
     let source: TVSource
     var testing: Bool = false
     var onSelect: () -> Void = {}            // 点击:启用 / 停用切换
+    var onToggle: () -> Void = {}            // 长按菜单:启用 / 停用切换
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
     var onEnterCredential: () -> Void = {}   // 长按菜单:输入登录凭据
     var onTestConnection: () -> Void = {}    // 长按菜单:测试连接
@@ -266,6 +401,14 @@ private struct TVSourceRow: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(TVColor.warn)
                     }
+                    if source.needsInitialScan {
+                        Label(
+                            PMString("ext.tv.sources.continueInitialScan"),
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(TVColor.warn)
+                    }
                 }
                 Spacer(minLength: 0)
                 if testing {
@@ -289,9 +432,14 @@ private struct TVSourceRow: View {
             .frame(maxWidth: .infinity)
             .background(focused ? TVColor.surfaceStrong : TVColor.card)
         }
+        .accessibilityHint(
+            source.needsInitialScan
+                ? PMString("ext.tv.sources.continueInitialScan")
+                : PMString("ext.tv.sources.toggleHint")
+        )
         // 长按(Siri Remote)弹菜单:启用/停用 + 输入凭证 + 测试连接 + 从 Apple TV 移除。
         .contextMenu {
-            Button { onSelect() } label: {
+            Button { onToggle() } label: {
                 Label(source.status == .disabled ? PMString("ext.tv.sources.enable") : PMString("ext.tv.sources.disable"),
                       systemImage: source.status == .disabled ? "power" : "pause.circle")
             }
@@ -347,6 +495,7 @@ private struct TVSourceRow: View {
     }
 
     private var statusIcon: String {
+        if source.needsInitialScan { return "arrow.triangle.2.circlepath" }
         switch source.status {
         case .connected: return "circle.fill"
         case .scanning: return "arrow.triangle.2.circlepath"
@@ -355,6 +504,7 @@ private struct TVSourceRow: View {
         }
     }
     private var statusLabel: String {
+        if source.needsInitialScan { return PMString("ext.tv.sources.status.pendingScan") }
         switch source.status {
         case .connected: return PMString("ext.tv.sources.status.enabled")
         case .scanning: return PMString("ext.tv.sources.status.scanning")
@@ -363,6 +513,7 @@ private struct TVSourceRow: View {
         }
     }
     private var statusColor: Color {
+        if source.needsInitialScan { return TVColor.warn }
         switch source.status {
         case .connected: return TVColor.ok
         case .scanning: return source.color
