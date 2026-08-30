@@ -33,7 +33,9 @@ struct MacNowPlayingView: View {
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     @State private var lyrics: [LyricLine] = []
+    @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var currentIndex: Int = -1
+    @State private var activeBackgroundLineIDs: Set<String> = []
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
@@ -87,10 +89,6 @@ struct MacNowPlayingView: View {
     /// takes control of the scroll position again. Three seconds was shorter
     /// than a typical reading pause and made the pane appear locked.
     private static let manualLyricsScrollGracePeriod: TimeInterval = 6
-
-    private var lyricsWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolve(in: lyrics)
-    }
 
     private var lyricLayoutDirection: LayoutDirection {
         switch lyricsWritingDirection {
@@ -208,7 +206,7 @@ struct MacNowPlayingView: View {
         }
         .task(id: lyricsLoadTaskIdentity) {
             if player.isLiveRadio {
-                lyrics = []
+                installLyrics([])
             } else {
                 await refreshLyrics()
             }
@@ -236,6 +234,11 @@ struct MacNowPlayingView: View {
             guard (note.object as? NSWindow) === hostWindow else { return }
             isWindowFullScreen = true
             showsImmersiveStage = fullscreenPlayerEffect != .native
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { note in
+            guard (note.object as? NSWindow) === hostWindow else { return }
+            showsNativeFullscreenEffectPicker = false
+            showsImmersiveStage = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === hostWindow else { return }
@@ -749,7 +752,7 @@ struct MacNowPlayingView: View {
         let tint = theme.accentColor
         let distance = abs(index - currentIndex)
         let hasActiveBackground = line.background?.contains {
-            LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
+            activeBackgroundLineIDs.contains($0.id)
         } ?? false
         let opacity = lyricOpacity(
             isActive: isActive || hasActiveBackground,
@@ -771,11 +774,7 @@ struct MacNowPlayingView: View {
                     macSingleLyricLine(
                         line: background,
                         index: index,
-                        isActive: LyricVoiceTimelinePolicy.isActive(
-                            background,
-                            at: player.currentTime,
-                            lookahead: Self.wordLevelLookahead
-                        ),
+                        isActive: activeBackgroundLineIDs.contains(background.id),
                         fontSize: scaledSize * 0.7,
                         weight: .medium,
                         tint: tint
@@ -813,6 +812,10 @@ struct MacNowPlayingView: View {
                 inactiveColor: playerSecondaryColor,
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
+                isPlaybackActive: player.isPlaybackActive,
+                isAnimationEnabled: isActive,
+                animatesSyllableBounce: false,
+                isolatesAnimatedProgressFromLayout: true,
                 deactivationTime: line.voice == .secondary ? line.endTime : nil
             )
             .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
@@ -1155,7 +1158,7 @@ struct MacNowPlayingView: View {
         if let pendingLyricsOverride,
            pendingLyricsOverride.songID == player.currentSong?.id {
             self.pendingLyricsOverride = nil
-            lyrics = pendingLyricsOverride.lyrics
+            installLyrics(pendingLyricsOverride.lyrics)
             _ = updateIndex(time: player.currentTime)
             return
         }
@@ -1165,22 +1168,37 @@ struct MacNowPlayingView: View {
 
     private func reloadLyrics() async {
         guard let song = player.currentSong else {
-            lyrics = []; currentIndex = -1; return
+            installLyrics([])
+            currentIndex = -1
+            return
         }
         // 先清掉上一首的内容,避免在异步加载途中显示「上首歌的歌词」。
-        lyrics = []; currentIndex = -1
+        installLyrics([])
+        currentIndex = -1
 
         let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
         // 异步等待期间用户可能跳到了下一首,这时把当前结果写回去就会
         // 把"上一首的歌词"显示在新歌上。`task(id:)` 理论上会取消旧任务
         // 但 LyricsLoader 内部网络拉取不一定及时响应取消,做一道防御。
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
-        lyrics = loaded
+        installLyrics(loaded)
         _ = updateIndex(time: player.currentTime)
+    }
+
+    private func installLyrics(_ newLyrics: [LyricLine]) {
+        lyrics = newLyrics
+        let resolvedDirection = LyricWritingDirectionPolicy.resolve(in: newLyrics)
+        if lyricsWritingDirection != resolvedDirection {
+            lyricsWritingDirection = resolvedDirection
+        }
+        if newLyrics.isEmpty, !activeBackgroundLineIDs.isEmpty {
+            activeBackgroundLineIDs = []
+        }
     }
 
     @discardableResult
     private func updateIndex(time: TimeInterval) -> Int? {
+        updateActiveBackgroundLines(at: time)
         let hasWordLevelLyrics = lyrics.contains { $0.isWordLevel }
         guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
@@ -1194,6 +1212,22 @@ struct MacNowPlayingView: View {
         }
         if currentIndex != index { currentIndex = index }
         return index
+    }
+
+    private func updateActiveBackgroundLines(at time: TimeInterval) {
+        var nextActiveIDs: Set<String> = []
+        for line in lyrics {
+            for background in line.background ?? [] where LyricVoiceTimelinePolicy.isActive(
+                background,
+                at: time,
+                lookahead: Self.wordLevelLookahead
+            ) {
+                nextActiveIDs.insert(background.id)
+            }
+        }
+        if activeBackgroundLineIDs != nextActiveIDs {
+            activeBackgroundLineIDs = nextActiveIDs
+        }
     }
 
     // 删除歌曲流程已移到 PlayerMoreMenu,这里不再保留 deleteCurrentSong。

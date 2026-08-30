@@ -1,8 +1,28 @@
 import SwiftUI
 import PrimuseKit
 
+struct LyricsFlowMeasurementKey: Equatable {
+    var line: LyricLine?
+    var fontSize: CGFloat
+    var weight: Font.Weight
+    var layoutDirection: LayoutDirection
+
+    init(
+        line: LyricLine? = nil,
+        fontSize: CGFloat = 0,
+        weight: Font.Weight = .regular,
+        layoutDirection: LayoutDirection = .leftToRight
+    ) {
+        self.line = line
+        self.fontSize = fontSize
+        self.weight = weight
+        self.layoutDirection = layoutDirection
+    }
+}
+
 /// 渲染单行 **激活态** 字级歌词。每个 syllable 是独立的 Text, 走自定义
-/// flow layout 自动换行。每帧由 60Hz `TimelineView(.animation)` 驱动。
+/// flow layout 自动换行。支持传统逐帧渲染，以及把播放时钟隔离到纯绘制
+/// progress mask 的布局稳定模式。
 ///
 /// 字级动效细节:
 /// - **字内 mask 扫光**: 底层逐字绘制 inactive 色，整行 active 填充通过
@@ -28,6 +48,9 @@ struct KaraokeLineView: View {
     let timeAt: (Date) -> TimeInterval
     /// 外层已经有 TimelineView 时传入固定时间，避免嵌套 60Hz 刷新。
     let fixedTime: TimeInterval?
+    /// Paused or detached playback keeps the current highlight snapshot without
+    /// retaining a display-rate clock.
+    let isPlaybackActive: Bool
     /// Inactive word-level rows keep the same flow layout without running a
     /// Timeline. This prevents active-row takeover from changing wrapping or
     /// measured height while still avoiding unnecessary 60 Hz updates.
@@ -35,6 +58,10 @@ struct KaraokeLineView: View {
     /// Progress can be rendered at a fixed playback time while motion-only
     /// bounce is disabled for paused, inactive, or Reduce Motion states.
     let animatesSyllableBounce: Bool
+    /// macOS lyrics keep both flow layouts outside TimelineView. Only a Canvas
+    /// mask receives playback ticks, so glyph measurement and row placement do
+    /// not become display-rate work.
+    let isolatesAnimatedProgressFromLayout: Bool
     /// 超过该时间后，这一行已经让位给下一行；即使外层 active index 还没刷新，
     /// 也不要继续在旧行上扫光或弹动。
     let deactivationTime: TimeInterval?
@@ -49,8 +76,10 @@ struct KaraokeLineView: View {
         writingDirection: LyricWritingDirection = .natural,
         timeAt: @escaping (Date) -> TimeInterval,
         fixedTime: TimeInterval? = nil,
+        isPlaybackActive: Bool = true,
         isAnimationEnabled: Bool = true,
         animatesSyllableBounce: Bool = true,
+        isolatesAnimatedProgressFromLayout: Bool = false,
         deactivationTime: TimeInterval? = nil
     ) {
         self.line = line
@@ -62,8 +91,10 @@ struct KaraokeLineView: View {
         self.writingDirection = writingDirection
         self.timeAt = timeAt
         self.fixedTime = fixedTime
+        self.isPlaybackActive = isPlaybackActive
         self.isAnimationEnabled = isAnimationEnabled
         self.animatesSyllableBounce = animatesSyllableBounce
+        self.isolatesAnimatedProgressFromLayout = isolatesAnimatedProgressFromLayout
         self.deactivationTime = deactivationTime
     }
 
@@ -77,8 +108,10 @@ struct KaraokeLineView: View {
         writingDirection: LyricWritingDirection = .natural,
         timeAt: @escaping (Date) -> TimeInterval,
         fixedTime: TimeInterval? = nil,
+        isPlaybackActive: Bool = true,
         isAnimationEnabled: Bool = true,
         animatesSyllableBounce: Bool = true,
+        isolatesAnimatedProgressFromLayout: Bool = false,
         deactivationTime: TimeInterval? = nil
     ) {
         self.init(
@@ -91,8 +124,10 @@ struct KaraokeLineView: View {
             writingDirection: writingDirection,
             timeAt: timeAt,
             fixedTime: fixedTime,
+            isPlaybackActive: isPlaybackActive,
             isAnimationEnabled: isAnimationEnabled,
             animatesSyllableBounce: animatesSyllableBounce,
+            isolatesAnimatedProgressFromLayout: isolatesAnimatedProgressFromLayout,
             deactivationTime: deactivationTime
         )
     }
@@ -108,6 +143,7 @@ struct KaraokeLineView: View {
     private static let maskEdgeWidth: Double = 0.12
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var lyricLayoutDirection: LayoutDirection {
         switch writingDirection {
@@ -120,7 +156,28 @@ struct KaraokeLineView: View {
         }
     }
 
+    private var flowMeasurementKey: LyricsFlowMeasurementKey {
+        LyricsFlowMeasurementKey(
+            line: line,
+            fontSize: fontSize,
+            weight: weight,
+            layoutDirection: lyricLayoutDirection
+        )
+    }
+
     var body: some View {
+        Group {
+            if isolatesAnimatedProgressFromLayout {
+                layoutIsolatedBody
+            } else {
+                layoutDrivenBody
+            }
+        }
+        .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+
+    @ViewBuilder
+    private var layoutDrivenBody: some View {
         Group {
             if let fixedTime {
                 if isAnimationEnabled {
@@ -140,7 +197,24 @@ struct KaraokeLineView: View {
                 }
             }
         }
-        .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+
+    @ViewBuilder
+    private var layoutIsolatedBody: some View {
+        let plan = KaraokeTimelineUpdatePolicy.plan(
+            isLineActive: isAnimationEnabled,
+            isPlaybackActive: isPlaybackActive,
+            hasFixedPlaybackTime: fixedTime != nil,
+            reduceMotion: reduceMotion
+        )
+
+        if plan.rendersSyllableProgress,
+           let syllables = line.syllables,
+           !syllables.isEmpty {
+            layoutIsolatedSyllableLine(syllables, plan: plan)
+        } else {
+            renderInactiveLine()
+        }
     }
 
     @ViewBuilder
@@ -176,7 +250,7 @@ struct KaraokeLineView: View {
     private func renderInactiveLine() -> some View {
         if let syllables = line.syllables, !syllables.isEmpty {
             LyricsFlowLayout(
-                measurementKey: fontSize,
+                measurementKey: flowMeasurementKey,
                 layoutDirection: lyricLayoutDirection,
                 textAlignment: textAlignment
             ) {
@@ -198,12 +272,177 @@ struct KaraokeLineView: View {
         }
     }
 
+    private func layoutIsolatedSyllableLine(
+        _ syllables: [LyricSyllable],
+        plan: KaraokeTimelineUpdatePlan
+    ) -> some View {
+        isolatedInactiveSyllableLayer(syllables)
+            .overlay {
+                isolatedActiveSyllableLayer(syllables, plan: plan)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(line.text))
+    }
+
+    private func isolatedInactiveSyllableLayer(
+        _ syllables: [LyricSyllable]
+    ) -> some View {
+        LyricsFlowLayout(
+            measurementKey: flowMeasurementKey,
+            layoutDirection: lyricLayoutDirection,
+            textAlignment: textAlignment
+        ) {
+            ForEach(syllables.indices, id: \.self) { index in
+                Text(syllables[index].text)
+                    .font(.system(size: fontSize, weight: weight))
+                    .foregroundStyle(inactiveColor)
+                    .fixedSize()
+                    .environment(\.layoutDirection, lyricLayoutDirection)
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private func isolatedActiveSyllableLayer(
+        _ syllables: [LyricSyllable],
+        plan: KaraokeTimelineUpdatePlan
+    ) -> some View {
+        Rectangle()
+            .fill(activeStyle)
+            .mask {
+                LyricsFlowLayout(
+                    measurementKey: flowMeasurementKey,
+                    layoutDirection: lyricLayoutDirection,
+                    textAlignment: textAlignment
+                ) {
+                    ForEach(syllables.indices, id: \.self) { index in
+                        Text(syllables[index].text)
+                            .font(.system(size: fontSize, weight: weight))
+                            .foregroundStyle(.white)
+                            .fixedSize()
+                            .environment(\.layoutDirection, lyricLayoutDirection)
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+            }
+            .mask {
+                if plan.runsTimeline, let minimumInterval = plan.minimumInterval {
+                    TimelineView(.animation(minimumInterval: minimumInterval)) { context in
+                        isolatedProgressMask(
+                            syllables,
+                            at: timeAt(context.date)
+                        )
+                    }
+                } else {
+                    isolatedProgressMask(
+                        syllables,
+                        at: fixedTime ?? timeAt(Date())
+                    )
+                }
+            }
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+    }
+
+    private func isolatedProgressMask(
+        _ syllables: [LyricSyllable],
+        at now: TimeInterval
+    ) -> some View {
+        Canvas { context, size in
+            guard deactivationTime.map({ now < $0 }) ?? true else { return }
+
+            let resolvedSymbols = syllables.indices.map { index in
+                context.resolveSymbol(id: index)
+            }
+            let placements = LyricFlowPlacementPolicy.placements(
+                itemSizes: resolvedSymbols.map { symbol in
+                    guard let symbol else { return LyricFlowItemSize(width: 0, height: 0) }
+                    return LyricFlowItemSize(
+                        width: Double(symbol.size.width),
+                        height: Double(symbol.size.height)
+                    )
+                },
+                containerWidth: Double(size.width),
+                spacing: 0,
+                isRightToLeft: lyricLayoutDirection == .rightToLeft,
+                alignment: flowAlignment
+            )
+
+            for placement in placements {
+                let index = placement.itemIndex
+                guard let symbol = resolvedSymbols[index] else { continue }
+                let frame = CGRect(
+                    x: CGFloat(placement.x),
+                    y: CGFloat(placement.y),
+                    width: symbol.size.width,
+                    height: symbol.size.height
+                )
+                let nextStart = syllables.indices.contains(index + 1)
+                    ? syllables[index + 1].start
+                    : nil
+                let progress = computeSweepProgress(
+                    syl: syllables[index],
+                    nextSyllableStart: nextStart,
+                    now: now
+                )
+                guard progress > 0 else { continue }
+
+                let path = Path(frame)
+                if progress >= 1 {
+                    context.fill(path, with: .color(.white))
+                    continue
+                }
+
+                let half = Self.maskEdgeWidth / 2
+                let leadingEnd = max(0, progress - half)
+                let trailingStart = min(1, progress + half)
+                let gradient = Gradient(stops: [
+                    .init(color: .white, location: 0),
+                    .init(color: .white, location: leadingEnd),
+                    .init(color: .clear, location: trailingStart),
+                    .init(color: .clear, location: 1),
+                ])
+                let startPoint = lyricLayoutDirection == .rightToLeft
+                    ? CGPoint(x: frame.maxX, y: frame.midY)
+                    : CGPoint(x: frame.minX, y: frame.midY)
+                let endPoint = lyricLayoutDirection == .rightToLeft
+                    ? CGPoint(x: frame.minX, y: frame.midY)
+                    : CGPoint(x: frame.maxX, y: frame.midY)
+                context.fill(
+                    path,
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: startPoint,
+                        endPoint: endPoint
+                    )
+                )
+            }
+        } symbols: {
+            ForEach(syllables.indices, id: \.self) { index in
+                Text(syllables[index].text)
+                    .font(.system(size: fontSize, weight: weight))
+                    .foregroundStyle(.white)
+                    .fixedSize()
+                    .environment(\.layoutDirection, lyricLayoutDirection)
+                    .tag(index)
+            }
+        }
+    }
+
+    private var flowAlignment: LyricFlowHorizontalAlignment {
+        switch textAlignment {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
     private func inactiveSyllableLayer(
         _ syllables: [LyricSyllable],
         at now: TimeInterval
     ) -> some View {
         LyricsFlowLayout(
-            measurementKey: fontSize,
+            measurementKey: flowMeasurementKey,
             layoutDirection: lyricLayoutDirection,
             textAlignment: textAlignment
         ) {
@@ -228,7 +467,7 @@ struct KaraokeLineView: View {
         at now: TimeInterval
     ) -> some View {
         LyricsFlowLayout(
-            measurementKey: fontSize,
+            measurementKey: flowMeasurementKey,
             layoutDirection: lyricLayoutDirection,
             textAlignment: textAlignment
         ) {
@@ -389,13 +628,23 @@ struct KaraokeLineView: View {
 /// 所以放大不会让布局抖动。
 struct LyricsFlowLayout: Layout {
     var spacing: CGFloat = 0
-    var measurementKey: CGFloat = 0
+    var measurementKey = LyricsFlowMeasurementKey()
     var layoutDirection: LayoutDirection = .leftToRight
     var textAlignment: TextAlignment = .leading
 
+    struct PlacementCacheKey: Equatable {
+        let sizes: [CGSize]
+        let containerWidth: CGFloat
+        let spacing: CGFloat
+        let layoutDirection: LayoutDirection
+        let textAlignment: TextAlignment
+    }
+
     struct Cache {
         var sizes: [CGSize] = []
-        var measurementKey: CGFloat = 0
+        var measurementKey = LyricsFlowMeasurementKey()
+        var placementKey: PlacementCacheKey?
+        var placements: [LyricFlowItemPlacement] = []
     }
 
     func makeCache(subviews: Subviews) -> Cache {
@@ -403,8 +652,13 @@ struct LyricsFlowLayout: Layout {
     }
 
     func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        guard cache.sizes.count != subviews.count || cache.measurementKey != measurementKey else {
+            return
+        }
         cache.sizes = measure(subviews)
         cache.measurementKey = measurementKey
+        cache.placementKey = nil
+        cache.placements = []
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
@@ -431,17 +685,27 @@ struct LyricsFlowLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         ensureMeasurements(in: &cache, subviews: subviews)
-        let placements = LyricFlowPlacementPolicy.placements(
-            itemSizes: cache.sizes.map {
-                LyricFlowItemSize(width: Double($0.width), height: Double($0.height))
-            },
-            containerWidth: Double(bounds.width),
-            spacing: Double(spacing),
-            isRightToLeft: layoutDirection == .rightToLeft,
-            alignment: flowAlignment
+        let placementKey = PlacementCacheKey(
+            sizes: cache.sizes,
+            containerWidth: bounds.width,
+            spacing: spacing,
+            layoutDirection: layoutDirection,
+            textAlignment: textAlignment
         )
+        if cache.placementKey != placementKey {
+            cache.placements = LyricFlowPlacementPolicy.placements(
+                itemSizes: cache.sizes.map {
+                    LyricFlowItemSize(width: Double($0.width), height: Double($0.height))
+                },
+                containerWidth: Double(bounds.width),
+                spacing: Double(spacing),
+                isRightToLeft: layoutDirection == .rightToLeft,
+                alignment: flowAlignment
+            )
+            cache.placementKey = placementKey
+        }
 
-        for placement in placements {
+        for placement in cache.placements {
             let index = subviews.index(subviews.startIndex, offsetBy: placement.itemIndex)
             let view = subviews[index]
             view.place(
@@ -461,6 +725,8 @@ struct LyricsFlowLayout: Layout {
         if cache.sizes.count != subviews.count || cache.measurementKey != measurementKey {
             cache.sizes = measure(subviews)
             cache.measurementKey = measurementKey
+            cache.placementKey = nil
+            cache.placements = []
         }
     }
 

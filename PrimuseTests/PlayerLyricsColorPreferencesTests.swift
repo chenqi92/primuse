@@ -108,7 +108,8 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             inactiveColor: .clear,
             timeAt: { _ in 2 },
             fixedTime: 2,
-            animatesSyllableBounce: false
+            animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true
         )
         .frame(width: 360, height: 90, alignment: .leading)
 
@@ -138,7 +139,8 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             inactiveColor: .clear,
             timeAt: { _ in 0 },
             fixedTime: 0,
-            animatesSyllableBounce: false
+            animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true
         )
         .frame(width: 240, height: 90, alignment: .leading)
         let afterStart = KaraokeLineView(
@@ -149,7 +151,8 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             inactiveColor: .clear,
             timeAt: { _ in 3.1 },
             fixedTime: 3.1,
-            animatesSyllableBounce: false
+            animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true
         )
         .frame(width: 240, height: 90, alignment: .leading)
 
@@ -186,7 +189,8 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             timeAt: { _ in 0 },
             fixedTime: 0,
             isAnimationEnabled: false,
-            animatesSyllableBounce: false
+            animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true
         )
         .frame(width: 620, height: 90)
 
@@ -233,7 +237,8 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             writingDirection: .rightToLeft,
             timeAt: { _ in 10 },
             fixedTime: 10,
-            animatesSyllableBounce: false
+            animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true
         )
         .frame(width: 330, height: 150, alignment: .top)
         let inactive = KaraokeLineView(
@@ -246,7 +251,8 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             timeAt: { _ in 10 },
             fixedTime: 10,
             isAnimationEnabled: false,
-            animatesSyllableBounce: false
+            animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true
         )
         .frame(width: 330, height: 150, alignment: .top)
 
