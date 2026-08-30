@@ -676,10 +676,7 @@ private struct MacSTIntelligenceView: View {
             statusCard
             primuseRelaySection
 
-            MacSTSection(
-                String(localized: "ai_capability_section"),
-                hint: String(localized: "ai_capabilities_footer")
-            ) {
+            MacSTSection(String(localized: "ai_capability_section")) {
                 MacSTGroup {
                     MacSTRow(
                         String(localized: "ai_enable_semantic_search"),
@@ -700,7 +697,6 @@ private struct MacSTIntelligenceView: View {
 
             if showsProviderDetails {
             MacSTSection(
-                String(localized: "ai_provider_detail_section"),
                 hint: editor.providerFooterText
             ) {
                 MacSTGroup {
@@ -770,10 +766,7 @@ private struct MacSTIntelligenceView: View {
                 }
             }
 
-            MacSTSection(
-                String(localized: "ai_models_section"),
-                hint: String(localized: "ai_models_footer")
-            ) {
+            MacSTSection(String(localized: "ai_models_section")) {
                 MacSTGroup {
                     MacSTRow(String(localized: "ai_generation_model"), divider: false) {
                         MacAIModelField(
@@ -911,8 +904,7 @@ private struct MacSTIntelligenceView: View {
                     MacSTToggle(isOn: editor.primuseRelayBinding)
                 }
                 MacSTRow(
-                    String(localized: "ai_primuse_relay_test_connection"),
-                    hint: String(localized: "ai_primuse_relay_test_footer")
+                    String(localized: "ai_connection_section")
                 ) {
                     HStack(spacing: 8) {
                         if editor.isTestingPrimuseRelay {
@@ -953,10 +945,7 @@ private struct MacSTIntelligenceView: View {
     }
 
     private var providerDetailToggleSection: some View {
-        MacSTSection(
-            String(localized: "ai_provider_detail_section"),
-            hint: String(localized: "ai_changes_save_automatically")
-        ) {
+        MacSTSection(String(localized: "ai_provider_detail_section")) {
             MacSTGroup {
                 MacSTRow(
                     editor.draftConfiguration.displayName.isEmpty

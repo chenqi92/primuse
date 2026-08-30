@@ -2980,10 +2980,10 @@
 "ai_error_missing_openai_platform_key" = "OpenAI Platform API キーを入力してください。ChatGPT Plus、Pro、Business のサブスクリプションでは汎用 API にアクセスできません。";
 "ai_api_key_stored" = "API キーはキーチェーンに安全に保存されています";
 "ai_delete_current_api_key" = "現在の API キーを削除";
-"ai_provider_footer" = "対応する機能と許可を有効にした場合のみ、現在の検索語、翻訳対象の歌詞、または最小化されたおすすめ情報が送信されます。ライブラリ構成とファイルパスはこのデバイス内に保持されます。曲の音声は、文字起こしを明示的に開始し、別途アップロードを許可した場合のみ送信されます。";
+"ai_provider_footer" = "有効化して許可した機能に必要な最小限の内容だけを送信します。ライブラリ構成とファイルパスは端末内に保持され、音声は明示的に許可した曲の文字起こしでのみ送信されます。";
 "ai_allow_insecure_local_http" = "ローカルネットワーク上のサーバーで HTTP を許可";
 "ai_remote_consent" = "検索内容または翻訳対象の歌詞をスマートサービスへ送信することを許可";
-"ai_privacy_footer" = "API キーはキーチェーンに保存され、iCloud の認証情報同期を有効にするとデバイス間で同期できます。おすすめ情報には候補のメタデータと集計された再生回数のみが含まれ、ファイルパス、完全な履歴、音声は含まれません。暗号化されていない HTTP は、別途有効にした場合に限りローカルネットワークアドレスで使用できます。";
+"ai_privacy_footer" = "API キーはキーチェーンに保存されます。おすすめにファイルパス、完全な再生履歴、音声は含まれず、ローカル HTTP は別途許可が必要です。";
 "ai_enable_recommendations" = "シーン別スマートおすすめ";
 "ai_capabilities_footer" = "検索は説明的な語句を展開し、おすすめは端末内の候補だけを並べ替えます。サービスの失敗でおすすめや再生が止まることはありません。";
 "ai_listening_context_consent" = "最小化した再生傾向と候補情報の送信を許可";
@@ -3064,7 +3064,7 @@
 "ai_save_changes" = "変更を保存";
 "ai_saving_changes" = "変更を保存中…";
 "ai_changes_save_automatically" = "変更は自動的に保存されます。プロバイダーの詳細でアドレス、キー、モデル、接続設定を編集できます。";
-"ai_key_sync_footer" = "設定は iCloud、キーは iCloud キーチェーンで同期されます。接続テストは固定の診断文だけを送信し、コンテンツ共有設定には依存しません。";
+"ai_key_sync_footer" = "設定は iCloud、キーは iCloud キーチェーンで同期されます。接続テストは固定の診断文だけを送信します。";
 "ai_provider_count_format" = "%d 件のサービスを設定済み";
 "ai_provider_editing" = "編集中";
 "ai_edit_provider" = "編集";
@@ -3104,7 +3104,7 @@
 "ai_primuse_relay_enabled" = "内蔵 AI の体験版を使用";
 "ai_primuse_relay_consent_required" = "使用する AI 機能を選び、対応するデータ送信を許可してください";
 "ai_primuse_relay_section" = "内蔵 AI の体験版";
-"ai_primuse_relay_footer" = "内蔵 AI は、独自の AI サービスを設定していない方の体験用です。共有クォータ、上流サービスのレート制限、ネットワーク帯域により、応答の遅延や一時的な利用不能が発生する場合があります。安定した利用には、独自の AI サービスと API キーを追加してください。内蔵 AI は曲から歌詞を生成できません。この機能には対応する Google AI モデルを設定してください。無料試用の提供状況は Google の現行ポリシーに従います。";
+"ai_primuse_relay_footer" = "内蔵 AI は体験用で、共有クォータの制限を受ける場合があります。安定した利用や曲からの歌詞生成には、独自の対応サービスを設定してください。";
 "ai_primuse_relay_unsupported" = "このデバイスでは App Attest を使用して内蔵 AI へのアクセスを検証できません。";
 "ai_primuse_relay_ready" = "内蔵 AI の体験版を利用できます";
 "search_ai_success_format" = "%@ が有効です — %d 件の候補";

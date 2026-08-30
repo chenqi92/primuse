@@ -873,8 +873,8 @@ struct AISettingsView: View {
                     )
                 }
             } else {
-                primuseRelaySection
                 connectionSummary
+                primuseRelaySection
                 capabilitySection
                 providerListSection
                 providerDetailLinkSection
@@ -978,10 +978,7 @@ struct AISettingsView: View {
         } header: {
             Text("ai_primuse_relay_section")
         } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ai_primuse_relay_footer")
-                Text("ai_primuse_relay_test_footer")
-            }
+            Text("ai_primuse_relay_footer")
         }
     }
 
@@ -995,8 +992,6 @@ struct AISettingsView: View {
                 "ai_enable_recommendations",
                 isOn: editor.recommendationsBinding
             )
-        } footer: {
-            Text("ai_capabilities_footer")
         }
     }
 
@@ -1112,8 +1107,6 @@ struct AISettingsView: View {
                     Label("ai_provider_detail_section", systemImage: "slider.horizontal.3")
                 }
             }
-        } footer: {
-            Text("ai_changes_save_automatically")
         }
     }
 
@@ -1173,8 +1166,6 @@ struct AISettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        } header: {
-            Text("ai_provider_detail_section")
         } footer: {
             Text(editor.providerFooterText)
         }
@@ -1215,9 +1206,6 @@ struct AISettingsView: View {
             statusView(onlyModelStatus: true)
         } header: {
             Text("ai_models_section")
-        } footer: {
-            Text(editor.draftConfiguration.supportsEmbeddings
-                 ? "ai_models_footer" : "ai_models_footer_generation_only")
         }
     }
 
@@ -1247,8 +1235,6 @@ struct AISettingsView: View {
             )
         } header: {
             Text("ai_privacy_section")
-        } footer: {
-            Text("ai_key_sync_footer")
         }
     }
 

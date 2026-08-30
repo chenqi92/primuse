@@ -2956,10 +2956,10 @@
 "ai_error_missing_openai_platform_key" = "請輸入 OpenAI Platform API 金鑰。ChatGPT Plus、Pro 或 Business 訂閱不提供一般 API 存取權限。";
 "ai_api_key_stored" = "API 金鑰已安全儲存於鑰匙圈";
 "ai_delete_current_api_key" = "刪除目前的 API 金鑰";
-"ai_provider_footer" = "只有在啟用相應功能並授權後，才會傳送目前搜尋詞、待翻譯歌詞或精簡推薦內容；曲庫結構與檔案路徑保留在此裝置。歌曲音訊只會在主動使用聽歌識詞並另行允許上傳後傳送。";
+"ai_provider_footer" = "只傳送已啟用且已授權功能所需的最少內容；曲庫結構與檔案路徑保留在本機，音訊只會在主動允許聽歌識詞時上傳。";
 "ai_allow_insecure_local_http" = "允許區域網路伺服器使用 HTTP";
 "ai_remote_consent" = "允許向智能服務傳送搜尋內容或待翻譯歌詞";
-"ai_privacy_footer" = "API 金鑰儲存於鑰匙圈；開啟 iCloud 的「憑證」同步後可在裝置間同步。推薦內容只包含候選歌曲中繼資料與彙總播放次數，不包含檔案路徑、完整記錄或音訊。未加密 HTTP 僅可用於區域網路位址，且必須另行啟用。";
+"ai_privacy_footer" = "API 金鑰儲存於鑰匙圈；推薦不會上傳檔案路徑、完整聆聽記錄或音訊。區域網路 HTTP 必須另行允許。";
 "ai_enable_recommendations" = "智能情境推薦";
 "ai_capabilities_footer" = "搜尋會擴充描述性查詢；情境推薦只會重新排列本機候選歌曲。服務失敗不影響本機推薦或播放。";
 "ai_listening_context_consent" = "允許傳送精簡聆聽偏好與候選歌曲資訊";
@@ -3040,7 +3040,7 @@
 "ai_save_changes" = "儲存變更";
 "ai_saving_changes" = "正在儲存變更…";
 "ai_changes_save_automatically" = "所有變更都會自動儲存。進入渠道詳情可修改位址、密鑰、模型和連線設定。";
-"ai_key_sync_footer" = "設定透過 iCloud 同步；啟用憑證同步後，密鑰透過 iCloud 鑰匙圈同步。測試連線只傳送固定診斷文字，與內容分享開關無關。";
+"ai_key_sync_footer" = "設定透過 iCloud 同步，金鑰透過 iCloud 鑰匙圈同步；連線測試只傳送固定診斷文字。";
 "ai_provider_count_format" = "已設定 %d 個服務";
 "ai_provider_editing" = "正在編輯";
 "ai_edit_provider" = "編輯";
@@ -3080,7 +3080,7 @@
 "ai_primuse_relay_enabled" = "使用內建 AI 體驗";
 "ai_primuse_relay_consent_required" = "請選擇需要的 AI 功能，並授予相應的資料傳送權限";
 "ai_primuse_relay_section" = "內建 AI 體驗";
-"ai_primuse_relay_footer" = "內建 AI 主要供尚未設定自有 AI 管道與金鑰的使用者體驗。受共用額度、上游限流與網路頻寬影響，回應可能延遲或暫時無法使用；建議長期使用時自行設定 AI 管道與金鑰。內建 AI 不支援依歌曲生成歌詞；如需此功能，請自行設定支援該能力的 Google AI 模型。Google 免費試用以其現行政策為準。";
+"ai_primuse_relay_footer" = "內建 AI 適合體驗，可能受共用額度限制；需要穩定使用或依歌曲生成歌詞時，請設定自己的相容服務。";
 "ai_primuse_relay_unsupported" = "此裝置無法透過 App Attest 驗證內建 AI 存取。";
 "ai_primuse_relay_ready" = "內建 AI 體驗已就緒";
 "search_ai_success_format" = "%@ 已生效，找到 %d 個智慧配對";

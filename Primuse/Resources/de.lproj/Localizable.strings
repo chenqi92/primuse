@@ -2979,10 +2979,10 @@
 "ai_error_missing_openai_platform_key" = "Gib einen OpenAI-Platform-API-Schlüssel ein. Ein ChatGPT Plus-, Pro- oder Business-Abonnement gewährt keinen allgemeinen API-Zugriff.";
 "ai_api_key_stored" = "Ein API-Schlüssel ist sicher im Schlüsselbund gespeichert";
 "ai_delete_current_api_key" = "Aktuellen API-Schlüssel löschen";
-"ai_provider_footer" = "Nur bei aktivierter Funktion und Zustimmung werden der aktuelle Suchtext, zu übersetzende Liedtexte oder ein minimierter Empfehlungskontext gesendet. Mediathekstruktur und Dateipfade bleiben auf diesem Gerät. Audiodaten werden nur hochgeladen, wenn die Song-Transkription ausdrücklich gestartet und der separate Audio-Upload erlaubt wurde.";
+"ai_provider_footer" = "Nur Inhalte, die aktivierte und autorisierte Funktionen benötigen, werden gesendet. Mediathekstruktur und Dateipfade bleiben auf diesem Gerät; Audio wird nur für ausdrücklich erlaubte Song-Transkription hochgeladen.";
 "ai_allow_insecure_local_http" = "HTTP für Server im lokalen Netzwerk erlauben";
 "ai_remote_consent" = "Senden von Suchinhalten oder zu übersetzenden Liedtexten an intelligente Dienste erlauben";
-"ai_privacy_footer" = "API-Schlüssel werden im Schlüsselbund gespeichert und können bei aktivierter iCloud-Synchronisierung für Zugangsdaten zwischen Geräten synchronisiert werden. Der Empfehlungskontext enthält nur Metadaten der Kandidaten und zusammengefasste Wiedergabezahlen, keine Dateipfade, vollständigen Verläufe oder Audiodaten. Unverschlüsseltes HTTP wird nur für lokale Netzwerkadressen nach separater Aktivierung akzeptiert.";
+"ai_privacy_footer" = "API-Schlüssel bleiben im Schlüsselbund. Empfehlungen enthalten keine Dateipfade, vollständigen Hörverläufe oder Audiodaten; lokales HTTP muss separat erlaubt werden.";
 "ai_enable_recommendations" = "Intelligente Szenenempfehlungen";
 "ai_capabilities_footer" = "Die Suche erweitert beschreibende Anfragen. Empfehlungen ordnen nur lokale Kandidaten neu. Fehler unterbrechen weder lokale Empfehlungen noch die Wiedergabe.";
 "ai_listening_context_consent" = "Minimierte Hörvorlieben und Kandidatendaten senden";
@@ -3063,7 +3063,7 @@
 "ai_save_changes" = "Änderungen sichern";
 "ai_saving_changes" = "Änderungen werden gespeichert…";
 "ai_changes_save_automatically" = "Änderungen werden automatisch gespeichert. In den Anbieterdetails lassen sich Adresse, Schlüssel, Modelle und Verbindung bearbeiten.";
-"ai_key_sync_footer" = "Einstellungen werden über iCloud synchronisiert; Schlüssel über den iCloud-Schlüsselbund. Verbindungstests senden nur einen festen Diagnosetext und sind von Inhaltsfreigaben unabhängig.";
+"ai_key_sync_footer" = "Einstellungen werden über iCloud und Schlüssel über den iCloud-Schlüsselbund synchronisiert. Verbindungstests senden nur einen festen Diagnosetext.";
 "ai_provider_count_format" = "%d Dienste konfiguriert";
 "ai_provider_editing" = "In Bearbeitung";
 "ai_edit_provider" = "Bearbeiten";
@@ -3103,7 +3103,7 @@
 "ai_primuse_relay_enabled" = "Integrierte KI zum Ausprobieren verwenden";
 "ai_primuse_relay_consent_required" = "Wähle die gewünschten KI-Funktionen aus und erteile die entsprechende Datenfreigabe";
 "ai_primuse_relay_section" = "Integrierte KI zum Ausprobieren";
-"ai_primuse_relay_footer" = "Die integrierte KI ist zum Ausprobieren für Personen gedacht, die keinen eigenen KI-Dienst eingerichtet haben. Gemeinsame Kontingente, Begrenzungen der Anbieter und die Netzwerkbandbreite können zu Verzögerungen oder vorübergehender Nichtverfügbarkeit führen. Für eine zuverlässigere Nutzung sollte ein eigener KI-Dienst mit API-Schlüssel hinzugefügt werden. Die integrierte KI kann keine Liedtexte aus einem Song erzeugen; dafür ist ein kompatibles Google-AI-Modell zu konfigurieren. Ein kostenloser Test richtet sich nach den jeweils geltenden Google-Bedingungen.";
+"ai_primuse_relay_footer" = "Die integrierte KI ist zum Ausprobieren gedacht und kann durch gemeinsame Kontingente begrenzt sein. Für zuverlässige Nutzung oder Liedtexterzeugung ist ein eigener kompatibler Dienst erforderlich.";
 "ai_primuse_relay_unsupported" = "Dieses Gerät kann den Zugriff auf die integrierte KI nicht mit App Attest verifizieren.";
 "ai_primuse_relay_ready" = "Die integrierte KI ist einsatzbereit";
 "search_ai_success_format" = "%@ ist aktiv – %d intelligente Treffer";

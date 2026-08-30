@@ -2979,10 +2979,10 @@
 "ai_error_missing_openai_platform_key" = "OpenAI Platform API 키를 입력하세요. ChatGPT Plus, Pro 또는 Business 구독은 범용 API 액세스를 제공하지 않습니다.";
 "ai_api_key_stored" = "API 키가 키체인에 안전하게 저장되어 있음";
 "ai_delete_current_api_key" = "현재 API 키 삭제";
-"ai_provider_footer" = "관련 기능과 권한을 켠 경우에만 현재 검색어, 번역할 가사 또는 최소화된 추천 컨텍스트가 전송됩니다. 보관함 구조와 파일 경로는 이 기기에 남습니다. 곡 오디오는 사용자가 받아쓰기를 직접 시작하고 별도의 업로드 권한을 허용한 경우에만 전송됩니다.";
+"ai_provider_footer" = "활성화하고 허용한 기능에 필요한 최소한의 내용만 전송합니다. 보관함 구조와 파일 경로는 기기에 남고, 오디오는 명시적으로 허용한 곡 받아쓰기에서만 업로드됩니다.";
 "ai_allow_insecure_local_http" = "로컬 네트워크 서버에 HTTP 허용";
 "ai_remote_consent" = "지능형 서비스에 검색 내용 또는 번역할 가사 전송 허용";
-"ai_privacy_footer" = "API 키는 키체인에 저장되며 iCloud 자격 증명 동기화를 켜면 기기 간에 동기화할 수 있습니다. 추천 컨텍스트에는 후보 메타데이터와 집계된 재생 횟수만 포함되며 파일 경로, 전체 기록 또는 오디오는 포함되지 않습니다. 암호화되지 않은 HTTP는 별도로 활성화한 경우 로컬 네트워크 주소에만 허용됩니다.";
+"ai_privacy_footer" = "API 키는 키체인에 저장됩니다. 추천에는 파일 경로, 전체 청취 기록 또는 오디오가 포함되지 않으며 로컬 HTTP는 별도 허용이 필요합니다.";
 "ai_enable_recommendations" = "지능형 상황별 추천";
 "ai_capabilities_footer" = "검색은 설명형 질의를 확장하고 추천은 기기 내 후보만 재정렬합니다. 서비스 오류가 추천이나 재생을 중단하지 않습니다.";
 "ai_listening_context_consent" = "최소화된 감상 선호도와 후보 정보 전송 허용";
@@ -3063,7 +3063,7 @@
 "ai_save_changes" = "변경 사항 저장";
 "ai_saving_changes" = "변경 사항 저장 중…";
 "ai_changes_save_automatically" = "변경 사항은 자동으로 저장됩니다. 제공자 세부 정보에서 주소, 키, 모델 및 연결 설정을 편집할 수 있습니다.";
-"ai_key_sync_footer" = "설정은 iCloud로, 키는 iCloud 키체인으로 동기화됩니다. 연결 테스트는 고정된 진단 문구만 보내며 콘텐츠 공유 스위치와 무관합니다.";
+"ai_key_sync_footer" = "설정은 iCloud로, 키는 iCloud 키체인으로 동기화됩니다. 연결 테스트는 고정된 진단 문구만 전송합니다.";
 "ai_provider_count_format" = "%d개 서비스 구성됨";
 "ai_provider_editing" = "편집 중";
 "ai_edit_provider" = "편집";
@@ -3103,7 +3103,7 @@
 "ai_primuse_relay_enabled" = "내장 AI 체험 사용";
 "ai_primuse_relay_consent_required" = "사용할 AI 기능을 선택하고 해당 데이터 전송 권한을 허용하세요";
 "ai_primuse_relay_section" = "내장 AI 체험";
-"ai_primuse_relay_footer" = "내장 AI는 자체 AI 서비스를 설정하지 않은 사용자가 체험할 수 있도록 제공됩니다. 공유 할당량, 상위 서비스의 요청 제한 및 네트워크 대역폭으로 인해 응답이 지연되거나 일시적으로 사용할 수 없을 수 있습니다. 안정적으로 사용하려면 자체 AI 서비스와 API 키를 추가하세요. 내장 AI는 노래에서 가사를 생성할 수 없습니다. 이 기능에는 호환되는 Google AI 모델을 설정하세요. 무료 체험 제공 여부는 Google의 현재 정책을 따릅니다.";
+"ai_primuse_relay_footer" = "내장 AI는 체험용이며 공유 할당량 제한을 받을 수 있습니다. 안정적인 사용이나 곡에서 가사를 생성하려면 자체 호환 서비스를 설정하세요.";
 "ai_primuse_relay_unsupported" = "이 기기에서는 App Attest로 내장 AI 접근을 확인할 수 없습니다.";
 "ai_primuse_relay_ready" = "내장 AI 체험을 사용할 수 있습니다";
 "search_ai_success_format" = "%@ 활성화됨 — 지능형 일치 항목 %d개";

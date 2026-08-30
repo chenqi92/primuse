@@ -2979,10 +2979,10 @@
 "ai_error_missing_openai_platform_key" = "Saisissez une clé API OpenAI Platform. Un abonnement ChatGPT Plus, Pro ou Business ne donne pas accès à l’API générale.";
 "ai_api_key_stored" = "Une clé API est stockée en sécurité dans le trousseau";
 "ai_delete_current_api_key" = "Supprimer la clé API actuelle";
-"ai_provider_footer" = "Lorsque la fonction et l’autorisation correspondantes sont activées, seuls le texte de recherche actuel, les paroles à traduire ou un contexte de recommandation réduit sont envoyés. La structure de la bibliothèque et les chemins de fichiers restent sur cet appareil. L’audio n’est envoyé que lorsque vous lancez explicitement la transcription et autorisez séparément son téléversement.";
+"ai_provider_footer" = "Seul le contenu requis par les fonctions activées et autorisées est envoyé. La structure de la bibliothèque et les chemins restent sur cet appareil ; l’audio n’est transmis que pour une transcription explicitement autorisée.";
 "ai_allow_insecure_local_http" = "Autoriser HTTP pour les serveurs du réseau local";
 "ai_remote_consent" = "Autoriser l’envoi des recherches ou des paroles à traduire aux services intelligents";
-"ai_privacy_footer" = "Les clés API sont stockées dans le trousseau et peuvent être synchronisées entre les appareils lorsque la synchronisation iCloud des identifiants est activée. Le contexte de recommandation contient uniquement les métadonnées des candidats et des nombres d’écoutes agrégés, sans chemins de fichiers, historique complet ni audio. HTTP non chiffré n’est accepté que pour les adresses du réseau local, après activation séparée.";
+"ai_privacy_footer" = "Les clés API restent dans le trousseau. Les recommandations n’incluent ni chemins de fichiers, ni historique complet, ni audio ; le HTTP local exige une autorisation distincte.";
 "ai_enable_recommendations" = "Recommandations intelligentes par situation";
 "ai_capabilities_footer" = "La recherche développe les requêtes descriptives. Les recommandations ne font que réordonner les candidats locaux. Un échec n’interrompt ni les recommandations locales ni la lecture.";
 "ai_listening_context_consent" = "Autoriser l’envoi de préférences d’écoute réduites et des candidats";
@@ -3063,7 +3063,7 @@
 "ai_save_changes" = "Enregistrer";
 "ai_saving_changes" = "Enregistrement des modifications…";
 "ai_changes_save_automatically" = "Les modifications sont enregistrées automatiquement. Ouvrez les détails du fournisseur pour modifier l’adresse, la clé, les modèles et la connexion.";
-"ai_key_sync_footer" = "Les réglages sont synchronisés via iCloud et les clés via le trousseau iCloud. Le test de connexion envoie uniquement une phrase de diagnostic fixe, indépendamment du partage de contenu.";
+"ai_key_sync_footer" = "Les réglages sont synchronisés via iCloud et les clés via le trousseau iCloud. Le test de connexion envoie uniquement une phrase de diagnostic fixe.";
 "ai_provider_count_format" = "%d services configurés";
 "ai_provider_editing" = "En cours d’édition";
 "ai_edit_provider" = "Modifier";
@@ -3103,7 +3103,7 @@
 "ai_primuse_relay_enabled" = "Utiliser l’expérience d’IA intégrée";
 "ai_primuse_relay_consent_required" = "Choisissez les fonctions d’IA souhaitées et accordez l’autorisation d’envoyer les données correspondantes";
 "ai_primuse_relay_section" = "Expérience d’IA intégrée";
-"ai_primuse_relay_footer" = "L’IA intégrée sert principalement d’essai aux personnes qui n’ont pas configuré leur propre service d’IA. Les quotas partagés, les limitations des fournisseurs et la bande passante peuvent entraîner des délais ou une indisponibilité temporaire. Pour une utilisation plus fiable, ajoutez votre propre service d’IA et votre clé API. L’IA intégrée ne peut pas générer les paroles d’un morceau ; configurez un modèle Google AI compatible pour cette fonction. La disponibilité d’un essai gratuit dépend de la politique actuelle de Google.";
+"ai_primuse_relay_footer" = "L’IA intégrée sert à l’essai et peut être limitée par des quotas partagés. Pour un usage fiable ou la génération de paroles, configurez votre propre service compatible.";
 "ai_primuse_relay_unsupported" = "Cet appareil ne peut pas vérifier l’accès à l’IA intégrée avec App Attest.";
 "ai_primuse_relay_ready" = "L’expérience d’IA intégrée est prête";
 "search_ai_success_format" = "%@ est actif — %d correspondances intelligentes";

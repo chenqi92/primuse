@@ -2766,10 +2766,10 @@
 "ai_error_missing_openai_platform_key" = "Enter an OpenAI Platform API key. A ChatGPT Plus, Pro, or Business subscription does not provide general API access.";
 "ai_api_key_stored" = "An API key is stored securely in Keychain";
 "ai_delete_current_api_key" = "Delete Current API Key";
-"ai_provider_footer" = "With the related feature and permission enabled, only current search text, lyrics awaiting translation, or a minimized recommendation context is sent. Library structure and file paths stay on this device. Song audio is uploaded only when you explicitly start song transcription and separately allow audio uploads.";
+"ai_provider_footer" = "Only content required by enabled, authorized features is sent. Library structure and file paths stay on this device; audio is uploaded only for explicitly approved song transcription.";
 "ai_allow_insecure_local_http" = "Allow HTTP for local network servers";
 "ai_remote_consent" = "Allow sending search content or lyrics awaiting translation to intelligence services";
-"ai_privacy_footer" = "API keys are stored in Keychain and can sync between devices when iCloud Credentials sync is enabled. Recommendation context contains only candidate metadata and aggregate play counts—not file paths, complete history, or audio. Unencrypted HTTP is accepted only for local network addresses when separately enabled.";
+"ai_privacy_footer" = "API keys stay in Keychain. Recommendations never include file paths, complete listening history, or audio; local HTTP requires separate approval.";
 "ai_enable_recommendations" = "Intelligent scene recommendations";
 "ai_capabilities_footer" = "Search expands descriptive queries. Recommendations only reorder local candidates. A service failure never interrupts local recommendations or playback.";
 "ai_listening_context_consent" = "Allow sending minimized listening preferences and candidate details";
@@ -2850,7 +2850,7 @@
 "ai_save_changes" = "Save Changes";
 "ai_saving_changes" = "Saving changes…";
 "ai_changes_save_automatically" = "Changes are saved automatically. Open provider details to edit its address, key, models, and connection settings.";
-"ai_key_sync_footer" = "Settings sync through iCloud. Keys sync through iCloud Keychain when credential sync is enabled. Connection tests send only a fixed diagnostic phrase and do not depend on content-sharing switches.";
+"ai_key_sync_footer" = "Settings sync through iCloud and keys through iCloud Keychain. Connection tests send only a fixed diagnostic phrase.";
 "ai_provider_count_format" = "%d services configured";
 "ai_provider_editing" = "Editing";
 "ai_edit_provider" = "Edit";
@@ -2890,7 +2890,7 @@
 "ai_primuse_relay_enabled" = "Use built-in AI experience";
 "ai_primuse_relay_consent_required" = "Choose the AI features you want and grant the corresponding data permission";
 "ai_primuse_relay_section" = "Built-in AI experience";
-"ai_primuse_relay_footer" = "Built-in AI is intended as a trial for people who haven't configured their own AI service. Shared quotas, upstream rate limits, and bandwidth may cause delays or temporary unavailability. For more reliable use, add your own AI service and API key. Built-in AI can't generate lyrics from a song; configure a compatible Google AI model for that feature. Free trial availability is subject to Google's current policy.";
+"ai_primuse_relay_footer" = "Built-in AI is for trial use and may be limited by shared quotas. For reliable use or song-to-lyrics generation, configure your own compatible service.";
 "ai_primuse_relay_unsupported" = "This device can't verify access to built-in AI with App Attest.";
 "ai_primuse_relay_ready" = "Built-in AI experience is ready";
 "search_ai_success_format" = "%@ is active — %d intelligent matches found";
