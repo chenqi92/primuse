@@ -635,18 +635,22 @@
 "ext.tv.settings.intelligence.setup" = "プロバイダーを設定";
 "ext.tv.search.aiLoading" = "関連する概念を検索しています…";
 "ext.tv.search.aiReason" = "「%@」に関連";
-"ai_recommendation_intent_rightNow" = "今この瞬間";
-"ai_recommendation_intent_rightNow_detail" = "時刻と再生傾向から選択";
-"ai_recommendation_intent_nostalgia" = "郷愁";
-"ai_recommendation_intent_nostalgia_detail" = "故郷、記憶、遠い場所";
-"ai_recommendation_intent_unrequitedLove" = "届かない恋";
-"ai_recommendation_intent_unrequitedLove_detail" = "静かでほろ苦い想い";
-"ai_recommendation_intent_nightDrive" = "夜のドライブ";
-"ai_recommendation_intent_nightDrive_detail" = "流れ、疾走感、ネオン";
-"ai_recommendation_intent_quietFocus" = "静かな集中";
-"ai_recommendation_intent_quietFocus_detail" = "落ち着いた低刺激の流れ";
-"ai_recommendation_intent_rainySolitude" = "雨の日のひとり時間";
-"ai_recommendation_intent_rainySolitude_detail" = "静けさ、距離感、内省";
+"ai_recommendation_intent_rightNow" = "追加の選曲方針なし";
+"ai_recommendation_intent_rightNow_detail" = "追加の AI プロンプトを使わず、状況と再生履歴をもとに選曲";
+"ai_recommendation_intent_description_label" = "選曲方針の説明";
+"ai_recommendation_intent_prompt_label" = "AI プロンプト";
+"ai_recommendation_presets_restore" = "内蔵の選曲方針を復元";
+"ai_recommendation_custom_remove" = "方針を削除";
+"ai_recommendation_intent_familiarContinuity" = "聴き慣れた流れ";
+"ai_recommendation_intent_familiarContinuity_detail" = "よく聴くアーティストと馴染みのジャンルに近い選曲";
+"ai_recommendation_intent_adjacentDiscovery" = "似たスタイルの発見";
+"ai_recommendation_intent_adjacentDiscovery_detail" = "馴染みのスタイルから別のアーティストを発見";
+"ai_recommendation_intent_genreExploration" = "ジャンル探索";
+"ai_recommendation_intent_genreExploration_detail" = "聴き慣れたスタイルを越えてジャンルの幅を広げる";
+"ai_recommendation_intent_catalogRewind" = "年代を振り返る";
+"ai_recommendation_intent_catalogRewind_detail" = "ライブラリ内のリリース年が古い作品を優先";
+"ai_recommendation_intent_recentCatalog" = "近年の作品";
+"ai_recommendation_intent_recentCatalog_detail" = "ライブラリ内のリリース年が新しい作品を優先";
 
 // Shared labels used through PMString by extension targets
 "ai_provider_default_name" = "OpenAI 互換サービス";

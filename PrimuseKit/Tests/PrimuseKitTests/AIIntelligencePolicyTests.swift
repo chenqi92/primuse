@@ -938,7 +938,8 @@ struct AIRecommendationPolicyTests {
                 AIRecommendationCandidate(songID: "one", title: "One", artist: "A"),
                 AIRecommendationCandidate(songID: "two", title: "Two", artist: "B"),
             ],
-            maximumResults: 2
+            maximumResults: 2,
+            minimumResults: 1
         )
         let plan = AIRecommendationPlan(
             summary: String(repeating: "s", count: 240),
@@ -1215,6 +1216,25 @@ struct AIRequestLimitPolicyTests {
 
 @Suite("AI semantic search plan")
 struct AISemanticSearchPlanTests {
+    @Test func recommendationIntentCatalogUsesStableProductOrder() {
+        #expect(AIRecommendationIntentPreset.balanced.rawValue == "rightNow")
+        #expect(AIRecommendationIntentPreset.allCases == [
+            .balanced,
+            .familiarContinuity,
+            .adjacentDiscovery,
+            .genreExploration,
+            .catalogRewind,
+            .recentCatalog,
+        ])
+        #expect(AIRecommendationIntentPreset.userManagedCases == [
+            .familiarContinuity,
+            .adjacentDiscovery,
+            .genreExploration,
+            .catalogRewind,
+            .recentCatalog,
+        ])
+    }
+
     @Test func recommendationIntentPresetsResolveLocalizedLabels() {
         for preset in AIRecommendationIntentPreset.allCases {
             #expect(!preset.localizedTitle.isEmpty)
@@ -1227,17 +1247,135 @@ struct AISemanticSearchPlanTests {
         }
     }
 
+    @Test func recommendationIntentPresetsHaveDistinctBoundedSemantics() {
+        let presets = AIRecommendationIntentPreset.allCases
+        let semanticIntents = presets.dropFirst().compactMap(\.semanticIntent)
+
+        #expect(presets.first == .balanced)
+        #expect(AIRecommendationIntentPreset.balanced.semanticIntent == nil)
+        #expect(semanticIntents.count == presets.count - 1)
+        #expect(semanticIntents.allSatisfy {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && $0.count <= 160
+        })
+        #expect(Set(semanticIntents).count == semanticIntents.count)
+    }
+
+    @Test func recommendationIntentSelectionMigratesLegacyPresets() {
+        #expect(
+            AIRecommendationIntentSelectionPolicy.defaultSelectionID
+                == "preset:rightNow"
+        )
+        #expect(
+            AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                AIRecommendationIntentSelectionPolicy.defaultSelectionID
+            ) == AIRecommendationIntentSelectionPolicy.defaultSelectionID
+        )
+
+        for legacySelectionID in [
+            "preset:nostalgia",
+            "preset:unrequitedLove",
+            "preset:nightDrive",
+            "preset:quietFocus",
+            "preset:rainySolitude",
+        ] {
+            #expect(
+                AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                    legacySelectionID
+                ) == AIRecommendationIntentSelectionPolicy.defaultSelectionID
+            )
+        }
+    }
+
+    @Test func recommendationIntentSelectionPreservesCustomIDs() {
+        for customSelectionID in [
+            "custom:00000000-0000-0000-0000-000000000001",
+            "custom:instrumental-focus",
+        ] {
+            #expect(
+                AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                    customSelectionID
+                ) == customSelectionID
+            )
+        }
+    }
+
+    @Test func recommendationIntentSelectionDropsUnavailableKnownIDs() {
+        let availableCustomID = "custom:00000000-0000-0000-0000-000000000001"
+        let availableIDs = Set([
+            AIRecommendationIntentSelectionPolicy.defaultSelectionID,
+            availableCustomID,
+        ])
+
+        #expect(
+            AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                availableCustomID,
+                availableSelectionIDs: availableIDs
+            ) == availableCustomID
+        )
+        #expect(
+            AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                "custom:missing",
+                availableSelectionIDs: availableIDs
+            ) == AIRecommendationIntentSelectionPolicy.defaultSelectionID
+        )
+        #expect(
+            AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                AIRecommendationIntentPreset.genreExploration.selectionID,
+                availableSelectionIDs: availableIDs
+            ) == AIRecommendationIntentSelectionPolicy.defaultSelectionID
+        )
+        #expect(
+            AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+                "preset:futureFocus",
+                availableSelectionIDs: availableIDs
+            ) == "preset:futureFocus"
+        )
+    }
+
+    @Test func recommendationPresetVisibilityPersistsExplicitDeletion() {
+        let allVisible = AIRecommendationIntentPresetVisibilityPolicy.visiblePresets("")
+        #expect(allVisible == AIRecommendationIntentPreset.userManagedCases)
+
+        let hiddenRawValue = AIRecommendationIntentPresetVisibilityPolicy.hiding(
+            .genreExploration,
+            in: "unknown,rightNow"
+        )
+        #expect(hiddenRawValue == "genreExploration")
+        #expect(
+            AIRecommendationIntentPresetVisibilityPolicy.hiddenPresets(hiddenRawValue)
+                == [.genreExploration]
+        )
+        #expect(
+            AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(hiddenRawValue)
+                == [
+                    .familiarContinuity,
+                    .adjacentDiscovery,
+                    .catalogRewind,
+                    .recentCatalog,
+                ]
+        )
+        #expect(AIRecommendationIntentPresetVisibilityPolicy.restoringAll().isEmpty)
+    }
+
     @Test func normalizationRemovesDuplicatesOriginalAndUnsafeLengths() {
-        let request = AISemanticSearchRequest(query: "乡愁", maximumExpansionTerms: 3)
+        let request = AISemanticSearchRequest(query: "钢琴独奏", maximumExpansionTerms: 3)
         let plan = AISemanticSearchPlan(
-            expandedTerms: ["故乡", " 故乡 ", "乡愁", "归途", "离别", String(repeating: "a", count: 49)],
-            themes: ["思乡", "思乡"],
-            moods: ["怀念\n安静"]
+            expandedTerms: [
+                "纯音乐",
+                " 纯音乐 ",
+                "钢琴独奏",
+                "古典钢琴",
+                "无歌词",
+                String(repeating: "a", count: 49),
+            ],
+            themes: ["器乐", "器乐"],
+            moods: ["专注\n平静"]
         ).normalized(for: request)
 
-        #expect(plan.expandedTerms == ["故乡", "归途", "离别"])
-        #expect(plan.themes == ["思乡"])
-        #expect(plan.moods == ["怀念 安静"])
+        #expect(plan.expandedTerms == ["纯音乐", "古典钢琴", "无歌词"])
+        #expect(plan.themes == ["器乐"])
+        #expect(plan.moods == ["专注 平静"])
     }
 
     @Test func semanticLibraryConceptsAreDeduplicatedAndLimitedToEight() {

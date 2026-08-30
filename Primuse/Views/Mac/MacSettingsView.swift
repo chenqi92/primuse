@@ -4417,8 +4417,14 @@ private struct MacSTThemeView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customRecommendationIntentsRawValue = ""
+    @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
+    private var hiddenRecommendationPresetsRawValue = ""
+    @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
+    private var selectedRecommendationIntentID =
+        AIRecommendationIntentSelectionPolicy.defaultSelectionID
     @State private var customRecommendationIntentTitle = ""
     @State private var customRecommendationIntentPrompt = ""
+    @State private var inspectedRecommendationIntent: AIRecommendationIntentDetails?
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -4499,6 +4505,12 @@ private struct MacSTThemeView: View {
 
     private var customRecommendationIntents: [AICustomRecommendationIntent] {
         AIRecommendationIntentStoragePolicy.decode(customRecommendationIntentsRawValue)
+    }
+
+    private var visibleRecommendationPresets: [AIRecommendationIntentPreset] {
+        AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(
+            hiddenRecommendationPresetsRawValue
+        )
     }
 
     var body: some View {
@@ -4762,37 +4774,63 @@ private struct MacSTThemeView: View {
                     block: true
                 ) {
                     VStack(alignment: .leading, spacing: 12) {
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 112), spacing: 8)],
-                            alignment: .leading,
-                            spacing: 8
-                        ) {
-                            ForEach(AIRecommendationIntentPreset.allCases, id: \.self) { preset in
-                                Text(verbatim: preset.localizedTitle)
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                    .foregroundStyle(PMColor.brand)
-                                    .padding(.horizontal, 10)
-                                    .frame(height: 26)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(
-                                        PMColor.brand.opacity(0.12),
-                                        in: Capsule()
-                                    )
+                        ForEach(visibleRecommendationPresets, id: \.self) { preset in
+                            HStack(alignment: .center, spacing: 10) {
+                                Button {
+                                    inspectedRecommendationIntent = preset.intentDetails
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(verbatim: preset.localizedTitle)
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(PMColor.text)
+                                            Text(verbatim: preset.localizedDetail)
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(PMColor.textMuted)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 12)
+                                        Image(systemName: "info.circle")
+                                            .foregroundStyle(PMColor.textMuted)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                MacSTButton(
+                                    title: String(localized: "ai_recommendation_custom_remove"),
+                                    systemImage: "trash",
+                                    destructive: true
+                                ) {
+                                    removeRecommendationPreset(preset)
+                                }
                             }
+                            .padding(.vertical, 2)
                         }
 
                         ForEach(customRecommendationIntents) { intent in
                             HStack(alignment: .top, spacing: 10) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(verbatim: intent.title)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(PMColor.text)
-                                    Text(verbatim: intent.prompt)
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(PMColor.textMuted)
-                                        .lineLimit(2)
+                                Button {
+                                    inspectedRecommendationIntent = intent.intentDetails
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(verbatim: intent.title)
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(PMColor.text)
+                                            Text(verbatim: intent.prompt)
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(PMColor.textMuted)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 12)
+                                        Image(systemName: "info.circle")
+                                            .foregroundStyle(PMColor.textMuted)
+                                    }
+                                    .contentShape(Rectangle())
                                 }
-                                Spacer(minLength: 12)
+                                .buttonStyle(.plain)
+
                                 MacSTButton(
                                     title: String(localized: "ai_recommendation_custom_remove"),
                                     systemImage: "trash",
@@ -4802,6 +4840,16 @@ private struct MacSTThemeView: View {
                                 }
                             }
                             .padding(.vertical, 2)
+                        }
+
+                        if !AIRecommendationIntentPresetVisibilityPolicy
+                            .hiddenPresets(hiddenRecommendationPresetsRawValue).isEmpty {
+                            MacSTButton(
+                                title: String(localized: "ai_recommendation_presets_restore"),
+                                systemImage: "arrow.counterclockwise"
+                            ) {
+                                restoreRecommendationPresets()
+                            }
                         }
 
                         HStack(spacing: 8) {
@@ -4827,6 +4875,9 @@ private struct MacSTThemeView: View {
                     }
                 }
             }
+        }
+        .sheet(item: $inspectedRecommendationIntent) { details in
+            MacAIRecommendationIntentDetailSheet(details: details)
         }
     }
 
@@ -4860,6 +4911,26 @@ private struct MacSTThemeView: View {
         librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
     }
 
+    private func removeRecommendationPreset(_ preset: AIRecommendationIntentPreset) {
+        hiddenRecommendationPresetsRawValue =
+            AIRecommendationIntentPresetVisibilityPolicy.hiding(
+                preset,
+                in: hiddenRecommendationPresetsRawValue
+            )
+        CloudKVSSync.shared.markChanged(
+            key: AIRecommendationIntentPresetVisibilityPolicy.storageKey
+        )
+        resetRecommendationSelectionIfNeeded(removing: preset.selectionID)
+    }
+
+    private func restoreRecommendationPresets() {
+        hiddenRecommendationPresetsRawValue =
+            AIRecommendationIntentPresetVisibilityPolicy.restoringAll()
+        CloudKVSSync.shared.markChanged(
+            key: AIRecommendationIntentPresetVisibilityPolicy.storageKey
+        )
+    }
+
     private var canAddCustomRecommendationIntent: Bool {
         customRecommendationIntents.count
             < AIRecommendationIntentStoragePolicy.maximumCustomIntents
@@ -4888,6 +4959,59 @@ private struct MacSTThemeView: View {
             customRecommendationIntents.filter { $0.id != id }
         )
         CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
+        resetRecommendationSelectionIfNeeded(removing: "custom:\(id.uuidString)")
+    }
+
+    private func resetRecommendationSelectionIfNeeded(removing selectionID: String) {
+        guard selectedRecommendationIntentID == selectionID else { return }
+        selectedRecommendationIntentID = AIRecommendationIntentSelectionPolicy.defaultSelectionID
+        CloudKVSSync.shared.markChanged(
+            key: AIRecommendationIntentSelectionPolicy.storageKey
+        )
+    }
+}
+
+private struct MacAIRecommendationIntentDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let details: AIRecommendationIntentDetails
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(verbatim: details.title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                MacSTButton(title: String(localized: "done")) { dismiss() }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ai_recommendation_intent_description_label")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                Text(verbatim: details.detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.text)
+                    .textSelection(.enabled)
+            }
+
+            if let prompt = details.prompt {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ai_recommendation_intent_prompt_label")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                    Text(verbatim: prompt)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(PMColor.text)
+                        .textSelection(.enabled)
+                }
+                .padding(12)
+                .background(PMColor.bg, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+        .background(PMColor.bgElev)
     }
 }
 

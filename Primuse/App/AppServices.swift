@@ -744,6 +744,7 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
         _ = ArtistNameSettingsStore.shared
 

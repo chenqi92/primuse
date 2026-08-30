@@ -7,10 +7,17 @@ private struct AIRecommendationIntentChoice: Identifiable, Hashable {
     var detail: String
     var semanticIntent: String?
 
-    static func all(customRawValue: String) -> [AIRecommendationIntentChoice] {
-        let presets = AIRecommendationIntentPreset.allCases.map { preset in
+    static func all(
+        customRawValue: String,
+        hiddenPresetsRawValue: String
+    ) -> [AIRecommendationIntentChoice] {
+        let visiblePresets = [AIRecommendationIntentPreset.balanced]
+            + AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(
+                hiddenPresetsRawValue
+            )
+        let presets = visiblePresets.map { preset in
             AIRecommendationIntentChoice(
-                id: "preset:\(preset.rawValue)",
+                id: preset.selectionID,
                 title: preset.localizedTitle,
                 detail: preset.localizedDetail,
                 semanticIntent: preset.semanticIntent
@@ -18,7 +25,7 @@ private struct AIRecommendationIntentChoice: Identifiable, Hashable {
         }
         let custom = AIRecommendationIntentStoragePolicy.decode(customRawValue).map { intent in
             AIRecommendationIntentChoice(
-                id: "custom:\(intent.id.uuidString)",
+                id: intent.selectionID,
                 title: intent.title,
                 detail: intent.prompt,
                 semanticIntent: intent.prompt
@@ -42,8 +49,10 @@ struct AIRecommendationLibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customIntentsRawValue = ""
-    @AppStorage("primuse.ai.recommendationIntent.selected.v1")
-    private var selectedIntentID = "preset:rightNow"
+    @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
+    private var hiddenPresetsRawValue = ""
+    @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
+    private var selectedIntentID = AIRecommendationIntentSelectionPolicy.defaultSelectionID
     @AppStorage("primuse.ai.recommendationScene.v1")
     private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
 
@@ -56,11 +65,21 @@ struct AIRecommendationLibraryView: View {
     @State private var preparedLocalContentRevision: String?
 
     private var intentChoices: [AIRecommendationIntentChoice] {
-        AIRecommendationIntentChoice.all(customRawValue: customIntentsRawValue)
+        AIRecommendationIntentChoice.all(
+            customRawValue: customIntentsRawValue,
+            hiddenPresetsRawValue: hiddenPresetsRawValue
+        )
+    }
+
+    private var effectiveSelectedIntentID: String {
+        AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+            selectedIntentID,
+            availableSelectionIDs: Set(intentChoices.map(\.id))
+        )
     }
 
     private var selectedIntent: AIRecommendationIntentChoice {
-        intentChoices.first { $0.id == selectedIntentID }
+        intentChoices.first { $0.id == effectiveSelectedIntentID }
             ?? intentChoices[0]
     }
 
@@ -87,6 +106,7 @@ struct AIRecommendationLibraryView: View {
             recommendationSceneRawValue,
             selectedIntent.id,
             customIntentsRawValue,
+            hiddenPresetsRawValue,
             String(library.visibleSongCollectionRevision),
             library.songReplacementToken.uuidString,
             String(intelligence.settingsStore.revision),
@@ -133,6 +153,10 @@ struct AIRecommendationLibraryView: View {
         #if os(macOS)
         .background(PMColor.bg.ignoresSafeArea())
         #endif
+        .onAppear(perform: normalizeIntentSelectionIfNeeded)
+        .onChange(of: selectedIntentID) { _, _ in
+            normalizeIntentSelectionIfNeeded()
+        }
         .task(id: refreshState) {
             guard refreshState.shouldRefresh else { return }
             await refresh()
@@ -141,12 +165,10 @@ struct AIRecommendationLibraryView: View {
             historyRevision &+= 1
         }
         .onChange(of: customIntentsRawValue) { _, _ in
-            if !intentChoices.contains(where: { $0.id == selectedIntentID }) {
-                selectedIntentID = "preset:rightNow"
-                CloudKVSSync.shared.markChanged(
-                    key: CloudKVSKey.aiRecommendationSelectedIntent
-                )
-            }
+            normalizeIntentSelectionIfNeeded()
+        }
+        .onChange(of: hiddenPresetsRawValue) { _, _ in
+            normalizeIntentSelectionIfNeeded()
         }
     }
 
@@ -203,34 +225,41 @@ struct AIRecommendationLibraryView: View {
                 Spacer()
                 Menu {
                     Button {
-                        selectIntent("preset:rightNow")
+                        selectIntent(AIRecommendationIntentSelectionPolicy.defaultSelectionID)
                     } label: {
-                        if selectedIntentID == "preset:rightNow" {
+                        if effectiveSelectedIntentID
+                            == AIRecommendationIntentSelectionPolicy.defaultSelectionID {
                             Label("library_recommendations_theme_none", systemImage: "checkmark")
                         } else {
                             Text("library_recommendations_theme_none")
                         }
                     }
-                    Divider()
-                    ForEach(intentChoices.filter { $0.id != "preset:rightNow" }) { choice in
-                        Button {
-                            selectIntent(choice.id)
-                        } label: {
-                            if selectedIntentID == choice.id {
-                                Label {
+                    let selectableChoices = intentChoices.filter {
+                        $0.id != AIRecommendationIntentSelectionPolicy.defaultSelectionID
+                    }
+                    if !selectableChoices.isEmpty {
+                        Divider()
+                        ForEach(selectableChoices) { choice in
+                            Button {
+                                selectIntent(choice.id)
+                            } label: {
+                                if effectiveSelectedIntentID == choice.id {
+                                    Label {
+                                        Text(verbatim: choice.title)
+                                    } icon: {
+                                        Image(systemName: "checkmark")
+                                    }
+                                } else {
                                     Text(verbatim: choice.title)
-                                } icon: {
-                                    Image(systemName: "checkmark")
                                 }
-                            } else {
-                                Text(verbatim: choice.title)
                             }
                         }
                     }
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "slider.horizontal.3")
-                        if selectedIntentID == "preset:rightNow" {
+                        if effectiveSelectedIntentID
+                            == AIRecommendationIntentSelectionPolicy.defaultSelectionID {
                             Text("library_recommendations_theme")
                                 .lineLimit(1)
                         } else {
@@ -242,6 +271,29 @@ struct AIRecommendationLibraryView: View {
                     .foregroundStyle(platformAccentColor)
                 }
                 .menuStyle(.borderlessButton)
+            }
+
+            if effectiveSelectedIntentID
+                != AIRecommendationIntentSelectionPolicy.defaultSelectionID,
+               let prompt = selectedIntent.semanticIntent {
+                VStack(alignment: .leading, spacing: 5) {
+                    if selectedIntent.detail != prompt {
+                        Text(verbatim: selectedIntent.detail)
+                            .font(.caption)
+                            .foregroundStyle(platformSecondaryTextColor)
+                    }
+                    Text("ai_recommendation_intent_prompt_label")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(platformSecondaryTextColor)
+                    Text(verbatim: prompt)
+                        .font(.caption)
+                        .foregroundStyle(platformPrimaryTextColor)
+                        .textSelection(.enabled)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(platformChipBackground, in: RoundedRectangle(cornerRadius: 10))
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -648,6 +700,12 @@ struct AIRecommendationLibraryView: View {
         CloudKVSSync.shared.markChanged(
             key: CloudKVSKey.aiRecommendationSelectedIntent
         )
+    }
+
+    private func normalizeIntentSelectionIfNeeded() {
+        let normalizedID = effectiveSelectedIntentID
+        guard normalizedID != selectedIntentID else { return }
+        selectIntent(normalizedID)
     }
 
     private var statusIcon: String {

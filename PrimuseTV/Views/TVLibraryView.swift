@@ -27,8 +27,11 @@ struct TVLibraryView: View {
     @State private var aiRecommendation = AIRecommendationViewModel()
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customRecommendationIntentsRawValue = ""
-    @AppStorage("primuse.ai.recommendationIntent.selected.v1")
-    private var selectedRecommendationIntentID = "preset:rightNow"
+    @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
+    private var hiddenRecommendationPresetsRawValue = ""
+    @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
+    private var selectedRecommendationIntentID =
+        AIRecommendationIntentSelectionPolicy.defaultSelectionID
     @FocusState private var focusedFilter: Filter?
 
     private let cols = 5
@@ -52,6 +55,16 @@ struct TVLibraryView: View {
         }
         .onChange(of: focusRequest) {
             focusedFilter = .all
+        }
+        .onAppear(perform: normalizeRecommendationIntentSelectionIfNeeded)
+        .onChange(of: selectedRecommendationIntentID) { _, _ in
+            normalizeRecommendationIntentSelectionIfNeeded()
+        }
+        .onChange(of: customRecommendationIntentsRawValue) { _, _ in
+            normalizeRecommendationIntentSelectionIfNeeded()
+        }
+        .onChange(of: hiddenRecommendationPresetsRawValue) { _, _ in
+            normalizeRecommendationIntentSelectionIfNeeded()
         }
         .task(id: recommendationRefreshKey) {
             recommendationCandidates = await store.recommendationCandidates(limit: 24)
@@ -147,13 +160,13 @@ struct TVLibraryView: View {
                                         .opacity(0.75)
                                 }
                                 .foregroundStyle(
-                                    selectedRecommendationIntentID == intent.id
+                                    effectiveSelectedRecommendationIntentID == intent.id
                                         ? TVColor.onBrand : TVColor.text
                                 )
                                 .padding(.horizontal, 24)
                                 .frame(height: 66, alignment: .leading)
                                 .background(
-                                    selectedRecommendationIntentID == intent.id
+                                    effectiveSelectedRecommendationIntentID == intent.id
                                         ? TVColor.brand
                                         : (focused ? TVColor.surfaceStrong : TVColor.surface),
                                     in: RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -162,6 +175,10 @@ struct TVLibraryView: View {
                         }
                     }
                     .padding(.vertical, 8)
+                }
+
+                if let selectedRecommendationIntent {
+                    recommendationIntentDetails(selectedRecommendationIntent)
                 }
 
                 HStack(spacing: 10) {
@@ -213,48 +230,177 @@ struct TVLibraryView: View {
         }
     }
 
+    private enum RecommendationIntentKind {
+        case defaultSelection
+        case preset(AIRecommendationIntentPreset)
+        case custom(UUID)
+    }
+
     private struct RecommendationIntent: Identifiable {
         var id: String
         var title: String
         var detail: String
         var semanticIntent: String?
+        var kind: RecommendationIntentKind
     }
 
     private var recommendationIntents: [RecommendationIntent] {
-        let presets = AIRecommendationIntentPreset.allCases.map { preset in
+        let visiblePresets = [AIRecommendationIntentPreset.balanced]
+            + AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(
+                hiddenRecommendationPresetsRawValue
+            )
+        let presets = visiblePresets.map { preset in
             RecommendationIntent(
-                id: "preset:\(preset.rawValue)",
+                id: preset.selectionID,
                 title: preset.localizedTitle,
                 detail: preset.localizedDetail,
-                semanticIntent: preset.semanticIntent
+                semanticIntent: preset.semanticIntent,
+                kind: preset == .balanced ? .defaultSelection : .preset(preset)
             )
         }
         let custom = AIRecommendationIntentStoragePolicy
             .decode(customRecommendationIntentsRawValue)
             .map { intent in
                 RecommendationIntent(
-                    id: "custom:\(intent.id.uuidString)",
+                    id: intent.selectionID,
                     title: intent.title,
                     detail: intent.prompt,
-                    semanticIntent: intent.prompt
+                    semanticIntent: intent.prompt,
+                    kind: .custom(intent.id)
                 )
             }
         return presets + custom
     }
 
+    private var effectiveSelectedRecommendationIntentID: String {
+        AIRecommendationIntentSelectionPolicy.normalizedSelectionID(
+            selectedRecommendationIntentID,
+            availableSelectionIDs: Set(recommendationIntents.map(\.id))
+        )
+    }
+
     private var selectedRecommendationIntent: RecommendationIntent? {
-        recommendationIntents.first { $0.id == selectedRecommendationIntentID }
+        recommendationIntents.first { $0.id == effectiveSelectedRecommendationIntentID }
             ?? recommendationIntents.first
     }
 
     private var recommendationRefreshKey: String {
         [
             String(store.recommendationRevision),
-            selectedRecommendationIntentID,
+            effectiveSelectedRecommendationIntentID,
             customRecommendationIntentsRawValue,
+            hiddenRecommendationPresetsRawValue,
             String(intelligence.settingsStore.revision),
             String(intelligence.regionAvailability.revision),
         ].joined(separator: "#")
+    }
+
+    private func normalizeRecommendationIntentSelectionIfNeeded() {
+        let normalizedID = effectiveSelectedRecommendationIntentID
+        guard normalizedID != selectedRecommendationIntentID else { return }
+        selectedRecommendationIntentID = normalizedID
+        CloudKVSSync.shared.markChanged(
+            key: CloudKVSKey.aiRecommendationSelectedIntent
+        )
+    }
+
+    private func removeRecommendationIntent(_ intent: RecommendationIntent) {
+        switch intent.kind {
+        case .defaultSelection:
+            return
+        case .preset(let preset):
+            hiddenRecommendationPresetsRawValue =
+                AIRecommendationIntentPresetVisibilityPolicy.hiding(
+                    preset,
+                    in: hiddenRecommendationPresetsRawValue
+                )
+            CloudKVSSync.shared.markChanged(
+                key: CloudKVSKey.aiRecommendationHiddenPresets
+            )
+        case .custom(let id):
+            let remaining = AIRecommendationIntentStoragePolicy
+                .decode(customRecommendationIntentsRawValue)
+                .filter { $0.id != id }
+            customRecommendationIntentsRawValue =
+                AIRecommendationIntentStoragePolicy.encode(remaining)
+            CloudKVSSync.shared.markChanged(
+                key: CloudKVSKey.aiRecommendationIntents
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func recommendationIntentDetails(_ intent: RecommendationIntent) -> some View {
+        HStack(alignment: .top, spacing: 28) {
+            VStack(alignment: .leading, spacing: 8) {
+                if intent.detail != intent.semanticIntent {
+                    Text(PMString("ai_recommendation_intent_description_label"))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(TVColor.textMuted)
+                    Text(intent.detail)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(TVColor.text)
+                }
+                if let prompt = intent.semanticIntent {
+                    Text(PMString("ai_recommendation_intent_prompt_label"))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(TVColor.textMuted)
+                        .padding(.top, intent.detail == prompt ? 0 : 4)
+                    Text(prompt)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(TVColor.text)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            switch intent.kind {
+            case .defaultSelection:
+                EmptyView()
+            case .preset, .custom:
+                TVFocusButton(radius: 12, scale: 1.04, lift: 3) {
+                    removeRecommendationIntent(intent)
+                } label: { focused in
+                    Label(
+                        PMString("ai_recommendation_custom_remove"),
+                        systemImage: "trash"
+                    )
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
+                    .padding(.horizontal, 16)
+                    .frame(height: 42)
+                    .background(
+                        focused ? TVColor.brand : TVColor.surfaceStrong,
+                        in: RoundedRectangle(cornerRadius: 12)
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 16))
+
+        if !AIRecommendationIntentPresetVisibilityPolicy
+            .hiddenPresets(hiddenRecommendationPresetsRawValue).isEmpty {
+            TVFocusButton(radius: 12, scale: 1.03, lift: 2) {
+                hiddenRecommendationPresetsRawValue =
+                    AIRecommendationIntentPresetVisibilityPolicy.restoringAll()
+                CloudKVSSync.shared.markChanged(
+                    key: CloudKVSKey.aiRecommendationHiddenPresets
+                )
+            } label: { focused in
+                Label(
+                    PMString("ai_recommendation_presets_restore"),
+                    systemImage: "arrow.counterclockwise"
+                )
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
+                .padding(.horizontal, 16)
+                .frame(height: 42)
+                .background(
+                    focused ? TVColor.brand : TVColor.surfaceStrong,
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
+            }
+        }
     }
 
     private var displayedRecommendationSongs: [TVSong] {

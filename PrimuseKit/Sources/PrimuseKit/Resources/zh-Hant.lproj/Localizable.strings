@@ -632,18 +632,22 @@
 "ext.tv.settings.intelligence.setup" = "設定智慧服務";
 "ext.tv.search.aiLoading" = "正在尋找相關概念…";
 "ext.tv.search.aiReason" = "與「%@」相關";
-"ai_recommendation_intent_rightNow" = "此刻";
-"ai_recommendation_intent_rightNow_detail" = "依時間與常聽內容";
-"ai_recommendation_intent_nostalgia" = "鄉愁";
-"ai_recommendation_intent_nostalgia_detail" = "故鄉、回憶與遠行";
-"ai_recommendation_intent_unrequitedLove" = "愛而不得";
-"ai_recommendation_intent_unrequitedLove_detail" = "克制而苦澀的心意";
-"ai_recommendation_intent_nightDrive" = "夜間駕駛";
-"ai_recommendation_intent_nightDrive_detail" = "連貫、有速度感的夜色";
-"ai_recommendation_intent_quietFocus" = "安靜專注";
-"ai_recommendation_intent_quietFocus_detail" = "低干擾、節奏平穩";
-"ai_recommendation_intent_rainySolitude" = "雨天獨處";
-"ai_recommendation_intent_rainySolitude_detail" = "安靜、疏離與沉思";
+"ai_recommendation_intent_rightNow" = "無額外方向";
+"ai_recommendation_intent_rightNow_detail" = "不附加 AI 提示詞，依情境與常聽內容排序";
+"ai_recommendation_intent_description_label" = "方向說明";
+"ai_recommendation_intent_prompt_label" = "AI 提示詞";
+"ai_recommendation_presets_restore" = "復原內建方向";
+"ai_recommendation_custom_remove" = "移除方向";
+"ai_recommendation_intent_familiarContinuity" = "常聽延續";
+"ai_recommendation_intent_familiarContinuity_detail" = "貼近常聽歌手與熟悉曲風";
+"ai_recommendation_intent_adjacentDiscovery" = "相似發現";
+"ai_recommendation_intent_adjacentDiscovery_detail" = "熟悉風格中的不同歌手";
+"ai_recommendation_intent_genreExploration" = "曲風探索";
+"ai_recommendation_intent_genreExploration_detail" = "跳出常聽風格，擴大曲風跨度";
+"ai_recommendation_intent_catalogRewind" = "年代回顧";
+"ai_recommendation_intent_catalogRewind_detail" = "優先選擇曲庫中年代較早的作品";
+"ai_recommendation_intent_recentCatalog" = "近年作品";
+"ai_recommendation_intent_recentCatalog_detail" = "優先選擇曲庫中發行年份較新的作品";
 
 // Shared labels used through PMString by extension targets
 "ai_provider_default_name" = "OpenAI 相容服務";

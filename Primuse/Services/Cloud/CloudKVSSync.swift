@@ -235,7 +235,9 @@ enum CloudKVSKey {
     static let lyricsFontScale = "lyricsFontScale"
     static let recentSearches = "search_recent_queries"
     static let aiRecommendationIntents = AIRecommendationIntentStoragePolicy.storageKey
-    static let aiRecommendationSelectedIntent = "primuse.ai.recommendationIntent.selected.v1"
+    static let aiRecommendationHiddenPresets =
+        AIRecommendationIntentPresetVisibilityPolicy.storageKey
+    static let aiRecommendationSelectedIntent = AIRecommendationIntentSelectionPolicy.storageKey
     // Certificate trust and public cleartext-HTTP permissions are intentionally
     // NOT synced: both are per-device security decisions. SSLTrustStore keeps
     // them in local UserDefaults only.

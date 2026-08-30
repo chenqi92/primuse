@@ -635,18 +635,22 @@
 "ext.tv.settings.intelligence.setup" = "Anbieter konfigurieren";
 "ext.tv.search.aiLoading" = "Verwandte Konzepte werden gesucht…";
 "ext.tv.search.aiReason" = "Bezug zu „%@“";
-"ai_recommendation_intent_rightNow" = "Jetzt";
-"ai_recommendation_intent_rightNow_detail" = "Nach Zeit und Hörverhalten";
-"ai_recommendation_intent_nostalgia" = "Nostalgie";
-"ai_recommendation_intent_nostalgia_detail" = "Heimat, Erinnerung und Ferne";
-"ai_recommendation_intent_unrequitedLove" = "Unerwiderte Liebe";
-"ai_recommendation_intent_unrequitedLove_detail" = "Still und bittersüß";
-"ai_recommendation_intent_nightDrive" = "Nachtfahrt";
-"ai_recommendation_intent_nightDrive_detail" = "Fluss, Tempo und Neon";
-"ai_recommendation_intent_quietFocus" = "Ruhiger Fokus";
-"ai_recommendation_intent_quietFocus_detail" = "Gleichmäßig und ablenkungsarm";
-"ai_recommendation_intent_rainySolitude" = "Regentag allein";
-"ai_recommendation_intent_rainySolitude_detail" = "Still, fern und nachdenklich";
+"ai_recommendation_intent_rightNow" = "Kein zusätzlicher Fokus";
+"ai_recommendation_intent_rightNow_detail" = "Sortiert nach Kontext und Hörgewohnheiten ohne zusätzlichen KI-Prompt";
+"ai_recommendation_intent_description_label" = "Fokusbeschreibung";
+"ai_recommendation_intent_prompt_label" = "KI-Prompt";
+"ai_recommendation_presets_restore" = "Integrierte Fokusoptionen wiederherstellen";
+"ai_recommendation_custom_remove" = "Fokus entfernen";
+"ai_recommendation_intent_familiarContinuity" = "Vertraute Fortsetzung";
+"ai_recommendation_intent_familiarContinuity_detail" = "Bleibt nah an häufig gehörten Künstlern und vertrauten Genres";
+"ai_recommendation_intent_adjacentDiscovery" = "Verwandte Entdeckungen";
+"ai_recommendation_intent_adjacentDiscovery_detail" = "Andere Künstler in vertrauten Stilrichtungen";
+"ai_recommendation_intent_genreExploration" = "Genre-Erkundung";
+"ai_recommendation_intent_genreExploration_detail" = "Erweitert vertraute Stile um eine größere Genrevielfalt";
+"ai_recommendation_intent_catalogRewind" = "Katalog-Rückblick";
+"ai_recommendation_intent_catalogRewind_detail" = "Bevorzugt ältere Titel in deiner Mediathek";
+"ai_recommendation_intent_recentCatalog" = "Neuere Titel";
+"ai_recommendation_intent_recentCatalog_detail" = "Bevorzugt Titel mit neuerem Erscheinungsjahr in deiner Mediathek";
 
 // Shared labels used through PMString by extension targets
 "ai_provider_default_name" = "OpenAI-kompatibler Dienst";

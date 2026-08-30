@@ -635,18 +635,22 @@
 "ext.tv.settings.intelligence.setup" = "서비스 구성";
 "ext.tv.search.aiLoading" = "관련 개념 찾는 중…";
 "ext.tv.search.aiReason" = "‘%@’ 관련";
-"ai_recommendation_intent_rightNow" = "지금";
-"ai_recommendation_intent_rightNow_detail" = "시간과 감상 기록 기준";
-"ai_recommendation_intent_nostalgia" = "그리움";
-"ai_recommendation_intent_nostalgia_detail" = "고향, 기억과 먼 거리";
-"ai_recommendation_intent_unrequitedLove" = "이루지 못한 사랑";
-"ai_recommendation_intent_unrequitedLove_detail" = "조용하고 씁쓸한 마음";
-"ai_recommendation_intent_nightDrive" = "야간 드라이브";
-"ai_recommendation_intent_nightDrive_detail" = "흐름, 속도감과 네온";
-"ai_recommendation_intent_quietFocus" = "고요한 집중";
-"ai_recommendation_intent_quietFocus_detail" = "방해 없이 일정한 흐름";
-"ai_recommendation_intent_rainySolitude" = "비 오는 날 혼자";
-"ai_recommendation_intent_rainySolitude_detail" = "고요함, 거리감과 사색";
+"ai_recommendation_intent_rightNow" = "추가 선곡 방향 없음";
+"ai_recommendation_intent_rightNow_detail" = "별도의 AI 프롬프트 없이 상황과 감상 기록으로 정렬";
+"ai_recommendation_intent_description_label" = "선곡 방향 설명";
+"ai_recommendation_intent_prompt_label" = "AI 프롬프트";
+"ai_recommendation_presets_restore" = "기본 선곡 방향 복원";
+"ai_recommendation_custom_remove" = "방향 제거";
+"ai_recommendation_intent_familiarContinuity" = "익숙한 감상 이어가기";
+"ai_recommendation_intent_familiarContinuity_detail" = "자주 듣는 아티스트와 익숙한 장르 중심";
+"ai_recommendation_intent_adjacentDiscovery" = "유사 스타일 발견";
+"ai_recommendation_intent_adjacentDiscovery_detail" = "익숙한 스타일의 다른 아티스트";
+"ai_recommendation_intent_genreExploration" = "장르 탐색";
+"ai_recommendation_intent_genreExploration_detail" = "자주 듣는 스타일을 벗어나 장르 폭을 확장";
+"ai_recommendation_intent_catalogRewind" = "지난 시대 돌아보기";
+"ai_recommendation_intent_catalogRewind_detail" = "보관함에서 발매 연도가 오래된 곡을 우선";
+"ai_recommendation_intent_recentCatalog" = "최근 작품";
+"ai_recommendation_intent_recentCatalog_detail" = "보관함에서 발매 연도가 최근인 곡을 우선";
 
 // Shared labels used through PMString by extension targets
 "ai_provider_default_name" = "OpenAI 호환 서비스";

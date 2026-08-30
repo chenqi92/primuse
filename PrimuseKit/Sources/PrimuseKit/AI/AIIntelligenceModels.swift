@@ -163,12 +163,22 @@ public enum AIRecommendationScene: String, Codable, CaseIterable, Hashable, Send
 /// descriptions deliberately live outside localized display strings so every
 /// provider receives the same intent regardless of the device language.
 public enum AIRecommendationIntentPreset: String, Codable, CaseIterable, Hashable, Sendable {
-    case rightNow
-    case nostalgia
-    case unrequitedLove
-    case nightDrive
-    case quietFocus
-    case rainySolitude
+    // Keep the original raw value so existing default selections remain valid
+    // across upgrades while the user-facing vocabulary becomes strategy based.
+    case balanced = "rightNow"
+    case familiarContinuity
+    case adjacentDiscovery
+    case genreExploration
+    case catalogRewind
+    case recentCatalog
+
+    public static var userManagedCases: [AIRecommendationIntentPreset] {
+        allCases.filter { $0 != .balanced }
+    }
+
+    public var selectionID: String {
+        "preset:\(rawValue)"
+    }
 
     public var localizedTitle: String {
         PMString("ai_recommendation_intent_\(rawValue)")
@@ -180,19 +190,138 @@ public enum AIRecommendationIntentPreset: String, Codable, CaseIterable, Hashabl
 
     public var semanticIntent: String? {
         switch self {
-        case .rightNow:
+        case .balanced:
             return nil
-        case .nostalgia:
-            return "nostalgic songs that evoke home, memory, distance, and returning"
-        case .unrequitedLove:
-            return "love that remains unspoken or unreturned, restrained and bittersweet"
-        case .nightDrive:
-            return "a flowing night drive with momentum, neon atmosphere, and no abrupt mood changes"
-        case .quietFocus:
-            return "quiet concentration with low distraction, steady pacing, and gentle energy"
-        case .rainySolitude:
-            return "rainy solitude, reflective stillness, and a soft sense of emotional distance"
+        case .familiarContinuity:
+            return "familiar continuity: favor artists and genres aligned with listening preferences; if preferences are sparse, keep a balanced and varied selection"
+        case .adjacentDiscovery:
+            return "adjacent discovery: favor artists outside listening preferences but near familiar genres or eras; if metadata is sparse, keep a balanced selection"
+        case .genreExploration:
+            return "genre exploration: favor genres outside dominant listening preferences and broaden variety; if genre metadata is sparse, keep a balanced selection"
+        case .catalogRewind:
+            return "catalog rewind: favor earlier known release years across several artists; if year is missing, use balanced selection without inferring age"
+        case .recentCatalog:
+            return "recent catalog: favor later known release years and artists outside listening preferences; if year is missing, use balanced selection"
         }
+    }
+}
+
+public enum AIRecommendationIntentSelectionPolicy {
+    public static let storageKey = "primuse.ai.recommendationIntent.selected.v1"
+    public static let defaultSelectionID =
+        "preset:\(AIRecommendationIntentPreset.balanced.rawValue)"
+
+    private static let legacyPresetIDs: Set<String> = [
+        "preset:nostalgia",
+        "preset:unrequitedLove",
+        "preset:nightDrive",
+        "preset:quietFocus",
+        "preset:rainySolitude",
+    ]
+
+    public static func normalizedSelectionID(_ selectionID: String) -> String {
+        legacyPresetIDs.contains(selectionID) ? defaultSelectionID : selectionID
+    }
+
+    public static func normalizedSelectionID(
+        _ selectionID: String,
+        availableSelectionIDs: Set<String>
+    ) -> String {
+        let normalizedID = normalizedSelectionID(selectionID)
+        guard !availableSelectionIDs.contains(normalizedID) else {
+            return normalizedID
+        }
+
+        if normalizedID.hasPrefix("custom:") {
+            return defaultSelectionID
+        }
+        if normalizedID.hasPrefix("preset:") {
+            let rawValue = String(normalizedID.dropFirst("preset:".count))
+            if AIRecommendationIntentPreset(rawValue: rawValue) != nil {
+                return defaultSelectionID
+            }
+        }
+        // Preserve preset IDs created by a newer app version so an older device
+        // does not erase a forward-compatible cloud selection.
+        return normalizedID
+    }
+}
+
+public enum AIRecommendationIntentPresetVisibilityPolicy {
+    public static let storageKey = "primuse.ai.recommendationIntent.hiddenPresets.v1"
+
+    public static func hiddenPresets(_ rawValue: String) -> Set<AIRecommendationIntentPreset> {
+        Set(rawValue.split(separator: ",").compactMap { value in
+            guard let preset = AIRecommendationIntentPreset(rawValue: String(value)),
+                  preset != .balanced else { return nil }
+            return preset
+        })
+    }
+
+    public static func encode(_ hiddenPresets: Set<AIRecommendationIntentPreset>) -> String {
+        AIRecommendationIntentPreset.userManagedCases
+            .filter { hiddenPresets.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    public static func visiblePresets(_ rawValue: String) -> [AIRecommendationIntentPreset] {
+        let hidden = hiddenPresets(rawValue)
+        return AIRecommendationIntentPreset.userManagedCases.filter { !hidden.contains($0) }
+    }
+
+    public static func hiding(
+        _ preset: AIRecommendationIntentPreset,
+        in rawValue: String
+    ) -> String {
+        guard preset != .balanced else { return encode(hiddenPresets(rawValue)) }
+        var hidden = hiddenPresets(rawValue)
+        hidden.insert(preset)
+        return encode(hidden)
+    }
+
+    public static func restoringAll() -> String {
+        ""
+    }
+}
+
+public struct AIRecommendationIntentDetails: Identifiable, Hashable, Sendable {
+    public var id: String
+    public var title: String
+    public var detail: String
+    public var prompt: String?
+
+    public init(id: String, title: String, detail: String, prompt: String?) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.prompt = prompt
+    }
+}
+
+public extension AIRecommendationIntentPreset {
+    var intentDetails: AIRecommendationIntentDetails {
+        AIRecommendationIntentDetails(
+            id: selectionID,
+            title: localizedTitle,
+            detail: localizedDetail,
+            prompt: semanticIntent
+        )
+    }
+}
+
+public extension AICustomRecommendationIntent {
+    var selectionID: String {
+        "custom:\(id.uuidString)"
+    }
+
+    var intentDetails: AIRecommendationIntentDetails {
+        AIRecommendationIntentDetails(
+            id: selectionID,
+            title: title,
+            detail: prompt,
+            prompt: prompt
+        )
     }
 }
 

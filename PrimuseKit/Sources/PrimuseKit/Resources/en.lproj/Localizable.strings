@@ -633,18 +633,22 @@
 "ext.tv.settings.intelligence.setup" = "Configure a provider";
 "ext.tv.search.aiLoading" = "Finding related concepts…";
 "ext.tv.search.aiReason" = "Related to “%@”";
-"ai_recommendation_intent_rightNow" = "Right Now";
-"ai_recommendation_intent_rightNow_detail" = "Based on time and listening";
-"ai_recommendation_intent_nostalgia" = "Nostalgia";
-"ai_recommendation_intent_nostalgia_detail" = "Home, memory, and distance";
-"ai_recommendation_intent_unrequitedLove" = "Unrequited Love";
-"ai_recommendation_intent_unrequitedLove_detail" = "Quiet, bittersweet affection";
-"ai_recommendation_intent_nightDrive" = "Night Drive";
-"ai_recommendation_intent_nightDrive_detail" = "Flow, momentum, and neon";
-"ai_recommendation_intent_quietFocus" = "Quiet Focus";
-"ai_recommendation_intent_quietFocus_detail" = "Steady and low-distraction";
-"ai_recommendation_intent_rainySolitude" = "Rainy Solitude";
-"ai_recommendation_intent_rainySolitude_detail" = "Still, distant, and reflective";
+"ai_recommendation_intent_rightNow" = "No Extra Focus";
+"ai_recommendation_intent_rightNow_detail" = "Uses context and listening history without an added AI prompt";
+"ai_recommendation_intent_description_label" = "Focus Description";
+"ai_recommendation_intent_prompt_label" = "AI Prompt";
+"ai_recommendation_presets_restore" = "Restore Built-in Focuses";
+"ai_recommendation_custom_remove" = "Remove Focus";
+"ai_recommendation_intent_familiarContinuity" = "Familiar Continuity";
+"ai_recommendation_intent_familiarContinuity_detail" = "Stays close to favorite artists and familiar genres";
+"ai_recommendation_intent_adjacentDiscovery" = "Adjacent Discovery";
+"ai_recommendation_intent_adjacentDiscovery_detail" = "Different artists within familiar styles";
+"ai_recommendation_intent_genreExploration" = "Genre Exploration";
+"ai_recommendation_intent_genreExploration_detail" = "Moves beyond familiar styles for broader genre variety";
+"ai_recommendation_intent_catalogRewind" = "Catalog Rewind";
+"ai_recommendation_intent_catalogRewind_detail" = "Prioritizes older releases in your library";
+"ai_recommendation_intent_recentCatalog" = "Recent Releases";
+"ai_recommendation_intent_recentCatalog_detail" = "Prioritizes newer releases in your library";
 
 // Shared labels used through PMString by extension targets
 "ai_provider_default_name" = "OpenAI-compatible service";

@@ -635,18 +635,22 @@
 "ext.tv.settings.intelligence.setup" = "Configurer un fournisseur";
 "ext.tv.search.aiLoading" = "Recherche de concepts associés…";
 "ext.tv.search.aiReason" = "Associé à « %@ »";
-"ai_recommendation_intent_rightNow" = "Maintenant";
-"ai_recommendation_intent_rightNow_detail" = "Selon l’heure et vos écoutes";
-"ai_recommendation_intent_nostalgia" = "Nostalgie";
-"ai_recommendation_intent_nostalgia_detail" = "Foyer, souvenirs et distance";
-"ai_recommendation_intent_unrequitedLove" = "Amour impossible";
-"ai_recommendation_intent_unrequitedLove_detail" = "Tendre, discret et doux-amer";
-"ai_recommendation_intent_nightDrive" = "Route de nuit";
-"ai_recommendation_intent_nightDrive_detail" = "Élan, fluidité et néons";
-"ai_recommendation_intent_quietFocus" = "Concentration calme";
-"ai_recommendation_intent_quietFocus_detail" = "Stable et sans distraction";
-"ai_recommendation_intent_rainySolitude" = "Solitude pluvieuse";
-"ai_recommendation_intent_rainySolitude_detail" = "Calme, distance et réflexion";
+"ai_recommendation_intent_rightNow" = "Aucune orientation";
+"ai_recommendation_intent_rightNow_detail" = "Classe selon le contexte et vos habitudes d’écoute, sans instruction IA supplémentaire";
+"ai_recommendation_intent_description_label" = "Description de l’orientation";
+"ai_recommendation_intent_prompt_label" = "Instruction IA";
+"ai_recommendation_presets_restore" = "Restaurer les orientations intégrées";
+"ai_recommendation_custom_remove" = "Supprimer l’orientation";
+"ai_recommendation_intent_familiarContinuity" = "Continuité d’écoute";
+"ai_recommendation_intent_familiarContinuity_detail" = "Reste proche de vos artistes habituels et des genres familiers";
+"ai_recommendation_intent_adjacentDiscovery" = "Découvertes proches";
+"ai_recommendation_intent_adjacentDiscovery_detail" = "D’autres artistes dans des styles familiers";
+"ai_recommendation_intent_genreExploration" = "Exploration des genres";
+"ai_recommendation_intent_genreExploration_detail" = "Sort de vos styles habituels pour élargir les genres";
+"ai_recommendation_intent_catalogRewind" = "Retour dans le catalogue";
+"ai_recommendation_intent_catalogRewind_detail" = "Privilégie les morceaux plus anciens de votre bibliothèque";
+"ai_recommendation_intent_recentCatalog" = "Sorties récentes";
+"ai_recommendation_intent_recentCatalog_detail" = "Privilégie les morceaux sortis plus récemment dans votre bibliothèque";
 
 // Shared labels used through PMString by extension targets
 "ai_provider_default_name" = "Service compatible OpenAI";

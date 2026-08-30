@@ -45,18 +45,18 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         IntelligenceURLProtocol.configure(
             host: host,
             statusCode: 200,
-            body: #"{"output":[{"content":[{"type":"output_text","text":"{\"expanded_terms\":[\"homecoming\",\"homecoming\"],\"themes\":[\"memory\"],\"moods\":[\"wistful\"]}"}]}]}"#
+            body: #"{"output":[{"content":[{"type":"output_text","text":"{\"expanded_terms\":[\"instrumental piano\",\"instrumental piano\"],\"themes\":[\"acoustic\"],\"moods\":[\"calm\"]}"}]}]}"#
         )
         let (provider, session) = makeProvider(host: host, apiStyle: .responses)
         defer { session.invalidateAndCancel() }
 
         let plan = try await provider.interpretSearch(
-            AISemanticSearchRequest(query: "nostalgia", languageCode: "en")
+            AISemanticSearchRequest(query: "solo piano", languageCode: "en")
         )
 
-        XCTAssertEqual(plan.expandedTerms, ["homecoming"])
-        XCTAssertEqual(plan.themes, ["memory"])
-        XCTAssertEqual(plan.moods, ["wistful"])
+        XCTAssertEqual(plan.expandedTerms, ["instrumental piano"])
+        XCTAssertEqual(plan.themes, ["acoustic"])
+        XCTAssertEqual(plan.moods, ["calm"])
 
         let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
         XCTAssertEqual(request.url?.path, "/v1/responses")
@@ -68,7 +68,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
         XCTAssertEqual(object["model"] as? String, "test-generation-model")
         XCTAssertEqual(object["store"] as? Bool, false)
-        XCTAssertTrue((object["input"] as? String)?.contains("nostalgia") == true)
+        XCTAssertTrue((object["input"] as? String)?.contains("solo piano") == true)
         XCTAssertNil(object["songs"])
         XCTAssertNil(object["lyrics"])
         XCTAssertNil(object["listening_history"])
@@ -123,7 +123,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         defer { session.invalidateAndCancel() }
         let request = AIRecommendationRequest(
             scene: .bedtime,
-            intent: "quiet rain and homesickness",
+            intent: "earlier known release years across several artists",
             languageCode: "en",
             preferences: [
                 AIRecommendationPreference(
@@ -159,7 +159,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         let input = try XCTUnwrap(object["input"] as? String)
         XCTAssertTrue(input.contains("First Candidate"))
-        XCTAssertTrue(input.contains("quiet rain and homesickness"))
+        XCTAssertTrue(input.contains("earlier known release years across several artists"))
         XCTAssertTrue(input.contains("\"id\":\"c0\""))
         XCTAssertTrue(input.contains("\"maximum_results\":2"))
         XCTAssertTrue(input.contains("\"minimum_results\":2"))
