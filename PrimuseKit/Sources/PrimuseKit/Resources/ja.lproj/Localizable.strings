@@ -660,3 +660,5 @@
 "queue_title" = "再生キュー";
 "repeat" = "リピート";
 "shuffle" = "シャッフル";
+"ext.tv.search.aiSupplement" = "AI による補足結果";
+"ext.tv.search.path" = "パス：%@";

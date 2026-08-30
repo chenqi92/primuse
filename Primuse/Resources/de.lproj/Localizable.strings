@@ -3011,7 +3011,7 @@
 "ai_error_region_restricted" = "Diese Funktion ist in der aktuellen App-Store-Region nicht verfügbar.";
 "ai_error_keychain" = "Der API-Schlüssel konnte nicht sicher gespeichert oder gelesen werden.";
 "ai_error_connection" = "Die Verbindung zum Anbieter ist fehlgeschlagen.";
-"search_ai_section" = "Intelligente Treffer";
+"search_ai_section" = "Intelligente Ergänzungen";
 "search_ai_loading" = "Verwandte Konzepte werden gesucht…";
 "search_ai_reason_format" = "Bezug zu „%@“";
 "ai_provider_default_name" = "OpenAI-kompatibler Dienst";
@@ -3305,3 +3305,5 @@
 "rating" = "Bewertung";
 "volume" = "Lautstärke";
 "similar_songs_accessibility_hint" = "Zeigt ähnliche Titel an.";
+"search_section_path" = "Pfadtreffer";
+"search_result_path_accessibility_format" = "Pfad: %@";

@@ -31,6 +31,7 @@ struct TVSong: Identifiable, Hashable {
     let bitrate: Int
     let sampleRate: Double
     let sourceID: String
+    let displayPath: String?
     let plays: Int
     let liked: Bool
 }
@@ -335,7 +336,7 @@ final class TVStore {
 
     @ObservationIgnored private var searchCache = LibrarySearchCache()
 
-    /// metadata + 拼音 + 模糊 + 歌词内容四类匹配(歌词数据来自同步过来的缓存)。
+    /// 元数据 + 路径 + 拼音/模糊 + 歌词匹配(歌词数据来自同步过来的缓存)。
     func searchHits(_ query: String) -> (top: TVArtist?, songs: [TVSearchHit]) {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return (nil, []) }
@@ -361,24 +362,32 @@ final class TVStore {
         relatedConcepts: [String]
     ) -> (top: TVArtist?, songs: [TVSearchHit]) {
         let primary = searchHits(query)
-        var songs = primary.songs
-        var seenSongIDs = Set(songs.map(\.id))
-        var top = primary.top
+        var intelligentCandidates: [TVSearchHit] = []
 
         for concept in relatedConcepts {
             let related = searchHits(concept)
-            if top == nil { top = related.top }
-            for hit in related.songs where seenSongIDs.insert(hit.id).inserted {
-                songs.append(TVSearchHit(
+            for hit in related.songs {
+                intelligentCandidates.append(TVSearchHit(
                     song: hit.song,
                     isLyric: hit.isLyric,
                     lyricSnippet: hit.lyricSnippet,
                     relatedConcept: concept
                 ))
-                if songs.count == 24 { return (top, songs) }
             }
         }
-        return (top, songs)
+
+        let composition = LibrarySearchCompositionPolicy.compose(
+            primaryResultIDs: primary.songs.map(\.id),
+            intelligentResultIDs: intelligentCandidates.map(\.id),
+            intelligentAvailable: true,
+            supplementLimit: max(0, 24 - primary.songs.count)
+        )
+        let candidatesByID = Dictionary(
+            intelligentCandidates.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let supplement = composition.intelligentSupplementIDs.compactMap { candidatesByID[$0] }
+        return (primary.top, primary.songs + supplement)
     }
 
     /// 空查询时的建议(艺术家名),与旧逻辑一致。
@@ -500,7 +509,13 @@ final class TVStore {
                artist: library.artistDisplayName(for: s) ?? PMString("ext.tv.unknownArtist"), duration: s.duration,
                format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
                sampleRate: Double(s.sampleRate ?? 0) / 1000,
-               sourceID: s.sourceID, plays: 0, liked: localLiked.contains(s.id))
+               sourceID: s.sourceID,
+               displayPath: SongPathPresentationPolicy.displayPath(
+                   filePath: s.filePath,
+                   sourceID: s.sourceID,
+                   sourceType: sourcesStore.source(id: s.sourceID)?.type
+               ),
+               plays: 0, liked: localLiked.contains(s.id))
     }
     private func map(_ a: Artist) -> TVArtist {
         let (t1, t2) = Self.tint(a.id.isEmpty ? a.name : a.id)

@@ -1289,4 +1289,37 @@ struct AISemanticSearchPlanTests {
         #expect(ranked[1].relatedConcept == "concept")
         #expect(!ranked.contains(where: { $0.songID == "song-00" }))
     }
+
+    @Test func keywordResultsRemainPrimaryWhenIntelligentResultsAreAvailable() {
+        let composition = LibrarySearchCompositionPolicy.compose(
+            primaryResultIDs: ["exact-title", "exact-artist"],
+            intelligentResultIDs: ["related-one", "related-two"],
+            intelligentAvailable: true
+        )
+
+        #expect(composition.primaryResultIDs == ["exact-title", "exact-artist"])
+        #expect(composition.intelligentSupplementIDs == ["related-one", "related-two"])
+    }
+
+    @Test func intelligentSupplementsAreDeduplicatedAgainstKeywordResults() {
+        let composition = LibrarySearchCompositionPolicy.compose(
+            primaryResultIDs: ["exact", "exact"],
+            intelligentResultIDs: ["exact", "related", "related"],
+            intelligentAvailable: true
+        )
+
+        #expect(composition.primaryResultIDs == ["exact"])
+        #expect(composition.intelligentSupplementIDs == ["related"])
+    }
+
+    @Test func unavailableIntelligenceFallsBackToKeywordResultsOnly() {
+        let composition = LibrarySearchCompositionPolicy.compose(
+            primaryResultIDs: ["title", "artist", "path"],
+            intelligentResultIDs: ["would-have-been-related"],
+            intelligentAvailable: false
+        )
+
+        #expect(composition.primaryResultIDs == ["title", "artist", "path"])
+        #expect(composition.intelligentSupplementIDs.isEmpty)
+    }
 }

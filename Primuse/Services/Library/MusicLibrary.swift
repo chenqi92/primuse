@@ -43,6 +43,7 @@ private enum LibraryArrayReclaimer {
 
 enum LibrarySearchMatchKind: Sendable {
     case metadata
+    case path
     case lyrics
     case fuzzy
 }
@@ -270,13 +271,17 @@ enum LibrarySearchWorker {
             var lyricSnippet: String?
             var lyricTimestamp: TimeInterval?
 
-            func consider(_ candidate: String?, boost: Int) {
+            func consider(
+                _ candidate: String?,
+                boost: Int,
+                matchKindOverride: LibrarySearchMatchKind? = nil
+            ) {
                 guard let candidate,
                       let match = matcher.score(candidate: candidate) else { return }
                 let score = match.score + boost
                 if score > bestScore {
                     bestScore = score
-                    bestKind = match.kind
+                    bestKind = matchKindOverride ?? match.kind
                 }
             }
 
@@ -286,6 +291,14 @@ enum LibrarySearchWorker {
                 consider(song.albumTitle, boost: 14)
                 consider(song.genre, boost: 6)
                 consider(song.fileFormat.rawValue, boost: 2)
+                consider(
+                    SongPathPresentationPolicy.displayPath(
+                        filePath: song.filePath,
+                        sourceID: song.sourceID
+                    ),
+                    boost: 10,
+                    matchKindOverride: .path
+                )
             }
 
             if shouldSearchLyrics,
@@ -441,6 +454,7 @@ actor LibrarySearchIndex {
     private static let baseSchemaVersion = "v1_persistent_original_pinyin"
     private static let substringSchemaVersion = "v2_compact_pinyin_substring"
     private static let externalContentSchemaVersion = "v3_external_lyrics_content"
+    private static let displayPathSchemaVersion = "v4_user_visible_song_path"
     /// FTS5 external-content triggers touch several indexes per transaction.
     /// Larger utility batches drastically reduce WAL checkpoints/write
     /// amplification while the short inter-batch pause keeps reads responsive.
@@ -612,6 +626,15 @@ actor LibrarySearchIndex {
                 sql: "INSERT OR IGNORE INTO searchIndexMaintenance (key) VALUES ('vacuum_v3')"
             )
         }
+        migrator.registerMigration(displayPathSchemaVersion) { db in
+            try db.create(virtualTable: "metadataPathFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("path")
+            }
+            // The previous fingerprint did not include a display-safe path, so
+            // every existing metadata row must be refreshed once.
+            UserDefaults.standard.set(true, forKey: preparationPendingKey)
+        }
         try migrator.migrate(pool)
         let needsVacuum = try pool.read { db in
             try Bool.fetchOne(
@@ -709,8 +732,8 @@ actor LibrarySearchIndex {
         }
     }
 
-    /// Search a fully indexed snapshot. Metadata synchronization is cheap on
-    /// normal queries because stable fingerprints avoid both writes and ICU.
+    /// Search a fully indexed snapshot. Metadata and display-path synchronization
+    /// are cheap on normal queries because stable fingerprints avoid writes and ICU.
     func search(
         query: String,
         songs: [Song],
@@ -745,6 +768,8 @@ actor LibrarySearchIndex {
             let songByID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
             var metadataIDs: [String] = []
             var seenMetadata = Set<String>()
+            var pathIDs: [String] = []
+            var seenPaths = Set<String>()
 
             if trimmed.count >= 3 {
                 let ids = try Self.matchingSongIDs(
@@ -792,6 +817,23 @@ actor LibrarySearchIndex {
                     )
                     Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
                 }
+            }
+
+            if trimmed.count >= 3 {
+                let ids = try Self.matchingSongIDs(
+                    pool: pool,
+                    ftsTable: "metadataPathFts",
+                    stateTable: "metadataSearchState",
+                    pattern: Self.quotedFTS(trimmed),
+                    limit: songLimit * 2
+                )
+                Self.appendUnique(ids, to: &pathIDs, seen: &seenPaths)
+            } else {
+                let ids = songs.lazy
+                    .filter { Self.pathContainsLiteral($0, query: trimmed) }
+                    .prefix(songLimit * 2)
+                    .map(\.id)
+                Self.appendUnique(Array(ids), to: &pathIDs, seen: &seenPaths)
             }
 
             var lyricHits: [LyricsHit] = []
@@ -850,7 +892,10 @@ actor LibrarySearchIndex {
             }
 
             var ranked: [LibrarySearchResult] = []
-            ranked.reserveCapacity(min(songLimit * 2, metadataIDs.count + lyricHits.count))
+            ranked.reserveCapacity(min(
+                songLimit * 2,
+                metadataIDs.count + pathIDs.count + lyricHits.count
+            ))
             var resultIDs = Set<String>()
             for (offset, id) in metadataIDs.enumerated() {
                 guard let song = songByID[id] else { continue }
@@ -859,6 +904,17 @@ actor LibrarySearchIndex {
                     song: song,
                     matchKind: literal ? .metadata : .fuzzy,
                     score: max(100, 220 - offset),
+                    lyricSnippet: nil,
+                    lyricTimestamp: nil
+                ))
+                resultIDs.insert(id)
+            }
+            for (offset, id) in pathIDs.enumerated() where !resultIDs.contains(id) {
+                guard let song = songByID[id] else { continue }
+                ranked.append(LibrarySearchResult(
+                    song: song,
+                    matchKind: .path,
+                    score: max(80, 130 - offset),
                     lyricSnippet: nil,
                     lyricTimestamp: nil
                 ))
@@ -936,6 +992,7 @@ actor LibrarySearchIndex {
                         try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [id])
                         try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [id])
                         try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataPathFts WHERE rowid = ?", arguments: [id])
                         try db.execute(sql: "DELETE FROM metadataSearchState WHERE id = ?", arguments: [id])
                     }
                     for (offset, change) in metadataChanges.enumerated() {
@@ -953,6 +1010,7 @@ actor LibrarySearchIndex {
                             try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [existingID])
                             try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [existingID])
                             try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [existingID])
+                            try db.execute(sql: "DELETE FROM metadataPathFts WHERE rowid = ?", arguments: [existingID])
                         } else {
                             try db.execute(
                                 sql: "INSERT INTO metadataSearchState (songID, fingerprint) VALUES (?, ?)",
@@ -971,6 +1029,16 @@ actor LibrarySearchIndex {
                         try db.execute(
                             sql: "INSERT INTO metadataPinyinSubstringFts (rowid, compact, initials) VALUES (?, ?, ?)",
                             arguments: [stateID, document.compact, document.initials]
+                        )
+                        try db.execute(
+                            sql: "INSERT INTO metadataPathFts (rowid, path) VALUES (?, ?)",
+                            arguments: [
+                                stateID,
+                                SongPathPresentationPolicy.displayPath(
+                                    filePath: change.song.filePath,
+                                    sourceID: change.song.sourceID
+                                ) ?? "",
+                            ]
                         )
                     }
                 }
@@ -1376,7 +1444,11 @@ actor LibrarySearchIndex {
             song.genre ?? "",
             song.titlePinyin ?? "",
             song.artistPinyin ?? "",
-            song.albumPinyin ?? ""
+            song.albumPinyin ?? "",
+            SongPathPresentationPolicy.displayPath(
+                filePath: song.filePath,
+                sourceID: song.sourceID
+            ) ?? ""
         ].joined(separator: "\u{1F}"))
     }
 
@@ -1429,6 +1501,13 @@ actor LibrarySearchIndex {
         [song.title, librarySearchableArtistText(song), song.albumTitle, song.genre]
             .compactMap { $0 }
             .contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    private static func pathContainsLiteral(_ song: Song, query: String) -> Bool {
+        SongPathPresentationPolicy.displayPath(
+            filePath: song.filePath,
+            sourceID: song.sourceID
+        )?.localizedCaseInsensitiveContains(query) == true
     }
 
     private static func containsHan(_ text: String) -> Bool {

@@ -3011,7 +3011,7 @@
 "ai_error_region_restricted" = "Cette fonction n’est pas disponible dans la région App Store actuelle.";
 "ai_error_keychain" = "La clé API n’a pas pu être enregistrée ou lue de façon sécurisée.";
 "ai_error_connection" = "Échec de la connexion au fournisseur.";
-"search_ai_section" = "Correspondances intelligentes";
+"search_ai_section" = "Résultats intelligents complémentaires";
 "search_ai_loading" = "Recherche de concepts associés…";
 "search_ai_reason_format" = "Associé à « %@ »";
 "ai_provider_default_name" = "Service compatible OpenAI";
@@ -3305,3 +3305,5 @@
 "rating" = "Note";
 "volume" = "Volume";
 "similar_songs_accessibility_hint" = "Affiche des titres similaires à ce morceau.";
+"search_section_path" = "Correspondances de chemin";
+"search_result_path_accessibility_format" = "Chemin : %@";

@@ -3115,7 +3115,7 @@
 "ai_error_region_restricted" = "当前 App Store 地区不可使用此功能。";
 "ai_error_keychain" = "无法安全保存或读取 API 密钥。";
 "ai_error_connection" = "连接服务失败。";
-"search_ai_section" = "智能匹配";
+"search_ai_section" = "智能补充结果";
 "search_ai_loading" = "正在查找相关概念…";
 "search_ai_reason_format" = "与“%@”相关";
 "ai_provider_default_name" = "OpenAI 兼容服务";
@@ -3409,3 +3409,5 @@
 "rating" = "评分";
 "volume" = "音量";
 "similar_songs_accessibility_hint" = "显示与这首歌相似的歌曲。";
+"search_section_path" = "路径匹配";
+"search_result_path_accessibility_format" = "路径：%@";

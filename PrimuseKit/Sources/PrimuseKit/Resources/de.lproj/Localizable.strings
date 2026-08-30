@@ -660,3 +660,5 @@
 "queue_title" = "Warteschlange";
 "repeat" = "Wiederholen";
 "shuffle" = "Zufall";
+"ext.tv.search.aiSupplement" = "Intelligente Ergänzungen";
+"ext.tv.search.path" = "Pfad: %@";

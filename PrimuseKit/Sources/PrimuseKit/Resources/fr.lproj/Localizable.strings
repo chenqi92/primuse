@@ -660,3 +660,5 @@
 "queue_title" = "File de lecture";
 "repeat" = "Répéter";
 "shuffle" = "Aléatoire";
+"ext.tv.search.aiSupplement" = "Résultats intelligents complémentaires";
+"ext.tv.search.path" = "Chemin : %@";

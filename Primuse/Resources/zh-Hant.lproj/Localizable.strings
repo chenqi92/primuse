@@ -2988,7 +2988,7 @@
 "ai_error_region_restricted" = "目前 App Store 地區無法使用此功能。";
 "ai_error_keychain" = "無法安全儲存或讀取 API 金鑰。";
 "ai_error_connection" = "連線服務失敗。";
-"search_ai_section" = "智慧配對";
+"search_ai_section" = "智慧補充結果";
 "search_ai_loading" = "正在尋找相關概念…";
 "search_ai_reason_format" = "與「%@」相關";
 "ai_provider_default_name" = "OpenAI 相容服務";
@@ -3282,3 +3282,5 @@
 "rating" = "評分";
 "volume" = "音量";
 "similar_songs_accessibility_hint" = "顯示與這首歌相似的歌曲。";
+"search_section_path" = "路徑符合";
+"search_result_path_accessibility_format" = "路徑：%@";

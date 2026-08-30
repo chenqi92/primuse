@@ -658,3 +658,5 @@
 "queue_title" = "Queue";
 "repeat" = "Repeat";
 "shuffle" = "Shuffle";
+"ext.tv.search.aiSupplement" = "Intelligent supplemental results";
+"ext.tv.search.path" = "Path: %@";

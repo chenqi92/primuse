@@ -87,15 +87,30 @@ struct SearchView: View {
     }
 
     private var visibleSemanticResults: [SemanticLibrarySearchResult] {
-        guard intelligenceRenderedQuery == searchText else { return [] }
-        let directResultIDs = Set(searchResults.map(\.song.id))
-        return semanticResults.filter { !directResultIDs.contains($0.song.id) }
+        guard intelligenceRenderedQuery == searchText,
+              renderedQuery == searchText else { return [] }
+        let composition = LibrarySearchCompositionPolicy.compose(
+            primaryResultIDs: searchResults.map(\.song.id),
+            intelligentResultIDs: semanticResults.map(\.song.id),
+            intelligentAvailable: hasUsableIntelligentResponse
+        )
+        let supplementIDs = Set(composition.intelligentSupplementIDs)
+        return semanticResults.filter { supplementIDs.contains($0.song.id) }
+    }
+
+    private var hasUsableIntelligentResponse: Bool {
+        switch semanticSearchFeedback {
+        case .success, .noMatches:
+            return true
+        case .idle, .loading, .failed:
+            return false
+        }
     }
 
     /// 结果分组各自截断过（iOS 每组 40，macOS 歌词 3 / 其余 6），"全选"只圈
     /// 用户真正看得到的那些。Apple Music 在线结果不是本地曲库条目，不参与多选。
     private var selectableSongIDs: [String] {
-        let kinds: [LibrarySearchMatchKind] = [.metadata, .lyrics, .fuzzy]
+        let kinds: [LibrarySearchMatchKind] = [.metadata, .path, .lyrics, .fuzzy]
         let directIDs = kinds.flatMap { kind -> [String] in
             let bucket = searchResults.filter { $0.matchKind == kind }
             #if os(macOS)
@@ -178,6 +193,8 @@ struct SearchView: View {
                 } else {
                     recentSearchView
                 }
+            } else if isSearching && renderedQuery != searchText {
+                searchingPlaceholder
             } else if searchResults.isEmpty
                         && matchingAlbums.isEmpty
                         && visibleSemanticResults.isEmpty
@@ -291,6 +308,8 @@ struct SearchView: View {
             } else {
                 macRecentSearchView
             }
+        } else if isSearching && renderedQuery != searchText {
+            macSearchingPlaceholder
         } else if searchResults.isEmpty
                     && matchingAlbums.isEmpty
                     && visibleSemanticResults.isEmpty
@@ -359,6 +378,7 @@ struct SearchView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     macTopMatchSection
                     macSongBucket(kind: .metadata, title: "search_section_metadata")
+                    macSongBucket(kind: .path, title: "search_section_path")
                     macSongBucket(kind: .lyrics, title: "search_section_lyrics")
                     macSongBucket(kind: .fuzzy, title: "search_section_fuzzy")
                     macSemanticSection
@@ -406,21 +426,6 @@ struct SearchView: View {
                                subtitle: library.artistDisplayName(for: result.song) ?? "",
                                systemImage: "music.note",
                                song: result.song)
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    showInLibraryButton(for: result.song)
-                }
-            } else if let result = visibleSemanticResults.first {
-                Button {
-                    playSong(result.song)
-                } label: {
-                    macTopCard(
-                        title: result.song.title,
-                        subtitle: library.artistDisplayName(for: result.song) ?? "",
-                        systemImage: "sparkles",
-                        song: result.song
-                    )
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
@@ -652,6 +657,7 @@ struct SearchView: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
+                    searchResultPath(for: result.song)
                 }
                 Spacer()
                 Image(systemName: "sparkles")
@@ -702,6 +708,9 @@ struct SearchView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
+                if let song {
+                    searchResultPath(for: song)
+                }
             }
             Spacer()
             Image(systemName: "play.fill")
@@ -735,6 +744,7 @@ struct SearchView: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
+                    searchResultPath(for: result.song)
                 }
                 Spacer()
                 Text(formatSearchTime(result.song.duration))
@@ -770,6 +780,7 @@ struct SearchView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
+                searchResultPath(for: result.song)
                 Text(snippet)
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
@@ -1025,10 +1036,11 @@ struct SearchView: View {
                 }
             }
 
-            // Songs grouped by match kind — 用户能一眼区分"标题/艺术家精确命中"、
-            // "歌词命中"和"拼音/模糊命中", 类似 Apple Music 搜索的分组。
+            // Songs grouped by match kind — 用户能一眼区分"标题/艺术家命中"、
+            // "路径命中"、"歌词命中"和"拼音/模糊命中"。
             // 每组限 40 条 (worker 整体也限 120), 防止单组撑满屏。
             songSection(kind: .metadata, titleKey: "search_section_metadata")
+            songSection(kind: .path, titleKey: "search_section_path")
             songSection(kind: .lyrics, titleKey: "search_section_lyrics")
             songSection(kind: .fuzzy, titleKey: "search_section_fuzzy")
             semanticSongSection
@@ -1103,6 +1115,7 @@ struct SearchView: View {
                         .onTapGesture {
                             playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
                         }
+                        searchResultPath(for: result.song, leadingPadding: 54)
                         if result.matchKind == .lyrics, let snippet = result.lyricSnippet {
                             // 歌词命中: 把命中的句子(含上下文)展开, 让用户一眼看到为什么命中。
                             VStack(alignment: .leading, spacing: 3) {
@@ -1174,6 +1187,7 @@ struct SearchView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.leading, 54)
+                        searchResultPath(for: result.song, leadingPadding: 54)
                     }
                     .songSelectable(
                         songID: result.song.id,
@@ -1218,6 +1232,33 @@ struct SearchView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func searchResultPath(
+        for song: PrimuseKit.Song,
+        leadingPadding: CGFloat = 0
+    ) -> some View {
+        if let path = SongPathPresentationPolicy.displayPath(
+            filePath: song.filePath,
+            sourceID: song.sourceID,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
+        ) {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                Text(verbatim: path)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+            .padding(.leading, leadingPadding)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: String(
+                format: String(localized: "search_result_path_accessibility_format"),
+                path
+            )))
+        }
     }
 
     /// 视图重新出现时补跑当前 query。两种丢状态场景:(1) iPhone 切 tab 时

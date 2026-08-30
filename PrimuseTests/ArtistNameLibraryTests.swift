@@ -151,6 +151,42 @@ final class ArtistNameLibraryTests: XCTestCase {
         XCTAssertEqual(result.songResults.first?.matchKind, .metadata)
     }
 
+    func testKeywordSearchFindsAUserVisibleRelativePath() {
+        let song = makeSong(
+            artistName: "Artist",
+            filePath: "Archive/Live Sessions/Track.flac"
+        )
+
+        let result = LibrarySearchWorker.compute(
+            query: "Live Sessions",
+            songs: [song],
+            albums: [],
+            cache: LibrarySearchCache(),
+            includeLyrics: false
+        )
+
+        XCTAssertEqual(result.songResults.map(\.song.id), [song.id])
+        XCTAssertEqual(result.songResults.first?.matchKind, .path)
+    }
+
+    func testKeywordSearchDoesNotMatchAnAppleMusicPath() {
+        let song = makeSong(
+            artistName: "Artist",
+            sourceID: AppleMusicLibraryIdentity.sourceID,
+            filePath: "/PrivateFolder/Track.m4a"
+        )
+
+        let result = LibrarySearchWorker.compute(
+            query: "PrivateFolder",
+            songs: [song],
+            albums: [],
+            cache: LibrarySearchCache(),
+            includeLyrics: false
+        )
+
+        XCTAssertTrue(result.songResults.isEmpty)
+    }
+
     @MainActor
     func testSmartPlaylistArtistRulesEvaluateEveryContributor() async throws {
         let storageDirectory = FileManager.default.temporaryDirectory
@@ -197,7 +233,8 @@ final class ArtistNameLibraryTests: XCTestCase {
         sourceArtistNames: [String]? = nil,
         albumArtistName: String? = nil,
         albumTitle: String? = nil,
-        sourceID: String = "source"
+        sourceID: String = "source",
+        filePath: String = "/track.flac"
     ) -> Song {
         Song(
             id: id,
@@ -208,7 +245,7 @@ final class ArtistNameLibraryTests: XCTestCase {
             albumArtistName: albumArtistName,
             duration: 180,
             fileFormat: .flac,
-            filePath: "/track.flac",
+            filePath: filePath,
             sourceID: sourceID
         )
     }

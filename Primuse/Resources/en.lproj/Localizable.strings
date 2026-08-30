@@ -2798,7 +2798,7 @@
 "ai_error_region_restricted" = "This feature is unavailable for the current App Store region.";
 "ai_error_keychain" = "The API key could not be saved or read securely.";
 "ai_error_connection" = "The provider connection failed.";
-"search_ai_section" = "Intelligent matches";
+"search_ai_section" = "Intelligent supplemental results";
 "search_ai_loading" = "Finding related concepts…";
 "search_ai_reason_format" = "Related to “%@”";
 "ai_provider_default_name" = "OpenAI-compatible service";
@@ -3092,3 +3092,5 @@
 "rating" = "Rating";
 "volume" = "Volume";
 "similar_songs_accessibility_hint" = "Shows songs similar to this track.";
+"search_section_path" = "Path matches";
+"search_result_path_accessibility_format" = "Path: %@";

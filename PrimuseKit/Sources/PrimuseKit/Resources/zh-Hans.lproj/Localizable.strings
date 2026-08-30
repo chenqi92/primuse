@@ -657,3 +657,5 @@
 "queue_title" = "播放队列";
 "repeat" = "循环";
 "shuffle" = "随机播放";
+"ext.tv.search.aiSupplement" = "智能补充结果";
+"ext.tv.search.path" = "路径：%@";

@@ -145,9 +145,18 @@ struct TVSearchView: View {
 
             TVEyebrow(text: PMString("ext.tv.search.songs")).padding(.top, 28).padding(.bottom, 16)
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 6) {
-                    ForEach(results.songs) { hit in
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(results.songs.filter { $0.relatedConcept == nil }) { hit in
                         TVSearchSongRow(hit: hit, action: openPlayer)
+                    }
+                    let intelligentResults = results.songs.filter { $0.relatedConcept != nil }
+                    if !intelligentResults.isEmpty {
+                        TVEyebrow(text: PMString("ext.tv.search.aiSupplement"))
+                            .padding(.top, 22)
+                            .padding(.bottom, 8)
+                        ForEach(intelligentResults) { hit in
+                            TVSearchSongRow(hit: hit, action: openPlayer)
+                        }
                     }
                     if !trimmed.isEmpty, results.songs.isEmpty {
                         Text(PMString("ext.tv.search.noMatch")).font(.system(size: 18))
@@ -281,6 +290,18 @@ private struct TVSearchSongRow: View {
                     } else {
                         Text("\(song.artist) · \(album?.title ?? "")")
                             .font(.system(size: 16)).foregroundStyle(TVColor.textFaint).lineLimit(1)
+                    }
+                    if let path = song.displayPath {
+                        HStack(spacing: 5) {
+                            Image(systemName: "folder")
+                            Text(path)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(TVColor.textGhost)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(PMString("ext.tv.search.path", path)))
                     }
                 }
                 Spacer(minLength: 0)

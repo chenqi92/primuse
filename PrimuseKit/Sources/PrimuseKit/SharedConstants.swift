@@ -1574,7 +1574,8 @@ public enum SongPathPresentationPolicy {
         let path: String
         if looksLikeWindowsPath(trimmed) {
             path = trimmed
-        } else if let components = URLComponents(string: trimmed),
+        } else if (trimmed.contains("://") || trimmed.hasPrefix("file:")),
+                  let components = URLComponents(string: trimmed),
                   components.scheme != nil {
             // `path` intentionally excludes the authority, user info, query
             // and fragment. Those values may contain signed-URL credentials.

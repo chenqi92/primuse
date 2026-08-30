@@ -3011,7 +3011,7 @@
 "ai_error_region_restricted" = "현재 App Store 지역에서는 이 기능을 사용할 수 없습니다.";
 "ai_error_keychain" = "API 키를 안전하게 저장하거나 읽을 수 없습니다.";
 "ai_error_connection" = "제공자 연결에 실패했습니다.";
-"search_ai_section" = "지능형 일치 항목";
+"search_ai_section" = "지능형 보조 결과";
 "search_ai_loading" = "관련 개념 찾는 중…";
 "search_ai_reason_format" = "‘%@’ 관련";
 "ai_provider_default_name" = "OpenAI 호환 서비스";
@@ -3305,3 +3305,5 @@
 "rating" = "평점";
 "volume" = "음량";
 "similar_songs_accessibility_hint" = "이 곡과 비슷한 노래를 표시합니다.";
+"search_section_path" = "경로 일치";
+"search_result_path_accessibility_format" = "경로: %@";

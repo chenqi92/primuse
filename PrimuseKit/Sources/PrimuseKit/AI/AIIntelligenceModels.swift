@@ -532,6 +532,52 @@ public enum AISemanticLibraryAggregationPolicy {
     }
 }
 
+public struct LibrarySearchComposition: Equatable, Sendable {
+    public var primaryResultIDs: [String]
+    public var intelligentSupplementIDs: [String]
+
+    public init(primaryResultIDs: [String], intelligentSupplementIDs: [String]) {
+        self.primaryResultIDs = primaryResultIDs
+        self.intelligentSupplementIDs = intelligentSupplementIDs
+    }
+}
+
+/// Keeps deterministic keyword matches as the complete primary result set and
+/// treats semantic matches as an optional, deduplicated supplement.
+public enum LibrarySearchCompositionPolicy {
+    public static func compose(
+        primaryResultIDs: [String],
+        intelligentResultIDs: [String]?,
+        intelligentAvailable: Bool,
+        supplementLimit: Int = 30
+    ) -> LibrarySearchComposition {
+        var seenPrimary = Set<String>()
+        let primary = primaryResultIDs.filter {
+            !$0.isEmpty && seenPrimary.insert($0).inserted
+        }
+        guard intelligentAvailable,
+              supplementLimit > 0,
+              let intelligentResultIDs else {
+            return LibrarySearchComposition(
+                primaryResultIDs: primary,
+                intelligentSupplementIDs: []
+            )
+        }
+
+        var seen = seenPrimary
+        var supplement: [String] = []
+        supplement.reserveCapacity(min(supplementLimit, intelligentResultIDs.count))
+        for id in intelligentResultIDs where !id.isEmpty && seen.insert(id).inserted {
+            supplement.append(id)
+            if supplement.count == supplementLimit { break }
+        }
+        return LibrarySearchComposition(
+            primaryResultIDs: primary,
+            intelligentSupplementIDs: supplement
+        )
+    }
+}
+
 public struct AIEmbeddingRequest: Equatable, Sendable {
     public var texts: [String]
     public var dimensions: Int?

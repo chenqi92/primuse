@@ -3012,7 +3012,7 @@
 "ai_error_region_restricted" = "現在の App Store 地域ではこの機能を利用できません。";
 "ai_error_keychain" = "API キーを安全に保存または読み込めませんでした。";
 "ai_error_connection" = "プロバイダーへの接続に失敗しました。";
-"search_ai_section" = "AI による候補";
+"search_ai_section" = "AI による補足結果";
 "search_ai_loading" = "関連する概念を検索しています…";
 "search_ai_reason_format" = "「%@」に関連";
 "ai_provider_default_name" = "OpenAI 互換サービス";
@@ -3306,3 +3306,5 @@
 "rating" = "評価";
 "volume" = "音量";
 "similar_songs_accessibility_hint" = "この曲に似た曲を表示します。";
+"search_section_path" = "パスの一致";
+"search_result_path_accessibility_format" = "パス：%@";

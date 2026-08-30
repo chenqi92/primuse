@@ -660,3 +660,5 @@
 "queue_title" = "재생 대기열";
 "repeat" = "반복";
 "shuffle" = "셔플";
+"ext.tv.search.aiSupplement" = "지능형 보조 결과";
+"ext.tv.search.path" = "경로: %@";
