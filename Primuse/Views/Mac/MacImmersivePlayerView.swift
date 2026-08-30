@@ -40,6 +40,8 @@ struct MacImmersivePlayerView: View {
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
+    @State private var isPresentationActive = false
+    @State private var visualizerOwnerID = UUID()
     @FocusState private var acceptsKeyInput: Bool
 
     private var effect: FullscreenPlayerEffect {
@@ -56,6 +58,15 @@ struct MacImmersivePlayerView: View {
             hasArtwork: hasResolvedArtwork
         )
         return FullscreenPlayerEffect(rawValue: raw) ?? .coverFlow
+    }
+
+    private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
+        NowPlayingVisualActivityPolicy(
+            isSceneActive: isPresentationActive,
+            isPlaying: player.isPlaying,
+            usesRealtimeSpectrum: presentationEffect.usesRealtimeSpectrum,
+            reduceMotion: reduceMotion
+        )
     }
 
     private var chromeInk: Color {
@@ -112,22 +123,24 @@ struct MacImmersivePlayerView: View {
                     showsEffectPicker = false
                 }
             } else {
-                onExitFullScreen()
+                beginExitFullScreen()
             }
         }
         .onAppear {
+            activatePresentation()
             acceptsKeyInput = true
             FullscreenPlayerEffectSync.shared.install()
             refreshArtworkInputs()
         }
-        .task { @MainActor in
+        .task(id: isPresentationActive) { @MainActor in
+            guard isPresentationActive else { return }
             // 先让系统全屏切换完成首轮布局，再挂载包含大图、Canvas 和模糊的
             // 沉浸场景；避免同一帧里同时争用主线程与 GPU。
             await Task.yield()
             if !reduceMotion {
                 try? await Task.sleep(for: .milliseconds(120))
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, isPresentationActive else { return }
             var transaction = Transaction()
             transaction.animation = nil
             withTransaction(transaction) { isStageReady = true }
@@ -155,7 +168,7 @@ struct MacImmersivePlayerView: View {
                 updateVisualizer(for: presentationEffect)
                 scheduleChromeHide()
             } else {
-                visualizer.stop()
+                visualizer.release(owner: visualizerOwnerID)
                 revealChrome()
             }
         }
@@ -168,8 +181,7 @@ struct MacImmersivePlayerView: View {
             }
         }
         .onDisappear {
-            chromeTask?.cancel()
-            visualizer.stop()
+            deactivatePresentation()
         }
     }
 
@@ -207,6 +219,7 @@ struct MacImmersivePlayerView: View {
                 )
             },
             typographyFieldLines: typographyFieldLines,
+            isRenderingActive: isPresentationActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -227,8 +240,8 @@ struct MacImmersivePlayerView: View {
                         fileFormat: song.fileFormat,
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
-                        isPlaying: player.isPlaying,
-                        isAnimationVisible: !showsEffectPicker,
+                        isPlaying: player.isPlaying && isPresentationActive,
+                        isAnimationVisible: isPresentationActive && !showsEffectPicker,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .frame(width: side, height: side)
@@ -294,7 +307,7 @@ struct MacImmersivePlayerView: View {
             HStack(spacing: 10) {
                 effectMenu
                 Spacer()
-                Button(action: onExitFullScreen) {
+                Button(action: beginExitFullScreen) {
                     HStack(spacing: 7) {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
                             .font(.system(size: 12, weight: .semibold))
@@ -771,7 +784,7 @@ struct MacImmersivePlayerView: View {
     }
 
     private var lyricObservationIdentity: String {
-        "\(player.currentSong?.id ?? "")|\(lyrics.hashValue)"
+        "\(player.currentSong?.id ?? "")|\(lyrics.hashValue)|\(isPresentationActive)|\(player.isPlaying)"
     }
 
     private var lyricPlaybackTime: TimeInterval {
@@ -783,6 +796,7 @@ struct MacImmersivePlayerView: View {
 
     @MainActor
     private func observeLyricPlayback() async {
+        guard isPresentationActive else { return }
         activeLyricIndex = nil
         lyricInterlude = false
         guard hasSynchronizedLyrics else { return }
@@ -791,6 +805,7 @@ struct MacImmersivePlayerView: View {
             ? Self.wordLevelLineLookahead
             : Self.lineLevelLookahead
         while !Task.isCancelled {
+            guard isPresentationActive else { return }
             let playbackTime = lyricPlaybackTime
             let index = LyricPlaybackPositionPolicy.activeLineIndex(
                 in: lyrics,
@@ -811,6 +826,8 @@ struct MacImmersivePlayerView: View {
             if activeLyricIndex != index { activeLyricIndex = index }
             if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
 
+            guard visualActivityPolicy.shouldPollLyrics else { return }
+
             do {
                 try await Task.sleep(for: .milliseconds(100))
             } catch {
@@ -820,7 +837,7 @@ struct MacImmersivePlayerView: View {
     }
 
     private var spectrumLevels: [CGFloat] {
-        guard presentationEffect.usesRealtimeSpectrum else { return [] }
+        guard visualActivityPolicy.shouldRunVisualizer else { return [] }
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }
     }
 
@@ -930,14 +947,42 @@ struct MacImmersivePlayerView: View {
     }
 
     private func updateVisualizer(for value: FullscreenPlayerEffect) {
-        guard player.isPlaying,
+        guard isPresentationActive,
+              player.isPlaying,
               value.usesRealtimeSpectrum,
               let audioEngine = player.audioEngine.engineForVisualizer,
               let mixer = player.audioEngine.mainMixerForVisualizer else {
-            visualizer.stop()
+            visualizer.release(owner: visualizerOwnerID)
             return
         }
-        visualizer.start(engine: audioEngine, on: mixer)
+        guard visualizer.acquire(
+            owner: visualizerOwnerID,
+            engine: audioEngine,
+            on: mixer
+        ) else {
+            visualizer.release(owner: visualizerOwnerID)
+            return
+        }
+    }
+
+    private func activatePresentation() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { isPresentationActive = true }
+    }
+
+    private func deactivatePresentation() {
+        chromeTask?.cancel()
+        visualizer.release(owner: visualizerOwnerID)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { isPresentationActive = false }
+    }
+
+    private func beginExitFullScreen() {
+        guard isPresentationActive else { return }
+        deactivatePresentation()
+        onExitFullScreen()
     }
 
     private func revealChrome() {
@@ -949,7 +994,8 @@ struct MacImmersivePlayerView: View {
 
     private func scheduleChromeHide() {
         chromeTask?.cancel()
-        guard isStageReady,
+        guard isPresentationActive,
+              isStageReady,
               player.isPlaying,
               !voiceOverEnabled,
               !showsEffectPicker else { return }
@@ -960,6 +1006,7 @@ struct MacImmersivePlayerView: View {
                 return
             }
             guard !Task.isCancelled,
+                  isPresentationActive,
                   player.isPlaying,
                   !voiceOverEnabled,
                   !showsEffectPicker else { return }

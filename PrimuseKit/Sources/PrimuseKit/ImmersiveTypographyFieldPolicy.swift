@@ -201,6 +201,97 @@ public struct ImmersiveTypographyFieldItem: Identifiable, Equatable, Sendable {
     public let phase: Double
 }
 
+public struct ImmersiveTypographyFieldMotionState: Equatable, Sendable {
+    public let opacityMultiplier: Double
+    public let xOffsetFraction: Double
+    public let yOffsetFraction: Double
+
+    public init(
+        opacityMultiplier: Double,
+        xOffsetFraction: Double,
+        yOffsetFraction: Double
+    ) {
+        self.opacityMultiplier = opacityMultiplier
+        self.xOffsetFraction = xOffsetFraction
+        self.yOffsetFraction = yOffsetFraction
+    }
+}
+
+/// Defines explicit full-cycle durations for the background typography field.
+/// Keeping this pure makes motion testable without rebuilding the text pool or
+/// layout on every visual tick.
+public enum ImmersiveTypographyFieldMotionPolicy {
+    public static let refreshInterval: TimeInterval = 0.25
+
+    public static func opacityCycleDuration(for itemID: Int) -> TimeInterval {
+        12 + Double(positiveModulo(itemID, 4)) * 2
+    }
+
+    public static func horizontalCycleDuration(for itemID: Int) -> TimeInterval {
+        30 + Double(positiveModulo(itemID, 4)) * 6
+    }
+
+    public static func verticalCycleDuration(for itemID: Int) -> TimeInterval {
+        38 + Double(positiveModulo(itemID, 3)) * 8
+    }
+
+    public static func state(
+        for item: ImmersiveTypographyFieldItem,
+        at elapsedTime: TimeInterval,
+        allowsMotion: Bool
+    ) -> ImmersiveTypographyFieldMotionState {
+        guard allowsMotion, elapsedTime.isFinite else {
+            return ImmersiveTypographyFieldMotionState(
+                opacityMultiplier: 1,
+                xOffsetFraction: 0,
+                yOffsetFraction: 0
+            )
+        }
+
+        let opacityWave = sineWave(
+            elapsedTime: elapsedTime,
+            duration: opacityCycleDuration(for: item.id),
+            phase: item.phase
+        )
+        let xWave = sineWave(
+            elapsedTime: elapsedTime,
+            duration: horizontalCycleDuration(for: item.id),
+            phase: item.phase
+        )
+        let yWave = cosineWave(
+            elapsedTime: elapsedTime,
+            duration: verticalCycleDuration(for: item.id),
+            phase: item.phase
+        )
+        return ImmersiveTypographyFieldMotionState(
+            opacityMultiplier: 0.92 + opacityWave * 0.08,
+            xOffsetFraction: xWave * item.driftXFraction,
+            yOffsetFraction: yWave * item.driftYFraction
+        )
+    }
+
+    private static func sineWave(
+        elapsedTime: TimeInterval,
+        duration: TimeInterval,
+        phase: Double
+    ) -> Double {
+        sin(elapsedTime * 2 * .pi / duration + phase)
+    }
+
+    private static func cosineWave(
+        elapsedTime: TimeInterval,
+        duration: TimeInterval,
+        phase: Double
+    ) -> Double {
+        cos(elapsedTime * 2 * .pi / duration + phase)
+    }
+
+    private static func positiveModulo(_ value: Int, _ divisor: Int) -> Int {
+        let remainder = value % divisor
+        return remainder >= 0 ? remainder : remainder + divisor
+    }
+}
+
 /// Builds a stable, deduplicated lyric pool and maps it onto a bounded set of
 /// depth-aware slots. The pool is expected to be cached by the song/lyrics
 /// owner; animation only changes transforms, never selection or text parsing.
@@ -323,8 +414,8 @@ public enum ImmersiveTypographyFieldPolicy {
                 blurRadius: blur,
                 isOutlined: slot.depth > 0 || index.isMultiple(of: 3),
                 rotationDegrees: slot.rotation,
-                driftXFraction: motionScale * (0.004 + Double(index % 4) * 0.0024),
-                driftYFraction: motionScale * (0.002 + Double((index + 2) % 3) * 0.0015),
+                driftXFraction: motionScale * (0.008 + Double(index % 4) * 0.0035),
+                driftYFraction: motionScale * (0.004 + Double((index + 2) % 3) * 0.002),
                 phase: Double(index) * 0.73
             )
         }

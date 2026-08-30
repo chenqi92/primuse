@@ -1439,20 +1439,25 @@ private struct ImmersiveLyricsTypographyField: View {
         let foregroundKey = ImmersiveTypographyFieldPolicy.normalizedKey(currentLyric ?? "")
         let titleKey = ImmersiveTypographyFieldPolicy.normalizedKey(title)
         let items = layout
-        TimelineView(.animation(minimumInterval: 0.20, paused: !isAnimating)) { context in
+        TimelineView(.animation(
+            minimumInterval: ImmersiveTypographyFieldMotionPolicy.refreshInterval,
+            paused: !isAnimating
+        )) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             ZStack {
                 ForEach(items) { item in
                     let isForegroundText = item.normalizedTextKey == foregroundKey
                         || item.normalizedTextKey == titleKey
                     let fontSize = baseFontSize * CGFloat(item.fontScale)
-                    let pulse = 0.94 + sin(time / 7.5 + item.phase) * 0.06
+                    let motion = ImmersiveTypographyFieldMotionPolicy.state(
+                        for: item,
+                        at: time,
+                        allowsMotion: isAnimating
+                    )
                     let x = canvasSize.width * CGFloat(item.normalizedX)
-                        + sin(time / (24 + Double(item.id % 4) * 3.5) + item.phase)
-                            * canvasSize.width * CGFloat(item.driftXFraction)
+                        + canvasSize.width * CGFloat(motion.xOffsetFraction)
                     let y = canvasSize.height * CGFloat(item.normalizedY)
-                        + cos(time / (29 + Double(item.id % 3) * 4.0) + item.phase)
-                            * canvasSize.height * CGFloat(item.driftYFraction)
+                        + canvasSize.height * CGFloat(motion.yOffsetFraction)
 
                     ImmersiveFieldText(
                         text: item.text,
@@ -1467,7 +1472,7 @@ private struct ImmersiveLyricsTypographyField: View {
                     )
                     .rotationEffect(.degrees(item.rotationDegrees))
                     .blur(radius: CGFloat(item.blurRadius))
-                    .opacity(isForegroundText ? 0 : item.opacity * pulse)
+                    .opacity(isForegroundText ? 0 : item.opacity * motion.opacityMultiplier)
                     .position(x: x, y: y)
                 }
             }

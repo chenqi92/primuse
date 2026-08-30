@@ -210,6 +210,96 @@ struct ImmersiveTypographyFieldPolicyTests {
     }
 }
 
+@Suite("Immersive typography field motion")
+struct ImmersiveTypographyFieldMotionPolicyTests {
+    @Test("Motion uses explicit bounded full-cycle durations")
+    func boundedCycleDurations() {
+        for itemID in 0..<16 {
+            #expect((12...18).contains(
+                ImmersiveTypographyFieldMotionPolicy.opacityCycleDuration(for: itemID)
+            ))
+            #expect((30...48).contains(
+                ImmersiveTypographyFieldMotionPolicy.horizontalCycleDuration(for: itemID)
+            ))
+            #expect((38...54).contains(
+                ImmersiveTypographyFieldMotionPolicy.verticalCycleDuration(for: itemID)
+            ))
+        }
+        #expect(ImmersiveTypographyFieldMotionPolicy.refreshInterval >= 0.20)
+    }
+
+    @Test("Motion changes visibly within a few seconds")
+    func visibleEarlyChange() throws {
+        let item = try #require(makeMovingItem())
+        let start = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: 0,
+            allowsMotion: true
+        )
+        let later = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: 3,
+            allowsMotion: true
+        )
+
+        #expect(later.opacityMultiplier - start.opacityMultiplier > 0.06)
+        #expect(abs(later.xOffsetFraction - start.xOffsetFraction) > 0.004)
+    }
+
+    @Test("Each oscillator returns to its starting point after a full cycle")
+    func completeCycles() throws {
+        let item = try #require(makeMovingItem())
+        let start = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: 0,
+            allowsMotion: true
+        )
+        let opacityCycle = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: ImmersiveTypographyFieldMotionPolicy.opacityCycleDuration(for: item.id),
+            allowsMotion: true
+        )
+        let horizontalCycle = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: ImmersiveTypographyFieldMotionPolicy.horizontalCycleDuration(for: item.id),
+            allowsMotion: true
+        )
+        let verticalCycle = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: ImmersiveTypographyFieldMotionPolicy.verticalCycleDuration(for: item.id),
+            allowsMotion: true
+        )
+
+        #expect(abs(opacityCycle.opacityMultiplier - start.opacityMultiplier) < 0.000_001)
+        #expect(abs(horizontalCycle.xOffsetFraction - start.xOffsetFraction) < 0.000_001)
+        #expect(abs(verticalCycle.yOffsetFraction - start.yOffsetFraction) < 0.000_001)
+    }
+
+    @Test("Disabled motion has a stable neutral fallback")
+    func disabledMotion() throws {
+        let item = try #require(makeMovingItem())
+        let state = ImmersiveTypographyFieldMotionPolicy.state(
+            for: item,
+            at: 123.4,
+            allowsMotion: false
+        )
+
+        #expect(state.opacityMultiplier == 1)
+        #expect(state.xOffsetFraction == 0)
+        #expect(state.yOffsetFraction == 0)
+    }
+
+    private func makeMovingItem() -> ImmersiveTypographyFieldItem? {
+        ImmersiveTypographyFieldPolicy.layout(
+            lines: ["First background lyric"],
+            canvasWidth: 1920,
+            canvasHeight: 1080,
+            platform: .television,
+            reduceMotion: false
+        ).first
+    }
+}
+
 @Suite("Immersive word highlight progress")
 struct ImmersiveLyricHighlightProgressPolicyTests {
     @Test("Line timing provides a bounded fallback highlight")
