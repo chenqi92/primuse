@@ -84,6 +84,7 @@ schemes:
       targets:
         PrimuseMac: all
         PrimuseKit: all
+        PrimuseWidgetExtension: all
     run:
       config: Debug
       executable: PrimuseMac
@@ -161,6 +162,7 @@ targets:
       - sdk: AppIntents.framework
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
+        embed: true
       - target: PrimuseWatchApp
         embed: true
     info:
@@ -293,7 +295,10 @@ targets:
 
   PrimuseWidgetExtension:
     type: app-extension
-    platform: iOS
+    # 原生 iOS 与 macOS 共用同一个 WidgetKit target。这里必须以
+    # supportedDestinations 为真源；只手改生成后的 pbxproj 会在下一次
+    # XcodeGen 生成时丢掉 macOS 平台、签名和宿主嵌入配置。
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: PrimuseWidgetExtension
       # AppIntents 跨进程: widget extension 进程独立, 需要 link 同一组 intent
@@ -322,6 +327,12 @@ targets:
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseWidgetExtension.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/PrimuseWidgetExtension-macOS.entitlements
+        # macOS 原生 Widget 不包含 iOS Control Widget，也不需要主 App 的
+        # App Shortcuts intent；共享文件在 Mac 分支还会引用仅宿主编译的广播
+        # intent，因此只在 iOS extension 中参与编译。
+        "EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]": PrimuseAppIntents.swift
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
 
   PrimuseWatchApp:
     type: application
@@ -445,6 +456,8 @@ targets:
       - sdk: AppIntents.framework
       - sdk: iTunesLibrary.framework
       - target: PrimuseKit
+      - target: PrimuseWidgetExtension
+        embed: true
     info:
       path: Primuse/Info-macOS.plist
       properties:

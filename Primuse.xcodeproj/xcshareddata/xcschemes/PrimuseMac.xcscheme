@@ -35,6 +35,20 @@
                ReferencedContainer = "container:Primuse.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "077D3AF75542004A69D318FF"
+               BuildableName = "PrimuseWidgetExtension.appex"
+               BlueprintName = "PrimuseWidgetExtension"
+               ReferencedContainer = "container:Primuse.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
