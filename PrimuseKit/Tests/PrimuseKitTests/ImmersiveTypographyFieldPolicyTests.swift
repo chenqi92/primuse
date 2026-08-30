@@ -225,7 +225,11 @@ struct ImmersiveTypographyFieldMotionPolicyTests {
                 ImmersiveTypographyFieldMotionPolicy.verticalCycleDuration(for: itemID)
             ))
         }
-        #expect(ImmersiveTypographyFieldMotionPolicy.refreshInterval >= 0.20)
+        #expect((24...60).contains(ImmersiveTypographyFieldMotionPolicy.targetFramesPerSecond))
+        #expect(abs(
+            ImmersiveTypographyFieldMotionPolicy.refreshInterval
+                - 1.0 / Double(ImmersiveTypographyFieldMotionPolicy.targetFramesPerSecond)
+        ) < 0.000_001)
     }
 
     @Test("Motion changes visibly within a few seconds")

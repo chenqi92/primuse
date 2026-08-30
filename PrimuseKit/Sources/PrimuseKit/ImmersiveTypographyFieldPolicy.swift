@@ -221,7 +221,10 @@ public struct ImmersiveTypographyFieldMotionState: Equatable, Sendable {
 /// Keeping this pure makes motion testable without rebuilding the text pool or
 /// layout on every visual tick.
 public enum ImmersiveTypographyFieldMotionPolicy {
-    public static let refreshInterval: TimeInterval = 0.25
+    /// The typography field is rendered by a single cached Canvas, so it can
+    /// follow display motion smoothly without rebuilding a SwiftUI text tree.
+    public static let targetFramesPerSecond = 30
+    public static let refreshInterval: TimeInterval = 1.0 / Double(targetFramesPerSecond)
 
     public static func opacityCycleDuration(for itemID: Int) -> TimeInterval {
         12 + Double(positiveModulo(itemID, 4)) * 2

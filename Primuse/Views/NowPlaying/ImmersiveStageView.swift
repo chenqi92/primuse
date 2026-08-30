@@ -1399,22 +1399,15 @@ private struct ImmersiveLyricsTypographyField: View {
     let isAnimating: Bool
     let reduceMotion: Bool
 
-    @State private var cachedLayout: [ImmersiveTypographyFieldItem] = []
+    @State private var cachedRenderItems: [ImmersiveTypographyFieldRenderItem] = []
     @State private var cachedLayoutKey = ""
 
     private var cacheKey: String {
         "\(platform.rawValue)|\(Int(canvasSize.width))x\(Int(canvasSize.height))|\(reduceMotion)|\(lines.joined(separator: "\u{1F}"))"
     }
 
-    private var layout: [ImmersiveTypographyFieldItem] {
-        if cachedLayoutKey == cacheKey { return cachedLayout }
-        return ImmersiveTypographyFieldPolicy.layout(
-            lines: lines,
-            canvasWidth: canvasSize.width,
-            canvasHeight: canvasSize.height,
-            platform: platform,
-            reduceMotion: reduceMotion
-        )
+    private var renderItems: [ImmersiveTypographyFieldRenderItem] {
+        cachedLayoutKey == cacheKey ? cachedRenderItems : []
     }
 
     private var baseFontSize: CGFloat {
@@ -1438,47 +1431,79 @@ private struct ImmersiveLyricsTypographyField: View {
     var body: some View {
         let foregroundKey = ImmersiveTypographyFieldPolicy.normalizedKey(currentLyric ?? "")
         let titleKey = ImmersiveTypographyFieldPolicy.normalizedKey(title)
-        let items = layout
-        TimelineView(.animation(
-            minimumInterval: ImmersiveTypographyFieldMotionPolicy.refreshInterval,
-            paused: !isAnimating
-        )) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            ZStack {
-                ForEach(items) { item in
-                    let isForegroundText = item.normalizedTextKey == foregroundKey
-                        || item.normalizedTextKey == titleKey
-                    let fontSize = baseFontSize * CGFloat(item.fontScale)
-                    let motion = ImmersiveTypographyFieldMotionPolicy.state(
-                        for: item,
-                        at: time,
-                        allowsMotion: isAnimating
-                    )
-                    let x = canvasSize.width * CGFloat(item.normalizedX)
-                        + canvasSize.width * CGFloat(motion.xOffsetFraction)
-                    let y = canvasSize.height * CGFloat(item.normalizedY)
-                        + canvasSize.height * CGFloat(motion.yOffsetFraction)
+        let items = renderItems
+        ZStack {
+            TimelineView(.animation(
+                minimumInterval: ImmersiveTypographyFieldMotionPolicy.refreshInterval,
+                paused: !isAnimating
+            )) { context in
+                let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+                Canvas(rendersAsynchronously: true) { canvas, _ in
+                    for renderItem in items {
+                        let item = renderItem.item
+                        guard let path = renderItem.path,
+                              item.normalizedTextKey != foregroundKey,
+                              item.normalizedTextKey != titleKey else { continue }
 
-                    ImmersiveFieldText(
-                        text: item.text,
-                        fontSize: fontSize,
-                        outlined: item.isOutlined,
-                        tint: tint,
-                        lineWidth: max(0.8, fontSize * 0.014)
-                    )
-                    .frame(
-                        width: canvasSize.width * CGFloat(item.widthFraction),
-                        height: fontSize * 1.28
-                    )
-                    .rotationEffect(.degrees(item.rotationDegrees))
-                    .blur(radius: CGFloat(item.blurRadius))
-                    .opacity(isForegroundText ? 0 : item.opacity * motion.opacityMultiplier)
-                    .position(x: x, y: y)
+                        let motion = ImmersiveTypographyFieldMotionPolicy.state(
+                            for: item,
+                            at: time,
+                            allowsMotion: isAnimating
+                        )
+                        var itemCanvas = canvas
+                        itemCanvas.translateBy(
+                            x: canvasSize.width * CGFloat(motion.xOffsetFraction),
+                            y: canvasSize.height * CGFloat(motion.yOffsetFraction)
+                        )
+                        itemCanvas.opacity = item.opacity * motion.opacityMultiplier
+                        if item.blurRadius > 0 {
+                            itemCanvas.addFilter(.blur(radius: CGFloat(item.blurRadius)))
+                        }
+                        if item.isOutlined {
+                            itemCanvas.stroke(
+                                path,
+                                with: .color(tint),
+                                lineWidth: max(0.8, renderItem.fontSize * 0.014)
+                            )
+                        } else {
+                            itemCanvas.fill(
+                                path,
+                                with: .color(ImmersiveStagePalette.text)
+                            )
+                        }
+                    }
                 }
             }
-            .frame(width: canvasSize.width, height: canvasSize.height)
-            .clipped()
+
+            // Color emoji and other glyphs without a CoreText outline keep a
+            // static fallback. They are rare, and must not rebuild the moving
+            // field's render tree on every frame.
+            ForEach(items.filter { $0.path == nil }) { renderItem in
+                let item = renderItem.item
+                let isForegroundText = item.normalizedTextKey == foregroundKey
+                    || item.normalizedTextKey == titleKey
+                Text(item.text)
+                    .font(.system(size: renderItem.fontSize, weight: .semibold))
+                    .foregroundStyle(
+                        item.isOutlined ? tint.opacity(0.46) : ImmersiveStagePalette.text
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.35)
+                    .allowsTightening(true)
+                    .frame(
+                        width: canvasSize.width * CGFloat(item.widthFraction),
+                        height: renderItem.fontSize * 1.28
+                    )
+                    .rotationEffect(.degrees(item.rotationDegrees))
+                    .opacity(isForegroundText ? 0 : item.opacity)
+                    .position(
+                        x: canvasSize.width * CGFloat(item.normalizedX),
+                        y: canvasSize.height * CGFloat(item.normalizedY)
+                    )
+            }
         }
+        .frame(width: canvasSize.width, height: canvasSize.height)
+        .clipped()
         .task(id: cacheKey) {
             let updatedLayout = ImmersiveTypographyFieldPolicy.layout(
                 lines: lines,
@@ -1487,66 +1512,85 @@ private struct ImmersiveLyricsTypographyField: View {
                 platform: platform,
                 reduceMotion: reduceMotion
             )
-            cachedLayout = updatedLayout
-            cachedLayoutKey = cacheKey
+            var prepared: [ImmersiveTypographyFieldRenderItem] = []
+            prepared.reserveCapacity(updatedLayout.count)
+            for (index, item) in updatedLayout.enumerated() {
+                guard !Task.isCancelled else { return }
+                let fontSize = baseFontSize * CGFloat(item.fontScale)
+                let glyphs = ImmersiveGlyphLine.make(text: item.text, fontSize: fontSize)
+                let path = glyphs.map {
+                    transformedPath(
+                        $0,
+                        item: item,
+                        fontSize: fontSize,
+                        center: CGPoint(
+                            x: canvasSize.width * CGFloat(item.normalizedX),
+                            y: canvasSize.height * CGFloat(item.normalizedY)
+                        )
+                    )
+                }
+                prepared.append(ImmersiveTypographyFieldRenderItem(
+                    item: item,
+                    fontSize: fontSize,
+                    path: path
+                ))
+                if index.isMultiple(of: 4) {
+                    await Task.yield()
+                }
+            }
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                cachedRenderItems = prepared
+                cachedLayoutKey = cacheKey
+            }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
+
+    private func transformedPath(
+        _ glyphs: ImmersiveGlyphLine,
+        item: ImmersiveTypographyFieldItem,
+        fontSize: CGFloat,
+        center: CGPoint
+    ) -> Path {
+        let targetWidth = canvasSize.width * CGFloat(item.widthFraction)
+        let targetHeight = fontSize * 1.28
+        let scale = min(
+            1,
+            min(
+                targetWidth / max(glyphs.size.width, 1),
+                targetHeight / max(glyphs.size.height, 1)
+            )
+        )
+        let angle = CGFloat(item.rotationDegrees * .pi / 180)
+        let cosine = cos(angle)
+        let sine = sin(angle)
+        let a = scale * cosine
+        let b = scale * sine
+        let c = -scale * sine
+        let d = scale * cosine
+        let sourceCenter = CGPoint(x: glyphs.size.width / 2, y: glyphs.size.height / 2)
+        let transform = CGAffineTransform(
+            a: a,
+            b: b,
+            c: c,
+            d: d,
+            tx: center.x - a * sourceCenter.x - c * sourceCenter.y,
+            ty: center.y - b * sourceCenter.x - d * sourceCenter.y
+        )
+        return glyphs.path.applying(transform)
+    }
 }
 
-private struct ImmersiveFieldText: View {
-    let text: String
+private struct ImmersiveTypographyFieldRenderItem: Identifiable {
+    let item: ImmersiveTypographyFieldItem
     let fontSize: CGFloat
-    let outlined: Bool
-    let tint: Color
-    let lineWidth: CGFloat
+    let path: Path?
 
-    @State private var glyphs: ImmersiveGlyphLine?
-
-    private var cacheKey: String {
-        "\(text)#\(Int(fontSize))#\(outlined)"
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            if outlined, let glyphs {
-                Canvas(rendersAsynchronously: true) { canvas, size in
-                    let scale = min(
-                        1,
-                        min(
-                            size.width / max(glyphs.size.width, 1),
-                            size.height / max(glyphs.size.height, 1)
-                        )
-                    )
-                    let scaled = glyphs.path.applying(
-                        CGAffineTransform(scaleX: scale, y: scale)
-                    )
-                    let translated = scaled.applying(CGAffineTransform(
-                        translationX: (size.width - glyphs.size.width * scale) / 2,
-                        y: (size.height - glyphs.size.height * scale) / 2
-                    ))
-                    canvas.stroke(
-                        translated,
-                        with: .color(tint),
-                        lineWidth: lineWidth
-                    )
-                }
-            } else {
-                Text(text)
-                    .font(.system(size: fontSize, weight: outlined ? .medium : .semibold))
-                    .foregroundStyle(outlined ? tint.opacity(0.46) : ImmersiveStagePalette.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.48)
-                    .allowsTightening(true)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-            }
-        }
-        .task(id: cacheKey) {
-            glyphs = outlined ? ImmersiveGlyphLine.make(text: text, fontSize: fontSize) : nil
-        }
-        .accessibilityHidden(true)
-    }
+    var id: Int { item.id }
 }
 
 private struct ImmersiveLiveWaveform: View {
