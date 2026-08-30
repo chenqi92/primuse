@@ -57,6 +57,50 @@ struct MetadataBackfillPresentationTests {
         #expect(summary.affectedCount == 8)
     }
 
+    @Test("Summary rail and result filters share one disjoint grouping")
+    func statusFiltersPartitionEveryVisibleState() {
+        let visibleFilters = MetadataBackfillStatusFilter.allCases.filter { $0 != .all }
+
+        for state in MetadataBackfillItemState.allCases {
+            let matches = visibleFilters.filter { $0.includes(state) }
+            #expect(matches.count == 1)
+            #expect(MetadataBackfillStatusFilter.all.includes(state))
+        }
+
+        let summary = MetadataBackfillSourceSummary(
+            pendingInspectionCount: 2,
+            waitingForWiFiCount: 3,
+            retryPendingCount: 5,
+            sourceUnavailableCount: 7,
+            fileUnavailableCount: 11,
+            unreadableTagsCount: 13,
+            playableIncompleteCount: 17,
+            stalledCount: 19
+        )
+
+        #expect(summary.count(for: .all) == 77)
+        #expect(summary.count(for: .pending) == 5)
+        #expect(summary.count(for: .retry) == 24)
+        #expect(summary.count(for: .sourceProblem) == 18)
+        #expect(summary.count(for: .unreadable) == 13)
+        #expect(summary.count(for: .incomplete) == 17)
+    }
+
+    @Test("Diagnostic display removes signed URL and credential material")
+    func diagnosticDisplayRedactsCredentials() {
+        let signedURL = "GET https://alice:secret@example.com/song.flac?token=abc&sig=def#preview Authorization: Bearer xyz"
+        #expect(
+            MetadataBackfillDisplayRedactionPolicy.redact(signedURL)
+                == "GET https://example.com/song.flac Authorization: ••••"
+        )
+
+        let looseSecrets = "access_token=abc signature=def retry later"
+        #expect(
+            MetadataBackfillDisplayRedactionPolicy.redact(looseSecrets)
+                == "access_token=•••• signature=•••• retry later"
+        )
+    }
+
     @Test("Persisted diagnostics retain exact failure context")
     func diagnosticRoundTrip() throws {
         let timestamp = Date(timeIntervalSince1970: 1_725_000_000)

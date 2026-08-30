@@ -2996,6 +2996,9 @@
 /* Source metadata inspection */
 "metadata_status_title" = "Metadata Inspection";
 "metadata_status_explanation" = "Each count is mutually exclusive. Pending means supported fields still need inspection; it does not mean tags were never read before. Songs already in the library can re-enter inspection when Primuse adds format or field support. A failed song is recorded and skipped, so other songs from the source continue; only a source-wide outage or your Pause action stops the current run.";
+"metadata_status_explanation_title" = "About These States";
+"metadata_status_health_summary_format" = "%d pending inspection · %d need attention";
+"metadata_status_health_clear" = "No songs currently need inspection or attention.";
 "metadata_status_actions" = "Reading Actions";
 "metadata_status_pause" = "Pause Reading for This Source";
 "metadata_status_paused_message" = "User-initiated metadata reading for this source is paused.";

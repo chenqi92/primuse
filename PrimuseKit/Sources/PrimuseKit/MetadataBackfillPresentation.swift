@@ -33,6 +33,79 @@ public enum MetadataBackfillItemState: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// The compact, mutually-exclusive groups shared by the source summary rail
+/// and the affected-song list. Keeping the grouping in one policy prevents a
+/// summary count from opening a list with different membership rules.
+public enum MetadataBackfillStatusFilter: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case pending
+    case retry
+    case sourceProblem
+    case unreadable
+    case incomplete
+
+    public var id: String { rawValue }
+
+    public func includes(_ state: MetadataBackfillItemState) -> Bool {
+        switch self {
+        case .all:
+            true
+        case .pending:
+            state == .pendingInspection || state == .waitingForWiFi
+        case .retry:
+            state == .retryPending || state == .stalled
+        case .sourceProblem:
+            state == .sourceUnavailable || state == .fileUnavailable
+        case .unreadable:
+            state == .unreadableTags
+        case .incomplete:
+            state == .playableIncomplete
+        }
+    }
+}
+
+public enum MetadataBackfillDisplayRedactionPolicy {
+    public static func redact(_ value: String) -> String {
+        var result = value
+        result = replacing(
+            pattern: #"(?i)(https?://)[^/@\s]+@"#,
+            in: result,
+            with: "$1"
+        )
+        result = replacing(
+            pattern: #"(?i)(https?://[^\s?#]+)(?:\?[^\s#]*)?(?:#[^\s]*)?"#,
+            in: result,
+            with: "$1"
+        )
+        result = replacing(
+            pattern: #"(?i)\bAuthorization:\s*[^\r\n,;]+"#,
+            in: result,
+            with: "Authorization: ••••"
+        )
+        return replacing(
+            pattern: #"(?i)\b(access[_-]?token|refresh[_-]?token|token|authorization|signature|sig)=([^\s&]+)"#,
+            in: result,
+            with: "$1=••••"
+        )
+    }
+
+    private static func replacing(
+        pattern: String,
+        in value: String,
+        with template: String
+    ) -> String {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return value
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return expression.stringByReplacingMatches(
+            in: value,
+            range: range,
+            withTemplate: template
+        )
+    }
+}
+
 /// Durable context for the last failed inspection attempt. Song IDs remain the
 /// source of truth for queue membership; this record only explains the exact
 /// observed error without turning a transient failure into a permanent block.
@@ -102,6 +175,23 @@ public struct MetadataBackfillSourceSummary: Equatable, Sendable {
 
     public var affectedCount: Int {
         activeQueueCount + problemCount
+    }
+
+    public func count(for filter: MetadataBackfillStatusFilter) -> Int {
+        switch filter {
+        case .all:
+            affectedCount
+        case .pending:
+            activeQueueCount
+        case .retry:
+            retryPendingCount + stalledCount
+        case .sourceProblem:
+            sourceUnavailableCount + fileUnavailableCount
+        case .unreadable:
+            unreadableTagsCount
+        case .incomplete:
+            playableIncompleteCount
+        }
     }
 
     public mutating func record(_ state: MetadataBackfillItemState) {

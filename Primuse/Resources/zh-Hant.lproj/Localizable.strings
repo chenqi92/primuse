@@ -3186,6 +3186,9 @@
 /* 來源標籤檢查 */
 "metadata_status_title" = "標籤檢查詳情";
 "metadata_status_explanation" = "各狀態互不重疊。「待檢查」表示仍有欄位需要核對，並不代表以前從未讀取標籤；Primuse 新增格式或欄位支援後，已入庫歌曲也可能重新進入檢查。單曲失敗會被記錄並略過，不會停止同來源的其他歌曲；只有來源整體無法使用或你主動暫停時才會停止目前輪次。";
+"metadata_status_explanation_title" = "狀態說明";
+"metadata_status_health_summary_format" = "%d 首待檢查 · %d 首需要處理";
+"metadata_status_health_clear" = "目前沒有需要檢查或處理的歌曲。";
 "metadata_status_actions" = "讀取操作";
 "metadata_status_pause" = "暫停此來源的讀取";
 "metadata_status_paused_message" = "已暫停此來源的主動標籤讀取。";

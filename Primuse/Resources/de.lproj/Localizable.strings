@@ -3209,6 +3209,9 @@
 /* Prüfung der Quellenmetadaten */
 "metadata_status_title" = "Metadatenprüfung";
 "metadata_status_explanation" = "Jeder Status wird nur einmal gezählt. Ausstehend bedeutet, dass unterstützte Felder noch geprüft werden müssen, nicht dass Tags noch nie gelesen wurden. Bereits importierte Titel können nach neuer Format- oder Feldunterstützung erneut geprüft werden. Fehlerhafte Titel werden protokolliert und übersprungen; nur ein Ausfall der gesamten Quelle oder deine Pause stoppt den aktuellen Lauf.";
+"metadata_status_explanation_title" = "Status erklärt";
+"metadata_status_health_summary_format" = "%d noch zu prüfen · %d benötigen Aufmerksamkeit";
+"metadata_status_health_clear" = "Derzeit müssen keine Titel geprüft oder bearbeitet werden.";
 "metadata_status_actions" = "Leseaktionen";
 "metadata_status_pause" = "Lesen für diese Quelle pausieren";
 "metadata_status_paused_message" = "Das manuell gestartete Lesen für diese Quelle wurde pausiert.";

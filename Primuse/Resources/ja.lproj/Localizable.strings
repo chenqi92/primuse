@@ -3210,6 +3210,9 @@
 /* ソースのメタデータ検査 */
 "metadata_status_title" = "メタデータ検査の詳細";
 "metadata_status_explanation" = "各状態は重複せずに集計されます。保留は対応フィールドに未検査項目があるという意味で、以前にタグを読み取っていないという意味ではありません。Primuse が新しい形式やフィールドに対応すると、ライブラリ内の曲が再検査の対象になることがあります。1曲の失敗は記録してスキップされ、同じソースの他の曲は続行されます。ソース全体が利用できない場合、または一時停止した場合のみ現在の処理が停止します。";
+"metadata_status_explanation_title" = "ステータスの説明";
+"metadata_status_health_summary_format" = "%d 曲を確認待ち・%d 曲に対応が必要";
+"metadata_status_health_clear" = "現在、確認または対応が必要な曲はありません。";
 "metadata_status_actions" = "読み取り操作";
 "metadata_status_pause" = "このソースの読み取りを一時停止";
 "metadata_status_paused_message" = "このソースで手動開始したメタデータ読み取りを一時停止しました。";

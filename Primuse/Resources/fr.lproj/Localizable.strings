@@ -3209,6 +3209,9 @@
 /* Inspection des métadonnées de la source */
 "metadata_status_title" = "Inspection des métadonnées";
 "metadata_status_explanation" = "Chaque état est compté une seule fois. En attente signifie que des champs pris en charge restent à inspecter, pas que les tags n’ont jamais été lus. Des morceaux déjà importés peuvent être réinspectés quand Primuse prend en charge un format ou un champ supplémentaire. Un morceau en échec est enregistré puis ignoré ; seule l’indisponibilité de toute la source ou votre pause arrête la lecture en cours.";
+"metadata_status_explanation_title" = "Comprendre les états";
+"metadata_status_health_summary_format" = "%d à inspecter · %d nécessitent votre attention";
+"metadata_status_health_clear" = "Aucun morceau ne nécessite actuellement d’inspection ou d’action.";
 "metadata_status_actions" = "Actions de lecture";
 "metadata_status_pause" = "Suspendre la lecture de cette source";
 "metadata_status_paused_message" = "La lecture lancée manuellement pour cette source est suspendue.";

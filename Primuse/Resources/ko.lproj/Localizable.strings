@@ -3209,6 +3209,9 @@
 /* 소스 메타데이터 검사 */
 "metadata_status_title" = "메타데이터 검사 상세";
 "metadata_status_explanation" = "각 상태는 중복 없이 집계됩니다. 대기는 지원되는 필드 중 아직 검사할 항목이 있다는 뜻이며, 이전에 태그를 읽지 않았다는 뜻은 아닙니다. Primuse가 새 형식이나 필드를 지원하면 이미 보관함에 있는 곡도 다시 검사될 수 있습니다. 한 곡의 실패는 기록한 뒤 건너뛰므로 같은 소스의 다른 곡은 계속 처리되며, 소스 전체를 사용할 수 없거나 사용자가 일시 정지한 경우에만 현재 실행이 멈춥니다.";
+"metadata_status_explanation_title" = "상태 설명";
+"metadata_status_health_summary_format" = "검사 대기 %d곡 · 확인 필요 %d곡";
+"metadata_status_health_clear" = "현재 검사하거나 확인할 곡이 없습니다.";
 "metadata_status_actions" = "읽기 작업";
 "metadata_status_pause" = "이 소스 읽기 일시 정지";
 "metadata_status_paused_message" = "이 소스에서 직접 시작한 메타데이터 읽기를 일시 정지했습니다.";

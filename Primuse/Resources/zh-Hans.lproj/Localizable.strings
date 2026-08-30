@@ -3313,6 +3313,9 @@
 /* 来源标签检查 */
 "metadata_status_title" = "标签检查详情";
 "metadata_status_explanation" = "各状态互不重叠。“待检查”表示仍有字段需要核对，并不代表以前从未读取标签；Primuse 新增格式或字段支持后，已入库歌曲也可能重新进入检查。单曲失败会被记录并跳过，不会停止同来源的其他歌曲；只有来源整体不可用或你主动暂停时才会停止当前轮次。";
+"metadata_status_explanation_title" = "状态说明";
+"metadata_status_health_summary_format" = "%d 首待检查 · %d 首需要处理";
+"metadata_status_health_clear" = "当前没有需要检查或处理的歌曲。";
 "metadata_status_actions" = "读取操作";
 "metadata_status_pause" = "暂停此来源的读取";
 "metadata_status_paused_message" = "已暂停此来源的主动标签读取。";

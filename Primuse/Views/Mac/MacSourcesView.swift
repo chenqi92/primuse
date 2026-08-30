@@ -105,11 +105,6 @@ struct MacSourcesView: View {
         .sheet(item: $inspectingMetadataSource) { source in
             NavigationStack {
                 SourceMetadataStatusView(source: source)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("done") { inspectingMetadataSource = nil }
-                        }
-                    }
             }
             .frame(minWidth: 720, idealWidth: 820, minHeight: 560, idealHeight: 680)
         }
