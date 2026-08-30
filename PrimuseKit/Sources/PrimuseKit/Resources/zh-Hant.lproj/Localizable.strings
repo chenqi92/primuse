@@ -643,3 +643,17 @@
 "ai_recommendation_intent_quietFocus_detail" = "低干擾、節奏平穩";
 "ai_recommendation_intent_rainySolitude" = "雨天獨處";
 "ai_recommendation_intent_rainySolitude_detail" = "安靜、疏離與沉思";
+
+// Shared labels used through PMString by extension targets
+"ai_provider_default_name" = "OpenAI 相容服務";
+"ai_recommendation_home_title" = "情境推薦";
+"done" = "完成";
+"ext.tv.search.aiFailed" = "智慧搜尋失敗，一般結果不受影響";
+"fnmusic_account_hint" = "請填寫可登入飛牛音樂並已獲曲庫權限的帳號；以飛牛音樂登入結果為準。";
+"library_recommendations_title" = "智慧推薦";
+"more" = "更多";
+"playback" = "播放";
+"player_animated_artwork" = "動態專輯封面";
+"queue_title" = "播放佇列";
+"repeat" = "循環";
+"shuffle" = "隨機播放";

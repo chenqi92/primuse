@@ -3288,3 +3288,17 @@
 "lyrics_transcription_models_empty" = "Der Google-Modellkatalog enthält kein kompatibles Transkriptionsmodell.";
 "lyrics_transcription_saved" = "Einstellungen für die Songtranskription gespeichert.";
 "lyrics_transcription_configure" = "Konfigurieren";
+
+// macOS settings and shared labels
+"Audio Output" = "Audioausgabe";
+"Output Mode" = "Ausgabemodus";
+"Direct output · Unity gain · DSP bypass" = "Direktausgabe · Unity Gain · DSP umgangen";
+"EQ · Spatial · ReplayGain · Crossfade" = "Equalizer · 3D-Audio · ReplayGain · Überblenden";
+"DSD Playback" = "DSD-Wiedergabe";
+"DoP requires a compatible USB DAC" = "DoP erfordert einen kompatiblen USB-DAC";
+"DTS / DTS-HD and additional format decoding" = "DTS-/DTS-HD- und zusätzliche Formatdecodierung";
+"Shown when the player window goes full screen" = "Wird angezeigt, wenn das Playerfenster in den Vollbildmodus wechselt";
+"artist_name_settings_preview_example" = "Künstler A; Künstler B";
+"password_ascii_hint" = "Englische Buchstaben und ASCII-Zeichen verwenden";
+"rating" = "Bewertung";
+"volume" = "Lautstärke";

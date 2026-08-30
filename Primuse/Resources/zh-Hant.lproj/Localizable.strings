@@ -1586,7 +1586,7 @@
 "Create Family Shared Library" = "建立家庭共享資料庫";
 "Creating…" = "建立中…";
 "Cross-Process Data Sharing" = "跨行程資料共享";
-"Crossfade Duration" = "Crossfade 時長";
+"Crossfade Duration" = "淡入淡出時長";
 "Current Preset" = "目前預設";
 "Custom" = "自訂";
 "Custom (minutes)" = "自訂 (分鐘)";
@@ -1620,7 +1620,7 @@
 "Font Size (lyricsFontScale)" = "字級 (lyricsFontScale)";
 "Forest" = "Forest 森綠";
 "From URL" = "從 URL";
-"Gapless Playback" = "Gapless 無縫播放";
+"Gapless Playback" = "無縫播放";
 "Go to System Settings → Privacy to re-enable" = "前往 系統設定 → 隱私權 重新啟用";
 "Higher frequency updates sooner but uses more energy" = "更新越頻繁，狀態越即時，但耗電也會更高";
 "Import" = "匯入";
@@ -1663,7 +1663,7 @@
 "Medium 342×155" = "中型 342×155";
 "Music Sources · Small" = "音樂源 · 小型";
 "MusicKit Connected" = "MusicKit 已連接";
-"Mutually exclusive with Gapless" = "與 Gapless 互斥";
+"Mutually exclusive with Gapless" = "與無縫播放互斥";
 "No Scan" = "無掃描";
 "No Trusted Domains" = "暫無信任網域";
 "No need to open the app" = "無需開啟 App";
@@ -1690,7 +1690,7 @@
 "Push Now Playing to Widget" = "向桌面小工具推送正在播放";
 "Push to Widget" = "推送到小工具";
 "Push Status" = "推送狀態";
-"RG Mode" = "RG 模式";
+"RG Mode" = "回放增益模式";
 "Re-Scrape" = "重新刮削";
 "Re-Sync" = "重新同步";
 "Recent Playback Errors" = "最近播放錯誤";
@@ -3265,3 +3265,17 @@
 "lyrics_transcription_models_empty" = "Google 模型目錄中沒有相容的轉寫模型。";
 "lyrics_transcription_saved" = "聽歌識詞設定已儲存。";
 "lyrics_transcription_configure" = "設定";
+
+// macOS settings and shared labels
+"Audio Output" = "音訊輸出";
+"Output Mode" = "輸出模式";
+"Direct output · Unity gain · DSP bypass" = "直接輸出 · 單位增益 · 略過 DSP";
+"EQ · Spatial · ReplayGain · Crossfade" = "等化器 · 空間音訊 · 回放增益 · 淡入淡出";
+"DSD Playback" = "DSD 播放";
+"DoP requires a compatible USB DAC" = "DoP 需要相容的 USB DAC";
+"DTS / DTS-HD and additional format decoding" = "DTS / DTS-HD 及其他格式解碼";
+"Shown when the player window goes full screen" = "播放器視窗進入全螢幕時顯示";
+"artist_name_settings_preview_example" = "歌手 A；歌手 B";
+"password_ascii_hint" = "建議使用英文與半形字元";
+"rating" = "評分";
+"volume" = "音量";

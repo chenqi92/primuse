@@ -646,3 +646,17 @@
 "ai_recommendation_intent_quietFocus_detail" = "落ち着いた低刺激の流れ";
 "ai_recommendation_intent_rainySolitude" = "雨の日のひとり時間";
 "ai_recommendation_intent_rainySolitude_detail" = "静けさ、距離感、内省";
+
+// Shared labels used through PMString by extension targets
+"ai_provider_default_name" = "OpenAI 互換サービス";
+"ai_recommendation_home_title" = "シーン別おすすめ";
+"done" = "完了";
+"ext.tv.search.aiFailed" = "検索に失敗しました。通常の結果は利用できます";
+"fnmusic_account_hint" = "Feiniu Music にサインインでき、ライブラリへのアクセス権があるアカウントを使用してください。";
+"library_recommendations_title" = "スマートおすすめ";
+"more" = "もっと見る";
+"playback" = "再生";
+"player_animated_artwork" = "ダイナミックアートワーク";
+"queue_title" = "再生キュー";
+"repeat" = "リピート";
+"shuffle" = "シャッフル";

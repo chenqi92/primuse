@@ -3075,3 +3075,17 @@
 "lyrics_transcription_models_empty" = "Google’s model catalog returned no compatible transcription model.";
 "lyrics_transcription_saved" = "Song transcription settings saved.";
 "lyrics_transcription_configure" = "Configure";
+
+// macOS settings and shared labels
+"Audio Output" = "Audio Output";
+"Output Mode" = "Output Mode";
+"Direct output · Unity gain · DSP bypass" = "Direct output · Unity gain · DSP bypass";
+"EQ · Spatial · ReplayGain · Crossfade" = "EQ · Spatial · ReplayGain · Crossfade";
+"DSD Playback" = "DSD Playback";
+"DoP requires a compatible USB DAC" = "DoP requires a compatible USB DAC";
+"DTS / DTS-HD and additional format decoding" = "DTS / DTS-HD and additional format decoding";
+"Shown when the player window goes full screen" = "Shown when the player window goes full screen";
+"artist_name_settings_preview_example" = "Artist A; Artist B";
+"password_ascii_hint" = "Use English letters and ASCII characters";
+"rating" = "Rating";
+"volume" = "Volume";

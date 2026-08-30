@@ -3289,3 +3289,17 @@
 "lyrics_transcription_models_empty" = "Google のモデルカタログに互換性のある文字起こしモデルがありません。";
 "lyrics_transcription_saved" = "曲の文字起こし設定を保存しました。";
 "lyrics_transcription_configure" = "設定";
+
+// macOS settings and shared labels
+"Audio Output" = "オーディオ出力";
+"Output Mode" = "出力モード";
+"Direct output · Unity gain · DSP bypass" = "ダイレクト出力 · ユニティゲイン · DSP バイパス";
+"EQ · Spatial · ReplayGain · Crossfade" = "EQ · 空間オーディオ · ReplayGain · クロスフェード";
+"DSD Playback" = "DSD 再生";
+"DoP requires a compatible USB DAC" = "DoP には対応する USB DAC が必要です";
+"DTS / DTS-HD and additional format decoding" = "DTS / DTS-HD および追加フォーマットのデコード";
+"Shown when the player window goes full screen" = "プレーヤーウインドウをフルスクリーンにすると表示されます";
+"artist_name_settings_preview_example" = "アーティスト A; アーティスト B";
+"password_ascii_hint" = "半角英数字を使用してください";
+"rating" = "評価";
+"volume" = "音量";

@@ -646,3 +646,17 @@
 "ai_recommendation_intent_quietFocus_detail" = "Gleichmäßig und ablenkungsarm";
 "ai_recommendation_intent_rainySolitude" = "Regentag allein";
 "ai_recommendation_intent_rainySolitude_detail" = "Still, fern und nachdenklich";
+
+// Shared labels used through PMString by extension targets
+"ai_provider_default_name" = "OpenAI-kompatibler Dienst";
+"ai_recommendation_home_title" = "Szenenempfehlungen";
+"done" = "Fertig";
+"ext.tv.search.aiFailed" = "Intelligente Suche fehlgeschlagen; normale Ergebnisse bleiben verfügbar";
+"fnmusic_account_hint" = "Verwende ein Konto, das sich bei Feiniu Music anmelden kann und Zugriff auf die Bibliothek hat.";
+"library_recommendations_title" = "Empfehlungen";
+"more" = "Mehr";
+"playback" = "Wiedergabe";
+"player_animated_artwork" = "Dynamisches Cover";
+"queue_title" = "Warteschlange";
+"repeat" = "Wiederholen";
+"shuffle" = "Zufall";

@@ -1225,7 +1225,7 @@ private struct MacSTPlaybackView: View {
                     MacSTToggle(isOn: $s.spatialAudioEnabled)
                 }
                 .disabled(s.outputMode == .highFidelity)
-                MacSTRow("ReplayGain", hint: Lz("Automatic Volume Balancing")) {
+                MacSTRow(String(localized: "replay_gain"), hint: Lz("Automatic Volume Balancing")) {
                     MacSTToggle(isOn: $s.replayGainEnabled)
                 }
                 .disabled(s.outputMode == .highFidelity)
@@ -1246,7 +1246,7 @@ private struct MacSTPlaybackView: View {
                 MacSTRow(Lz("Gapless Playback"), hint: Lz("P-16 · On by Default"), divider: false) {
                     MacSTToggle(isOn: $s.gaplessEnabled)
                 }
-                MacSTRow("Crossfade", hint: Lz("Mutually exclusive with Gapless")) {
+                MacSTRow(String(localized: "crossfade"), hint: Lz("Mutually exclusive with Gapless")) {
                     MacSTToggle(isOn: $s.crossfadeEnabled)
                 }
                 .disabled(s.outputMode == .highFidelity)
@@ -1829,7 +1829,7 @@ private struct MacSTEffectsView: View {
                             width: 180
                         )
                     }
-                    MacSTRow("Wet / Dry %", hint: Lz("0 = dry, 100 = wet")) {
+                    MacSTRow("\(String(localized: "reverb_mix")) (%)", hint: Lz("0 = dry, 100 = wet")) {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.reverbWetDryMix) },
@@ -1875,7 +1875,7 @@ private struct MacSTEffectsView: View {
                             width: 160
                         )
                     }
-                    MacSTRow("Threshold (dB)") {
+                    MacSTRow("\(String(localized: "compressor_threshold")) (dB)") {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.compressorThreshold) },
@@ -1885,7 +1885,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.0f", $0) }
                         )
                     }
-                    MacSTRow("HeadRoom (dB)") {
+                    MacSTRow("\(String(localized: "compressor_headroom")) (dB)") {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.compressorHeadRoom) },
@@ -1894,7 +1894,7 @@ private struct MacSTEffectsView: View {
                             in: 0...20
                         )
                     }
-                    MacSTRow("Attack (s)") {
+                    MacSTRow("\(String(localized: "compressor_attack")) (s)") {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.compressorAttackTime) },
@@ -1904,7 +1904,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.3fs", $0) }
                         )
                     }
-                    MacSTRow("Release (s)") {
+                    MacSTRow("\(String(localized: "compressor_release")) (s)") {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.compressorReleaseTime) },
@@ -1914,7 +1914,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.2fs", $0) }
                         )
                     }
-                    MacSTRow("Master Gain (dB)") {
+                    MacSTRow("\(String(localized: "compressor_gain")) (dB)") {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.compressorMasterGain) },
@@ -1940,11 +1940,15 @@ private struct MacSTArtistNameView: View {
     @State private var displaySeparatorDraft = ""
     @State private var showsResetConfirmation = false
 
+    private var previewExample: String {
+        String(localized: "artist_name_settings_preview_example")
+    }
+
     private var preview: String {
         ArtistNameParser.displayName(
-            rawName: "Artist A; Artist B",
+            rawName: previewExample,
             configuration: store.configuration
-        ) ?? "Artist A; Artist B"
+        ) ?? previewExample
     }
 
     var body: some View {
@@ -1968,7 +1972,7 @@ private struct MacSTArtistNameView: View {
                 hint: String(localized: "artist_name_settings_intro")
             ) {
                 MacSTGroup {
-                    MacSTRow("Artist A; Artist B", divider: false) {
+                    MacSTRow(previewExample, divider: false) {
                         MacSTInfoText(text: preview, color: PMColor.brand)
                     }
                 }

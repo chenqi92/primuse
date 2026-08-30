@@ -229,7 +229,7 @@ struct ImmersivePlayerView: View {
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
-            lyricsPlaceholder: String(localized: "lyrics_empty_title"),
+            lyricsPlaceholder: String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics)
         ) { side in
             ZStack {

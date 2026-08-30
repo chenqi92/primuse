@@ -7,6 +7,7 @@ require "set"
 
 ROOT = Pathname(__dir__).parent.freeze
 SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant].freeze
+NON_ENGLISH_LOCALES = (SUPPORTED_LOCALES - ["en"]).freeze
 
 REQUIRED_APP_LOCALIZATION_KEYS = [
   "ai_primuse_relay_enabled",
@@ -116,6 +117,17 @@ LOCALIZED_ERROR_ROOTS = %w[
   PrimuseWatch
   PrimuseWidgetExtension
   PrimuseActivityExtension
+].freeze
+
+PMSTRING_SOURCE_ROOTS = %w[
+  Primuse
+  PrimuseKit/Sources
+  PrimuseTV
+  PrimuseWatch
+  PrimuseWatchWidgets
+  PrimuseWidgetExtension
+  PrimuseActivityExtension
+  PrimuseTopShelf
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
@@ -319,10 +331,121 @@ def hard_coded_han_literals(path)
   findings
 end
 
+def decode_swift_string_literal(raw)
+  return nil if raw.include?("\\(")
+
+  JSON.parse(%("#{raw}"))
+rescue JSON::ParserError
+  nil
+end
+
+def source_literal_matches(path, pattern)
+  source = path.read
+  matches = []
+
+  source.to_enum(:scan, pattern).each do
+    match = Regexp.last_match
+    line_start = source.rindex("\n", match.begin(0)) || -1
+    line_end = source.index("\n", match.begin(0)) || source.length
+    next if source[(line_start + 1)...line_end].lstrip.start_with?("//")
+
+    key = decode_swift_string_literal(match[1])
+    next unless key
+
+    line = source[0...match.begin(0)].count("\n") + 1
+    matches << [key, line]
+  end
+
+  matches
+end
+
+def check_app_source_localization_coverage(dictionaries, failures)
+  usages = Hash.new do |hash, key|
+    hash[key] = { locales: Set.new, locations: Set.new }
+  end
+
+  explicit_patterns = [
+    /\bLz\(\s*"((?:\\.|[^"\\])*)"/,
+    /\bString\(\s*localized:\s*"((?:\\.|[^"\\])*)"/
+  ].freeze
+  localized_literal_pattern = /\A[a-z][a-z0-9_.]*\z/
+  opaque_key_pattern = /\A[a-z0-9]+(?:[_.][a-z0-9]+)+\z/
+  swiftui_key_pattern = /\b(?:Text|Toggle|Picker|Button|Label)\(\s*"((?:\\.|[^"\\])*)"/
+  mac_component_pattern = /\b(?:MacSTRow|MacSTSection)\(\s*"((?:\\.|[^"\\])*)"/
+  mac_button_pattern = /\bMacSTButton\(\s*title:\s*"((?:\\.|[^"\\])*)"/
+
+  (ROOT / "Primuse").glob("**/*.swift").sort.each do |path|
+    explicit_patterns.each do |pattern|
+      source_literal_matches(path, pattern).each do |key, line|
+        required = key.match?(opaque_key_pattern) ? SUPPORTED_LOCALES : NON_ENGLISH_LOCALES
+        usages[key][:locales].merge(required)
+        usages[key][:locations] << "#{path.relative_path_from(ROOT)}:#{line}"
+      end
+    end
+
+    source_literal_matches(path, swiftui_key_pattern).each do |key, line|
+      next unless key.match?(localized_literal_pattern)
+
+      required = key.match?(opaque_key_pattern) ? SUPPORTED_LOCALES : NON_ENGLISH_LOCALES
+      usages[key][:locales].merge(required)
+      usages[key][:locations] << "#{path.relative_path_from(ROOT)}:#{line}"
+    end
+
+    [mac_component_pattern, mac_button_pattern].each do |pattern|
+      source_literal_matches(path, pattern).each do |key, line|
+        next if key.empty?
+
+        required = key.match?(opaque_key_pattern) ? SUPPORTED_LOCALES : NON_ENGLISH_LOCALES
+        usages[key][:locales].merge(required)
+        usages[key][:locations] << "#{path.relative_path_from(ROOT)}:#{line}"
+      end
+    end
+  end
+
+  usages.sort.each do |key, usage|
+    missing = usage[:locales].reject { |locale| dictionaries.fetch(locale).key?(key) }.sort
+    next if missing.empty?
+
+    failures << "Primuse source localization key #{key.inspect}: missing locales: " \
+                "#{missing.join(', ')} (#{usage[:locations].to_a.sort.first})"
+  end
+end
+
+def check_pmstring_source_localization_coverage(dictionaries, failures)
+  usages = Hash.new { |hash, key| hash[key] = Set.new }
+  pattern = /\bPMString\(\s*"((?:\\.|[^"\\])*)"/
+
+  PMSTRING_SOURCE_ROOTS.each do |relative_root|
+    (ROOT / relative_root).glob("**/*.swift").sort.each do |path|
+      source_literal_matches(path, pattern).each do |key, line|
+        usages[key] << "#{path.relative_path_from(ROOT)}:#{line}"
+      end
+    end
+  end
+
+  usages.sort.each do |key, locations|
+    missing = SUPPORTED_LOCALES.reject { |locale| dictionaries.fetch(locale).key?(key) }
+    next if missing.empty?
+
+    failures << "PrimuseKit PMString key #{key.inspect}: missing locales: " \
+                "#{missing.join(', ')} (#{locations.to_a.sort.first})"
+  end
+end
+
 failures = []
 RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
   check_resource_group(name, root, file_name, exact_english_parity, failures)
 end
+
+app_localizations = localization_paths(ROOT / "Primuse/Resources", "Localizable.strings")
+  .transform_values { |path| load_strings(path) }
+check_app_source_localization_coverage(app_localizations, failures)
+
+kit_localizations = localization_paths(
+  ROOT / "PrimuseKit/Sources/PrimuseKit/Resources",
+  "Localizable.strings"
+).transform_values { |path| load_strings(path) }
+check_pmstring_source_localization_coverage(kit_localizations, failures)
 
 localization_paths(ROOT / "Primuse/Resources", "Localizable.strings").each do |locale, path|
   next unless path.file?

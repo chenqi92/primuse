@@ -646,3 +646,17 @@
 "ai_recommendation_intent_quietFocus_detail" = "Stable et sans distraction";
 "ai_recommendation_intent_rainySolitude" = "Solitude pluvieuse";
 "ai_recommendation_intent_rainySolitude_detail" = "Calme, distance et réflexion";
+
+// Shared labels used through PMString by extension targets
+"ai_provider_default_name" = "Service compatible OpenAI";
+"ai_recommendation_home_title" = "Recommandations par situation";
+"done" = "Terminé";
+"ext.tv.search.aiFailed" = "La recherche intelligente a échoué ; les résultats normaux restent disponibles";
+"fnmusic_account_hint" = "Utilisez un compte pouvant se connecter à Feiniu Music et accéder à la bibliothèque.";
+"library_recommendations_title" = "Recommandations";
+"more" = "Plus";
+"playback" = "Lecture";
+"player_animated_artwork" = "Pochette dynamique";
+"queue_title" = "File de lecture";
+"repeat" = "Répéter";
+"shuffle" = "Aléatoire";

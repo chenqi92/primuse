@@ -3288,3 +3288,17 @@
 "lyrics_transcription_models_empty" = "Google 모델 카탈로그에 호환되는 받아쓰기 모델이 없습니다.";
 "lyrics_transcription_saved" = "곡 받아쓰기 설정을 저장했습니다.";
 "lyrics_transcription_configure" = "구성";
+
+// macOS settings and shared labels
+"Audio Output" = "오디오 출력";
+"Output Mode" = "출력 모드";
+"Direct output · Unity gain · DSP bypass" = "직접 출력 · 유니티 게인 · DSP 우회";
+"EQ · Spatial · ReplayGain · Crossfade" = "EQ · 공간 음향 · ReplayGain · 크로스페이드";
+"DSD Playback" = "DSD 재생";
+"DoP requires a compatible USB DAC" = "DoP에는 호환 USB DAC가 필요합니다";
+"DTS / DTS-HD and additional format decoding" = "DTS / DTS-HD 및 추가 형식 디코딩";
+"Shown when the player window goes full screen" = "플레이어 창이 전체 화면으로 전환될 때 표시됩니다";
+"artist_name_settings_preview_example" = "아티스트 A; 아티스트 B";
+"password_ascii_hint" = "영문 및 반각 문자를 사용하세요";
+"rating" = "평점";
+"volume" = "음량";

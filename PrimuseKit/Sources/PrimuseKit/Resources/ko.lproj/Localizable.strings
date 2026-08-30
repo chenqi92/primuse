@@ -646,3 +646,17 @@
 "ai_recommendation_intent_quietFocus_detail" = "방해 없이 일정한 흐름";
 "ai_recommendation_intent_rainySolitude" = "비 오는 날 혼자";
 "ai_recommendation_intent_rainySolitude_detail" = "고요함, 거리감과 사색";
+
+// Shared labels used through PMString by extension targets
+"ai_provider_default_name" = "OpenAI 호환 서비스";
+"ai_recommendation_home_title" = "상황별 추천";
+"done" = "완료";
+"ext.tv.search.aiFailed" = "지능형 검색 실패; 일반 결과는 계속 사용할 수 있습니다";
+"fnmusic_account_hint" = "Feiniu Music에 로그인할 수 있고 라이브러리 접근 권한이 있는 계정을 사용하세요.";
+"library_recommendations_title" = "맞춤 추천";
+"more" = "더 보기";
+"playback" = "재생";
+"player_animated_artwork" = "움직이는 앨범 아트";
+"queue_title" = "재생 대기열";
+"repeat" = "반복";
+"shuffle" = "셔플";

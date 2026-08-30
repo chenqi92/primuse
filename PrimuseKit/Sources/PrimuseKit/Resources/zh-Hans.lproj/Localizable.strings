@@ -643,3 +643,17 @@
 "ai_recommendation_intent_quietFocus_detail" = "低干扰、节奏平稳";
 "ai_recommendation_intent_rainySolitude" = "雨天独处";
 "ai_recommendation_intent_rainySolitude_detail" = "安静、疏离与沉思";
+
+// Shared labels used through PMString by extension targets
+"ai_provider_default_name" = "OpenAI 兼容服务";
+"ai_recommendation_home_title" = "场景推荐";
+"done" = "完成";
+"ext.tv.search.aiFailed" = "智能搜索失败，普通结果不受影响";
+"fnmusic_account_hint" = "请填写可登录飞牛音乐并已获曲库权限的账号；以飞牛音乐登录结果为准。";
+"library_recommendations_title" = "智能推荐";
+"more" = "更多";
+"playback" = "播放";
+"player_animated_artwork" = "动态专辑封面";
+"queue_title" = "播放队列";
+"repeat" = "循环";
+"shuffle" = "随机播放";
