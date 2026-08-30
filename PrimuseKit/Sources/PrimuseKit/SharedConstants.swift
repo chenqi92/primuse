@@ -1799,55 +1799,140 @@ public struct AppleMusicTrackIdentity: Sendable, Equatable {
     }
 }
 
-/// Resolves a MusicKit playback item back to the canonical user-library item.
-/// ID overlap is authoritative; normalized metadata is a conservative fallback
-/// for MusicKit responses whose `PlayParameters` omit the catalog identifier.
-public enum AppleMusicTrackIdentityResolver {
-    public static func canonicalID(
-        for playback: AppleMusicTrackIdentity,
-        in library: [AppleMusicTrackIdentity]
-    ) -> String? {
-        guard !library.isEmpty else { return nil }
+/// Reusable lookup index for canonical Apple Music user-library identities.
+/// Building the index normalizes library metadata once; individual playback
+/// lookups inspect only candidates that share an ID or normalized title.
+public struct AppleMusicTrackIdentityIndex: Sendable {
+    private struct Candidate: Sendable {
+        let identity: AppleMusicTrackIdentity
+        let normalizedTitle: String
+        let normalizedArtist: String
+        let normalizedAlbum: String
+    }
+
+    private var candidatesByItemID: [String: Candidate] = [:]
+    private var canonicalIDsByMusicItemID: [String: Set<String>] = [:]
+    private var canonicalIDsByNormalizedTitle: [String: Set<String>] = [:]
+
+    public init() {}
+
+    public init<Library: Sequence>(_ library: Library)
+    where Library.Element == AppleMusicTrackIdentity {
+        for identity in library {
+            upsert(identity)
+        }
+    }
+
+    public var count: Int { candidatesByItemID.count }
+
+    /// Replaces an authoritative snapshot, removing identities no longer in it.
+    public mutating func replace(with library: [AppleMusicTrackIdentity]) {
+        self = Self(library)
+    }
+
+    /// Adds or updates identities from an incomplete snapshot without pruning
+    /// canonical entries that are absent from that snapshot.
+    public mutating func merge(_ library: [AppleMusicTrackIdentity]) {
+        for identity in library {
+            upsert(identity)
+        }
+    }
+
+    /// Updates one canonical item and removes every stale index reference that
+    /// belonged to the previous value for the same canonical item ID.
+    public mutating func upsert(_ identity: AppleMusicTrackIdentity) {
+        if let previous = candidatesByItemID[identity.itemID] {
+            removeIndexReferences(for: previous)
+        }
+
+        let candidate = Candidate(
+            identity: identity,
+            normalizedTitle: Self.normalize(identity.title),
+            normalizedArtist: Self.normalize(identity.artist),
+            normalizedAlbum: Self.normalize(identity.album)
+        )
+        candidatesByItemID[identity.itemID] = candidate
+
+        for musicItemID in identity.alternateIDs.union([identity.itemID]) {
+            canonicalIDsByMusicItemID[musicItemID, default: []].insert(identity.itemID)
+        }
+        if !candidate.normalizedTitle.isEmpty {
+            canonicalIDsByNormalizedTitle[candidate.normalizedTitle, default: []]
+                .insert(identity.itemID)
+        }
+    }
+
+    /// Resolves a playback identity back to the canonical user-library item.
+    /// ID overlap is authoritative; normalized metadata is a conservative
+    /// fallback when `PlayParameters` omit a usable catalog identifier.
+    public func canonicalID(for playback: AppleMusicTrackIdentity) -> String? {
+        guard !candidatesByItemID.isEmpty else { return nil }
 
         let playbackIDs = playback.alternateIDs.union([playback.itemID])
-        let exact = library.filter {
-            !$0.alternateIDs.union([$0.itemID]).isDisjoint(with: playbackIDs)
+        var exactCanonicalIDs = Set<String>()
+        for playbackID in playbackIDs {
+            exactCanonicalIDs.formUnion(canonicalIDsByMusicItemID[playbackID] ?? [])
         }
-        if exact.count == 1 { return exact[0].itemID }
+        if exactCanonicalIDs.count == 1 { return exactCanonicalIDs.first }
 
-        let normalizedTitle = normalize(playback.title)
-        guard !normalizedTitle.isEmpty else { return nil }
-        let titleMatches = library.filter { normalize($0.title) == normalizedTitle }
-        guard !titleMatches.isEmpty else { return nil }
+        let normalizedTitle = Self.normalize(playback.title)
+        guard !normalizedTitle.isEmpty,
+              let titleMatches = canonicalIDsByNormalizedTitle[normalizedTitle],
+              !titleMatches.isEmpty else { return nil }
 
-        let ranked = titleMatches.map { candidate in
-            (candidate.itemID, metadataScore(playback: playback, candidate: candidate))
+        let playbackArtist = Self.normalize(playback.artist)
+        let playbackAlbum = Self.normalize(playback.album)
+        let ranked = titleMatches.compactMap { canonicalID -> (itemID: String, score: Int)? in
+            guard let candidate = candidatesByItemID[canonicalID] else { return nil }
+            return (
+                canonicalID,
+                Self.metadataScore(
+                    playbackArtist: playbackArtist,
+                    playbackAlbum: playbackAlbum,
+                    playbackDuration: playback.duration,
+                    candidate: candidate
+                )
+            )
         }.sorted {
-            if $0.1 != $1.1 { return $0.1 > $1.1 }
-            return $0.0 < $1.0
+            if $0.score != $1.score { return $0.score > $1.score }
+            return $0.itemID < $1.itemID
         }
 
-        guard let best = ranked.first, best.1 >= 4 else { return nil }
-        if ranked.count > 1, ranked[1].1 == best.1 { return nil }
-        return best.0
+        guard let best = ranked.first, best.score >= 4 else { return nil }
+        if ranked.count > 1, ranked[1].score == best.score { return nil }
+        return best.itemID
+    }
+
+    private mutating func removeIndexReferences(for candidate: Candidate) {
+        let canonicalID = candidate.identity.itemID
+        for musicItemID in candidate.identity.alternateIDs.union([canonicalID]) {
+            guard var matches = canonicalIDsByMusicItemID[musicItemID] else { continue }
+            matches.remove(canonicalID)
+            canonicalIDsByMusicItemID[musicItemID] = matches.isEmpty ? nil : matches
+        }
+
+        if !candidate.normalizedTitle.isEmpty,
+           var matches = canonicalIDsByNormalizedTitle[candidate.normalizedTitle] {
+            matches.remove(canonicalID)
+            canonicalIDsByNormalizedTitle[candidate.normalizedTitle] = matches.isEmpty ? nil : matches
+        }
+        candidatesByItemID[canonicalID] = nil
     }
 
     private static func metadataScore(
-        playback: AppleMusicTrackIdentity,
-        candidate: AppleMusicTrackIdentity
+        playbackArtist: String,
+        playbackAlbum: String,
+        playbackDuration: TimeInterval?,
+        candidate: Candidate
     ) -> Int {
         var score = 0
 
-        let playbackArtist = normalize(playback.artist)
-        let candidateArtist = normalize(candidate.artist)
-        if !playbackArtist.isEmpty, playbackArtist == candidateArtist { score += 5 }
+        if !playbackArtist.isEmpty, playbackArtist == candidate.normalizedArtist { score += 5 }
 
-        let playbackAlbum = normalize(playback.album)
-        let candidateAlbum = normalize(candidate.album)
-        if !playbackAlbum.isEmpty, playbackAlbum == candidateAlbum { score += 3 }
+        if !playbackAlbum.isEmpty, playbackAlbum == candidate.normalizedAlbum { score += 3 }
 
-        if let lhs = playback.duration, lhs > 0,
-           let rhs = candidate.duration, rhs > 0 {
+        if let lhs = playbackDuration, lhs > 0,
+           let rhs = candidate.identity.duration, rhs > 0 {
             let delta = abs(lhs - rhs)
             if delta <= 0.75 {
                 score += 4
@@ -1869,6 +1954,17 @@ public enum AppleMusicTrackIdentityResolver {
             CharacterSet.alphanumerics.contains($0)
         }
         return String(String.UnicodeScalarView(scalars))
+    }
+}
+
+/// Compatibility entry point for one-off callers. Long-lived consumers should
+/// retain an `AppleMusicTrackIdentityIndex` across multiple lookups.
+public enum AppleMusicTrackIdentityResolver {
+    public static func canonicalID(
+        for playback: AppleMusicTrackIdentity,
+        in library: [AppleMusicTrackIdentity]
+    ) -> String? {
+        AppleMusicTrackIdentityIndex(library).canonicalID(for: playback)
     }
 }
 

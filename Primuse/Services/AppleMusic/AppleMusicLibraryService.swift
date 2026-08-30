@@ -112,6 +112,10 @@ final class AppleMusicLibraryService {
     /// for identity resolution can accidentally prefer the transient catalog
     /// object over its stable `i.*` library counterpart.
     private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
+    /// The MusicKit identity projection is intentionally updated only when the
+    /// canonical cache changes. Playlist reconciliation can then resolve each
+    /// relationship without JSON-decoding every library song again.
+    private var canonicalLibraryTrackIdentityIndex = AppleMusicTrackIdentityIndex()
     /// MusicKit artwork objects cannot be reconstructed from their persisted
     /// `musicKit://` URL. Keep the official playlist artwork beside the song
     /// cache so the shared playlist resolver can render it with ArtworkImage.
@@ -417,6 +421,7 @@ final class AppleMusicLibraryService {
                     confirmedLocalFileIDs: subscriptionIndependentLocalFileIDs
                 ) {
                     canonicalLibrarySongCache[amID] = resolved
+                    canonicalLibraryTrackIdentityIndex.upsert(Self.trackIdentity(resolved))
                 }
             }
             return resolved
@@ -474,10 +479,8 @@ final class AppleMusicLibraryService {
     /// 返回原 song，也不把歌词关联到另一首同名歌曲。
     func canonicalForNowPlaying(_ s: MusicKit.Song) -> MusicKit.Song {
         if let exact = canonicalLibrarySongCache[s.id.rawValue] { return exact }
-        let candidates = canonicalLibrarySongCache.values.map(Self.trackIdentity)
-        guard let canonicalID = AppleMusicTrackIdentityResolver.canonicalID(
-            for: Self.trackIdentity(s),
-            in: candidates
+        guard let canonicalID = canonicalLibraryTrackIdentityIndex.canonicalID(
+            for: Self.trackIdentity(s)
         ) else { return s }
         return canonicalLibrarySongCache[canonicalID] ?? s
     }
@@ -733,15 +736,18 @@ final class AppleMusicLibraryService {
             let fetchedSongCache = Dictionary(
                 uniqueKeysWithValues: allMusicKitSongs.map { ($0.id.rawValue, $0) }
             )
+            let fetchedTrackIdentities = allMusicKitSongs.map(Self.trackIdentity)
             if fetchResult.syncMode == .authoritative {
                 songCache = fetchedSongCache
                 canonicalLibrarySongCache = fetchedSongCache
+                canonicalLibraryTrackIdentityIndex.replace(with: fetchedTrackIdentities)
             } else {
                 // A local-only fallback is incomplete. Keep any canonical
                 // cloud entries already known in this process and merely add
                 // the locally available items.
                 songCache.merge(fetchedSongCache) { _, incoming in incoming }
                 canonicalLibrarySongCache.merge(fetchedSongCache) { _, incoming in incoming }
+                canonicalLibraryTrackIdentityIndex.merge(fetchedTrackIdentities)
             }
             hasCompletedLibrarySnapshot = true
             let songs = allMusicKitSongs.map { Self.toPrimuseSong($0) }
