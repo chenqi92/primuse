@@ -304,17 +304,25 @@ struct AIRecommendationLibraryView: View {
                 }
 
                 if intelligence.shouldExposeRemoteConfiguration {
-                    NavigationLink {
-                        AISettingsView()
+                    #if os(macOS)
+                    Button {
+                        SettingsWindowController.shared.show(tab: .intelligence)
                     } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 30, height: 30)
-                            .background(platformChipBackground, in: Circle())
+                        intelligenceSettingsIcon
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(platformAccentColor)
                     .accessibilityLabel("ai_settings_title")
+                    #else
+                    NavigationLink {
+                        AISettingsView()
+                    } label: {
+                        intelligenceSettingsIcon
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(platformAccentColor)
+                    .accessibilityLabel("ai_settings_title")
+                    #endif
                 }
             }
         }
@@ -325,6 +333,13 @@ struct AIRecommendationLibraryView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(platformDividerColor, lineWidth: 0.5)
         }
+    }
+
+    private var intelligenceSettingsIcon: some View {
+        Image(systemName: "gearshape")
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: 30, height: 30)
+            .background(platformChipBackground, in: Circle())
     }
 
     private var recommendationGrid: some View {
