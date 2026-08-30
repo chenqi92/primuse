@@ -173,6 +173,94 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         }
     }
 
+    func testRelayReplacesUnsafeServerErrorCodeWithHTTPStatus() async throws {
+        let host = "primuse-relay-unsafe-code.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 502,
+            featureBody: #"{"error":{"code":"private detail","message":"internal"}}"#
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        do {
+            _ = try await client.testConnection()
+            XCTFail("Expected an upstream failure")
+        } catch {
+            XCTAssertEqual(
+                error as? PrimuseAIRelayError,
+                .requestFailed(statusCode: 502, code: "http_502")
+            )
+            XCTAssertFalse(String(describing: error).contains("private"))
+        }
+    }
+
+    func testRelayDiagnosticClassificationSeparatesFailureBoundaries() {
+        XCTAssertEqual(
+            PrimuseAIRelayDiagnostic.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 400,
+                    code: "invalid_attestation"
+                )
+            ),
+            PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "invalid_attestation"
+            )
+        )
+        XCTAssertEqual(
+            PrimuseAIRelayDiagnostic.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 401,
+                    code: "invalid_assertion"
+                )
+            ),
+            PrimuseAIRelayDiagnostic(
+                category: .serviceAuthentication,
+                code: "invalid_assertion"
+            )
+        )
+        XCTAssertEqual(
+            PrimuseAIRelayDiagnostic.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 502,
+                    code: "upstreams_failed"
+                )
+            ),
+            PrimuseAIRelayDiagnostic(category: .upstream, code: "upstreams_failed")
+        )
+        XCTAssertEqual(
+            PrimuseAIRelayDiagnostic.classify(NSError(
+                domain: DCError.errorDomain,
+                code: DCError.invalidKey.rawValue
+            )).category,
+            .deviceRegistration
+        )
+    }
+
+    func testConnectionReportsAppAttestAuthentication() async throws {
+        let host = "primuse-relay-test-app-attest.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        let authenticationMethod = try await client.testConnection()
+
+        XCTAssertEqual(authenticationMethod, .appAttest)
+    }
+
     func testStoredInstallationSkipsKeyGenerationAndEnrollment() async throws {
         let host = "primuse-relay-existing-installation.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
@@ -232,9 +320,9 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
         defer { session.invalidateAndCancel() }
 
-        _ = try await client.interpretSearch(
-            AISemanticSearchRequest(query: "quiet night", languageCode: "en")
-        )
+        let authenticationMethod = try await client.testConnection()
+
+        XCTAssertEqual(authenticationMethod, .storeKitFallback)
 
         let requests = PrimuseRelayURLProtocol.requests(host: host)
         XCTAssertEqual(requests.compactMap(\.url?.path), [
@@ -301,6 +389,16 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? PrimuseAIRelayError, .invalidResponse)
         }
+    }
+
+    func testProductionRelayWhenLiveDeviceTestIsEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_RUN_LIVE_RELAY_TEST"] == "1" else {
+            throw XCTSkip("Live Primuse Relay testing is opt-in")
+        }
+
+        let authenticationMethod = try await PrimuseAIRelayClient().testConnection()
+
+        XCTAssertEqual(authenticationMethod, .appAttest)
     }
 
     @MainActor

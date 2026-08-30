@@ -13,6 +13,96 @@ enum PrimuseAIRelayError: Error, Equatable, Sendable {
     case requestFailed(statusCode: Int, code: String)
 }
 
+enum PrimuseAIRelayAuthenticationMethod: Equatable, Sendable {
+    case appAttest
+    case storeKitFallback
+}
+
+enum PrimuseAIRelayDiagnosticCategory: Equatable, Sendable {
+    case regionRestriction
+    case deviceRegistration
+    case serviceAuthentication
+    case upstream
+}
+
+struct PrimuseAIRelayDiagnostic: Equatable, Sendable {
+    var category: PrimuseAIRelayDiagnosticCategory
+    var code: String
+
+    static func classify(_ error: Error) -> PrimuseAIRelayDiagnostic {
+        let nsError = error as NSError
+        if nsError.domain == DCError.errorDomain {
+            return PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "app_attest_\(nsError.code)"
+            )
+        }
+        if let urlError = error as? URLError {
+            let code: String
+            switch urlError.code {
+            case .timedOut:
+                code = "network_timeout"
+            case .notConnectedToInternet, .networkConnectionLost,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                code = "network_unavailable"
+            default:
+                code = "network_error"
+            }
+            return PrimuseAIRelayDiagnostic(category: .upstream, code: code)
+        }
+        guard let relayError = error as? PrimuseAIRelayError else {
+            return PrimuseAIRelayDiagnostic(category: .upstream, code: "unknown_error")
+        }
+        switch relayError {
+        case .unsupportedDevice:
+            return PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "unsupported_device"
+            )
+        case .credentialUnavailable:
+            return PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "credential_unavailable"
+            )
+        case .credentialPersistenceFailed:
+            return PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "credential_persistence_failed"
+            )
+        case .invalidResponse:
+            return PrimuseAIRelayDiagnostic(category: .upstream, code: "invalid_response")
+        case .responseTooLarge:
+            return PrimuseAIRelayDiagnostic(category: .upstream, code: "response_too_large")
+        case .requestFailed(let statusCode, let code):
+            let deviceRegistrationCodes: Set<String> = [
+                "invalid_attestation",
+                "invalid_app_attest_policy",
+                "invalid_app_transaction",
+                "storekit_enrollment_unavailable",
+            ]
+            let authenticationCodes: Set<String> = [
+                "expired_challenge",
+                "feature_disabled",
+                "feature_not_in_plan",
+                "installation_blocked",
+                "installation_mismatch",
+                "invalid_apple_app_id",
+                "invalid_assertion",
+                "invalid_challenge",
+                "invalid_installation_token",
+                "request_replayed",
+            ]
+            if deviceRegistrationCodes.contains(code) {
+                return PrimuseAIRelayDiagnostic(category: .deviceRegistration, code: code)
+            }
+            if statusCode == 401 || statusCode == 403 || authenticationCodes.contains(code) {
+                return PrimuseAIRelayDiagnostic(category: .serviceAuthentication, code: code)
+            }
+            return PrimuseAIRelayDiagnostic(category: .upstream, code: code)
+        }
+    }
+}
+
 struct PrimuseAIRelayCredential: Codable, Equatable, Sendable {
     var keyID: String
     var installationID: String?
@@ -158,6 +248,19 @@ actor PrimuseAIRelayClient {
             throw PrimuseAIRelayError.invalidResponse
         }
         return installationID
+    }
+
+    func testConnection() async throws -> PrimuseAIRelayAuthenticationMethod {
+        _ = try await interpretSearch(AISemanticSearchRequest(
+            query: "quiet evening music",
+            languageCode: "en",
+            maximumExpansionTerms: 2
+        ))
+        guard let credential = try await credentialStore.load(),
+              credential.installationID != nil else {
+            throw PrimuseAIRelayError.credentialUnavailable
+        }
+        return credential.accessToken == nil ? .appAttest : .storeKitFallback
     }
 
     func interpretSearch(
@@ -504,7 +607,10 @@ actor PrimuseAIRelayClient {
             let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
             throw PrimuseAIRelayError.requestFailed(
                 statusCode: response.statusCode,
-                code: envelope?.error.code ?? "http_\(response.statusCode)"
+                code: Self.safeDiagnosticCode(
+                    envelope?.error.code,
+                    statusCode: response.statusCode
+                )
             )
         }
         guard let decoded = try? decoder.decode(type, from: data) else {
@@ -521,6 +627,26 @@ actor PrimuseAIRelayClient {
 
     private nonisolated static func isLocalAppAttestFailure(_ error: Error) -> Bool {
         (error as NSError).domain == DCError.errorDomain
+    }
+
+    private nonisolated static func safeDiagnosticCode(
+        _ rawCode: String?,
+        statusCode: Int
+    ) -> String {
+        let fallback = "http_\(statusCode)"
+        guard let rawCode else { return fallback }
+        let normalized = rawCode.lowercased()
+        guard !normalized.isEmpty,
+              normalized.count <= 64,
+              normalized.unicodeScalars.allSatisfy({ scalar in
+                  (scalar.value >= 97 && scalar.value <= 122)
+                      || (scalar.value >= 48 && scalar.value <= 57)
+                      || scalar.value == 95
+                      || scalar.value == 45
+              }) else {
+            return fallback
+        }
+        return normalized
     }
 
     private nonisolated static func makeSession() -> URLSession {

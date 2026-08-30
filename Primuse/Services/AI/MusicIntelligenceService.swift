@@ -49,6 +49,37 @@ enum AIRecommendationOutcome: Sendable {
     case failed
 }
 
+struct PrimuseAIRelayConnectionReport: Equatable, Sendable {
+    enum Outcome: Equatable, Sendable {
+        case available(PrimuseAIRelayAuthenticationMethod)
+        case unavailable(PrimuseAIRelayDiagnostic)
+    }
+
+    enum Fallback: Equatable, Sendable {
+        case none
+        case remoteProvider(String)
+        case localOnly
+    }
+
+    var outcome: Outcome
+    var fallback: Fallback
+
+    var isDirectlyAvailable: Bool {
+        if case .available = outcome { return true }
+        return false
+    }
+
+    var isDegraded: Bool {
+        switch (outcome, fallback) {
+        case (.available(.storeKitFallback), _),
+             (.unavailable(_), .remoteProvider(_)):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class MusicIntelligenceService {
@@ -1104,6 +1135,134 @@ final class MusicIntelligenceService {
             configuration: enabledConfiguration
         ) else {
             throw MusicIntelligenceError.unavailable(.temporarilyUnavailable)
+        }
+    }
+
+    func testPrimuseRelayConnection(
+        providerSet: AIRemoteProviderSet,
+        apiKeyOverrides: [UUID: String]
+    ) async -> PrimuseAIRelayConnectionReport {
+        let regionSnapshot = regionAvailability.snapshot
+        let decision = AIAvailabilityPolicy.decision(
+            for: .bundledRemote,
+            regionContext: regionSnapshot.context
+        )
+        guard decision.isAllowed else {
+            let code = decision.denialReason == .regionRestricted
+                ? "region_restricted"
+                : "region_undetermined"
+            return PrimuseAIRelayConnectionReport(
+                outcome: .unavailable(PrimuseAIRelayDiagnostic(
+                    category: .regionRestriction,
+                    code: code
+                )),
+                fallback: await verifiedPrimuseRelayFallback(
+                    providerSet: providerSet,
+                    apiKeyOverrides: apiKeyOverrides
+                )
+            )
+        }
+
+        do {
+            let authenticationMethod = try await primuseRelayClient.testConnection()
+            guard regionSnapshot == regionAvailability.snapshot,
+                  AIAvailabilityPolicy.decision(
+                    for: .bundledRemote,
+                    regionContext: regionAvailability.context
+                  ).isAllowed else {
+                return PrimuseAIRelayConnectionReport(
+                    outcome: .unavailable(PrimuseAIRelayDiagnostic(
+                        category: .regionRestriction,
+                        code: "region_changed"
+                    )),
+                    fallback: await verifiedPrimuseRelayFallback(
+                        providerSet: providerSet,
+                        apiKeyOverrides: apiKeyOverrides
+                    )
+                )
+            }
+            return PrimuseAIRelayConnectionReport(
+                outcome: .available(authenticationMethod),
+                fallback: .none
+            )
+        } catch {
+            return PrimuseAIRelayConnectionReport(
+                outcome: .unavailable(PrimuseAIRelayDiagnostic.classify(error)),
+                fallback: await verifiedPrimuseRelayFallback(
+                    providerSet: providerSet,
+                    apiKeyOverrides: apiKeyOverrides
+                )
+            )
+        }
+    }
+
+    private func verifiedPrimuseRelayFallback(
+        providerSet: AIRemoteProviderSet,
+        apiKeyOverrides: [UUID: String]
+    ) async -> PrimuseAIRelayConnectionReport.Fallback {
+        let decision = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: regionAvailability.context
+        )
+        guard decision.isAllowed else { return .localOnly }
+
+        var candidates: [(index: Int, provider: AIRemoteProviderConfiguration, apiKey: String?)] = []
+        for (index, configuredProvider) in providerSet.routedProviders.enumerated() {
+            var provider = configuredProvider
+            guard !provider.generationModel
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  AIProviderRegionPolicy.allows(
+                    configuration: provider,
+                    region: regionAvailability.context.region,
+                    purpose: .generation
+                  ) else { continue }
+            provider.requestTimeout = min(
+                max(provider.requestTimeout, AIRequestTimeoutPolicy.minimum),
+                6
+            )
+            let draftKey = apiKeyOverrides[provider.id]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            candidates.append((
+                index: index,
+                provider: provider,
+                apiKey: draftKey?.isEmpty == false ? draftKey : nil
+            ))
+        }
+        guard !candidates.isEmpty else { return .localOnly }
+
+        return await withTaskGroup(
+            of: (Int, String?).self,
+            returning: PrimuseAIRelayConnectionReport.Fallback.self
+        ) { group in
+            for candidate in candidates {
+                group.addTask { [weak self] in
+                    guard let self else { return (candidate.index, nil) }
+                    do {
+                        try await self.testConnection(
+                            configuration: candidate.provider,
+                            apiKey: candidate.apiKey
+                        )
+                        let name = candidate.provider.displayName
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        return (
+                            candidate.index,
+                            name.isEmpty
+                                ? String(localized: "ai_provider_default_name")
+                                : name
+                        )
+                    } catch {
+                        return (candidate.index, nil)
+                    }
+                }
+            }
+            var verified: [(index: Int, name: String)] = []
+            for await (index, name) in group {
+                if let name { verified.append((index, name)) }
+            }
+            guard let best = verified.min(by: { $0.index < $1.index }) else {
+                return .localOnly
+            }
+            return .remoteProvider(best.name)
         }
     }
 

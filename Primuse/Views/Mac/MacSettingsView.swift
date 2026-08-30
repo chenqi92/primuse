@@ -915,6 +915,35 @@ private struct MacSTIntelligenceView: View {
                         .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(PMColor.textFaint)
                 }
+                MacSTRow(
+                    String(localized: "ai_primuse_relay_test_connection"),
+                    hint: String(localized: "ai_primuse_relay_test_footer")
+                ) {
+                    HStack(spacing: 8) {
+                        if editor.isTestingPrimuseRelay {
+                            ProgressView().controlSize(.small)
+                        }
+                        MacSTButton(
+                            title: String(localized: "ai_primuse_relay_test_connection"),
+                            systemImage: "network"
+                        ) {
+                            Task {
+                                await editor.testPrimuseRelayConnection(using: intelligence)
+                            }
+                        }
+                        .disabled(!editor.canTestPrimuseRelayConnection)
+                    }
+                }
+                if editor.primuseRelayConnectionPresentation != .notTested {
+                    MacSTRow(
+                        editor.primuseRelayConnectionTitle,
+                        hint: editor.primuseRelayConnectionDetail,
+                        divider: false
+                    ) {
+                        Image(systemName: primuseRelayConnectionIcon)
+                            .foregroundStyle(primuseRelayConnectionColor)
+                    }
+                }
                 if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
                     MacSTRow(
                         String(localized: "ai_primuse_relay_unsupported"),
@@ -1103,6 +1132,10 @@ private struct MacSTIntelligenceView: View {
     }
 
     private var summaryText: String {
+        if editor.primuseRelayEnabled,
+           editor.primuseRelayConnectionPresentation != .notTested {
+            return editor.primuseRelayConnectionTitle
+        }
         switch editor.status {
         case .saving:
             return String(localized: "ai_saving_changes")
@@ -1120,13 +1153,7 @@ private struct MacSTIntelligenceView: View {
             return message
         case .idle:
             if editor.primuseRelayEnabled {
-                guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
-                    return String(localized: "ai_primuse_relay_unsupported")
-                }
-                guard editor.consent || editor.listeningContextConsent else {
-                    return String(localized: "ai_primuse_relay_consent_required")
-                }
-                return String(localized: "ai_primuse_relay_ready")
+                return editor.primuseRelayConnectionTitle
             }
             return String(
                 format: String(localized: "ai_provider_count_format"),
@@ -1136,6 +1163,7 @@ private struct MacSTIntelligenceView: View {
     }
 
     private var summaryColor: Color {
+        if editor.primuseRelayEnabled { return primuseRelayConnectionColor }
         if case .failed = editor.status { return PMColor.bad }
         return hasReadyAIConfiguration ? PMColor.brand : PMColor.textFaint
     }
@@ -1207,12 +1235,46 @@ private struct MacSTIntelligenceView: View {
     }
 
     private var usesPrimuseRelay: Bool {
-        editor.primuseRelayEnabled && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+        editor.primuseRelayEnabled
     }
 
     private var hasReadyAIConfiguration: Bool {
-        (usesPrimuseRelay && (editor.consent || editor.listeningContextConsent))
-            || editor.hasUsableAPIKey
+        usesPrimuseRelay ? primuseRelayIsOperational : editor.hasUsableAPIKey
+    }
+
+    private var primuseRelayIsOperational: Bool {
+        guard let report = editor.primuseRelayConnectionReport else { return false }
+        if report.isDirectlyAvailable { return true }
+        if case .remoteProvider = report.fallback { return true }
+        return false
+    }
+
+    private var primuseRelayConnectionIcon: String {
+        switch editor.primuseRelayConnectionPresentation {
+        case .notTested:
+            return "questionmark.circle"
+        case .testing:
+            return "arrow.triangle.2.circlepath"
+        case .success:
+            return "checkmark.circle.fill"
+        case .degraded:
+            return "arrow.down.right.circle.fill"
+        case .failure:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var primuseRelayConnectionColor: Color {
+        switch editor.primuseRelayConnectionPresentation {
+        case .success:
+            return PMColor.ok
+        case .degraded:
+            return .orange
+        case .failure:
+            return PMColor.bad
+        case .notTested, .testing:
+            return PMColor.textFaint
+        }
     }
 }
 

@@ -20,6 +20,14 @@ final class AISettingsEditorModel {
         case failed(String, Operation)
     }
 
+    enum PrimuseRelayConnectionPresentation: Equatable {
+        case notTested
+        case testing
+        case success
+        case degraded
+        case failure
+    }
+
     var draftProviderSet: AIRemoteProviderSet
     var selectedProviderID: UUID
     var providerPresets: [UUID: AIProviderPreset] = [:]
@@ -35,7 +43,9 @@ final class AISettingsEditorModel {
     var isLoading = false
     var isWorking = false
     var isFetchingModels = false
+    var isTestingPrimuseRelay = false
     var status: Status = .idle
+    var primuseRelayConnectionReport: PrimuseAIRelayConnectionReport?
 
     private var draftGeneration: UInt64 = 0
     private var savedProviderSet: AIRemoteProviderSet
@@ -137,6 +147,75 @@ final class AISettingsEditorModel {
         didLoad && !isWorking && !isFetchingModels && hasUsableAPIKey
             && !draftConfiguration.generationModel
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var canTestPrimuseRelayConnection: Bool {
+        didLoad && !isWorking && !isFetchingModels && !isTestingPrimuseRelay
+    }
+
+    var primuseRelayConnectionPresentation: PrimuseRelayConnectionPresentation {
+        if isTestingPrimuseRelay { return .testing }
+        guard let report = primuseRelayConnectionReport else { return .notTested }
+        if report.isDirectlyAvailable {
+            return report.isDegraded ? .degraded : .success
+        }
+        if case .remoteProvider = report.fallback { return .degraded }
+        return .failure
+    }
+
+    var primuseRelayConnectionTitle: String {
+        if isTestingPrimuseRelay {
+            return String(localized: "ai_primuse_relay_test_running")
+        }
+        guard let report = primuseRelayConnectionReport else {
+            return String(localized: "ai_primuse_relay_test_not_run")
+        }
+        switch report.outcome {
+        case .available(.appAttest):
+            return String(localized: "ai_primuse_relay_test_success_app_attest")
+        case .available(.storeKitFallback):
+            return String(localized: "ai_primuse_relay_test_success_storekit")
+        case .unavailable(let diagnostic):
+            switch diagnostic.category {
+            case .regionRestriction:
+                return String(localized: "ai_primuse_relay_failure_region_title")
+            case .deviceRegistration:
+                return String(localized: "ai_primuse_relay_failure_registration_title")
+            case .serviceAuthentication:
+                return String(localized: "ai_primuse_relay_failure_auth_title")
+            case .upstream:
+                return String(localized: "ai_primuse_relay_failure_upstream_title")
+            }
+        }
+    }
+
+    var primuseRelayConnectionDetail: String? {
+        guard !isTestingPrimuseRelay, let report = primuseRelayConnectionReport else {
+            return nil
+        }
+        switch report.outcome {
+        case .available(.appAttest):
+            return String(localized: "ai_primuse_relay_test_success_app_attest_detail")
+        case .available(.storeKitFallback):
+            return String(localized: "ai_primuse_relay_test_success_storekit_detail")
+        case .unavailable(let diagnostic):
+            var lines = [String(
+                format: String(localized: "ai_primuse_relay_diagnostic_code_format"),
+                diagnostic.code
+            )]
+            switch report.fallback {
+            case .none:
+                break
+            case .remoteProvider(let name):
+                lines.append(String(
+                    format: String(localized: "ai_primuse_relay_fallback_provider_format"),
+                    name
+                ))
+            case .localOnly:
+                lines.append(String(localized: "ai_primuse_relay_fallback_local"))
+            }
+            return lines.joined(separator: "\n")
+        }
     }
 
     func load(using intelligence: MusicIntelligenceService) async {
@@ -576,6 +655,22 @@ final class AISettingsEditorModel {
         resumePendingAutoSaveIfNeeded()
     }
 
+    func testPrimuseRelayConnection(using intelligence: MusicIntelligenceService) async {
+        guard canTestPrimuseRelayConnection else { return }
+        let providerSet = draftProviderSet
+        let apiKeyOverrides = apiKeyDrafts
+        isWorking = true
+        isTestingPrimuseRelay = true
+        primuseRelayConnectionReport = nil
+        primuseRelayConnectionReport = await intelligence.testPrimuseRelayConnection(
+            providerSet: providerSet,
+            apiKeyOverrides: apiKeyOverrides
+        )
+        isTestingPrimuseRelay = false
+        isWorking = false
+        resumePendingAutoSaveIfNeeded()
+    }
+
     func deleteCurrentAPIKey(using intelligence: MusicIntelligenceService) async {
         let configuration = draftConfiguration
         let operationGeneration = draftGeneration
@@ -614,6 +709,7 @@ final class AISettingsEditorModel {
         autoSaveDelayNanoseconds: UInt64 = 0
     ) {
         draftGeneration &+= 1
+        primuseRelayConnectionReport = nil
         if !isWorking { status = .idle }
         if clearModels { availableModels = [] }
         scheduleAutoSave(afterNanoseconds: autoSaveDelayNanoseconds)
@@ -770,9 +866,9 @@ struct AISettingsView: View {
 
     private var connectionSummary: some View {
         let usesRelay = editor.primuseRelayEnabled
-            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
-        let relayReady = usesRelay && (editor.consent || editor.listeningContextConsent)
-        let isReady = relayReady || editor.hasUsableAPIKey
+        let isReady = usesRelay ? primuseRelayIsOperational : editor.hasUsableAPIKey
+        let stateColor = usesRelay ? primuseRelayConnectionColor
+            : (isReady ? Color.green : Color.secondary.opacity(0.35))
         return Section {
             HStack(spacing: 14) {
                 Image(systemName: isReady ? "sparkles" : "key.horizontal")
@@ -796,7 +892,7 @@ struct AISettingsView: View {
                 }
                 Spacer()
                 Circle()
-                    .fill(isReady ? Color.green : Color.secondary.opacity(0.35))
+                    .fill(stateColor)
                     .frame(width: 8, height: 8)
             }
             .padding(.vertical, 4)
@@ -811,6 +907,37 @@ struct AISettingsView: View {
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
             }
+            Button {
+                Task { await editor.testPrimuseRelayConnection(using: intelligence) }
+            } label: {
+                HStack(spacing: 8) {
+                    if editor.isTestingPrimuseRelay {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "network")
+                    }
+                    Text("ai_primuse_relay_test_connection")
+                }
+            }
+            .disabled(!editor.canTestPrimuseRelayConnection)
+
+            if editor.primuseRelayConnectionPresentation != .notTested {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: primuseRelayConnectionIcon)
+                        .foregroundStyle(primuseRelayConnectionColor)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: editor.primuseRelayConnectionTitle)
+                            .font(.subheadline.weight(.semibold))
+                        if let detail = editor.primuseRelayConnectionDetail {
+                            Text(verbatim: detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
             if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
                 Label(
                     "ai_primuse_relay_unsupported",
@@ -822,7 +949,10 @@ struct AISettingsView: View {
         } header: {
             Text("ai_primuse_relay_section")
         } footer: {
-            Text("ai_primuse_relay_footer")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ai_primuse_relay_footer")
+                Text("ai_primuse_relay_test_footer")
+            }
         }
     }
 
@@ -1152,6 +1282,10 @@ struct AISettingsView: View {
     }
 
     private var connectionSummaryText: String {
+        if editor.primuseRelayEnabled,
+           editor.primuseRelayConnectionPresentation != .notTested {
+            return editor.primuseRelayConnectionTitle
+        }
         switch editor.status {
         case .saving:
             return String(localized: "ai_saving_changes")
@@ -1163,18 +1297,47 @@ struct AISettingsView: View {
             return message
         default:
             if editor.primuseRelayEnabled {
-                if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-                    guard editor.consent || editor.listeningContextConsent else {
-                        return String(localized: "ai_primuse_relay_consent_required")
-                    }
-                    return String(localized: "ai_primuse_relay_ready")
-                }
-                return String(localized: "ai_primuse_relay_unsupported")
+                return editor.primuseRelayConnectionTitle
             }
             return String(
                 format: String(localized: "ai_provider_count_format"),
                 editor.draftProviderSet.providers.count
             )
+        }
+    }
+
+    private var primuseRelayIsOperational: Bool {
+        guard let report = editor.primuseRelayConnectionReport else { return false }
+        if report.isDirectlyAvailable { return true }
+        if case .remoteProvider = report.fallback { return true }
+        return false
+    }
+
+    private var primuseRelayConnectionIcon: String {
+        switch editor.primuseRelayConnectionPresentation {
+        case .notTested:
+            return "questionmark.circle"
+        case .testing:
+            return "arrow.triangle.2.circlepath"
+        case .success:
+            return "checkmark.circle.fill"
+        case .degraded:
+            return "arrow.down.right.circle.fill"
+        case .failure:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var primuseRelayConnectionColor: Color {
+        switch editor.primuseRelayConnectionPresentation {
+        case .success:
+            return .green
+        case .degraded:
+            return .orange
+        case .failure:
+            return .red
+        case .notTested, .testing:
+            return .secondary
         }
     }
 

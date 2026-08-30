@@ -1609,6 +1609,57 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testBuiltInServiceDiagnosticsDoNotRequireProviderOrConsent() {
+        let editor = AISettingsEditorModel()
+
+        XCTAssertFalse(editor.canTestPrimuseRelayConnection)
+        editor.didLoad = true
+
+        XCTAssertTrue(editor.canTestPrimuseRelayConnection)
+        XCTAssertFalse(editor.primuseRelayEnabled)
+        XCTAssertFalse(editor.consent)
+        XCTAssertFalse(editor.listeningContextConsent)
+        XCTAssertFalse(editor.hasUsableAPIKey)
+    }
+
+    @MainActor
+    func testBuiltInServiceDiagnosticsDistinguishRemoteAndLocalFallback() {
+        let editor = AISettingsEditorModel()
+        editor.primuseRelayConnectionReport = PrimuseAIRelayConnectionReport(
+            outcome: .unavailable(PrimuseAIRelayDiagnostic(
+                category: .serviceAuthentication,
+                code: "invalid_assertion"
+            )),
+            fallback: .remoteProvider("Fallback Provider")
+        )
+
+        XCTAssertEqual(editor.primuseRelayConnectionPresentation, .degraded)
+        XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains("Fallback Provider") == true)
+        XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains("invalid_assertion") == true)
+
+        editor.primuseRelayConnectionReport = PrimuseAIRelayConnectionReport(
+            outcome: .unavailable(PrimuseAIRelayDiagnostic(
+                category: .upstream,
+                code: "upstreams_failed"
+            )),
+            fallback: .localOnly
+        )
+
+        XCTAssertEqual(editor.primuseRelayConnectionPresentation, .failure)
+        XCTAssertEqual(
+            editor.primuseRelayConnectionTitle,
+            String(localized: "ai_primuse_relay_failure_upstream_title")
+        )
+
+        editor.primuseRelayConnectionReport = PrimuseAIRelayConnectionReport(
+            outcome: .available(.storeKitFallback),
+            fallback: .none
+        )
+
+        XCTAssertEqual(editor.primuseRelayConnectionPresentation, .degraded)
+    }
+
+    @MainActor
     func testSettingsEditorAutomaticallyPersistsValidChanges() async throws {
         let defaults = try XCTUnwrap(UserDefaults(
             suiteName: "AISettingsEditorAutosaveTests.\(UUID().uuidString)"
