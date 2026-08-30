@@ -23,6 +23,36 @@ private struct SongLocationScrollTrigger: Equatable {
     let rowOrderRevision: Int
 }
 
+#if os(macOS)
+private struct MacSongLocationScrollRequest: Equatable {
+    let songID: String?
+    let rowOrderRevision: Int
+    let rowOffset: Int?
+    let rowCount: Int
+}
+
+/// Own the mutable scroll position below `SongListView` so user scrolling does
+/// not invalidate the complete library screen on every position update.
+private struct MacSongLocationScrollModifier: ViewModifier {
+    let request: MacSongLocationScrollRequest
+
+    @State private var scrollPosition = ScrollPosition(idType: Int.self)
+
+    func body(content: Content) -> some View {
+        content
+            .scrollPosition($scrollPosition)
+            .task(id: request) {
+                guard request.songID != nil,
+                      let rowOffset = request.rowOffset,
+                      (0..<request.rowCount).contains(rowOffset) else { return }
+                await Task.yield()
+                guard !Task.isCancelled, self.request == request else { return }
+                scrollPosition.scrollTo(id: rowOffset, anchor: .center)
+            }
+    }
+}
+#endif
+
 /// Reference-backed storage prevents AttributeGraph from applying
 /// `Array<Song>.==` to the list cache whenever metadata changes. Song's
 /// synthesized equality includes lyricsText, so a value-backed SwiftUI state
@@ -1143,81 +1173,82 @@ struct SongListView: View {
     }
 
     private var macSongList: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    MacLibraryHeader(
-                        eyebrow: "library_title",
-                        title: String(localized: "tab_songs"),
-                        subtitle: librarySubtitle,
-                        iconSystemName: "music.note",
-                        coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
-                        onPlay: { playLibrary(shuffled: false) },
-                        onShuffle: { playLibrary(shuffled: true) },
-                        moreMenu: listMoreMenu
-                    )
-
-                    VStack(alignment: .leading, spacing: PMSpace.l) {
-                        if !showsFolderBrowser {
-                            sourceFilterChips
-                        }
-                        macToolbarRow
-
-                        if showsFolderBrowser {
-                            if macFolderPath.isEmpty {
-                                LibraryFolderRootContent(
-                                    folderCache: folderCache,
-                                    listCache: listCache,
-                                    rootSourceID: folderRootSourceID,
-                                    selection: selection,
-                                    sortOrder: sortOrderBinding,
-                                    onOpenFolder: openMacFolder
-                                )
-                            } else {
-                                MacLibraryFolderInlineContent(
-                                    folderPath: macFolderPath,
-                                    folderCache: folderCache,
-                                    listCache: listCache,
-                                    selection: selection,
-                                    sortOrder: sortOrderBinding,
-                                    onOpenFolder: openMacFolder,
-                                    onNavigate: navigateMacFolder
-                                )
-                            }
-                        } else if filteredRows.isEmpty {
-                            if songFilter == .downloaded {
-                                ContentUnavailableView(
-                                    "filter_downloaded",
-                                    systemImage: "arrow.down.circle",
-                                    description: Text("filter_downloaded_empty_desc")
-                                )
-                                .padding(.top, 48)
-                            } else {
-                                ContentUnavailableView.search(text: searchText)
-                                    .padding(.top, 48)
-                            }
-                        } else {
-                            macSongsContent
-                        }
-                    }
-                    .padding(.horizontal, PMSpace.xxxl)
-                    .padding(.top, PMSpace.m14)
-                }
-                .padding(.bottom, 112)
-            }
-            .onScrollPhaseChange { _, newPhase in
-                updateListInteraction(for: newPhase)
-            }
-            .task(id: SongLocationScrollTrigger(
-                songID: locatedSongID,
-                rowOrderRevision: listCache.rowOrderRevision
-            )) {
-                guard let locatedSongID else { return }
-                await Task.yield()
-                guard !Task.isCancelled, self.locatedSongID == locatedSongID else { return }
-                proxy.scrollTo(locatedSongID, anchor: .center)
-            }
+        let rows = filteredRows
+        let locatedRowOffset = locatedSongID.flatMap { songID in
+            rows.firstIndex(where: { $0.id == songID })
         }
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                MacLibraryHeader(
+                    eyebrow: "library_title",
+                    title: String(localized: "tab_songs"),
+                    subtitle: librarySubtitle,
+                    iconSystemName: "music.note",
+                    coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
+                    onPlay: { playLibrary(shuffled: false) },
+                    onShuffle: { playLibrary(shuffled: true) },
+                    moreMenu: listMoreMenu
+                )
+
+                VStack(alignment: .leading, spacing: PMSpace.l) {
+                    if !showsFolderBrowser {
+                        sourceFilterChips
+                    }
+                    macToolbarRow
+
+                    if showsFolderBrowser {
+                        if macFolderPath.isEmpty {
+                            LibraryFolderRootContent(
+                                folderCache: folderCache,
+                                listCache: listCache,
+                                rootSourceID: folderRootSourceID,
+                                selection: selection,
+                                sortOrder: sortOrderBinding,
+                                onOpenFolder: openMacFolder
+                            )
+                        } else {
+                            MacLibraryFolderInlineContent(
+                                folderPath: macFolderPath,
+                                folderCache: folderCache,
+                                listCache: listCache,
+                                selection: selection,
+                                sortOrder: sortOrderBinding,
+                                onOpenFolder: openMacFolder,
+                                onNavigate: navigateMacFolder
+                            )
+                        }
+                    } else if rows.isEmpty {
+                        if songFilter == .downloaded {
+                            ContentUnavailableView(
+                                "filter_downloaded",
+                                systemImage: "arrow.down.circle",
+                                description: Text("filter_downloaded_empty_desc")
+                            )
+                            .padding(.top, 48)
+                        } else {
+                            ContentUnavailableView.search(text: searchText)
+                                .padding(.top, 48)
+                        }
+                    } else {
+                        macSongsContent(rows: rows)
+                    }
+                }
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.top, PMSpace.m14)
+            }
+            .padding(.bottom, 112)
+        }
+        .onScrollPhaseChange { _, newPhase in
+            updateListInteraction(for: newPhase)
+        }
+        .modifier(
+            MacSongLocationScrollModifier(request: MacSongLocationScrollRequest(
+                songID: locatedSongID,
+                rowOrderRevision: listCache.rowOrderRevision,
+                rowOffset: locatedRowOffset,
+                rowCount: rows.count
+            ))
+        )
         .background(PMColor.bg.ignoresSafeArea())
         .onAppear { rebuildPlayCounts() }
         .onChange(of: selectedSourceID) { _, _ in
@@ -1450,18 +1481,18 @@ struct SongListView: View {
     }
 
     @ViewBuilder
-    private var macSongsContent: some View {
+    private func macSongsContent(rows: [SongListRowIdentity]) -> some View {
         switch macViewMode {
         case .list:
-            songTable
+            songTable(rows: rows)
         case .compact:
-            compactSongList
+            compactSongList(rows: rows)
         case .grid:
-            songGrid
+            songGrid(rows: rows)
         }
     }
 
-    private var songTable: some View {
+    private func songTable(rows: [SongListRowIdentity]) -> some View {
         VStack(spacing: 0) {
             tableHeader
                 .padding(.horizontal, 10)
@@ -1471,7 +1502,8 @@ struct SongListView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             LazyVStack(spacing: 1) {
-                ForEach(filteredRows) { row in
+                ForEach(rows.indices, id: \.self) { position in
+                    let row = rows[position]
                     if let song = library.unobservedVisibleSong(id: row.id) {
                         songTableRow(song, index: row.offset)
                             .songSelectable(
@@ -1480,10 +1512,12 @@ struct SongListView: View {
                                 orderedIDs: { filteredSongIDs },
                                 defaultAction: { playSong(song) }
                             )
-                            .id(row.id)
                     }
                 }
             }
+            // Position IDs keep the lazy structure stable while source sync or
+            // metadata replacement changes the songs occupying those slots.
+            .scrollTargetLayout()
             .padding(.vertical, 4)
         }
     }
@@ -1723,9 +1757,10 @@ struct SongListView: View {
         }
     }
 
-    private var compactSongList: some View {
+    private func compactSongList(rows: [SongListRowIdentity]) -> some View {
         LazyVStack(spacing: 0) {
-            ForEach(filteredRows) { row in
+            ForEach(rows.indices, id: \.self) { position in
+                let row = rows[position]
                 if let song = library.unobservedVisibleSong(id: row.id) {
                     compactSongRow(song, index: row.offset)
                         .songSelectable(
@@ -1734,10 +1769,10 @@ struct SongListView: View {
                             orderedIDs: { filteredSongIDs },
                             defaultAction: { playSong(song) }
                         )
-                        .id(row.id)
                 }
             }
         }
+        .scrollTargetLayout()
         .padding(.top, 8)
     }
 
@@ -1806,13 +1841,14 @@ struct SongListView: View {
         .contextMenu { macSongContextMenu(for: song) }
     }
 
-    private var songGrid: some View {
+    private func songGrid(rows: [SongListRowIdentity]) -> some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 20), count: 6),
             alignment: .leading,
             spacing: 20
         ) {
-            ForEach(filteredRows) { row in
+            ForEach(rows.indices, id: \.self) { position in
+                let row = rows[position]
                 if let song = library.unobservedVisibleSong(id: row.id) {
                     songGridTile(
                         song,
@@ -1826,10 +1862,10 @@ struct SongListView: View {
                             orderedIDs: { filteredSongIDs },
                             defaultAction: { playSong(song) }
                         )
-                        .id(row.id)
                 }
             }
         }
+        .scrollTargetLayout()
         .padding(.top, 12)
     }
 
