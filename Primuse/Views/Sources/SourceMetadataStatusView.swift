@@ -57,7 +57,7 @@ struct SourceMetadataStatusView: View {
     @State private var selectedFilter: MetadataBackfillStatusFilter = .all
     @State private var searchText = ""
     @State private var resultMessage: String?
-    @State private var isStatusExplanationExpanded = false
+    @State private var isShowingStatusExplanation = false
 
     private var summary: MetadataBackfillSourceSummary {
         backfill.sourceStatusSummary(forSource: source.id)
@@ -111,6 +111,18 @@ struct SourceMetadataStatusView: View {
         } message: {
             Text(resultMessage ?? "")
         }
+        .sheet(isPresented: $isShowingStatusExplanation) {
+            statusExplanationSheet
+        }
+        #if os(iOS)
+        .toolbar {
+            if !usesTwoColumnLayout, showsCompactPrimaryAction {
+                ToolbarItem(placement: .topBarTrailing) {
+                    compactPrimaryActionButton
+                }
+            }
+        }
+        #endif
         #if os(macOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             modalFooter
@@ -138,44 +150,59 @@ struct SourceMetadataStatusView: View {
 
     private var compactLayout: some View {
         List {
-            Section {
-                diagnosticSidebar
-                    .padding(.vertical, 8)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
-                    .listRowSeparator(.hidden)
-            }
+            compactOverviewCard
+                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
 
-            resultSection
+            compactResultsHeader
+                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
+                .listRowSeparator(.hidden)
+
+            compactStatusFilters
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 10, trailing: 0))
+                .listRowSeparator(.hidden)
+
+            resultRows
         }
         .listStyle(.plain)
+        #if os(iOS)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text("metadata_status_search")
+        )
+        #else
+        .searchable(text: $searchText, prompt: Text("metadata_status_search"))
+        #endif
     }
 
     private var resultsList: some View {
         List {
-            resultSection
+            Section {
+                resultRows
+            } header: {
+                wideResultsControls
+            }
         }
         .listStyle(.plain)
     }
 
     @ViewBuilder
-    private var resultSection: some View {
-        Section {
-            if filteredItems.isEmpty {
-                ContentUnavailableView(
-                    "metadata_status_empty",
-                    systemImage: "checkmark.circle",
-                    description: Text("metadata_status_empty_description")
-                )
-                .frame(maxWidth: .infinity, minHeight: 220)
-                .listRowSeparator(.hidden)
-            } else {
-                ForEach(filteredItems) { item in
-                    statusRow(item)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                }
+    private var resultRows: some View {
+        if filteredItems.isEmpty {
+            ContentUnavailableView(
+                "metadata_status_empty",
+                systemImage: "checkmark.circle",
+                description: Text("metadata_status_empty_description")
+            )
+            .frame(maxWidth: .infinity, minHeight: 220)
+            .listRowSeparator(.hidden)
+        } else {
+            ForEach(filteredItems) { item in
+                statusRow(item)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
-        } header: {
-            resultsControls
         }
     }
 
@@ -200,21 +227,41 @@ struct SourceMetadataStatusView: View {
 
             statusTrack
 
-            DisclosureGroup(isExpanded: $isStatusExplanationExpanded) {
-                Text("metadata_status_explanation")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 6)
-            } label: {
-                Label("metadata_status_explanation_title", systemImage: "info.circle")
-                    .font(.subheadline.weight(.medium))
-            }
-            .tint(Color.secondary)
+            statusExplanationButton
 
             actionPanel
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var compactOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sourceIdentityHeader
+
+            Divider()
+
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(healthSummaryText)
+                        .font(.title3.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                compactStatusExplanationButton
+            }
+
+            if summary.retryableCount > 0 {
+                compactRetryActionButton
+            }
+        }
+        .padding(16)
+        .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+        }
     }
 
     private var sourceIdentityHeader: some View {
@@ -260,6 +307,10 @@ struct SourceMetadataStatusView: View {
             summary.activeQueueCount,
             summary.problemCount
         )
+    }
+
+    private var showsCompactPrimaryAction: Bool {
+        backfill.isUserInitiated(forSource: source.id) || summary.activeQueueCount > 0
     }
 
     private var statusTrack: some View {
@@ -311,6 +362,178 @@ struct SourceMetadataStatusView: View {
         }
     }
 
+    private var statusExplanationButton: some View {
+        Button {
+            isShowingStatusExplanation = true
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "info.circle")
+                Text("metadata_status_explanation_title")
+                    .font(.subheadline.weight(.medium))
+                Image(systemName: "chevron.forward")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("metadata-status-explanation")
+    }
+
+    private var compactStatusExplanationButton: some View {
+        Button {
+            isShowingStatusExplanation = true
+        } label: {
+            Image(systemName: "questionmark")
+                .font(.caption.weight(.bold))
+                .frame(width: 32, height: 32)
+                .background(Color.secondary.opacity(0.1), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("metadata_status_explanation_title")
+        .accessibilityLabel(Text("metadata_status_explanation_title"))
+        .accessibilityIdentifier("metadata-status-explanation")
+    }
+
+    @ViewBuilder
+    private var statusExplanationSheet: some View {
+        #if os(iOS)
+        statusExplanationSheetContent
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        #elseif os(macOS)
+        statusExplanationSheetContent
+            .frame(minWidth: 420, idealWidth: 460, minHeight: 260, idealHeight: 300)
+        #else
+        statusExplanationSheetContent
+        #endif
+    }
+
+    private var statusExplanationSheetContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "questionmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                Text("metadata_status_explanation_title")
+                    .font(.headline)
+                Spacer(minLength: 12)
+                Button("done") {
+                    isShowingStatusExplanation = false
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider()
+
+            ScrollView {
+                Text("metadata_status_explanation")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
+        }
+        .background(.regularMaterial)
+    }
+
+    private var compactResultsHeader: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("metadata_status_result_title")
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            Text(String(
+                format: String(localized: "metadata_status_list_count_format"),
+                filteredItems.count
+            ))
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+
+            Button {
+                reload(force: true)
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 30, height: 30)
+                    .background(Color.secondary.opacity(0.09), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("metadata_status_refresh")
+            .accessibilityLabel(Text("metadata_status_refresh"))
+            .accessibilityIdentifier("metadata-status-refresh")
+        }
+        .padding(.vertical, 2)
+        .textCase(nil)
+    }
+
+    private var compactStatusFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 9) {
+                ForEach(MetadataBackfillStatusFilter.allCases) { filter in
+                    compactFilterCard(filter)
+                }
+            }
+            .padding(.vertical, 2)
+            .padding(.trailing, 16)
+        }
+    }
+
+    private func compactFilterCard(_ filter: MetadataBackfillStatusFilter) -> some View {
+        let isSelected = selectedFilter == filter
+        let count = summary.count(for: filter)
+        return Button {
+            selectedFilter = filter
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 7) {
+                    Image(systemName: filter.icon)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(filter.color)
+                    Spacer(minLength: 8)
+                    Text(count.formatted())
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(isSelected ? filter.color : Color.primary)
+                }
+
+                Text(filter.title)
+                    .font(.caption.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .frame(width: 126, height: 72, alignment: .leading)
+            .background(
+                isSelected ? filter.color.opacity(0.12) : Color.secondary.opacity(0.065),
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(
+                        isSelected ? filter.color.opacity(0.5) : Color.secondary.opacity(0.12),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(filter.title))
+        .accessibilityValue(Text(count.formatted()))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("metadata-status-filter-\(filter.rawValue)")
+    }
+
     private var actionPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -328,71 +551,90 @@ struct SourceMetadataStatusView: View {
                 .accessibilityIdentifier("metadata-status-refresh")
             }
 
-            if backfill.isUserInitiated(forSource: source.id) {
-                Button {
-                    backfill.pauseUserInitiated(sourceID: source.id)
-                    resultMessage = String(localized: "metadata_status_paused_message")
-                    reload(force: true)
-                } label: {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("metadata_status_pause")
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .accessibilityIdentifier("metadata-status-primary-action")
-            } else {
-                Button {
-                    let started = backfill.startUserInitiated(sourceID: source.id)
-                    resultMessage = String(localized: started
-                        ? "metadata_status_continue_started"
-                        : "metadata_status_no_pending_work")
-                    reload(force: true)
-                } label: {
-                    Label("metadata_status_continue", systemImage: "play.circle.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(!source.isEnabled || summary.activeQueueCount == 0)
-                .accessibilityIdentifier("metadata-status-primary-action")
-            }
-
-            Button {
-                let reopened = backfill.retryFailed(
-                    forSource: source.id,
-                    startImmediately: false
-                )
-                if reopened > 0 {
-                    _ = backfill.startUserInitiated(sourceID: source.id)
-                    resultMessage = String(
-                        format: String(localized: "metadata_status_retry_started_format"),
-                        reopened
-                    )
-                } else {
-                    resultMessage = String(localized: "metadata_status_no_retryable_work")
-                }
-                reload(force: true)
-            } label: {
-                Label("metadata_status_retry_failed", systemImage: "arrow.clockwise.circle")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(
-                !source.isEnabled
-                    || summary.retryableCount == 0
-                    || backfill.isUserInitiated(forSource: source.id)
-            )
-            .accessibilityIdentifier("metadata-status-secondary-action")
+            primaryActionButton
+            retryActionButton
         }
     }
 
-    private var resultsControls: some View {
+    @ViewBuilder
+    private var primaryActionButton: some View {
+        if backfill.isUserInitiated(forSource: source.id) {
+            Button {
+                performPrimaryAction()
+            } label: {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("metadata_status_pause")
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("metadata-status-primary-action")
+        } else {
+            Button {
+                performPrimaryAction()
+            } label: {
+                Label("metadata_status_continue", systemImage: "play.circle.fill")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!source.isEnabled || summary.activeQueueCount == 0)
+            .accessibilityIdentifier("metadata-status-primary-action")
+        }
+    }
+
+    private var compactPrimaryActionButton: some View {
+        let isRunning = backfill.isUserInitiated(forSource: source.id)
+        return Button {
+            performPrimaryAction()
+        } label: {
+            Image(systemName: isRunning ? "pause.fill" : "play.fill")
+        }
+        .disabled(!isRunning && (!source.isEnabled || summary.activeQueueCount == 0))
+        .help(isRunning ? "metadata_status_pause" : "metadata_status_continue")
+        .accessibilityLabel(Text(isRunning ? "metadata_status_pause" : "metadata_status_continue"))
+        .accessibilityIdentifier("metadata-status-primary-action")
+    }
+
+    private var retryActionButton: some View {
+        Button {
+            retryFailedItems()
+        } label: {
+            Label("metadata_status_retry_failed", systemImage: "arrow.clockwise.circle")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(
+            !source.isEnabled
+                || summary.retryableCount == 0
+                || backfill.isUserInitiated(forSource: source.id)
+        )
+        .accessibilityIdentifier("metadata-status-secondary-action")
+    }
+
+    private var compactRetryActionButton: some View {
+        Button {
+            retryFailedItems()
+        } label: {
+            Label("metadata_status_retry_failed", systemImage: "arrow.clockwise")
+                .font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(
+            !source.isEnabled
+                || summary.retryableCount == 0
+                || backfill.isUserInitiated(forSource: source.id)
+        )
+        .accessibilityIdentifier("metadata-status-secondary-action")
+    }
+
+    private var wideResultsControls: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("metadata_status_result_title")
@@ -555,14 +797,16 @@ struct SourceMetadataStatusView: View {
     }
 
     private func metadataLine(_ item: MetadataBackfillStatusItem) -> some View {
-        let reasons = workReasonText(item.workReasons)
+        let reasons = workReasonText(displayWorkReasons(for: item))
+        let highlightsUnavailableFields = item.state == .unreadableTags
+            || item.state == .playableIncomplete
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
                 formatBadge(item.song.fileFormat.rawValue.uppercased())
                 if !reasons.isEmpty {
                     Text(reasons)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2.weight(highlightsUnavailableFields ? .semibold : .regular))
+                        .foregroundStyle(highlightsUnavailableFields ? Color.red : Color.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 4)
@@ -576,8 +820,8 @@ struct SourceMetadataStatusView: View {
                 }
                 if !reasons.isEmpty {
                     Text(reasons)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2.weight(highlightsUnavailableFields ? .semibold : .regular))
+                        .foregroundStyle(highlightsUnavailableFields ? Color.red : Color.secondary)
                         .lineLimit(2)
                 }
             }
@@ -614,10 +858,17 @@ struct SourceMetadataStatusView: View {
     ) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(text)
-                    .font(.caption)
-                    .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if isFailure {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.red)
+                    }
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(isFailure ? Color.red : Color.secondary)
+                        .lineLimit(3)
+                }
                 Spacer(minLength: 4)
                 if let date {
                     Text(date.formatted(date: .abbreviated, time: .shortened))
@@ -628,10 +879,17 @@ struct SourceMetadataStatusView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(text)
-                    .font(.caption)
-                    .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if isFailure {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.red)
+                    }
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(isFailure ? Color.red : Color.secondary)
+                        .lineLimit(3)
+                }
                 if let date {
                     Text(date.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption2)
@@ -694,6 +952,36 @@ struct SourceMetadataStatusView: View {
     private func reload(force: Bool) {
         if force { backfill.refreshStatusSnapshot() }
         items = backfill.statusItems(forSource: source.id)
+    }
+
+    private func performPrimaryAction() {
+        if backfill.isUserInitiated(forSource: source.id) {
+            backfill.pauseUserInitiated(sourceID: source.id)
+            resultMessage = String(localized: "metadata_status_paused_message")
+        } else {
+            let started = backfill.startUserInitiated(sourceID: source.id)
+            resultMessage = String(localized: started
+                ? "metadata_status_continue_started"
+                : "metadata_status_no_pending_work")
+        }
+        reload(force: true)
+    }
+
+    private func retryFailedItems() {
+        let reopened = backfill.retryFailed(
+            forSource: source.id,
+            startImmediately: false
+        )
+        if reopened > 0 {
+            _ = backfill.startUserInitiated(sourceID: source.id)
+            resultMessage = String(
+                format: String(localized: "metadata_status_retry_started_format"),
+                reopened
+            )
+        } else {
+            resultMessage = String(localized: "metadata_status_no_retryable_work")
+        }
+        reload(force: true)
     }
 
     private func reread(_ item: MetadataBackfillStatusItem) {
@@ -763,6 +1051,19 @@ struct SourceMetadataStatusView: View {
         if reasons.contains(.albumArtist) { values.append(String(localized: "metadata_status_reason_album_artist")) }
         if reasons.contains(.artist) { values.append(String(localized: "metadata_status_reason_artist")) }
         return values.joined(separator: String(localized: "metadata_status_reason_separator"))
+    }
+
+    private func displayWorkReasons(
+        for item: MetadataBackfillStatusItem
+    ) -> MetadataBackfillWorkReasons {
+        var reasons = item.workReasons
+        // `playableIncomplete` closes the duration inspection leg to avoid an
+        // endless retry loop, but the missing duration still explains the row
+        // to the user and therefore remains visible as a confirmed red field.
+        if item.state == .playableIncomplete, item.song.duration <= 0 {
+            reasons.insert(.duration)
+        }
+        return reasons
     }
 
     private func fallbackReason(_ state: MetadataBackfillItemState) -> String? {
