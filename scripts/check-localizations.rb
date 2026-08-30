@@ -8,6 +8,10 @@ require "set"
 ROOT = Pathname(__dir__).parent.freeze
 SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant].freeze
 NON_ENGLISH_LOCALES = (SUPPORTED_LOCALES - ["en"]).freeze
+REQUIRED_SIRI_INTENTS = %w[
+  INPlayMediaIntent
+  INSearchForMediaIntent
+].freeze
 
 REQUIRED_APP_LOCALIZATION_KEYS = [
   "ai_primuse_relay_enabled",
@@ -278,6 +282,38 @@ def check_resource_group(name, root, file_name, exact_english_parity, failures)
   end
 end
 
+def check_siri_vocabulary(failures)
+  paths = localization_paths(ROOT / "SiriVocabulary", "AppIntentVocabulary.plist")
+  missing_files = paths.reject { |_locale, path| path.file? }.keys
+  unless missing_files.empty?
+    failures << "Siri vocabulary: missing locales: #{missing_files.join(', ')}"
+    return
+  end
+
+  paths.each do |locale, path|
+    vocabulary = load_strings(path)
+    phrases = vocabulary["IntentPhrases"]
+    unless phrases.is_a?(Array)
+      failures << "Siri vocabulary #{locale}: IntentPhrases must be an array"
+      next
+    end
+
+    examples_by_intent = phrases.each_with_object({}) do |entry, result|
+      next unless entry.is_a?(Hash)
+
+      result[entry["IntentName"]] = entry["IntentExamples"]
+    end
+
+    REQUIRED_SIRI_INTENTS.each do |intent_name|
+      examples = examples_by_intent[intent_name]
+      valid = examples.is_a?(Array) && examples.any? do |example|
+        example.is_a?(String) && !example.strip.empty?
+      end
+      failures << "Siri vocabulary #{locale}: missing example phrase for #{intent_name}" unless valid
+    end
+  end
+end
+
 def localized_error_literals(path)
   lines = path.readlines
   findings = []
@@ -439,6 +475,7 @@ failures = []
 RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
   check_resource_group(name, root, file_name, exact_english_parity, failures)
 end
+check_siri_vocabulary(failures)
 
 app_localizations = localization_paths(ROOT / "Primuse/Resources", "Localizable.strings")
   .transform_values { |path| load_strings(path) }
