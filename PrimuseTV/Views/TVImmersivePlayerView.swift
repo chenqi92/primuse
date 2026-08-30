@@ -2,8 +2,97 @@
 import SwiftUI
 import PrimuseKit
 
-/// tvOS 沉浸播放：56pt 安全区、五个 76pt 焦点块、8 秒静默淡出；
-/// 长按选择键展开原生 + A–E，左右方向在隐藏态按 10 秒定位，Menu 退出。
+enum TVImmersiveDirectionalInput: Equatable, Sendable {
+    case left
+    case right
+    case up
+    case down
+}
+
+enum TVImmersiveDirectionalAction: Equatable, Sendable {
+    case previousTrack
+    case nextTrack
+    case revealControls
+    case standardNavigation
+    case none
+}
+
+struct TVImmersiveDirectionalCommandState: Equatable, Sendable {
+    private let quietInterval: TimeInterval
+    private var lastObservedTrackEventUptime: TimeInterval?
+
+    init(quietInterval: TimeInterval = 0.45) {
+        self.quietInterval = quietInterval
+    }
+
+    mutating func action(
+        for input: TVImmersiveDirectionalInput,
+        at uptime: TimeInterval,
+        controlsVisible: Bool,
+        modePickerVisible: Bool,
+        assistiveNavigationEnabled: Bool
+    ) -> TVImmersiveDirectionalAction {
+        if modePickerVisible || controlsVisible {
+            return .standardNavigation
+        }
+        if assistiveNavigationEnabled {
+            return .revealControls
+        }
+        switch input {
+        case .up, .down:
+            return .revealControls
+        case .left:
+            return acceptsTrackEvent(at: uptime) ? .previousTrack : .none
+        case .right:
+            return acceptsTrackEvent(at: uptime) ? .nextTrack : .none
+        }
+    }
+
+    private mutating func acceptsTrackEvent(at uptime: TimeInterval) -> Bool {
+        guard uptime.isFinite else { return false }
+        defer { lastObservedTrackEventUptime = uptime }
+        guard let previous = lastObservedTrackEventUptime else { return true }
+        guard uptime >= previous else { return false }
+        return uptime - previous >= quietInterval
+    }
+}
+
+struct TVImmersivePresentationActivity: Equatable, Sendable {
+    enum Event: Equatable, Sendable {
+        case appeared
+        case queuePresented
+        case queueDismissed
+        case dismissalRequested
+        case disappeared
+    }
+
+    private(set) var isMounted = false
+    private(set) var isRenderingActive = false
+
+    mutating func handle(_ event: Event) {
+        switch event {
+        case .appeared:
+            isMounted = true
+            isRenderingActive = true
+        case .queuePresented:
+            isRenderingActive = false
+        case .queueDismissed:
+            isRenderingActive = isMounted
+        case .dismissalRequested, .disappeared:
+            isMounted = false
+            isRenderingActive = false
+        }
+    }
+}
+
+enum TVImmersiveChromeMotionPolicy {
+    static func duration(_ standardDuration: TimeInterval, reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? 0.01 : standardDuration
+    }
+}
+
+/// tvOS 沉浸播放：56pt 安全区、按需显示的次级控制栏与 8 秒静默淡出；
+/// 长按选择键展开效果选择，控件隐藏时左右单次切歌，Menu 退出。
 struct TVImmersivePlayerView: View {
     var presentsModePickerOnAppear = false
 
@@ -11,6 +100,7 @@ struct TVImmersivePlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.resetFocus) private var resetFocus
 
     @AppStorage(FullscreenPlayerEffect.storageKey)
@@ -24,6 +114,9 @@ struct TVImmersivePlayerView: View {
 
     @State private var showsChrome = true
     @State private var chromeTask: Task<Void, Never>?
+    @State private var lyricObservationTask: Task<Void, Never>?
+    @State private var directionalCommandState = TVImmersiveDirectionalCommandState()
+    @State private var presentationActivity = TVImmersivePresentationActivity()
     @State private var showsModePicker = false
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
@@ -68,6 +161,10 @@ struct TVImmersivePlayerView: View {
             primary: coverDrivenAmbient ? playbackColors.primary : TVColor.brand(hex: accentHex),
             secondary: coverDrivenAmbient ? playbackColors.secondary : TVColor.brandSecondary(hex: accentHex)
         )
+    }
+
+    private var assistiveNavigationEnabled: Bool {
+        voiceOverEnabled || switchControlEnabled
     }
 
     var body: some View {
@@ -115,13 +212,13 @@ struct TVImmersivePlayerView: View {
         .onExitCommand {
             if showsModePicker {
                 if effect == .native {
-                    dismiss()
+                    dismissImmersivePlayer()
                 } else {
                     showsModePicker = false
                     revealChrome()
                 }
             } else {
-                dismiss()
+                dismissImmersivePlayer()
             }
         }
         .onMoveCommand(perform: handleMoveCommand)
@@ -129,15 +226,17 @@ struct TVImmersivePlayerView: View {
             revealChrome()
             store.togglePlayPause()
         }
-        .fullScreenCover(isPresented: $showsQueue) {
+        .fullScreenCover(isPresented: $showsQueue, onDismiss: {
+            resumePresentation(after: .queueDismissed)
+        }) {
             TVQueueView().environment(store)
         }
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
-            updateSpectrumAnalysis(for: presentationEffect)
+            presentationActivity.handle(.appeared)
             if effect == .native {
                 guard presentsModePickerOnAppear else {
-                    dismiss()
+                    dismissImmersivePlayer()
                     return
                 }
                 showsChrome = false
@@ -146,17 +245,10 @@ struct TVImmersivePlayerView: View {
                 refreshTypographyFieldLines()
                 return
             }
-            refreshGallerySongs()
-            refreshTypographyFieldLines()
-            scheduleChromeHide()
-        }
-        .task(id: lyricObservationIdentity) {
-            refreshTypographyFieldLines()
-            await observeLyricPlayback()
+            resumePresentationWork()
         }
         .onDisappear {
-            chromeTask?.cancel()
-            store.engine.setSpectrumAnalysisEnabled(false)
+            suspendPresentation(for: .disappeared)
         }
         .onChange(of: focusedControl) { _, _ in
             // 遥控在传输键之间移动焦点即视为有操作,重置淡出计时。
@@ -165,9 +257,9 @@ struct TVImmersivePlayerView: View {
         .onChange(of: focusedEffect) { _, _ in
             if showsModePicker { chromeTask?.cancel() }
         }
-        .onChange(of: effectRawValue) { _, rawValue in
-            if FullscreenPlayerEffect(rawValue: rawValue) == .native {
-                dismiss()
+        .onChange(of: effectRawValue) { _, _ in
+            if effect == .native, presentationActivity.isMounted {
+                dismissImmersivePlayer()
             }
         }
         .onChange(of: presentationEffect) { _, newValue in
@@ -175,7 +267,17 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
+        }
+        .onChange(of: lyricObservationIdentity) { _, _ in
+            guard presentationActivity.isRenderingActive else { return }
             refreshTypographyFieldLines()
+            restartLyricObservation()
+        }
+        .onChange(of: voiceOverEnabled) { _, _ in
+            assistiveNavigationDidChange()
+        }
+        .onChange(of: switchControlEnabled) { _, _ in
+            assistiveNavigationDidChange()
         }
         .background {
             TVImmersiveLibraryCountObserver {
@@ -227,6 +329,7 @@ struct TVImmersivePlayerView: View {
                 )
             },
             typographyFieldLines: typographyFieldLines,
+            isRenderingActive: presentationActivity.isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -346,29 +449,57 @@ struct TVImmersivePlayerView: View {
     }
 
     private func transportControls(surface: ControlSurface) -> some View {
-        HStack(spacing: 22) {
-            controlButton(.previous, icon: "backward.fill", surface: surface, diameter: 66) { store.previous() }
+        let availability = store.trackNavigationAvailability
+        return HStack(spacing: 22) {
+            controlButton(
+                .previous,
+                icon: "backward.fill",
+                accessibilityLabel: PMString("ext.control.previous"),
+                surface: surface,
+                diameter: 66
+            ) { store.previous() }
+                .disabled(!availability.canGoPrevious)
             controlButton(
                 .playPause,
                 icon: store.isPlaying ? "pause.fill" : "play.fill",
-                surface: .outlined,
-                primary: true,
-                diameter: 92
+                accessibilityLabel: PMString(
+                    store.isPlaying ? "ext.control.pause" : "ext.control.play"
+                ),
+                surface: surface,
+                diameter: 66
             ) {
                 store.togglePlayPause()
             }
-            .prefersDefaultFocus(true, in: chromeFocus)
-            controlButton(.next, icon: "forward.fill", surface: surface, diameter: 66) { store.next() }
+            controlButton(
+                .next,
+                icon: "forward.fill",
+                accessibilityLabel: PMString("ext.control.next"),
+                surface: surface,
+                diameter: 66
+            ) { store.next() }
+                .disabled(!availability.canGoNext)
         }
     }
 
     private func modeAndQueueControls(surface: ControlSurface) -> some View {
         HStack(spacing: 16) {
-            controlButton(.modes, icon: "square.grid.2x2", surface: surface, diameter: 60) {
+            controlButton(
+                .modes,
+                icon: "square.grid.2x2",
+                accessibilityLabel: PMString("ext.tv.settings.immersive"),
+                surface: surface,
+                diameter: 60
+            ) {
                 presentModePicker()
             }
-            controlButton(.queue, icon: "list.bullet", surface: surface, diameter: 60) {
-                showsQueue = true
+            controlButton(
+                .queue,
+                icon: "list.bullet",
+                accessibilityLabel: PMString("queue_title"),
+                surface: surface,
+                diameter: 60
+            ) {
+                presentQueue()
             }
         }
     }
@@ -378,6 +509,7 @@ struct TVImmersivePlayerView: View {
     private func controlButton(
         _ control: Control,
         icon: String,
+        accessibilityLabel: String,
         surface: ControlSurface = .tile,
         primary: Bool = false,
         diameter: CGFloat = 76,
@@ -418,6 +550,7 @@ struct TVImmersivePlayerView: View {
         .buttonStyle(TVBareButtonStyle())
         .focused($focusedControl, equals: control)
         .focusEffectDisabled()
+        .accessibilityLabel(Text(verbatim: accessibilityLabel))
     }
 
     private func modePicker(metrics: ImmersiveStageMetrics) -> some View {
@@ -469,7 +602,6 @@ struct TVImmersivePlayerView: View {
                                         Button {
                                             selectEffect(candidate)
                                             if candidate == .native {
-                                                dismiss()
                                                 return
                                             }
                                             showsModePicker = false
@@ -735,23 +867,75 @@ struct TVImmersivePlayerView: View {
         }
     }
 
+    private func restartLyricObservation() {
+        lyricObservationTask?.cancel()
+        lyricObservationTask = nil
+        guard presentationActivity.isRenderingActive else { return }
+        lyricObservationTask = Task { @MainActor in
+            await observeLyricPlayback()
+        }
+    }
+
     private func updateSpectrumAnalysis(for presentation: FullscreenPlayerEffect) {
         store.engine.setSpectrumAnalysisEnabled(
-            effect != .native && presentation.usesRealtimeSpectrum
+            presentationActivity.isRenderingActive
+                && effect != .native
+                && presentation.usesRealtimeSpectrum
         )
     }
 
-    // MARK: - 遥控与控件淡出
+    // MARK: - 生命周期、遥控与控件淡出
+
+    private func resumePresentation(after event: TVImmersivePresentationActivity.Event) {
+        presentationActivity.handle(event)
+        guard presentationActivity.isRenderingActive else { return }
+        resumePresentationWork()
+    }
+
+    private func resumePresentationWork() {
+        refreshGallerySongs()
+        refreshTypographyFieldLines()
+        restartLyricObservation()
+        updateSpectrumAnalysis(for: presentationEffect)
+        if assistiveNavigationEnabled {
+            revealChrome()
+        } else {
+            scheduleChromeHide()
+        }
+    }
+
+    private func suspendPresentation(for event: TVImmersivePresentationActivity.Event) {
+        presentationActivity.handle(event)
+        lyricObservationTask?.cancel()
+        lyricObservationTask = nil
+        chromeTask?.cancel()
+        chromeTask = nil
+        store.engine.setSpectrumAnalysisEnabled(false)
+    }
+
+    private func dismissImmersivePlayer() {
+        suspendPresentation(for: .dismissalRequested)
+        dismiss()
+    }
+
+    private func presentQueue() {
+        suspendPresentation(for: .queuePresented)
+        showsQueue = true
+    }
 
     private func selectEffect(_ value: FullscreenPlayerEffect) {
-        withAnimation(.easeInOut(duration: reduceMotion ? 0.01 : 0.28)) {
+        withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
+            0.28,
+            reduceMotion: reduceMotion
+        ))) {
             effectRawValue = value.rawValue
         }
         FullscreenPlayerEffectSync.shared.select(value)
-        if value == .native { dismiss() }
+        if value == .native { dismissImmersivePlayer() }
     }
 
     private func presentModePicker() {
+        guard presentationActivity.isRenderingActive else { return }
         chromeTask?.cancel()
         showsChrome = true
         focusedEffect = effect
@@ -759,48 +943,93 @@ struct TVImmersivePlayerView: View {
     }
 
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
-        guard !showsModePicker else { return }
-        if !showsChrome {
+        let input: TVImmersiveDirectionalInput
+        switch direction {
+        case .left: input = .left
+        case .right: input = .right
+        case .up: input = .up
+        case .down: input = .down
+        default: return
+        }
+        let action = directionalCommandState.action(
+            for: input,
+            at: ProcessInfo.processInfo.systemUptime,
+            controlsVisible: showsChrome,
+            modePickerVisible: showsModePicker,
+            assistiveNavigationEnabled: assistiveNavigationEnabled
+        )
+        switch action {
+        case .previousTrack:
+            store.previous()
+        case .nextTrack:
+            store.next()
+        case .revealControls:
             revealChrome()
-            switch direction {
-            case .left: store.skipBackward()
-            case .right: store.skipForward()
-            default: break
-            }
-        } else {
-            scheduleChromeHide()
+        case .standardNavigation:
+            if !showsModePicker { scheduleChromeHide() }
+        case .none:
+            break
         }
     }
 
     private func revealChrome() {
+        guard presentationActivity.isRenderingActive else { return }
         wakesChrome = false
-        withAnimation(.easeInOut(duration: 0.24)) { showsChrome = true }
+        withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
+            0.24,
+            reduceMotion: reduceMotion
+        ))) {
+            showsChrome = true
+        }
         Task { @MainActor in
             await Task.yield()
+            guard presentationActivity.isRenderingActive else { return }
             resetFocus(in: chromeFocus)
             focusedControl = .playPause
         }
         scheduleChromeHide()
     }
 
+    private func assistiveNavigationDidChange() {
+        guard presentationActivity.isRenderingActive else { return }
+        if assistiveNavigationEnabled {
+            revealChrome()
+        } else {
+            scheduleChromeHide()
+        }
+    }
+
     private func scheduleChromeHide() {
         chromeTask?.cancel()
+        chromeTask = nil
         #if DEBUG
         if TVDebugLaunch.screen == "immersivePlayer",
            ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"] != nil {
             return
         }
         #endif
-        guard !showsModePicker, !voiceOverEnabled else { return }
+        guard presentationActivity.isRenderingActive,
+              !showsModePicker,
+              !assistiveNavigationEnabled else { return }
         chromeTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: .seconds(presentationEffect.usesShowcaseChrome ? 5 : 8))
             } catch {
                 return
             }
-            guard !Task.isCancelled, !showsModePicker else { return }
-            withAnimation(.easeInOut(duration: reduceMotion ? 0.01 : 0.4)) { showsChrome = false }
+            guard !Task.isCancelled,
+                  presentationActivity.isRenderingActive,
+                  !showsModePicker,
+                  !assistiveNavigationEnabled else { return }
+            focusedControl = nil
+            withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
+                0.4,
+                reduceMotion: reduceMotion
+            ))) {
+                showsChrome = false
+            }
             await Task.yield()
+            guard presentationActivity.isRenderingActive else { return }
             wakesChrome = true
         }
     }

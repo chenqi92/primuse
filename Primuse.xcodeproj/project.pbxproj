@@ -581,6 +581,7 @@
 		A6C5832D0D7A58FCAB9332F0 /* LyricsTranslationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3B2E6C5B0B89258193D97 /* LyricsTranslationSettingsView.swift */; };
 		A6EADEB6B4EB2509DE5A8EC9 /* LibrarySnapshotSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD558438D10637EAEB78840 /* LibrarySnapshotSync.swift */; };
 		A762BCAE5EAB1D547ADDDD22 /* RadioStationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619F72A778551BB017F0840A /* RadioStationsView.swift */; };
+		A772794B644BAAB90560AF68 /* TVPlaybackInteractionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD099EA2922D3821774E0CB /* TVPlaybackInteractionPolicyTests.swift */; };
 		A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78953F6B19CEAED0F2FECBD0 /* AIIntelligenceModels.swift */; };
 		A7C93BF942D0B47493432F29 /* FullscreenPlayerEffectSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDB221148662EB8D4E7918D /* FullscreenPlayerEffectSettingsView.swift */; };
 		A7DB21B5C6238757B4DE4895 /* CloudDriveFormEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CBD7FA14BFD15DE18962DB /* CloudDriveFormEncodingTests.swift */; };
@@ -1247,6 +1248,7 @@
 		4CFE0AB34758413DB8B02463 /* Primuse-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Primuse-Bridging-Header.h"; sourceTree = "<group>"; };
 		4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4DB4788BFEC669118576E7E2 /* U115Source.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = U115Source.swift; sourceTree = "<group>"; };
+		4DD099EA2922D3821774E0CB /* TVPlaybackInteractionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackInteractionPolicyTests.swift; sourceTree = "<group>"; };
 		4DF4C2C2431FCAFEEBF27ABE /* PlayerLyricsColorPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerLyricsColorPreferencesTests.swift; sourceTree = "<group>"; };
 		4E0A23AFAAE5609F948E3DB0 /* LyricsEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsEditorSheet.swift; sourceTree = "<group>"; };
 		4E1B508C874118EA9DD7CFCD /* TVImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVImmersivePlayerView.swift; sourceTree = "<group>"; };
@@ -2301,6 +2303,7 @@
 			isa = PBXGroup;
 			children = (
 				54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */,
+				4DD099EA2922D3821774E0CB /* TVPlaybackInteractionPolicyTests.swift */,
 			);
 			path = PrimuseTVTests;
 			sourceTree = "<group>";
@@ -3250,6 +3253,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
+				A772794B644BAAB90560AF68 /* TVPlaybackInteractionPolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

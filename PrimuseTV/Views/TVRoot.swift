@@ -232,7 +232,7 @@ struct TVRoot: View {
                         onSelect: { tab = $0 },
                         onContentDown: requestContentFocus,
                         focusRequest: tabFocusRequest,
-                        onFocusChanged: { isTabBarFocused = $0 },
+                        onFocusChanged: tabBarFocusChanged,
                         onSettings: { showSettings = true }
                     )
                     Spacer(minLength: 0)
@@ -358,6 +358,17 @@ struct TVRoot: View {
         nowPlayingFocusRequest = nil
         searchFocusRequest = nil
         tabFocusRequest &+= 1
+    }
+
+    private func tabBarFocusChanged(_ focused: Bool) {
+        isTabBarFocused = focused
+        guard focused else { return }
+        // A horizontal tab transition is still tab-bar navigation. Clear any
+        // previous content route so a newly appeared page cannot reclaim focus
+        // until the user explicitly moves down again.
+        contentFocusRouting.returnToTabs()
+        nowPlayingFocusRequest = nil
+        searchFocusRequest = nil
     }
 
     private func applyContentFocusRequest(_ request: TVContentFocusRequest) {

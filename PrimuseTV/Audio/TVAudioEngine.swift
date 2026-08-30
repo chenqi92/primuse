@@ -48,6 +48,8 @@ final class TVAudioEngine {
     var onRemotePlay: (() -> Void)?
     var onRemotePause: (() -> Void)?
     var onRemoteTogglePlayPause: (() -> Void)?
+    var onRemotePreviousTrack: (() -> Void)?
+    var onRemoteNextTrack: (() -> Void)?
 
     private let player = AVPlayer()
     private var timeObserver: Any?
@@ -68,6 +70,8 @@ final class TVAudioEngine {
     @ObservationIgnored private var spectrumTask: Task<Void, Never>?
     @ObservationIgnored private var spectrumSetupTask: Task<Void, Never>?
     @ObservationIgnored private var spectrumAnalysisEnabled = false
+    @ObservationIgnored private var remotePreviousTrackCommandEnabled = false
+    @ObservationIgnored private var remoteNextTrackCommandEnabled = false
 
     private struct LiveRequest: Sendable {
         let url: URL
@@ -542,6 +546,14 @@ final class TVAudioEngine {
         }
     }
 
+    func setRemoteTrackCommandAvailability(previous: Bool, next: Bool) {
+        remotePreviousTrackCommandEnabled = previous
+        remoteNextTrackCommandEnabled = next
+        let commands = MPRemoteCommandCenter.shared()
+        commands.previousTrackCommand.isEnabled = previous
+        commands.nextTrackCommand.isEnabled = next
+    }
+
     var hasPreparedAudio: Bool {
         usingSFB || player.currentItem != nil
     }
@@ -942,6 +954,8 @@ final class TVAudioEngine {
         commands.changePlaybackPositionCommand.isEnabled = !isLiveStream
         commands.skipForwardCommand.isEnabled = !isLiveStream
         commands.skipBackwardCommand.isEnabled = !isLiveStream
+        commands.previousTrackCommand.isEnabled = remotePreviousTrackCommandEnabled
+        commands.nextTrackCommand.isEnabled = remoteNextTrackCommandEnabled
     }
 
     private func setupRemoteCommands() {
@@ -952,9 +966,13 @@ final class TVAudioEngine {
         c.changePlaybackPositionCommand.removeTarget(nil)
         c.skipForwardCommand.removeTarget(nil)
         c.skipBackwardCommand.removeTarget(nil)
+        c.previousTrackCommand.removeTarget(nil)
+        c.nextTrackCommand.removeTarget(nil)
         c.playCommand.isEnabled = false
         c.pauseCommand.isEnabled = false
         c.togglePlayPauseCommand.isEnabled = false
+        c.previousTrackCommand.isEnabled = false
+        c.nextTrackCommand.isEnabled = false
         c.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -1005,6 +1023,24 @@ final class TVAudioEngine {
             Task { @MainActor in self?.skip(by: -10) }
             return .success
         }
+        c.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self,
+                  self.remotePreviousTrackCommandEnabled,
+                  let onRemotePreviousTrack = self.onRemotePreviousTrack else {
+                return .noSuchContent
+            }
+            Task { @MainActor in onRemotePreviousTrack() }
+            return .success
+        }
+        c.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self,
+                  self.remoteNextTrackCommandEnabled,
+                  let onRemoteNextTrack = self.onRemoteNextTrack else {
+                return .noSuchContent
+            }
+            Task { @MainActor in onRemoteNextTrack() }
+            return .success
+        }
     }
 
     private func disableRemoteTransportCommands() {
@@ -1015,6 +1051,8 @@ final class TVAudioEngine {
         commands.changePlaybackPositionCommand.isEnabled = false
         commands.skipForwardCommand.isEnabled = false
         commands.skipBackwardCommand.isEnabled = false
+        commands.previousTrackCommand.isEnabled = false
+        commands.nextTrackCommand.isEnabled = false
     }
 
     private func clearLiveState() {

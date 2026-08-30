@@ -3,6 +3,54 @@ import SwiftUI
 import Observation
 import PrimuseKit
 
+struct TVTrackNavigationAvailability: Equatable, Sendable {
+    let canGoPrevious: Bool
+    let canGoNext: Bool
+
+    static let unavailable = TVTrackNavigationAvailability(
+        canGoPrevious: false,
+        canGoNext: false
+    )
+}
+
+enum TVTrackNavigationAvailabilityPolicy {
+    static func availability(
+        hasNowPlaying: Bool,
+        isLiveRadio: Bool,
+        hasCurrentRadioStation: Bool,
+        radioStationCount: Int,
+        queueCount: Int,
+        currentIndex: Int,
+        wrapsNext: Bool,
+        isQueueItemAvailable: (Int) -> Bool
+    ) -> TVTrackNavigationAvailability {
+        guard hasNowPlaying else { return .unavailable }
+        if isLiveRadio {
+            let canChangeStation = hasCurrentRadioStation && radioStationCount > 1
+            return TVTrackNavigationAvailability(
+                canGoPrevious: canChangeStation,
+                canGoNext: canChangeStation
+            )
+        }
+
+        guard queueCount > 0, (0..<queueCount).contains(currentIndex) else {
+            return .unavailable
+        }
+        let nextIndex = QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: queueCount,
+            after: currentIndex,
+            wraps: wrapsNext,
+            isAvailable: isQueueItemAvailable
+        )
+        // Previous remains actionable at the first item because it restarts
+        // the current track, matching TVStore.previous().
+        return TVTrackNavigationAvailability(
+            canGoPrevious: true,
+            canGoNext: nextIndex != nil
+        )
+    }
+}
+
 // MARK: - 轻量 view-model 类型
 //
 // UI 层数据契约。TVStore 现在由真实 MusicLibrary + SourcesStore 驱动(读取
@@ -187,6 +235,9 @@ final class TVStore {
         engine.onRemotePlay = { [weak self] in self?.resumePlayback() }
         engine.onRemotePause = { [weak self] in self?.pausePlayback() }
         engine.onRemoteTogglePlayPause = { [weak self] in self?.togglePlayPause() }
+        engine.onRemotePreviousTrack = { [weak self] in self?.previous() }
+        engine.onRemoteNextTrack = { [weak self] in self?.next() }
+        syncTrackNavigationCommands()
         Task { [weak self] in
             await StreamResolverRegistry.shared.setCloudCredentialRefreshHandler {
                 [weak self] sourceID, refresh in
@@ -208,7 +259,9 @@ final class TVStore {
 
     /// 当前选中的歌曲或电台；未选中时“正在播放”tab 展示空态。
     var nowPlaying: TVNowPlaying = .none
-    var hasNowPlaying: Bool = false
+    var hasNowPlaying: Bool = false {
+        didSet { syncTrackNavigationCommands() }
+    }
     var lyricsRevision = 0
     var lyrics: [TVLyricLine] = [] {
         didSet {
@@ -217,9 +270,15 @@ final class TVStore {
     }
     var queueUpNextIDs: [String] = []
     var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
-    var radioStations: [RadioStation] = []
-    var isLiveRadio = false
-    var currentRadioStationID: String?
+    var radioStations: [RadioStation] = [] {
+        didSet { syncTrackNavigationCommands() }
+    }
+    var isLiveRadio = false {
+        didSet { syncTrackNavigationCommands() }
+    }
+    var currentRadioStationID: String? {
+        didSet { syncTrackNavigationCommands() }
+    }
     var radioMetadataTitle = ""
     var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
     @ObservationIgnored private var cloudCredentialSourceIDs: Set<String> = []
@@ -258,8 +317,12 @@ final class TVStore {
         let mediaPorts: Set<Int> = [5000, 5001, 8080, 9999, 8096, 32400, 4040, 4533, 4747]
         return mediaPorts.contains(d.port)
     }
-    private var queue: [String] = []      // 当前队列(真实 Song id)
-    private var queueIndex = 0
+    private var queue: [String] = [] {    // 当前队列(真实 Song id)
+        didSet { syncTrackNavigationCommands() }
+    }
+    private var queueIndex = 0 {
+        didSet { syncTrackNavigationCommands() }
+    }
     private var localLiked = Set<String>()
 
     // 单条查询索引:song(_:)/album(_:) 命中字典而非全量 map 整库。
@@ -280,7 +343,9 @@ final class TVStore {
     // 播放模式(随机 / 循环)——供正在播放页传输键展示与切换。
     enum RepeatMode { case off, all, one }
     var shuffleEnabled = false
-    var repeatMode: RepeatMode = .off
+    var repeatMode: RepeatMode = .off {
+        didSet { syncTrackNavigationCommands() }
+    }
     var isMusicVideoModeEnabled = false
     var sleepTimerMinutes = 0   // 0 = 关闭
     @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
@@ -298,6 +363,18 @@ final class TVStore {
     var currentRadioStation: RadioStation? {
         guard let currentRadioStationID else { return nil }
         return radioStations.first { $0.id == currentRadioStationID }
+    }
+    var trackNavigationAvailability: TVTrackNavigationAvailability {
+        TVTrackNavigationAvailabilityPolicy.availability(
+            hasNowPlaying: hasNowPlaying,
+            isLiveRadio: isLiveRadio,
+            hasCurrentRadioStation: currentRadioStation != nil,
+            radioStationCount: radioStations.count,
+            queueCount: queue.count,
+            currentIndex: queueIndex,
+            wrapsNext: repeatMode == .all,
+            isQueueItemAvailable: { song(queue[$0]) != nil }
+        )
     }
     var nowPlayingPresentationColors: (primary: Color, secondary: Color) {
         isLiveRadio
@@ -1348,6 +1425,15 @@ final class TVStore {
         albumByID = Dictionary(cachedAlbums.map { ($0.id, $0) },
                                uniquingKeysWith: { first, _ in first })
         libraryViewRevision &+= 1
+        syncTrackNavigationCommands()
+    }
+
+    private func syncTrackNavigationCommands() {
+        let availability = trackNavigationAvailability
+        engine.setRemoteTrackCommandAvailability(
+            previous: availability.canGoPrevious,
+            next: availability.canGoNext
+        )
     }
 
     /// 在 Apple TV 上删除音乐源:本地软删除 + 隐藏其歌曲 + 尽力把快照上传回 iCloud。

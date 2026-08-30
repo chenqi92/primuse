@@ -217,30 +217,33 @@ struct TVNowPlayingView: View {
                         focusedRoundButton(
                             icon: "backward.fill",
                             size: 76,
+                            accessibilityLabel: PMString("ext.control.previous"),
                             target: .previous
                         ) {
                             store.previous()
                         }
-                        .disabled(store.radioStations.count < 2)
+                        .disabled(!store.trackNavigationAvailability.canGoPrevious)
 
                         focusedRoundButton(
                             icon: radioConnectionIsActive ? "stop.fill" : "play.fill",
-                            size: 96,
-                            primary: true,
+                            size: 76,
+                            accessibilityLabel: PMString(
+                                radioConnectionIsActive ? "ext.tv.radio.stop" : "ext.tv.radio.play"
+                            ),
                             target: .liveRadioPrimary
                         ) {
                             store.togglePlayPause()
                         }
-                        .prefersDefaultFocus(true, in: playerFocus)
 
                         focusedRoundButton(
                             icon: "forward.fill",
                             size: 76,
+                            accessibilityLabel: PMString("ext.control.next"),
                             target: .next
                         ) {
                             store.next()
                         }
-                        .disabled(store.radioStations.count < 2)
+                        .disabled(!store.trackNavigationAvailability.canGoNext)
 
                         Text(PMString(radioConnectionIsActive ? "ext.tv.radio.stop" : "ext.tv.radio.play"))
                             .font(.system(size: 24, weight: .semibold))
@@ -281,6 +284,7 @@ struct TVNowPlayingView: View {
     private func focusedRoundButton(
         icon: String,
         size: CGFloat,
+        accessibilityLabel: String,
         primary: Bool = false,
         immersiveDark: Bool = false,
         target: TVNowPlayingFocusTarget,
@@ -312,6 +316,7 @@ struct TVNowPlayingView: View {
         .buttonStyle(TVBareButtonStyle())
         .focused($focusedTransport, equals: target)
         .focusEffectDisabled()
+        .accessibilityLabel(Text(verbatim: accessibilityLabel))
     }
 
     // MARK: 左列
@@ -434,7 +439,8 @@ struct TVNowPlayingView: View {
     }
 
     private func transport(immersiveDark: Bool) -> some View {
-        HStack(spacing: 20) {
+        let availability = store.trackNavigationAvailability
+        return HStack(spacing: 20) {
             Spacer()
             TVRoundBtn(icon: "shuffle", size: 64, active: store.shuffleEnabled,
                        immersiveDark: immersiveDark) { store.toggleShuffle() }
@@ -447,24 +453,28 @@ struct TVNowPlayingView: View {
             focusedRoundButton(
                 icon: "backward.fill",
                 size: 64,
+                accessibilityLabel: PMString("ext.control.previous"),
                 immersiveDark: immersiveDark,
                 target: .previous
             ) { store.previous() }
+                .disabled(!availability.canGoPrevious)
             focusedRoundButton(
                 icon: store.isPlaying ? "pause.fill" : "play.fill",
-                size: 92,
-                primary: true,
+                size: 64,
+                accessibilityLabel: PMString(
+                    store.isPlaying ? "ext.control.pause" : "ext.control.play"
+                ),
                 immersiveDark: immersiveDark,
                 target: .songPrimary
             ) { store.togglePlayPause() }
-                // 进入播放页默认聚焦播放/暂停键,避免落在进度条上误触快进快退。
-                .prefersDefaultFocus(true, in: playerFocus)
             focusedRoundButton(
                 icon: "forward.fill",
                 size: 64,
+                accessibilityLabel: PMString("ext.control.next"),
                 immersiveDark: immersiveDark,
                 target: .next
             ) { store.next() }
+                .disabled(!availability.canGoNext)
             TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 64,
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark) { store.cycleRepeatMode() }
