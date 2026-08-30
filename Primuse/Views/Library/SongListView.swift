@@ -1776,9 +1776,12 @@ struct SongListView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
                     } else {
-                        Text("\(index + 1)")
+                        Text(verbatim: String(index + 1))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .allowsTightening(true)
                     }
                 }
                 .frame(width: 32, alignment: .leading)
@@ -1966,9 +1969,12 @@ struct SongListView: View {
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
                     } else {
-                        Text("\(index + 1)")
+                        Text(verbatim: String(index + 1))
                             .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .allowsTightening(true)
                     }
                 }
                 .frame(width: 28, alignment: .leading)
