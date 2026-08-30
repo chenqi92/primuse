@@ -9,7 +9,10 @@ import PrimuseKit
 /// person chooses an item, that stable identifier is the only acceptable
 /// target; an unresolved selection must never fall back to a fuzzy search or
 /// the full-library shuffle path.
-final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchecked Sendable {
+final class PlayMediaIntentHandler: NSObject,
+    INPlayMediaIntentHandling,
+    INSearchForMediaIntentHandling,
+    @unchecked Sendable {
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let completion = UncheckedBox(completion)
         let startedAt = Date()
@@ -105,16 +108,19 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
                     .success,
                     completion: completion,
                     startedAt: startedAt,
-                    detail: "song=\(first.id.prefix(12)) queue=\(queue.count)"
+                    detail: "song-accepted queue=\(queue.count)"
                 )
 
             case .radio(let station):
-                Self.startRadio(station, with: player)
+                let accepted = await player.play(
+                    station: station,
+                    within: Self.radioStations()
+                )
                 Self.respond(
-                    .success,
+                    accepted ? .success : .failure,
                     completion: completion,
                     startedAt: startedAt,
-                    detail: "radio=\(station.id.prefix(12))"
+                    detail: accepted ? "radio-accepted" : "radio-unavailable"
                 )
             }
         }
@@ -143,12 +149,9 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
                 return
 
             case .radioStation:
-                Self.resolveNamedItems(
+                Self.resolveRadioItems(
                     query: query.mediaName,
                     identifiers: identifiers,
-                    namespace: "radio",
-                    type: .radioStation,
-                    items: Self.radioItems(),
                     completion: completion
                 )
                 return
@@ -235,6 +238,149 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
                 ])
             }
         }
+    }
+
+    func handle(
+        intent: INSearchForMediaIntent,
+        completion: @escaping (INSearchForMediaIntentResponse) -> Void
+    ) {
+        let completion = UncheckedBox(completion)
+        Task { @MainActor in
+            guard let items = Self.searchRadioMediaItems(for: intent) else {
+                completion.value(INSearchForMediaIntentResponse(code: .failure, userActivity: nil))
+                return
+            }
+            let response = INSearchForMediaIntentResponse(
+                code: items.isEmpty ? .failure : .success,
+                userActivity: nil
+            )
+            response.mediaItems = items
+            plog("🎙️ SiriKit radio search resultCount=\(items.count)")
+            completion.value(response)
+        }
+    }
+
+    func resolveMediaItems(
+        for intent: INSearchForMediaIntent,
+        with completion: @escaping ([INSearchForMediaMediaItemResolutionResult]) -> Void
+    ) {
+        let completion = UncheckedBox(completion)
+        Task { @MainActor in
+            guard let items = Self.searchRadioMediaItems(for: intent) else {
+                completion.value([
+                    INSearchForMediaMediaItemResolutionResult.unsupported(
+                        forReason: .unsupportedMediaType
+                    ),
+                ])
+                return
+            }
+            guard !items.isEmpty else {
+                completion.value([
+                    INSearchForMediaMediaItemResolutionResult.unsupported(
+                        forReason: .serviceUnavailable
+                    ),
+                ])
+                return
+            }
+            completion.value(INSearchForMediaMediaItemResolutionResult.successes(with: items))
+        }
+    }
+
+    @MainActor
+    private static func searchRadioMediaItems(
+        for intent: INSearchForMediaIntent
+    ) -> [INMediaItem]? {
+        let identifiers = SiriMediaIdentifier.prioritized(
+            mediaItemIdentifiers: intent.mediaItems?.compactMap(\.identifier) ?? [],
+            searchIdentifier: intent.mediaSearch?.mediaIdentifier,
+            containerIdentifier: nil
+        )
+        let kind = searchKind(for: intent.mediaSearch?.mediaType ?? .unknown)
+        let hasRadioIdentifier = identifiers.contains {
+            let namespace = SiriMediaIdentifier.namespace(from: $0)
+            return namespace == "radio" || namespace == "station"
+        }
+        guard kind == .radioStation || hasRadioIdentifier else { return nil }
+
+        let catalog = radioItems()
+        let matched: [SiriNamedMediaItem]
+        if identifiers.isEmpty,
+           intent.mediaSearch?.mediaName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            matched = Array(catalog.prefix(10))
+        } else if let result = SiriNamedMediaResolver.resolve(
+            query: intent.mediaSearch?.mediaName,
+            selectedItemIDs: identifiers,
+            namespace: "radio",
+            items: catalog
+        ) {
+            matched = Array(result.candidates.prefix(10))
+        } else {
+            matched = []
+        }
+
+        return radioMediaItems(from: matched)
+    }
+
+    private static func safeSourceLabel(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              value.count <= 80 else {
+            return nil
+        }
+        let forbidden = ["://", "?", "&", "=", "@", "\\"]
+        return forbidden.contains(where: value.contains) ? nil : value
+    }
+
+    @MainActor
+    private static func radioMediaItems(
+        from items: [SiriNamedMediaItem]
+    ) -> [INMediaItem] {
+        let stationsByID = Dictionary(
+            radioStations().map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let nameKeys = items.map { normalizedRadioDisplayName($0.name) }
+        let nameCounts = Dictionary(nameKeys.map { ($0, 1) }, uniquingKeysWith: +)
+        let sourceLabels = Dictionary(
+            items.map { item in
+                (item.id, stationsByID[item.id].flatMap { safeSourceLabel($0.sourceName) })
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let sourceCounts = Dictionary(
+            sourceLabels.values.compactMap { $0 }.map { ($0, 1) },
+            uniquingKeysWith: +
+        )
+        var ordinals: [String: Int] = [:]
+
+        return zip(items, nameKeys).map { item, nameKey in
+            let isDuplicate = (nameCounts[nameKey] ?? 0) > 1
+            let sourceLabel = sourceLabels[item.id] ?? nil
+            let title: String
+            if isDuplicate, let sourceLabel, sourceCounts[sourceLabel] == 1 {
+                title = "\(item.name) — \(sourceLabel)"
+            } else if isDuplicate {
+                let ordinal = (ordinals[nameKey] ?? 0) + 1
+                ordinals[nameKey] = ordinal
+                title = "\(item.name) (\(ordinal))"
+            } else {
+                title = item.name
+            }
+            return INMediaItem(
+                identifier: SiriMediaIdentifier.namespaced(item.id, as: "radio"),
+                title: title,
+                type: .radioStation,
+                artwork: nil,
+                artist: sourceLabel
+            )
+        }
+    }
+
+    private static func normalizedRadioDisplayName(_ value: String) -> String {
+        value.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: Locale(identifier: "en_US_POSIX")
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @MainActor
@@ -343,13 +489,14 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
         query: String?,
         identifiers: [String]
     ) -> IntentTarget? {
-        let store = AppServices.shared.radioStationsStore
         guard let result = SiriNamedMediaResolver.resolve(
             query: query,
             selectedItemIDs: identifiers,
             namespace: "radio",
             items: radioItems()
-        ), let station = store.station(id: result.selected.id) else {
+        ), (!identifiers.isEmpty
+                || (!result.needsDisambiguation && !result.requiresConfirmation)),
+           let station = radioStations().first(where: { $0.id == result.selected.id }) else {
             return nil
         }
         return .radio(station)
@@ -406,9 +553,12 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
 
     @MainActor
     private static func radioItems() -> [SiriNamedMediaItem] {
-        AppServices.shared.radioStationsStore.stations.map {
-            SiriNamedMediaItem(id: $0.id, name: $0.name)
-        }
+        AppServices.shared.siriRadioItems
+    }
+
+    @MainActor
+    private static func radioStations() -> [RadioStation] {
+        AppServices.shared.siriRadioStations
     }
 
     @MainActor
@@ -485,6 +635,40 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
         }
         if result.needsDisambiguation {
             completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: mediaItems)])
+        } else if result.requiresConfirmation, let first = mediaItems.first {
+            completion.value([INPlayMediaMediaItemResolutionResult.confirmationRequired(with: first)])
+        } else if let first = mediaItems.first {
+            completion.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
+        } else {
+            completion.value([
+                INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
+            ])
+        }
+    }
+
+    @MainActor
+    private static func resolveRadioItems(
+        query: String?,
+        identifiers: [String],
+        completion: UncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
+    ) {
+        guard let result = SiriNamedMediaResolver.resolve(
+            query: query,
+            selectedItemIDs: identifiers,
+            namespace: "radio",
+            items: radioItems()
+        ) else {
+            completion.value([
+                INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
+            ])
+            return
+        }
+
+        let mediaItems = radioMediaItems(from: result.candidates)
+        if result.needsDisambiguation {
+            completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: mediaItems)])
+        } else if result.requiresConfirmation, let first = mediaItems.first {
+            completion.value([INPlayMediaMediaItemResolutionResult.confirmationRequired(with: first)])
         } else if let first = mediaItems.first {
             completion.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
         } else {
@@ -614,31 +798,24 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
         }
     }
 
-    @MainActor
-    private static func startRadio(_ station: RadioStation, with player: AudioPlayerService) {
-        let stations = AppServices.shared.radioStationsStore.stations
-        Task { @MainActor in
-            await player.play(station: station, within: stations)
-        }
-    }
-
     private static func logRequest(
         query: SiriMediaSearchQuery,
         identifierGroups: [[String]],
         intent: INPlayMediaIntent
     ) {
-        let safeIDs = identifierGroups.map { group in
-            group.map { String($0.prefix(24)) }.joined(separator: ",")
-        }.joined(separator: " | ")
-        let itemTitles = intent.mediaItems?.compactMap(\.title).prefix(4).joined(separator: ",") ?? ""
         plog(
             "🎙️ SiriKit request kind=\(String(describing: query.kind)) "
-                + "name='\(query.mediaName ?? "")' artist='\(query.artistName ?? "")' "
-                + "album='\(query.albumName ?? "")' genres=\(query.genreNames) "
-                + "ids=[\(safeIDs)] items='\(itemTitles)' "
+                + "queryFields=\(queryFieldCount(query)) "
+                + "identifierGroups=\(identifierGroups.map(\.count)) "
+                + "itemCount=\(intent.mediaItems?.count ?? 0) "
                 + "shuffle=\(intent.playShuffled == true) "
                 + "resume=\(intent.resumePlayback == true)"
         )
+    }
+
+    private static func queryFieldCount(_ query: SiriMediaSearchQuery) -> Int {
+        [query.mediaName, query.artistName, query.albumName].compactMap { $0 }.count
+            + query.genreNames.count
     }
 
     private static func respond(
@@ -769,7 +946,15 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             intent: PrimusePlayRadioIntent(),
             phrases: [
                 "用 \(.applicationName) 播放电台",
+                "用 \(.applicationName) 播放 \(\.$station)",
+                "用 \(.applicationName) 播放电台 \(\.$station)",
+                "用 \(.applicationName) 播放電台 \(\.$station)",
                 "Play radio in \(.applicationName)",
+                "Play \(\.$station) in \(.applicationName)",
+                "Spiele \(\.$station) in \(.applicationName)",
+                "Écouter \(\.$station) dans \(.applicationName)",
+                "\(.applicationName)에서 \(\.$station) 재생",
+                "\(.applicationName)で\(\.$station)ラジオをかけて",
             ],
             shortTitle: "Play Radio",
             systemImageName: "radio"

@@ -3308,3 +3308,13 @@
 "similar_songs_accessibility_hint" = "이 곡과 비슷한 노래를 표시합니다.";
 "search_section_path" = "경로 일치";
 "search_result_path_accessibility_format" = "경로: %@";
+"Radio Station" = "라디오 방송국";
+"Search Radio Stations" = "라디오 방송국 검색";
+"Search saved radio stations in Primuse without starting playback." = "재생을 시작하지 않고 Primuse에 저장된 라디오 방송국을 검색합니다.";
+"Keyword" = "키워드";
+"The radio station's source is disabled." = "이 라디오 방송국의 소스가 비활성화되어 있습니다.";
+"The radio station is currently unavailable." = "이 라디오 방송국은 현재 사용할 수 없습니다.";
+"intent_radio_search_results_format" = "다음 라디오 방송국을 찾았습니다: %@.";
+"Search Radio" = "라디오 검색";
+"intent_radio_confirm_format" = "‘%@’ 라디오 방송국을 재생할까요?";
+"Radio playback was cancelled." = "라디오 재생을 취소했습니다.";

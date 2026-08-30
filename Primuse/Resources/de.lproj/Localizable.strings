@@ -3308,3 +3308,13 @@
 "similar_songs_accessibility_hint" = "Zeigt ähnliche Titel an.";
 "search_section_path" = "Pfadtreffer";
 "search_result_path_accessibility_format" = "Pfad: %@";
+"Radio Station" = "Radiosender";
+"Search Radio Stations" = "Radiosender suchen";
+"Search saved radio stations in Primuse without starting playback." = "Gespeicherte Radiosender in Primuse suchen, ohne die Wiedergabe zu starten.";
+"Keyword" = "Suchbegriff";
+"The radio station's source is disabled." = "Die Quelle des Radiosenders ist deaktiviert.";
+"The radio station is currently unavailable." = "Der Radiosender ist derzeit nicht verfügbar.";
+"intent_radio_search_results_format" = "Gefundene Radiosender: %@.";
+"Search Radio" = "Radio suchen";
+"intent_radio_confirm_format" = "Den Radiosender „%@“ wiedergeben?";
+"Radio playback was cancelled." = "Die Radiowiedergabe wurde abgebrochen.";

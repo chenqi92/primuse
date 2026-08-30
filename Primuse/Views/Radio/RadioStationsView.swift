@@ -349,6 +349,7 @@ struct RadioStationsView: View {
            player.isPlaying || player.isLoading {
             player.pause()
         } else {
+            SiriMediaInteractionDonor.donate(station: station)
             Task { await player.play(station: station, within: store.stations) }
         }
     }

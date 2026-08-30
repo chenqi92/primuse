@@ -858,6 +858,7 @@ extension CarPlaySceneDelegate {
 
     private func play(station: RadioStation, within stations: [RadioStation]) {
         let player = AppServices.shared.playerService
+        SiriMediaInteractionDonor.donate(station: station)
         let requestID = UUID()
         nowPlayingPresentationTask?.cancel()
         nowPlayingPresentationRequestID = requestID

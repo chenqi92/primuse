@@ -43,9 +43,33 @@ final class TVAppearanceState {
 final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     let store = TVStore()
     private lazy var playMediaHandler = TVPlayMediaIntentHandler(store: store)
+    private var radioCatalogObserver: NSObjectProtocol?
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        radioCatalogObserver = NotificationCenter.default.addObserver(
+            forName: .primuseTVSiriRadioCatalogDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.playMediaHandler.refreshRadioVocabulary()
+            }
+        }
+        playMediaHandler.refreshRadioVocabulary()
+        return true
+    }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        playMediaHandler.refreshRadioVocabulary()
+    }
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
-        intent is INPlayMediaIntent ? playMediaHandler : nil
+        intent is INPlayMediaIntent || intent is INSearchForMediaIntent
+            ? playMediaHandler
+            : nil
     }
 }
 

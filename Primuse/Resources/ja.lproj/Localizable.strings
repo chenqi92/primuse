@@ -3309,3 +3309,13 @@
 "similar_songs_accessibility_hint" = "この曲に似た曲を表示します。";
 "search_section_path" = "パスの一致";
 "search_result_path_accessibility_format" = "パス：%@";
+"Radio Station" = "ラジオ局";
+"Search Radio Stations" = "ラジオ局を検索";
+"Search saved radio stations in Primuse without starting playback." = "再生を開始せずに、Primuse に保存したラジオ局を検索します。";
+"Keyword" = "キーワード";
+"The radio station's source is disabled." = "このラジオ局のソースは無効です。";
+"The radio station is currently unavailable." = "このラジオ局は現在利用できません。";
+"intent_radio_search_results_format" = "次のラジオ局が見つかりました：%@。";
+"Search Radio" = "ラジオを検索";
+"intent_radio_confirm_format" = "ラジオ局「%@」を再生しますか？";
+"Radio playback was cancelled." = "ラジオの再生をキャンセルしました。";

@@ -180,11 +180,32 @@ public struct SiriNamedMediaResolution: Sendable {
     public let selected: SiriNamedMediaItem
     public let candidates: [SiriNamedMediaItem]
     public let needsDisambiguation: Bool
+    /// A single weak text match is not safe enough to start playback. Siri can
+    /// still present it as a candidate, but must ask the listener to confirm.
+    public let requiresConfirmation: Bool
 }
 
-/// Shared exact/prefix/substring matching for named containers such as
-/// playlists and saved internet-radio stations.
+/// Shared deterministic matching for named containers such as playlists and
+/// saved internet-radio stations. Stable identifiers are authoritative; text
+/// falls back through exact, prefix, contained-token, and bounded typo matches.
 public enum SiriNamedMediaResolver {
+    private enum MatchQuality: Int, Comparable {
+        case fuzzy = 1
+        case contained = 2
+        case prefix = 3
+        case exact = 4
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    private struct RankedItem {
+        let item: SiriNamedMediaItem
+        let score: Int
+        let quality: MatchQuality
+    }
+
     public static func resolve(
         query: String?,
         selectedItemIDs: [String] = [],
@@ -208,18 +229,27 @@ public enum SiriNamedMediaResolver {
             return SiriNamedMediaResolution(
                 selected: selected,
                 candidates: [selected],
-                needsDisambiguation: false
+                needsDisambiguation: false,
+                requiresConfirmation: false
             )
         }
 
         guard let query = nonempty(query) else { return nil }
-        let ranked = items.compactMap { item -> (item: SiriNamedMediaItem, score: Int)? in
-            let score = ([item.name] + item.aliases)
-                .map { matchScore(requested: query, candidate: $0) }
-                .max() ?? 0
-            return score > 0 ? (item, score) : nil
+        let ranked = items.compactMap { item -> RankedItem? in
+            let names = [item.name] + item.aliases
+            let matches = names.enumerated().compactMap { index, candidate in
+                match(requested: query, candidate: candidate, isAlias: index > 0)
+            }
+            guard let best = matches.max(by: { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score < rhs.score }
+                return lhs.quality < rhs.quality
+            }) else {
+                return nil
+            }
+            return RankedItem(item: item, score: best.score, quality: best.quality)
         }.sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
+            if lhs.quality != rhs.quality { return lhs.quality > rhs.quality }
             let nameOrder = lhs.item.name.localizedCaseInsensitiveCompare(rhs.item.name)
             if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
             return lhs.item.id < rhs.item.id
@@ -233,7 +263,9 @@ public enum SiriNamedMediaResolver {
         return SiriNamedMediaResolution(
             selected: first.item,
             candidates: candidates,
-            needsDisambiguation: tied.count > 1
+            needsDisambiguation: tied.count > 1,
+            requiresConfirmation: tied.count == 1
+                && (first.quality == .contained || first.quality == .fuzzy)
         )
     }
 
@@ -245,14 +277,38 @@ public enum SiriNamedMediaResolver {
         return value
     }
 
-    private static func matchScore(requested: String, candidate: String) -> Int {
+    private static func match(
+        requested: String,
+        candidate: String,
+        isAlias: Bool
+    ) -> (score: Int, quality: MatchQuality)? {
         let needle = normalized(requested)
         let value = normalized(candidate)
-        guard !needle.isEmpty, !value.isEmpty else { return 0 }
-        if value == needle { return 4 }
-        if value.hasPrefix(needle) { return 3 }
-        if value.contains(needle) { return 2 }
-        return 0
+        guard !needle.isEmpty, !value.isEmpty else { return nil }
+        let aliasPenalty = isAlias ? 20 : 0
+        if value == needle {
+            return (1_000 - aliasPenalty, .exact)
+        }
+        if value.hasPrefix(needle) || needle.hasPrefix(value) {
+            let lengthPenalty = min(120, abs(value.count - needle.count))
+            return (850 - aliasPenalty - lengthPenalty, .prefix)
+        }
+        if value.contains(needle) || needle.contains(value) {
+            let lengthPenalty = min(120, abs(value.count - needle.count))
+            return (650 - aliasPenalty - lengthPenalty, .contained)
+        }
+
+        let maximumDistance = max(1, min(3, max(needle.count, value.count) / 4))
+        guard min(needle.count, value.count) >= 3,
+              abs(needle.count - value.count) <= maximumDistance,
+              let distance = editDistance(
+                  needle,
+                  value,
+                  maximumDistance: maximumDistance
+              ) else {
+            return nil
+        }
+        return (500 - aliasPenalty - distance * 40, .fuzzy)
     }
 
     private static func normalized(_ value: String) -> String {
@@ -262,6 +318,39 @@ public enum SiriNamedMediaResolver {
         ).unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
             .map(String.init)
             .joined()
+    }
+
+    /// Bounded Levenshtein distance keeps a large station library cheap while
+    /// still accepting ordinary voice-recognition or spelling errors.
+    private static func editDistance(
+        _ lhs: String,
+        _ rhs: String,
+        maximumDistance: Int
+    ) -> Int? {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        guard abs(left.count - right.count) <= maximumDistance else { return nil }
+
+        var previous = Array(0...right.count)
+        for leftIndex in left.indices {
+            var current = Array(repeating: 0, count: right.count + 1)
+            current[0] = leftIndex + 1
+            var rowMinimum = current[0]
+            for rightIndex in right.indices {
+                let substitution = previous[rightIndex]
+                    + (left[leftIndex] == right[rightIndex] ? 0 : 1)
+                current[rightIndex + 1] = min(
+                    previous[rightIndex + 1] + 1,
+                    current[rightIndex] + 1,
+                    substitution
+                )
+                rowMinimum = min(rowMinimum, current[rightIndex + 1])
+            }
+            if rowMinimum > maximumDistance { return nil }
+            previous = current
+        }
+        let distance = previous[right.count]
+        return distance <= maximumDistance ? distance : nil
     }
 }
 

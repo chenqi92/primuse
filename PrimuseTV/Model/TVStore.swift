@@ -3,6 +3,12 @@ import SwiftUI
 import Observation
 import PrimuseKit
 
+extension Notification.Name {
+    static let primuseTVSiriRadioCatalogDidChange = Notification.Name(
+        "primuse.tv.siriRadioCatalog.changed"
+    )
+}
+
 struct TVTrackNavigationAvailability: Equatable, Sendable {
     let canGoPrevious: Bool
     let canGoNext: Bool
@@ -271,7 +277,10 @@ final class TVStore {
     var queueUpNextIDs: [String] = []
     var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
     var radioStations: [RadioStation] = [] {
-        didSet { syncTrackNavigationCommands() }
+        didSet {
+            syncTrackNavigationCommands()
+            NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
+        }
     }
     var isLiveRadio = false {
         didSet { syncTrackNavigationCommands() }
@@ -282,7 +291,11 @@ final class TVStore {
     var radioMetadataTitle = ""
     var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
     @ObservationIgnored private var cloudCredentialSourceIDs: Set<String> = []
-    var sourcesRevision = 0   // 源启用/删除后 bump,强制 sources 视图重渲染(嵌套 store 观察传导不稳)
+    var sourcesRevision = 0 {   // 源启用/删除后 bump,强制 sources 视图重渲染(嵌套 store 观察传导不稳)
+        didSet {
+            NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
+        }
+    }
 
     // 局域网「扫码直传」接收端(绕开 iCloud)。二维码内容随端点就绪更新。
     @ObservationIgnored let configServer = TVConfigServer()
@@ -1744,8 +1757,26 @@ final class TVStore {
     }
 
     func play(_ station: RadioStation) {
+        startRadioSelection(station, resolutionCompletion: nil)
+    }
+
+    func playRadioFromIntent(_ station: RadioStation) async -> Bool {
+        await withCheckedContinuation { continuation in
+            startRadioSelection(station) { accepted in
+                continuation.resume(returning: accepted)
+            }
+        }
+    }
+
+    private func startRadioSelection(
+        _ station: RadioStation,
+        resolutionCompletion: ((Bool) -> Void)?
+    ) {
         guard RadioStationValidation.hasConsistentServerIdentity(station),
-              RadioStationValidation.hasValidPlaybackReference(station) else { return }
+              RadioStationValidation.hasValidPlaybackReference(station) else {
+            resolutionCompletion?(false)
+            return
+        }
         playbackTask?.cancel()
         let requestID = UUID()
         activePlaybackRequestID = requestID
@@ -1784,16 +1815,25 @@ final class TVStore {
         updateAutomaticThemePalette(nil)
         hasNowPlaying = true
         markRadioPlayed(station.id)
-        beginRadioResolution(station, requestID: requestID, forceRefresh: false)
+        beginRadioResolution(
+            station,
+            requestID: requestID,
+            forceRefresh: false,
+            resolutionCompletion: resolutionCompletion
+        )
     }
 
     private func beginRadioResolution(
         _ station: RadioStation,
         requestID: UUID,
-        forceRefresh: Bool
+        forceRefresh: Bool,
+        resolutionCompletion: ((Bool) -> Void)? = nil
     ) {
         playbackTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else {
+                resolutionCompletion?(false)
+                return
+            }
             do {
                 let url = try await self.coordinator.resolveRadioStream(
                     for: station,
@@ -1803,7 +1843,10 @@ final class TVStore {
                 guard self.isCurrentPlaybackRequest(
                     requestID,
                     isCancelled: Task.isCancelled
-                ), self.currentRadioStationID == station.id else { return }
+                ), self.currentRadioStationID == station.id else {
+                    resolutionCompletion?(false)
+                    return
+                }
                 self.playbackTask = nil
                 self.engine.loadLiveRadio(
                     url: url,
@@ -1814,19 +1857,25 @@ final class TVStore {
                     format: station.streamFormat.displayName,
                     streamFormat: station.streamFormat
                 )
+                resolutionCompletion?(true)
             } catch is CancellationError {
+                resolutionCompletion?(false)
                 return
             } catch {
                 guard self.isCurrentPlaybackRequest(
                     requestID,
                     isCancelled: Task.isCancelled
-                ), self.currentRadioStationID == station.id else { return }
+                ), self.currentRadioStationID == station.id else {
+                    resolutionCompletion?(false)
+                    return
+                }
                 self.playbackTask = nil
                 self.engine.stop()
                 self.playbackIssue = self.coordinator.radioPlaybackIssue(
                     for: error,
                     station: station
                 )
+                resolutionCompletion?(false)
             }
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import AppIntents
 import PrimuseKit
 
 #if os(iOS)
@@ -38,7 +39,7 @@ enum SiriMediaInteractionDonor {
         let artistName = AppServices.shared.musicLibrary.artistDisplayName(for: song)
 
         let item = INMediaItem(
-            identifier: song.id,
+            identifier: SiriMediaIdentifier.namespaced(song.id, as: "song"),
             title: song.title,
             type: .song,
             artwork: nil,
@@ -49,7 +50,7 @@ enum SiriMediaInteractionDonor {
            let albumTitle = song.albumTitle,
            !albumTitle.isEmpty {
             container = INMediaItem(
-                identifier: albumID,
+                identifier: SiriMediaIdentifier.namespaced(albumID, as: "album"),
                 title: albumTitle,
                 type: .album,
                 artwork: nil,
@@ -69,12 +70,65 @@ enum SiriMediaInteractionDonor {
             mediaSearch: nil
         )
         let interaction = INInteraction(intent: intent, response: nil)
-        interaction.identifier = "play-song:\(song.id)"
+        interaction.identifier = SiriMediaIdentifier.namespaced(song.id, as: "song")
         interaction.donate { error in
             if let error {
-                plog("Siri media interaction donation failed: \(error.localizedDescription)")
+                plog(
+                    "Siri media interaction donation failed errorType="
+                        + String(reflecting: type(of: error))
+                )
             }
         }
         #endif
+    }
+
+    static func donate(station: RadioStation) {
+        #if os(iOS)
+        guard SiriAuthorizationRuntime.status == .authorized,
+              SiriRadioStationCatalog.isSafeIdentifier(station.id),
+              let safeName = SiriRadioStationCatalog.safeDisplayName(station.name) else {
+            return
+        }
+        let identifier = SiriMediaIdentifier.namespaced(station.id, as: "radio")
+        let item = INMediaItem(
+            identifier: identifier,
+            title: safeName,
+            type: .radioStation,
+            artwork: nil
+        )
+        let intent = INPlayMediaIntent(
+            mediaItems: [item],
+            mediaContainer: nil,
+            playShuffled: false,
+            playbackRepeatMode: .unknown,
+            resumePlayback: false,
+            playbackQueueLocation: .now,
+            playbackSpeed: nil,
+            mediaSearch: nil
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.identifier = identifier
+        interaction.donate { error in
+            if let error {
+                plog(
+                    "Siri radio interaction donation failed errorType="
+                        + String(reflecting: type(of: error))
+                )
+            }
+        }
+        #endif
+    }
+
+    static func refreshRadioCatalog(stations: [RadioStation]) {
+        #if os(iOS)
+        if SiriAuthorizationRuntime.status == .authorized {
+            let names = stations.prefix(100).map(\.name)
+            INVocabulary.shared().setVocabularyStrings(
+                NSOrderedSet(array: names),
+                of: .mediaShowTitle
+            )
+        }
+        #endif
+        PrimuseShortcuts.updateAppShortcutParameters()
     }
 }

@@ -651,6 +651,7 @@ final class AppServices {
         observeApplicationActivity()
 
         wireIntentBridge()
+        observeSiriRadioCatalog()
         observeSpotlightSynchronization()
         musicIntelligence.start()
         let startupFinishedAt = ProcessInfo.processInfo.systemUptime
@@ -890,6 +891,34 @@ final class AppServices {
                 }
             }
         )
+    }
+
+    private func observeSiriRadioCatalog() {
+        let center = NotificationCenter.default
+        let refresh: @MainActor () -> Void = { [weak self] in
+            guard let self else { return }
+            SiriMediaInteractionDonor.refreshRadioCatalog(stations: self.siriRadioStations)
+        }
+
+        sourceLifecycleObserverTokens.append(
+            center.addObserver(
+                forName: .primuseRadioStationsDidChange,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in refresh() }
+            }
+        )
+        sourceLifecycleObserverTokens.append(
+            center.addObserver(
+                forName: .primuseSourcesDidChange,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in refresh() }
+            }
+        )
+        refresh()
     }
 
     private func observeApplicationActivity() {
@@ -1426,19 +1455,53 @@ final class AppServices {
         }
 
         bridge.playRadio = { [self] name in
-            let stations = radioStationsStore.stations
+            let stations = siriRadioStations
             guard let resolved = SiriNamedMediaResolver.resolve(
                 query: name,
                 namespace: "radio",
-                items: stations.map { SiriNamedMediaItem(id: $0.id, name: $0.name) }
-            ), let station = radioStationsStore.station(id: resolved.selected.id) else {
+                items: siriRadioItems
+            ), !resolved.needsDisambiguation,
+               !resolved.requiresConfirmation,
+               let station = stations.first(where: { $0.id == resolved.selected.id }),
+               await startIntentRadio(station) else {
                 return nil
             }
-            startIntentRadio(station)
             return String(
                 format: String(localized: "intent_playing_radio_format"),
                 station.name
             )
+        }
+
+        bridge.playRadioStation = { [self] identifier in
+            guard let stationID = SiriMediaIdentifier.value(
+                from: identifier,
+                expectedNamespace: "radio"
+            ), SiriRadioStationCatalog.isSafeIdentifier(stationID),
+               let station = radioStationsStore.station(id: stationID) else {
+                return .notFound
+            }
+            let activeSources = sourcesStore.sources.filter { !$0.isDeleted }
+            let activeSourceIDs = Set(activeSources.map(\.id))
+            let enabledSourceIDs = Set(activeSources.lazy.filter(\.isEnabled).map(\.id))
+            switch SiriRadioStationCatalog.playbackAvailability(
+                for: station,
+                activeSourceIDs: activeSourceIDs,
+                enabledSourceIDs: enabledSourceIDs
+            ) {
+            case .notFound:
+                return .notFound
+            case .sourceDisabled:
+                return .sourceDisabled
+            case .unavailable:
+                return .unavailable
+            case .available:
+                break
+            }
+            guard let safeName = SiriRadioStationCatalog.safeDisplayName(station.name),
+                  await startIntentRadio(station) else {
+                return .unavailable
+            }
+            return .playing(name: safeName)
         }
 
         bridge.playSongRadio = { [self] in
@@ -1500,11 +1563,8 @@ final class AppServices {
         return first
     }
 
-    private func startIntentRadio(_ station: RadioStation) {
-        let stations = radioStationsStore.stations
-        Task { @MainActor [playerService] in
-            await playerService.play(station: station, within: stations)
-        }
+    private func startIntentRadio(_ station: RadioStation) async -> Bool {
+        await playerService.play(station: station, within: siriRadioStations)
     }
 
     private func scrapeCurrentSongFromIntent() async -> String? {

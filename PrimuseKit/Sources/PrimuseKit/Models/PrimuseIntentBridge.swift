@@ -1,5 +1,12 @@
 import Foundation
 
+public enum PrimuseRadioIntentOutcome: Sendable, Equatable {
+    case playing(name: String)
+    case notFound
+    case sourceDisabled
+    case unavailable
+}
+
 /// Intent <-> 主 app 服务的解耦层。
 ///
 /// 为什么需要这层:
@@ -34,6 +41,11 @@ public final class PrimuseIntentBridge {
     /// 返回播单名(用于回话),没找到 / 空播单返回 nil。
     public var playPlaylist: @MainActor (_ name: String) async -> String? = { _ in nil }
     public var playRadio: @MainActor (_ name: String) async -> String? = { _ in nil }
+    /// App Entity 已解析出稳定电台 ID 后走这里；结果区分来源停用与流不可用，
+    /// 避免 App Shortcut 在冷启动或来源状态变化后仍返回虚假的成功。
+    public var playRadioStation: @MainActor (_ id: String) async -> PrimuseRadioIntentOutcome = {
+        _ in .notFound
+    }
     public var playSongRadio: @MainActor () async -> String? = { nil }
     public var shuffleLibrary: @MainActor () async -> Void = {}
     public var setRepeatMode: @MainActor (RepeatMode) -> Void = { _ in }

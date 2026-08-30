@@ -106,7 +106,11 @@ struct TVRadioStationCard: View {
 
     var body: some View {
         TVFocusButton(radius: TVRadius.cover, scale: 1.10, lift: 10,
-                      action: { store.play(station); action() }) { _ in
+                      action: {
+                          TVSiriMediaInteractionDonor.donate(station: station)
+                          store.play(station)
+                          action()
+                      }) { _ in
             VStack(alignment: .leading, spacing: 0) {
                 TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 3) {

@@ -71,7 +71,7 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
     static let playMediaHandler = PlayMediaIntentHandler()
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
-        if intent is INPlayMediaIntent {
+        if intent is INPlayMediaIntent || intent is INSearchForMediaIntent {
             return Self.playMediaHandler
         }
         return nil

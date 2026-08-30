@@ -3095,3 +3095,13 @@
 "similar_songs_accessibility_hint" = "Shows songs similar to this track.";
 "search_section_path" = "Path matches";
 "search_result_path_accessibility_format" = "Path: %@";
+"Radio Station" = "Radio Station";
+"Search Radio Stations" = "Search Radio Stations";
+"Search saved radio stations in Primuse without starting playback." = "Search saved radio stations in Primuse without starting playback.";
+"Keyword" = "Keyword";
+"The radio station's source is disabled." = "The radio station's source is disabled.";
+"The radio station is currently unavailable." = "The radio station is currently unavailable.";
+"intent_radio_search_results_format" = "Found these radio stations: %@.";
+"Search Radio" = "Search Radio";
+"intent_radio_confirm_format" = "Play the radio station “%@”?";
+"Radio playback was cancelled." = "Radio playback was cancelled.";

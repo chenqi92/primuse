@@ -44,6 +44,7 @@
 	<key>INIntentsSupported</key>
 	<array>
 		<string>INPlayMediaIntent</string>
+		<string>INSearchForMediaIntent</string>
 	</array>
 	<key>INSupportedMediaCategories</key>
 	<array>

@@ -3285,3 +3285,13 @@
 "similar_songs_accessibility_hint" = "顯示與這首歌相似的歌曲。";
 "search_section_path" = "路徑符合";
 "search_result_path_accessibility_format" = "路徑：%@";
+"Radio Station" = "電台";
+"Search Radio Stations" = "搜尋電台";
+"Search saved radio stations in Primuse without starting playback." = "在猿音中搜尋已儲存的電台，但不開始播放。";
+"Keyword" = "關鍵字";
+"The radio station's source is disabled." = "此電台所屬的音樂來源已停用。";
+"The radio station is currently unavailable." = "此電台目前無法使用。";
+"intent_radio_search_results_format" = "找到這些電台：%@。";
+"Search Radio" = "搜尋電台";
+"intent_radio_confirm_format" = "要播放電台「%@」嗎？";
+"Radio playback was cancelled." = "已取消播放電台。";

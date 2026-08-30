@@ -2546,7 +2546,8 @@ final class AudioPlayerService {
 
     // MARK: - Playback Control
 
-    func play(station: RadioStation, within stations: [RadioStation] = []) async {
+    @discardableResult
+    func play(station: RadioStation, within stations: [RadioStation] = []) async -> Bool {
         let resolutionID = UUID()
         let resolutionGeneration = playbackAdvancePolicy.generation
         pendingRadioResolutionID = resolutionID
@@ -2555,16 +2556,19 @@ final class AudioPlayerService {
             url = try await resolveRadioStreamURL(for: station, forceRefresh: false)
         } catch {
             guard pendingRadioResolutionID == resolutionID,
-                  playbackAdvancePolicy.generation == resolutionGeneration else { return }
+                  playbackAdvancePolicy.generation == resolutionGeneration else { return false }
             pendingRadioResolutionID = nil
-            plog("⚠️ Radio URL resolution failed for '\(station.name)': \(error.localizedDescription)")
+            plog(
+                "⚠️ Radio URL resolution failed sourceBacked="
+                    + "\(station.requiresSourceStreamResolution) errorType=\(String(reflecting: type(of: error)))"
+            )
             showPlaybackError(String(localized: station.requiresSourceStreamResolution
                 ? "playback_error_connection"
                 : "radio_invalid_url"))
-            return
+            return false
         }
         guard pendingRadioResolutionID == resolutionID,
-              playbackAdvancePolicy.generation == resolutionGeneration else { return }
+              playbackAdvancePolicy.generation == resolutionGeneration else { return false }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               url.host?.isEmpty == false,
@@ -2572,14 +2576,14 @@ final class AudioPlayerService {
               url.password == nil else {
             pendingRadioResolutionID = nil
             showPlaybackError(String(localized: "radio_invalid_url"))
-            return
+            return false
         }
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
            let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
            !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
             pendingRadioResolutionID = nil
             showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
-            return
+            return false
         }
         registerPlayIntent()
         pendingRadioResolutionID = resolutionID
@@ -2611,7 +2615,7 @@ final class AudioPlayerService {
               playID == id,
               interruptionResumePolicy.playbackIsIntended else {
             plog("🛡️ Radio start cancelled during renderer handoff")
-            return
+            return false
         }
         pendingRadioResolutionID = nil
         appleMusicPlaybackTask?.cancel()
@@ -2669,6 +2673,7 @@ final class AudioPlayerService {
         updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
         startRadioTransport(station: station, playID: id)
+        return true
     }
 
     func testRadioStream(url: URL) async -> Result<Void, Error> {

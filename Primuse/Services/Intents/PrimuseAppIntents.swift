@@ -231,24 +231,6 @@ struct PrimusePlayGenreIntent: AudioPlaybackIntent {
     }
 }
 
-struct PrimusePlayRadioIntent: AudioPlaybackIntent {
-    static let title: LocalizedStringResource = "Play Radio Station"
-    static let description = IntentDescription("Play a saved internet-radio station in Primuse.")
-
-    @Parameter(title: "Station")
-    var name: String
-
-    init() {}
-
-    @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let description = await PrimuseIntentBridge.shared.playRadio(name) else {
-            return .result(dialog: IntentDialog("No matching saved radio station."))
-        }
-        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
-    }
-}
-
 struct PrimusePlaySongRadioIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Similar Songs"
     static let description = IntentDescription("Build a song radio from the current Primuse song.")
@@ -392,7 +374,15 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             intent: PrimusePlayRadioIntent(),
             phrases: [
                 "用 \(.applicationName) 播放电台",
+                "用 \(.applicationName) 播放 \(\.$station)",
+                "用 \(.applicationName) 播放电台 \(\.$station)",
+                "用 \(.applicationName) 播放電台 \(\.$station)",
                 "Play radio in \(.applicationName)",
+                "Play \(\.$station) in \(.applicationName)",
+                "Spiele \(\.$station) in \(.applicationName)",
+                "Écouter \(\.$station) dans \(.applicationName)",
+                "\(.applicationName)에서 \(\.$station) 재생",
+                "\(.applicationName)で\(\.$station)ラジオをかけて",
             ],
             shortTitle: "Play Radio",
             systemImageName: "radio"
@@ -405,6 +395,22 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Similar Songs",
             systemImageName: "dot.radiowaves.left.and.right"
+        )
+        AppShortcut(
+            intent: PrimuseSearchRadioIntent(),
+            phrases: [
+                "用 \(.applicationName) 搜索电台",
+                "用 \(.applicationName) 搜索电台 \(\.$station)",
+                "用 \(.applicationName) 搜尋電台 \(\.$station)",
+                "Search radio in \(.applicationName)",
+                "Search for \(\.$station) radio in \(.applicationName)",
+                "Suche \(\.$station) Radio in \(.applicationName)",
+                "Rechercher la radio \(\.$station) dans \(.applicationName)",
+                "\(.applicationName)에서 \(\.$station) 라디오 검색",
+                "\(.applicationName)で\(\.$station)ラジオをさがして",
+            ],
+            shortTitle: "Search Radio",
+            systemImageName: "magnifyingglass"
         )
     }
 }

@@ -217,6 +217,7 @@ targets:
         NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
         INIntentsSupported:
           - INPlayMediaIntent
+          - INSearchForMediaIntent
         INSupportedMediaCategories:
           - INMediaCategoryMusic
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
@@ -601,6 +602,7 @@ targets:
         NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
         INIntentsSupported:
           - INPlayMediaIntent
+          - INSearchForMediaIntent
         INSupportedMediaCategories:
           - INMediaCategoryMusic
         # 用户配置的 NAS 端点可能使用自签 HTTPS；实际放行仍由应用层端点指纹确认控制。

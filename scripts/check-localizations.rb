@@ -143,6 +143,9 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
     /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],
+  "PrimuseKit/Sources/PrimuseKit/SiriRadioStationCatalog.swift" => [
+    /网络电台|網路電台|电台|電台|广播|廣播/
+  ],
   "Primuse/Services/Metadata/Scrapers/ScraperTypes.swift" => [
     /酷狗|网易云|QQ ?音乐|咪咕|千千/
   ],
