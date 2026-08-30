@@ -615,8 +615,9 @@
 "fullscreen_effect_light_rhythm_subtitle" = "Coverfarbenes Licht atmet hinter der aktuellen Textzeile";
 "fullscreen_effect_light_rhythm_motion" = "Coverlicht in Ebenen · Ruhiges Atmen";
 "fullscreen_effect_kinetic_title" = "Titelwand";
-"fullscreen_effect_kinetic_title_subtitle" = "Titel der Warteschlange bilden eine Konturwand; der aktuelle Titel ist gefüllt, während der Liedtext durch das Bild läuft";
-"fullscreen_effect_kinetic_title_motion" = "Langsam versetzte Titelbewegung · horizontaler Liedtextlauf";
+"fullscreen_effect_kinetic_title_subtitle" = "Titel und aktuelle Liedzeile bleiben einmalig, während weitere Liedzeilen ein räumliches Textfeld bilden";
+"fullscreen_effect_kinetic_title_motion" = "Langsame Bewegung der Hintergrundzeilen · Wiedergabe-Hervorhebung der aktuellen Zeile";
+"immersive_current_lyric_accessibility" = "Aktuelle Liedzeile: %@";
 "fullscreen_effect_radial_pulse" = "Radialer Puls";
 "fullscreen_effect_radial_pulse_subtitle" = "Der Ring der rotierenden Platte reagiert auf das echte Audio";
 "fullscreen_effect_radial_pulse_motion" = "Live-Spektrum · Rotierende Platte";

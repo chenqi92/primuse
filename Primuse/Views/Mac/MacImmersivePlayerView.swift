@@ -10,6 +10,10 @@ struct MacImmersivePlayerView: View {
     /// 退出 macOS 全屏
     var onExitFullScreen: () -> Void
     var onToggleQueue: () -> Void
+    #if DEBUG
+    var usesDemoEvidenceContent = false
+    var debugEffectOverride: FullscreenPlayerEffect?
+    #endif
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
@@ -32,14 +36,17 @@ struct MacImmersivePlayerView: View {
     @State private var chromeTask: Task<Void, Never>?
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [Song] = []
-    @State private var titleWallTitles: [String] = []
+    @State private var typographyFieldLines: [String] = []
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @FocusState private var acceptsKeyInput: Bool
 
     private var effect: FullscreenPlayerEffect {
-        FullscreenPlayerEffect(rawValue: effectRawValue) ?? .defaultValue
+        #if DEBUG
+        if let debugEffectOverride { return debugEffectOverride }
+        #endif
+        return FullscreenPlayerEffect(rawValue: effectRawValue) ?? .defaultValue
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
@@ -128,6 +135,7 @@ struct MacImmersivePlayerView: View {
             scheduleChromeHide()
         }
         .task(id: lyricObservationIdentity) {
+            refreshTypographyFieldLines()
             await observeLyricPlayback()
         }
         .onChange(of: presentationEffect) { _, value in
@@ -136,9 +144,6 @@ struct MacImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             refreshArtworkInputs()
             if isStageReady { updateVisualizer(for: presentationEffect) }
-        }
-        .onChange(of: titleWallQueueIdentity) { _, _ in
-            refreshTitleWallTitles()
         }
         .background {
             MacImmersiveLibraryCountObserver {
@@ -176,7 +181,7 @@ struct MacImmersivePlayerView: View {
             platform: .macOS,
             metrics: metrics,
             track: stageTrack,
-            playbackTime: { player.interpolatedTime() },
+            playbackTime: { lyricPlaybackTime },
             palette: artworkPalette,
             lyricWindow: lyricWindow,
             currentLyric: currentLyric,
@@ -201,7 +206,7 @@ struct MacImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
-            titleWallTitles: titleWallTitles,
+            typographyFieldLines: typographyFieldLines,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -627,31 +632,25 @@ struct MacImmersivePlayerView: View {
     }
 
     private func refreshArtworkInputs() {
+        #if DEBUG
+        if usesDemoEvidenceContent {
+            gallerySongs = []
+            refreshTypographyFieldLines()
+            return
+        }
+        #endif
         if let song = player.currentSong {
             coverTintProvider.prepare([song])
         }
         refreshGallerySongs()
-        refreshTitleWallTitles()
+        refreshTypographyFieldLines()
     }
 
-    private var titleWallQueueIdentity: String {
-        let count = player.queueCount
-        guard count > 0 else { return "0|\(player.currentSong?.id ?? "")" }
-        let indices = Set([0, max(player.currentIndex - 1, 0), player.currentIndex, min(player.currentIndex + 1, count - 1), count - 1])
-        let sampledIDs = indices.sorted().compactMap { player.queuedSong(at: $0)?.id }
-        return "\(count)|\(sampledIDs.joined(separator: "|"))"
-    }
-
-    private func refreshTitleWallTitles() {
-        var titles: [String] = []
-        titles.reserveCapacity(player.queueCount)
-        for index in 0..<player.queueCount {
-            guard let value = player.queuedSong(at: index)?.title
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value) else { continue }
-            titles.append(value)
-        }
-        titleWallTitles = titles.isEmpty ? [songTitle] : titles
+    private func refreshTypographyFieldLines() {
+        typographyFieldLines = ImmersiveTypographyFieldPolicy.textPool(
+            from: lyrics.map(\.text),
+            title: songTitle
+        )
     }
 
     private func refreshGallerySongs() {
@@ -692,6 +691,11 @@ struct MacImmersivePlayerView: View {
     }
 
     private var stageTrack: ImmersiveStageTrack {
+        #if DEBUG
+        if usesDemoEvidenceContent {
+            return ImmersiveDemoContent.track
+        }
+        #endif
         let queueCount = player.queueCount
         let nextIndex = player.currentIndex + 1
         let nextTitle = player.queuedSong(at: nextIndex)?.title ?? ""
@@ -734,15 +738,31 @@ struct MacImmersivePlayerView: View {
                 id: position,
                 text: text,
                 isActive: position == index,
-                offset: position - index
+                offset: position - index,
+                syllables: lyrics[position].syllables,
+                startTime: lyrics[position].isSynchronized ? lyrics[position].timestamp : nil,
+                endTime: immersiveLineEnd(at: position)
             )
         }
     }
 
+    private func immersiveLineEnd(at position: Int) -> TimeInterval? {
+        let line = lyrics[position]
+        guard line.isSynchronized else { return nil }
+        if let explicit = line.endTime, explicit > line.timestamp { return explicit }
+        if lyrics.indices.contains(position + 1) {
+            let next = lyrics[position + 1].timestamp
+            if next > line.timestamp { return next }
+        }
+        return line.timestamp + 3.5
+    }
+
     private var currentLyric: String? {
-        guard let index = activeLyricIndex,
-              lyrics.indices.contains(index) else { return nil }
-        return lyrics[index].text
+        if let index = activeLyricIndex,
+           lyrics.indices.contains(index) {
+            return lyrics[index].text
+        }
+        return lyrics.first { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?.text
     }
 
     private var nextLyric: String? {
@@ -752,6 +772,13 @@ struct MacImmersivePlayerView: View {
 
     private var lyricObservationIdentity: String {
         "\(player.currentSong?.id ?? "")|\(lyrics.hashValue)"
+    }
+
+    private var lyricPlaybackTime: TimeInterval {
+        #if DEBUG
+        if usesDemoEvidenceContent { return 0 }
+        #endif
+        return player.interpolatedTime()
     }
 
     @MainActor
@@ -764,7 +791,7 @@ struct MacImmersivePlayerView: View {
             ? Self.wordLevelLineLookahead
             : Self.lineLevelLookahead
         while !Task.isCancelled {
-            let playbackTime = player.interpolatedTime()
+            let playbackTime = lyricPlaybackTime
             let index = LyricPlaybackPositionPolicy.activeLineIndex(
                 in: lyrics,
                 at: playbackTime,
@@ -798,6 +825,9 @@ struct MacImmersivePlayerView: View {
     }
 
     private var songTitle: String {
+        #if DEBUG
+        if usesDemoEvidenceContent { return ImmersiveDemoContent.title }
+        #endif
         let value = player.currentSong?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value)
             ? value
@@ -805,6 +835,9 @@ struct MacImmersivePlayerView: View {
     }
 
     private var artistName: String {
+        #if DEBUG
+        if usesDemoEvidenceContent { return ImmersiveDemoContent.artist }
+        #endif
         let value = player.currentSong.flatMap { library.artistDisplayName(for: $0) }?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return isPlaceholderMetadata(value, localizedKey: "unknown_artist")
@@ -813,6 +846,9 @@ struct MacImmersivePlayerView: View {
     }
 
     private var albumName: String {
+        #if DEBUG
+        if usesDemoEvidenceContent { return ImmersiveDemoContent.album }
+        #endif
         let value = player.currentSong?.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return isPlaceholderMetadata(value, localizedKey: "unknown_album")
             ? ImmersiveDemoContent.album

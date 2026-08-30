@@ -1581,8 +1581,9 @@
 "fullscreen_effect_light_rhythm_subtitle" = "Artwork-colored light breathes behind one current lyric";
 "fullscreen_effect_light_rhythm_motion" = "Layered artwork light · Slow breathing";
 "fullscreen_effect_kinetic_title" = "Title Wall";
-"fullscreen_effect_kinetic_title_subtitle" = "Queue titles form an outlined wall; the current track is solid while lyrics travel across the screen";
-"fullscreen_effect_kinetic_title_motion" = "Slow staggered title drift · horizontal lyric marquee";
+"fullscreen_effect_kinetic_title_subtitle" = "The song title and current lyric stay singular while other lyrics form a layered field across the screen";
+"fullscreen_effect_kinetic_title_motion" = "Slow background lyric drift · playback-synced current-line highlight";
+"immersive_current_lyric_accessibility" = "Current lyric: %@";
 "fullscreen_effect_radial_pulse" = "Radial Pulse";
 "fullscreen_effect_radial_pulse_subtitle" = "A rotating record ring responds to the actual audio";
 "fullscreen_effect_radial_pulse_motion" = "Live spectrum driven · Rotating record";

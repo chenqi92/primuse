@@ -33,7 +33,7 @@ struct ImmersivePlayerView: View {
     @State private var hasResolvedArtwork = true
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
-    @State private var titleWallTitles: [String] = []
+    @State private var typographyFieldLines: [String] = []
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
@@ -121,6 +121,7 @@ struct ImmersivePlayerView: View {
             }
         }
         .task(id: lyricObservationIdentity) {
+            if isSceneActive { refreshTypographyFieldLines() }
             await observeLyricPlayback()
         }
         .onChange(of: effect) { _, _ in
@@ -133,9 +134,6 @@ struct ImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             if isSceneActive { refreshArtworkInputs() }
             synchronizeVisualizer()
-        }
-        .onChange(of: titleWallQueueIdentity) { _, _ in
-            if isSceneActive { refreshTitleWallTitles() }
         }
         .background {
             ImmersiveLibraryCountObserver {
@@ -224,7 +222,7 @@ struct ImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
-            titleWallTitles: titleWallTitles,
+            typographyFieldLines: typographyFieldLines,
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -716,27 +714,14 @@ struct ImmersivePlayerView: View {
             coverTintProvider.prepare([song])
         }
         refreshGallerySongs()
-        refreshTitleWallTitles()
+        refreshTypographyFieldLines()
     }
 
-    private var titleWallQueueIdentity: String {
-        let count = player.queueCount
-        guard count > 0 else { return "0|\(player.currentSong?.id ?? "")" }
-        let indices = Set([0, max(player.currentIndex - 1, 0), player.currentIndex, min(player.currentIndex + 1, count - 1), count - 1])
-        let sampledIDs = indices.sorted().compactMap { player.queuedSong(at: $0)?.id }
-        return "\(count)|\(sampledIDs.joined(separator: "|"))"
-    }
-
-    private func refreshTitleWallTitles() {
-        var titles: [String] = []
-        titles.reserveCapacity(player.queueCount)
-        for index in 0..<player.queueCount {
-            guard let value = player.queuedSong(at: index)?.title
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value) else { continue }
-            titles.append(value)
-        }
-        titleWallTitles = titles.isEmpty ? [songTitle] : titles
+    private func refreshTypographyFieldLines() {
+        typographyFieldLines = ImmersiveTypographyFieldPolicy.textPool(
+            from: lyrics.map(\.text),
+            title: songTitle
+        )
     }
 
     /// 每次切歌只取一次稳定样本，避免实时频谱刷新时反复扫描整个资料库。
@@ -820,15 +805,31 @@ struct ImmersivePlayerView: View {
                 id: position,
                 text: text,
                 isActive: position == index,
-                offset: position - index
+                offset: position - index,
+                syllables: lyrics[position].syllables,
+                startTime: lyrics[position].isSynchronized ? lyrics[position].timestamp : nil,
+                endTime: immersiveLineEnd(at: position)
             )
         }
     }
 
+    private func immersiveLineEnd(at position: Int) -> TimeInterval? {
+        let line = lyrics[position]
+        guard line.isSynchronized else { return nil }
+        if let explicit = line.endTime, explicit > line.timestamp { return explicit }
+        if lyrics.indices.contains(position + 1) {
+            let next = lyrics[position + 1].timestamp
+            if next > line.timestamp { return next }
+        }
+        return line.timestamp + 3.5
+    }
+
     private var currentLyricText: String? {
-        guard let index = activeLyricIndex,
-              lyrics.indices.contains(index) else { return nil }
-        return lyrics[index].text
+        if let index = activeLyricIndex,
+           lyrics.indices.contains(index) {
+            return lyrics[index].text
+        }
+        return lyrics.first { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?.text
     }
 
     private var nextLyricText: String? {

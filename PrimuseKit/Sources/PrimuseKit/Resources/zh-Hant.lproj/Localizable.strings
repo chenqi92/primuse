@@ -612,8 +612,9 @@
 "fullscreen_effect_light_rhythm_subtitle" = "封面色光影緩慢律動，規格下顯示目前歌詞";
 "fullscreen_effect_light_rhythm_motion" = "多層封面色光影 · 低頻呼吸";
 "fullscreen_effect_kinetic_title" = "曲名展牆";
-"fullscreen_effect_kinetic_title_subtitle" = "播放佇列曲名以空心字堆疊，目前曲目實心顯示，歌詞橫越畫面";
-"fullscreen_effect_kinetic_title_motion" = "多行曲名緩慢錯位 · 目前歌詞橫向巡遊";
+"fullscreen_effect_kinetic_title_subtitle" = "曲名和目前歌詞各自只出現一次，其他歌詞以遠近層次鋪滿畫面";
+"fullscreen_effect_kinetic_title_motion" = "背景歌詞緩慢漂移 · 目前歌詞隨播放進度高亮";
+"immersive_current_lyric_accessibility" = "目前歌詞：%@";
 "fullscreen_effect_radial_pulse" = "環形聲譜";
 "fullscreen_effect_radial_pulse_subtitle" = "旋轉唱片外圈跟隨實際聲音起伏";
 "fullscreen_effect_radial_pulse_motion" = "即時頻譜驅動 · 唱片隨播放旋轉";

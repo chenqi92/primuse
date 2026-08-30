@@ -28,7 +28,7 @@ struct TVImmersivePlayerView: View {
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [TVSong] = []
-    @State private var titleWallTitles: [String] = []
+    @State private var typographyFieldLines: [String] = []
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @Namespace private var chromeFocus
@@ -42,6 +42,11 @@ struct TVImmersivePlayerView: View {
     private var effect: FullscreenPlayerEffect {
         #if DEBUG
         if TVDebugLaunch.screen == "immersivePlayer" {
+            if let rawValue = ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"],
+               let requested = FullscreenPlayerEffect(rawValue: rawValue),
+               !requested.isNative {
+                return requested
+            }
             return .coverFlow
         }
         #endif
@@ -138,14 +143,15 @@ struct TVImmersivePlayerView: View {
                 showsChrome = false
                 showsModePicker = true
                 refreshGallerySongs()
-                refreshTitleWallTitles()
+                refreshTypographyFieldLines()
                 return
             }
             refreshGallerySongs()
-            refreshTitleWallTitles()
+            refreshTypographyFieldLines()
             scheduleChromeHide()
         }
         .task(id: lyricObservationIdentity) {
+            refreshTypographyFieldLines()
             await observeLyricPlayback()
         }
         .onDisappear {
@@ -169,10 +175,7 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
-            refreshTitleWallTitles()
-        }
-        .onChange(of: store.queueSongIDs) { _, _ in
-            refreshTitleWallTitles()
+            refreshTypographyFieldLines()
         }
         .background {
             TVImmersiveLibraryCountObserver {
@@ -192,7 +195,7 @@ struct TVImmersivePlayerView: View {
             platform: .tvOS,
             metrics: metrics,
             track: stageTrack,
-            playbackTime: { store.currentTime },
+            playbackTime: { lyricPlaybackTime },
             palette: artworkPalette,
             lyricWindow: lyricWindow,
             currentLyric: currentLyric,
@@ -223,7 +226,7 @@ struct TVImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
-            titleWallTitles: titleWallTitles,
+            typographyFieldLines: typographyFieldLines,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -581,14 +584,11 @@ struct TVImmersivePlayerView: View {
         gallerySongs = selected
     }
 
-    private func refreshTitleWallTitles() {
-        let current = meaningful(store.nowPlaying.title, fallback: ImmersiveDemoContent.title)
-        let queueTitles = store.queueSongIDs.compactMap { id -> String? in
-            guard let title = store.song(id)?.title.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !title.isEmpty else { return nil }
-            return title
-        }
-        titleWallTitles = queueTitles.isEmpty ? [current] : queueTitles
+    private func refreshTypographyFieldLines() {
+        typographyFieldLines = ImmersiveTypographyFieldPolicy.textPool(
+            from: store.lyrics.map(\.text),
+            title: meaningful(store.nowPlaying.title, fallback: ImmersiveDemoContent.title)
+        )
     }
 
     private func meaningful(_ value: String, fallback: String) -> String {
@@ -630,15 +630,50 @@ struct TVImmersivePlayerView: View {
                 id: position,
                 text: text,
                 isActive: position == index,
-                offset: position - index
+                offset: position - index,
+                syllables: immersiveSyllables(for: store.lyrics[position]),
+                startTime: store.lyrics[position].isSynchronized ? store.lyrics[position].time : nil,
+                endTime: immersiveLineEnd(at: position)
             )
         }
     }
 
+    private func immersiveLineEnd(at position: Int) -> TimeInterval? {
+        let line = store.lyrics[position]
+        guard line.isSynchronized else { return nil }
+        if store.lyrics.indices.contains(position + 1) {
+            let next = store.lyrics[position + 1].time
+            if next > line.time { return next }
+        }
+        return line.time + max(
+            3.5,
+            line.syllables.reduce(0) { $0 + max(0.05, $1.d) }
+        )
+    }
+
     private var currentLyric: String? {
-        guard let index = activeLyricIndex,
-              store.lyrics.indices.contains(index) else { return nil }
-        return store.lyrics[index].text
+        if let index = activeLyricIndex,
+           store.lyrics.indices.contains(index) {
+            return store.lyrics[index].text
+        }
+        return store.lyrics.first {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.text
+    }
+
+    private func immersiveSyllables(for line: TVLyricLine) -> [LyricSyllable]? {
+        guard !line.syllables.isEmpty else { return nil }
+        var start = line.time
+        return line.syllables.map { syllable in
+            let duration = max(0.05, syllable.d)
+            defer { start += duration }
+            return LyricSyllable(
+                text: syllable.w,
+                start: start,
+                end: start + duration,
+                endTiming: syllable.endTiming
+            )
+        }
     }
 
     private var nextLyric: String? {
@@ -651,6 +686,17 @@ struct TVImmersivePlayerView: View {
         "\(store.nowPlaying.songID)|\(store.lyricsRevision)|\(lyricsMotionEnabled)"
     }
 
+    private var lyricPlaybackTime: TimeInterval {
+        #if DEBUG
+        if TVDebugLaunch.screen == "immersivePlayer",
+           let rawValue = ProcessInfo.processInfo.environment["TV_EVIDENCE_PLAYBACK_TIME"],
+           let value = TimeInterval(rawValue), value.isFinite {
+            return max(0, value)
+        }
+        #endif
+        return store.currentTime
+    }
+
     @MainActor
     private func observeLyricPlayback() async {
         activeLyricIndex = nil
@@ -658,8 +704,13 @@ struct TVImmersivePlayerView: View {
         guard hasSynchronizedLyrics else { return }
 
         while !Task.isCancelled {
-            let playbackTime = store.currentTime
-            let index = store.currentLyricIndex
+            let playbackTime = lyricPlaybackTime
+            let index = LyricPlaybackPositionPolicy.activeLineIndex(
+                in: store.lyrics,
+                at: playbackTime,
+                lookahead: 0.25,
+                timestamp: \.time
+            )
             let isInterlude: Bool
             if lyricsMotionEnabled,
                let index,
@@ -734,6 +785,12 @@ struct TVImmersivePlayerView: View {
 
     private func scheduleChromeHide() {
         chromeTask?.cancel()
+        #if DEBUG
+        if TVDebugLaunch.screen == "immersivePlayer",
+           ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"] != nil {
+            return
+        }
+        #endif
         guard !showsModePicker, !voiceOverEnabled else { return }
         chromeTask = Task { @MainActor in
             do {

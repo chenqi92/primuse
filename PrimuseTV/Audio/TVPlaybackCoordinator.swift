@@ -786,7 +786,13 @@ final class TVPlaybackCoordinator {
                         text: line.text,
                         isSynchronized: line.isSynchronized,
                         // start/end 是相对歌曲起点的绝对时间戳;卡拉OK扫词需要每字时长。
-                        syllables: (line.syllables ?? []).map { TVSyllable(w: $0.text, d: max(0.001, $0.end - $0.start)) },
+                        syllables: (line.syllables ?? []).map {
+                            TVSyllable(
+                                w: $0.text,
+                                d: max(0.001, $0.end - $0.start),
+                                endTiming: $0.endTiming
+                            )
+                        },
                         translation: "",
                         writingDirection: writingDirection)
         }

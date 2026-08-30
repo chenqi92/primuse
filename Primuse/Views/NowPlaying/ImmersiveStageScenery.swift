@@ -211,8 +211,47 @@ enum ImmersiveDemoContent {
         "Primuse turns every song into a scene",
         "让声音拥有自己的光与形状",
         "Every note finds its own light",
-        "猿音，让聆听成为一场演出",
+        "Let listening become a complete performance",
+        "The tide leaves a melody along the shore",
+        "The quietest echo can still cross the room",
+        "Night moves slowly beside the window",
+        "A distant rhythm keeps the city awake",
+        "Leave the unfinished words to the next chord",
+        "Light gathers softly between every beat",
+        "When the bass falls even starlight has weight",
+        "We follow the chorus beyond the horizon",
+        "Every breath moves closer to the chorus",
+        "The final note waits inside the blue",
+        "The sound drifts apart and meets here again",
     ]
+
+    #if DEBUG
+    static let evidenceLyrics: [LyricLine] = lyrics.enumerated().map { index, text in
+        let syllables: [LyricSyllable]?
+        if index == 0 {
+            let characters = text.map(String.init)
+            let duration = 2.2 / Double(max(characters.count, 1))
+            syllables = characters.enumerated().map { characterIndex, character in
+                let start = -0.95 + Double(characterIndex) * duration
+                return LyricSyllable(
+                    text: character,
+                    start: start,
+                    end: start + duration,
+                    endTiming: .explicit
+                )
+            }
+        } else {
+            syllables = nil
+        }
+        return LyricLine(
+            id: "immersive-evidence-\(index)",
+            timestamp: Double(index) * 5,
+            text: text,
+            isSynchronized: true,
+            syllables: syllables
+        )
+    }
+    #endif
 
     static var track: ImmersiveStageTrack {
         ImmersiveStageTrack(
@@ -318,7 +357,10 @@ struct ImmersiveEffectPreview: View {
                     .frame(width: side, height: side)
                 )
             },
-            titleWallTitles: previewTitles,
+            typographyFieldLines: ImmersiveTypographyFieldPolicy.textPool(
+                from: ImmersiveDemoContent.lyrics,
+                title: track.title
+            ),
             reduceMotion: !animates,
             lyricsMotionEnabled: animates,
             lyricInterlude: false,
@@ -350,15 +392,6 @@ struct ImmersiveEffectPreview: View {
                 offset: index - 1
             )
         }
-    }
-
-    private var previewTitles: [String] {
-        [
-            "猿音",
-            "PRIMUSE",
-            "猿音 · PRIMUSE",
-            "PRIMUSE / 猿音",
-        ]
     }
 
     private func previewElapsed(at time: TimeInterval) -> TimeInterval {
@@ -1237,88 +1270,15 @@ struct ImmersiveSpectrumRing: View {
     }
 }
 
-// MARK: - 字墙 Type Wall
+// MARK: - 描边文字字形
 
-/// 曲名以空心字堆成一面墙,唯一实心的一行就是当前曲目。
-///
-/// SwiftUI 没有描边文字,所以走 CoreText 取字形轮廓再 stroke。轮廓按
-/// (曲名, 字号) 缓存,重绘不会重复解析字形。
-struct ImmersiveTypeWall: View {
-    var title: String
-    var fontSize: CGFloat
-    /// 墙的行数，由场景按当前画布高度决定。
-    var rowCount: Int
-    /// 实心那一行在墙里的下标
-    var solidRow: Int
-    var lineWidth: CGFloat = 1
-    var tint: Color = ImmersiveStagePalette.accent200
-    var outlineOpacity: Double?
-    var fillsSolidRow = false
-
-    @State private var glyphs: ImmersiveGlyphLine?
-
-    private static let rowOffsetRatios: [CGFloat] = [0, -0.72, 0, -0.36, 0]
-    private static let rowOpacities: [Double] = [0.16, 0.22, 0.50, 0.20, 0.12]
-
-    var body: some View {
-        GeometryReader { geometry in
-            VStack(alignment: .leading, spacing: fontSize * -0.06) {
-                ForEach(Array(0..<max(rowCount, 1)), id: \.self) { index in
-                    wallRow(at: index, available: geometry.size.width)
-                }
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center)
-            .clipped()
-        }
-        .task(id: cacheKey) {
-            glyphs = ImmersiveGlyphLine.make(text: title, fontSize: fontSize)
-        }
-        .allowsHitTesting(false)
-    }
-
-    private var cacheKey: String { "\(title)#\(Int(fontSize))" }
-
-    @ViewBuilder
-    private func wallRow(at index: Int, available: CGFloat) -> some View {
-        let isSolid = index == solidRow
-        // 相邻行左右错开,免得整面墙对得太齐显得死板(设计稿是 -120 / -60px)。
-        let offset = Self.rowOffsetRatios[index % Self.rowOffsetRatios.count] * fontSize
-        let opacity = outlineOpacity ?? Self.rowOpacities[index % Self.rowOpacities.count]
-
-        if let glyphs, glyphs.advance > 1 {
-            let repeats = max(1, Int((available / glyphs.advance).rounded(.up)) + 1)
-            ImmersiveGlyphRow(
-                line: glyphs,
-                repeats: repeats,
-                isSolid: isSolid,
-                fillsSolidRow: fillsSolidRow,
-                lineWidth: lineWidth,
-                strokeOpacity: opacity,
-                tint: tint
-            )
-            .frame(height: glyphs.size.height * 0.94, alignment: .leading)
-            .offset(x: offset)
-        } else {
-            // 字形还没算好(或取轮廓失败)时先用低透明度实心字占位,不留空白。
-            Text(String(repeating: title + "  ", count: 3))
-                .font(.system(size: fontSize, weight: .semibold))
-                .lineLimit(1)
-                .foregroundStyle((isSolid ? ImmersiveStagePalette.ink : tint).opacity(isSolid ? 1 : opacity))
-                .frame(height: fontSize * 0.94, alignment: .leading)
-                .offset(x: offset)
-        }
-    }
-}
-
-/// 一行字形轮廓 + 它的排版尺寸。
+/// 一行字形轮廓与排版尺寸。文字场按稳定字号缓存它，动画帧只改变变换。
 struct ImmersiveGlyphLine: Equatable {
     let path: Path
     let size: CGSize
-    /// 一次重复的步进(行宽 + 词间距)
-    let advance: CGFloat
 
     static func == (lhs: ImmersiveGlyphLine, rhs: ImmersiveGlyphLine) -> Bool {
-        lhs.size == rhs.size && lhs.advance == rhs.advance
+        lhs.size == rhs.size
     }
 
     /// 用 CoreText 把字符串转成 SwiftUI 坐标系(y 向下、原点在行框左上)的轮廓。
@@ -1374,44 +1334,8 @@ struct ImmersiveGlyphLine: Equatable {
 
         return ImmersiveGlyphLine(
             path: Path(flipped),
-            size: CGSize(width: width, height: ascent + descent),
-            advance: width + fontSize * 0.34
+            size: CGSize(width: width, height: ascent + descent)
         )
-    }
-}
-
-/// 把一行轮廓横向重复铺满；实心行可只填首个副本，也可填满整行。
-private struct ImmersiveGlyphRow: View {
-    let line: ImmersiveGlyphLine
-    let repeats: Int
-    let isSolid: Bool
-    let fillsSolidRow: Bool
-    let lineWidth: CGFloat
-    let strokeOpacity: Double
-    let tint: Color
-
-    var body: some View {
-        Canvas { canvas, _ in
-            for index in 0..<repeats {
-                let shifted = line.path.applying(
-                    CGAffineTransform(translationX: CGFloat(index) * line.advance, y: 0)
-                )
-                if isSolid, fillsSolidRow || index == 0 {
-                    canvas.fill(shifted, with: .color(ImmersiveStagePalette.ink))
-                } else {
-                    canvas.stroke(
-                        shifted,
-                        with: .color(
-                            isSolid
-                                ? tint.opacity(0.56)
-                                : tint.opacity(strokeOpacity)
-                        ),
-                        lineWidth: lineWidth
-                    )
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

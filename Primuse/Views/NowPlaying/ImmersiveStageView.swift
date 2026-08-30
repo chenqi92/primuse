@@ -8,19 +8,28 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     let isActive: Bool
     let offset: Int
     let fillProgress: Double?
+    let syllables: [LyricSyllable]?
+    let startTime: TimeInterval?
+    let endTime: TimeInterval?
 
     init(
         id: Int,
         text: String,
         isActive: Bool,
         offset: Int,
-        fillProgress: Double? = nil
+        fillProgress: Double? = nil,
+        syllables: [LyricSyllable]? = nil,
+        startTime: TimeInterval? = nil,
+        endTime: TimeInterval? = nil
     ) {
         self.id = id
         self.text = text
         self.isActive = isActive
         self.offset = offset
         self.fillProgress = fillProgress.map { min(max($0, 0), 1) }
+        self.syllables = syllables?.isEmpty == false ? syllables : nil
+        self.startTime = startTime
+        self.endTime = endTime
     }
 }
 
@@ -41,7 +50,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     var levels: [CGFloat] = []
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
-    var titleWallTitles: [String] = []
+    var typographyFieldLines: [String] = []
     var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
@@ -61,6 +70,22 @@ struct ImmersiveStageView<Artwork: View>: View {
         case .leftToRight: .leftToRight
         case .rightToLeft: .rightToLeft
         }
+    }
+
+    private var lyricDisplayPlatform: ImmersiveLyricDisplayPlatform {
+        switch platform {
+        case .iOS: .handheld
+        case .macOS: .desktop
+        case .tvOS: .television
+        }
+    }
+
+    private var lyricTextAlignment: TextAlignment {
+        .leading
+    }
+
+    private var lyricFrameAlignment: Alignment {
+        .leading
     }
 
     var body: some View {
@@ -181,7 +206,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                         maxWidth: metrics.size.width * 0.68
                     )
                     Spacer()
-                    singleLyric(fontSize: metrics.s(platform == .tvOS ? 31 : 20))
+                    singleLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 31 : 20),
+                        availableWidth: metrics.size.width * 0.72
+                    )
                 }
                 .padding(.horizontal, horizontalInset)
                 .padding(.top, topInset)
@@ -228,7 +256,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     )
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         galleryTrackBlock
-                        singleLyric(fontSize: metrics.s(platform == .tvOS ? 29 : 18))
+                        singleLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 29 : 18),
+                            availableWidth: metrics.size.width * 0.48
+                        )
                     }
                     .frame(maxWidth: metrics.size.width * 0.48, alignment: .leading)
                 }
@@ -287,7 +318,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     )
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 96 : 60), weight: .light)
-                        singleLyric(fontSize: metrics.s(platform == .tvOS ? 28 : 18))
+                        singleLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 28 : 18),
+                            availableWidth: metrics.size.width * 0.46
+                        )
                     }
                     .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
                 }
@@ -333,7 +367,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                             Spacer()
                             threeLineLyrics(
                                 alignment: .trailing,
-                                fontSize: metrics.s(platform == .tvOS ? 27 : 17)
+                                fontSize: metrics.s(platform == .tvOS ? 27 : 17),
+                                availableWidth: metrics.size.width * 0.34
                             )
                             .frame(maxWidth: metrics.size.width * 0.34, alignment: .trailing)
                         }
@@ -367,7 +402,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                         radius: metrics.f(18)
                     )
                     titleBlock(size: metrics.s(43), weight: .semibold)
-                    formatAndLyric(fontSize: metrics.s(14))
+                    formatAndLyric(
+                        fontSize: metrics.s(14),
+                        availableWidth: metrics.size.width - horizontalInset * 2
+                    )
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalInset)
@@ -381,7 +419,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     )
                     VStack(alignment: .leading, spacing: metrics.s(22)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 98 : 62), weight: .semibold)
-                        formatAndLyric(fontSize: metrics.s(platform == .tvOS ? 24 : 15))
+                        formatAndLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 24 : 15),
+                            availableWidth: metrics.size.width * 0.43
+                        )
                     }
                     .frame(maxWidth: metrics.size.width * 0.43, alignment: .leading)
                 }
@@ -392,14 +433,14 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    private func formatAndLyric(fontSize: CGFloat) -> some View {
+    private func formatAndLyric(fontSize: CGFloat, availableWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: metrics.s(12)) {
             Text(track.format.uppercased())
                 .font(.system(size: fontSize, weight: .semibold, design: .monospaced))
                 .tracking(fontSize * 0.14)
                 .foregroundStyle(ImmersiveStagePalette.text.opacity(0.78))
                 .lineLimit(1)
-            singleLyric(fontSize: fontSize * 1.08)
+            singleLyric(fontSize: fontSize * 1.08, availableWidth: availableWidth)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -407,13 +448,37 @@ struct ImmersiveStageView<Artwork: View>: View {
     // MARK: - 6. 曲名展墙
 
     private var kineticTitleWallScene: some View {
-        let lyric = resolvedCurrentLyric.trimmingCharacters(in: .whitespacesAndNewlines)
-        let wallFontSize = metrics.s(
-            platform == .tvOS
-                ? 116
-                : (metrics.isPortrait ? 64 : (metrics.layout == .phoneLandscape ? 72 : 104))
+        let current = resolvedCurrentStageLyric
+        let titleWidth = metrics.size.width * (metrics.isPortrait ? 0.82 : (platform == .tvOS ? 0.62 : 0.66))
+        let lyricWidth = metrics.size.width * (metrics.isPortrait ? 0.82 : (platform == .tvOS ? 0.72 : 0.68))
+        let titleFontSize = CGFloat(ImmersiveLyricTypographyPolicy.fieldTitleFontSize(
+            for: track.title,
+            canvasWidth: metrics.size.width,
+            canvasHeight: metrics.size.height,
+            availableWidth: titleWidth,
+            platform: lyricDisplayPlatform
+        ))
+        let lyricTypography = ImmersiveLyricTypographyPolicy.metrics(
+            for: current?.text ?? "",
+            canvasWidth: metrics.size.width,
+            canvasHeight: metrics.size.height,
+            availableWidth: lyricWidth - metrics.s(platform == .tvOS ? 64 : 36),
+            platform: lyricDisplayPlatform
         )
-        let minimumRows = metrics.isPortrait ? 11 : (metrics.layout == .phoneLandscape ? 8 : 10)
+        let lyricHorizontalPadding = metrics.s(platform == .tvOS ? 32 : 18)
+        let lyricVerticalPadding = metrics.s(platform == .tvOS ? 22 : 13)
+        let estimatedLyricHeight = CGFloat(lyricTypography.currentLineLimit)
+            * CGFloat(lyricTypography.currentFontSize) * 1.18
+            + lyricVerticalPadding * 2
+        let desiredLyricCenterY = metrics.size.height * (metrics.isPortrait ? 0.73 : 0.78)
+        let lyricCenterY = min(
+            desiredLyricCenterY,
+            metrics.size.height - controlsInset - estimatedLyricHeight / 2 - metrics.s(18)
+        )
+        let titleCenterX = horizontalInset + titleWidth / 2
+        let lyricCenterX = lyricsWritingDirection == .rightToLeft
+            ? metrics.size.width - horizontalInset - lyricWidth / 2
+            : horizontalInset + lyricWidth / 2
 
         return ZStack {
             palette.secondary
@@ -422,6 +487,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 palette: palette
             )
                 .opacity(0.52)
+            ImmersiveStagePalette.obsidian.opacity(0.20)
             RadialGradient(
                 colors: [palette.primary.opacity(0.16), .clear],
                 center: .topTrailing,
@@ -429,36 +495,79 @@ struct ImmersiveStageView<Artwork: View>: View {
                 endRadius: max(metrics.size.width, metrics.size.height) * 0.72
             )
 
-            ImmersivePlaylistTitleWall(
-                titles: titleWallTitles,
-                currentTitle: track.title,
-                tint: palette.primary,
+            ImmersiveLyricsTypographyField(
+                lines: typographyFieldLines,
+                currentLyric: current?.text,
+                title: track.title,
+                canvasSize: metrics.size,
+                platform: lyricDisplayPlatform,
+                tint: ImmersiveStagePalette.text.opacity(0.86),
                 isAnimating: sceneIsAnimating && lyricsMotionEnabled,
-                baseFontSize: wallFontSize,
-                minimumRows: minimumRows
+                reduceMotion: reduceMotion
             )
 
             LinearGradient(
                 colors: [
-                    palette.secondary.opacity(0.58),
+                    palette.secondary.opacity(0.42),
                     .clear,
                     .clear,
-                    palette.secondary.opacity(0.70),
+                    palette.secondary.opacity(0.78),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
 
-            if !lyric.isEmpty {
-                ImmersiveCrossingLyricRibbon(
-                    text: lyric,
-                    fontSize: metrics.s(platform == .tvOS ? 48 : (metrics.isPortrait ? 27 : 30)),
-                    tint: palette.primary,
-                    isAnimating: sceneIsAnimating && lyricsMotionEnabled,
-                    writingDirection: lyricsWritingDirection
+            VStack(alignment: .leading, spacing: metrics.s(platform == .tvOS ? 18 : 10)) {
+                Text(track.title)
+                    .font(.system(size: titleFontSize, weight: .bold))
+                    .tracking(-titleFontSize * 0.035)
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.54))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.62)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(track.subtitle)
+                    .font(.system(
+                        size: max(metrics.s(platform == .tvOS ? 28 : 16), titleFontSize * 0.20),
+                        weight: .medium
+                    ))
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.68))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.70)
+            }
+            .frame(width: titleWidth, alignment: .leading)
+            .position(
+                x: titleCenterX,
+                y: metrics.size.height * (metrics.isPortrait ? 0.34 : 0.43)
+            )
+            .accessibilityElement(children: .combine)
+
+            if let current, !current.text.isEmpty {
+                lyricLine(
+                    current,
+                    fontSize: CGFloat(lyricTypography.currentFontSize),
+                    lineLimit: lyricTypography.currentLineLimit,
+                    textAlignment: lyricTextAlignment
                 )
-                .frame(height: metrics.s(platform == .tvOS ? 104 : (metrics.isPortrait ? 60 : 64)))
-                .offset(y: metrics.size.height * (metrics.isPortrait ? 0.19 : 0.17))
+                .padding(.horizontal, lyricHorizontalPadding)
+                .padding(.vertical, lyricVerticalPadding)
+                .frame(width: lyricWidth, alignment: lyricFrameAlignment)
+                .background {
+                    RoundedRectangle(cornerRadius: metrics.s(platform == .tvOS ? 18 : 12))
+                        .fill(ImmersiveStagePalette.obsidian.opacity(0.72))
+                        .overlay(alignment: .top) {
+                            LinearGradient(
+                                colors: [.clear, palette.primary.opacity(0.86), .clear],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(height: max(1, metrics.f(platform == .tvOS ? 2 : 1)))
+                        }
+                }
+                .position(
+                    x: lyricCenterX,
+                    y: lyricCenterY
+                )
+                .environment(\.layoutDirection, lyricLayoutDirection)
             }
         }
     }
@@ -483,7 +592,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                 VStack(spacing: metrics.s(28)) {
                     radialArtwork(diameter: diameter)
                     titleBlock(size: metrics.s(43), weight: .semibold)
-                    formatAndLyric(fontSize: metrics.s(12))
+                    formatAndLyric(
+                        fontSize: metrics.s(12),
+                        availableWidth: metrics.size.width - horizontalInset * 2
+                    )
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalInset)
@@ -494,7 +606,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     radialArtwork(diameter: diameter)
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 94 : 60), weight: .semibold)
-                        formatAndLyric(fontSize: metrics.s(platform == .tvOS ? 23 : 14))
+                        formatAndLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 23 : 14),
+                            availableWidth: metrics.size.width * 0.38
+                        )
                     }
                     .frame(maxWidth: metrics.size.width * 0.38, alignment: .leading)
                 }
@@ -535,6 +650,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     )
                     titleBlock(size: metrics.s(42), weight: .semibold)
                     waveformPanel(height: metrics.s(72))
+                    singleLyric(fontSize: metrics.s(16))
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalInset)
@@ -549,6 +665,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     VStack(alignment: .leading, spacing: metrics.s(22)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
                         waveformPanel(height: metrics.s(platform == .tvOS ? 118 : 74))
+                        singleLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 27 : 17),
+                            availableWidth: metrics.size.width * 0.46
+                        )
                     }
                     .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
                 }
@@ -635,68 +755,242 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: diameter, height: diameter)
     }
 
-    @ViewBuilder
-    private func singleLyric(fontSize: CGFloat) -> some View {
-        let text = resolvedCurrentLyric
-        if !text.isEmpty {
-            Text(text)
-                .font(.system(size: fontSize, weight: .medium))
-                .foregroundStyle(ImmersiveStagePalette.ink.opacity(0.90))
-                .multilineTextAlignment(.leading)
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .id(lyricsMotionEnabled ? text : "static-lyric")
-                .transition(lyricsMotionEnabled ? .opacity.combined(with: .offset(y: 8)) : .identity)
-                .animation(.easeOut(duration: 0.26), value: text)
-                .environment(\.layoutDirection, lyricLayoutDirection)
-        }
+    private func singleLyric(
+        fontSize: CGFloat,
+        availableWidth: CGFloat? = nil
+    ) -> some View {
+        focusedLyrics(
+            alignment: .leading,
+            proposedCurrentFontSize: fontSize,
+            availableWidth: availableWidth
+        )
     }
 
-    private func threeLineLyrics(alignment: TextAlignment, fontSize: CGFloat) -> some View {
-        let lines = resolvedThreeLyrics
+    private func threeLineLyrics(
+        alignment: TextAlignment,
+        fontSize: CGFloat,
+        availableWidth: CGFloat? = nil
+    ) -> some View {
+        focusedLyrics(
+            alignment: alignment,
+            proposedCurrentFontSize: fontSize * 1.16,
+            availableWidth: availableWidth
+        )
+    }
+
+    private func focusedLyrics(
+        alignment: TextAlignment,
+        proposedCurrentFontSize: CGFloat,
+        availableWidth: CGFloat?
+    ) -> some View {
+        let lines = resolvedFocusLyrics
+        let width = max(
+            1,
+            availableWidth ?? (metrics.size.width - horizontalInset * 2)
+        )
+        let typography = ImmersiveLyricTypographyPolicy.metrics(
+            for: resolvedCurrentLyric,
+            canvasWidth: metrics.size.width,
+            canvasHeight: metrics.size.height,
+            availableWidth: width,
+            platform: lyricDisplayPlatform
+        )
+        let currentFontSize = max(proposedCurrentFontSize, CGFloat(typography.currentFontSize))
+        let adjacentFontSize = max(
+            CGFloat(typography.adjacentFontSize),
+            min(currentFontSize * 0.64, proposedCurrentFontSize)
+        )
         let resolvedAlignment: TextAlignment = lyricsWritingDirection == .rightToLeft
             ? .leading
             : alignment
-        return VStack(alignment: resolvedAlignment == .trailing ? .trailing : .leading, spacing: fontSize * 0.72) {
+        let frameAlignment: Alignment = resolvedAlignment == .trailing ? .trailing : .leading
+        let stackAlignment: HorizontalAlignment = resolvedAlignment == .trailing ? .trailing : .leading
+
+        return VStack(alignment: stackAlignment, spacing: CGFloat(typography.verticalSpacing)) {
             ForEach(lines) { line in
-                Text(line.text)
-                    .font(.system(size: line.isActive ? fontSize * 1.16 : fontSize, weight: line.isActive ? .semibold : .regular))
-                    .foregroundStyle(
-                        line.isActive
-                            ? ImmersiveStagePalette.ink.opacity(0.94)
-                            : ImmersiveStagePalette.text.opacity(0.38)
-                    )
-                    .multilineTextAlignment(resolvedAlignment)
-                    .lineLimit(2)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: resolvedAlignment == .trailing ? .trailing : .leading
-                    )
+                lyricLine(
+                    line,
+                    fontSize: line.isActive ? currentFontSize : adjacentFontSize,
+                    lineLimit: line.isActive
+                        ? typography.currentLineLimit
+                        : typography.adjacentLineLimit,
+                    textAlignment: resolvedAlignment
+                )
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
         }
+        .frame(maxWidth: width, alignment: frameAlignment)
+        .animation(
+            .easeOut(duration: lyricsMotionEnabled && !reduceMotion ? 0.28 : 0.01),
+            value: resolvedCurrentLyric
+        )
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
-    private var resolvedCurrentLyric: String {
-        if let active = lyricWindow.first(where: \.isActive)?.text,
-           !active.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    @ViewBuilder
+    private func lyricLine(
+        _ line: ImmersiveStageLyric,
+        fontSize: CGFloat,
+        lineLimit: Int,
+        textAlignment: TextAlignment
+    ) -> some View {
+        if line.isActive, line.syllables != nil || hasLineTiming(line) {
+            TimelineView(.animation(
+                minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                paused: !playbackClockIsActive
+            )) { _ in
+                activeLyricText(
+                    line,
+                    fontSize: fontSize,
+                    lineLimit: lineLimit,
+                    textAlignment: textAlignment,
+                    progress: activeLyricProgress(
+                        for: line,
+                        at: playbackTime?() ?? track.elapsed
+                    )
+                )
+            }
+        } else if line.isActive {
+            activeLyricText(
+                line,
+                fontSize: fontSize,
+                lineLimit: lineLimit,
+                textAlignment: textAlignment,
+                progress: line.fillProgress ?? 1
+            )
+        } else {
+            Text(line.text)
+                .font(.system(
+                    size: fontSize,
+                    weight: line.offset < 0 ? .regular : .medium
+                ))
+                .foregroundStyle(
+                    ImmersiveStagePalette.text.opacity(line.offset < 0 ? 0.30 : 0.56)
+                )
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(lineLimit)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func hasLineTiming(_ line: ImmersiveStageLyric) -> Bool {
+        guard let start = line.startTime, let end = line.endTime else { return false }
+        return start.isFinite && end.isFinite && end > start
+    }
+
+    private func activeLyricProgress(
+        for line: ImmersiveStageLyric,
+        at playbackTime: TimeInterval
+    ) -> Double {
+        if let fillProgress = line.fillProgress { return fillProgress }
+        if let syllables = line.syllables {
+            return ImmersiveLyricHighlightProgressPolicy.progress(
+                in: syllables,
+                at: playbackTime
+            )
+        }
+        guard let start = line.startTime, let end = line.endTime else { return 1 }
+        return ImmersiveLyricHighlightProgressPolicy.progress(
+            from: start,
+            to: end,
+            at: playbackTime
+        )
+    }
+
+    private func activeLyricText(
+        _ line: ImmersiveStageLyric,
+        fontSize: CGFloat,
+        lineLimit: Int,
+        textAlignment: TextAlignment,
+        progress: Double
+    ) -> some View {
+        let clampedProgress = min(1, max(0, progress))
+        let text = Text(line.text)
+            .font(.system(size: fontSize, weight: .bold))
+            .multilineTextAlignment(textAlignment)
+            .lineLimit(lineLimit)
+            .minimumScaleFactor(0.72)
+            .fixedSize(horizontal: false, vertical: true)
+
+        return text
+            .foregroundStyle(ImmersiveStagePalette.ink.opacity(0.64))
+            .overlay {
+                text
+                    .foregroundStyle(LinearGradient(
+                        colors: [ImmersiveStagePalette.ink, palette.primary, ImmersiveStagePalette.ink],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ))
+                    .mask {
+                        GeometryReader { geometry in
+                            HStack(spacing: 0) {
+                                if lyricsWritingDirection == .rightToLeft {
+                                    Spacer(minLength: 0)
+                                }
+                                Rectangle()
+                                    .frame(width: geometry.size.width * clampedProgress)
+                                if lyricsWritingDirection != .rightToLeft {
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                        }
+                    }
+            }
+            .shadow(color: palette.primary.opacity(0.34), radius: max(2, fontSize * 0.10))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: PMString(
+                "immersive_current_lyric_accessibility",
+                line.text
+            )))
+    }
+
+    private var resolvedCurrentStageLyric: ImmersiveStageLyric? {
+        guard !lyricInterlude else { return nil }
+        if let active = lyricWindow.first(where: \.isActive),
+           !active.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return active
         }
         if let currentLyric,
            !currentLyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return currentLyric
+            return ImmersiveStageLyric(
+                id: Int.min + 1,
+                text: currentLyric,
+                isActive: true,
+                offset: 0,
+                fillProgress: 1
+            )
         }
-        return lyricInterlude ? "" : lyricsPlaceholder
+        let placeholder = lyricsPlaceholder.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !placeholder.isEmpty else { return nil }
+        return ImmersiveStageLyric(
+            id: Int.min,
+            text: placeholder,
+            isActive: true,
+            offset: 0,
+            fillProgress: 1
+        )
     }
 
-    private var resolvedThreeLyrics: [ImmersiveStageLyric] {
-        let lines = lyricWindow
-            .filter { (-1...1).contains($0.offset) }
+    private var resolvedCurrentLyric: String {
+        resolvedCurrentStageLyric?.text ?? ""
+    }
+
+    private var resolvedFocusLyrics: [ImmersiveStageLyric] {
+        guard let current = resolvedCurrentStageLyric else { return [] }
+        let currentKey = ImmersiveTypographyFieldPolicy.normalizedKey(current.text)
+        var seen = Set([currentKey])
+        let candidates = lyricWindow
+            .filter { !$0.isActive && (-1...1).contains($0.offset) }
             .sorted { $0.offset < $1.offset }
-        if !lines.isEmpty { return lines }
-        guard !resolvedCurrentLyric.isEmpty else { return [] }
-        return [ImmersiveStageLyric(id: 0, text: resolvedCurrentLyric, isActive: true, offset: 0)]
+            .filter { line in
+                let key = ImmersiveTypographyFieldPolicy.normalizedKey(line.text)
+                return !key.isEmpty && seen.insert(key).inserted
+            }
+        let previous = candidates.last { $0.offset < 0 }
+        let next = candidates.first { $0.offset > 0 }
+        return [previous, current, next].compactMap { $0 }
     }
 
     private var persistentOverlay: some View {
@@ -1095,175 +1389,158 @@ private struct ImmersiveFlowingContourField: View {
     }
 }
 
-private struct ImmersivePlaylistTitleWall: View {
-    let titles: [String]
-    let currentTitle: String
+private struct ImmersiveLyricsTypographyField: View {
+    let lines: [String]
+    let currentLyric: String?
+    let title: String
+    let canvasSize: CGSize
+    let platform: ImmersiveLyricDisplayPlatform
     let tint: Color
     let isAnimating: Bool
-    let baseFontSize: CGFloat
-    let minimumRows: Int
+    let reduceMotion: Bool
 
-    private let sizePattern: [CGFloat] = [0.82, 0.96, 1.08, 0.88, 1.00, 0.78, 1.12]
+    @State private var cachedLayout: [ImmersiveTypographyFieldItem] = []
+    @State private var cachedLayoutKey = ""
+
+    private var cacheKey: String {
+        "\(platform.rawValue)|\(Int(canvasSize.width))x\(Int(canvasSize.height))|\(reduceMotion)|\(lines.joined(separator: "\u{1F}"))"
+    }
+
+    private var layout: [ImmersiveTypographyFieldItem] {
+        if cachedLayoutKey == cacheKey { return cachedLayout }
+        return ImmersiveTypographyFieldPolicy.layout(
+            lines: lines,
+            canvasWidth: canvasSize.width,
+            canvasHeight: canvasSize.height,
+            platform: platform,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    private var baseFontSize: CGFloat {
+        let reference: CGSize
+        let base: CGFloat
+        switch platform {
+        case .handheld:
+            reference = CGSize(width: 393, height: 852)
+            base = 38
+        case .desktop:
+            reference = CGSize(width: 1728, height: 1080)
+            base = 56
+        case .television:
+            reference = CGSize(width: 1920, height: 1080)
+            base = 72
+        }
+        let scale = min(canvasSize.width / reference.width, canvasSize.height / reference.height)
+        return base * min(1.35, max(platform == .handheld ? 0.78 : 0.52, scale))
+    }
 
     var body: some View {
-        let source = preparedTitles
-        let activeTitle = normalized(currentTitle).isEmpty ? ImmersiveDemoContent.title : normalized(currentTitle)
-        let activeKey = activeTitle.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        let activeIndex = source.firstIndex {
-            $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == activeKey
-        } ?? 0
-        TimelineView(.animation(minimumInterval: 1 / 12, paused: !isAnimating)) { context in
+        let foregroundKey = ImmersiveTypographyFieldPolicy.normalizedKey(currentLyric ?? "")
+        let titleKey = ImmersiveTypographyFieldPolicy.normalizedKey(title)
+        let items = layout
+        TimelineView(.animation(minimumInterval: 0.20, paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            GeometryReader { geometry in
-                let rowCount = visibleRowCount(for: geometry.size.height)
-                let solidRow = min(max(Int(Double(rowCount) * 0.46), 2), max(rowCount - 3, 2))
+            ZStack {
+                ForEach(items) { item in
+                    let isForegroundText = item.normalizedTextKey == foregroundKey
+                        || item.normalizedTextKey == titleKey
+                    let fontSize = baseFontSize * CGFloat(item.fontScale)
+                    let pulse = 0.94 + sin(time / 7.5 + item.phase) * 0.06
+                    let x = canvasSize.width * CGFloat(item.normalizedX)
+                        + sin(time / (24 + Double(item.id % 4) * 3.5) + item.phase)
+                            * canvasSize.width * CGFloat(item.driftXFraction)
+                    let y = canvasSize.height * CGFloat(item.normalizedY)
+                        + cos(time / (29 + Double(item.id % 3) * 4.0) + item.phase)
+                            * canvasSize.height * CGFloat(item.driftYFraction)
 
-                ZStack {
-                    ForEach(0..<rowCount, id: \.self) { index in
-                        let isCurrent = index == solidRow
-                        let rowFont = baseFontSize * (isCurrent ? 1.08 : sizePattern[index % sizePattern.count])
-                        let phase = time / (26 + Double(index % 5) * 4.2) * 2 * .pi + Double(index) * 0.83
-                        let direction: CGFloat = index.isMultiple(of: 2) ? 1 : -1
-                        let drift = isCurrent
-                            ? CGFloat(sin(phase * 0.42)) * geometry.size.width * 0.012
-                            : direction * geometry.size.width * 0.025
-                                + CGFloat(sin(phase)) * geometry.size.width * 0.035
-                        let scale = isCurrent ? 1.0 : 0.985 + CGFloat(sin(phase * 0.58)) * 0.018
-                        let y = geometry.size.height * (CGFloat(index) + 0.5) / CGFloat(rowCount)
-
-                        ImmersiveTypeWall(
-                            title: title(
-                                for: index,
-                                solidRow: solidRow,
-                                source: source,
-                                activeTitle: activeTitle,
-                                activeIndex: activeIndex
-                            ),
-                            fontSize: rowFont,
-                            rowCount: 1,
-                            solidRow: isCurrent ? 0 : -1,
-                            lineWidth: max(0.75, rowFont * 0.012),
-                            tint: tint,
-                            outlineOpacity: 0.25 + Double(index % 4) * 0.035,
-                            fillsSolidRow: isCurrent
-                        )
-                        .frame(width: geometry.size.width * 1.18, height: rowFont * 1.08)
-                        .scaleEffect(scale)
-                        .position(x: geometry.size.width / 2 + drift, y: y)
-                        .opacity(isCurrent ? 0.98 : 0.76)
-                    }
+                    ImmersiveFieldText(
+                        text: item.text,
+                        fontSize: fontSize,
+                        outlined: item.isOutlined,
+                        tint: tint,
+                        lineWidth: max(0.8, fontSize * 0.014)
+                    )
+                    .frame(
+                        width: canvasSize.width * CGFloat(item.widthFraction),
+                        height: fontSize * 1.28
+                    )
+                    .rotationEffect(.degrees(item.rotationDegrees))
+                    .blur(radius: CGFloat(item.blurRadius))
+                    .opacity(isForegroundText ? 0 : item.opacity * pulse)
+                    .position(x: x, y: y)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
             }
+            .frame(width: canvasSize.width, height: canvasSize.height)
+            .clipped()
+        }
+        .task(id: cacheKey) {
+            let updatedLayout = ImmersiveTypographyFieldPolicy.layout(
+                lines: lines,
+                canvasWidth: canvasSize.width,
+                canvasHeight: canvasSize.height,
+                platform: platform,
+                reduceMotion: reduceMotion
+            )
+            cachedLayout = updatedLayout
+            cachedLayoutKey = cacheKey
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
-
-    private var preparedTitles: [String] {
-        let fallback = normalized(currentTitle).isEmpty ? ImmersiveDemoContent.title : normalized(currentTitle)
-        var seen: Set<String> = []
-        var result: [String] = []
-
-        for value in titles + [fallback] {
-            let title = normalized(value)
-            guard !title.isEmpty else { continue }
-            let key = title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            if seen.insert(key).inserted { result.append(title) }
-        }
-        return result.isEmpty ? [fallback] : result
-    }
-
-    private func visibleRowCount(for height: CGFloat) -> Int {
-        let rowHeight = max(baseFontSize * 0.90, 30)
-        return max(minimumRows, Int(ceil(height / rowHeight)) + 2)
-    }
-
-    private func title(
-        for row: Int,
-        solidRow: Int,
-        source: [String],
-        activeTitle: String,
-        activeIndex: Int
-    ) -> String {
-        guard row != solidRow, !source.isEmpty else { return activeTitle }
-        let rawIndex = activeIndex + row - solidRow
-        let wrapped = (rawIndex % source.count + source.count) % source.count
-        return source[wrapped]
-    }
-
-    private func normalized(_ value: String) -> String {
-        value
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
-private struct ImmersiveCrossingLyricRibbon: View {
+private struct ImmersiveFieldText: View {
     let text: String
     let fontSize: CGFloat
+    let outlined: Bool
     let tint: Color
-    let isAnimating: Bool
-    let writingDirection: LyricWritingDirection
+    let lineWidth: CGFloat
 
-    private var directionallyIsolatedText: String {
-        switch writingDirection {
-        case .natural:
-            text
-        case .leftToRight:
-            "\u{2066}\(text)\u{2069}"
-        case .rightToLeft:
-            "\u{2067}\(text)\u{2069}"
-        }
+    @State private var glyphs: ImmersiveGlyphLine?
+
+    private var cacheKey: String {
+        "\(text)#\(Int(fontSize))#\(outlined)"
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
-            ZStack {
-                ImmersiveStagePalette.obsidian.opacity(0.82)
+        GeometryReader { geometry in
+            if outlined, let glyphs {
                 Canvas(rendersAsynchronously: true) { canvas, size in
-                    let content = Text(verbatim: "\(directionallyIsolatedText)   ·   ")
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .tracking(fontSize * 0.018)
-                        .foregroundStyle(ImmersiveStagePalette.ink)
-                    let resolved = canvas.resolve(content)
-                    let measured = resolved.measure(in: CGSize(width: 100_000, height: size.height))
-                    let cycle = max(measured.width, fontSize * 4)
-                    let centerY = size.height / 2
-
-                    if isAnimating {
-                        let distance = CGFloat(context.date.timeIntervalSinceReferenceDate) * fontSize * 0.46
-                        var x = -(distance.truncatingRemainder(dividingBy: cycle)) - cycle
-                        while x < size.width + cycle {
-                            canvas.draw(resolved, at: CGPoint(x: x, y: centerY), anchor: .leading)
-                            x += cycle
-                        }
-                    } else {
-                        let x = max(fontSize, (size.width - measured.width) / 2)
-                        canvas.draw(resolved, at: CGPoint(x: x, y: centerY), anchor: .leading)
-                    }
-                }
-            }
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(LinearGradient(
-                        colors: [.clear, tint.opacity(0.72), .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
+                    let scale = min(
+                        1,
+                        min(
+                            size.width / max(glyphs.size.width, 1),
+                            size.height / max(glyphs.size.height, 1)
+                        )
+                    )
+                    let scaled = glyphs.path.applying(
+                        CGAffineTransform(scaleX: scale, y: scale)
+                    )
+                    let translated = scaled.applying(CGAffineTransform(
+                        translationX: (size.width - glyphs.size.width * scale) / 2,
+                        y: (size.height - glyphs.size.height * scale) / 2
                     ))
-                    .frame(height: 1)
-            }
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(ImmersiveStagePalette.text.opacity(0.12))
-                    .frame(height: 1)
+                    canvas.stroke(
+                        translated,
+                        with: .color(tint),
+                        lineWidth: lineWidth
+                    )
+                }
+            } else {
+                Text(text)
+                    .font(.system(size: fontSize, weight: outlined ? .medium : .semibold))
+                    .foregroundStyle(outlined ? tint.opacity(0.46) : ImmersiveStagePalette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.48)
+                    .allowsTightening(true)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
             }
         }
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(text))
+        .task(id: cacheKey) {
+            glyphs = outlined ? ImmersiveGlyphLine.make(text: text, fontSize: fontSize) : nil
+        }
+        .accessibilityHidden(true)
     }
 }
 

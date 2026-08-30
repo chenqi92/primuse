@@ -285,6 +285,10 @@ struct TVRoot: View {
 
     #if DEBUG
     private func waitForDemoContent(requireAlbum: Bool = false) async {
+        if TVDebugLaunch.screen == "immersivePlayer",
+           ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"] != nil {
+            return
+        }
         var tries = 0
         while (requireAlbum ? store.albums.isEmpty : store.songs.isEmpty) && tries < 25 {
             try? await Task.sleep(nanoseconds: 200_000_000)

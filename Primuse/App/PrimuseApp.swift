@@ -353,6 +353,8 @@ enum PrimuseNowPlayingExpansion {
 
 private enum MacScreenshotWindowPreset {
     private static let argumentPrefix = "--primuse-screenshot-window="
+    private static let fullScreenArgument = "--primuse-screenshot-fullscreen"
+    @MainActor private static var didRequestFullScreen = false
 
     private static var requestedSize: NSSize? {
         ProcessInfo.processInfo.arguments.compactMap { argument -> NSSize? in
@@ -370,13 +372,28 @@ private enum MacScreenshotWindowPreset {
         }.first
     }
 
+    private static var requestsFullScreen: Bool {
+        ProcessInfo.processInfo.arguments.contains(fullScreenArgument)
+    }
+
     @MainActor
     static func applyIfRequested() {
-        guard let size = requestedSize else { return }
+        guard requestedSize != nil || requestsFullScreen else { return }
         Task { @MainActor in
-            for _ in 0..<80 {
+            for attempt in 0..<80 {
                 if let window = mainWindowCandidate() {
-                    apply(size: size, to: window)
+                    if requestsFullScreen {
+                        if !didRequestFullScreen, attempt >= 10 {
+                            if let size = requestedSize { apply(size: size, to: window) }
+                            didRequestFullScreen = true
+                            if !window.styleMask.contains(.fullScreen) {
+                                window.collectionBehavior.insert(.fullScreenPrimary)
+                                window.toggleFullScreen(nil)
+                            }
+                        }
+                    } else if let size = requestedSize {
+                        apply(size: size, to: window)
+                    }
                 }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
@@ -1070,8 +1087,23 @@ struct PrimuseApp: App {
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
             .automaticAppReviewPrompt()
         #else
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveTypography" {
+            MacImmersivePlayerView(
+                lyrics: ImmersiveDemoContent.evidenceLyrics,
+                onExitFullScreen: {},
+                onToggleQueue: {},
+                usesDemoEvidenceContent: true,
+                debugEffectOverride: .kineticTitle
+            )
+        } else {
+            MacContentView()
+                .automaticAppReviewPrompt()
+        }
+        #else
         MacContentView()
             .automaticAppReviewPrompt()
+        #endif
         #endif
     }
 

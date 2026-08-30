@@ -94,7 +94,21 @@ struct TVSource: Identifiable, Hashable {
     func hash(into h: inout Hasher) { h.combine(id) }
 }
 
-struct TVSyllable: Hashable { let w: String; let d: Double }
+struct TVSyllable: Hashable {
+    let w: String
+    let d: Double
+    let endTiming: LyricSyllableEndTiming
+
+    init(
+        w: String,
+        d: Double,
+        endTiming: LyricSyllableEndTiming = .legacy
+    ) {
+        self.w = w
+        self.d = d
+        self.endTiming = endTiming
+    }
+}
 
 struct TVLyricLine: Identifiable, Hashable {
     let id: String
@@ -955,6 +969,7 @@ final class TVStore {
     /// `preferSongArtwork` 用来专门覆盖无 albumID 散曲的歌曲缓存/远程封面路径。
     @discardableResult
     func loadDemoNowPlaying(preferSongArtwork: Bool = false) async -> Bool {
+        let usesImmersiveEvidence = ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"] != nil
         var rawSong: Song?
         var selectedAlbum: TVAlbum?
 
@@ -975,6 +990,32 @@ final class TVStore {
         if rawSong == nil {
             rawSong = library.visibleSongs.first
         }
+        if rawSong == nil, usesImmersiveEvidence {
+            let fallback = Self.tint("immersive-evidence")
+            nowPlaying = TVNowPlaying(
+                songID: "immersive-evidence",
+                coverRef: nil,
+                title: ImmersiveDemoContent.title,
+                artist: ImmersiveDemoContent.artist,
+                album: ImmersiveDemoContent.album,
+                albumID: "",
+                tint: fallback.0,
+                tint2: fallback.1,
+                glyph: "♪",
+                duration: Double(Self.immersiveEvidenceLyrics.count + 1) * 4,
+                currentTime: 0,
+                format: "FLAC",
+                bitrate: 1411,
+                sampleRate: 96,
+                sourcePath: ""
+            )
+            updateAutomaticThemePalette(nil)
+            playbackIssue = nil
+            hasNowPlaying = true
+            queueUpNextIDs = []
+            lyrics = Self.immersiveEvidenceLyrics
+            return true
+        }
         guard let rawSong, let song = song(rawSong.id) else { return false }
 
         let album = selectedAlbum ?? album(song.albumID)
@@ -988,9 +1029,11 @@ final class TVStore {
         nowPlaying = TVNowPlaying(
             songID: song.id,
             coverRef: rawSong.coverArtFileName,
-            title: song.title,
-            artist: song.artist,
-            album: album?.title ?? rawSong.albumTitle ?? "",
+            title: usesImmersiveEvidence ? ImmersiveDemoContent.title : song.title,
+            artist: usesImmersiveEvidence ? ImmersiveDemoContent.artist : song.artist,
+            album: usesImmersiveEvidence
+                ? ImmersiveDemoContent.album
+                : (album?.title ?? rawSong.albumTitle ?? ""),
             albumID: song.albumID,
             tint: tint, tint2: tint2, glyph: album?.glyph ?? Self.glyph(song.title),
             duration: song.duration > 0 ? song.duration : 245,
@@ -1005,7 +1048,7 @@ final class TVStore {
             .filter { $0.id != song.id }
             .prefix(12)
             .map(\.id)
-        lyrics = Self.demoLyrics
+        lyrics = usesImmersiveEvidence ? Self.immersiveEvidenceLyrics : Self.demoLyrics
         return true
     }
 
@@ -1034,6 +1077,27 @@ final class TVStore {
         .init(time: 29, text: PMString("ext.tv.demo.lyric7"), syllables: [], translation: ""),
         .init(time: 34, text: PMString("ext.tv.demo.lyric8"), syllables: [], translation: ""),
     ]
+
+    static let immersiveEvidenceLyrics: [TVLyricLine] = ImmersiveDemoContent.lyrics
+        .enumerated()
+        .map { index, text in
+            let syllables: [TVSyllable]
+            if index == 1 {
+                let characters = text.map(String.init)
+                let duration = 4 / Double(max(characters.count, 1))
+                syllables = characters.map { TVSyllable(w: $0, d: duration, endTiming: .explicit) }
+            } else {
+                syllables = []
+            }
+            return TVLyricLine(
+                id: "immersive-evidence-\(index)",
+                time: Double(index) * 4,
+                text: text,
+                isSynchronized: true,
+                syllables: syllables,
+                translation: ""
+            )
+        }
     #endif
 
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。

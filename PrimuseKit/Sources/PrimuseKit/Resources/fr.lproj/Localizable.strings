@@ -615,8 +615,9 @@
 "fullscreen_effect_light_rhythm_subtitle" = "Une lumière aux couleurs de la pochette respire derrière la parole";
 "fullscreen_effect_light_rhythm_motion" = "Lumière en couches · Respiration lente";
 "fullscreen_effect_kinetic_title" = "Mur de titres";
-"fullscreen_effect_kinetic_title_subtitle" = "Les titres de la file forment un mur de contours ; le morceau actuel est plein et les paroles traversent l’écran";
-"fullscreen_effect_kinetic_title_motion" = "Dérive lente des titres décalés · bandeau horizontal de paroles";
+"fullscreen_effect_kinetic_title_subtitle" = "Le titre et les paroles actuelles restent uniques tandis que les autres lignes composent un champ en profondeur";
+"fullscreen_effect_kinetic_title_motion" = "Dérive lente des paroles en arrière-plan · surbrillance de la ligne actuelle synchronisée";
+"immersive_current_lyric_accessibility" = "Paroles actuelles : %@";
 "fullscreen_effect_radial_pulse" = "Pulsation radiale";
 "fullscreen_effect_radial_pulse_subtitle" = "L’anneau du disque tourne et réagit au son réel";
 "fullscreen_effect_radial_pulse_motion" = "Spectre en direct · Disque rotatif";

@@ -615,8 +615,9 @@
 "fullscreen_effect_light_rhythm_subtitle" = "アートワーク色の光と現在の歌詞がゆっくり呼吸します";
 "fullscreen_effect_light_rhythm_motion" = "重なるカバー色の光 · ゆっくり呼吸";
 "fullscreen_effect_kinetic_title" = "曲名ウォール";
-"fullscreen_effect_kinetic_title_subtitle" = "再生キューの曲名がアウトラインの壁を作り、現在の曲は塗りで表示され、歌詞が画面を横切ります";
-"fullscreen_effect_kinetic_title_motion" = "曲名の緩やかなずれ · 横方向の歌詞マーキー";
+"fullscreen_effect_kinetic_title_subtitle" = "曲名と現在の歌詞は一度だけ表示され、ほかの歌詞が奥行きのある文字フィールドを作ります";
+"fullscreen_effect_kinetic_title_motion" = "背景歌詞の緩やかな移動 · 再生位置に同期した現在行のハイライト";
+"immersive_current_lyric_accessibility" = "現在の歌詞：%@";
 "fullscreen_effect_radial_pulse" = "ラジアルパルス";
 "fullscreen_effect_radial_pulse_subtitle" = "回転するレコードの外周が実際の音声に反応します";
 "fullscreen_effect_radial_pulse_motion" = "ライブスペクトラム · 回転するレコード";
