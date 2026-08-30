@@ -873,11 +873,15 @@ struct AISettingsView: View {
                     )
                 }
             } else {
-                connectionSummary
+                if !usesCompactMobileLayout {
+                    connectionSummary
+                }
                 primuseRelaySection
                 capabilitySection
                 providerListSection
-                providerDetailLinkSection
+                if !usesCompactMobileLayout {
+                    providerDetailLinkSection
+                }
                 privacySection
             }
         }
@@ -936,49 +940,56 @@ struct AISettingsView: View {
     private var primuseRelaySection: some View {
         Section {
             Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
-            Button {
-                Task { await editor.testPrimuseRelayConnection(using: intelligence) }
-            } label: {
-                HStack(spacing: 8) {
-                    if editor.isTestingPrimuseRelay {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "network")
-                    }
-                    Text("ai_primuse_relay_test_connection")
-                }
-            }
-            .disabled(!editor.canTestPrimuseRelayConnection)
 
-            if editor.primuseRelayConnectionPresentation != .notTested {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: primuseRelayConnectionIcon)
-                        .foregroundStyle(primuseRelayConnectionColor)
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: editor.primuseRelayConnectionTitle)
-                            .font(.subheadline.weight(.semibold))
-                        if let detail = editor.primuseRelayConnectionDetail {
-                            Text(verbatim: detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+            if !usesCompactMobileLayout || editor.primuseRelayEnabled {
+                Button {
+                    Task { await editor.testPrimuseRelayConnection(using: intelligence) }
+                } label: {
+                    HStack(spacing: 8) {
+                        if editor.isTestingPrimuseRelay {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "network")
+                        }
+                        Text("ai_primuse_relay_test_connection")
+                    }
+                }
+                .disabled(!editor.canTestPrimuseRelayConnection)
+
+                if editor.primuseRelayConnectionPresentation != .notTested {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: primuseRelayConnectionIcon)
+                            .foregroundStyle(primuseRelayConnectionColor)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: editor.primuseRelayConnectionTitle)
+                                .font(.subheadline.weight(.semibold))
+                            if let detail = editor.primuseRelayConnectionDetail {
+                                Text(verbatim: detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
+                    .accessibilityElement(children: .combine)
                 }
-                .accessibilityElement(children: .combine)
-            }
-            if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-                Label(
-                    "ai_primuse_relay_unsupported",
-                    systemImage: "exclamationmark.shield"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    Label(
+                        "ai_primuse_relay_unsupported",
+                        systemImage: "exclamationmark.shield"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
         } header: {
-            Text("ai_primuse_relay_section")
+            if !usesCompactMobileLayout {
+                Text("ai_primuse_relay_section")
+            }
         } footer: {
-            Text("ai_primuse_relay_footer")
+            if !usesCompactMobileLayout {
+                Text("ai_primuse_relay_footer")
+            }
         }
     }
 
@@ -992,6 +1003,10 @@ struct AISettingsView: View {
                 "ai_enable_recommendations",
                 isOn: editor.recommendationsBinding
             )
+        } header: {
+            if usesCompactMobileLayout {
+                Text("ai_capability_section")
+            }
         }
     }
 
@@ -1013,10 +1028,12 @@ struct AISettingsView: View {
                                      ? String(localized: "ai_provider_default_name")
                                      : provider.displayName)
                                     .foregroundStyle(.primary)
-                                Text(provider.baseURL)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                if !usesCompactMobileLayout {
+                                    Text(provider.baseURL)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
                         }
                     }
@@ -1077,27 +1094,43 @@ struct AISettingsView: View {
                     }
                 }
             }
+
+            if usesCompactMobileLayout {
+                providerDetailNavigationLink
+            }
         } header: {
             Text("ai_provider_list_section")
         } footer: {
-            Text("ai_fallback_footer")
+            if !usesCompactMobileLayout {
+                Text("ai_fallback_footer")
+            }
         }
     }
 
     private var providerDetailLinkSection: some View {
         Section {
-            NavigationLink {
-                Form {
-                    providerSection
-                    modelSection
-                    providerPrivacySection
-                    actionSection
-                }
-                .navigationTitle("ai_provider_detail_section")
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-            } label: {
+            providerDetailNavigationLink
+        }
+    }
+
+    private var providerDetailNavigationLink: some View {
+        NavigationLink {
+            Form {
+                providerSection
+                modelSection
+                providerPrivacySection
+                actionSection
+            }
+            .navigationTitle(usesCompactMobileLayout
+                             ? String(localized: "ai_provider_actions")
+                             : String(localized: "ai_provider_detail_section"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        } label: {
+            if usesCompactMobileLayout {
+                Label("ai_provider_actions", systemImage: "slider.horizontal.3")
+            } else {
                 LabeledContent {
                     Text(editor.draftConfiguration.displayName.isEmpty
                          ? String(localized: "ai_provider_default_name")
@@ -1167,7 +1200,13 @@ struct AISettingsView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text(editor.providerFooterText)
+            if usesCompactMobileLayout {
+                if editor.usesOpenAIPlatformAPI {
+                    Text("ai_openai_platform_billing_footer")
+                }
+            } else {
+                Text(editor.providerFooterText)
+            }
         }
     }
 
@@ -1219,7 +1258,9 @@ struct AISettingsView: View {
         } header: {
             Text("ai_privacy_section")
         } footer: {
-            Text("ai_privacy_footer")
+            if !usesCompactMobileLayout {
+                Text("ai_privacy_footer")
+            }
         }
     }
 
@@ -1256,8 +1297,18 @@ struct AISettingsView: View {
 
             statusView(onlyModelStatus: false)
         } footer: {
-            Text("ai_key_sync_footer")
+            if !usesCompactMobileLayout {
+                Text("ai_key_sync_footer")
+            }
         }
+    }
+
+    private var usesCompactMobileLayout: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
     }
 
     @ViewBuilder
