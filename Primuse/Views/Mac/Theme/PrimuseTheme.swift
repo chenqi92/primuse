@@ -505,54 +505,76 @@ extension View {
 
 // MARK: - Window chrome
 
-/// Small AppKit bridge that makes the title bar transparent and extends content
-/// through it while leaving AppKit's standard window controls in charge.
+/// Keeps AppKit chrome synchronized with Primuse's custom title bar while
+/// leaving the standard window controls in charge of native macOS behavior.
+@MainActor
 struct PMWindowChromeConfigurator: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        let coordinator = context.coordinator
-        DispatchQueue.main.async {
-            Self.configure(window: view.window, coordinator: coordinator)
-        }
+    func makeNSView(context: Context) -> PMWindowChromeHostView {
+        let view = PMWindowChromeHostView(frame: .zero)
+        bind(view, to: context.coordinator)
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        let coordinator = context.coordinator
-        DispatchQueue.main.async {
-            Self.configure(window: nsView.window, coordinator: coordinator)
+    func updateNSView(_ nsView: PMWindowChromeHostView, context: Context) {
+        bind(nsView, to: context.coordinator)
+        context.coordinator.attach(to: nsView.window)
+    }
+
+    private func bind(_ view: PMWindowChromeHostView, to coordinator: Coordinator) {
+        view.windowDidChange = { [weak coordinator] window in
+            coordinator?.attach(to: window)
         }
     }
 
-    private static func configure(window: NSWindow?, coordinator: Coordinator) {
-        guard let window else { return }
-        window.styleMask.formUnion([
-            .titled,
-            .closable,
-            .miniaturizable,
-            .resizable,
-            .fullSizeContentView,
-        ])
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
-        suppressInjectedToolbar(in: window)
-        window.backgroundColor = .clear
+    private static let requiredStyleMask: NSWindow.StyleMask = [
+        .titled,
+        .closable,
+        .miniaturizable,
+        .resizable,
+        .fullSizeContentView,
+    ]
 
-        coordinator.observe(window: window)
-        revealStandardWindowButtonContainer(in: window)
-        // AppKit applies the hidden-title layout after these properties change.
-        // Run once more on the next main-loop turn so SwiftUI cannot leave the
-        // title-bar container present but fully transparent.
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
-            suppressInjectedToolbar(in: window)
-            revealStandardWindowButtonContainer(in: window)
+    private static func needsRepair(in window: NSWindow) -> Bool {
+        if !requiredStyleMask.subtracting(window.styleMask).isEmpty
+            || window.titleVisibility != .hidden
+            || !window.titlebarAppearsTransparent
+            || window.isMovableByWindowBackground
+            || window.toolbar != nil
+            || window.backgroundColor.alphaComponent > 0.001 {
+            return true
         }
+
+        guard !window.styleMask.contains(.fullScreen) else { return false }
+        return standardWindowButtonContainerNeedsRepair(in: window)
+            || PMStandardWindowButtonAlignment.needsAlignment(in: window)
+    }
+
+    private static func repair(window: NSWindow) {
+        let missingStyle = requiredStyleMask.subtracting(window.styleMask)
+        if !missingStyle.isEmpty {
+            window.styleMask.formUnion(missingStyle)
+        }
+        if window.titleVisibility != .hidden {
+            window.titleVisibility = .hidden
+        }
+        if !window.titlebarAppearsTransparent {
+            window.titlebarAppearsTransparent = true
+        }
+        if window.isMovableByWindowBackground {
+            window.isMovableByWindowBackground = false
+        }
+        suppressInjectedToolbar(in: window)
+        if window.backgroundColor.alphaComponent > 0.001 {
+            window.backgroundColor = .clear
+        }
+
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        revealStandardWindowButtonContainer(in: window)
+        PMStandardWindowButtonAlignment.align(in: window)
     }
 
     /// A macOS NavigationStack may install its history control after the host
@@ -564,9 +586,31 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         window.toolbar = nil
     }
 
+    private static func standardWindowButtonContainerNeedsRepair(in window: NSWindow) -> Bool {
+        guard let frameView = window.contentView?.superview,
+              let closeButton = window.standardWindowButton(.closeButton)
+        else { return false }
+
+        if [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].contains(where: { window.standardWindowButton($0)?.isHidden == true }) {
+            return true
+        }
+
+        var ancestor = closeButton.superview
+        while let view = ancestor, view !== frameView {
+            if view.isHidden || view.alphaValue <= 0.001 {
+                return true
+            }
+            ancestor = view.superview
+        }
+        return false
+    }
+
     private static func revealStandardWindowButtonContainer(in window: NSWindow) {
-        guard !window.styleMask.contains(.fullScreen),
-              let frameView = window.contentView?.superview,
+        guard let frameView = window.contentView?.superview,
               let closeButton = window.standardWindowButton(.closeButton)
         else { return }
 
@@ -596,28 +640,219 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         private weak var window: NSWindow?
+        private var repairScheduled = false
+        private var repairGeneration = 0
+        private var isApplyingRepair = false
+        private var isFullScreenTransitioning = false
 
-        func observe(window: NSWindow) {
-            guard self.window !== window else { return }
-            NotificationCenter.default.removeObserver(self)
-            self.window = window
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(windowDidUpdate(_:)),
-                name: NSWindow.didUpdateNotification,
-                object: window
-            )
+        func attach(to window: NSWindow?) {
+            guard let window else {
+                stopObserving()
+                return
+            }
+
+            if self.window !== window {
+                stopObserving()
+                self.window = window
+                observeNotifications(from: window)
+                requestRepair(force: true)
+            } else if !isApplyingRepair,
+                      PMWindowChromeConfigurator.needsRepair(in: window) {
+                requestRepair()
+            }
         }
 
-        @objc private func windowDidUpdate(_ notification: Notification) {
-            guard let window else { return }
-            PMWindowChromeConfigurator.suppressInjectedToolbar(in: window)
-            PMWindowChromeConfigurator.revealStandardWindowButtonContainer(in: window)
+        private func observeNotifications(from window: NSWindow) {
+            let names: [Notification.Name] = [
+                NSWindow.didUpdateNotification,
+                NSWindow.willEnterFullScreenNotification,
+                NSWindow.didEnterFullScreenNotification,
+                NSWindow.willExitFullScreenNotification,
+                NSWindow.didExitFullScreenNotification,
+                NSWindow.didChangeScreenNotification,
+                NSWindow.didChangeBackingPropertiesNotification,
+                NSWindow.didEndLiveResizeNotification,
+            ]
+            names.forEach { name in
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(handleWindowNotification(_:)),
+                    name: name,
+                    object: window
+                )
+            }
+        }
+
+        private func stopObserving() {
+            NotificationCenter.default.removeObserver(self)
+            if let window {
+                PMStandardWindowButtonAlignment.setSuspended(false, in: window)
+            }
+            cancelScheduledRepair()
+            window = nil
+            isFullScreenTransitioning = false
+        }
+
+        private func requestRepair(force: Bool = false) {
+            guard let window,
+                  !isFullScreenTransitioning,
+                  force || PMWindowChromeConfigurator.needsRepair(in: window),
+                  !repairScheduled
+            else { return }
+
+            repairScheduled = true
+            let generation = repairGeneration
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self,
+                      let window,
+                      self.window === window,
+                      self.repairGeneration == generation
+                else { return }
+
+                self.repairScheduled = false
+                guard !self.isApplyingRepair,
+                      !self.isFullScreenTransitioning
+                else { return }
+
+                self.isApplyingRepair = true
+                PMWindowChromeConfigurator.repair(window: window)
+                self.isApplyingRepair = false
+            }
+        }
+
+        private func cancelScheduledRepair() {
+            repairGeneration &+= 1
+            repairScheduled = false
+        }
+
+        @objc private func handleWindowNotification(_ notification: Notification) {
+            guard let window, (notification.object as? NSWindow) === window else { return }
+
+            switch notification.name {
+            case NSWindow.willEnterFullScreenNotification,
+                 NSWindow.willExitFullScreenNotification:
+                isFullScreenTransitioning = true
+                PMStandardWindowButtonAlignment.setSuspended(true, in: window)
+                cancelScheduledRepair()
+
+            case NSWindow.didEnterFullScreenNotification:
+                isFullScreenTransitioning = false
+                PMStandardWindowButtonAlignment.setSuspended(false, in: window)
+                requestRepair(force: true)
+
+            case NSWindow.didExitFullScreenNotification:
+                isFullScreenTransitioning = false
+                PMStandardWindowButtonAlignment.setSuspended(false, in: window)
+                requestRepair(force: true)
+
+            case NSWindow.didUpdateNotification:
+                guard !isApplyingRepair else { return }
+                requestRepair()
+
+            case NSWindow.didChangeScreenNotification,
+                 NSWindow.didChangeBackingPropertiesNotification,
+                 NSWindow.didEndLiveResizeNotification:
+                requestRepair(force: true)
+
+            default:
+                break
+            }
         }
 
         deinit {
             NotificationCenter.default.removeObserver(self)
         }
+    }
+}
+
+final class PMWindowChromeHostView: NSView {
+    var windowDidChange: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowDidChange?(window)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+@MainActor
+private enum PMStandardWindowButtonAlignment {
+    private static let anchors = NSMapTable<NSWindow, PMStandardWindowButtonAnchorView>
+        .weakToWeakObjects()
+    private static let suspendedWindows = NSHashTable<NSWindow>.weakObjects()
+    private static let buttonTypes: [NSWindow.ButtonType] = [
+        .closeButton,
+        .miniaturizeButton,
+        .zoomButton,
+    ]
+
+    static func register(_ anchor: PMStandardWindowButtonAnchorView, in window: NSWindow) {
+        anchors.setObject(anchor, forKey: window)
+        align(in: window)
+    }
+
+    static func unregister(_ anchor: PMStandardWindowButtonAnchorView, from window: NSWindow) {
+        guard anchors.object(forKey: window) === anchor else { return }
+        anchors.removeObject(forKey: window)
+    }
+
+    static func setSuspended(_ suspended: Bool, in window: NSWindow) {
+        if suspended {
+            suspendedWindows.add(window)
+        } else {
+            suspendedWindows.remove(window)
+        }
+    }
+
+    static func needsAlignment(in window: NSWindow) -> Bool {
+        guard let desiredCenterY = desiredCenterY(in: window) else { return false }
+        let tolerance = pointTolerance(in: window)
+        return buttonTypes.contains { type in
+            guard let button = window.standardWindowButton(type),
+                  let superview = button.superview
+            else { return false }
+            let frameInWindow = superview.convert(button.frame, to: nil)
+            return abs(frameInWindow.midY - desiredCenterY) > tolerance
+        }
+    }
+
+    static func align(in window: NSWindow) {
+        guard let desiredCenterY = desiredCenterY(in: window) else { return }
+        let tolerance = pointTolerance(in: window)
+
+        buttonTypes.forEach { type in
+            guard let button = window.standardWindowButton(type),
+                  let superview = button.superview
+            else { return }
+
+            let frameInWindow = superview.convert(button.frame, to: nil)
+            guard abs(frameInWindow.midY - desiredCenterY) > tolerance else { return }
+
+            let desiredCenterInSuperview = superview.convert(
+                NSPoint(x: frameInWindow.midX, y: desiredCenterY),
+                from: nil
+            )
+            var frame = button.frame
+            frame.origin.y += desiredCenterInSuperview.y - frame.midY
+            button.setFrameOrigin(frame.origin)
+        }
+    }
+
+    private static func desiredCenterY(in window: NSWindow) -> CGFloat? {
+        guard !window.styleMask.contains(.fullScreen),
+              !suspendedWindows.contains(window),
+              let anchor = anchors.object(forKey: window),
+              anchor.window === window,
+              !anchor.bounds.isEmpty
+        else { return nil }
+        return anchor.convert(anchor.bounds, to: nil).midY
+    }
+
+    private static func pointTolerance(in window: NSWindow) -> CGFloat {
+        0.5 / max(window.backingScaleFactor, 1)
     }
 }
 
@@ -948,13 +1183,60 @@ private struct PMHorizontalDragScroll: NSViewRepresentable {
     }
 }
 
-/// Reserves the native title-bar button area in custom SwiftUI chrome. The
-/// actual controls stay in AppKit's title-bar hierarchy so hover menus,
-/// modifier-key actions, accessibility, enabled states, and full screen all
-/// retain the system behavior.
+private struct PMStandardWindowButtonAnchor: NSViewRepresentable {
+    func makeNSView(context: Context) -> PMStandardWindowButtonAnchorView {
+        PMStandardWindowButtonAnchorView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: PMStandardWindowButtonAnchorView, context: Context) {}
+}
+
+@MainActor
+private final class PMStandardWindowButtonAnchorView: NSView {
+    private weak var registeredWindow: NSWindow?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let registeredWindow, registeredWindow !== window {
+            PMStandardWindowButtonAlignment.unregister(self, from: registeredWindow)
+        }
+        registeredWindow = window
+        if let window {
+            PMStandardWindowButtonAlignment.register(self, in: window)
+        }
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        alignButtons()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        alignButtons()
+    }
+
+    override func layout() {
+        super.layout()
+        alignButtons()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    private func alignButtons() {
+        guard let window else { return }
+        PMStandardWindowButtonAlignment.align(in: window)
+    }
+}
+
+/// Reserves and anchors the native title-bar button area in custom SwiftUI
+/// chrome. The controls stay in AppKit's hierarchy so hover menus, modifier-key
+/// actions, accessibility, enabled states, and full screen retain system behavior.
 struct PMStandardWindowButtonArea: View {
     var body: some View {
-        Color.clear
+        PMStandardWindowButtonAnchor()
             .frame(width: 52, height: 26)
             .allowsHitTesting(false)
             .accessibilityHidden(true)

@@ -3,8 +3,8 @@ import SwiftUI
 import AppKit
 import PrimuseKit
 
-/// 主窗口顶部 44pt 自定义 title bar — 跟设计稿里的 TitleBar 对齐:
-/// 原生窗口按钮、左右导航、居中搜索、右侧工具按钮。
+/// 主窗口顶部 48pt 自定义 title bar — 跟设计稿里的 TitleBar 对齐:
+/// 原生窗口按钮、应用名、居中搜索、右侧工具按钮。
 struct PMTitleBar: View {
     @Binding var searchText: String
     @Binding var sidebarCollapsed: Bool
@@ -29,6 +29,12 @@ struct PMTitleBar: View {
             // bar's geometric center.
             HStack(spacing: 8) {
                 PMStandardWindowButtonArea()
+                Text("app_name")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .allowsHitTesting(false)
                 windowDragSpacer
                 trailingControls
             }
