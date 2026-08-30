@@ -57,7 +57,6 @@ struct SourceMetadataStatusView: View {
     @State private var selectedFilter: MetadataBackfillStatusFilter = .all
     @State private var searchText = ""
     @State private var resultMessage: String?
-    @State private var isShowingStatusExplanation = false
 
     private var summary: MetadataBackfillSourceSummary {
         backfill.sourceStatusSummary(forSource: source.id)
@@ -110,9 +109,6 @@ struct SourceMetadataStatusView: View {
             Button("done", role: .cancel) {}
         } message: {
             Text(resultMessage ?? "")
-        }
-        .sheet(isPresented: $isShowingStatusExplanation) {
-            statusExplanationSheet
         }
         #if os(iOS)
         .toolbar {
@@ -229,8 +225,6 @@ struct SourceMetadataStatusView: View {
 
             statusTrack
 
-            statusExplanationButton
-
             actionPanel
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -262,42 +256,37 @@ struct SourceMetadataStatusView: View {
     }
 
     private var compactSourceIdentityHeader: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: source.type.iconName)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-                .padding(.top, 2)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text(source.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .layoutPriority(1)
-
-                    if source.name.localizedCaseInsensitiveCompare(source.type.displayName) != .orderedSame {
-                        Text(source.type.displayName)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Text(sourceIdentityText)
-                    .font(.system(.caption2, design: .monospaced))
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Image(systemName: source.type.iconName)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .environment(\.layoutDirection, .leftToRight)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
 
-            compactStatusExplanationButton
+                Text(source.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                if source.name.localizedCaseInsensitiveCompare(source.type.displayName) != .orderedSame {
+                    Text(source.type.displayName)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Text(sourceIdentityText)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .environment(\.layoutDirection, .leftToRight)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private var sourceIdentityHeader: some View {
@@ -396,91 +385,6 @@ struct SourceMetadataStatusView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
         }
-    }
-
-    private var statusExplanationButton: some View {
-        Button {
-            isShowingStatusExplanation = true
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "info.circle")
-                Text("metadata_status_explanation_title")
-                    .font(.subheadline.weight(.medium))
-                Image(systemName: "chevron.forward")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .accessibilityIdentifier("metadata-status-explanation")
-    }
-
-    private var compactStatusExplanationButton: some View {
-        Button {
-            isShowingStatusExplanation = true
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.secondary.opacity(0.1))
-                    .frame(width: 28, height: 28)
-                Image(systemName: "questionmark")
-                    .font(.caption2.weight(.bold))
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help("metadata_status_explanation_title")
-        .accessibilityLabel(Text("metadata_status_explanation_title"))
-        .accessibilityIdentifier("metadata-status-explanation")
-    }
-
-    @ViewBuilder
-    private var statusExplanationSheet: some View {
-        #if os(iOS)
-        statusExplanationSheetContent
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        #elseif os(macOS)
-        statusExplanationSheetContent
-            .frame(minWidth: 420, idealWidth: 460, minHeight: 260, idealHeight: 300)
-        #else
-        statusExplanationSheetContent
-        #endif
-    }
-
-    private var statusExplanationSheetContent: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "questionmark.circle.fill")
-                    .foregroundStyle(Color.accentColor)
-                Text("metadata_status_explanation_title")
-                    .font(.headline)
-                Spacer(minLength: 12)
-                Button("done") {
-                    isShowingStatusExplanation = false
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-
-            Divider()
-
-            ScrollView {
-                Text("metadata_status_explanation")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-            }
-        }
-        .background(.regularMaterial)
     }
 
     private var compactResultsControls: some View {
@@ -884,15 +788,7 @@ struct SourceMetadataStatusView: View {
                 }
             }
         }
-        .padding(.leading, 10)
         .padding(.vertical, 2)
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(stateColor(item.state).opacity(0.72))
-                .frame(width: 3)
-                .frame(maxHeight: .infinity)
-                .accessibilityHidden(true)
-        }
         .accessibilityElement(children: .contain)
     }
 
