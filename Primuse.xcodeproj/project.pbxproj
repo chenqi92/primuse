@@ -179,6 +179,7 @@
 		31F1344B52B4C9CED77732F8 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A620EA0CD2EEF9F08E3A131D /* KeychainService.swift */; };
 		31FA8CEBB3CC3844D3EE939F /* CloudDriveConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */; };
 		32A52E4A8812064991A9095A /* LyricsTranslationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3A3AB01792078E57665353 /* LyricsTranslationSettings.swift */; };
+		32A58EAB3403674F44A1B9C6 /* PrimuseAIRelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E5E7566A61716247785C1 /* PrimuseAIRelayClient.swift */; };
 		32CD0FEF4AEC455EBAE75116 /* TVScanFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80464460F8B6E1ACA91B21E2 /* TVScanFlowView.swift */; };
 		33291B00F794529D46E2B888 /* PMTitleBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC94F5ED881A05601F6B7D65 /* PMTitleBar.swift */; };
 		338CFE65AF69397D9FB501E6 /* BuiltInCloudCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C951D83E89D86B5BBCCF22 /* BuiltInCloudCredentials.swift */; };
@@ -359,6 +360,7 @@
 		5E0C4FB858DCCE7E784D422A /* ThemeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74134D8D32D016D927D59D77 /* ThemeService.swift */; };
 		5E1E95EB6F8FDBC014FEF4BA /* ScraperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */; };
 		5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F266BC40DFEB0858D943B648 /* AICredentialStore.swift */; };
+		5E821F60595D5717B952E98C /* DeviceCheck.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B6B2058920D0EF65AE514E1C /* DeviceCheck.framework */; };
 		5F57F340B615890225768BCE /* JellyfinSourceCreationTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE14ABCEB2BD02801AE8BED9 /* JellyfinSourceCreationTransaction.swift */; };
 		5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */; };
 		5FB3BB3804C2565A4EDDF5C6 /* IncrementalSongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB39C2EE3B1DD6E01169AE8 /* IncrementalSongStore.swift */; };
@@ -648,6 +650,7 @@
 		B83A5937CA1E870785FB4EDC /* URL+AudioFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */; };
 		B8450463C38E1DD352D751F7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A04A9461976D9D58E02D5BA /* ContentView.swift */; };
 		B861A10458A66BAE39CCE232 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
+		B89E0EA8C5EEDDD8E9358E47 /* DeviceCheck.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B6B2058920D0EF65AE514E1C /* DeviceCheck.framework */; };
 		B9225EE39133839FF67FA5B9 /* MacNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB4632E608A0B378DB3FDE /* MacNowPlayingView.swift */; };
 		B92C0208877DCAFFFE4ABC19 /* SubsonicStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18580B6FCDDC9D293B7820BF /* SubsonicStreamResolver.swift */; };
 		B94746D157EE77B3A46036A0 /* ListeningStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AF95E5E81784D9E3FB8D36 /* ListeningStatsView.swift */; };
@@ -1656,6 +1659,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E821F60595D5717B952E98C /* DeviceCheck.framework in Frameworks */,
 				F101F74A9F076657AE7C6D3E /* PrimuseKit.framework in Frameworks */,
 				29A9409313AE55C1C09F955C /* GRDB in Frameworks */,
 				923419C1DA62D2B6B7C97E54 /* AMSMB2 in Frameworks */,
@@ -1679,6 +1683,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B89E0EA8C5EEDDD8E9358E47 /* DeviceCheck.framework in Frameworks */,
 				FEB5F758E236185CCDAA50BC /* GRDB in Frameworks */,
 				6EDE5A5CD7699006B6EE5241 /* AMSMB2 in Frameworks */,
 				E0FB25D757DF8B8F69B9C8EB /* FilesProvider in Frameworks */,
@@ -3749,6 +3754,7 @@
 				0E1B2F74C7EE8A384BE87E73 /* NetworkDiscoveryService.swift in Sources */,
 				098E5FF8D032713C1BC0B08F /* OpenAICompatibleProvider.swift in Sources */,
 				E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */,
+				32A58EAB3403674F44A1B9C6 /* PrimuseAIRelayClient.swift in Sources */,
 				7C40148B1413D9AC91D84E13 /* RadioFLACAudioDecoder.swift in Sources */,
 				1B4ED35B9C20D4E306269836 /* RadioFLACDecoderBridge.m in Sources */,
 				7DAA6248DD6B317C33A9E6D2 /* RadioLiveStreamSource.swift in Sources */,

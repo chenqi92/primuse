@@ -213,6 +213,66 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertTrue(PrimuseRelayURLProtocol.requests(host: host).isEmpty)
     }
 
+    func testStoreKitFallbackEnrollsAndUsesPerInstallationToken() async throws {
+        let host = "primuse-relay-storekit.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let attestor = TestPrimuseAppAttestor(isSupported: false)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let credentials = TestPrimuseRelayCredentialStore()
+        let (client, session, _, _) = makeClient(
+            host: host,
+            attestor: attestor,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        _ = try await client.interpretSearch(
+            AISemanticSearchRequest(query: "quiet night", languageCode: "en")
+        )
+
+        let requests = PrimuseRelayURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.compactMap(\.url?.path), [
+            "/v1/auth/challenge",
+            "/v1/auth/installations",
+            "/v1/semantic-search",
+        ])
+        let enrollment = try XCTUnwrap(requests.first {
+            $0.url?.path == "/v1/auth/installations"
+        })
+        let enrollmentBody = try jsonObject(enrollment)
+        XCTAssertEqual(enrollmentBody["app_transaction_jws"] as? String, "signed-app-transaction")
+        XCTAssertEqual(
+            enrollmentBody["device_verification_id"] as? String,
+            "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+        )
+        XCTAssertNil(enrollmentBody["key_id"])
+        XCTAssertNil(enrollmentBody["attestation_object"])
+
+        let feature = try XCTUnwrap(requests.last)
+        XCTAssertEqual(
+            feature.value(forHTTPHeaderField: "X-Primuse-Installation-Token"),
+            "test-installation-token"
+        )
+        XCTAssertNotNil(feature.value(forHTTPHeaderField: "X-Primuse-Request-Nonce"))
+        XCTAssertNil(feature.value(forHTTPHeaderField: "X-Primuse-Challenge"))
+        XCTAssertNil(feature.value(forHTTPHeaderField: "X-Primuse-Assertion"))
+        let storedCredential = await credentials.current()
+        XCTAssertEqual(
+            storedCredential,
+            PrimuseAIRelayCredential(
+                keyID: "storekit",
+                installationID: "test-installation",
+                accessToken: "test-installation-token"
+            )
+        )
+    }
+
     func testDuplicateLyricsResponseIDsAreRejectedInsteadOfTrapping() async throws {
         let host = "primuse-relay-duplicate-lyrics.invalid"
         PrimuseRelayURLProtocol.configure(
@@ -323,6 +383,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
     private func makeClient(
         host: String,
         attestor: TestPrimuseAppAttestor = TestPrimuseAppAttestor(),
+        storeKitProvider: TestPrimuseStoreKitEnrollmentProvider = TestPrimuseStoreKitEnrollmentProvider(),
         credentials: TestPrimuseRelayCredentialStore = TestPrimuseRelayCredentialStore()
     ) -> (
         PrimuseAIRelayClient,
@@ -337,6 +398,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             baseURL: URL(string: "https://\(host)")!,
             session: session,
             attestor: attestor,
+            storeKitEnrollmentProvider: storeKitProvider,
             credentialStore: credentials
         )
         return (client, session, attestor, credentials)
@@ -347,6 +409,21 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         return try XCTUnwrap(
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
+    }
+}
+
+private actor TestPrimuseStoreKitEnrollmentProvider: PrimuseStoreKitEnrollmentProviding {
+    let isSupported: Bool
+    private let material: PrimuseStoreKitEnrollmentMaterial?
+
+    init(material: PrimuseStoreKitEnrollmentMaterial? = nil) {
+        self.material = material
+        isSupported = material != nil
+    }
+
+    func enrollmentMaterial() async throws -> PrimuseStoreKitEnrollmentMaterial {
+        guard let material else { throw PrimuseAIRelayError.unsupportedDevice }
+        return material
     }
 }
 
@@ -492,7 +569,11 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             responseBody = #"{"challenge":"\#(purpose)-challenge","request_id":"test-request"}"#
         case "/v1/auth/installations":
             statusCode = 201
-            responseBody = #"{"installation_id":"test-installation","trust_level":"attested","request_id":"test-request"}"#
+            if Self.isStoreKitEnrollment(captured.httpBody) {
+                responseBody = #"{"installation_id":"test-installation","trust_level":"storekit_fallback","access_token":"test-installation-token","request_id":"test-request"}"#
+            } else {
+                responseBody = #"{"installation_id":"test-installation","trust_level":"attested","request_id":"test-request"}"#
+            }
         default:
             statusCode = state.featureStatusCode
             responseBody = state.featureBody
@@ -520,6 +601,14 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             return nil
         }
         return object["purpose"] as? String
+    }
+
+    private static func isStoreKitEnrollment(_ data: Data?) -> Bool {
+        guard let data,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return object["app_transaction_jws"] is String
     }
 
     private static func readBody(from stream: InputStream) -> Data {

@@ -59,21 +59,17 @@ final class MusicIntelligenceService {
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
-    #if os(iOS)
     private let primuseRelayClient: PrimuseAIRelayClient
-    #endif
     @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
     @ObservationIgnored private var recommendationCache: [
         RecommendationCacheKey: RecommendationCacheEntry
     ] = [:]
-    #if os(iOS)
     @ObservationIgnored private var primuseRelaySemanticPlanCache: [
         PrimuseRelaySemanticCacheKey: SemanticPlanCacheEntry
     ] = [:]
     @ObservationIgnored private var primuseRelayRecommendationCache: [
         PrimuseRelayRecommendationCacheKey: RecommendationCacheEntry
     ] = [:]
-    #endif
 
     private struct SemanticPlanCacheKey: Hashable {
         var profileID: UUID
@@ -92,13 +88,11 @@ final class MusicIntelligenceService {
         var createdAt: TimeInterval
     }
 
-    #if os(iOS)
     private struct PrimuseRelaySemanticCacheKey: Hashable {
         var query: String
         var languageCode: String
         var regionRevision: UInt64
     }
-    #endif
 
     private struct RecommendationCacheKey: Hashable {
         var profileID: UUID
@@ -116,12 +110,10 @@ final class MusicIntelligenceService {
         var createdAt: TimeInterval
     }
 
-    #if os(iOS)
     private struct PrimuseRelayRecommendationCacheKey: Hashable {
         var request: AIRecommendationRequest
         var regionRevision: UInt64
     }
-    #endif
 
     private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
     private static let semanticPlanCacheLimit = 64
@@ -140,9 +132,7 @@ final class MusicIntelligenceService {
         self.regionAvailability = regionAvailability
         self.credentialStore = credentialStore
         engine = MusicIntelligenceEngine(credentialStore: credentialStore)
-        #if os(iOS)
         primuseRelayClient = PrimuseAIRelayClient()
-        #endif
         let refreshTranscriptionSettings: () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 await self?.prepareLyricsTranscriptionCredentialMigration()
@@ -156,10 +146,8 @@ final class MusicIntelligenceService {
         regionAvailability.start { [weak self] in
             self?.semanticPlanCache.removeAll(keepingCapacity: true)
             self?.recommendationCache.removeAll(keepingCapacity: true)
-            #if os(iOS)
             self?.primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
             self?.primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
-            #endif
         }
         Task { @MainActor [weak self] in
             await self?.prepareLyricsTranscriptionCredentialMigration()
@@ -175,7 +163,6 @@ final class MusicIntelligenceService {
     }
 
     private var isPrimuseRelayAvailable: Bool {
-        #if os(iOS)
         let decision = AIAvailabilityPolicy.decision(
             for: .bundledRemote,
             regionContext: regionAvailability.context
@@ -183,12 +170,8 @@ final class MusicIntelligenceService {
         return settingsStore.primuseRelayEnabled
             && PrimuseAIRelayClient.isSupportedOnCurrentDevice
             && decision.isAllowed
-        #else
-        return false
-        #endif
     }
 
-    #if os(iOS)
     private var primuseRelayProviderName: String {
         String(localized: "ai_primuse_relay_name")
     }
@@ -207,7 +190,6 @@ final class MusicIntelligenceService {
             regionContext: latest.context
         ).isAllowed
     }
-    #endif
 
     var isSemanticSearchConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
@@ -284,7 +266,6 @@ final class MusicIntelligenceService {
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         var customFallbackOffset = 0
 
-        #if os(iOS)
         if isPrimuseRelayAvailable {
             guard canUsePrimuseRelay(
                 captured: regionSnapshot,
@@ -344,7 +325,6 @@ final class MusicIntelligenceService {
                 // A user-configured provider remains available as a fallback.
             }
         }
-        #endif
 
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -442,7 +422,6 @@ final class MusicIntelligenceService {
         guard consent, !candidates.isEmpty else { return nil }
 
         var customFallbackOffset = 0
-        #if os(iOS)
         if isPrimuseRelayAvailable {
             guard canUsePrimuseRelay(
                 captured: regionSnapshot,
@@ -471,7 +450,6 @@ final class MusicIntelligenceService {
                 // Continue with the user's configured fallback providers.
             }
         }
-        #endif
 
         let decision = AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
@@ -534,7 +512,6 @@ final class MusicIntelligenceService {
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         var customFallbackOffset = 0
 
-        #if os(iOS)
         if isPrimuseRelayAvailable {
             guard canUsePrimuseRelay(
                 captured: regionSnapshot,
@@ -580,7 +557,6 @@ final class MusicIntelligenceService {
                 // A user-configured provider remains available as a fallback.
             }
         }
-        #endif
 
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -680,7 +656,6 @@ final class MusicIntelligenceService {
               !request.candidates.isEmpty else { return nil }
         let now = ProcessInfo.processInfo.systemUptime
         var customFallbackOffset = 0
-        #if os(iOS)
         if isPrimuseRelayAvailable {
             customFallbackOffset = 1
             let key = PrimuseRelayRecommendationCacheKey(
@@ -698,7 +673,6 @@ final class MusicIntelligenceService {
                 ))
             }
         }
-        #endif
         let providers = settingsStore.providerSet.routedProviders.filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
@@ -969,10 +943,8 @@ final class MusicIntelligenceService {
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
-        #if os(iOS)
         primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
         primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
-        #endif
     }
 
     func save(
@@ -1020,10 +992,8 @@ final class MusicIntelligenceService {
         )
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
-        #if os(iOS)
         primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
         primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
-        #endif
     }
 
     func deleteAPIKey(configuration: AIRemoteProviderConfiguration) async throws {
@@ -1041,10 +1011,8 @@ final class MusicIntelligenceService {
         try await credentialStore.deleteAPIKey(configuration: configuration)
         semanticPlanCache.removeAll(keepingCapacity: true)
         recommendationCache.removeAll(keepingCapacity: true)
-        #if os(iOS)
         primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
         primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
-        #endif
     }
 
     func availableModels(

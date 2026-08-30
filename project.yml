@@ -417,6 +417,7 @@ targets:
     resources:
       - path: Primuse/Resources
     dependencies:
+      - sdk: DeviceCheck.framework
       - package: GRDB
       - package: AMSMB2
         embed: true
@@ -535,6 +536,7 @@ targets:
       - path: Primuse/Services/AI/AICredentialStore.swift
       - path: Primuse/Services/AI/MusicIntelligenceService.swift
       - path: Primuse/Services/AI/OpenAICompatibleProvider.swift
+      - path: Primuse/Services/AI/PrimuseAIRelayClient.swift
       - path: Primuse/Utilities/KeychainService.swift
       - path: Primuse/Views/Settings/AISettingsView.swift
       - path: Primuse/Services/Radio/RadioLiveStreamSource.swift
@@ -559,6 +561,7 @@ targets:
       - path: Primuse/Resources/ja.lproj/Localizable.strings
       - path: Primuse/Resources/ko.lproj/Localizable.strings
     dependencies:
+      - sdk: DeviceCheck.framework
       - target: PrimuseKit
       - target: PrimuseTopShelf
       - package: GRDB

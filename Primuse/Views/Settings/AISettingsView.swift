@@ -12,6 +12,7 @@ final class AISettingsEditorModel {
 
     enum Status: Equatable {
         case idle
+        case saving
         case saved
         case connectionSucceeded
         case modelsLoaded(Int)
@@ -44,6 +45,9 @@ final class AISettingsEditorModel {
     private var savedConsent = false
     private var savedListeningContextConsent = false
     private var pendingRemovedProviders: [UUID: AIRemoteProviderConfiguration] = [:]
+    @ObservationIgnored private weak var intelligence: MusicIntelligenceService?
+    @ObservationIgnored private var autoSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var saveRequestedWhileWorking = false
 
     init() {
         let providerSet = AIRemoteProviderSet()
@@ -137,6 +141,7 @@ final class AISettingsEditorModel {
 
     func load(using intelligence: MusicIntelligenceService) async {
         guard !didLoad, !isLoading else { return }
+        self.intelligence = intelligence
         isLoading = true
         defer { isLoading = false }
         await intelligence.regionAvailability.refresh()
@@ -178,7 +183,8 @@ final class AISettingsEditorModel {
     func configurationBinding<Value>(
         _ keyPath: WritableKeyPath<AIRemoteProviderConfiguration, Value>,
         clearModels: Bool = false,
-        updatesProviderPreset: Bool = false
+        updatesProviderPreset: Bool = false,
+        autoSaveDelayNanoseconds: UInt64 = 450_000_000
     ) -> Binding<Value> {
         Binding(
             get: { self.draftConfiguration[keyPath: keyPath] },
@@ -189,7 +195,10 @@ final class AISettingsEditorModel {
                         configuration: self.draftConfiguration
                     )
                 }
-                self.draftDidChange(clearModels: clearModels)
+                self.draftDidChange(
+                    clearModels: clearModels,
+                    autoSaveDelayNanoseconds: autoSaveDelayNanoseconds
+                )
             }
         )
     }
@@ -209,7 +218,10 @@ final class AISettingsEditorModel {
             get: { self.apiKeyDraft },
             set: { value in
                 self.apiKeyDraft = value
-                self.draftDidChange(clearModels: true)
+                self.draftDidChange(
+                    clearModels: true,
+                    autoSaveDelayNanoseconds: 650_000_000
+                )
             }
         )
     }
@@ -413,6 +425,7 @@ final class AISettingsEditorModel {
             )
             guard canApplyCompletion(operationGeneration) else {
                 isFetchingModels = false
+                resumePendingAutoSaveIfNeeded()
                 return
             }
             availableModels = models
@@ -436,6 +449,7 @@ final class AISettingsEditorModel {
                 updatedConfiguration.embeddingModel = model.id
             }
             draftConfiguration = updatedConfiguration
+            draftDidChange()
             status = models.isEmpty ? .modelsEmpty : .modelsLoaded(models.count)
         } catch {
             if canApplyCompletion(operationGeneration) {
@@ -446,9 +460,22 @@ final class AISettingsEditorModel {
             }
         }
         isFetchingModels = false
+        resumePendingAutoSaveIfNeeded()
     }
 
     func save(using intelligence: MusicIntelligenceService) async {
+        self.intelligence = intelligence
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        await persistPendingChanges(using: intelligence)
+    }
+
+    private func persistPendingChanges(using intelligence: MusicIntelligenceService) async {
+        guard didLoad, hasUnsavedChanges else { return }
+        if isWorking || isFetchingModels {
+            saveRequestedWhileWorking = true
+            return
+        }
         let providerSet = draftProviderSet
         let primuseRelayEnabled = primuseRelayEnabled
         let semanticSearchEnabled = semanticSearchEnabled
@@ -459,7 +486,7 @@ final class AISettingsEditorModel {
         let removedProviders = pendingRemovedProviders
         let operationGeneration = draftGeneration
         isWorking = true
-        status = .idle
+        status = .saving
         do {
             try await intelligence.save(
                 providerSet: providerSet,
@@ -485,29 +512,42 @@ final class AISettingsEditorModel {
                     savedScopes[provider.id] = scope
                 }
             }
-            guard canApplyCompletion(operationGeneration) else {
-                isWorking = false
-                return
-            }
-            draftProviderSet = intelligence.settingsStore.providerSet
             storedAPIKeyScopes = savedScopes
-            apiKeyDrafts = [:]
-            savedProviderSet = draftProviderSet
+            for (providerID, submittedKey) in apiKeys
+            where apiKeyDrafts[providerID] == submittedKey {
+                apiKeyDrafts[providerID] = nil
+            }
+            for providerID in removedProviders.keys
+            where failedCredentialRemovals[providerID] == nil {
+                pendingRemovedProviders[providerID] = nil
+            }
+            if draftGeneration == operationGeneration {
+                draftProviderSet = intelligence.settingsStore.providerSet
+                savedProviderSet = draftProviderSet
+            } else {
+                savedProviderSet = providerSet
+            }
             savedPrimuseRelayEnabled = primuseRelayEnabled
             savedSemanticSearchEnabled = semanticSearchEnabled
             savedRecommendationsEnabled = recommendationsEnabled
-            savedConsent = consent
+            savedConsent = explicitConsent
             savedListeningContextConsent = listeningContextConsent
-            pendingRemovedProviders = failedCredentialRemovals
+            for (providerID, provider) in failedCredentialRemovals {
+                pendingRemovedProviders[providerID] = provider
+            }
             status = failedCredentialRemovals.isEmpty
                 ? .saved
                 : .failed(String(localized: "ai_error_keychain"), .settings)
         } catch {
-            if canApplyCompletion(operationGeneration) {
-                status = .failed(Self.message(for: error), .settings)
-            }
+            status = .failed(Self.message(for: error), .settings)
         }
         isWorking = false
+        let shouldSaveAgain = saveRequestedWhileWorking
+            || (draftGeneration != operationGeneration && hasUnsavedChanges)
+        saveRequestedWhileWorking = false
+        if shouldSaveAgain {
+            await persistPendingChanges(using: intelligence)
+        }
     }
 
     func testConnection(using intelligence: MusicIntelligenceService) async {
@@ -533,6 +573,7 @@ final class AISettingsEditorModel {
             }
         }
         isWorking = false
+        resumePendingAutoSaveIfNeeded()
     }
 
     func deleteCurrentAPIKey(using intelligence: MusicIntelligenceService) async {
@@ -544,6 +585,7 @@ final class AISettingsEditorModel {
             try await intelligence.deleteAPIKey(configuration: configuration)
             guard canApplyCompletion(operationGeneration) else {
                 isWorking = false
+                resumePendingAutoSaveIfNeeded()
                 return
             }
             storedAPIKeyScopes[configuration.id] = nil
@@ -554,6 +596,7 @@ final class AISettingsEditorModel {
             }
         }
         isWorking = false
+        resumePendingAutoSaveIfNeeded()
     }
 
     private var draftCredentialScope: String? {
@@ -566,10 +609,33 @@ final class AISettingsEditorModel {
         try? AICredentialStoragePolicy.canonicalScope(configuration: configuration)
     }
 
-    private func draftDidChange(clearModels: Bool = false) {
+    private func draftDidChange(
+        clearModels: Bool = false,
+        autoSaveDelayNanoseconds: UInt64 = 0
+    ) {
         draftGeneration &+= 1
-        status = .idle
+        if !isWorking { status = .idle }
         if clearModels { availableModels = [] }
+        scheduleAutoSave(afterNanoseconds: autoSaveDelayNanoseconds)
+    }
+
+    private func scheduleAutoSave(afterNanoseconds delay: UInt64) {
+        guard didLoad, hasUnsavedChanges, let intelligence else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { [weak self, weak intelligence] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard !Task.isCancelled, let self, let intelligence else { return }
+            self.autoSaveTask = nil
+            await self.persistPendingChanges(using: intelligence)
+        }
+    }
+
+    private func resumePendingAutoSaveIfNeeded() {
+        guard saveRequestedWhileWorking || hasUnsavedChanges else { return }
+        saveRequestedWhileWorking = false
+        scheduleAutoSave(afterNanoseconds: 0)
     }
 
     private func canApplyCompletion(_ operationGeneration: UInt64) -> Bool {
@@ -677,16 +743,12 @@ struct AISettingsView: View {
                     )
                 }
             } else {
-                #if os(iOS)
                 primuseRelaySection
-                #endif
                 connectionSummary
                 capabilitySection
                 providerListSection
-                providerSection
-                modelSection
+                providerDetailLinkSection
                 privacySection
-                actionSection
             }
         }
         .navigationTitle("ai_settings_title")
@@ -707,14 +769,9 @@ struct AISettingsView: View {
     }
 
     private var connectionSummary: some View {
-        #if os(iOS)
         let usesRelay = editor.primuseRelayEnabled
             && PrimuseAIRelayClient.isSupportedOnCurrentDevice
         let relayReady = usesRelay && (editor.consent || editor.listeningContextConsent)
-        #else
-        let usesRelay = false
-        let relayReady = false
-        #endif
         let isReady = relayReady || editor.hasUsableAPIKey
         return Section {
             HStack(spacing: 14) {
@@ -746,7 +803,6 @@ struct AISettingsView: View {
         }
     }
 
-    #if os(iOS)
     private var primuseRelaySection: some View {
         Section {
             Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
@@ -769,7 +825,6 @@ struct AISettingsView: View {
             Text("ai_primuse_relay_footer")
         }
     }
-    #endif
 
     private var capabilitySection: some View {
         Section {
@@ -872,6 +927,34 @@ struct AISettingsView: View {
             Text("ai_provider_list_section")
         } footer: {
             Text("ai_fallback_footer")
+        }
+    }
+
+    private var providerDetailLinkSection: some View {
+        Section {
+            NavigationLink {
+                Form {
+                    providerSection
+                    modelSection
+                    providerPrivacySection
+                    actionSection
+                }
+                .navigationTitle("ai_provider_detail_section")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+            } label: {
+                LabeledContent {
+                    Text(editor.draftConfiguration.displayName.isEmpty
+                         ? String(localized: "ai_provider_default_name")
+                         : editor.draftConfiguration.displayName)
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label("ai_provider_detail_section", systemImage: "slider.horizontal.3")
+                }
+            }
+        } footer: {
+            Text("ai_changes_save_automatically")
         }
     }
 
@@ -981,13 +1064,6 @@ struct AISettingsView: View {
 
     private var privacySection: some View {
         Section {
-            Toggle(
-                "ai_allow_insecure_local_http",
-                isOn: editor.configurationBinding(
-                    \.allowInsecureLocalHTTP,
-                    clearModels: true
-                )
-            )
             Toggle("ai_remote_consent", isOn: editor.consentBinding)
             Toggle(
                 "ai_listening_context_consent",
@@ -1000,21 +1076,25 @@ struct AISettingsView: View {
         }
     }
 
+    private var providerPrivacySection: some View {
+        Section {
+            Toggle(
+                "ai_allow_insecure_local_http",
+                isOn: editor.configurationBinding(
+                    \.allowInsecureLocalHTTP,
+                    clearModels: true,
+                    autoSaveDelayNanoseconds: 0
+                )
+            )
+        } header: {
+            Text("ai_privacy_section")
+        } footer: {
+            Text("ai_key_sync_footer")
+        }
+    }
+
     private var actionSection: some View {
         Section {
-            Button {
-                Task { await editor.save(using: intelligence) }
-            } label: {
-                HStack {
-                    Label("ai_save_changes", systemImage: "square.and.arrow.down")
-                    if editor.isWorking {
-                        Spacer()
-                        ProgressView()
-                    }
-                }
-            }
-            .disabled(!editor.didLoad || editor.isWorking || editor.isFetchingModels)
-
             Button {
                 Task { await editor.testConnection(using: intelligence) }
             } label: {
@@ -1040,6 +1120,11 @@ struct AISettingsView: View {
         switch editor.status {
         case .idle:
             EmptyView()
+        case .saving where !onlyModelStatus:
+            HStack {
+                ProgressView()
+                Text("ai_saving_changes")
+            }
         case .modelsLoaded(let count) where onlyModelStatus:
             Label(
                 String(format: String(localized: "ai_models_loaded_format"), count),
@@ -1068,6 +1153,8 @@ struct AISettingsView: View {
 
     private var connectionSummaryText: String {
         switch editor.status {
+        case .saving:
+            return String(localized: "ai_saving_changes")
         case .saved:
             return String(localized: "ai_settings_saved")
         case .connectionSucceeded:
@@ -1075,7 +1162,6 @@ struct AISettingsView: View {
         case .failed(let message, _):
             return message
         default:
-            #if os(iOS)
             if editor.primuseRelayEnabled {
                 if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
                     guard editor.consent || editor.listeningContextConsent else {
@@ -1085,7 +1171,6 @@ struct AISettingsView: View {
                 }
                 return String(localized: "ai_primuse_relay_unsupported")
             }
-            #endif
             return String(
                 format: String(localized: "ai_provider_count_format"),
                 editor.draftProviderSet.providers.count

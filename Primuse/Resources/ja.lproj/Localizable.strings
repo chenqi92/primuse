@@ -3061,6 +3061,8 @@
 "ai_remove_provider_confirm" = "このサービスとローカルキーを削除しますか？";
 "ai_provider_detail_section" = "現在のサービス";
 "ai_save_changes" = "変更を保存";
+"ai_saving_changes" = "変更を保存中…";
+"ai_changes_save_automatically" = "変更は自動的に保存されます。プロバイダーの詳細でアドレス、キー、モデル、接続設定を編集できます。";
 "ai_key_sync_footer" = "設定は iCloud、キーは iCloud キーチェーンで同期されます。接続テストは固定の診断文だけを送信し、コンテンツ共有設定には依存しません。";
 "ai_provider_count_format" = "%d 件のサービスを設定済み";
 "ai_provider_editing" = "編集中";

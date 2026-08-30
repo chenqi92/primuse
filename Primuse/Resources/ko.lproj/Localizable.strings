@@ -3060,6 +3060,8 @@
 "ai_remove_provider_confirm" = "이 서비스와 로컬 키를 제거할까요?";
 "ai_provider_detail_section" = "현재 서비스";
 "ai_save_changes" = "변경 사항 저장";
+"ai_saving_changes" = "변경 사항 저장 중…";
+"ai_changes_save_automatically" = "변경 사항은 자동으로 저장됩니다. 제공자 세부 정보에서 주소, 키, 모델 및 연결 설정을 편집할 수 있습니다.";
 "ai_key_sync_footer" = "설정은 iCloud로, 키는 iCloud 키체인으로 동기화됩니다. 연결 테스트는 고정된 진단 문구만 보내며 콘텐츠 공유 스위치와 무관합니다.";
 "ai_provider_count_format" = "%d개 서비스 구성됨";
 "ai_provider_editing" = "편집 중";

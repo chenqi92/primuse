@@ -2847,6 +2847,8 @@
 "ai_remove_provider_confirm" = "Remove this service and its local key?";
 "ai_provider_detail_section" = "Current Service";
 "ai_save_changes" = "Save Changes";
+"ai_saving_changes" = "Saving changes…";
+"ai_changes_save_automatically" = "Changes are saved automatically. Open provider details to edit its address, key, models, and connection settings.";
 "ai_key_sync_footer" = "Settings sync through iCloud. Keys sync through iCloud Keychain when credential sync is enabled. Connection tests send only a fixed diagnostic phrase and do not depend on content-sharing switches.";
 "ai_provider_count_format" = "%d services configured";
 "ai_provider_editing" = "Editing";

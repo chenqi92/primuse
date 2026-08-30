@@ -646,6 +646,7 @@ private struct MacSTIntelligenceView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
     @State private var showsRemoveProviderConfirmation = false
+    @State private var showsProviderDetails = false
 
     var body: some View {
         Group {
@@ -673,6 +674,7 @@ private struct MacSTIntelligenceView: View {
             }
             } else {
             statusCard
+            primuseRelaySection
 
             MacSTSection(
                 String(localized: "ai_capability_section"),
@@ -694,7 +696,9 @@ private struct MacSTIntelligenceView: View {
             }
 
             providerListSection
+            providerDetailToggleSection
 
+            if showsProviderDetails {
             MacSTSection(
                 String(localized: "ai_provider_detail_section"),
                 hint: editor.providerFooterText
@@ -813,22 +817,26 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
+            }
 
             MacSTSection(
                 String(localized: "ai_privacy_section"),
                 hint: String(localized: "ai_privacy_footer")
             ) {
                 MacSTGroup {
-                    MacSTRow(
-                        String(localized: "ai_allow_insecure_local_http"),
-                        divider: false
-                    ) {
-                        MacSTToggle(
-                            isOn: editor.configurationBinding(
-                                \.allowInsecureLocalHTTP,
-                                clearModels: true
+                    if showsProviderDetails {
+                        MacSTRow(
+                            String(localized: "ai_allow_insecure_local_http"),
+                            divider: false
+                        ) {
+                            MacSTToggle(
+                                isOn: editor.configurationBinding(
+                                    \.allowInsecureLocalHTTP,
+                                    clearModels: true,
+                                    autoSaveDelayNanoseconds: 0
+                                )
                             )
-                        )
+                        }
                     }
                     MacSTRow(String(localized: "ai_remote_consent")) {
                         MacSTToggle(isOn: editor.consentBinding)
@@ -866,16 +874,6 @@ private struct MacSTIntelligenceView: View {
                                 Task { await editor.testConnection(using: intelligence) }
                             }
                             .disabled(!editor.canTestConnection)
-                            MacSTButton(
-                                title: String(localized: "ai_save_changes"),
-                                systemImage: "square.and.arrow.down",
-                                prominent: true
-                            ) {
-                                Task { await editor.save(using: intelligence) }
-                            }
-                            .disabled(
-                                !editor.didLoad || editor.isWorking || editor.isFetchingModels
-                            )
                         }
                     }
                     MacSTRow(
@@ -900,6 +898,61 @@ private struct MacSTIntelligenceView: View {
                 editor.removeSelectedProvider()
             }
             Button(String(localized: "cancel"), role: .cancel) {}
+        }
+    }
+
+    private var primuseRelaySection: some View {
+        MacSTSection(
+            String(localized: "ai_primuse_relay_section"),
+            hint: String(localized: "ai_primuse_relay_footer")
+        ) {
+            MacSTGroup {
+                MacSTRow(String(localized: "ai_primuse_relay_enabled"), divider: false) {
+                    MacSTToggle(isOn: editor.primuseRelayBinding)
+                }
+                MacSTRow(String(localized: "ai_service_address")) {
+                    Text(verbatim: "primuse.yzs.ai")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    MacSTRow(
+                        String(localized: "ai_primuse_relay_unsupported"),
+                        divider: false
+                    ) {
+                        Image(systemName: "exclamationmark.shield")
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            }
+        }
+    }
+
+    private var providerDetailToggleSection: some View {
+        MacSTSection(
+            String(localized: "ai_provider_detail_section"),
+            hint: String(localized: "ai_changes_save_automatically")
+        ) {
+            MacSTGroup {
+                MacSTRow(
+                    editor.draftConfiguration.displayName.isEmpty
+                        ? String(localized: "ai_provider_default_name")
+                        : editor.draftConfiguration.displayName,
+                    hint: editor.draftConfiguration.baseURL,
+                    divider: false
+                ) {
+                    MacSTButton(
+                        title: String(localized: showsProviderDetails
+                                      ? "done" : "ai_edit_provider"),
+                        systemImage: showsProviderDetails ? "chevron.up" : "slider.horizontal.3",
+                        prominent: !showsProviderDetails
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showsProviderDetails.toggle()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -928,6 +981,7 @@ private struct MacSTIntelligenceView: View {
                                               ? "ai_provider_editing" : "ai_edit_provider")
                             ) {
                                 editor.selectProvider(provider.id)
+                                showsProviderDetails = true
                             }
                             Menu {
                                 if provider.id != editor.draftProviderSet.primaryProviderID {
@@ -1013,8 +1067,12 @@ private struct MacSTIntelligenceView: View {
                 }
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: editor.draftConfiguration.displayName.isEmpty
-                     ? String(localized: "ai_provider_default_name")
-                     : editor.draftConfiguration.displayName)
+                     ? (usesPrimuseRelay
+                        ? String(localized: "ai_primuse_relay_name")
+                        : String(localized: "ai_provider_default_name"))
+                     : (usesPrimuseRelay
+                        ? String(localized: "ai_primuse_relay_name")
+                        : editor.draftConfiguration.displayName))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Text(verbatim: summaryText)
@@ -1026,7 +1084,7 @@ private struct MacSTIntelligenceView: View {
             HStack(spacing: 3) {
                 ForEach(0..<4, id: \.self) { index in
                     Capsule()
-                        .fill(editor.hasUsableAPIKey
+                        .fill(hasReadyAIConfiguration
                               ? PMColor.brand.opacity(0.45 + Double(index) * 0.14)
                               : PMColor.dividerStrong)
                         .frame(width: 3, height: CGFloat(8 + index * 3))
@@ -1046,6 +1104,8 @@ private struct MacSTIntelligenceView: View {
 
     private var summaryText: String {
         switch editor.status {
+        case .saving:
+            return String(localized: "ai_saving_changes")
         case .saved:
             return String(localized: "ai_settings_saved")
         case .connectionSucceeded:
@@ -1059,6 +1119,15 @@ private struct MacSTIntelligenceView: View {
         case .failed(let message, _):
             return message
         case .idle:
+            if editor.primuseRelayEnabled {
+                guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
+                    return String(localized: "ai_primuse_relay_unsupported")
+                }
+                guard editor.consent || editor.listeningContextConsent else {
+                    return String(localized: "ai_primuse_relay_consent_required")
+                }
+                return String(localized: "ai_primuse_relay_ready")
+            }
             return String(
                 format: String(localized: "ai_provider_count_format"),
                 editor.draftProviderSet.providers.count
@@ -1068,7 +1137,7 @@ private struct MacSTIntelligenceView: View {
 
     private var summaryColor: Color {
         if case .failed = editor.status { return PMColor.bad }
-        return editor.hasUsableAPIKey ? PMColor.brand : PMColor.textFaint
+        return hasReadyAIConfiguration ? PMColor.brand : PMColor.textFaint
     }
 
     private var modelStatusText: String? {
@@ -1092,6 +1161,8 @@ private struct MacSTIntelligenceView: View {
 
     private var actionStatusText: String {
         switch editor.status {
+        case .saving:
+            return String(localized: "ai_saving_changes")
         case .saved:
             return String(localized: "ai_settings_saved")
         case .connectionSucceeded:
@@ -1103,13 +1174,14 @@ private struct MacSTIntelligenceView: View {
         case .failed(let message, _):
             return message
         case .idle:
-            return String(localized: editor.hasUnsavedChanges
-                          ? "ai_changes_not_saved" : "ai_settings_unchanged")
+            return String(localized: "ai_settings_unchanged")
         }
     }
 
     private var actionStatusIcon: String {
         switch editor.status {
+        case .saving:
+            return "arrow.triangle.2.circlepath"
         case .saved, .connectionSucceeded, .modelsLoaded:
             return "checkmark.circle.fill"
         case .failed:
@@ -1123,6 +1195,8 @@ private struct MacSTIntelligenceView: View {
 
     private var actionStatusColor: Color {
         switch editor.status {
+        case .saving:
+            return PMColor.brand
         case .saved, .connectionSucceeded, .modelsLoaded:
             return PMColor.ok
         case .failed:
@@ -1130,6 +1204,15 @@ private struct MacSTIntelligenceView: View {
         default:
             return PMColor.textMuted
         }
+    }
+
+    private var usesPrimuseRelay: Bool {
+        editor.primuseRelayEnabled && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+    }
+
+    private var hasReadyAIConfiguration: Bool {
+        (usesPrimuseRelay && (editor.consent || editor.listeningContextConsent))
+            || editor.hasUsableAPIKey
     }
 }
 

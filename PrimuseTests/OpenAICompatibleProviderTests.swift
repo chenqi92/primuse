@@ -1609,6 +1609,31 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsEditorAutomaticallyPersistsValidChanges() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "AISettingsEditorAutosaveTests.\(UUID().uuidString)"
+        ))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let intelligence = MusicIntelligenceService(
+            settingsStore: settings,
+            credentialStore: TestAICredentialStore()
+        )
+        let editor = AISettingsEditorModel()
+        await editor.load(using: intelligence)
+
+        editor.semanticSearchBinding.wrappedValue = true
+        editor.consentBinding.wrappedValue = true
+
+        for _ in 0..<50 {
+            if settings.semanticSearchEnabled && settings.hasExplicitRemoteConsent { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(settings.semanticSearchEnabled)
+        XCTAssertTrue(settings.hasExplicitRemoteConsent)
+        XCTAssertFalse(editor.hasUnsavedChanges)
+    }
+
+    @MainActor
     func testOpenAIPlatformSettingsCopyAndCredentialValidationStayScopedToOfficialAPI() {
         let editor = AISettingsEditorModel()
         editor.applyProviderPreset(.openAI)

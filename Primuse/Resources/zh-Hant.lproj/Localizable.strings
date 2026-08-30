@@ -3037,6 +3037,8 @@
 "ai_remove_provider_confirm" = "移除此服務及其本機密鑰？";
 "ai_provider_detail_section" = "目前服務";
 "ai_save_changes" = "儲存變更";
+"ai_saving_changes" = "正在儲存變更…";
+"ai_changes_save_automatically" = "所有變更都會自動儲存。進入渠道詳情可修改位址、密鑰、模型和連線設定。";
 "ai_key_sync_footer" = "設定透過 iCloud 同步；啟用憑證同步後，密鑰透過 iCloud 鑰匙圈同步。測試連線只傳送固定診斷文字，與內容分享開關無關。";
 "ai_provider_count_format" = "已設定 %d 個服務";
 "ai_provider_editing" = "正在編輯";

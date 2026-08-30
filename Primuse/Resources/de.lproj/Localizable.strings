@@ -3060,6 +3060,8 @@
 "ai_remove_provider_confirm" = "Diesen Dienst und seinen lokalen Schlüssel entfernen?";
 "ai_provider_detail_section" = "Aktueller Dienst";
 "ai_save_changes" = "Änderungen sichern";
+"ai_saving_changes" = "Änderungen werden gespeichert…";
+"ai_changes_save_automatically" = "Änderungen werden automatisch gespeichert. In den Anbieterdetails lassen sich Adresse, Schlüssel, Modelle und Verbindung bearbeiten.";
 "ai_key_sync_footer" = "Einstellungen werden über iCloud synchronisiert; Schlüssel über den iCloud-Schlüsselbund. Verbindungstests senden nur einen festen Diagnosetext und sind von Inhaltsfreigaben unabhängig.";
 "ai_provider_count_format" = "%d Dienste konfiguriert";
 "ai_provider_editing" = "In Bearbeitung";

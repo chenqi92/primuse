@@ -1,8 +1,8 @@
-#if os(iOS)
 import CryptoKit
 import DeviceCheck
 import Foundation
 import PrimuseKit
+import StoreKit
 
 enum PrimuseAIRelayError: Error, Equatable, Sendable {
     case unsupportedDevice
@@ -16,6 +16,12 @@ enum PrimuseAIRelayError: Error, Equatable, Sendable {
 struct PrimuseAIRelayCredential: Codable, Equatable, Sendable {
     var keyID: String
     var installationID: String?
+    var accessToken: String? = nil
+}
+
+struct PrimuseStoreKitEnrollmentMaterial: Equatable, Sendable {
+    var appTransactionJWS: String
+    var deviceVerificationID: String
 }
 
 protocol PrimuseAppAttesting: Actor {
@@ -40,6 +46,29 @@ actor SystemPrimuseAppAttestor: PrimuseAppAttesting {
 
     func generateAssertion(_ keyID: String, clientDataHash: Data) async throws -> Data {
         try await service.generateAssertion(keyID, clientDataHash: clientDataHash)
+    }
+}
+
+protocol PrimuseStoreKitEnrollmentProviding: Actor {
+    var isSupported: Bool { get }
+    func enrollmentMaterial() async throws -> PrimuseStoreKitEnrollmentMaterial
+}
+
+actor SystemPrimuseStoreKitEnrollmentProvider: PrimuseStoreKitEnrollmentProviding {
+    var isSupported: Bool { AppStore.deviceVerificationID != nil }
+
+    func enrollmentMaterial() async throws -> PrimuseStoreKitEnrollmentMaterial {
+        guard let deviceVerificationID = AppStore.deviceVerificationID else {
+            throw PrimuseAIRelayError.unsupportedDevice
+        }
+        let result = try await AppTransaction.shared
+        guard case .verified = result else {
+            throw PrimuseAIRelayError.credentialUnavailable
+        }
+        return PrimuseStoreKitEnrollmentMaterial(
+            appTransactionJWS: result.jwsRepresentation,
+            deviceVerificationID: deviceVerificationID.uuidString.lowercased()
+        )
     }
 }
 
@@ -91,7 +120,7 @@ actor PrimuseAIRelayClient {
     static let providerID = UUID(uuidString: "C8465401-5F73-4FC4-9A58-019220216BC9")!
 
     nonisolated static var isSupportedOnCurrentDevice: Bool {
-        DCAppAttestService.shared.isSupported
+        DCAppAttestService.shared.isSupported || AppStore.deviceVerificationID != nil
     }
 
     private static let appID = "primuse"
@@ -100,6 +129,7 @@ actor PrimuseAIRelayClient {
     private let baseURL: URL
     private let session: URLSession
     private let attestor: any PrimuseAppAttesting
+    private let storeKitEnrollmentProvider: any PrimuseStoreKitEnrollmentProviding
     private let credentialStore: any PrimuseAIRelayCredentialStoring
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -108,12 +138,14 @@ actor PrimuseAIRelayClient {
         baseURL: URL = PrimuseAIRelayClient.productionBaseURL,
         session: URLSession = PrimuseAIRelayClient.makeSession(),
         attestor: any PrimuseAppAttesting = SystemPrimuseAppAttestor(),
+        storeKitEnrollmentProvider: any PrimuseStoreKitEnrollmentProviding = SystemPrimuseStoreKitEnrollmentProvider(),
         credentialStore: any PrimuseAIRelayCredentialStoring = KeychainPrimuseAIRelayCredentialStore()
     ) {
         precondition(baseURL.scheme?.lowercased() == "https")
         self.baseURL = baseURL
         self.session = session
         self.attestor = attestor
+        self.storeKitEnrollmentProvider = storeKitEnrollmentProvider
         self.credentialStore = credentialStore
         encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -242,34 +274,62 @@ actor PrimuseAIRelayClient {
     private func performFeature<Input: Encodable & Sendable, Output: Decodable & Sendable>(
         path: String,
         purpose: String,
-        input: Input
+        input: Input,
+        canRefreshAppAttestCredential: Bool = true
     ) async throws -> Output {
         let body = try encoder.encode(input)
         let initialCredential = try await ensureEnrollment(canReplaceInvalidKey: true)
-        let challenge = try await issueChallenge(purpose: purpose)
-        let clientDataHash = Self.assertionClientDataHash(
-            challenge: challenge,
-            method: "POST",
-            path: path,
-            body: body
-        )
-        let (credential, assertion) = try await assertion(
-            credential: initialCredential,
-            clientDataHash: clientDataHash,
-            canReplaceInvalidKey: true
-        )
+        let credential: PrimuseAIRelayCredential
+        var request = try makeRequest(path: path, body: body)
+        if let accessToken = initialCredential.accessToken, !accessToken.isEmpty {
+            credential = initialCredential
+            request.setValue(
+                accessToken,
+                forHTTPHeaderField: "X-Primuse-Installation-Token"
+            )
+            request.setValue(
+                UUID().uuidString.lowercased(),
+                forHTTPHeaderField: "X-Primuse-Request-Nonce"
+            )
+        } else {
+            let challenge = try await issueChallenge(purpose: purpose)
+            let clientDataHash = Self.assertionClientDataHash(
+                challenge: challenge,
+                method: "POST",
+                path: path,
+                body: body
+            )
+            let assertionResult: (PrimuseAIRelayCredential, Data)
+            do {
+                assertionResult = try await assertion(
+                    credential: initialCredential,
+                    clientDataHash: clientDataHash,
+                    canReplaceInvalidKey: true
+                )
+            } catch {
+                guard canRefreshAppAttestCredential,
+                      Self.isLocalAppAttestFailure(error) else { throw error }
+                try await credentialStore.clear()
+                return try await performFeature(
+                    path: path,
+                    purpose: purpose,
+                    input: input,
+                    canRefreshAppAttestCredential: false
+                )
+            }
+            credential = assertionResult.0
+            request.setValue(challenge, forHTTPHeaderField: "X-Primuse-Challenge")
+            request.setValue(
+                assertionResult.1.base64URLEncodedString(),
+                forHTTPHeaderField: "X-Primuse-Assertion"
+            )
+        }
         guard let installationID = credential.installationID else {
             throw PrimuseAIRelayError.invalidResponse
         }
 
-        var request = try makeRequest(path: path, body: body)
         request.setValue(Self.appID, forHTTPHeaderField: "X-Primuse-App-Id")
         request.setValue(installationID, forHTTPHeaderField: "X-Primuse-Installation-Id")
-        request.setValue(challenge, forHTTPHeaderField: "X-Primuse-Challenge")
-        request.setValue(
-            assertion.base64URLEncodedString(),
-            forHTTPHeaderField: "X-Primuse-Assertion"
-        )
         let envelope = try await send(SuccessEnvelope<Output>.self, request: request)
         return envelope.data
     }
@@ -279,15 +339,32 @@ actor PrimuseAIRelayClient {
     ) async throws -> PrimuseAIRelayCredential {
         if let credential = try await credentialStore.load(),
            credential.installationID != nil {
-            return credential
-        }
-        guard await attestor.isSupported else {
-            throw PrimuseAIRelayError.unsupportedDevice
+            let supportsAppAttest = await attestor.isSupported
+            if credential.accessToken != nil || supportsAppAttest {
+                return credential
+            }
+            try await credentialStore.clear()
         }
 
+        if await attestor.isSupported {
+            do {
+                return try await ensureAppAttestEnrollment(
+                    canReplaceInvalidKey: canReplaceInvalidKey
+                )
+            } catch {
+                guard Self.isLocalAppAttestFailure(error) else { throw error }
+                try await credentialStore.clear()
+            }
+        }
+        return try await ensureStoreKitEnrollment()
+    }
+
+    private func ensureAppAttestEnrollment(
+        canReplaceInvalidKey: Bool
+    ) async throws -> PrimuseAIRelayCredential {
         let existing = try await credentialStore.load()
         let keyID: String
-        if let existing {
+        if let existing, existing.accessToken == nil {
             keyID = existing.keyID
         } else {
             keyID = try await attestor.generateKey()
@@ -324,6 +401,34 @@ actor PrimuseAIRelayClient {
         let credential = PrimuseAIRelayCredential(
             keyID: keyID,
             installationID: response.installationID
+        )
+        try await credentialStore.save(credential)
+        return credential
+    }
+
+    private func ensureStoreKitEnrollment() async throws -> PrimuseAIRelayCredential {
+        guard await storeKitEnrollmentProvider.isSupported else {
+            throw PrimuseAIRelayError.unsupportedDevice
+        }
+        let material = try await storeKitEnrollmentProvider.enrollmentMaterial()
+        let challenge = try await issueChallenge(purpose: "enroll")
+        let body = try encoder.encode(StoreKitEnrollmentInput(
+            appID: Self.appID,
+            challenge: challenge,
+            appTransactionJWS: material.appTransactionJWS,
+            deviceVerificationID: material.deviceVerificationID
+        ))
+        let response = try await send(
+            EnrollmentOutput.self,
+            request: try makeRequest(path: "/v1/auth/installations", body: body)
+        )
+        guard let accessToken = response.accessToken, !accessToken.isEmpty else {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+        let credential = PrimuseAIRelayCredential(
+            keyID: "storekit",
+            installationID: response.installationID,
+            accessToken: accessToken
         )
         try await credentialStore.save(credential)
         return credential
@@ -414,6 +519,10 @@ actor PrimuseAIRelayClient {
             && value.code == DCError.invalidKey.rawValue
     }
 
+    private nonisolated static func isLocalAppAttestFailure(_ error: Error) -> Bool {
+        (error as NSError).domain == DCError.errorDomain
+    }
+
     private nonisolated static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
@@ -456,9 +565,25 @@ actor PrimuseAIRelayClient {
 
     private struct EnrollmentOutput: Decodable, Sendable {
         var installationID: String
+        var accessToken: String?
 
         private enum CodingKeys: String, CodingKey {
             case installationID = "installation_id"
+            case accessToken = "access_token"
+        }
+    }
+
+    private struct StoreKitEnrollmentInput: Encodable, Sendable {
+        var appID: String
+        var challenge: String
+        var appTransactionJWS: String
+        var deviceVerificationID: String
+
+        private enum CodingKeys: String, CodingKey {
+            case appID = "app_id"
+            case challenge
+            case appTransactionJWS = "app_transaction_jws"
+            case deviceVerificationID = "device_verification_id"
         }
     }
 
@@ -605,4 +730,3 @@ private extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
-#endif
