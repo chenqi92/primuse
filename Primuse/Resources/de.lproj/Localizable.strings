@@ -2998,7 +2998,15 @@
 "ai_recommendation_status_needs_consent" = "Zustimmung für Hörvorlieben erforderlich";
 "ai_recommendation_status_success_format" = "%@ · für %@ neu sortiert";
 "ai_recommendation_status_fallback_format" = "Hauptdienst nicht verfügbar; %@ übernimmt für %@";
-"ai_recommendation_status_failed_local" = "Intelligenter Dienst nicht verfügbar; lokale Empfehlungen bleiben erhalten";
+"ai_recommendation_status_failed_local" = "Intelligenter Dienst nicht verfügbar; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_busy_local" = "Intelligenter Dienst ist ausgelastet; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_minute_limit_local" = "Zu viele Anfragen. Bitte später erneut versuchen; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_daily_limit_local" = "Das heutige Kontingent des intelligenten Dienstes ist aufgebraucht; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_region_restricted_local" = "Der intelligente Dienst ist in dieser Region nicht verfügbar; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_device_registration_local" = "Geräteregistrierung fehlgeschlagen; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_authentication_local" = "Authentifizierung des intelligenten Dienstes fehlgeschlagen; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_network_local" = "Netzwerkverbindung nicht verfügbar; vorhandene Empfehlungen bleiben erhalten";
+"ai_recommendation_status_upstream_local" = "Vorgelagerter intelligenter Dienst fehlgeschlagen; vorhandene Empfehlungen bleiben erhalten";
 "ai_test_connection" = "Verbindung testen";
 "ai_settings_saved" = "Einstellungen gespeichert";
 "ai_connection_success" = "Verbindung erfolgreich";
@@ -3162,7 +3170,7 @@
 "library_recommendations_theme_none" = "Kein zusätzliches Thema";
 "library_recommendations_more" = "Weitere Empfehlungen laden";
 "library_recommendations_more_failed" = "Weitere Empfehlungen konnten nicht geladen werden. Die aktuelle Liste bleibt erhalten.";
-"library_recommendations_local_fallback_detail" = "Lokale Empfehlungen werden angezeigt. Die Wiedergabe funktioniert auch ohne intelligenten Dienst.";
+"library_recommendations_local_fallback_detail" = "Vorhandene Empfehlungen bleiben vorrangig erhalten; andernfalls werden lokale Empfehlungen angezeigt, ohne die Wiedergabe zu beeinträchtigen.";
 "library_recommendations_empty_title" = "Noch keine Empfehlungen";
 "library_recommendations_empty_description" = "Füge eine Musikquelle hinzu und scanne sie, um Titel nach Stimmung zu ordnen.";
 "ai_recommendation_intent_rightNow" = "Jetzt";

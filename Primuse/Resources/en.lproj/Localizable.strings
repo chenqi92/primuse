@@ -2785,7 +2785,15 @@
 "ai_recommendation_status_needs_consent" = "Listening preference permission is required";
 "ai_recommendation_status_success_format" = "%@ · reordered for %@";
 "ai_recommendation_status_fallback_format" = "Primary unavailable; %@ took over for %@";
-"ai_recommendation_status_failed_local" = "Intelligent service unavailable; local recommendations preserved";
+"ai_recommendation_status_failed_local" = "Intelligent service unavailable; existing recommendations preserved";
+"ai_recommendation_status_busy_local" = "Intelligent service is busy; existing recommendations preserved";
+"ai_recommendation_status_minute_limit_local" = "Too many requests. Try again later; existing recommendations preserved";
+"ai_recommendation_status_daily_limit_local" = "Today's intelligent service quota is exhausted; existing recommendations preserved";
+"ai_recommendation_status_region_restricted_local" = "Intelligent service is unavailable in this region; existing recommendations preserved";
+"ai_recommendation_status_device_registration_local" = "Device registration failed; existing recommendations preserved";
+"ai_recommendation_status_authentication_local" = "Intelligent service authentication failed; existing recommendations preserved";
+"ai_recommendation_status_network_local" = "Network connection unavailable; existing recommendations preserved";
+"ai_recommendation_status_upstream_local" = "Intelligent service upstream failed; existing recommendations preserved";
 "ai_test_connection" = "Test connection";
 "ai_settings_saved" = "Settings saved";
 "ai_connection_success" = "Connection succeeded";
@@ -2949,7 +2957,7 @@
 "library_recommendations_theme_none" = "No extra theme";
 "library_recommendations_more" = "Load more recommendations";
 "library_recommendations_more_failed" = "Couldn’t load more recommendations. The current list was kept.";
-"library_recommendations_local_fallback_detail" = "Local recommendations are showing. Playback keeps working when the intelligent service is unavailable.";
+"library_recommendations_local_fallback_detail" = "Existing recommendations are preserved first; local recommendations appear when none can be reused, without affecting playback.";
 "library_recommendations_empty_title" = "Nothing to recommend yet";
 "library_recommendations_empty_description" = "Add and scan a music source to organize songs by mood and setting.";
 "ai_recommendation_intent_rightNow" = "Right Now";

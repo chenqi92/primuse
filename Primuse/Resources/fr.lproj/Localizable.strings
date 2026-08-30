@@ -2998,7 +2998,15 @@
 "ai_recommendation_status_needs_consent" = "Autorisation des préférences d’écoute requise";
 "ai_recommendation_status_success_format" = "%@ · réorganisé pour %@";
 "ai_recommendation_status_fallback_format" = "Service principal indisponible ; %@ prend le relais pour %@";
-"ai_recommendation_status_failed_local" = "Service intelligent indisponible ; recommandations locales conservées";
+"ai_recommendation_status_failed_local" = "Service intelligent indisponible ; recommandations existantes conservées";
+"ai_recommendation_status_busy_local" = "Service intelligent occupé ; recommandations existantes conservées";
+"ai_recommendation_status_minute_limit_local" = "Trop de requêtes. Réessayez plus tard ; recommandations existantes conservées";
+"ai_recommendation_status_daily_limit_local" = "Quota quotidien du service intelligent épuisé ; recommandations existantes conservées";
+"ai_recommendation_status_region_restricted_local" = "Service intelligent indisponible dans cette région ; recommandations existantes conservées";
+"ai_recommendation_status_device_registration_local" = "Échec de l’enregistrement de l’appareil ; recommandations existantes conservées";
+"ai_recommendation_status_authentication_local" = "Échec de l’authentification du service intelligent ; recommandations existantes conservées";
+"ai_recommendation_status_network_local" = "Connexion réseau indisponible ; recommandations existantes conservées";
+"ai_recommendation_status_upstream_local" = "Échec du service intelligent en amont ; recommandations existantes conservées";
 "ai_test_connection" = "Tester la connexion";
 "ai_settings_saved" = "Réglages enregistrés";
 "ai_connection_success" = "Connexion réussie";
@@ -3162,7 +3170,7 @@
 "library_recommendations_theme_none" = "Aucun thème supplémentaire";
 "library_recommendations_more" = "Charger plus de recommandations";
 "library_recommendations_more_failed" = "Impossible de charger plus de recommandations. La liste actuelle a été conservée.";
-"library_recommendations_local_fallback_detail" = "Les recommandations locales sont affichées. La lecture continue si le service intelligent est indisponible.";
+"library_recommendations_local_fallback_detail" = "Les recommandations existantes sont conservées en priorité ; sinon, les recommandations locales s’affichent sans affecter la lecture.";
 "library_recommendations_empty_title" = "Aucune recommandation pour le moment";
 "library_recommendations_empty_description" = "Ajoutez et analysez une source musicale pour classer les morceaux par ambiance.";
 "ai_recommendation_intent_rightNow" = "Maintenant";

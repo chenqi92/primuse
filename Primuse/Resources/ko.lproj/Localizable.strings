@@ -2998,7 +2998,15 @@
 "ai_recommendation_status_needs_consent" = "감상 선호도 전송 권한 필요";
 "ai_recommendation_status_success_format" = "%@ · %@ 상황에 맞게 재정렬됨";
 "ai_recommendation_status_fallback_format" = "기본 서비스를 사용할 수 없어 %@이(가) %@ 상황을 처리함";
-"ai_recommendation_status_failed_local" = "지능형 서비스를 사용할 수 없어 로컬 추천을 유지함";
+"ai_recommendation_status_failed_local" = "지능형 서비스를 사용할 수 없어 기존 추천을 유지함";
+"ai_recommendation_status_busy_local" = "지능형 서비스가 사용 중이어서 기존 추천을 유지함";
+"ai_recommendation_status_minute_limit_local" = "요청이 너무 많습니다. 잠시 후 다시 시도하세요. 기존 추천을 유지함";
+"ai_recommendation_status_daily_limit_local" = "오늘의 지능형 서비스 할당량을 모두 사용하여 기존 추천을 유지함";
+"ai_recommendation_status_region_restricted_local" = "현재 지역에서 지능형 서비스를 사용할 수 없어 기존 추천을 유지함";
+"ai_recommendation_status_device_registration_local" = "기기 등록에 실패하여 기존 추천을 유지함";
+"ai_recommendation_status_authentication_local" = "지능형 서비스 인증에 실패하여 기존 추천을 유지함";
+"ai_recommendation_status_network_local" = "네트워크 연결을 사용할 수 없어 기존 추천을 유지함";
+"ai_recommendation_status_upstream_local" = "지능형 서비스의 업스트림 오류로 기존 추천을 유지함";
 "ai_test_connection" = "연결 테스트";
 "ai_settings_saved" = "설정이 저장됨";
 "ai_connection_success" = "연결 성공";
@@ -3162,7 +3170,7 @@
 "library_recommendations_theme_none" = "추가 테마 없음";
 "library_recommendations_more" = "추천 더 불러오기";
 "library_recommendations_more_failed" = "추천을 더 불러오지 못했습니다. 현재 목록은 그대로 유지됩니다.";
-"library_recommendations_local_fallback_detail" = "현재 기기 내 추천을 표시합니다. 지능형 서비스를 사용할 수 없어도 재생에는 영향이 없습니다.";
+"library_recommendations_local_fallback_detail" = "기존 추천을 우선 유지하고 재사용할 결과가 없으면 기기 내 추천을 표시하며 재생에는 영향을 주지 않습니다.";
 "library_recommendations_empty_title" = "아직 추천할 곡이 없습니다";
 "library_recommendations_empty_description" = "음악 소스를 추가하고 스캔하면 기분과 상황에 맞춰 곡을 정리합니다.";
 "ai_recommendation_intent_rightNow" = "지금";

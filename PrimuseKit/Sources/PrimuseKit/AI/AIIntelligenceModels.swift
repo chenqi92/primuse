@@ -349,8 +349,8 @@ public struct AIRecommendationRequest: Hashable, Sendable {
         languageCode: String? = nil,
         preferences: [AIRecommendationPreference],
         candidates: [AIRecommendationCandidate],
-        maximumResults: Int = 8,
-        minimumResults: Int = 1
+        maximumResults: Int = 12,
+        minimumResults: Int = 10
     ) {
         self.scene = scene
         let normalizedIntent = intent?

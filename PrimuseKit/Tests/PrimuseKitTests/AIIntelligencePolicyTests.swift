@@ -1056,6 +1056,24 @@ struct AIRecommendationPolicyTests {
         #expect(shortPage.minimumResults == 5)
     }
 
+    @Test func recommendationRequestDefaultsToTwelveWithTenRequired() {
+        let candidates = (0..<20).map { index in
+            AIRecommendationCandidate(
+                songID: "song-\(index)",
+                title: "Song \(index)",
+                artist: "Artist \(index)"
+            )
+        }
+        let request = AIRecommendationRequest(
+            scene: .focus,
+            preferences: [],
+            candidates: candidates
+        )
+
+        #expect(request.maximumResults == 12)
+        #expect(request.minimumResults == 10)
+    }
+
     @Test func recommendationIntentIsSanitizedAndBounded() {
         let request = AIRecommendationRequest(
             scene: .relaxation,

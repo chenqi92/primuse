@@ -263,6 +263,116 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
     }
 
+    func testRecommendationFallbackClassificationSeparatesQuotaAndTransportFailures() {
+        XCTAssertEqual(
+            AIRecommendationFallbackReason.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 429,
+                    code: "minute_request_limit_exhausted"
+                )
+            ),
+            .minuteLimit
+        )
+        XCTAssertEqual(
+            AIRecommendationFallbackReason.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 429,
+                    code: "daily_request_limit_exhausted"
+                )
+            ),
+            .dailyLimit
+        )
+        XCTAssertEqual(
+            AIRecommendationFallbackReason.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 429,
+                    code: "concurrency_limited"
+                )
+            ),
+            .busy
+        )
+        XCTAssertEqual(
+            AIRecommendationFallbackReason.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 401,
+                    code: "invalid_assertion"
+                )
+            ),
+            .authentication
+        )
+        XCTAssertEqual(
+            AIRecommendationFallbackReason.classify(URLError(.notConnectedToInternet)),
+            .network
+        )
+    }
+
+    func testRecommendationCoordinatorRetriesOneBusyResponse() async throws {
+        let host = "primuse-relay-recommendation-retry.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 429,
+            featureBody: #"{"error":{"code":"concurrency_limited"}}"#,
+            transientFeatureFailures: 1,
+            recoveredFeatureBody: try recommendationResponse()
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+        let coordinator = PrimuseRelayRecommendationCoordinator(
+            client: client,
+            transientRetryDelay: .zero
+        )
+
+        let plan = try await coordinator.recommendations(recommendationRequest())
+
+        XCTAssertEqual(plan.selections.count, 12)
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host)
+                .filter { $0.url?.path == "/v1/recommendations" }
+                .count,
+            2
+        )
+    }
+
+    func testRecommendationCoordinatorMergesIdenticalConcurrentRequests() async throws {
+        let host = "primuse-relay-recommendation-deduplication.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: try recommendationResponse(),
+            featureDelay: 0.1
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+        let coordinator = PrimuseRelayRecommendationCoordinator(
+            client: client,
+            transientRetryDelay: .zero
+        )
+        let request = recommendationRequest()
+
+        async let first = coordinator.recommendations(request)
+        async let second = coordinator.recommendations(request)
+        let plans = try await (first, second)
+
+        XCTAssertEqual(plans.0, plans.1)
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host)
+                .filter { $0.url?.path == "/v1/recommendations" }
+                .count,
+            1
+        )
+    }
+
     func testConnectionReportsAppAttestAuthentication() async throws {
         let host = "primuse-relay-test-app-attest.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
@@ -727,6 +837,33 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
     }
+
+    private func recommendationRequest() -> AIRecommendationRequest {
+        AIRecommendationRequest(
+            scene: .focus,
+            preferences: [],
+            candidates: (0..<12).map { index in
+                AIRecommendationCandidate(
+                    songID: "song-\(index)",
+                    title: "Song \(index)",
+                    artist: "Artist \(index)"
+                )
+            }
+        )
+    }
+
+    private func recommendationResponse() throws -> String {
+        let items = (0..<12).map { index in
+            [
+                "song_id": "song-\(index)",
+                "reason": "Reason \(index)",
+            ]
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["items": items],
+        ])
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
 }
 
 private actor TestPrimuseStoreKitEnrollmentProvider: PrimuseStoreKitEnrollmentProviding {
@@ -852,6 +989,8 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         var featureStatusCode = 200
         var featureBody = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
         var transientFeatureFailuresRemaining: Int?
+        var recoveredFeatureBody: String?
+        var featureDelay: TimeInterval = 0
     }
 
     private static let lock = NSLock()
@@ -861,13 +1000,17 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         host: String,
         featureStatusCode: Int = 200,
         featureBody: String = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#,
-        transientFeatureFailures: Int? = nil
+        transientFeatureFailures: Int? = nil,
+        recoveredFeatureBody: String? = nil,
+        featureDelay: TimeInterval = 0
     ) {
         lock.lock()
         states[host] = State(
             featureStatusCode: featureStatusCode,
             featureBody: featureBody,
-            transientFeatureFailuresRemaining: transientFeatureFailures
+            transientFeatureFailuresRemaining: transientFeatureFailures,
+            recoveredFeatureBody: recoveredFeatureBody,
+            featureDelay: featureDelay
         )
         lock.unlock()
     }
@@ -899,11 +1042,13 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let statusCode: Int
         let responseBody: String
+        let responseDelay: TimeInterval
         switch url.path {
         case "/v1/auth/challenge":
             let purpose = Self.purpose(from: captured.httpBody) ?? "unknown"
             statusCode = 200
             responseBody = #"{"challenge":"\#(purpose)-challenge","request_id":"test-request"}"#
+            responseDelay = 0
         case "/v1/auth/installations":
             statusCode = 201
             if Self.isStoreKitEnrollment(captured.httpBody) {
@@ -911,11 +1056,13 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             } else {
                 responseBody = #"{"installation_id":"test-installation","trust_level":"attested","request_id":"test-request"}"#
             }
+            responseDelay = 0
         default:
             if let failuresRemaining = state.transientFeatureFailuresRemaining,
                failuresRemaining == 0 {
                 statusCode = 200
-                responseBody = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
+                responseBody = state.recoveredFeatureBody
+                    ?? #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
             } else {
                 statusCode = state.featureStatusCode
                 responseBody = state.featureBody
@@ -923,10 +1070,15 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
                     state.transientFeatureFailuresRemaining = max(0, failuresRemaining - 1)
                 }
             }
+            responseDelay = state.featureDelay
         }
         state.requests.append(captured)
         Self.states[host] = state
         Self.lock.unlock()
+
+        if responseDelay > 0 {
+            Thread.sleep(forTimeInterval: responseDelay)
+        }
 
         guard let response = HTTPURLResponse(
             url: url,

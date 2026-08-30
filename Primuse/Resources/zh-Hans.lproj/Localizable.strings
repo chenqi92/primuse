@@ -3102,7 +3102,15 @@
 "ai_recommendation_status_needs_consent" = "需要允许发送听歌偏好";
 "ai_recommendation_status_success_format" = "%@ · 已按“%@”重排";
 "ai_recommendation_status_fallback_format" = "主服务不可用，%@ 已按“%@”接管";
-"ai_recommendation_status_failed_local" = "智能服务不可用，已保留本地推荐";
+"ai_recommendation_status_failed_local" = "智能服务不可用，已保留现有推荐";
+"ai_recommendation_status_busy_local" = "智能服务繁忙，已保留现有推荐";
+"ai_recommendation_status_minute_limit_local" = "请求过于频繁，请稍后再试；已保留现有推荐";
+"ai_recommendation_status_daily_limit_local" = "今日智能服务额度已用完，已保留现有推荐";
+"ai_recommendation_status_region_restricted_local" = "当前地区暂不提供智能服务，已保留现有推荐";
+"ai_recommendation_status_device_registration_local" = "设备注册失败，已保留现有推荐";
+"ai_recommendation_status_authentication_local" = "智能服务鉴权失败，已保留现有推荐";
+"ai_recommendation_status_network_local" = "网络连接不可用，已保留现有推荐";
+"ai_recommendation_status_upstream_local" = "智能服务上游失败，已保留现有推荐";
 "ai_test_connection" = "测试连接";
 "ai_settings_saved" = "设置已保存";
 "ai_connection_success" = "连接成功";
@@ -3266,7 +3274,7 @@
 "library_recommendations_theme_none" = "不添加主题";
 "library_recommendations_more" = "加载更多推荐";
 "library_recommendations_more_failed" = "未能加载更多推荐，当前列表已保留。";
-"library_recommendations_local_fallback_detail" = "当前显示本机推荐；智能服务不可用时不会影响播放。";
+"library_recommendations_local_fallback_detail" = "优先保留现有推荐；没有可复用结果时显示本机推荐，播放不受影响。";
 "library_recommendations_empty_title" = "还没有可推荐的歌曲";
 "library_recommendations_empty_description" = "添加并扫描音乐来源后，这里会按场景和感受整理歌曲。";
 "ai_recommendation_intent_rightNow" = "此刻";

@@ -2999,7 +2999,15 @@
 "ai_recommendation_status_needs_consent" = "再生傾向の送信許可が必要です";
 "ai_recommendation_status_success_format" = "%@ · 「%@」向けに並べ替え済み";
 "ai_recommendation_status_fallback_format" = "優先サービスを利用できないため、%@ が「%@」向けに引き継ぎました";
-"ai_recommendation_status_failed_local" = "スマートサービスを利用できないため、端末内のおすすめを維持しました";
+"ai_recommendation_status_failed_local" = "スマートサービスを利用できないため、現在のおすすめを維持しました";
+"ai_recommendation_status_busy_local" = "スマートサービスが混み合っているため、現在のおすすめを維持しました";
+"ai_recommendation_status_minute_limit_local" = "リクエストが多すぎます。しばらくしてから再試行してください。現在のおすすめを維持しました";
+"ai_recommendation_status_daily_limit_local" = "本日のスマートサービス利用上限に達したため、現在のおすすめを維持しました";
+"ai_recommendation_status_region_restricted_local" = "この地域ではスマートサービスを利用できないため、現在のおすすめを維持しました";
+"ai_recommendation_status_device_registration_local" = "デバイスの登録に失敗したため、現在のおすすめを維持しました";
+"ai_recommendation_status_authentication_local" = "スマートサービスの認証に失敗したため、現在のおすすめを維持しました";
+"ai_recommendation_status_network_local" = "ネットワークに接続できないため、現在のおすすめを維持しました";
+"ai_recommendation_status_upstream_local" = "スマートサービスの上流でエラーが発生したため、現在のおすすめを維持しました";
 "ai_test_connection" = "接続をテスト";
 "ai_settings_saved" = "設定を保存しました";
 "ai_connection_success" = "接続に成功しました";
@@ -3163,7 +3171,7 @@
 "library_recommendations_theme_none" = "追加テーマなし";
 "library_recommendations_more" = "おすすめをさらに読み込む";
 "library_recommendations_more_failed" = "おすすめを追加できませんでした。現在のリストはそのまま保持されます。";
-"library_recommendations_local_fallback_detail" = "端末内のおすすめを表示中です。スマートサービスが使えなくても再生に影響しません。";
+"library_recommendations_local_fallback_detail" = "現在のおすすめを優先して維持し、再利用できない場合は端末内のおすすめを表示します。再生には影響しません。";
 "library_recommendations_empty_title" = "おすすめできる曲がありません";
 "library_recommendations_empty_description" = "音楽ソースを追加してスキャンすると、気分や場面に合わせて曲を整理します。";
 "ai_recommendation_intent_rightNow" = "今この瞬間";

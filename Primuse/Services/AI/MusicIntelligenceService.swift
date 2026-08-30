@@ -46,7 +46,156 @@ enum AIRecommendationOutcome: Sendable {
     case unavailable
     case success(AIRecommendationExecution)
     case empty(providerName: String, fallbackDepth: Int)
-    case failed
+    case failed(AIRecommendationFallbackReason)
+}
+
+enum AIRecommendationFallbackReason: Equatable, Sendable {
+    case unavailable
+    case empty
+    case busy
+    case minuteLimit
+    case dailyLimit
+    case regionRestricted
+    case deviceRegistration
+    case authentication
+    case network
+    case upstream
+
+    static func classify(_ error: Error) -> AIRecommendationFallbackReason {
+        if error is CancellationError {
+            return .upstream
+        }
+        if error is URLError {
+            return .network
+        }
+        if let relayError = error as? PrimuseAIRelayError {
+            if case .requestFailed(let statusCode, let code) = relayError {
+                switch code {
+                case "concurrency_limited", "upstreams_busy":
+                    return .busy
+                case "minute_request_limit_exhausted", "edge_rate_limited",
+                     "installation_rate_limited":
+                    return .minuteLimit
+                case "daily_request_limit_exhausted", "daily_quota_exhausted",
+                     "feature_quota_exhausted":
+                    return .dailyLimit
+                case "country_not_allowed", "region_restricted":
+                    return .regionRestricted
+                default:
+                    break
+                }
+                if statusCode == 451 {
+                    return .regionRestricted
+                }
+                if statusCode == 429 {
+                    return .minuteLimit
+                }
+            }
+            switch PrimuseAIRelayDiagnostic.classify(relayError).category {
+            case .regionRestriction:
+                return .regionRestricted
+            case .deviceRegistration:
+                return .deviceRegistration
+            case .serviceAuthentication:
+                return .authentication
+            case .upstream:
+                return .upstream
+            }
+        }
+        if let intelligenceError = error as? MusicIntelligenceError {
+            switch intelligenceError {
+            case .unavailable(.regionRestricted):
+                return .regionRestricted
+            case .unavailable(.unsupportedDevice):
+                return .deviceRegistration
+            case .unavailable(.missingCredential), .unavailable(.missingConfiguration),
+                 .unavailable(.disabled):
+                return .authentication
+            case .requestFailed(let statusCode) where statusCode == 401 || statusCode == 403:
+                return .authentication
+            case .requestFailed(let statusCode) where statusCode == 429:
+                return .minuteLimit
+            case .timedOut:
+                return .network
+            default:
+                return .upstream
+            }
+        }
+        return .upstream
+    }
+
+    fileprivate var retriesBriefly: Bool {
+        self == .busy
+    }
+}
+
+actor PrimuseRelayRecommendationCoordinator {
+    private struct QueueTail {
+        var identifier: UInt64
+        var task: Task<Void, Never>
+    }
+
+    private let client: PrimuseAIRelayClient
+    private let transientRetryDelay: Duration
+    private var inFlight: [AIRecommendationRequest: Task<AIRecommendationPlan, Error>] = [:]
+    private var queueTail: QueueTail?
+    private var nextIdentifier: UInt64 = 0
+
+    init(
+        client: PrimuseAIRelayClient,
+        transientRetryDelay: Duration = .seconds(1)
+    ) {
+        self.client = client
+        self.transientRetryDelay = transientRetryDelay
+    }
+
+    func recommendations(_ request: AIRecommendationRequest) async throws
+        -> AIRecommendationPlan {
+        if let existing = inFlight[request] {
+            return try await existing.value
+        }
+
+        nextIdentifier &+= 1
+        let identifier = nextIdentifier
+        let predecessor = queueTail?.task
+        let client = client
+        let retryDelay = transientRetryDelay
+        let operation = Task<AIRecommendationPlan, Error> {
+            if let predecessor {
+                await predecessor.value
+            }
+            do {
+                return try await client.recommendations(request)
+            } catch {
+                guard AIRecommendationFallbackReason.classify(error).retriesBriefly else {
+                    throw error
+                }
+                try await Task.sleep(for: retryDelay)
+                return try await client.recommendations(request)
+            }
+        }
+        inFlight[request] = operation
+        let completion = Task<Void, Never> {
+            _ = try? await operation.value
+        }
+        queueTail = QueueTail(identifier: identifier, task: completion)
+
+        do {
+            let plan = try await operation.value
+            finish(request: request, identifier: identifier)
+            return plan
+        } catch {
+            finish(request: request, identifier: identifier)
+            throw error
+        }
+    }
+
+    private func finish(request: AIRecommendationRequest, identifier: UInt64) {
+        inFlight[request] = nil
+        if queueTail?.identifier == identifier {
+            queueTail = nil
+        }
+    }
 }
 
 struct PrimuseAIRelayConnectionReport: Equatable, Sendable {
@@ -91,6 +240,7 @@ final class MusicIntelligenceService {
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
     private let primuseRelayClient: PrimuseAIRelayClient
+    private let primuseRelayRecommendationCoordinator: PrimuseRelayRecommendationCoordinator
     @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
     @ObservationIgnored private var recommendationCache: [
         RecommendationCacheKey: RecommendationCacheEntry
@@ -163,7 +313,11 @@ final class MusicIntelligenceService {
         self.regionAvailability = regionAvailability
         self.credentialStore = credentialStore
         engine = MusicIntelligenceEngine(credentialStore: credentialStore)
-        primuseRelayClient = PrimuseAIRelayClient()
+        let primuseRelayClient = PrimuseAIRelayClient()
+        self.primuseRelayClient = primuseRelayClient
+        primuseRelayRecommendationCoordinator = PrimuseRelayRecommendationCoordinator(
+            client: primuseRelayClient
+        )
         let refreshTranscriptionSettings: () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 await self?.prepareLyricsTranscriptionCredentialMigration()
@@ -220,6 +374,27 @@ final class MusicIntelligenceService {
             for: .bundledRemote,
             regionContext: latest.context
         ).isAllowed
+    }
+
+    private func primuseRelayFallbackReason(
+        captured: AIRegionSnapshot,
+        latest: AIRegionSnapshot,
+        hasRequiredConsent: Bool
+    ) -> AIRecommendationFallbackReason {
+        guard hasRequiredConsent, settingsStore.primuseRelayEnabled else {
+            return .unavailable
+        }
+        guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
+            return .deviceRegistration
+        }
+        guard captured == latest,
+              AIAvailabilityPolicy.decision(
+                for: .bundledRemote,
+                regionContext: latest.context
+              ).isAllowed else {
+            return .regionRestricted
+        }
+        return .unavailable
     }
 
     var isSemanticSearchConfigured: Bool {
@@ -541,6 +716,7 @@ final class MusicIntelligenceService {
 
         let now = ProcessInfo.processInfo.systemUptime
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
+        var lastFailureReason: AIRecommendationFallbackReason?
         var customFallbackOffset = 0
 
         if isPrimuseRelayAvailable {
@@ -548,19 +724,32 @@ final class MusicIntelligenceService {
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
-            ) else { return .failed }
+            ) else {
+                return .failed(primuseRelayFallbackReason(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
+                ))
+            }
             customFallbackOffset = 1
             let cacheKey = PrimuseRelayRecommendationCacheKey(
                 request: request,
                 regionRevision: regionSnapshot.revision
             )
             do {
-                let plan = try await primuseRelayClient.recommendations(request)
+                let plan = try await primuseRelayRecommendationCoordinator
+                    .recommendations(request)
                 guard canUsePrimuseRelay(
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
-                ) else { return .failed }
+                ) else {
+                    return .failed(primuseRelayFallbackReason(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
+                    ))
+                }
                 guard !plan.selections.isEmpty else {
                     lastEmptyProvider = (primuseRelayProviderName, 0)
                     throw PrimuseAIRelayError.invalidResponse
@@ -583,8 +772,9 @@ final class MusicIntelligenceService {
                     isCached: false
                 ))
             } catch is CancellationError {
-                return .failed
+                return .failed(.upstream)
             } catch {
+                lastFailureReason = AIRecommendationFallbackReason.classify(error)
                 // A user-configured provider remains available as a fallback.
             }
         }
@@ -603,7 +793,7 @@ final class MusicIntelligenceService {
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 configuration: configuration
-            ) else { return .failed }
+            ) else { return .failed(.regionRestricted) }
             let cacheKey = RecommendationCacheKey(
                 profileID: configuration.id,
                 baseURL: configuration.baseURL,
@@ -642,7 +832,7 @@ final class MusicIntelligenceService {
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     configuration: configuration
-                ) else { return .failed }
+                ) else { return .failed(.regionRestricted) }
                 guard !plan.selections.isEmpty else {
                     lastEmptyProvider = (configuration.displayName, effectiveFallbackDepth)
                     continue
@@ -665,8 +855,9 @@ final class MusicIntelligenceService {
                     isCached: false
                 ))
             } catch is CancellationError {
-                return .failed
+                return .failed(.upstream)
             } catch {
+                lastFailureReason = AIRecommendationFallbackReason.classify(error)
                 continue
             }
         }
@@ -676,7 +867,7 @@ final class MusicIntelligenceService {
                 fallbackDepth: lastEmptyProvider.fallbackDepth
             )
         }
-        return .failed
+        return .failed(lastFailureReason ?? .upstream)
     }
 
     func cachedRecommendationOutcome(
@@ -1296,7 +1487,11 @@ enum AIRecommendationFeedback: Equatable {
         scene: AIRecommendationScene,
         isCached: Bool
     )
-    case localFallback(providerName: String?, fallbackDepth: Int)
+    case localFallback(
+        providerName: String?,
+        fallbackDepth: Int,
+        reason: AIRecommendationFallbackReason
+    )
 }
 
 enum AIRecommendationContextBuilder {
@@ -1305,8 +1500,8 @@ enum AIRecommendationContextBuilder {
         scene: AIRecommendationScene,
         intent: String? = nil,
         candidates: [Song],
-        maximumResults: Int = 8,
-        minimumResults: Int = 1,
+        maximumResults: Int = 12,
+        minimumResults: Int = 10,
         history: PlayHistoryStore = .shared,
         now: Date = Date()
     ) -> AIRecommendationRequest? {
@@ -1379,8 +1574,8 @@ final class AIRecommendationViewModel {
         candidates: [Song],
         using intelligence: MusicIntelligenceService,
         forceRefresh: Bool = false,
-        maximumResults: Int = 8,
-        minimumResults: Int = 1,
+        maximumResults: Int = 12,
+        minimumResults: Int = 10,
         appending: Bool = false
     ) async -> Bool {
         generation &+= 1
@@ -1431,13 +1626,11 @@ final class AIRecommendationViewModel {
         guard operationGeneration == generation, !Task.isCancelled else { return false }
         switch outcome {
         case .unavailable:
-            if appending {
-                feedback = previousFeedback
-            } else {
-                feedback = .localFallback(providerName: nil, fallbackDepth: 0)
-                orderedSongIDs = []
-                reasonsBySongID = [:]
-            }
+            feedback = .localFallback(
+                providerName: nil,
+                fallbackDepth: 0,
+                reason: .unavailable
+            )
             return false
         case .success(let execution):
             if appending {
@@ -1470,25 +1663,18 @@ final class AIRecommendationViewModel {
             )
             return true
         case .empty(let providerName, let fallbackDepth):
-            if appending {
-                feedback = previousFeedback
-            } else {
-                orderedSongIDs = []
-                reasonsBySongID = [:]
-                feedback = .localFallback(
-                    providerName: providerName,
-                    fallbackDepth: fallbackDepth
-                )
-            }
+            feedback = .localFallback(
+                providerName: providerName,
+                fallbackDepth: fallbackDepth,
+                reason: .empty
+            )
             return false
-        case .failed:
-            if appending {
-                feedback = previousFeedback
-            } else {
-                orderedSongIDs = []
-                reasonsBySongID = [:]
-                feedback = .localFallback(providerName: nil, fallbackDepth: 0)
-            }
+        case .failed(let reason):
+            feedback = .localFallback(
+                providerName: nil,
+                fallbackDepth: 0,
+                reason: reason
+            )
             return false
         }
     }
@@ -1530,8 +1716,29 @@ final class AIRecommendationViewModel {
                 providerName,
                 scene.localizedName
             )
-        case .localFallback:
-            return String(localized: "ai_recommendation_status_failed_local")
+        case .localFallback(_, _, let reason):
+            let key: String
+            switch reason {
+            case .unavailable, .empty:
+                key = "ai_recommendation_status_failed_local"
+            case .busy:
+                key = "ai_recommendation_status_busy_local"
+            case .minuteLimit:
+                key = "ai_recommendation_status_minute_limit_local"
+            case .dailyLimit:
+                key = "ai_recommendation_status_daily_limit_local"
+            case .regionRestricted:
+                key = "ai_recommendation_status_region_restricted_local"
+            case .deviceRegistration:
+                key = "ai_recommendation_status_device_registration_local"
+            case .authentication:
+                key = "ai_recommendation_status_authentication_local"
+            case .network:
+                key = "ai_recommendation_status_network_local"
+            case .upstream:
+                key = "ai_recommendation_status_upstream_local"
+            }
+            return String(localized: String.LocalizationValue(key))
         }
     }
 

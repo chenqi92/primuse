@@ -34,7 +34,7 @@ private struct AIRecommendationIntentChoice: Identifiable, Hashable {
 struct AIRecommendationLibraryView: View {
     private static let recommendationPoolSize = 36
     private static let recommendationPageSize = 12
-    private static let minimumRecommendationPageSize = 8
+    private static let minimumRecommendationPageSize = 10
 
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -78,8 +78,8 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var canLoadMore: Bool {
-        guard case .success = aiRecommendation.feedback else { return false }
-        return aiRecommendation.orderedSongIDs.count < localResults.count
+        !aiRecommendation.orderedSongIDs.isEmpty
+            && aiRecommendation.orderedSongIDs.count < localResults.count
     }
 
     private var contentRevision: String {
