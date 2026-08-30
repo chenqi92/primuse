@@ -17,6 +17,8 @@ struct MacBottomBar: View {
     @Environment(AudioEngine.self) private var engine
     @Environment(MusicLibrary.self) private var library
     @Environment(\.pmAppearance) private var mode
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
@@ -263,6 +265,12 @@ struct MacBottomBar: View {
 
             PMRoundBtn(icon: "rectangle.inset.filled.on.rectangle", iconSize: 12, style: .plain,
                        help: "mini_player", action: onMiniPlayer)
+            if ImmersiveEffectEntryPolicy.showsMacQuickAccess(
+                hasCurrentSong: player.currentSong != nil,
+                isLiveRadio: player.isLiveRadio
+            ) {
+                fullscreenEffectMenu
+            }
             PMRoundBtn(icon: "arrow.up.left.and.arrow.down.right", iconSize: 12, style: .plain,
                        help: "full_screen_player", action: onFullScreen)
 
@@ -273,6 +281,40 @@ struct MacBottomBar: View {
                 .frame(width: PMSize.medBtn, height: PMSize.medBtn)
             }
         }
+    }
+
+    private var fullscreenPlayerEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+    }
+
+    private var fullscreenEffectMenu: some View {
+        Menu {
+            ForEach(FullscreenEffectCollection.allCases) { collection in
+                Section {
+                    ForEach(collection.effects) { candidate in
+                        Button {
+                            fullscreenPlayerEffectRawValue = candidate.rawValue
+                            FullscreenPlayerEffectSync.shared.select(candidate)
+                        } label: {
+                            Label(
+                                candidate.localizedTitle,
+                                systemImage: candidate == fullscreenPlayerEffect
+                                    ? "checkmark"
+                                    : candidate.symbolName
+                            )
+                        }
+                    }
+                } header: {
+                    Text(verbatim: collection.title)
+                }
+            }
+        } label: {
+            PMRoundBtnIcon(icon: "sparkles.tv", help: "fullscreen_effect_settings_title")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
     }
 
     private var volumeControl: some View {

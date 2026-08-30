@@ -234,18 +234,26 @@ struct TVImmersivePlayerView: View {
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
             presentationActivity.handle(.appeared)
-            if effect == .native {
-                guard presentsModePickerOnAppear else {
-                    dismissImmersivePlayer()
-                    return
-                }
-                showsChrome = false
-                showsModePicker = true
-                refreshGallerySongs()
-                refreshTypographyFieldLines()
+            let initialPresentation = ImmersiveEffectEntryPolicy.initialPresentation(
+                isNativeEffect: effect == .native,
+                presentsEffectPicker: presentsModePickerOnAppear
+            )
+            if initialPresentation.dismissesPlayer {
+                dismissImmersivePlayer()
                 return
             }
-            resumePresentationWork()
+            if initialPresentation.startsPresentationWork {
+                resumePresentationWork()
+            }
+            if initialPresentation.showsEffectPicker {
+                chromeTask?.cancel()
+                showsChrome = false
+                showsModePicker = true
+                if !initialPresentation.startsPresentationWork {
+                    refreshGallerySongs()
+                    refreshTypographyFieldLines()
+                }
+            }
         }
         .onDisappear {
             suspendPresentation(for: .disappeared)
@@ -931,7 +939,11 @@ struct TVImmersivePlayerView: View {
             effectRawValue = value.rawValue
         }
         FullscreenPlayerEffectSync.shared.select(value)
-        if value == .native { dismissImmersivePlayer() }
+        if value == .native {
+            dismissImmersivePlayer()
+        } else if lyricObservationTask == nil {
+            resumePresentationWork()
+        }
     }
 
     private func presentModePicker() {

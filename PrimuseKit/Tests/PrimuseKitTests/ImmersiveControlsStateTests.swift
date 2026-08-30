@@ -40,6 +40,73 @@ struct ImmersiveControlsStateTests {
     }
 }
 
+@Suite("Immersive effect entry policy")
+struct ImmersiveEffectEntryPolicyTests {
+    @Test("Mac quick access appears only for playable songs")
+    func macQuickAccessVisibility() {
+        #expect(ImmersiveEffectEntryPolicy.showsMacQuickAccess(
+            hasCurrentSong: true,
+            isLiveRadio: false
+        ))
+        #expect(!ImmersiveEffectEntryPolicy.showsMacQuickAccess(
+            hasCurrentSong: false,
+            isLiveRadio: false
+        ))
+        #expect(!ImmersiveEffectEntryPolicy.showsMacQuickAccess(
+            hasCurrentSong: true,
+            isLiveRadio: true
+        ))
+    }
+
+    @Test("Explicit TV entry opens the picker while idle entry stays passive")
+    func tvLaunchIntent() {
+        #expect(ImmersiveEffectEntryPolicy.tvLaunchPresentsEffectPicker(
+            isUserInitiated: true
+        ))
+        #expect(!ImmersiveEffectEntryPolicy.tvLaunchPresentsEffectPicker(
+            isUserInitiated: false
+        ))
+    }
+
+    @Test("A requested picker remains visible for native and immersive effects")
+    func requestedPickerPresentation() {
+        let native = ImmersiveEffectEntryPolicy.initialPresentation(
+            isNativeEffect: true,
+            presentsEffectPicker: true
+        )
+        #expect(!native.dismissesPlayer)
+        #expect(native.showsEffectPicker)
+        #expect(!native.startsPresentationWork)
+
+        let immersive = ImmersiveEffectEntryPolicy.initialPresentation(
+            isNativeEffect: false,
+            presentsEffectPicker: true
+        )
+        #expect(!immersive.dismissesPlayer)
+        #expect(immersive.showsEffectPicker)
+        #expect(immersive.startsPresentationWork)
+    }
+
+    @Test("Automatic presentation dismisses native mode and starts saved immersive mode")
+    func automaticPresentation() {
+        let native = ImmersiveEffectEntryPolicy.initialPresentation(
+            isNativeEffect: true,
+            presentsEffectPicker: false
+        )
+        #expect(native.dismissesPlayer)
+        #expect(!native.showsEffectPicker)
+        #expect(!native.startsPresentationWork)
+
+        let immersive = ImmersiveEffectEntryPolicy.initialPresentation(
+            isNativeEffect: false,
+            presentsEffectPicker: false
+        )
+        #expect(!immersive.dismissesPlayer)
+        #expect(!immersive.showsEffectPicker)
+        #expect(immersive.startsPresentationWork)
+    }
+}
+
 @Suite("Immersive presentation fallback")
 struct ImmersivePresentationFallbackPolicyTests {
     @Test("Kinetic title remains selected without synchronized lyrics")

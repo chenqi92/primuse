@@ -45,8 +45,9 @@ struct TVNowPlayingView: View {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
     }
 
-    private func presentImmersivePlayer() {
-        immersiveStartsWithEffectPicker = fullscreenPlayerEffect == .native
+    private func presentImmersivePlayer(isUserInitiated: Bool) {
+        immersiveStartsWithEffectPicker = ImmersiveEffectEntryPolicy
+            .tvLaunchPresentsEffectPicker(isUserInitiated: isUserInitiated)
         showImmersive = true
     }
 
@@ -111,7 +112,7 @@ struct TVNowPlayingView: View {
                       fullscreenPlayerEffect != .native,
                       !showImmersive, !showQueue, !showOptions else { continue }
                 if Date().timeIntervalSince(lastInteraction) >= immersiveIdleThreshold {
-                    showImmersive = true
+                    presentImmersivePlayer(isUserInitiated: false)
                 }
             }
         }
@@ -481,7 +482,7 @@ struct TVNowPlayingView: View {
             // 队列 / 更多移到同一行——和左侧传输键焦点左右线性可达,不再困在右上角。
             TVRoundBtn(icon: "sparkles.tv", size: 64, immersiveDark: immersiveDark) {
                 lastInteraction = Date()
-                presentImmersivePlayer()
+                presentImmersivePlayer(isUserInitiated: true)
             }
             TVRoundBtn(icon: "list.bullet", size: 64, immersiveDark: immersiveDark) { showQueue = true }
             TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark) { showOptions = true }

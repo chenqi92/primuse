@@ -3933,6 +3933,56 @@ public struct ImmersiveControlsState: Equatable, Sendable {
     }
 }
 
+public struct ImmersiveEffectInitialPresentation: Equatable, Sendable {
+    public let dismissesPlayer: Bool
+    public let showsEffectPicker: Bool
+    public let startsPresentationWork: Bool
+
+    public init(
+        dismissesPlayer: Bool,
+        showsEffectPicker: Bool,
+        startsPresentationWork: Bool
+    ) {
+        self.dismissesPlayer = dismissesPlayer
+        self.showsEffectPicker = showsEffectPicker
+        self.startsPresentationWork = startsPresentationWork
+    }
+}
+
+/// Keeps effect switching discoverable without turning passive presentation
+/// into an extra prompt. Explicit controls may reveal the picker; automatic
+/// presentation continues directly with the saved effect.
+public enum ImmersiveEffectEntryPolicy {
+    public static func showsMacQuickAccess(
+        hasCurrentSong: Bool,
+        isLiveRadio: Bool
+    ) -> Bool {
+        hasCurrentSong && !isLiveRadio
+    }
+
+    public static func tvLaunchPresentsEffectPicker(isUserInitiated: Bool) -> Bool {
+        isUserInitiated
+    }
+
+    public static func initialPresentation(
+        isNativeEffect: Bool,
+        presentsEffectPicker: Bool
+    ) -> ImmersiveEffectInitialPresentation {
+        if isNativeEffect {
+            return ImmersiveEffectInitialPresentation(
+                dismissesPlayer: !presentsEffectPicker,
+                showsEffectPicker: presentsEffectPicker,
+                startsPresentationWork: false
+            )
+        }
+        return ImmersiveEffectInitialPresentation(
+            dismissesPlayer: false,
+            showsEffectPicker: presentsEffectPicker,
+            startsPresentationWork: true
+        )
+    }
+}
+
 public enum NowPlayingLandscapeMode: Equatable, Sendable {
     case none
     case standardLyrics
