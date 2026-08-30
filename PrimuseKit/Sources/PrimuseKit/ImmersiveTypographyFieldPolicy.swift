@@ -217,9 +217,9 @@ public struct ImmersiveTypographyFieldMotionState: Equatable, Sendable {
     }
 }
 
-/// Defines explicit full-cycle durations for the background typography field.
-/// Keeping this pure makes motion testable without rebuilding the text pool or
-/// layout on every visual tick.
+/// Defines a continuous, depth-layered lyric flow for the background typography
+/// field. Keeping this pure makes motion testable without rebuilding the text
+/// pool or layout on every visual tick.
 public enum ImmersiveTypographyFieldMotionPolicy {
     /// The typography field is rendered by a single cached Canvas, so it can
     /// follow display motion smoothly without rebuilding a SwiftUI text tree.
@@ -231,11 +231,11 @@ public enum ImmersiveTypographyFieldMotionPolicy {
     }
 
     public static func horizontalCycleDuration(for itemID: Int) -> TimeInterval {
-        30 + Double(positiveModulo(itemID, 4)) * 6
+        20 + Double(positiveModulo(itemID, 4)) * 4
     }
 
     public static func verticalCycleDuration(for itemID: Int) -> TimeInterval {
-        38 + Double(positiveModulo(itemID, 3)) * 8
+        54 + Double(positiveModulo(itemID, 4)) * 6
     }
 
     public static func state(
@@ -261,15 +261,16 @@ public enum ImmersiveTypographyFieldMotionPolicy {
             duration: horizontalCycleDuration(for: item.id),
             phase: item.phase
         )
-        let yWave = cosineWave(
-            elapsedTime: elapsedTime,
-            duration: verticalCycleDuration(for: item.id),
-            phase: item.phase
+        let verticalPosition = wrapped(
+            item.normalizedY - elapsedTime / verticalCycleDuration(for: item.id)
+                * item.driftYFraction,
+            lowerBound: -0.12,
+            span: item.driftYFraction
         )
         return ImmersiveTypographyFieldMotionState(
             opacityMultiplier: 0.92 + opacityWave * 0.08,
             xOffsetFraction: xWave * item.driftXFraction,
-            yOffsetFraction: yWave * item.driftYFraction
+            yOffsetFraction: verticalPosition - item.normalizedY
         )
     }
 
@@ -281,12 +282,14 @@ public enum ImmersiveTypographyFieldMotionPolicy {
         sin(elapsedTime * 2 * .pi / duration + phase)
     }
 
-    private static func cosineWave(
-        elapsedTime: TimeInterval,
-        duration: TimeInterval,
-        phase: Double
+    private static func wrapped(
+        _ value: Double,
+        lowerBound: Double,
+        span: Double
     ) -> Double {
-        cos(elapsedTime * 2 * .pi / duration + phase)
+        guard span > 0 else { return value }
+        let remainder = (value - lowerBound).truncatingRemainder(dividingBy: span)
+        return lowerBound + (remainder < 0 ? remainder + span : remainder)
     }
 
     private static func positiveModulo(_ value: Int, _ divisor: Int) -> Int {
@@ -417,8 +420,8 @@ public enum ImmersiveTypographyFieldPolicy {
                 blurRadius: blur,
                 isOutlined: slot.depth > 0 || index.isMultiple(of: 3),
                 rotationDegrees: slot.rotation,
-                driftXFraction: motionScale * (0.008 + Double(index % 4) * 0.0035),
-                driftYFraction: motionScale * (0.004 + Double((index + 2) % 3) * 0.002),
+                driftXFraction: motionScale * (0.020 + Double(index % 4) * 0.006),
+                driftYFraction: motionScale * 1.24,
                 phase: Double(index) * 0.73
             )
         }

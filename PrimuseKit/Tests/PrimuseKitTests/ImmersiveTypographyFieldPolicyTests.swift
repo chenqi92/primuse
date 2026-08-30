@@ -218,10 +218,10 @@ struct ImmersiveTypographyFieldMotionPolicyTests {
             #expect((12...18).contains(
                 ImmersiveTypographyFieldMotionPolicy.opacityCycleDuration(for: itemID)
             ))
-            #expect((30...48).contains(
+            #expect((20...32).contains(
                 ImmersiveTypographyFieldMotionPolicy.horizontalCycleDuration(for: itemID)
             ))
-            #expect((38...54).contains(
+            #expect((54...72).contains(
                 ImmersiveTypographyFieldMotionPolicy.verticalCycleDuration(for: itemID)
             ))
         }
@@ -247,7 +247,8 @@ struct ImmersiveTypographyFieldMotionPolicyTests {
         )
 
         #expect(later.opacityMultiplier - start.opacityMultiplier > 0.06)
-        #expect(abs(later.xOffsetFraction - start.xOffsetFraction) > 0.004)
+        #expect(abs(later.xOffsetFraction - start.xOffsetFraction) > 0.01)
+        #expect(abs(later.yOffsetFraction - start.yOffsetFraction) > 0.05)
     }
 
     @Test("Each oscillator returns to its starting point after a full cycle")
@@ -291,6 +292,34 @@ struct ImmersiveTypographyFieldMotionPolicyTests {
         #expect(state.opacityMultiplier == 1)
         #expect(state.xOffsetFraction == 0)
         #expect(state.yOffsetFraction == 0)
+    }
+
+    @Test("Vertical flow stays visible, bounded and comparable to the cover wall")
+    func perceptibleVerticalFlow() throws {
+        let items = ImmersiveTypographyFieldPolicy.layout(
+            lines: (0..<16).map { "Background lyric \($0)" },
+            canvasWidth: 1920,
+            canvasHeight: 1080,
+            platform: .television,
+            reduceMotion: false
+        )
+        #expect(!items.isEmpty)
+
+        for item in items {
+            let normalizedSpeed = item.driftYFraction
+                / ImmersiveTypographyFieldMotionPolicy.verticalCycleDuration(for: item.id)
+            #expect((0.017...0.024).contains(normalizedSpeed))
+
+            for sample in stride(from: 0.0, through: 90.0, by: 3.0) {
+                let state = ImmersiveTypographyFieldMotionPolicy.state(
+                    for: item,
+                    at: sample,
+                    allowsMotion: true
+                )
+                let y = item.normalizedY + state.yOffsetFraction
+                #expect((-0.12..<1.12).contains(y))
+            }
+        }
     }
 
     private func makeMovingItem() -> ImmersiveTypographyFieldItem? {

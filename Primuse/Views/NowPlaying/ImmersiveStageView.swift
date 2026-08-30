@@ -462,14 +462,11 @@ struct ImmersiveStageView<Artwork: View>: View {
             for: current?.text ?? "",
             canvasWidth: metrics.size.width,
             canvasHeight: metrics.size.height,
-            availableWidth: lyricWidth - metrics.s(platform == .tvOS ? 64 : 36),
+            availableWidth: lyricWidth,
             platform: lyricDisplayPlatform
         )
-        let lyricHorizontalPadding = metrics.s(platform == .tvOS ? 32 : 18)
-        let lyricVerticalPadding = metrics.s(platform == .tvOS ? 22 : 13)
         let estimatedLyricHeight = CGFloat(lyricTypography.currentLineLimit)
             * CGFloat(lyricTypography.currentFontSize) * 1.18
-            + lyricVerticalPadding * 2
         let desiredLyricCenterY = metrics.size.height * (metrics.isPortrait ? 0.73 : 0.78)
         let lyricCenterY = min(
             desiredLyricCenterY,
@@ -548,21 +545,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     lineLimit: lyricTypography.currentLineLimit,
                     textAlignment: lyricTextAlignment
                 )
-                .padding(.horizontal, lyricHorizontalPadding)
-                .padding(.vertical, lyricVerticalPadding)
                 .frame(width: lyricWidth, alignment: lyricFrameAlignment)
-                .background {
-                    RoundedRectangle(cornerRadius: metrics.s(platform == .tvOS ? 18 : 12))
-                        .fill(ImmersiveStagePalette.obsidian.opacity(0.72))
-                        .overlay(alignment: .top) {
-                            LinearGradient(
-                                colors: [.clear, palette.primary.opacity(0.86), .clear],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            .frame(height: max(1, metrics.f(platform == .tvOS ? 2 : 1)))
-                        }
-                }
                 .position(
                     x: lyricCenterX,
                     y: lyricCenterY
