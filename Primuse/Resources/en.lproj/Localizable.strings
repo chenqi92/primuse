@@ -3121,5 +3121,15 @@
 "ai_primuse_relay_failure_auth_title" = "Service authentication failed";
 "ai_primuse_relay_failure_upstream_title" = "Upstream service failed";
 "ai_primuse_relay_diagnostic_code_format" = "Diagnostic code: %@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "This installation could not obtain a verifiable App Store transaction. Sign in to the App Store and retry; an Xcode development build may require a TestFlight or App Store installation for verification.";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "The App Store returned an unverified app transaction. Update or reinstall an Apple-authorized build and retry.";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "App Store verification was cancelled. Run the test again and complete the system sign-in.";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse automatically re-registered this device and retried once. Confirm the app was signed with a current App Attest-enabled profile, install the updated build, and retry.";
+"ai_primuse_relay_diagnostic_credential_detail" = "The local device credential could not be read or saved. Primuse will recreate it on the next test; confirm Keychain access is available if this continues.";
+"ai_primuse_relay_diagnostic_region_detail" = "The built-in service is unavailable for the current storefront region, so no relay request was sent.";
+"ai_primuse_relay_diagnostic_registration_detail" = "This installation could not create a trusted device credential. Reinstall an up-to-date signed build and retry.";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse re-registered and retried once, but the service still rejected this installation credential.";
+"ai_primuse_relay_diagnostic_network_detail" = "The built-in service could not be reached. Check the network and DNS, then retry.";
+"ai_primuse_relay_diagnostic_upstream_detail" = "Device verification completed, but the built-in service or its model provider could not finish the request.";
 "ai_primuse_relay_fallback_provider_format" = "The built-in service is unavailable. Verified fallback to “%@”.";
 "ai_primuse_relay_fallback_local" = "No remote fallback is available. Local search, recommendations, and playback remain available.";

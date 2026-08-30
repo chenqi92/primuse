@@ -138,6 +138,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
                 "/v1/auth/challenge",
                 "/v1/auth/challenge",
                 "/v1/auth/installations",
+                "/v1/auth/challenge",
                 "/v1/semantic-search",
             ]
         )
@@ -242,6 +243,24 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             )).category,
             .deviceRegistration
         )
+        XCTAssertEqual(
+            PrimuseAIRelayDiagnostic.classify(
+                PrimuseAIRelayError.storeKitTransactionUnavailable
+            ),
+            PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "storekit_transaction_unavailable"
+            )
+        )
+        XCTAssertEqual(
+            PrimuseAIRelayDiagnostic.classify(
+                PrimuseAIRelayError.storeKitAuthenticationCancelled
+            ),
+            PrimuseAIRelayDiagnostic(
+                category: .deviceRegistration,
+                code: "storekit_authentication_cancelled"
+            )
+        )
     }
 
     func testConnectionReportsAppAttestAuthentication() async throws {
@@ -321,8 +340,10 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         defer { session.invalidateAndCancel() }
 
         let authenticationMethod = try await client.testConnection()
+        let refreshRequests = await storeKitProvider.refreshRequests()
 
         XCTAssertEqual(authenticationMethod, .storeKitFallback)
+        XCTAssertEqual(refreshRequests, [true])
 
         let requests = PrimuseRelayURLProtocol.requests(host: host)
         XCTAssertEqual(requests.compactMap(\.url?.path), [
@@ -358,6 +379,204 @@ final class PrimuseAIRelayClientTests: XCTestCase {
                 installationID: "test-installation",
                 accessToken: "test-installation-token"
             )
+        )
+    }
+
+    func testAppAttestEnrollmentFailureFallsBackToStoreKitDuringExplicitTest() async throws {
+        let host = "primuse-relay-app-attest-fallback.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let attestor = TestPrimuseAppAttestor(attestationFailuresRemaining: 1)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let credentials = TestPrimuseRelayCredentialStore()
+        let (client, session, _, _) = makeClient(
+            host: host,
+            attestor: attestor,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        let authenticationMethod = try await client.testConnection()
+        let refreshRequests = await storeKitProvider.refreshRequests()
+        let clearCount = await credentials.clearCount()
+
+        XCTAssertEqual(authenticationMethod, .storeKitFallback)
+        XCTAssertEqual(refreshRequests, [true])
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host).compactMap(\.url?.path),
+            [
+                "/v1/auth/challenge",
+                "/v1/auth/challenge",
+                "/v1/auth/installations",
+                "/v1/semantic-search",
+            ]
+        )
+    }
+
+    func testServerRejectedAppAttestInstallationReenrollsOnceAndRetries() async throws {
+        let host = "primuse-relay-server-app-attest-recovery.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 401,
+            featureBody: #"{"error":{"code":"invalid_assertion","message":"private"}}"#,
+            transientFeatureFailures: 1
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "stale-installation"
+            )
+        )
+        let (client, session, attestor, _) = makeClient(
+            host: host,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        let plan = try await client.interpretSearch(
+            AISemanticSearchRequest(query: "quiet night")
+        )
+        let clearCount = await credentials.clearCount()
+
+        XCTAssertEqual(plan.expandedTerms, ["night rain", "rainy night"])
+        XCTAssertEqual(clearCount, 1)
+        let snapshot = await attestor.snapshot()
+        XCTAssertEqual(snapshot.generateKeyCount, 1)
+        XCTAssertEqual(snapshot.attestationHashes.count, 1)
+        XCTAssertEqual(snapshot.assertionHashes.count, 2)
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host).compactMap(\.url?.path),
+            [
+                "/v1/auth/challenge",
+                "/v1/semantic-search",
+                "/v1/auth/challenge",
+                "/v1/auth/installations",
+                "/v1/auth/challenge",
+                "/v1/semantic-search",
+            ]
+        )
+    }
+
+    func testServerRejectedStoreKitTokenReenrollsWithoutInteractiveRefresh() async throws {
+        let host = "primuse-relay-server-storekit-recovery.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 401,
+            featureBody: #"{"error":{"code":"invalid_installation_token","message":"private"}}"#,
+            transientFeatureFailures: 1
+        )
+        let attestor = TestPrimuseAppAttestor(isSupported: false)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "storekit",
+                installationID: "stale-installation",
+                accessToken: "stale-token"
+            )
+        )
+        let (client, session, _, _) = makeClient(
+            host: host,
+            attestor: attestor,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        let plan = try await client.interpretSearch(
+            AISemanticSearchRequest(query: "quiet night")
+        )
+        let clearCount = await credentials.clearCount()
+        let refreshRequests = await storeKitProvider.refreshRequests()
+
+        XCTAssertEqual(plan.expandedTerms, ["night rain", "rainy night"])
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(refreshRequests, [false])
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host).compactMap(\.url?.path),
+            [
+                "/v1/semantic-search",
+                "/v1/auth/challenge",
+                "/v1/auth/installations",
+                "/v1/semantic-search",
+            ]
+        )
+    }
+
+    func testConnectionUpgradesStoredStoreKitCredentialToAppAttestWhenAvailable() async throws {
+        let host = "primuse-relay-storekit-upgrade.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider()
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "storekit",
+                installationID: "storekit-installation",
+                accessToken: "storekit-token"
+            )
+        )
+        let (client, session, attestor, _) = makeClient(
+            host: host,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        let authenticationMethod = try await client.testConnection()
+        let clearCount = await credentials.clearCount()
+        let refreshRequests = await storeKitProvider.refreshRequests()
+        let snapshot = await attestor.snapshot()
+
+        XCTAssertEqual(authenticationMethod, .appAttest)
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertTrue(refreshRequests.isEmpty)
+        XCTAssertEqual(snapshot.generateKeyCount, 1)
+    }
+
+    func testRepeatedServerCredentialRejectionStopsAfterOneReenrollment() async throws {
+        let host = "primuse-relay-server-recovery-limit.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 401,
+            featureBody: #"{"error":{"code":"invalid_assertion","message":"private"}}"#
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "stale-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        do {
+            _ = try await client.interpretSearch(
+                AISemanticSearchRequest(query: "quiet night")
+            )
+            XCTFail("Expected the repeated authentication failure")
+        } catch {
+            XCTAssertEqual(
+                error as? PrimuseAIRelayError,
+                .requestFailed(statusCode: 401, code: "invalid_assertion")
+            )
+        }
+
+        let clearCount = await credentials.clearCount()
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host)
+                .filter { $0.url?.path == "/v1/semantic-search" }
+                .count,
+            2
         )
     }
 
@@ -513,15 +732,23 @@ final class PrimuseAIRelayClientTests: XCTestCase {
 private actor TestPrimuseStoreKitEnrollmentProvider: PrimuseStoreKitEnrollmentProviding {
     let isSupported: Bool
     private let material: PrimuseStoreKitEnrollmentMaterial?
+    private var requestedRefreshValues: [Bool] = []
 
     init(material: PrimuseStoreKitEnrollmentMaterial? = nil) {
         self.material = material
         isSupported = material != nil
     }
 
-    func enrollmentMaterial() async throws -> PrimuseStoreKitEnrollmentMaterial {
+    func enrollmentMaterial(
+        allowsRefresh: Bool
+    ) async throws -> PrimuseStoreKitEnrollmentMaterial {
+        requestedRefreshValues.append(allowsRefresh)
         guard let material else { throw PrimuseAIRelayError.unsupportedDevice }
         return material
+    }
+
+    func refreshRequests() -> [Bool] {
+        requestedRefreshValues
     }
 }
 
@@ -533,13 +760,19 @@ private actor TestPrimuseAppAttestor: PrimuseAppAttesting {
     }
 
     let isSupported: Bool
+    private var attestationFailuresRemaining: Int
     private var assertionFailuresRemaining: Int
     private var generateKeyCount = 0
     private var attestationHashes: [Data] = []
     private var assertionHashes: [Data] = []
 
-    init(isSupported: Bool = true, assertionFailuresRemaining: Int = 0) {
+    init(
+        isSupported: Bool = true,
+        attestationFailuresRemaining: Int = 0,
+        assertionFailuresRemaining: Int = 0
+    ) {
         self.isSupported = isSupported
+        self.attestationFailuresRemaining = attestationFailuresRemaining
         self.assertionFailuresRemaining = assertionFailuresRemaining
     }
 
@@ -551,6 +784,13 @@ private actor TestPrimuseAppAttestor: PrimuseAppAttesting {
     func attestKey(_ keyID: String, clientDataHash: Data) async throws -> Data {
         XCTAssertEqual(keyID, "test-app-attest-key")
         attestationHashes.append(clientDataHash)
+        if attestationFailuresRemaining > 0 {
+            attestationFailuresRemaining -= 1
+            throw NSError(
+                domain: DCError.errorDomain,
+                code: DCError.serverUnavailable.rawValue
+            )
+        }
         return Data([0x01, 0x02])
     }
 
@@ -611,6 +851,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         var requests: [URLRequest] = []
         var featureStatusCode = 200
         var featureBody = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
+        var transientFeatureFailuresRemaining: Int?
     }
 
     private static let lock = NSLock()
@@ -619,12 +860,14 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
     static func configure(
         host: String,
         featureStatusCode: Int = 200,
-        featureBody: String = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
+        featureBody: String = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#,
+        transientFeatureFailures: Int? = nil
     ) {
         lock.lock()
         states[host] = State(
             featureStatusCode: featureStatusCode,
-            featureBody: featureBody
+            featureBody: featureBody,
+            transientFeatureFailuresRemaining: transientFeatureFailures
         )
         lock.unlock()
     }
@@ -654,10 +897,6 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }
-        state.requests.append(captured)
-        Self.states[host] = state
-        Self.lock.unlock()
-
         let statusCode: Int
         let responseBody: String
         switch url.path {
@@ -673,9 +912,21 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
                 responseBody = #"{"installation_id":"test-installation","trust_level":"attested","request_id":"test-request"}"#
             }
         default:
-            statusCode = state.featureStatusCode
-            responseBody = state.featureBody
+            if let failuresRemaining = state.transientFeatureFailuresRemaining,
+               failuresRemaining == 0 {
+                statusCode = 200
+                responseBody = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
+            } else {
+                statusCode = state.featureStatusCode
+                responseBody = state.featureBody
+                if let failuresRemaining = state.transientFeatureFailuresRemaining {
+                    state.transientFeatureFailuresRemaining = max(0, failuresRemaining - 1)
+                }
+            }
         }
+        state.requests.append(captured)
+        Self.states[host] = state
+        Self.lock.unlock()
 
         guard let response = HTTPURLResponse(
             url: url,

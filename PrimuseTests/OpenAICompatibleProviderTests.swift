@@ -1634,6 +1634,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(editor.primuseRelayConnectionPresentation, .degraded)
+        XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains(String(
+            localized: "ai_primuse_relay_diagnostic_auth_detail"
+        )) == true)
         XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains("Fallback Provider") == true)
         XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains("invalid_assertion") == true)
 
@@ -1650,6 +1653,12 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             editor.primuseRelayConnectionTitle,
             String(localized: "ai_primuse_relay_failure_upstream_title")
         )
+        XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains(String(
+            localized: "ai_primuse_relay_diagnostic_upstream_detail"
+        )) == true)
+        XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains(String(
+            localized: "ai_primuse_relay_fallback_local"
+        )) == true)
 
         editor.primuseRelayConnectionReport = PrimuseAIRelayConnectionReport(
             outcome: .available(.storeKitFallback),
@@ -1657,6 +1666,29 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(editor.primuseRelayConnectionPresentation, .degraded)
+    }
+
+    @MainActor
+    func testBuiltInServiceDiagnosticsExposeStoreKitRegistrationGuidance() {
+        let editor = AISettingsEditorModel()
+        editor.primuseRelayConnectionReport = PrimuseAIRelayConnectionReport(
+            outcome: .unavailable(PrimuseAIRelayDiagnostic.classify(
+                PrimuseAIRelayError.storeKitTransactionUnavailable
+            )),
+            fallback: .none
+        )
+
+        XCTAssertEqual(editor.primuseRelayConnectionPresentation, .failure)
+        XCTAssertEqual(
+            editor.primuseRelayConnectionTitle,
+            String(localized: "ai_primuse_relay_failure_registration_title")
+        )
+        XCTAssertTrue(editor.primuseRelayConnectionDetail?.contains(String(
+            localized: "ai_primuse_relay_diagnostic_storekit_unavailable_detail"
+        )) == true)
+        XCTAssertFalse(editor.primuseRelayConnectionDetail?.contains(String(
+            localized: "ai_primuse_relay_diagnostic_upstream_detail"
+        )) == true)
     }
 
     @MainActor

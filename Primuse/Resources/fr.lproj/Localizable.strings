@@ -3334,5 +3334,15 @@
 "ai_primuse_relay_failure_auth_title" = "Échec de l’authentification du service";
 "ai_primuse_relay_failure_upstream_title" = "Échec du service en amont";
 "ai_primuse_relay_diagnostic_code_format" = "Code de diagnostic : %@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "Cette installation n’a pas pu obtenir de transaction App Store vérifiable. Connectez-vous à l’App Store puis réessayez ; une version de développement Xcode peut devoir être installée via TestFlight ou l’App Store pour être vérifiée.";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "L’App Store a renvoyé une transaction d’app non vérifiée. Mettez à jour ou réinstallez une version autorisée par Apple, puis réessayez.";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "La vérification App Store a été annulée. Relancez le test et terminez la connexion système.";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse a réenregistré automatiquement cet appareil et réessayé une fois. Vérifiez que l’app est signée avec un profil récent incluant App Attest, installez la nouvelle version, puis réessayez.";
+"ai_primuse_relay_diagnostic_credential_detail" = "L’identifiant local de l’appareil n’a pas pu être lu ou enregistré. Primuse le recréera au prochain test ; vérifiez l’accès au trousseau si le problème persiste.";
+"ai_primuse_relay_diagnostic_region_detail" = "Le service intégré n’est pas disponible dans la région actuelle de l’App Store ; aucune requête de relais n’a donc été envoyée.";
+"ai_primuse_relay_diagnostic_registration_detail" = "Cette installation n’a pas pu créer d’identifiant d’appareil fiable. Réinstallez une version signée à jour, puis réessayez.";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse a réenregistré l’installation et réessayé une fois, mais le service refuse toujours cet identifiant.";
+"ai_primuse_relay_diagnostic_network_detail" = "Le service intégré est inaccessible. Vérifiez le réseau et le DNS, puis réessayez.";
+"ai_primuse_relay_diagnostic_upstream_detail" = "La vérification de l’appareil a réussi, mais le service intégré ou son fournisseur de modèle n’a pas pu terminer la requête.";
 "ai_primuse_relay_fallback_provider_format" = "Le service intégré est indisponible. Le repli vers « %@ » a été vérifié.";
 "ai_primuse_relay_fallback_local" = "Aucun service distant de repli n’est disponible. La recherche, les recommandations et la lecture locales restent disponibles.";

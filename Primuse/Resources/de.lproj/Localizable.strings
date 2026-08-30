@@ -3334,5 +3334,15 @@
 "ai_primuse_relay_failure_auth_title" = "Dienstauthentifizierung fehlgeschlagen";
 "ai_primuse_relay_failure_upstream_title" = "Vorgelagerter Dienst fehlgeschlagen";
 "ai_primuse_relay_diagnostic_code_format" = "Diagnosecode: %@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "Diese Installation konnte keine überprüfbare App-Store-Transaktion abrufen. Melde dich im App Store an und versuche es erneut; ein Xcode-Entwicklungsbuild muss zur Prüfung möglicherweise über TestFlight oder den App Store installiert werden.";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "Der App Store hat eine nicht verifizierte App-Transaktion zurückgegeben. Aktualisiere die App oder installiere einen von Apple autorisierten Build neu und versuche es erneut.";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "Die App-Store-Prüfung wurde abgebrochen. Starte den Test erneut und schließe die Systemanmeldung ab.";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse hat dieses Gerät automatisch neu registriert und den Vorgang einmal wiederholt. Prüfe, ob die App mit einem aktuellen Profil mit App Attest signiert wurde, installiere den neuen Build und versuche es erneut.";
+"ai_primuse_relay_diagnostic_credential_detail" = "Die lokale Geräteberechtigung konnte nicht gelesen oder gespeichert werden. Primuse erstellt sie beim nächsten Test neu; prüfe bei anhaltendem Fehler den Schlüsselbundzugriff.";
+"ai_primuse_relay_diagnostic_region_detail" = "Der integrierte Dienst ist in der aktuellen Store-Region nicht verfügbar; daher wurde keine Relay-Anfrage gesendet.";
+"ai_primuse_relay_diagnostic_registration_detail" = "Diese Installation konnte keine vertrauenswürdige Geräteberechtigung erstellen. Installiere einen aktuellen signierten Build neu und versuche es erneut.";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse hat die Installation neu registriert und einmal erneut versucht, doch der Dienst lehnt diese Berechtigung weiterhin ab.";
+"ai_primuse_relay_diagnostic_network_detail" = "Der integrierte Dienst ist nicht erreichbar. Prüfe Netzwerk und DNS und versuche es erneut.";
+"ai_primuse_relay_diagnostic_upstream_detail" = "Die Geräteprüfung war erfolgreich, aber der integrierte Dienst oder sein Modellanbieter konnte die Anfrage nicht abschließen.";
 "ai_primuse_relay_fallback_provider_format" = "Der integrierte Dienst ist nicht verfügbar. Der Rückgriff auf „%@“ wurde geprüft.";
 "ai_primuse_relay_fallback_local" = "Kein entfernter Ersatzdienst ist verfügbar. Lokale Suche, Empfehlungen und Wiedergabe bleiben erhalten.";

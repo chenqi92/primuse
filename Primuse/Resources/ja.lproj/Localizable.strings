@@ -3335,5 +3335,15 @@
 "ai_primuse_relay_failure_auth_title" = "サービス認証に失敗";
 "ai_primuse_relay_failure_upstream_title" = "上流サービスに失敗";
 "ai_primuse_relay_diagnostic_code_format" = "診断コード：%@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "このインストールでは検証可能な App Store トランザクションを取得できませんでした。App Store にサインインして再試行してください。Xcode の開発ビルドは、検証のために TestFlight または App Store からのインストールが必要な場合があります。";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "App Store から未検証のアプリトランザクションが返されました。Apple が承認したビルドに更新または再インストールしてから再試行してください。";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "App Store の検証がキャンセルされました。もう一度テストし、システムへのサインインを完了してください。";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse はこのデバイスを自動的に再登録し、1 回再試行しました。App Attest を含む最新のプロファイルで署名されていることを確認し、更新したビルドをインストールして再試行してください。";
+"ai_primuse_relay_diagnostic_credential_detail" = "ローカルのデバイス認証情報を読み取りまたは保存できませんでした。次回のテストで再作成されます。問題が続く場合はキーチェーンへのアクセスを確認してください。";
+"ai_primuse_relay_diagnostic_region_detail" = "現在のストア地域では内蔵サービスを利用できないため、リレーへのリクエストは送信されませんでした。";
+"ai_primuse_relay_diagnostic_registration_detail" = "このインストールでは信頼できるデバイス認証情報を作成できませんでした。最新の署名済みビルドを再インストールして再試行してください。";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse は再登録して 1 回再試行しましたが、サービスは引き続きこのインストール認証情報を拒否しました。";
+"ai_primuse_relay_diagnostic_network_detail" = "内蔵サービスに接続できません。ネットワークと DNS を確認して再試行してください。";
+"ai_primuse_relay_diagnostic_upstream_detail" = "デバイス検証は完了しましたが、内蔵サービスまたはモデルプロバイダがリクエストを完了できませんでした。";
 "ai_primuse_relay_fallback_provider_format" = "内蔵サービスを利用できません。「%@」へのフォールバックを確認しました。";
 "ai_primuse_relay_fallback_local" = "利用できるリモートのフォールバックはありません。ローカルの検索、おすすめ、再生は引き続き利用できます。";

@@ -199,10 +199,11 @@ final class AISettingsEditorModel {
         case .available(.storeKitFallback):
             return String(localized: "ai_primuse_relay_test_success_storekit_detail")
         case .unavailable(let diagnostic):
-            var lines = [String(
+            var lines = [primuseRelayDiagnosticDetail(for: diagnostic)]
+            lines.append(String(
                 format: String(localized: "ai_primuse_relay_diagnostic_code_format"),
                 diagnostic.code
-            )]
+            ))
             switch report.fallback {
             case .none:
                 break
@@ -215,6 +216,39 @@ final class AISettingsEditorModel {
                 lines.append(String(localized: "ai_primuse_relay_fallback_local"))
             }
             return lines.joined(separator: "\n")
+        }
+    }
+
+    private func primuseRelayDiagnosticDetail(
+        for diagnostic: PrimuseAIRelayDiagnostic
+    ) -> String {
+        switch diagnostic.code {
+        case "storekit_transaction_unavailable":
+            return String(localized: "ai_primuse_relay_diagnostic_storekit_unavailable_detail")
+        case "storekit_transaction_unverified":
+            return String(localized: "ai_primuse_relay_diagnostic_storekit_unverified_detail")
+        case "storekit_authentication_cancelled":
+            return String(localized: "ai_primuse_relay_diagnostic_storekit_cancelled_detail")
+        case let code where code.hasPrefix("app_attest_")
+            || code == "invalid_attestation"
+            || code == "invalid_app_attest_policy":
+            return String(localized: "ai_primuse_relay_diagnostic_app_attest_detail")
+        case "credential_corrupted", "credential_persistence_failed", "credential_unavailable":
+            return String(localized: "ai_primuse_relay_diagnostic_credential_detail")
+        default:
+            switch diagnostic.category {
+            case .regionRestriction:
+                return String(localized: "ai_primuse_relay_diagnostic_region_detail")
+            case .deviceRegistration:
+                return String(localized: "ai_primuse_relay_diagnostic_registration_detail")
+            case .serviceAuthentication:
+                return String(localized: "ai_primuse_relay_diagnostic_auth_detail")
+            case .upstream:
+                if diagnostic.code.hasPrefix("network_") {
+                    return String(localized: "ai_primuse_relay_diagnostic_network_detail")
+                }
+                return String(localized: "ai_primuse_relay_diagnostic_upstream_detail")
+            }
         }
     }
 

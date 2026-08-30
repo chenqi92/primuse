@@ -3311,5 +3311,15 @@
 "ai_primuse_relay_failure_auth_title" = "服務驗證失敗";
 "ai_primuse_relay_failure_upstream_title" = "上游服務失敗";
 "ai_primuse_relay_diagnostic_code_format" = "診斷碼：%@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "目前安裝無法取得可驗證的 App Store 交易。請先登入 App Store 再重試；若 Xcode 開發版仍失敗，請改用 TestFlight 或 App Store 安裝版本驗證。";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "App Store 回傳的 App 交易未通過驗證。請更新或重新安裝由 Apple 授權簽署的版本後重試。";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "App Store 驗證已取消。請重新測試並完成系統登入。";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse 已自動重新註冊裝置並重試一次。請確認安裝版本使用包含 App Attest 的最新描述檔簽署，再覆蓋安裝並重試。";
+"ai_primuse_relay_diagnostic_credential_detail" = "本機裝置憑證無法讀取或儲存。下次測試會重新建立；若持續失敗，請確認鑰匙圈可用。";
+"ai_primuse_relay_diagnostic_region_detail" = "內建服務不向目前商店地區開放，因此沒有傳送中繼請求。";
+"ai_primuse_relay_diagnostic_registration_detail" = "目前安裝無法建立可信裝置憑證。請重新安裝最新簽署版本後重試。";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse 已自動重新註冊並重試一次，但服務仍拒絕目前的安裝憑證。";
+"ai_primuse_relay_diagnostic_network_detail" = "無法連線至內建服務。請檢查網路與 DNS 後重試。";
+"ai_primuse_relay_diagnostic_upstream_detail" = "裝置驗證已完成，但內建服務或模型上游未能完成請求。";
 "ai_primuse_relay_fallback_provider_format" = "內建服務無法使用，已驗證並降級至「%@」。";
 "ai_primuse_relay_fallback_local" = "沒有可用的遠端降級服務；將保留本機搜尋、推薦與播放。";

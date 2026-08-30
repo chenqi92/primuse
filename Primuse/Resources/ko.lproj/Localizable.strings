@@ -3334,5 +3334,15 @@
 "ai_primuse_relay_failure_auth_title" = "서비스 인증 실패";
 "ai_primuse_relay_failure_upstream_title" = "업스트림 서비스 실패";
 "ai_primuse_relay_diagnostic_code_format" = "진단 코드: %@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "현재 설치에서 검증 가능한 App Store 거래를 가져오지 못했습니다. App Store에 로그인한 뒤 다시 시도하세요. Xcode 개발 빌드는 검증을 위해 TestFlight 또는 App Store 설치가 필요할 수 있습니다.";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "App Store에서 검증되지 않은 앱 거래를 반환했습니다. Apple이 승인한 빌드로 업데이트하거나 다시 설치한 뒤 재시도하세요.";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "App Store 검증이 취소되었습니다. 테스트를 다시 실행하고 시스템 로그인을 완료하세요.";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse가 이 기기를 자동으로 다시 등록하고 한 번 재시도했습니다. 앱이 App Attest가 포함된 최신 프로파일로 서명되었는지 확인하고 새 빌드를 설치한 뒤 재시도하세요.";
+"ai_primuse_relay_diagnostic_credential_detail" = "로컬 기기 자격 증명을 읽거나 저장하지 못했습니다. 다음 테스트에서 다시 생성됩니다. 문제가 계속되면 키체인 접근을 확인하세요.";
+"ai_primuse_relay_diagnostic_region_detail" = "현재 스토어 지역에서는 내장 서비스를 사용할 수 없어 릴레이 요청을 보내지 않았습니다.";
+"ai_primuse_relay_diagnostic_registration_detail" = "현재 설치에서 신뢰할 수 있는 기기 자격 증명을 만들지 못했습니다. 최신 서명 빌드를 다시 설치한 뒤 재시도하세요.";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse가 설치를 다시 등록하고 한 번 재시도했지만 서비스가 여전히 이 설치 자격 증명을 거부했습니다.";
+"ai_primuse_relay_diagnostic_network_detail" = "내장 서비스에 연결할 수 없습니다. 네트워크와 DNS를 확인한 뒤 재시도하세요.";
+"ai_primuse_relay_diagnostic_upstream_detail" = "기기 검증은 완료되었지만 내장 서비스 또는 모델 제공자가 요청을 완료하지 못했습니다.";
 "ai_primuse_relay_fallback_provider_format" = "내장 서비스를 사용할 수 없습니다. ‘%@’로의 대체 연결을 확인했습니다.";
 "ai_primuse_relay_fallback_local" = "사용 가능한 원격 대체 서비스가 없습니다. 로컬 검색, 추천 및 재생은 계속 사용할 수 있습니다.";

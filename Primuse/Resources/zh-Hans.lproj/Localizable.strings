@@ -3438,5 +3438,15 @@
 "ai_primuse_relay_failure_auth_title" = "服务鉴权失败";
 "ai_primuse_relay_failure_upstream_title" = "上游失败";
 "ai_primuse_relay_diagnostic_code_format" = "诊断码：%@";
+"ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "当前安装无法取得可验证的 App Store 交易。请先登录 App Store 再重试；Xcode 开发版仍失败时，请改用 TestFlight 或 App Store 安装包验证。";
+"ai_primuse_relay_diagnostic_storekit_unverified_detail" = "App Store 返回的应用交易未通过验证。请更新或重新安装由 Apple 授权签名的版本后重试。";
+"ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "App Store 验证已取消。请重新测试并完成系统登录。";
+"ai_primuse_relay_diagnostic_app_attest_detail" = "Primuse 已自动重新注册设备并重试一次。请确认安装包使用包含 App Attest 的最新描述文件签名，再覆盖安装并重试。";
+"ai_primuse_relay_diagnostic_credential_detail" = "本机设备凭据无法读取或保存。下次测试会重新创建；若持续失败，请确认钥匙串可用。";
+"ai_primuse_relay_diagnostic_region_detail" = "内置服务不向当前商店区域开放，因此没有发送中转请求。";
+"ai_primuse_relay_diagnostic_registration_detail" = "当前安装无法建立可信设备凭据。请重新安装最新签名版本后重试。";
+"ai_primuse_relay_diagnostic_auth_detail" = "Primuse 已自动重新注册并重试一次，但服务仍拒绝当前安装凭据。";
+"ai_primuse_relay_diagnostic_network_detail" = "无法连接内置服务。请检查网络和 DNS 后重试。";
+"ai_primuse_relay_diagnostic_upstream_detail" = "设备验证已完成，但内置服务或模型上游未能完成请求。";
 "ai_primuse_relay_fallback_provider_format" = "内置服务不可用，已验证并降级到“%@”。";
 "ai_primuse_relay_fallback_local" = "没有可用的远程降级服务；将保留本机搜索、推荐与播放。";
