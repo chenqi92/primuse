@@ -8,6 +8,12 @@
 			<key>IntentExamples</key>
 			<array>
 				<string>用猿音搜尋音樂</string>
+				<string>用猿音搜尋歌曲</string>
+				<string>用猿音搜尋專輯</string>
+				<string>用猿音搜尋歌手</string>
+				<string>用猿音搜尋歌單</string>
+				<string>用猿音搜尋搖滾音樂</string>
+				<string>用猿音搜尋電台</string>
 			</array>
 			<key>IntentName</key>
 			<string>INSearchForMediaIntent</string>
@@ -16,6 +22,12 @@
 			<key>IntentExamples</key>
 			<array>
 				<string>用猿音播放音樂</string>
+				<string>用猿音播放歌曲</string>
+				<string>用猿音播放專輯</string>
+				<string>用猿音播放歌手的歌曲</string>
+				<string>用猿音播放歌單</string>
+				<string>用猿音播放搖滾音樂</string>
+				<string>用猿音播放電台</string>
 			</array>
 			<key>IntentName</key>
 			<string>INPlayMediaIntent</string>

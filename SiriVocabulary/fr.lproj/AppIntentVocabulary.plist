@@ -8,6 +8,12 @@
 			<key>IntentExamples</key>
 			<array>
 				<string>Recherche de la musique avec Primuse.</string>
+				<string>Recherche un morceau avec Primuse.</string>
+				<string>Recherche un album avec Primuse.</string>
+				<string>Recherche la musique d’un artiste avec Primuse.</string>
+				<string>Recherche une playlist avec Primuse.</string>
+				<string>Recherche de la musique jazz avec Primuse.</string>
+				<string>Recherche une station de radio avec Primuse.</string>
 			</array>
 			<key>IntentName</key>
 			<string>INSearchForMediaIntent</string>
@@ -16,6 +22,12 @@
 			<key>IntentExamples</key>
 			<array>
 				<string>Écoute de la musique avec Primuse.</string>
+				<string>Écoute un morceau avec Primuse.</string>
+				<string>Écoute un album avec Primuse.</string>
+				<string>Écoute la musique d’un artiste avec Primuse.</string>
+				<string>Écoute une playlist avec Primuse.</string>
+				<string>Écoute du jazz avec Primuse.</string>
+				<string>Écoute une station de radio avec Primuse.</string>
 			</array>
 			<key>IntentName</key>
 			<string>INPlayMediaIntent</string>

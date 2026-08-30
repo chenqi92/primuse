@@ -12,6 +12,7 @@ REQUIRED_SIRI_INTENTS = %w[
   INPlayMediaIntent
   INSearchForMediaIntent
 ].freeze
+REQUIRED_SIRI_EXAMPLE_COUNT = 7
 
 REQUIRED_APP_LOCALIZATION_KEYS = [
   "ai_primuse_relay_enabled",
@@ -306,10 +307,20 @@ def check_siri_vocabulary(failures)
 
     REQUIRED_SIRI_INTENTS.each do |intent_name|
       examples = examples_by_intent[intent_name]
-      valid = examples.is_a?(Array) && examples.any? do |example|
-        example.is_a?(String) && !example.strip.empty?
+      unless examples.is_a?(Array)
+        failures << "Siri vocabulary #{locale}: missing example phrases for #{intent_name}"
+        next
       end
-      failures << "Siri vocabulary #{locale}: missing example phrase for #{intent_name}" unless valid
+
+      normalized_examples = examples.each_with_object([]) do |example, result|
+        result << example.strip if example.is_a?(String) && !example.strip.empty?
+      end
+      if normalized_examples.length < REQUIRED_SIRI_EXAMPLE_COUNT
+        failures << "Siri vocabulary #{locale}: #{intent_name} needs at least #{REQUIRED_SIRI_EXAMPLE_COUNT} example phrases"
+      end
+      if normalized_examples.uniq.length != normalized_examples.length
+        failures << "Siri vocabulary #{locale}: duplicate example phrase for #{intent_name}"
+      end
     end
   end
 end

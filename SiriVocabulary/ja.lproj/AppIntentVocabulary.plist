@@ -8,6 +8,12 @@
 			<key>IntentExamples</key>
 			<array>
 				<string>Primuseで音楽を検索して</string>
+				<string>Primuseで曲を検索して</string>
+				<string>Primuseでアルバムを検索して</string>
+				<string>Primuseでアーティストを検索して</string>
+				<string>Primuseでプレイリストを検索して</string>
+				<string>Primuseでジャズを検索して</string>
+				<string>Primuseでラジオ局を検索して</string>
 			</array>
 			<key>IntentName</key>
 			<string>INSearchForMediaIntent</string>
@@ -16,6 +22,12 @@
 			<key>IntentExamples</key>
 			<array>
 				<string>Primuseで音楽を再生して</string>
+				<string>Primuseで曲を再生して</string>
+				<string>Primuseでアルバムを再生して</string>
+				<string>Primuseでアーティストの曲を再生して</string>
+				<string>Primuseでプレイリストを再生して</string>
+				<string>Primuseでジャズを再生して</string>
+				<string>Primuseでラジオ局を再生して</string>
 			</array>
 			<key>IntentName</key>
 			<string>INPlayMediaIntent</string>
