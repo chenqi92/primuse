@@ -273,6 +273,7 @@ struct PrimuseSetRepeatModeIntent: AudioPlaybackIntent {
     var mode: PrimuseIntentRepeatMode
 
     init() {}
+    init(mode: PrimuseIntentRepeatMode) { self.mode = mode }
 
     @MainActor
     func perform() async throws -> some IntentResult {
@@ -303,7 +304,7 @@ struct PrimuseSetPlaybackSpeedIntent: AudioPlaybackIntent {
 
 /// 给系统注册一组语音短语让 Siri 直接说出来。Apple 要求每个 phrase 必须含
 /// `.applicationName` token, 跟 app 显示名拼起来 (例如 "用 猿音 暂停")。
-#if os(macOS)
+#if os(macOS) && !PRIMUSE_WIDGET_EXTENSION
 struct PrimuseShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(

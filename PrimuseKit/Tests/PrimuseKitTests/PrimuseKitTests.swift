@@ -331,18 +331,26 @@ import Testing
     #expect(EQPreset.builtInPresets.count == 10)
 }
 
-@Test func testPlaybackState() {
+@Test func testPlaybackState() throws {
     let state = PlaybackState(
         currentSongID: "test-id",
         songTitle: "Test Song",
         artistName: "Test Artist",
         isPlaying: true,
         currentTime: 30,
-        duration: 180
+        duration: 180,
+        repeatMode: .one,
+        isLiked: true
     )
 
     #expect(state.songTitle == "Test Song")
     #expect(state.isPlaying == true)
+    let restored = try JSONDecoder().decode(
+        PlaybackState.self,
+        from: JSONEncoder().encode(state)
+    )
+    #expect(restored.repeatMode == .one)
+    #expect(restored.isLiked == true)
 }
 
 @Test func musicSourcePreservesCustomSMBPort() throws {

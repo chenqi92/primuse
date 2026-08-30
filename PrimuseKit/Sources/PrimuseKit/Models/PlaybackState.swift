@@ -23,6 +23,9 @@ public struct PlaybackState: Codable, Sendable {
     /// versions before Internet radio support.
     public var playbackKind: PlaybackKind?
     public var radioStationID: String?
+    /// Optional for backward-compatible decoding of snapshots written before
+    /// the interactive desktop controls exposed repeat state.
+    public var repeatMode: RepeatMode?
     /// Whether the current song is in the "Liked" system playlist. Optional so
     /// snapshots written before the lock-screen like button still decode.
     /// The widget can only render the heart, never resolve it — the library
@@ -43,6 +46,7 @@ public struct PlaybackState: Codable, Sendable {
         queueSongIDs: [String] = [],
         playbackKind: PlaybackKind? = nil,
         radioStationID: String? = nil,
+        repeatMode: RepeatMode? = nil,
         isLiked: Bool? = nil
     ) {
         self.currentSongID = currentSongID
@@ -58,6 +62,7 @@ public struct PlaybackState: Codable, Sendable {
         self.queueSongIDs = queueSongIDs
         self.playbackKind = playbackKind
         self.radioStationID = radioStationID
+        self.repeatMode = repeatMode
         self.isLiked = isLiked
     }
 

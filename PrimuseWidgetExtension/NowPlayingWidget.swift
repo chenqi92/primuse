@@ -1,5 +1,6 @@
 import SwiftUI
 import WidgetKit
+import AppIntents
 import PrimuseKit
 
 struct NowPlayingProvider: TimelineProvider {
@@ -271,12 +272,7 @@ private struct MediumNowPlayingView: View {
                             }
                         }
 
-                        NowPlayingControls(
-                            symbols: state.isLiveStream
-                                ? [state.isPlaying ? "stop.fill" : "play.fill"]
-                                : ["heart", "backward.fill", state.isPlaying ? "pause.fill" : "play.fill", "forward.fill", "ellipsis"],
-                            compact: true
-                        )
+                        NowPlayingControls(state: state, compact: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -352,12 +348,7 @@ private struct LargeNowPlayingView: View {
                         }
                     }
 
-                    NowPlayingControls(
-                        symbols: state.isLiveStream
-                            ? [state.isPlaying ? "stop.fill" : "play.fill"]
-                            : ["shuffle", "backward.fill", state.isPlaying ? "pause.fill" : "play.fill", "forward.fill", "repeat", "heart", "ellipsis"],
-                        compact: false
-                    )
+                    NowPlayingControls(state: state, compact: false)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
@@ -417,25 +408,94 @@ private struct LiveIndicatorLine: View {
 }
 
 private struct NowPlayingControls: View {
-    let symbols: [String]
+    let state: PlaybackState
     var compact: Bool
 
     var body: some View {
         HStack(spacing: compact ? 10 : 14) {
-            ForEach(Array(symbols.enumerated()), id: \.offset) { index, symbol in
-                Image(systemName: symbol)
-                    .font(.system(size: controlSize(symbol: symbol), weight: .semibold))
-                    .foregroundStyle(WidgetDesign.strongText)
-                    .frame(width: controlFrame(symbol: symbol), height: controlFrame(symbol: symbol))
-                    .background(controlBackground(symbol: symbol), in: .circle)
-                    .overlay {
-                        Circle().strokeBorder(WidgetDesign.hairline, lineWidth: symbol.contains("play") || symbol.contains("pause") ? 0 : 1)
+            if !state.isLiveStream, !compact {
+                Button(intent: PrimuseShuffleAllIntent()) {
+                    controlIcon(symbol: "shuffle")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(PMString("ext.control.shuffle"))
+            }
+
+            if !state.isLiveStream, compact, state.currentSongID != nil {
+                likeToggle
+            }
+
+            if !state.isLiveStream {
+                Button(intent: PrimusePreviousIntent()) {
+                    controlIcon(symbol: "backward.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(PMString("ext.control.previous"))
+            }
+
+            Button(intent: PrimusePlayPauseIntent()) {
+                controlIcon(
+                    symbol: state.isPlaying ? (state.isLiveStream ? "stop.fill" : "pause.fill") : "play.fill",
+                    prominent: true
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(PMString(state.isPlaying ? "ext.control.pause" : "ext.control.play"))
+
+            if !state.isLiveStream {
+                Button(intent: PrimuseNextIntent()) {
+                    controlIcon(symbol: "forward.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(PMString("ext.control.next"))
+
+                if !compact {
+                    Button(intent: PrimuseSetRepeatModeIntent(mode: nextRepeatMode)) {
+                        controlIcon(
+                            symbol: (state.repeatMode ?? .off) == .one ? "repeat.1" : "repeat",
+                            active: (state.repeatMode ?? .off) != .off
+                        )
                     }
-                    .accessibilityHidden(true)
-                    .id("\(index)-\(symbol)")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(PMString("repeat"))
+
+                    if state.currentSongID != nil {
+                        likeToggle
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: compact ? .leading : .center)
+    }
+
+    private var likeToggle: some View {
+        let isLiked = state.isLiked ?? false
+        return Toggle(isOn: isLiked, intent: PrimuseSetLikedIntent(value: !isLiked)) {
+            controlIcon(symbol: isLiked ? "heart.fill" : "heart", active: isLiked)
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.plain)
+        .accessibilityLabel(PMString(isLiked ? "ext.widget.unlike" : "ext.widget.like"))
+    }
+
+    private var nextRepeatMode: PrimuseIntentRepeatMode {
+        switch state.repeatMode ?? .off {
+        case .off: .all
+        case .all: .one
+        case .one: .off
+        }
+    }
+
+    private func controlIcon(symbol: String, prominent: Bool = false, active: Bool = false) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: controlSize(symbol: symbol), weight: .semibold))
+            .foregroundStyle(active ? WidgetDesign.brandTint : WidgetDesign.strongText)
+            .frame(width: controlFrame(symbol: symbol), height: controlFrame(symbol: symbol))
+            .background(controlBackground(prominent: prominent, active: active), in: .circle)
+            .overlay {
+                Circle().strokeBorder(WidgetDesign.hairline, lineWidth: prominent ? 0 : 1)
+            }
+            .contentTransition(.symbolEffect(.replace))
     }
 
     private func controlSize(symbol: String) -> CGFloat {
@@ -448,8 +508,8 @@ private struct NowPlayingControls: View {
         return compact ? 22 : 28
     }
 
-    private func controlBackground(symbol: String) -> Color {
-        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") {
+    private func controlBackground(prominent: Bool, active: Bool) -> Color {
+        if prominent || active {
             return WidgetDesign.brandTint.opacity(0.22)
         }
         return Color.primary.opacity(0.06)

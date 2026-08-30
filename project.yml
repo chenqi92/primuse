@@ -328,10 +328,9 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseWidgetExtension.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/PrimuseWidgetExtension-macOS.entitlements
-        # macOS 原生 Widget 不包含 iOS Control Widget，也不需要主 App 的
-        # App Shortcuts intent；共享文件在 Mac 分支还会引用仅宿主编译的广播
-        # intent，因此只在 iOS extension 中参与编译。
-        "EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]": PrimuseAppIntents.swift
+        # 交互式 Widget 的 AppIntent 类型必须同时进入宿主与扩展。宏只屏蔽
+        # 扩展不应重复注册的 AppShortcutsProvider，播放 intent 本身两端共用。
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PRIMUSE_WIDGET_EXTENSION"
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
 
   PrimuseWatchApp:

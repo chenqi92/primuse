@@ -305,6 +305,8 @@ private struct MacWidgetPlaybackPublishRequest: Sendable {
     let queueSongIDs: [String]
     let playbackKind: PlaybackKind
     let radioStationID: String?
+    let repeatMode: RepeatMode
+    let isLiked: Bool?
 }
 
 /// Serial, latest-wins widget publisher for macOS.
@@ -432,7 +434,9 @@ private actor MacWidgetPlaybackPublisher {
             duration: scope.includesProgress ? request.duration : 0,
             queueSongIDs: request.queueSongIDs,
             playbackKind: request.playbackKind,
-            radioStationID: request.radioStationID
+            radioStationID: request.radioStationID,
+            repeatMode: request.repeatMode,
+            isLiked: request.isLiked
         )
         state.save()
 
@@ -602,6 +606,8 @@ private actor MacWidgetPlaybackPublisher {
             state.isPlaying ? "1" : "0",
             state.playbackKind?.rawValue ?? PlaybackKind.track.rawValue,
             state.radioStationID ?? "",
+            state.repeatMode?.rawValue ?? RepeatMode.off.rawValue,
+            state.isLiked == true ? "1" : "0",
             String(state.currentTime.rounded().finiteInt()),
             String(state.duration.rounded().finiteInt()),
         ].joined(separator: "|")
@@ -803,7 +809,7 @@ final class AudioPlayerService {
             guard repeatMode != oldValue else { return }
             defer {
                 if !isRestoringPlaybackSession {
-                    persistPlaybackSession()
+                    updatePlaybackState()
                 }
             }
             if isMirroringFromAppleMusic { return }
@@ -9859,7 +9865,9 @@ final class AudioPlayerService {
             duration: duration,
             queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
             playbackKind: playbackKind,
-            radioStationID: currentRadioStation?.id
+            radioStationID: currentRadioStation?.id,
+            repeatMode: repeatMode,
+            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false }
         )
         Task {
             await MacWidgetPlaybackPublisher.shared.enqueue(request)
@@ -9950,6 +9958,7 @@ final class AudioPlayerService {
             queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
             playbackKind: playbackKind,
             radioStationID: currentRadioStation?.id,
+            repeatMode: repeatMode,
             // 锁屏 widget / Live Activity 只能渲染这颗心, 解析不了 —— 曲库在
             // 主 app 沙盒里, 必须由这里发布出去。
             isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false }
@@ -10167,6 +10176,8 @@ final class AudioPlayerService {
             state.isPlaying ? "1" : "0",
             state.playbackKind?.rawValue ?? PlaybackKind.track.rawValue,
             state.radioStationID ?? "",
+            state.repeatMode?.rawValue ?? RepeatMode.off.rawValue,
+            state.isLiked == true ? "1" : "0",
             String(state.currentTime.rounded().finiteInt()),
             String(state.duration.rounded().finiteInt())
         ].joined(separator: "|")

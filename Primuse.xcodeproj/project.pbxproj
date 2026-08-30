@@ -4348,7 +4348,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/PrimuseWidgetExtension.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/PrimuseWidgetExtension-macOS.entitlements";
-				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = PrimuseAppIntents.swift;
 				INFOPLIST_FILE = PrimuseWidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -4363,6 +4362,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) PRIMUSE_WIDGET_EXTENSION";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -4448,7 +4448,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/PrimuseWidgetExtension.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/PrimuseWidgetExtension-macOS.entitlements";
-				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = PrimuseAppIntents.swift;
 				INFOPLIST_FILE = PrimuseWidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -4463,6 +4462,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) PRIMUSE_WIDGET_EXTENSION";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

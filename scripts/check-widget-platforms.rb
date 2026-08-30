@@ -14,6 +14,14 @@ EXPECTED_XCODEGEN_VERSION = "2.45.3"
 WIDGET_TARGET = "PrimuseWidgetExtension"
 WIDGET_BUNDLE_ID = "com.welape.yuanyin.widget"
 APP_GROUP = "group.com.welape.yuanyin"
+INTERACTIVE_WIDGET_INTENTS = %w[
+  PrimusePlayPauseIntent
+  PrimusePreviousIntent
+  PrimuseNextIntent
+  PrimuseShuffleAllIntent
+  PrimuseSetRepeatModeIntent
+  PrimuseSetLikedIntent
+].freeze
 
 def fail_check(message)
   warn "Widget platform check failed: #{message}"
@@ -194,8 +202,8 @@ def check_project_graph!
       "#{WIDGET_TARGET} #{name} has the wrong macOS entitlements"
     )
     expect(
-      settings["EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]"] == "PrimuseAppIntents.swift",
-      "#{WIDGET_TARGET} #{name} must exclude iOS-only App Intents on macOS"
+      settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"].to_s.split.include?("PRIMUSE_WIDGET_EXTENSION"),
+      "#{WIDGET_TARGET} #{name} must define PRIMUSE_WIDGET_EXTENSION"
     )
     expect(
       settings["LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]"].to_s.include?("@executable_path/../../../../Frameworks"),
@@ -230,8 +238,8 @@ def check_spec!
     "#{WIDGET_TARGET} has the wrong macOS entitlements"
   )
   expect(
-    widget.dig("settings", "base", "EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]") == "PrimuseAppIntents.swift",
-    "#{WIDGET_TARGET} must exclude PrimuseAppIntents.swift on macOS"
+    widget.dig("settings", "base", "SWIFT_ACTIVE_COMPILATION_CONDITIONS").to_s.split.include?("PRIMUSE_WIDGET_EXTENSION"),
+    "#{WIDGET_TARGET} must define PRIMUSE_WIDGET_EXTENSION"
   )
   expect(
     widget.dig("settings", "base", "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]").to_s.include?("@executable_path/../../../../Frameworks"),
@@ -259,6 +267,30 @@ def check_spec!
   [mac_widget_entitlements, mac_app_entitlements, ios_widget_entitlements, ios_app_entitlements].each do |entitlements|
     groups = Array(entitlements["com.apple.security.application-groups"])
     expect(groups.include?(APP_GROUP), "host and Widget entitlements must share #{APP_GROUP}")
+  end
+end
+
+def check_interactive_controls!
+  source = File.read(File.join(ROOT, "PrimuseWidgetExtension/NowPlayingWidget.swift"))
+  INTERACTIVE_WIDGET_INTENTS.each do |intent|
+    expect(source.include?(intent), "Now Playing Widget is missing interactive #{intent}")
+  end
+  expect(source.scan("Button(intent:").length >= 5, "Now Playing controls must use AppIntent buttons")
+  expect(source.include?("Toggle(isOn:"), "Now Playing like control must use an AppIntent toggle")
+end
+
+def check_interactive_intent_metadata!(extension_path)
+  metadata_paths = Dir.glob(File.join(extension_path, "**/Metadata.appintents/extract.actionsdata"))
+  expect(metadata_paths.length == 1, "Widget must contain exactly one AppIntent metadata payload")
+  actions = JSON.parse(File.read(metadata_paths.first)).fetch("actions")
+  INTERACTIVE_WIDGET_INTENTS.each do |intent|
+    action = actions[intent]
+    expect(action, "Widget AppIntent metadata is missing #{intent}")
+    expect(action["openAppWhenRun"] == false, "#{intent} must run without opening the app")
+    expect(
+      Array(action["systemProtocols"]).include?("com.apple.link.systemProtocol.AudioStarting"),
+      "#{intent} must remain an AudioPlaybackIntent"
+    )
   end
 end
 
@@ -334,6 +366,7 @@ def check_mac_product!(app_path)
     "embedded Mac extension is not a WidgetKit extension"
   )
   expect(extension_info["CFBundleVersion"] == app_info["CFBundleVersion"], "Mac host and Widget build versions differ")
+  check_interactive_intent_metadata!(extension_path)
 
   executable = File.join(extension_path, "Contents/MacOS", extension_info.fetch("CFBundleExecutable"))
   load_commands = capture!("/usr/bin/otool", "-l", executable)
@@ -394,6 +427,7 @@ def check_ios_product!(app_path)
     "iOS Widget does not declare #{supported_platform} support"
   )
   expect(extension_info["CFBundleVersion"] == app_info["CFBundleVersion"], "iOS host and Widget build versions differ")
+  check_interactive_intent_metadata!(extension_path)
   puts "iOS Widget product check passed: #{extension_path}"
 end
 
@@ -415,6 +449,7 @@ Dir.chdir(ROOT) do
   check_spec!
   compare_generated_project!
   check_project_graph!
+  check_interactive_controls!
   check_mac_product!(mac_app) if mac_app
   check_ios_product!(ios_app) if ios_app
 end
