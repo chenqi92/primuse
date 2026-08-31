@@ -130,6 +130,50 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     }
 }
 
+final class SongSelectionLayoutTests: XCTestCase {
+    func testCheckmarkScalesWithinTheReservedLeadingSlot() {
+        XCTAssertEqual(
+            SongSelectionLayoutMetrics.symbolSize(forScaledValue: 14),
+            SongSelectionLayoutMetrics.baseSymbolSize
+        )
+        XCTAssertEqual(
+            SongSelectionLayoutMetrics.symbolSize(forScaledValue: 24),
+            24
+        )
+        XCTAssertEqual(
+            SongSelectionLayoutMetrics.symbolSize(forScaledValue: 40),
+            SongSelectionLayoutMetrics.maximumSymbolSize
+        )
+        XCTAssertLessThanOrEqual(
+            SongSelectionLayoutMetrics.maximumSymbolSize,
+            SongSelectionLayoutMetrics.leadingSlotWidth
+        )
+        XCTAssertGreaterThanOrEqual(
+            SongSelectionLayoutMetrics.minimumRowHeight,
+            44
+        )
+    }
+}
+
+final class PlayerAppearancePreferencesTests: XCTestCase {
+    func testEveryImmersiveEffectDisplaysLyricsButNativeDoesNot() {
+        XCTAssertFalse(FullscreenPlayerEffect.native.displaysLyrics)
+        XCTAssertTrue(FullscreenPlayerEffect.immersiveCases.allSatisfy(\.displaysLyrics))
+    }
+
+    func testLyricsInteractionPreferencesUseSafeDefaultsAndHonorOverrides() {
+        let suiteName = "PlayerAppearancePreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault)
+        XCTAssertTrue(PlayerAppearancePreferences.tapLyricsToSeekIsEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)
+        XCTAssertFalse(PlayerAppearancePreferences.tapLyricsToSeekIsEnabled(defaults: defaults))
+    }
+}
+
 final class AutomaticOfflineSafetyTests: XCTestCase {
     func testPathFamilyProtectsEveryTransferAndRefreshArtifact() {
         XCTAssertEqual(

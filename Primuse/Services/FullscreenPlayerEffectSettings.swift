@@ -16,6 +16,10 @@ enum PlayerAppearancePreferences {
     static let gradientLyricsEndColorHexKey = "primuse.player.gradientLyricsEndColorHex"
     static let blursInactiveLyricsKey = "primuse.player.blursInactiveLyrics"
     static let blursInactiveLyricsByDefault = false
+    static let keepsScreenAwakeForLyricsKey = "primuse.player.keepsScreenAwakeForLyrics"
+    static let keepsScreenAwakeForLyricsByDefault = false
+    static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"
+    static let tapLyricsToSeekByDefault = true
 
     static let defaultCustomLyricsColorHex = "0A84FF"
     static let defaultGradientLyricsStartColorHex = "FF375F"
@@ -23,6 +27,11 @@ enum PlayerAppearancePreferences {
 
     static func normalizedLyricsColorHex(_ value: String, fallback: String) -> String {
         AppThemePreferences.normalizedHex(value, fallback: fallback)
+    }
+
+    static func tapLyricsToSeekIsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: tapLyricsToSeekKey) as? Bool
+            ?? tapLyricsToSeekByDefault
     }
 }
 
@@ -369,6 +378,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     /// 新的八类画面共用同一套浮动按钮外观，避免同级操作有无底色不一致。
     var chromeFamily: ImmersiveEffectChromeFamily { .showcase }
     var lyricsOverlay: ImmersiveLyricsOverlayKind { .none }
+    var displaysLyrics: Bool { !isNative }
     var prefersLightContent: Bool { false }
     var usesRealtimeSpectrum: Bool { self == .radialPulse || self == .liveWaveform }
     var usesShowcaseChrome: Bool { !isNative }

@@ -161,6 +161,7 @@ enum HomeMode: String, CaseIterable, Hashable {
 
 struct HomeView: View {
     var switchToSettingsTab: (() -> Void)?
+    let openLibrarySongs: () -> Void
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
@@ -1852,12 +1853,18 @@ struct HomeView: View {
         }
         .padding(16)
         .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(homeCardSurface)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(.primary.opacity(0.06), lineWidth: 0.5)
-                }
+            Button(action: openLibrarySongs) {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(homeCardSurface)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("tab_songs"))
+            .accessibilityHint(Text("library_browse"))
+            .accessibilityIdentifier("homeLibraryHeroOpenSongs")
         }
         .padding(.horizontal, 16)
     }

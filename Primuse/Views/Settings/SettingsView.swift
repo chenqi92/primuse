@@ -325,6 +325,11 @@ private struct PlayerAppearanceSettingsView: View {
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
+    private var keepsScreenAwakeForLyrics =
+        PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
+    private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
 
     private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
         Binding(
@@ -470,12 +475,25 @@ private struct PlayerAppearanceSettingsView: View {
                 .pickerStyle(.segmented)
 
                 Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
+
+                Toggle(
+                    "player_keep_screen_awake_for_lyrics",
+                    isOn: $keepsScreenAwakeForLyrics
+                )
+                .accessibilityHint(Text("player_keep_screen_awake_for_lyrics_description"))
+                .accessibilityIdentifier("playerKeepScreenAwakeForLyricsToggle")
+
+                Toggle("player_tap_lyrics_to_seek", isOn: $tapLyricsToSeek)
+                    .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                    .accessibilityIdentifier("playerTapLyricsToSeekToggle")
             } header: {
                 Text("player_lyrics_section")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("player_current_lyric_color_description")
                     Text("player_blur_inactive_lyrics_description")
+                    Text("player_keep_screen_awake_for_lyrics_description")
+                    Text("player_tap_lyrics_to_seek_description")
                 }
             }
         }

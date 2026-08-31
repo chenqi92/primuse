@@ -2953,6 +2953,10 @@
 "player_current_lyric_color_description" = "현재 줄과 단어별 강조 색상만 변경하며, 나머지 가사는 기존 스타일을 유지합니다.";
 "player_blur_inactive_lyrics" = "현재 외 가사 흐리게";
 "player_blur_inactive_lyrics_description" = "현재 줄을 강조하도록 현재 줄 이외의 동기화된 가사를 살짝 흐리게 표시합니다.";
+"player_keep_screen_awake_for_lyrics" = "가사 화면에서 화면 켜짐 유지";
+"player_keep_screen_awake_for_lyrics_description" = "가사가 표시되고 Primuse가 활성 상태일 때만 자동 잠금을 방지합니다.";
+"player_tap_lyrics_to_seek" = "가사를 탭하여 탐색";
+"player_tap_lyrics_to_seek_description" = "동기화된 가사 줄을 탭하면 해당 위치로 이동합니다. 가사를 스크롤해도 재생 위치는 바뀌지 않습니다.";
 "server_favorite_unsupported" = "이 소스는 서버 즐겨찾기를 지원하지 않습니다.";
 "server_favorite_refresh_mismatch" = "서버가 반환한 즐겨찾기 상태가 요청과 일치하지 않습니다.";
 "server_favorite_missing_song_id" = "곡에 사용할 수 있는 서버 ID가 없습니다.";

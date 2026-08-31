@@ -34,6 +34,7 @@ private struct MacHomeLibraryRevisionObserver: View {
 /// 1.6 重设计后的 macOS 首页 — Hero (AmbientBackdrop + 封面马赛克 + 欢迎语) →
 /// 库健康度 / 源状态 双卡 → 4 节点 pipeline → 最近添加专辑 → 最近播放 → 艺术家。
 struct MacHomeView: View {
+    let openLibrarySongs: () -> Void
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
@@ -535,8 +536,14 @@ struct MacHomeView: View {
         ZStack {
             // 1. 卡片底色 — 暗色模式必须明显高于窗口 bg, 否则跟背景融在一起。设计里 hero
             //    是一张清晰可见的卡。先铺 bgElev, 再叠 AmbientBackdrop 给暖色调。
-            RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
-                .fill(PMColor.bgElev)
+            Button(action: openLibrarySongs) {
+                RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
+                    .fill(PMColor.bgElev)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("tab_songs"))
+            .accessibilityHint(Text("library_browse"))
+            .accessibilityIdentifier("macHomeLibraryHeroOpenSongs")
 
             // 2. Hero 的 ambient 用固定 brand 暖色, 不跟 theme.accentColor 走 — 设计稿
             //    里 hero 一直是温暖的 pink/cream 调, 跟当前播放歌曲色相无关。
@@ -548,15 +555,18 @@ struct MacHomeView: View {
                 darkAccent: PMColor.brand.opacity(0.55),
                 strength: 0.72
             )
+            .allowsHitTesting(false)
 
             HStack(alignment: .center, spacing: 36) {
                 coverMosaic
                     .frame(width: 240, height: 240)
+                    .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text(verbatim: greeting)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.78))
+                        .allowsHitTesting(false)
 
                     Text(verbatim: heroNarrative)
                         .font(.system(size: 40, weight: .bold))
@@ -565,6 +575,7 @@ struct MacHomeView: View {
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
+                        .allowsHitTesting(false)
 
                     Text(verbatim: heroStats)
                         .font(.system(size: 13.5, weight: .medium))
@@ -572,6 +583,7 @@ struct MacHomeView: View {
                         .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(2)
                         .frame(maxWidth: 660, alignment: .leading)
+                        .allowsHitTesting(false)
 
                     HStack(spacing: PMSpace.s10) {
                         Button { playLibrary(shuffled: true) } label: {

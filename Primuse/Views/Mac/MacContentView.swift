@@ -72,7 +72,8 @@ struct MacContentView: View {
                         route: selection,
                         searchText: $searchText,
                         songLocationRequest: $songLocationRequest,
-                        onShowSongInLibrary: showSongInLibrary
+                        onShowSongInLibrary: showSongInLibrary,
+                        onOpenLibrarySongs: { selectRoute(.section(.songs)) }
                     )
                         .background(PMColor.bg.ignoresSafeArea())
 

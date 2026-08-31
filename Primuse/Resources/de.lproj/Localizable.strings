@@ -2953,6 +2953,10 @@
 "player_current_lyric_color_description" = "Ändert nur die aktuelle Zeile und die wortweise Hervorhebung; inaktive Liedtexte behalten ihr bisheriges Aussehen.";
 "player_blur_inactive_lyrics" = "Inaktiven Liedtext weichzeichnen";
 "player_blur_inactive_lyrics_description" = "Synchronisierte Liedtexte außer der aktuellen Zeile werden leicht weichgezeichnet, damit die aktuelle Zeile hervorsticht.";
+"player_keep_screen_awake_for_lyrics" = "Bildschirm bei Liedtexten aktiv lassen";
+"player_keep_screen_awake_for_lyrics_description" = "Verhindert die automatische Sperre nur, solange Liedtexte sichtbar sind und Primuse aktiv ist.";
+"player_tap_lyrics_to_seek" = "Zum Spulen auf Liedtext tippen";
+"player_tap_lyrics_to_seek_description" = "Tippe auf eine synchronisierte Zeile, um zu dieser Stelle zu springen. Scrollen spult nicht.";
 "server_favorite_unsupported" = "Diese Quelle unterstützt keine Serverfavoriten.";
 "server_favorite_refresh_mismatch" = "Der vom Server gemeldete Favoritenstatus entspricht nicht der Anfrage.";
 "server_favorite_missing_song_id" = "Dem Titel fehlt eine verwendbare Server-ID.";

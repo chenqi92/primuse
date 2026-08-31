@@ -5,7 +5,7 @@ import PrimuseKit
 
 /// iOS 全屏沉浸播放。
 ///
-/// iOS 使用点按、上下/左右滑动、捏合与底边拖动；控件按 3.5 秒静默时序淡出，
+/// iOS 使用点按、上下/左右滑动与捏合；控件按 3.5 秒静默时序淡出，
 /// 连续 5 分钟无操作后进入低亮度 Ambient Rest。
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
@@ -22,6 +22,7 @@ struct ImmersivePlayerView: View {
     @Environment(CoverTintProvider.self) private var coverTintProvider
     @Environment(ThemeService.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @State private var showsChrome = true
@@ -30,6 +31,7 @@ struct ImmersivePlayerView: View {
     @State private var isAmbientRest = false
     @State private var ambientDrift = false
     @State private var isSeeking = false
+    @State private var seekPreviewTime: TimeInterval?
     @State private var hasResolvedArtwork = true
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
@@ -95,8 +97,6 @@ struct ImmersivePlayerView: View {
                         .offset(y: showsChrome ? 0 : 8)
                         .transition(.opacity.combined(with: .offset(y: 8)))
                 }
-
-                bottomEdgeSeekArea(in: geometry.size)
             }
             .animation(.easeInOut(duration: 0.26), value: showsChrome)
             .animation(.easeInOut(duration: 0.35), value: isAmbientRest)
@@ -155,6 +155,17 @@ struct ImmersivePlayerView: View {
         .onChange(of: isSceneActive) { _, isActive in
             handleSceneActivityChange(isActive: isActive)
         }
+        .onChange(of: voiceOverEnabled, initial: true) { _, isEnabled in
+            if isEnabled {
+                chromeTask?.cancel()
+                ambientTask?.cancel()
+                exitAmbientRest()
+                showsChrome = true
+            } else if isSceneActive {
+                scheduleChromeHide()
+                scheduleAmbientRest()
+            }
+        }
         .onChange(of: showsEffectPicker) { _, isPresented in
             if isPresented {
                 chromeTask?.cancel()
@@ -175,17 +186,6 @@ struct ImmersivePlayerView: View {
             visualizer.release(owner: visualizerOwnerID)
         }
         .accessibilityAction(.escape, onDismiss)
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment:
-                player.seek(to: min(player.duration, player.currentTime + 10))
-            case .decrement:
-                player.seek(to: max(0, player.currentTime - 10))
-            @unknown default:
-                break
-            }
-            registerInteraction(revealControls: true)
-        }
         .accessibilityAddTraits(.isModal)
     }
 
@@ -571,11 +571,22 @@ struct ImmersivePlayerView: View {
     }
 
     private var seekBar: some View {
-        VStack(spacing: 5) {
+        let displayedTime = seekPreviewTime ?? player.currentTime
+        return VStack(spacing: 5) {
             ProgressSlider(
                 value: player.currentTime,
                 total: player.duration,
+                interactionID: player.currentSong?.id,
                 fillTint: seekTint,
+                onPreview: { preview in
+                    seekPreviewTime = preview
+                    isSeeking = preview != nil
+                    if preview != nil {
+                        registerInteraction(revealControls: true)
+                    } else {
+                        scheduleChromeHide()
+                    }
+                },
                 onSeek: {
                     revealChrome()
                     player.seek(to: $0)
@@ -583,24 +594,13 @@ struct ImmersivePlayerView: View {
             )
 
             HStack {
-                Text(player.currentTime.formattedDuration)
+                Text(displayedTime.formattedDuration)
                 Spacer()
                 Text(player.duration.formattedDuration)
             }
             .font(.caption2.monospacedDigit())
             .foregroundStyle(ImmersiveStagePalette.ink.opacity(0.42))
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    isSeeking = true
-                    registerInteraction(revealControls: true)
-                }
-                .onEnded { _ in
-                    isSeeking = false
-                    scheduleChromeHide()
-                }
-        )
     }
 
     private func playPauseButton(diameter: CGFloat, outlined: Bool) -> some View {
@@ -978,32 +978,6 @@ struct ImmersivePlayerView: View {
 
     // MARK: - 手势与 Ambient Rest
 
-    private func bottomEdgeSeekArea(in size: CGSize) -> some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Color.clear
-                .contentShape(Rectangle())
-                .frame(height: 34)
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in
-                            isSeeking = true
-                            exitAmbientRest()
-                            chromeTask?.cancel()
-                        }
-                        .onEnded { value in
-                            let width = max(size.width, 1)
-                            let fraction = min(1, max(0, value.location.x / width))
-                            player.seek(to: fraction * player.duration)
-                            isSeeking = false
-                            registerInteraction(revealControls: false)
-                        }
-                )
-                .accessibilityHidden(true)
-        }
-        .allowsHitTesting(!showsChrome && !isAmbientRest)
-    }
-
     private func isControlZone(_ point: CGPoint, in size: CGSize) -> Bool {
         let topExclusion = max(CGFloat(72), CGFloat(18 + 44))
         let bottomExclusion = max(CGFloat(34), controlsInsetForHitTesting)
@@ -1100,7 +1074,7 @@ struct ImmersivePlayerView: View {
     private func scheduleAmbientRest() {
         ambientTask?.cancel()
         guard isSceneActive,
-              !UIAccessibility.isVoiceOverRunning,
+              !voiceOverEnabled,
               !showsEffectPicker else { return }
         ambientTask = Task { @MainActor in
             do {
@@ -1110,6 +1084,7 @@ struct ImmersivePlayerView: View {
             }
             guard !Task.isCancelled,
                   isSceneActive,
+                  !voiceOverEnabled,
                   !isSeeking,
                   !showsEffectPicker else { return }
             enterAmbientRest()
@@ -1117,7 +1092,7 @@ struct ImmersivePlayerView: View {
     }
 
     private func enterAmbientRest() {
-        guard isSceneActive, !showsEffectPicker else { return }
+        guard isSceneActive, !voiceOverEnabled, !showsEffectPicker else { return }
         chromeTask?.cancel()
         withAnimation(.easeInOut(duration: 0.6)) {
             showsChrome = false
@@ -1219,6 +1194,10 @@ struct ImmersivePlayerView: View {
 
     private func toggleChrome() {
         guard isSceneActive, !showsEffectPicker else { return }
+        guard !voiceOverEnabled else {
+            showsChrome = true
+            return
+        }
         if showsChrome {
             chromeTask?.cancel()
             withAnimation(.easeInOut(duration: 0.24)) { showsChrome = false }
@@ -1236,7 +1215,7 @@ struct ImmersivePlayerView: View {
     private func scheduleChromeHide() {
         chromeTask?.cancel()
         // 旁白开着时控件必须一直可达,否则用户找不到退出按钮。
-        guard !UIAccessibility.isVoiceOverRunning,
+        guard !voiceOverEnabled,
               isSceneActive,
               player.isPlaying,
               !isSeeking,
@@ -1249,6 +1228,7 @@ struct ImmersivePlayerView: View {
             }
             guard !Task.isCancelled,
                   isSceneActive,
+                  !voiceOverEnabled,
                   player.isPlaying,
                   !isSeeking,
                   !showsEffectPicker else { return }

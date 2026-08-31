@@ -215,9 +215,6 @@ struct PlaylistDetailView: View {
                             showsActions: false,
                             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .onTapGesture { playSong(song) }
                         .contextMenu {
                             // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
                             // 下次同步也会覆盖任何临时改动。
@@ -238,8 +235,19 @@ struct PlaylistDetailView: View {
                         .songSelectable(
                             songID: song.id,
                             selection: selection,
-                            orderedIDs: { songs.map(\.id) }
+                            orderedIDs: { songs.map(\.id) },
+                            defaultAction: { playSong(song) }
                         )
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if selection.isActive {
+                                selection.toggle(song.id)
+                            } else {
+                                playSong(song)
+                            }
+                        }
 
                         Divider().padding(.leading, 50)
                     }
@@ -698,7 +706,11 @@ struct PlaylistDetailView: View {
         return VStack(spacing: 0) {
             // 设计稿 9 列: # / cover / 标题 / 艺术家 / 专辑 / 格式 / 时长 / 播放 / 源
             HStack(spacing: 12) {
-                Text("#").frame(width: 32, alignment: .leading)
+                if selection.isActive {
+                    Color.clear.frame(width: 32, height: 1)
+                } else {
+                    Text("#").frame(width: 32, alignment: .leading)
+                }
                 Color.clear.frame(width: 32, height: 1)
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
                 Text("sort_artist").frame(maxWidth: .infinity, alignment: .leading)
@@ -744,18 +756,16 @@ struct PlaylistDetailView: View {
         let isCurrent = player.currentSong?.id == song.id
         let source = sourcesStore.sources.first(where: { $0.id == song.sourceID })
         return HStack(spacing: 12) {
-            ZStack {
-                if isCurrent {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.brand)
-                } else {
-                    Text("\(index + 1)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-            }
-            .frame(width: 32, alignment: .leading)
+            MacPlaylistSelectionIndexCell(
+                index: index,
+                isCurrent: isCurrent,
+                isSelectionActive: selection.isActive,
+                membership: selection.membership(for: song.id)
+            )
+            .frame(
+                width: 32,
+                alignment: selection.isActive ? .center : .leading
+            )
 
             CachedArtworkView(
                 coverRef: song.coverArtFileName, songID: song.id,
@@ -855,6 +865,30 @@ struct PlaylistDetailView: View {
                     Label("remove_from_playlist", systemImage: "trash")
                 }
             }
+        }
+    }
+
+    private struct MacPlaylistSelectionIndexCell: View {
+        let index: Int
+        let isCurrent: Bool
+        let isSelectionActive: Bool
+        let membership: SongSelectionMembership
+
+        var body: some View {
+            ZStack {
+                if isSelectionActive {
+                    SongSelectionCheckmark(isSelected: membership.isSelected)
+                } else if isCurrent {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                } else {
+                    Text("\(index + 1)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
         }
     }
 

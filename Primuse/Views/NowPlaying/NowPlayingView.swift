@@ -87,6 +87,64 @@ private struct NowPlayingAppearance {
     }
 }
 
+#if os(iOS)
+@MainActor
+private enum LyricsScreenWakeCoordinator {
+    private static var owners: Set<UUID> = []
+
+    static func update(ownerID: UUID, shouldHold: Bool) {
+        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
+            owners,
+            ownerID: ownerID,
+            shouldHold: shouldHold
+        )
+
+        let shouldDisableIdleTimer = !owners.isEmpty
+        guard UIApplication.shared.isIdleTimerDisabled != shouldDisableIdleTimer else { return }
+        UIApplication.shared.isIdleTimerDisabled = shouldDisableIdleTimer
+    }
+}
+
+private struct LyricsScreenWakeLeaseModifier: ViewModifier {
+    let isVisible: Bool
+    let sceneIsActive: Bool
+
+    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
+    private var isEnabled = PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault
+    @State private var ownerID = UUID()
+
+    private var shouldHoldLease: Bool {
+        NowPlayingInteractionPolicy.shouldKeepScreenAwake(
+            settingEnabled: isEnabled,
+            lyricsVisible: isVisible,
+            sceneIsActive: sceneIsActive
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: shouldHoldLease, initial: true) { _, shouldHold in
+                LyricsScreenWakeCoordinator.update(
+                    ownerID: ownerID,
+                    shouldHold: shouldHold
+                )
+            }
+            .onDisappear {
+                LyricsScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
+            }
+    }
+}
+
+extension View {
+    func lyricsScreenWakeLease(isVisible: Bool, sceneIsActive: Bool) -> some View {
+        modifier(LyricsScreenWakeLeaseModifier(
+            isVisible: isVisible,
+            sceneIsActive: sceneIsActive
+        ))
+    }
+}
+#endif
+
 /// A single low-frequency color field shared by the standard iOS and macOS
 /// players. The artwork palette remains visible when motion is unavailable;
 /// only the decorative timeline is suspended.
@@ -437,28 +495,40 @@ struct NowPlayingView: View {
         #endif
     }
 
+    private var hasBlockingNowPlayingPresentation: Bool {
+        showQueue
+            || showsImmersiveEffectPicker
+            || scrapeTargetSong != nil
+            || showAddToPlaylist
+            || showSongInfo
+            || showTagEditor
+            || lyricsEditorTargetSong != nil
+            || showSimilarSongs
+            || showCastPicker
+            || showMusicVideoFullScreen
+            || isAlbumPresentationActive
+            || showSleepTimer
+            || showDeleteConfirm
+            || scrapeAlertMessage != nil
+            || sourceLyricsReloadAlertMessage != nil
+            || deleteErrorMessage != nil
+            || showNoScraperSourceAlert
+    }
+
     /// Decorative artwork and ambient motion only run while the player itself
     /// is the exposed interaction surface. Modal content retains the static
     /// palette underneath without spending another animation clock.
     private var isNowPlayingSurfaceExposed: Bool {
         !isFullscreenPlayerPresented
-            && !showQueue
-            && !showsImmersiveEffectPicker
-            && scrapeTargetSong == nil
-            && !showAddToPlaylist
-            && !showSongInfo
-            && !showTagEditor
-            && lyricsEditorTargetSong == nil
-            && !showSimilarSongs
-            && !showCastPicker
-            && !showMusicVideoFullScreen
-            && !isAlbumPresentationActive
-            && !showSleepTimer
-            && !showDeleteConfirm
-            && scrapeAlertMessage == nil
-            && sourceLyricsReloadAlertMessage == nil
-            && deleteErrorMessage == nil
-            && !showNoScraperSourceAlert
+            && !hasBlockingNowPlayingPresentation
+            && activeMinimizeDragAxis == nil
+            && activeMinimizeDragStartLocation == nil
+    }
+
+    private var isLyricsWakeSurfaceExposed: Bool {
+        !hasBlockingNowPlayingPresentation
+            && activeMinimizeDragAxis == nil
+            && activeMinimizeDragStartLocation == nil
     }
 
     private var isScrapingCurrentSong: Bool {
@@ -1039,6 +1109,11 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true }
+                    )
+                    .lyricsScreenWakeLease(
+                        isVisible: isLyricsWakeSurfaceExposed
+                            && fullscreenPlayerEffect.displaysLyrics,
+                        sceneIsActive: isVisualSceneActive
                     )
                     .zIndex(100)
                 }
@@ -1811,7 +1886,7 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             // 跟左栏 grabber 顶端对齐
             Spacer().frame(height: topSafeArea + 21)
-            lyricsFullView
+            wakeManagedLyricsFullView(isVisible: isLyricsWakeSurfaceExposed)
                 .padding(.bottom, 24)
         }
     }
@@ -1821,7 +1896,9 @@ struct NowPlayingView: View {
         let safeInsets = resolvedSafeAreaInsets(for: geo)
         let baseHorizontalPadding = max(72, geo.size.width * 0.10)
         ZStack {
-            lyricsFullView
+            wakeManagedLyricsFullView(
+                isVisible: showLyrics && isLyricsWakeSurfaceExposed
+            )
                 .padding(.leading, max(baseHorizontalPadding, safeInsets.leading + 18))
                 .padding(.trailing, max(baseHorizontalPadding, safeInsets.trailing + 18))
                 .padding(.top, 56)
@@ -1932,7 +2009,9 @@ struct NowPlayingView: View {
                         .strokeBorder(appearance.primary.opacity(0.09), lineWidth: 0.5)
                 }
 
-                lyricsFullView
+                wakeManagedLyricsFullView(
+                    isVisible: showLyrics && isLyricsWakeSurfaceExposed
+                )
                     .padding(.horizontal, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -2076,11 +2155,15 @@ struct NowPlayingView: View {
                         // Full screen lyrics
                         if isLyricsImmersive {
                             immersiveLyricsExperience(isLandscape: false) {
-                                lyricsFullView
+                                wakeManagedLyricsFullView(
+                                    isVisible: showLyrics && isLyricsWakeSurfaceExposed
+                                )
                             }
                             .transition(.opacity)
                         } else {
-                            lyricsFullView
+                            wakeManagedLyricsFullView(
+                                isVisible: showLyrics && isLyricsWakeSurfaceExposed
+                            )
                                 .transition(lyricsPanelTransition)
                         }
                     } else {
@@ -2764,6 +2847,19 @@ struct NowPlayingView: View {
                 }
             }
         )
+    }
+
+    @ViewBuilder
+    private func wakeManagedLyricsFullView(isVisible: Bool) -> some View {
+        #if os(iOS)
+        lyricsFullView
+            .lyricsScreenWakeLease(
+                isVisible: isVisible && !isFullscreenPlayerPresented,
+                sceneIsActive: isVisualSceneActive
+            )
+        #else
+        lyricsFullView
+        #endif
     }
 
     /// Artist and album are independent buttons, matching the interaction users
@@ -3680,18 +3776,24 @@ private final class MusicVideoLayerView: NSView {
 struct ProgressSlider: View {
     let value: TimeInterval
     let total: TimeInterval
+    let interactionID: String?
     let fillTint: Color?
+    let onPreview: (TimeInterval?) -> Void
     let onSeek: (TimeInterval) -> Void
 
     init(
         value: TimeInterval,
         total: TimeInterval,
+        interactionID: String? = nil,
         fillTint: Color? = nil,
+        onPreview: @escaping (TimeInterval?) -> Void = { _ in },
         onSeek: @escaping (TimeInterval) -> Void
     ) {
         self.value = value
         self.total = total
+        self.interactionID = interactionID
         self.fillTint = fillTint
+        self.onPreview = onPreview
         self.onSeek = onSeek
     }
 
@@ -3699,11 +3801,23 @@ struct ProgressSlider: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(ThemeService.self) private var theme
 
-    @State private var isDragging = false
-    @State private var dragValue: TimeInterval?
+    private struct ScrubGestureState: Equatable {
+        var intent = ProgressScrubGestureIntent.undecided
+        var preview: TimeInterval?
+        var startedInteractionID: String?
+        var hasCapturedInteraction = false
+    }
+
+    @GestureState private var scrubGesture = ScrubGestureState()
 
     private var safeTotal: TimeInterval { total.sanitizedDuration }
-    private var displayValue: TimeInterval { (dragValue ?? value).sanitizedDuration }
+    private var activePreview: TimeInterval? {
+        guard scrubGesture.hasCapturedInteraction,
+              scrubGesture.startedInteractionID == interactionID else { return nil }
+        return scrubGesture.preview
+    }
+    private var isDragging: Bool { activePreview != nil }
+    private var displayValue: TimeInterval { (activePreview ?? value).sanitizedDuration }
     private var progress: CGFloat {
         guard safeTotal > 0 else { return 0 }
         let fraction = displayValue / safeTotal
@@ -3722,11 +3836,35 @@ struct ProgressSlider: View {
     }
 
     private func seekValue(for locationX: CGFloat, width: CGFloat) -> TimeInterval? {
-        guard width > 0, safeTotal > 0 else { return nil }
-        let fraction = locationX / width
-        guard fraction.isFinite else { return nil }
-        return Double(max(0, min(1, fraction))) * safeTotal
+        NowPlayingInteractionPolicy.scrubValue(
+            location: Double(locationX),
+            trackWidth: Double(width),
+            duration: safeTotal
+        )
     }
+
+    private func commitAdjustment(incrementing: Bool) {
+        guard let adjusted = NowPlayingInteractionPolicy.adjustedPlaybackTime(
+            currentTime: displayValue,
+            duration: safeTotal,
+            incrementing: incrementing
+        ) else { return }
+        onSeek(adjusted)
+    }
+
+    #if os(iOS) || os(macOS)
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        if press.key == .leftArrow {
+            commitAdjustment(incrementing: false)
+            return .handled
+        }
+        if press.key == .rightArrow {
+            commitAdjustment(incrementing: true)
+            return .handled
+        }
+        return .ignored
+    }
+    #endif
 
     var body: some View {
         GeometryReader { geo in
@@ -3744,25 +3882,72 @@ struct ProgressSlider: View {
                     .fill(fillColor)
                     .frame(width: max(0, min(width, width * progress)), height: trackHeight)
             }
-            .frame(height: 20) // tap area
+            .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { gesture in
-                        isDragging = true
-                        dragValue = seekValue(for: gesture.location.x, width: width)
+                DragGesture(minimumDistance: CGFloat(
+                    NowPlayingInteractionPolicy.minimumScrubDistance
+                ))
+                    .updating($scrubGesture) { gesture, state, _ in
+                        if !state.hasCapturedInteraction {
+                            state.startedInteractionID = interactionID
+                            state.hasCapturedInteraction = true
+                        }
+                        state.intent = NowPlayingInteractionPolicy.scrubGestureIntent(
+                            currentIntent: state.intent,
+                            horizontalTranslation: Double(gesture.translation.width),
+                            verticalTranslation: Double(gesture.translation.height)
+                        )
+                        guard state.intent == .horizontal,
+                              let preview = seekValue(
+                                for: gesture.location.x,
+                                width: width
+                              ) else { return }
+                        state.preview = preview
                     }
                     .onEnded { gesture in
-                        if let seekTime = seekValue(for: gesture.location.x, width: width) {
+                        let finalIntent = NowPlayingInteractionPolicy.scrubGestureIntent(
+                            currentIntent: scrubGesture.intent,
+                            horizontalTranslation: Double(gesture.translation.width),
+                            verticalTranslation: Double(gesture.translation.height)
+                        )
+                        if NowPlayingInteractionPolicy.shouldCommitScrub(
+                            intent: finalIntent,
+                            startedInteractionID: scrubGesture.startedInteractionID,
+                            currentInteractionID: interactionID
+                        ),
+                           let seekTime = seekValue(for: gesture.location.x, width: width) {
                             onSeek(seekTime)
                         }
-                        dragValue = nil
-                        withAnimation(.easeOut(duration: 0.2)) { isDragging = false }
                     }
             )
             .animation(.easeInOut(duration: 0.15), value: isDragging)
         }
-        .frame(height: 20)
+        .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
+        .onChange(of: activePreview) { _, preview in onPreview(preview) }
+        .onChange(of: interactionID) { _, _ in onPreview(nil) }
+        .onDisappear { onPreview(nil) }
+        .accessibilityElement()
+        .accessibilityLabel(Text("playback"))
+        .accessibilityValue(Text(verbatim:
+            "\(displayValue.formattedDuration) / \(safeTotal.formattedDuration)"
+        ))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                commitAdjustment(incrementing: true)
+            case .decrement:
+                commitAdjustment(incrementing: false)
+            @unknown default:
+                break
+            }
+        }
+        #if os(iOS) || os(macOS)
+        .focusable()
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleKeyPress(press)
+        }
+        #endif
     }
 }
 
@@ -4910,6 +5095,8 @@ struct LyricsScrollView: View {
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
+    private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = -1
@@ -5638,7 +5825,12 @@ struct LyricsScrollView: View {
                 deactivationTime: wordLevelDeactivationTime(for: index)
             )
                 .contentShape(Rectangle())
-                .onTapGesture { seekToLyricLine(line) }
+                .if(canSeekToLyricLine(line)) { view in
+                    view
+                        .onTapGesture { seekToLyricLine(line) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                }
                 .frame(width: availableWidth, alignment: frameAlignment)
 
             // 歌词翻译 — 在原文下面以略小的字号显示, 仅当启用且当前行有翻译。
@@ -5659,7 +5851,12 @@ struct LyricsScrollView: View {
                     // 会优先单行 + 截断显示省略号。
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { seekToLyricLine(line) }
+                    .if(canSeekToLyricLine(line)) { view in
+                        view
+                            .onTapGesture { seekToLyricLine(line) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                    }
                     .frame(width: availableWidth, alignment: frameAlignment)
             }
 
@@ -5683,7 +5880,12 @@ struct LyricsScrollView: View {
                     )
                         .opacity(0.7)
                         .contentShape(Rectangle())
-                        .onTapGesture { seekToLyricLine(line) }
+                        .if(canSeekToLyricLine(bg)) { view in
+                            view
+                                .onTapGesture { seekToLyricLine(bg) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                        }
                         .frame(width: availableWidth, alignment: frameAlignment)
 
                     if let translated = translatedTextByLineID[bg.id],
@@ -5693,6 +5895,13 @@ struct LyricsScrollView: View {
                             .foregroundStyle(appearance.secondary)
                             .multilineTextAlignment(lyricsAlignment.textAlignment)
                             .fixedSize(horizontal: false, vertical: true)
+                            .contentShape(Rectangle())
+                            .if(canSeekToLyricLine(bg)) { view in
+                                view
+                                    .onTapGesture { seekToLyricLine(bg) }
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                            }
                             .frame(width: availableWidth, alignment: frameAlignment)
                             .opacity(0.7)
                     }
@@ -5709,8 +5918,15 @@ struct LyricsScrollView: View {
 
     private func seekToLyricLine(_ line: LyricLine) {
         lastLyricRowTapAt = Date()
-        guard line.isSynchronized else { return }
+        guard canSeekToLyricLine(line) else { return }
         player.seek(to: line.timestamp)
+    }
+
+    private func canSeekToLyricLine(_ line: LyricLine) -> Bool {
+        NowPlayingInteractionPolicy.shouldSeekFromLyricTap(
+            settingEnabled: tapLyricsToSeek,
+            lineIsSynchronized: line.isSynchronized
+        )
     }
 
     @ViewBuilder
@@ -6599,12 +6815,14 @@ fileprivate struct PlaybackProgressBar: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @State private var previewTime: TimeInterval?
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
     var body: some View {
+        let displayedTime = previewTime ?? player.currentTime
         Group {
             if player.isLiveRadio {
                 HStack(spacing: 7) {
@@ -6620,11 +6838,13 @@ fileprivate struct PlaybackProgressBar: View {
                     ProgressSlider(
                         value: player.currentTime,
                         total: player.duration,
+                        interactionID: player.currentSong?.id,
+                        onPreview: { previewTime = $0 },
                         onSeek: { player.seek(to: $0) }
                     )
                     HStack {
-                        Text(player.currentTime.formattedDuration); Spacer()
-                        Text("-\(max(0, player.duration - player.currentTime).formattedDuration)")
+                        Text(displayedTime.formattedDuration); Spacer()
+                        Text("-\(max(0, player.duration - displayedTime).formattedDuration)")
                     }
                     .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
                 }

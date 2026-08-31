@@ -2954,6 +2954,10 @@
 "player_current_lyric_color_description" = "現在行と単語単位のハイライト色のみを変更し、それ以外の歌詞は元の表示を維持します。";
 "player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
 "player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";
+"player_keep_screen_awake_for_lyrics" = "歌詞表示中は画面をスリープさせない";
+"player_keep_screen_awake_for_lyrics_description" = "歌詞が表示され、Primuse がアクティブな間だけ自動ロックを防ぎます。";
+"player_tap_lyrics_to_seek" = "歌詞をタップしてシーク";
+"player_tap_lyrics_to_seek_description" = "同期歌詞の行をタップすると、その位置へ移動します。スクロールではシークしません。";
 "server_favorite_unsupported" = "This source does not support server favorites.";
 "server_favorite_refresh_mismatch" = "The server returned a favorite state that did not match the request.";
 "server_favorite_missing_song_id" = "The song is missing a usable server ID.";

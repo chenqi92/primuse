@@ -3057,6 +3057,10 @@
 "player_current_lyric_color_description" = "仅更改当前歌词和逐字高亮颜色；非当前歌词保持原有样式。";
 "player_blur_inactive_lyrics" = "非当前歌词模糊";
 "player_blur_inactive_lyrics_description" = "轻微模糊当前行以外的同步歌词，突出正在播放的歌词。";
+"player_keep_screen_awake_for_lyrics" = "歌词界面保持屏幕常亮";
+"player_keep_screen_awake_for_lyrics_description" = "仅在歌词可见且 Primuse 位于前台时防止自动锁屏。";
+"player_tap_lyrics_to_seek" = "轻点歌词跳转";
+"player_tap_lyrics_to_seek_description" = "轻点同步歌词可跳到对应位置；滚动歌词不会跳转。";
 "server_favorite_unsupported" = "此来源不支持服务端收藏。";
 "server_favorite_refresh_mismatch" = "服务端返回的收藏状态与请求不一致。";
 "server_favorite_missing_song_id" = "歌曲缺少可用的服务端 ID。";

@@ -22,6 +22,8 @@ struct MacMiniPlayerView: View {
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
+    private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
@@ -643,7 +645,12 @@ struct MacMiniPlayerView: View {
                                 .id(line.id)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .contentShape(Rectangle())
-                                .onTapGesture { player.seek(to: line.timestamp) }
+                                .if(canSeekToLyricLine(line)) { view in
+                                    view
+                                        .onTapGesture { seekToLyricLine(line) }
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                }
                                 .animation(.easeInOut(duration: 0.25), value: currentIndex)
                         }
                         Spacer().frame(height: 60)
@@ -825,6 +832,18 @@ struct MacMiniPlayerView: View {
         }
         if currentIndex != index { currentIndex = index }
         return index
+    }
+
+    private func seekToLyricLine(_ line: LyricLine) {
+        guard canSeekToLyricLine(line) else { return }
+        player.seek(to: line.timestamp)
+    }
+
+    private func canSeekToLyricLine(_ line: LyricLine) -> Bool {
+        NowPlayingInteractionPolicy.shouldSeekFromLyricTap(
+            settingEnabled: tapLyricsToSeek,
+            lineIsSynchronized: line.isSynchronized
+        )
     }
 }
 

@@ -2953,6 +2953,10 @@
 "player_current_lyric_color_description" = "Modifie uniquement la ligne actuelle et la surbrillance mot par mot ; les autres paroles conservent leur apparence.";
 "player_blur_inactive_lyrics" = "Flouter les paroles inactives";
 "player_blur_inactive_lyrics_description" = "Floute légèrement les paroles synchronisées sauf la ligne actuelle afin de mettre en valeur ce qui est chanté.";
+"player_keep_screen_awake_for_lyrics" = "Garder l’écran allumé pour les paroles";
+"player_keep_screen_awake_for_lyrics_description" = "Empêche le verrouillage automatique uniquement lorsque les paroles sont visibles et que Primuse est actif.";
+"player_tap_lyrics_to_seek" = "Toucher les paroles pour avancer";
+"player_tap_lyrics_to_seek_description" = "Touchez une ligne synchronisée pour atteindre ce passage. Le défilement ne change pas la position.";
 "server_favorite_unsupported" = "Cette source ne prend pas en charge les favoris du serveur.";
 "server_favorite_refresh_mismatch" = "L’état de favori renvoyé par le serveur ne correspond pas à la demande.";
 "server_favorite_missing_song_id" = "Le morceau ne possède pas d’identifiant serveur utilisable.";

@@ -11,15 +11,46 @@ enum SongSelectionStyle: Equatable {
     case overlay
 }
 
+enum SongSelectionLayoutMetrics {
+    static let baseSymbolSize: CGFloat = 20
+    static let maximumSymbolSize: CGFloat = 28
+    static let leadingSlotWidth: CGFloat = 28
+    static let minimumRowHeight: CGFloat = 44
+
+    static func symbolSize(forScaledValue value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return baseSymbolSize }
+        return min(max(value, baseSymbolSize), maximumSymbolSize)
+    }
+}
+
 /// 勾选圈本体。尺寸对齐系统 editMode 的圆圈，换页面也不会忽大忽小。
 struct SongSelectionCheckmark: View {
     let isSelected: Bool
+    @ScaledMetric(relativeTo: .body) private var scaledSymbolSize =
+        SongSelectionLayoutMetrics.baseSymbolSize
+
+    private var symbolSize: CGFloat {
+        SongSelectionLayoutMetrics.symbolSize(forScaledValue: scaledSymbolSize)
+    }
 
     var body: some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.system(size: 20))
+            .font(.system(size: symbolSize))
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.45))
             .accessibilityHidden(true)
+    }
+}
+
+/// A real logical-leading column keeps the selection mark centered without
+/// covering artwork, and lets SwiftUI mirror the column automatically in RTL.
+struct SongSelectionLeadingSlot: View {
+    let isSelected: Bool
+
+    var body: some View {
+        SongSelectionCheckmark(isSelected: isSelected)
+            .frame(width: SongSelectionLayoutMetrics.leadingSlotWidth, alignment: .center)
+            .frame(minHeight: SongSelectionLayoutMetrics.minimumRowHeight, alignment: .center)
+            .allowsHitTesting(false)
     }
 }
 
@@ -65,6 +96,7 @@ private struct SongSelectableModifier: ViewModifier {
             }
     }
 
+    @ViewBuilder
     private func activeContent(_ content: Content, isSelected: Bool) -> some View {
         #if os(macOS)
         content
@@ -93,6 +125,11 @@ private struct SongSelectableModifier: ViewModifier {
             }
             .contentShape(Rectangle())
             .accessibilityElement(children: .combine)
+            .accessibilityValue(
+                Text(isSelected
+                     ? "library_folder_selection_all"
+                     : "library_folder_selection_none")
+            )
             .accessibilityAddTraits(
                 isSelected ? [.isButton, .isSelected] : .isButton
             )
@@ -100,12 +137,11 @@ private struct SongSelectableModifier: ViewModifier {
                 handleTap()
             }
         #else
-        content
-            .overlay(alignment: overlayAlignment) {
-                SongSelectionCheckmark(isSelected: isSelected)
-                    .background(Circle().fill(.background).padding(2))
-                    .padding(style == .leading ? 8 : 10)
-                    .allowsHitTesting(false)
+        switch style {
+        case .leading:
+            HStack(alignment: .center, spacing: 12) {
+                SongSelectionLeadingSlot(isSelected: isSelected)
+                content
             }
             .overlay {
                 if defaultAction == nil {
@@ -116,12 +152,46 @@ private struct SongSelectableModifier: ViewModifier {
             }
             .contentShape(Rectangle())
             .accessibilityElement(children: .combine)
+            .accessibilityValue(
+                Text(isSelected
+                     ? "library_folder_selection_all"
+                     : "library_folder_selection_none")
+            )
             .accessibilityAddTraits(
                 isSelected ? [.isButton, .isSelected] : .isButton
             )
             .accessibilityAction(named: Text("batch_select")) {
                 handleTap()
             }
+        case .overlay:
+            content
+                .overlay(alignment: .topTrailing) {
+                    SongSelectionCheckmark(isSelected: isSelected)
+                        .background(Circle().fill(.background).padding(2))
+                        .padding(10)
+                        .allowsHitTesting(false)
+                }
+                .overlay {
+                    if defaultAction == nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { handleTap() }
+                    }
+                }
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .combine)
+                .accessibilityValue(
+                    Text(isSelected
+                         ? "library_folder_selection_all"
+                         : "library_folder_selection_none")
+                )
+                .accessibilityAddTraits(
+                    isSelected ? [.isButton, .isSelected] : .isButton
+                )
+                .accessibilityAction(named: Text("batch_select")) {
+                    handleTap()
+                }
+        }
         #endif
     }
 
@@ -134,13 +204,6 @@ private struct SongSelectableModifier: ViewModifier {
             }
     }
     #endif
-
-    private var overlayAlignment: Alignment {
-        switch style {
-        case .leading: .leading
-        case .overlay: .topTrailing
-        }
-    }
 
     private func handleTap() {
         #if os(macOS)

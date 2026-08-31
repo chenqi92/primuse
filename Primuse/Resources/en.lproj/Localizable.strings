@@ -2740,6 +2740,10 @@
 "player_current_lyric_color_description" = "Changes only the current line and word-level highlight color; inactive lyrics keep their existing appearance.";
 "player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
 "player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";
+"player_keep_screen_awake_for_lyrics" = "Keep Screen Awake for Lyrics";
+"player_keep_screen_awake_for_lyrics_description" = "Prevents auto-lock only while lyrics are visible and Primuse is active.";
+"player_tap_lyrics_to_seek" = "Tap Lyrics to Seek";
+"player_tap_lyrics_to_seek_description" = "Tap a synchronized lyric line to jump to that point. Scrolling lyrics never seeks.";
 "server_favorite_unsupported" = "This source does not support server favorites.";
 "server_favorite_refresh_mismatch" = "The server returned a favorite state that did not match the request.";
 "server_favorite_missing_song_id" = "The song is missing a usable server ID.";

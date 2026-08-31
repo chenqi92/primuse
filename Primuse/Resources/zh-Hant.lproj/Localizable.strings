@@ -2930,6 +2930,10 @@
 "player_current_lyric_color_description" = "僅變更目前歌詞與逐字高亮顏色；非目前歌詞維持原有樣式。";
 "player_blur_inactive_lyrics" = "非目前歌詞模糊";
 "player_blur_inactive_lyrics_description" = "輕微模糊目前行以外的同步歌詞，突顯正在播放的歌詞。";
+"player_keep_screen_awake_for_lyrics" = "歌詞畫面保持螢幕恆亮";
+"player_keep_screen_awake_for_lyrics_description" = "僅在歌詞可見且 Primuse 位於前景時防止自動鎖定。";
+"player_tap_lyrics_to_seek" = "輕點歌詞跳轉";
+"player_tap_lyrics_to_seek_description" = "輕點同步歌詞可跳至對應位置；捲動歌詞不會跳轉。";
 "server_favorite_unsupported" = "此來源不支援伺服器收藏。";
 "server_favorite_refresh_mismatch" = "伺服器傳回的收藏狀態與要求不一致。";
 "server_favorite_missing_song_id" = "歌曲缺少可用的伺服器 ID。";

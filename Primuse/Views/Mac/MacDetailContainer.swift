@@ -10,6 +10,7 @@ struct MacDetailContainer: View {
     @Binding var searchText: String
     @Binding var songLocationRequest: SongLibraryLocationRequest?
     let onShowSongInLibrary: (Song) -> Void
+    let onOpenLibrarySongs: () -> Void
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var path = NavigationPath()
@@ -89,7 +90,7 @@ struct MacDetailContainer: View {
     private var content: some View {
         switch route {
         case .home:
-            MacHomeView()
+            MacHomeView(openLibrarySongs: onOpenLibrarySongs)
         case .stats:
             ListeningStatsView()
         case .sources:

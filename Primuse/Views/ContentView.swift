@@ -240,7 +240,10 @@ struct ContentView: View {
     private var tabRoot: some View {
         TabView(selection: $selectedTab) {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                HomeView(switchToSettingsTab: { selectedTab = 3 })
+                HomeView(
+                    switchToSettingsTab: { selectedTab = 3 },
+                    openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+                )
                     .id("primuse.tab.home")
                     .toolbar(
                         navigationMode == .minimal ? .hidden : .automatic,
@@ -389,7 +392,13 @@ struct ContentView: View {
     private func padDetail(for item: SidebarItem) -> some View {
         switch item {
         case .home:
-            HomeView(switchToSettingsTab: { sidebarSelection = .settings; selectedTab = 3 })
+            HomeView(
+                switchToSettingsTab: {
+                    sidebarSelection = .settings
+                    selectedTab = 3
+                },
+                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+            )
         case .library:
             LibraryView(deepLink: $libraryDeepLink)
         case .libraryRecommendations:

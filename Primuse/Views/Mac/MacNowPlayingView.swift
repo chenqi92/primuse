@@ -56,6 +56,8 @@ struct MacNowPlayingView: View {
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
+    private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -682,7 +684,12 @@ struct MacNowPlayingView: View {
                                 .id(line.id)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
-                                .onTapGesture { player.seek(to: line.timestamp) }
+                                .if(canSeekToLyricLine(line)) { view in
+                                    view
+                                        .onTapGesture { seekToLyricLine(line) }
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                }
                         }
                     }
                     Spacer(minLength: isWindowFullScreen ? 240 : 200)
@@ -1286,6 +1293,18 @@ struct MacNowPlayingView: View {
         if activeBackgroundLineIDs != nextActiveIDs {
             activeBackgroundLineIDs = nextActiveIDs
         }
+    }
+
+    private func seekToLyricLine(_ line: LyricLine) {
+        guard canSeekToLyricLine(line) else { return }
+        player.seek(to: line.timestamp)
+    }
+
+    private func canSeekToLyricLine(_ line: LyricLine) -> Bool {
+        NowPlayingInteractionPolicy.shouldSeekFromLyricTap(
+            settingEnabled: tapLyricsToSeek,
+            lineIsSynchronized: line.isSynchronized
+        )
     }
 
     // 删除歌曲流程已移到 PlayerMoreMenu,这里不再保留 deleteCurrentSong。

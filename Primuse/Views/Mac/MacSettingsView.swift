@@ -3083,6 +3083,8 @@ private struct MacSTLyricsView: View {
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
+    @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
+    private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @State private var showTranscriptionSettings = false
 
     var body: some View {
@@ -3155,6 +3157,20 @@ private struct MacSTLyricsView: View {
                             in: 70...180,
                             formatter: { String(format: "%.0f%%", $0) }
                         )
+                    }
+                    MacSTRow(
+                        String(localized: "player_tap_lyrics_to_seek"),
+                        hint: String(localized: "player_tap_lyrics_to_seek_description"),
+                        divider: false
+                    ) {
+                        MacSTToggle(isOn: $tapLyricsToSeek)
+                            .accessibilityLabel(Text("player_tap_lyrics_to_seek"))
+                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                            .accessibilityValue(Text(
+                                tapLyricsToSeek
+                                    ? "desktop_widget_sync_status_enabled"
+                                    : "desktop_widget_sync_status_disabled"
+                            ))
                     }
                 }
             }
