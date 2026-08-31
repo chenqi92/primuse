@@ -6,10 +6,9 @@ struct PrimuseWidgetBundle: WidgetBundle {
     var body: some Widget {
         NowPlayingWidget()
         QuickAccessWidget()
-        // 歌词/统计/音乐源/年度报告目前只有 macOS 主 App 往 App Group 写数据,
-        // 先限定 macOS 出现, 避免 iOS 用户看到空 widget。
-        #if os(macOS)
         LyricsWidget()
+        // 统计/音乐源/年度报告目前只有 macOS 主 App 往 App Group 写数据。
+        #if os(macOS)
         ListeningStatsWidget()
         MusicSourcesWidget()
         YearInReviewWidget()

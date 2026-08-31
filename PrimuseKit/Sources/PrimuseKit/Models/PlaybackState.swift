@@ -31,6 +31,9 @@ public struct PlaybackState: Codable, Sendable {
     /// The widget can only render the heart, never resolve it — the library
     /// lives in the app sandbox, so the app has to publish it here.
     public var isLiked: Bool?
+    /// Time at which `currentTime` was sampled. Optional so snapshots from
+    /// older app versions continue to decode.
+    public var updatedAt: Date?
 
     public init(
         currentSongID: String? = nil,
@@ -47,7 +50,8 @@ public struct PlaybackState: Codable, Sendable {
         playbackKind: PlaybackKind? = nil,
         radioStationID: String? = nil,
         repeatMode: RepeatMode? = nil,
-        isLiked: Bool? = nil
+        isLiked: Bool? = nil,
+        updatedAt: Date? = nil
     ) {
         self.currentSongID = currentSongID
         self.songTitle = songTitle
@@ -64,6 +68,7 @@ public struct PlaybackState: Codable, Sendable {
         self.radioStationID = radioStationID
         self.repeatMode = repeatMode
         self.isLiked = isLiked
+        self.updatedAt = updatedAt
     }
 
     public var isLiveStream: Bool { playbackKind == .liveRadio }
@@ -77,8 +82,12 @@ public struct PlaybackState: Codable, Sendable {
     }
 
     public func save() {
+        var snapshot = self
+        if snapshot.updatedAt == nil {
+            snapshot.updatedAt = Date()
+        }
         guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),
-              let data = try? JSONEncoder().encode(self) else {
+              let data = try? JSONEncoder().encode(snapshot) else {
             return
         }
         defaults.set(data, forKey: PrimuseConstants.playbackStateKey)

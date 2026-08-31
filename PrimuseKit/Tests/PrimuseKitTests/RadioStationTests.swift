@@ -167,6 +167,7 @@ struct RadioStationTests {
         let state = try JSONDecoder().decode(PlaybackState.self, from: data)
         #expect(state.playbackKind == nil)
         #expect(state.radioStationID == nil)
+        #expect(state.updatedAt == nil)
         #expect(!state.isLiveStream)
     }
 }

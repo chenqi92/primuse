@@ -56,6 +56,105 @@ struct WidgetLyricsPresentationPolicyTests {
         #expect(rows.map(\.role) == [.previous, .current])
     }
 
+    @Test func timelinePositionUsesExactPlaybackAnchorAndLegacyFallback() {
+        let exact = LyricsSnapshot(
+            songID: "song",
+            title: "title",
+            artist: "artist",
+            coverImageName: nil,
+            lines: lines,
+            anchorIndex: 1,
+            playbackPosition: 1.75,
+            isPlaying: true
+        )
+        #expect(WidgetLyricsPresentationPolicy.playbackPosition(in: exact) == 1.75)
+        #expect(WidgetLyricsPresentationPolicy.anchorIndex(for: 2.4, in: lines) == 2)
+
+        var legacy = exact
+        legacy.playbackPosition = nil
+        legacy.anchorIndex = 99
+        #expect(WidgetLyricsPresentationPolicy.playbackPosition(in: legacy) == 3)
+    }
+
+    @Test func newerPlaybackSampleRealignsLyricsAndDifferentSongInvalidatesThem() throws {
+        let lyricDate = Date(timeIntervalSinceReferenceDate: 100)
+        let playbackDate = Date(timeIntervalSinceReferenceDate: 110)
+        let snapshot = LyricsSnapshot(
+            songID: "song",
+            title: "title",
+            artist: "artist",
+            coverImageName: nil,
+            lines: lines,
+            anchorIndex: 1,
+            playbackPosition: 1,
+            isPlaying: true,
+            updatedAt: lyricDate
+        )
+        let playback = PlaybackState(
+            currentSongID: "song",
+            isPlaying: false,
+            currentTime: 2.75,
+            duration: 10,
+            updatedAt: playbackDate
+        )
+
+        let aligned = try #require(
+            WidgetLyricsPresentationPolicy.snapshotAlignedWithPlayback(
+                snapshot,
+                playback: playback
+            )
+        )
+        #expect(aligned.playbackPosition == 2.75)
+        #expect(aligned.anchorIndex == 2)
+        #expect(aligned.isPlaying == false)
+        #expect(aligned.updatedAt == playbackDate)
+
+        var olderPlayback = playback
+        olderPlayback.updatedAt = lyricDate.addingTimeInterval(-1)
+        let unchanged = try #require(
+            WidgetLyricsPresentationPolicy.snapshotAlignedWithPlayback(
+                snapshot,
+                playback: olderPlayback
+            )
+        )
+        #expect(unchanged.playbackPosition == snapshot.playbackPosition)
+        #expect(unchanged.updatedAt == snapshot.updatedAt)
+
+        var nextSong = playback
+        nextSong.currentSongID = "next-song"
+        #expect(
+            WidgetLyricsPresentationPolicy.snapshotAlignedWithPlayback(
+                snapshot,
+                playback: nextSong
+            ) == nil
+        )
+
+        var newerLyrics = snapshot
+        newerLyrics.playbackPosition = 3.5
+        newerLyrics.isPlaying = false
+        newerLyrics.updatedAt = playbackDate.addingTimeInterval(1)
+        let stateAlignedFromLyrics = try #require(
+            WidgetLyricsPresentationPolicy.playbackStateAlignedWithLyrics(
+                playback,
+                lyrics: newerLyrics
+            )
+        )
+        #expect(stateAlignedFromLyrics.currentTime == 3.5)
+        #expect(stateAlignedFromLyrics.isPlaying == false)
+        #expect(stateAlignedFromLyrics.updatedAt == newerLyrics.updatedAt)
+    }
+
+    @Test func singleRowFallbackPreservesTheCompletePersianLyric() throws {
+        let text = "انتظار و انتظار تا وقتی بازی شروع نشده و تمام واژه‌ها باید دیده شوند"
+        let rows = WidgetLyricsPresentationPolicy.rows(
+            in: [WidgetLyricLine(time: 0, text: text)],
+            anchorIndex: 0,
+            maximumRowCount: 1
+        )
+
+        #expect(try #require(rows.first).text == text)
+    }
+
     @Test func explicitDocumentDirectionWinsForTaggedMixedLyrics() {
         let mixed = [
             WidgetLyricLine(time: 0, text: "Tonight سلام دنیا"),
@@ -120,6 +219,7 @@ struct WidgetLyricsPresentationPolicyTests {
 
         #expect(decoded.songID == legacy.songID)
         #expect(decoded.anchorIndex == legacy.anchorIndex)
+        #expect(decoded.playbackPosition == nil)
         #expect(decoded.writingDirection == nil)
     }
 }

@@ -300,6 +300,7 @@ private struct MacWidgetPlaybackPublishRequest: Sendable {
     let currentSong: Song?
     let artistDisplayName: String?
     let isPlaying: Bool
+    let sampledAt: Date
     let currentTime: TimeInterval
     let duration: TimeInterval
     let queueSongIDs: [String]
@@ -436,7 +437,8 @@ private actor MacWidgetPlaybackPublisher {
             playbackKind: request.playbackKind,
             radioStationID: request.radioStationID,
             repeatMode: request.repeatMode,
-            isLiked: request.isLiked
+            isLiked: request.isLiked,
+            updatedAt: request.sampledAt
         )
         state.save()
 
@@ -631,7 +633,7 @@ final class AudioPlayerService {
     private(set) var currentSong: Song? {
         didSet {
             #if os(iOS)
-            prepareLockScreenLyricsForCurrentSong(previousSong: oldValue)
+            prepareLyricsForSystemSurfaces(previousSong: oldValue)
             #endif
         }
     }
@@ -9325,11 +9327,29 @@ final class AudioPlayerService {
     // MARK: - Now Playing Info
 
     #if os(iOS)
-    @ObservationIgnored private var lockScreenLyricsLoadTask: Task<Void, Never>?
-    @ObservationIgnored private var lockScreenLyricsSongID: String?
-    @ObservationIgnored private var lockScreenLyrics: [LyricLine] = []
+    @ObservationIgnored private var systemLyricsLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var systemLyricsSongID: String?
+    @ObservationIgnored private var systemLyrics: [LyricLine] = []
     @ObservationIgnored private var lastPublishedLockScreenLyricsPresentation:
         NowPlayingLyricsMetadataPresentation?
+    @ObservationIgnored private var lastPublishedWidgetLyricsSignature: String?
+    @ObservationIgnored private var lyricsWidgetConfigurationRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
+    @ObservationIgnored private var hasInstalledLyricsWidgetSurface = false
+
+    private var widgetLyricsSharingEnabled: Bool {
+        WidgetSettings.syncEnabled()
+            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
+            && WidgetSettings.sharedDataScope().includesLyrics
+    }
+
+    private var shouldPublishWidgetLyrics: Bool {
+        widgetLyricsSharingEnabled && hasInstalledLyricsWidgetSurface
+    }
+
+    private var shouldLoadLyricsForSystemSurfaces: Bool {
+        playbackSettings.lockScreenLyricsEnabled || shouldPublishWidgetLyrics
+    }
 
     private func observeLockScreenLyricsSetting() {
         withObservationTracking {
@@ -9337,40 +9357,102 @@ final class AudioPlayerService {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.resetLockScreenLyricsState()
+                self.resetSystemLyricsState()
                 self.updateNowPlayingInfo()
-                self.loadLockScreenLyricsIfNeeded(for: self.currentSong)
+                self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
                 self.observeLockScreenLyricsSetting()
             }
         }
     }
 
-    private func prepareLockScreenLyricsForCurrentSong(previousSong: Song?) {
+    private func prepareLyricsForSystemSurfaces(previousSong: Song?) {
         let previousIdentity = previousSong.map { ($0.id, $0.lyricsFileName) }
         let currentIdentity = currentSong.map { ($0.id, $0.lyricsFileName) }
         guard previousIdentity?.0 != currentIdentity?.0
                 || previousIdentity?.1 != currentIdentity?.1 else { return }
 
-        resetLockScreenLyricsState()
-        loadLockScreenLyricsIfNeeded(for: currentSong)
+        resetSystemLyricsState()
+        refreshInstalledLyricsWidgetDemand()
+        loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
     }
 
-    private func resetLockScreenLyricsState() {
-        lockScreenLyricsLoadTask?.cancel()
-        lockScreenLyricsLoadTask = nil
-        lockScreenLyricsSongID = nil
-        lockScreenLyrics = []
+    /// Lyrics loading can reach a remote sidecar or metadata provider. Only do
+    /// that work for a widget when the user has actually placed a lyrics-capable
+    /// family on the Home Screen; lock-screen lyrics remains independently gated.
+    private func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
+        guard widgetLyricsSharingEnabled else {
+            clearWidgetLyricsSnapshotIfNeeded()
+            if !playbackSettings.lockScreenLyricsEnabled {
+                systemLyricsLoadTask?.cancel()
+                systemLyricsLoadTask = nil
+                systemLyricsSongID = nil
+                systemLyrics = []
+            }
+            return
+        }
+        guard lyricsWidgetConfigurationRefreshTask == nil else { return }
+        let now = Date()
+        guard force || now.timeIntervalSince(lastLyricsWidgetConfigurationRefreshAt) >= 15 else {
+            return
+        }
+
+        lyricsWidgetConfigurationRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.lyricsWidgetConfigurationRefreshTask = nil
+                self.lastLyricsWidgetConfigurationRefreshAt = Date()
+            }
+
+            guard let configurations = try? await WidgetCenter.shared.currentConfigurations()
+            else { return }
+            let isInstalled = configurations.contains { configuration in
+                configuration.kind == "LyricsWidget"
+                    || (configuration.kind == "NowPlayingWidget"
+                        && configuration.family == .systemLarge)
+            }
+            guard isInstalled != self.hasInstalledLyricsWidgetSurface else {
+                if isInstalled,
+                   self.systemLyricsLoadTask == nil,
+                   self.systemLyricsSongID != self.currentSong?.id {
+                    self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
+                }
+                return
+            }
+
+            self.hasInstalledLyricsWidgetSurface = isInstalled
+            if isInstalled {
+                if self.systemLyricsLoadTask == nil {
+                    self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
+                }
+            } else {
+                self.clearWidgetLyricsSnapshotIfNeeded()
+                if !self.playbackSettings.lockScreenLyricsEnabled {
+                    self.systemLyricsLoadTask?.cancel()
+                    self.systemLyricsLoadTask = nil
+                    self.systemLyricsSongID = nil
+                    self.systemLyrics = []
+                }
+            }
+        }
+    }
+
+    private func resetSystemLyricsState() {
+        systemLyricsLoadTask?.cancel()
+        systemLyricsLoadTask = nil
+        systemLyricsSongID = nil
+        systemLyrics = []
         lastPublishedLockScreenLyricsPresentation = nil
+        clearWidgetLyricsSnapshotIfNeeded()
     }
 
-    private func loadLockScreenLyricsIfNeeded(for song: Song?) {
-        guard playbackSettings.lockScreenLyricsEnabled,
+    private func loadLyricsForSystemSurfacesIfNeeded(for song: Song?) {
+        guard shouldLoadLyricsForSystemSurfaces,
               !isLiveRadio,
               let song else { return }
 
         let expectedSongID = song.id
         let capturedSourceManager = sourceManager
-        lockScreenLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
+        systemLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
             let lyrics: [LyricLine]
             if song.sourceID == AppleMusicLibraryService.systemSourceID {
                 if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
@@ -9396,14 +9478,15 @@ final class AudioPlayerService {
             }
             guard !Task.isCancelled,
                   let self,
-                  self.playbackSettings.lockScreenLyricsEnabled,
+                  self.shouldLoadLyricsForSystemSurfaces,
                   !self.isLiveRadio,
                   self.currentSong?.id == expectedSongID else { return }
 
-            self.lockScreenLyricsLoadTask = nil
-            self.lockScreenLyricsSongID = expectedSongID
-            self.lockScreenLyrics = lyrics
+            self.systemLyricsLoadTask = nil
+            self.systemLyricsSongID = expectedSongID
+            self.systemLyrics = lyrics
             self.publishLockScreenLyricsIfNeeded()
+            self.publishWidgetLyricsIfNeeded()
         }
     }
 
@@ -9411,7 +9494,7 @@ final class AudioPlayerService {
         guard let song = currentSong else {
             return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
         }
-        let lyrics = lockScreenLyricsSongID == song.id ? lockScreenLyrics : []
+        let lyrics = systemLyricsSongID == song.id ? systemLyrics : []
         return NowPlayingLyricsMetadataPolicy.presentation(
             canonicalTitle: song.title,
             artistName: displayedArtistName(for: song),
@@ -9425,8 +9508,8 @@ final class AudioPlayerService {
     private func publishLockScreenLyricsIfNeeded() {
         guard playbackSettings.lockScreenLyricsEnabled,
               !isLiveRadio,
-              lockScreenLyricsSongID == currentSong?.id,
-              !lockScreenLyrics.isEmpty else { return }
+              systemLyricsSongID == currentSong?.id,
+              !systemLyrics.isEmpty else { return }
 
         let presentation = lockScreenLyricsPresentation()
         guard presentation != lastPublishedLockScreenLyricsPresentation else { return }
@@ -9442,13 +9525,76 @@ final class AudioPlayerService {
             guard let songID = notification.object as? String else { return }
             Task { @MainActor [weak self] in
                 guard let self,
-                      self.playbackSettings.lockScreenLyricsEnabled,
+                      self.shouldLoadLyricsForSystemSurfaces,
                       self.currentSong?.id == songID else { return }
-                self.resetLockScreenLyricsState()
+                self.resetSystemLyricsState()
                 self.updateNowPlayingInfo()
-                self.loadLockScreenLyricsIfNeeded(for: self.currentSong)
+                self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
             }
         }
+    }
+
+    private func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {
+        guard shouldPublishWidgetLyrics, !isLiveRadio else {
+            clearWidgetLyricsSnapshotIfNeeded()
+            return
+        }
+        guard let song = currentSong,
+              systemLyricsSongID == song.id,
+              !systemLyrics.isEmpty else {
+            clearWidgetLyricsSnapshotIfNeeded()
+            return
+        }
+
+        let position = max(0, currentTime)
+        let widgetLines = systemLyrics.map {
+            WidgetLyricLine(time: $0.timestamp, text: $0.text)
+        }
+        let anchor = WidgetLyricsPresentationPolicy.anchorIndex(
+            for: position,
+            in: widgetLines
+        )
+        let playback = PlaybackState.load()
+        let resolvedCoverName = coverImageName
+            ?? (playback?.currentSongID == song.id ? playback?.coverImageName : nil)
+        let isActivelyPlaying = isPlaybackActuallyActive
+        let direction = LyricWritingDirectionPolicy.resolve(in: systemLyrics)
+        let signature = [
+            song.id,
+            song.title,
+            displayedArtistName(for: song) ?? "",
+            resolvedCoverName ?? "",
+            String(anchor),
+            String((position * 2).rounded().finiteInt()),
+            isActivelyPlaying ? "1" : "0",
+            direction.rawValue,
+            String(widgetLines.count),
+            String(widgetLines.last?.time ?? 0),
+        ].joined(separator: "|")
+        guard signature != lastPublishedWidgetLyricsSignature else { return }
+
+        LyricsSnapshot(
+            songID: song.id,
+            title: song.title,
+            artist: displayedArtistName(for: song) ?? "",
+            coverImageName: resolvedCoverName,
+            lines: widgetLines,
+            anchorIndex: anchor,
+            playbackPosition: position,
+            isPlaying: isActivelyPlaying,
+            writingDirection: direction
+        ).save()
+        lastPublishedWidgetLyricsSignature = signature
+        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
+    }
+
+    private func clearWidgetLyricsSnapshotIfNeeded() {
+        lastPublishedWidgetLyricsSignature = nil
+        guard LyricsSnapshot.load() != nil else { return }
+        LyricsSnapshot.clear()
+        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
     }
 
     private func observeLikedSongChanges() {
@@ -10294,11 +10440,14 @@ final class AudioPlayerService {
     private func updatePlaybackState() {
         persistPlaybackSession(clearWhenEmpty: currentSong == nil)
         #if os(macOS)
+        let sampledCurrentTime = currentTime
+        let sampledAt = Date()
         let request = MacWidgetPlaybackPublishRequest(
             currentSong: currentSong,
             artistDisplayName: displayedArtistName(for: currentSong),
             isPlaying: isPlaybackActuallyActive,
-            currentTime: currentTime,
+            sampledAt: sampledAt,
+            currentTime: sampledCurrentTime,
             duration: duration,
             queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
             playbackKind: playbackKind,
@@ -10311,9 +10460,15 @@ final class AudioPlayerService {
         }
         return
         #else
+        #if os(iOS)
+        refreshInstalledLyricsWidgetDemand()
+        #endif
         guard WidgetSettings.syncEnabled(),
               WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
             PlaybackState.clear()
+            #if os(iOS)
+            publishWidgetLyricsIfNeeded()
+            #endif
             WidgetCenter.shared.reloadAllTimelines()
             return
         }
@@ -10380,6 +10535,8 @@ final class AudioPlayerService {
             lastWidgetCoverSongID = nil
         }
 
+        let sampledCurrentTime = scope.includesProgress ? currentTime : 0
+        let sampledAt = Date()
         let state = PlaybackState(
             currentSongID: currentSong?.id,
             songTitle: currentSong?.title,
@@ -10390,7 +10547,7 @@ final class AudioPlayerService {
             isPlaying: isPlaybackActuallyActive,
             // Progress gated by scope: omit currentTime/duration when the user
             // hasn't granted progress disclosure (defaults to 0 via the init).
-            currentTime: scope.includesProgress ? currentTime : 0,
+            currentTime: sampledCurrentTime,
             duration: scope.includesProgress ? duration : 0,
             queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
             playbackKind: playbackKind,
@@ -10398,9 +10555,13 @@ final class AudioPlayerService {
             repeatMode: repeatMode,
             // 锁屏 widget / Live Activity 只能渲染这颗心, 解析不了 —— 曲库在
             // 主 app 沙盒里, 必须由这里发布出去。
-            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false }
+            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
+            updatedAt: sampledAt
         )
         state.save()
+        #if os(iOS)
+        publishWidgetLyricsIfNeeded(coverImageName: coverName)
+        #endif
 
         let timelineSignature = widgetTimelineSignature(for: state)
         if recentAlbumsChanged || timelineSignature != lastWidgetTimelineSignature {

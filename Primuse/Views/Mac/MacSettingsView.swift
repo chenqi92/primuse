@@ -3378,6 +3378,7 @@ private extension WidgetRefreshMode {
 
 private struct MacSTWidgetView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
     // 直接写 App Group, 让 widget 扩展读到同一份开关/刷新设置。
     @AppStorage(PrimuseConstants.widgetSyncEnabledKey, store: UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
     private var widgetSyncEnabled = true
@@ -3432,7 +3433,10 @@ private struct MacSTWidgetView: View {
                 }
                 MacSTRow(Lz("Refresh Now")) {
                     MacSTButton(title: String(localized: "desktop_widget_sync_update_now"), systemImage: "arrow.triangle.2.circlepath") {
-                        MacWidgetDataPublisher.publishFromSettings(player: player)
+                        MacWidgetDataPublisher.publishFromSettings(
+                            player: player,
+                            sourceManager: sourceManager
+                        )
                     }
                 }
             }
@@ -3448,7 +3452,7 @@ private struct MacSTWidgetView: View {
                 )
                 MacSTWidgetChecklistRow(
                     title: Lz("Lyrics"),
-                    detail: Lz("Medium"),
+                    detail: Lz("Medium / Large"),
                     isOn: $lyricsWidgetEnabled
                 )
                 MacSTWidgetChecklistRow(
@@ -3511,7 +3515,10 @@ private struct MacSTWidgetView: View {
     }
 
     private func pushWidgetSettingsChange() {
-        MacWidgetDataPublisher.publishFromSettings(player: player)
+        MacWidgetDataPublisher.publishFromSettings(
+            player: player,
+            sourceManager: sourceManager
+        )
     }
 }
 
@@ -3561,6 +3568,12 @@ private struct MacSTWidgetChecklistRow: View {
 /// secondary publishing is gated by the "Push to Widget" toggle.
 @MainActor
 enum MacWidgetDataPublisher {
+    private static var lyricsSharingEnabled: Bool {
+        WidgetSettings.syncEnabled()
+            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
+            && WidgetSettings.sharedDataScope().includesLyrics
+    }
+
     /// Full publish — call from a context that has every service (the main scene).
     static func publishAll(player: AudioPlayerService, sources: SourcesStore, sourceManager: SourceManager) {
         player.publishWidgetStateForMacWidgetSync()
@@ -3588,7 +3601,7 @@ enum MacWidgetDataPublisher {
         } else {
             SourcesSnapshot.clear()
         }
-        if WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey) {
+        if lyricsSharingEnabled {
             Task { await publishLyrics(player: player, sourceManager: sourceManager) }
         } else {
             LyricsSnapshot.clear()
@@ -3599,8 +3612,11 @@ enum MacWidgetDataPublisher {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    /// Settings-window safe subset (no SourcesStore / SourceManager in that window).
-    static func publishFromSettings(player: AudioPlayerService) {
+    /// Settings-window safe subset that does not require `SourcesStore`.
+    static func publishFromSettings(
+        player: AudioPlayerService,
+        sourceManager: SourceManager
+    ) {
         player.publishWidgetStateForMacWidgetSync()
         if WidgetSettings.syncEnabled() {
             if WidgetSettings.widgetEnabled(PrimuseConstants.widgetListeningStatsEnabledKey) {
@@ -3617,7 +3633,9 @@ enum MacWidgetDataPublisher {
             ListeningStatsSnapshot.clear()
             WrappedSnapshot.clear()
         }
-        if !WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey) {
+        if lyricsSharingEnabled {
+            Task { await publishLyrics(player: player, sourceManager: sourceManager) }
+        } else {
             LyricsSnapshot.clear()
         }
         if !WidgetSettings.widgetEnabled(PrimuseConstants.widgetSourcesEnabledKey) {
@@ -3672,21 +3690,41 @@ enum MacWidgetDataPublisher {
     }
 
     static func publishLyrics(player: AudioPlayerService, sourceManager: SourceManager) async {
-        guard let song = player.currentSong else { LyricsSnapshot.clear(); return }
+        guard lyricsSharingEnabled,
+              let song = player.currentSong else {
+            LyricsSnapshot.clear()
+            return
+        }
+        let artist = AppServices.shared.musicLibrary.artistDisplayName(for: song)
+            ?? song.artistName
+            ?? ""
         let lines = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+        guard lyricsSharingEnabled else {
+            LyricsSnapshot.clear()
+            return
+        }
+        // A slower load for the previous track must never clear or overwrite a
+        // newer snapshot that has already won the race.
+        guard player.currentSong?.id == song.id else { return }
         guard !lines.isEmpty else { LyricsSnapshot.clear(); return }
         let widgetLines = lines.map { WidgetLyricLine(time: $0.timestamp, text: $0.text) }
         let now = player.currentTime
-        var anchor = 0
-        for (i, line) in widgetLines.enumerated() where line.time <= now { anchor = i }
+        let anchor = WidgetLyricsPresentationPolicy.anchorIndex(
+            for: now,
+            in: widgetLines
+        )
         let playback = PlaybackState.load()
+        let matchingCoverImageName = playback?.currentSongID == song.id
+            ? playback?.coverImageName
+            : nil
         LyricsSnapshot(
-            songID: playback?.currentSongID ?? "current",
-            title: playback?.songTitle ?? "",
-            artist: playback?.artistName ?? "",
-            coverImageName: playback?.coverImageName,
+            songID: song.id,
+            title: song.title,
+            artist: artist,
+            coverImageName: matchingCoverImageName,
             lines: widgetLines,
             anchorIndex: anchor,
+            playbackPosition: now,
             isPlaying: player.isPlaying,
             writingDirection: LyricWritingDirectionPolicy.resolve(in: lines)
         ).save()

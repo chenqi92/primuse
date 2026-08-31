@@ -332,6 +332,7 @@ import Testing
 }
 
 @Test func testPlaybackState() throws {
+    let sampledAt = Date(timeIntervalSince1970: 1_788_000_000)
     let state = PlaybackState(
         currentSongID: "test-id",
         songTitle: "Test Song",
@@ -340,7 +341,8 @@ import Testing
         currentTime: 30,
         duration: 180,
         repeatMode: .one,
-        isLiked: true
+        isLiked: true,
+        updatedAt: sampledAt
     )
 
     #expect(state.songTitle == "Test Song")
@@ -351,6 +353,7 @@ import Testing
     )
     #expect(restored.repeatMode == .one)
     #expect(restored.isLiked == true)
+    #expect(restored.updatedAt == sampledAt)
 }
 
 @Test func musicSourcePreservesCustomSMBPort() throws {

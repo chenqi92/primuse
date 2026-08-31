@@ -8,8 +8,11 @@ import PrimuseKit
 // Styling reuses WidgetDesign so they sit consistently next to the shipping
 // Now Playing / Recently Played widgets.
 
-private func reloadPolicy() -> TimelineReloadPolicy {
-    if let next = WidgetSettings.nextRefreshDate() {
+private func reloadPolicy(continuationDate: Date? = nil) -> TimelineReloadPolicy {
+    let next = [WidgetSettings.nextRefreshDate(), continuationDate]
+        .compactMap { $0 }
+        .min()
+    if let next {
         return .after(next)
     }
     return .never
@@ -32,76 +35,122 @@ struct LyricsEntry: TimelineEntry {
     let snapshot: LyricsSnapshot?
 }
 
+struct LyricsTimelineBatch {
+    let entries: [LyricsEntry]
+    /// WidgetKit asks for the next bounded batch at this lyric transition.
+    let nextReloadDate: Date?
+}
+
 struct LyricsProvider: TimelineProvider {
     func placeholder(in context: Context) -> LyricsEntry {
         LyricsEntry(date: Date(), snapshot: Self.demo)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (LyricsEntry) -> Void) {
-        let snap = context.isPreview ? Self.demo : LyricsSnapshot.load()
+        let snap = context.isPreview
+            ? Self.demo
+            : Self.snapshotAlignedWithPlayback(
+                LyricsSnapshot.load(),
+                playback: PlaybackState.load()
+            )
         completion(LyricsEntry(date: Date(), snapshot: snap))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<LyricsEntry>) -> Void) {
         let now = Date()
-        let loaded = LyricsSnapshot.load()
+        let loaded = Self.snapshotAlignedWithPlayback(
+            LyricsSnapshot.load(),
+            playback: PlaybackState.load()
+        )
         guard let snap = loaded, !snap.lines.isEmpty else {
             completion(Timeline(entries: [LyricsEntry(date: now, snapshot: loaded)], policy: reloadPolicy()))
             return
         }
 
-        // The app only re-writes this snapshot on song change, so `anchorIndex`
-        // is frozen at the line that was current when it was saved. To make the
-        // highlight track playback, project forward from `updatedAt`: the saved
-        // anchor line was current at that instant, so the playback position now
-        // is roughly `lines[anchorIndex].time + (date - updatedAt)`. We emit one
-        // entry per upcoming line so WidgetKit advances the highlight on cue.
-        let entries = Self.timelineEntries(for: snap, from: now)
-        completion(Timeline(entries: entries, policy: reloadPolicy()))
+        // Project forward from the playback position captured at `updatedAt`.
+        // We emit one entry per upcoming line so WidgetKit advances the
+        // highlight on cue without polling the main app.
+        let batch = Self.timelineBatch(for: snap, from: now)
+        completion(Timeline(
+            entries: batch.entries,
+            policy: reloadPolicy(continuationDate: batch.nextReloadDate)
+        ))
+    }
+
+    /// Playback state is refreshed on every discrete play/pause/seek event,
+    /// while macOS may keep the same lyric payload for the whole song. Project
+    /// that newer sample into the lyric snapshot so both standalone and large
+    /// Now Playing widgets follow seeks without reloading lyric text.
+    static func snapshotAlignedWithPlayback(
+        _ snapshot: LyricsSnapshot?,
+        playback: PlaybackState?
+    ) -> LyricsSnapshot? {
+        guard WidgetSettings.syncEnabled(),
+              WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey),
+              WidgetSettings.sharedDataScope().includesLyrics else {
+            return nil
+        }
+        return WidgetLyricsPresentationPolicy.snapshotAlignedWithPlayback(
+            snapshot,
+            playback: playback
+        )
     }
 
     /// Builds entries whose `anchorIndex` advances as playback progresses,
     /// computed purely from the saved line timings + `updatedAt`. Paused
     /// snapshots yield a single static entry.
-    static func timelineEntries(for snap: LyricsSnapshot, from now: Date) -> [LyricsEntry] {
-        // Playback position (seconds) that the saved anchor corresponds to.
-        let anchorIndex = min(max(snap.anchorIndex, 0), snap.lines.count - 1)
-        let anchorTime = snap.lines[anchorIndex].time
+    static func timelineBatch(for snap: LyricsSnapshot, from now: Date) -> LyricsTimelineBatch {
+        let anchorTime = WidgetLyricsPresentationPolicy.playbackPosition(in: snap)
 
         guard snap.isPlaying else {
-            return [LyricsEntry(date: now, snapshot: snap)]
+            return LyricsTimelineBatch(
+                entries: [LyricsEntry(date: now, snapshot: snap)],
+                nextReloadDate: nil
+            )
         }
 
         // Position at `now`, then the line index that should be current.
         let elapsed = max(0, now.timeIntervalSince(snap.updatedAt))
         let positionNow = anchorTime + elapsed
-        let currentIndex = Self.lineIndex(for: positionNow, in: snap.lines)
+        let currentIndex = WidgetLyricsPresentationPolicy.anchorIndex(
+            for: positionNow,
+            in: snap.lines
+        )
 
         var entries: [LyricsEntry] = [LyricsEntry(date: now, snapshot: snap.with(anchorIndex: currentIndex))]
 
         // One future entry per remaining line transition, capped to keep the
-        // timeline small. Each fires when that line is due to become current.
+        // timeline small. Equal timestamps collapse to their final anchor.
         let maxFutureEntries = 12
         var added = 0
         var i = currentIndex + 1
         while i < snap.lines.count && added < maxFutureEntries {
             let lineStart = snap.lines[i].time
+            var transitionAnchor = i
+            while transitionAnchor + 1 < snap.lines.count,
+                  snap.lines[transitionAnchor + 1].time == lineStart {
+                transitionAnchor += 1
+            }
             let secondsUntil = lineStart - positionNow
             if secondsUntil > 0 {
                 let date = now.addingTimeInterval(secondsUntil)
-                entries.append(LyricsEntry(date: date, snapshot: snap.with(anchorIndex: i)))
+                entries.append(LyricsEntry(
+                    date: date,
+                    snapshot: snap.with(anchorIndex: transitionAnchor)
+                ))
                 added += 1
             }
-            i += 1
+            i = transitionAnchor + 1
         }
-        return entries
-    }
 
-    /// Index of the last line whose start time is <= position (0 if none yet).
-    private static func lineIndex(for position: TimeInterval, in lines: [WidgetLyricLine]) -> Int {
-        var idx = 0
-        for (i, line) in lines.enumerated() where line.time <= position { idx = i }
-        return idx
+        let nextReloadDate: Date?
+        if i < snap.lines.count {
+            let delay = max(0.5, snap.lines[i].time - positionNow)
+            nextReloadDate = now.addingTimeInterval(delay)
+        } else {
+            nextReloadDate = nil
+        }
+        return LyricsTimelineBatch(entries: entries, nextReloadDate: nextReloadDate)
     }
 
     static let demo = LyricsSnapshot(
@@ -127,7 +176,7 @@ struct LyricsWidget: Widget {
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.lyrics.displayName"))
         .description(PMString("ext.widget.lyrics.description"))
-        .supportedFamilies([.systemMedium])
+        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
 
@@ -195,8 +244,8 @@ enum WidgetLyricsTypography: Equatable {
 }
 
 /// Fits the richest lyric context the widget's remaining height can hold. The
-/// final fallback is current-line-only and deliberately bounded because no
-/// fixed widget family can guarantee full display for an arbitrarily long row.
+/// current row is measured without truncation first, so surrounding rows are
+/// dropped before the lyric itself is shortened.
 struct AdaptiveWidgetLyricsView: View {
     let lines: [WidgetLyricLine]
     let anchorIndex: Int
@@ -223,12 +272,18 @@ struct AdaptiveWidgetLyricsView: View {
     var body: some View {
         GeometryReader { geometry in
             ViewThatFits(in: .vertical) {
-                lyricRows(maximumRowCount: 3, currentLineLimit: 2, adjacentLineLimit: 2)
-                lyricRows(maximumRowCount: 2, currentLineLimit: 2, adjacentLineLimit: 2)
+                lyricRows(maximumRowCount: 3, currentLineLimit: nil, adjacentLineLimit: 1)
+                lyricRows(maximumRowCount: 2, currentLineLimit: nil, adjacentLineLimit: 1)
                 lyricRows(
                     maximumRowCount: 1,
-                    currentLineLimit: typography == .standalone ? 3 : 2,
-                    adjacentLineLimit: 2
+                    currentLineLimit: nil,
+                    adjacentLineLimit: 1
+                )
+                lyricRows(
+                    maximumRowCount: 1,
+                    currentLineLimit: typography == .standalone ? 5 : 3,
+                    adjacentLineLimit: 1,
+                    currentMinimumScaleFactor: 0.78
                 )
             }
             .frame(
@@ -265,8 +320,9 @@ struct AdaptiveWidgetLyricsView: View {
 
     private func lyricRows(
         maximumRowCount: Int,
-        currentLineLimit: Int,
-        adjacentLineLimit: Int
+        currentLineLimit: Int?,
+        adjacentLineLimit: Int?,
+        currentMinimumScaleFactor: CGFloat = 1
     ) -> some View {
         let rows = WidgetLyricsPresentationPolicy.rows(
             in: lines,
@@ -285,6 +341,7 @@ struct AdaptiveWidgetLyricsView: View {
                     .foregroundStyle(isCurrent ? currentColor : WidgetDesign.tertiaryText)
                     .multilineTextAlignment(.leading)
                     .lineLimit(isCurrent ? currentLineLimit : adjacentLineLimit)
+                    .minimumScaleFactor(isCurrent ? currentMinimumScaleFactor : 1)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)

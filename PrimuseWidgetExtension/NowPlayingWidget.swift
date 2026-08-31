@@ -5,24 +5,72 @@ import PrimuseKit
 
 struct NowPlayingProvider: TimelineProvider {
     func placeholder(in context: Context) -> NowPlayingEntry {
-        NowPlayingEntry(date: Date(), state: Self.demoState)
+        let now = Date()
+        return NowPlayingEntry(
+            date: now,
+            playbackElapsed: Self.demoState.currentTime,
+            playbackReferenceDate: now,
+            state: Self.demoState,
+            lyricsSnapshot: LyricsProvider.demo
+        )
     }
 
     func getSnapshot(in context: Context, completion: @escaping (NowPlayingEntry) -> Void) {
         // 系统 widget 画廊用 isPreview=true 调这里 —— 用户还没添加 widget,
         // 实际 PlaybackState 大概率是空, 渲染"尚未播放"空状态会让画廊看起来
         // 像功能没做完。预览阶段一律喂 demo 数据,真实使用时才走 App Group。
+        let now = Date()
         if context.isPreview {
-            completion(NowPlayingEntry(date: Date(), state: Self.demoState))
+            completion(NowPlayingEntry(
+                date: now,
+                playbackElapsed: Self.demoState.currentTime,
+                playbackReferenceDate: now,
+                state: Self.demoState,
+                lyricsSnapshot: LyricsProvider.demo
+            ))
         } else {
-            completion(NowPlayingEntry(date: Date(), state: PlaybackState.load()))
+            let loadedState = PlaybackState.load()
+            let lyrics = Self.lyricsSnapshot(for: loadedState, family: context.family)
+            let state = WidgetLyricsPresentationPolicy.playbackStateAlignedWithLyrics(
+                loadedState,
+                lyrics: lyrics
+            )
+            let sample = Self.playbackSample(for: state, lyrics: lyrics, capturedAt: now)
+            completion(NowPlayingEntry(
+                date: now,
+                playbackElapsed: sample.elapsed,
+                playbackReferenceDate: sample.referenceDate,
+                state: state,
+                lyricsSnapshot: lyrics
+            ))
         }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
         let now = Date()
-        let state = PlaybackState.load()
-        let entry = NowPlayingEntry(date: now, state: state)
+        let loadedState = PlaybackState.load()
+        let lyrics = Self.lyricsSnapshot(for: loadedState, family: context.family)
+        let state = WidgetLyricsPresentationPolicy.playbackStateAlignedWithLyrics(
+            loadedState,
+            lyrics: lyrics
+        )
+        let sample = Self.playbackSample(for: state, lyrics: lyrics, capturedAt: now)
+        let lyricsBatch = lyrics.map { LyricsProvider.timelineBatch(for: $0, from: now) }
+        let entries = lyricsBatch?.entries.map { lyricEntry in
+            NowPlayingEntry(
+                date: lyricEntry.date,
+                playbackElapsed: sample.elapsed,
+                playbackReferenceDate: sample.referenceDate,
+                state: state,
+                lyricsSnapshot: lyricEntry.snapshot
+            )
+        } ?? [NowPlayingEntry(
+            date: now,
+            playbackElapsed: sample.elapsed,
+            playbackReferenceDate: sample.referenceDate,
+            state: state,
+            lyricsSnapshot: nil
+        )]
 
         // 进度推进交给视图层的 timerInterval(见 PlaybackProgress), 所以这里不再用
         // 固定 5 分钟周期 reload —— 那会让 entry.date 漂移、把自走进度锚点重置成
@@ -31,17 +79,68 @@ struct NowPlayingProvider: TimelineProvider {
         //
         // 唯一需要主动安排的 reload 是"歌曲自然播完"那一刻: 届时写入侧若(因 App 在
         // 后台等原因)没及时回写, 也要让 widget 翻到下一状态而不是停在满条。
+        var reloadDates: [Date] = []
+        if let state, state.isPlaying, state.duration > 0 {
+            let positionNow = sample.elapsed
+                + max(0, now.timeIntervalSince(sample.referenceDate))
+            if positionNow < state.duration {
+                let remaining = state.duration - max(0, positionNow)
+                // 留 1s 余量, 避免边界抖动。
+                reloadDates.append(now.addingTimeInterval(remaining + 1))
+            }
+        }
+        if let nextLyricsBatch = lyricsBatch?.nextReloadDate {
+            reloadDates.append(nextLyricsBatch)
+        }
         let policy: TimelineReloadPolicy
-        if let state, state.isPlaying, state.duration > 0, state.currentTime < state.duration {
-            let remaining = state.duration - max(0, state.currentTime)
-            // 留 1s 余量, 避免边界抖动。
-            let songEnd = now.addingTimeInterval(remaining + 1)
-            policy = .after(songEnd)
+        if let nextReloadDate = reloadDates.min() {
+            policy = .after(nextReloadDate)
         } else {
             // 暂停 / 无时长: 静态渲染, 等事件驱动重载即可。
             policy = .never
         }
-        completion(Timeline(entries: [entry], policy: policy))
+        completion(Timeline(entries: entries, policy: policy))
+    }
+
+    private static func lyricsSnapshot(
+        for state: PlaybackState?,
+        family: WidgetFamily
+    ) -> LyricsSnapshot? {
+        guard family == .systemLarge,
+              let songID = state?.currentSongID,
+              let snapshot = LyricsProvider.snapshotAlignedWithPlayback(
+                LyricsSnapshot.load(),
+                playback: state
+              ),
+              snapshot.songID == songID,
+              !snapshot.lines.isEmpty else {
+            return nil
+        }
+        return snapshot
+    }
+
+    /// A lyric snapshot carries an exact playback sample and its capture time.
+    /// Reusing that pair keeps the progress clock stable when WidgetKit asks
+    /// for the next bounded lyric batch. Older snapshots fall back to the
+    /// playback state captured for this timeline.
+    private static func playbackSample(
+        for state: PlaybackState?,
+        lyrics: LyricsSnapshot?,
+        capturedAt now: Date
+    ) -> (elapsed: TimeInterval, referenceDate: Date) {
+        guard let state else { return (0, now) }
+        let stateSample = (state.currentTime, state.updatedAt ?? now)
+        guard let lyrics,
+              lyrics.songID == state.currentSongID,
+              lyrics.isPlaying == state.isPlaying,
+              let position = lyrics.playbackPosition else {
+            return stateSample
+        }
+        if let stateUpdatedAt = state.updatedAt,
+           stateUpdatedAt > lyrics.updatedAt {
+            return stateSample
+        }
+        return (position, lyrics.updatedAt)
     }
 
     /// 画廊预览 / placeholder 用的假数据 —— 让 widget 在用户挑选时就能
@@ -63,7 +162,12 @@ struct NowPlayingProvider: TimelineProvider {
 
 struct NowPlayingEntry: TimelineEntry {
     let date: Date
+    /// Playback position sampled at `playbackReferenceDate`.
+    let playbackElapsed: TimeInterval
+    /// The playback sample stays fixed while lyric-only entries advance.
+    let playbackReferenceDate: Date
     let state: PlaybackState?
+    let lyricsSnapshot: LyricsSnapshot?
 }
 
 struct NowPlayingWidget: Widget {
@@ -99,14 +203,21 @@ struct NowPlayingWidgetView: View {
 
     var body: some View {
         if let state = entry.state, state.currentSongID != nil {
-            // entry.date 是这条 timeline 生成的时刻, 也就是 state.currentTime 被
-            // 采样的时刻。播放中时用它把进度锚成绝对时间区间, 让系统自己推进, 无需
-            // 频繁 reload。
-            let progress = PlaybackProgress(state: state, referenceDate: entry.date)
+            // 歌词时间线会分批续载，因此播放位置与其采样时刻由 entry 独立携带；
+            // 续批不能拿新的 entry.date 重新锚定旧位置，否则进度会周期性回跳。
+            let progress = PlaybackProgress(
+                state: state,
+                elapsed: entry.playbackElapsed,
+                referenceDate: entry.playbackReferenceDate
+            )
             switch family {
             case .systemSmall: SmallNowPlayingView(state: state, progress: progress)
             case .systemMedium: MediumNowPlayingView(state: state, progress: progress)
-            case .systemLarge: LargeNowPlayingView(state: state, progress: progress)
+            case .systemLarge: LargeNowPlayingView(
+                state: state,
+                progress: progress,
+                lyricsSnapshot: entry.lyricsSnapshot
+            )
             #if os(iOS)
             case .accessoryCircular: AccessoryCircularNowPlaying(state: state, progress: progress)
             case .accessoryRectangular: AccessoryRectangularNowPlaying(state: state)
@@ -145,8 +256,8 @@ struct PlaybackProgress {
     /// 总时长(<=0 表示未知)。
     let duration: TimeInterval
 
-    init(state: PlaybackState, referenceDate: Date) {
-        let elapsed = max(0, state.currentTime)
+    init(state: PlaybackState, elapsed: TimeInterval, referenceDate: Date) {
+        let elapsed = max(0, elapsed)
         let duration = state.duration
         self.elapsed = elapsed
         self.duration = duration
@@ -286,6 +397,7 @@ private struct MediumNowPlayingView: View {
 private struct LargeNowPlayingView: View {
     let state: PlaybackState
     let progress: PlaybackProgress
+    let lyricsSnapshot: LyricsSnapshot?
 
     var body: some View {
         GeometryReader { geometry in
@@ -320,18 +432,11 @@ private struct LargeNowPlayingView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    // 歌词面板的数据源 LyricsSnapshot 仅由 macOS 的
-                    // MacWidgetDataPublisher.publishLyrics 写入 (调用点在
-                    // PrimuseApp 的 #if os(macOS) 守卫内),iOS 从不写入,导致
-                    // Large widget 歌词面板恒占位。先在 iOS 隐藏避免误导,
-                    // 待 iOS 侧接通 LyricsSnapshot 写入后再放开。
-                    #if os(macOS)
                     if !state.isLiveStream {
-                        NowPlayingLyricsPreview(state: state)
+                        NowPlayingLyricsPreview(snapshot: lyricsSnapshot)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
                     }
-                    #endif
 
                     if state.isLiveStream {
                         LiveIndicatorLine()
@@ -517,15 +622,14 @@ private struct NowPlayingControls: View {
 }
 
 private struct NowPlayingLyricsPreview: View {
-    let state: PlaybackState
+    let snapshot: LyricsSnapshot?
 
     private var lyricContent: (
         lines: [WidgetLyricLine],
         anchorIndex: Int,
         preferredDirection: LyricWritingDirection?
     ) {
-        guard let snapshot = LyricsSnapshot.load(),
-              snapshot.songID == state.currentSongID,
+        guard let snapshot,
               snapshot.lines.isEmpty == false else {
             return (
                 lines: [
