@@ -212,7 +212,52 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         return ConnectorScannedSong(
             song: song,
             displayName: "\(track.title).\(suffix)",
-            titleMetadataInspected: track.hasUsableCatalogTitle
+            titleMetadataInspected: track.hasUsableCatalogTitle,
+            folderLocation: libraryFolderLocation(for: track)
+        )
+    }
+
+    private func libraryFolderLocation(
+        for track: FnMusicTrack
+    ) -> ConnectorLibraryFolderLocation {
+        let albumArtistName = track.albumArtistName
+        let trackArtistName = track.artistNames.isEmpty
+            ? nil
+            : track.artistNames.joined(separator: ", ")
+        let artistName = albumArtistName ?? trackArtistName
+        var fallback: [ConnectorLibraryFolderComponent] = []
+        if let artistName {
+            let artistIdentity: String
+            if albumArtistName != nil {
+                artistIdentity = "album-artist-name:\(ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName))"
+            } else {
+                let identity = track.artistNames.count == 1
+                    ? track.artistGUID
+                    : nil
+                let resolvedIdentity = identity
+                    ?? ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName)
+                artistIdentity = "track-artist:\(resolvedIdentity)"
+            }
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: artistIdentity,
+                    displayName: artistName
+                )
+            )
+        }
+        if let albumName = track.albumName {
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: "album:\(track.albumGUID ?? albumName)",
+                    displayName: albumName
+                )
+            )
+        }
+        return ConnectorLibraryFolderHierarchy.location(
+            rootStableID: "fnmusic:catalog",
+            rootDisplayName: MusicSourceType.fnMusic.displayName,
+            providerFilePath: nil,
+            fallbackComponents: fallback
         )
     }
 

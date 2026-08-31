@@ -281,9 +281,19 @@ public struct SourceSyncTelemetry: Codable, Sendable, Equatable {
 public enum SourceSyncFolderTopologyPolicy {
     public static func requiresRebuild(
         sourceType: MusicSourceType,
-        state: SourceSyncState
+        state: SourceSyncState?
     ) -> Bool {
-        guard usesOpaqueProviderItemIDs(sourceType), !state.index.isEmpty else {
+        if sourceType.isServerLibrary || sourceType == .upnp {
+            guard let state else { return true }
+            return !state.index.values.contains { item in
+                item.isDirectory
+                    && item.parentPath == nil
+                    && item.stableKey.hasPrefix("hierarchy-root:")
+            }
+        }
+        guard let state,
+              usesOpaqueProviderItemIDs(sourceType),
+              !state.index.isEmpty else {
             return false
         }
         return state.index.values.contains { $0.displayName == nil }

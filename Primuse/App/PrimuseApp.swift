@@ -1368,6 +1368,7 @@ struct PrimuseApp: App {
                         musicLibrary.suspendPendingIdentityResolution()
                         musicLibrary.beginSceneTransitionQuiescence()
                         scraperService.pauseForSceneTransition()
+                        scanService.pauseFolderTopologyRebuildScheduling()
                         scanService.cancelAllActiveScans()
                         metadataBackfill.stop()
                         playerService.handleAppWillResignActive()
@@ -1499,6 +1500,12 @@ struct PrimuseApp: App {
                             library: musicLibrary
                         )
                         #endif
+                        scanService.startFolderTopologyRebuildsIfNeeded(
+                            sourceManager: sourceManager,
+                            library: musicLibrary,
+                            sourceStore: sourcesStore,
+                            scraperService: scraperService
+                        )
                         playerService.handleAppDidBecomeActive()
                         Task { await updateChecker.checkForUpdate() }
                     @unknown default:

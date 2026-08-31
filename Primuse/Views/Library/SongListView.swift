@@ -567,9 +567,10 @@ struct SongListView: View {
         }
     }
 
-    private struct CloudFolderHierarchyInput: Sendable {
+    private struct ProviderFolderHierarchyInput: Sendable {
         let syncIndex: [String: SourceSyncIndexedItem]
         let rootDisplayNames: [String: String]
+        let usesIndexedRoots: Bool
     }
 
     enum SongFilter: String, CaseIterable, Hashable, Sendable {
@@ -2658,13 +2659,16 @@ struct SongListView: View {
                 if song.sourceID == AppleMusicLibraryIdentity.sourceID {
                     continue
                 }
-                // Cloud item IDs stay stable across metadata replacement and
-                // provider moves. Their folder placement is invalidated by the
-                // committed sync-state revision instead of reinterpreting the
-                // opaque playback ID here.
-                if sourcesStore.allSources.first(where: {
+                // Provider item IDs stay stable across metadata replacement
+                // and provider moves. Their folder placement is invalidated by
+                // the committed sync-state revision instead of reinterpreting
+                // the opaque playback ID here.
+                if let sourceType = sourcesStore.allSources.first(where: {
                     $0.id == song.sourceID
-                })?.type.isCloudDrive == true {
+                })?.type,
+                   sourceType.isCloudDrive
+                    || sourceType.isServerLibrary
+                    || sourceType == .upnp {
                     continue
                 }
             }
@@ -2741,16 +2745,20 @@ struct SongListView: View {
         let generation = folderIndexGeneration
         let songsSnapshot = songs
         let configuredDescriptors = configuredFolderSourceDescriptors
-        var cloudHierarchyInputs: [String: CloudFolderHierarchyInput] = [:]
+        var providerHierarchyInputs: [String: ProviderFolderHierarchyInput] = [:]
         for descriptor in configuredDescriptors {
-            guard sourcesStore.allSources.first(where: {
+            guard let sourceType = sourcesStore.allSources.first(where: {
                 $0.id == descriptor.sourceID
-            })?.type.isCloudDrive == true else { continue }
-            cloudHierarchyInputs[descriptor.sourceID] = CloudFolderHierarchyInput(
+            })?.type,
+                  sourceType.isCloudDrive
+                    || sourceType.isServerLibrary
+                    || sourceType == .upnp else { continue }
+            providerHierarchyInputs[descriptor.sourceID] = ProviderFolderHierarchyInput(
                 syncIndex: scanService.libraryFolderSyncIndex(for: descriptor.sourceID),
-                rootDisplayNames: CloudDirectoryNameStore.displayNames(
-                    for: descriptor.sourceID
-                )
+                rootDisplayNames: sourceType.isCloudDrive
+                    ? CloudDirectoryNameStore.displayNames(for: descriptor.sourceID)
+                    : [:],
+                usesIndexedRoots: sourceType.isServerLibrary || sourceType == .upnp
             )
         }
         let sourceRevision = folderSourceRevision
@@ -2783,14 +2791,31 @@ struct SongListView: View {
             }
             guard !Task.isCancelled else { return }
             let descriptors = await Task.detached(priority: .userInitiated) {
-                [baseDescriptors, cloudHierarchyInputs] in
+                [baseDescriptors, providerHierarchyInputs] in
                 baseDescriptors.map { descriptor in
-                    guard let input = cloudHierarchyInputs[descriptor.sourceID],
+                    guard let input = providerHierarchyInputs[descriptor.sourceID],
                           !input.syncIndex.isEmpty else {
                         return descriptor
                     }
-                    let roots = descriptor.scanRoots.map { path in
+                    let indexedRoots = input.syncIndex.values
+                        .filter { $0.isDirectory && $0.parentPath == nil }
+                        .sorted { lhs, rhs in
+                            let lhsName = lhs.displayName ?? lhs.path
+                            let rhsName = rhs.displayName ?? rhs.path
+                            if lhsName == rhsName { return lhs.path < rhs.path }
+                            return lhsName.localizedStandardCompare(rhsName) == .orderedAscending
+                        }
+                    let rootPaths = input.usesIndexedRoots && !indexedRoots.isEmpty
+                        ? indexedRoots.map(\.path)
+                        : descriptor.scanRoots
+                    let rootsByPath = Dictionary(
+                        indexedRoots.map { ($0.path, $0) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                    let roots = rootPaths.map { path in
                         let storedName = input.rootDisplayNames[path]?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let indexedName = rootsByPath[path]?.displayName?
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         let pathName: String?
                         if descriptor.pathSemantics == .hierarchical, path != "/" {
@@ -2801,7 +2826,9 @@ struct SongListView: View {
                         }
                         return LibraryFolderProviderRootDescriptor(
                             path: path,
-                            displayName: storedName?.isEmpty == false ? storedName : pathName
+                            displayName: indexedName?.isEmpty == false
+                                ? indexedName
+                                : (storedName?.isEmpty == false ? storedName : pathName)
                         )
                     }
                     let items = input.syncIndex.values

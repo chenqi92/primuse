@@ -417,6 +417,7 @@ actor ConnectorScanner {
                     var observedStablePaths = Dictionary(
                         uniqueKeysWithValues: syncIndex.map { ($0.key, $0.value.path) }
                     )
+                    var preferredProviderHierarchies: [String: [SourceSyncIndexedItem]] = [:]
                     var lastProgressYieldAt = Date()
 
                     if !existingSongs.isEmpty {
@@ -448,6 +449,19 @@ actor ConnectorScanner {
                                 for try await scannedSong in stream {
                                     try Task.checkCancellation()
                                     encounteredSongIDs.insert(scannedSong.song.id)
+                                    if !scannedSong.providerHierarchyItems.isEmpty {
+                                        let existing = preferredProviderHierarchies[
+                                            scannedSong.song.id
+                                        ]
+                                        if existing == nil
+                                            || ConnectorProviderHierarchySelectionPolicy.prefers(
+                                                candidate: scannedSong.providerHierarchyItems,
+                                                over: existing ?? []
+                                            ) {
+                                            preferredProviderHierarchies[scannedSong.song.id] =
+                                                scannedSong.providerHierarchyItems
+                                        }
+                                    }
                                     if scannedSong.titleMetadataInspected {
                                         pendingMetadataInspectedSongIDs.insert(scannedSong.song.id)
                                     }
@@ -541,6 +555,14 @@ actor ConnectorScanner {
                             allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                             scannedCount = allSongs.count
                         }
+
+                        for hierarchy in preferredProviderHierarchies.values {
+                            for item in hierarchy {
+                                syncIndex[item.stableKey] = item
+                            }
+                        }
+
+                        completedSyncIndex = syncIndex
 
                         continuation.yield(
                             ScanUpdate(

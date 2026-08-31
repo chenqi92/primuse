@@ -461,14 +461,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         try await connect()
 
         let normalizedPath = normalize(path)
-        let libraryIDs: [String]
+        let libraries: [Library]
         if normalizedPath == "/" {
             // Media-server sources are whole-library sources. ScanService uses
             // "/" as the shared sentinel for that contract, so resolve it to
             // every visible music library before enumerating tracks.
-            libraryIDs = preferredLibraries(from: try await fetchLibraries()).map(\.id)
+            libraries = preferredLibraries(from: try await fetchLibraries())
         } else if let libraryID = libraryID(from: normalizedPath) {
-            libraryIDs = [libraryID]
+            let available = try await fetchLibraries()
+            libraries = available.filter { $0.id == libraryID }
+            guard !libraries.isEmpty else { throw SourceError.pathNotFound(path) }
         } else {
             throw SourceError.pathNotFound(path)
         }
@@ -480,7 +482,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     let pageSize = 200
                     var seenTrackIDs: Set<String> = []
 
-                    for libraryID in libraryIDs {
+                    for library in libraries {
+                        let libraryID = library.id
                         var startIndex = 0
                         var expectedTotal: Int?
                         var seenPages: Set<String> = []
@@ -531,6 +534,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                             displayName: item.title,
                                             titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                                                 item.title
+                                            ),
+                                            folderLocation: libraryFolderLocation(
+                                                for: item,
+                                                library: library
                                             )
                                         )
                                     )
@@ -595,6 +602,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                             displayName: item.name,
                                             titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                                                 item.name
+                                            ),
+                                            folderLocation: libraryFolderLocation(
+                                                for: item,
+                                                library: library
                                             )
                                         )
                                     )
@@ -1547,7 +1558,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     id: $0.key,
                     name: $0.title,
                     collectionType: $0.type,
-                    childCount: nil
+                    childCount: nil,
+                    locations: $0.locations.map(\.path)
                 )
             }
         }
@@ -1555,7 +1567,34 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         guard let userID else { throw SourceError.authenticationFailed }
         let data = try await performRequest(path: "/Users/\(userID)/Views")
         let response = try decoder.decode(LibraryResponse.self, from: data)
-        return response.items
+        let declaredLocations = (try? await fetchDeclaredLibraryLocations()) ?? [:]
+        return response.items.map { library in
+            Library(
+                id: library.id,
+                name: library.name,
+                collectionType: library.collectionType,
+                childCount: library.childCount,
+                locations: declaredLocations[library.id] ?? library.locations
+            )
+        }
+    }
+
+    private func fetchDeclaredLibraryLocations() async throws -> [String: [String]] {
+        let path = kind == .emby
+            ? "/Library/VirtualFolders/Query"
+            : "/Library/VirtualFolders"
+        let data = try await performRequest(path: path)
+        let response = try decoder.decode(MediaServerVirtualFolderResponse.self, from: data)
+        return Dictionary(
+            response.items.compactMap { folder in
+                guard let itemID = folder.itemID, !itemID.isEmpty else { return nil }
+                let locations = folder.locations.filter {
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+                return locations.isEmpty ? nil : (itemID, locations)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private func fetchAudioItems(
@@ -1579,6 +1618,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             "MediaSources",
             "MediaStreams",
             "ParentIndexNumber",
+            "ParentId",
             "Path",
             "ProductionYear",
             "UserData"
@@ -2395,6 +2435,103 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         )
     }
 
+    private func libraryFolderLocation(
+        for item: AudioItem,
+        library: Library
+    ) -> ConnectorLibraryFolderLocation {
+        let catalogAlbumArtist = item.albumArtists?.first
+        let trackArtist = item.artistItems?.first
+        let catalogAlbumArtistName = catalogAlbumArtist.flatMap {
+            MediaMetadataTextRepair.repaired($0.name)
+        }
+        let explicitAlbumArtist = MediaMetadataTextRepair.repaired(item.albumArtist)
+        let trackArtistName = trackArtist.flatMap {
+            MediaMetadataTextRepair.repaired($0.name)
+        }
+        let fallbackTrackArtist = item.artists?.lazy
+            .compactMap(MediaMetadataTextRepair.repaired)
+            .first
+        let artistName = explicitAlbumArtist
+            ?? catalogAlbumArtistName
+            ?? trackArtistName
+            ?? fallbackTrackArtist
+        var fallback: [ConnectorLibraryFolderComponent] = []
+        if let artistName {
+            let artistIdentity: String
+            if explicitAlbumArtist != nil {
+                let matchingCatalogArtist = item.albumArtists?.first { candidate in
+                    guard let name = MediaMetadataTextRepair.repaired(candidate.name) else {
+                        return false
+                    }
+                    return name.caseInsensitiveCompare(artistName) == .orderedSame
+                }
+                let identity = matchingCatalogArtist?.id.flatMap(MediaMetadataTextRepair.repaired)
+                    ?? ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName)
+                artistIdentity = "album-artist:\(identity)"
+            } else if catalogAlbumArtistName != nil {
+                let identity = catalogAlbumArtist?.id.flatMap(MediaMetadataTextRepair.repaired)
+                    ?? ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName)
+                artistIdentity = "album-artist:\(identity)"
+            } else if trackArtistName != nil {
+                let identity = trackArtist?.id.flatMap(MediaMetadataTextRepair.repaired)
+                    ?? ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName)
+                artistIdentity = "track-artist:\(identity)"
+            } else {
+                artistIdentity = "track-artist-name:\(ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName))"
+            }
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: artistIdentity,
+                    displayName: artistName
+                )
+            )
+        }
+        if let album = item.album {
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: "album:\(item.albumId ?? item.parentId ?? album)",
+                    displayName: album
+                )
+            )
+        }
+        return ConnectorLibraryFolderHierarchy.location(
+            rootStableID: "\(kind):library:\(library.id)",
+            rootDisplayName: library.name,
+            providerFilePath: item.path,
+            declaredLibraryRoots: library.locations ?? [],
+            fallbackComponents: fallback
+        )
+    }
+
+    private func libraryFolderLocation(
+        for item: PlexAudioItem,
+        library: Library
+    ) -> ConnectorLibraryFolderLocation {
+        var fallback: [ConnectorLibraryFolderComponent] = []
+        if let artistName = item.grandparentTitle {
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: "artist:\(item.grandparentRatingKey ?? artistName)",
+                    displayName: artistName
+                )
+            )
+        }
+        if let albumName = item.parentTitle {
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: "album:\(item.parentRatingKey ?? albumName)",
+                    displayName: albumName
+                )
+            )
+        }
+        return ConnectorLibraryFolderHierarchy.location(
+            rootStableID: "plex:library:\(library.id)",
+            rootDisplayName: library.name,
+            providerFilePath: nil,
+            fallbackComponents: fallback
+        )
+    }
+
     /// Jellyfin/Emby expose stable artist item IDs alongside every audio row.
     /// Persist a credential-free image URL; `imageURL(for:)` later rebases it
     /// onto the active LAN/public route and adds the current token.
@@ -2723,12 +2860,55 @@ private struct Library: Decodable {
     let name: String
     let collectionType: String?
     let childCount: Int?
+    let locations: [String]?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
         case name = "Name"
         case collectionType = "CollectionType"
         case childCount = "ChildCount"
+        case locations = "Locations"
+    }
+}
+
+private struct MediaServerVirtualFolderResponse: Decodable {
+    let items: [MediaServerVirtualFolder]
+
+    private enum CodingKeys: String, CodingKey {
+        case items = "Items"
+    }
+
+    init(from decoder: Decoder) throws {
+        if var array = try? decoder.unkeyedContainer() {
+            var items: [MediaServerVirtualFolder] = []
+            while !array.isAtEnd {
+                items.append(try array.decode(MediaServerVirtualFolder.self))
+            }
+            self.items = items
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decodeIfPresent(
+            [MediaServerVirtualFolder].self,
+            forKey: .items
+        ) ?? []
+    }
+}
+
+private struct MediaServerVirtualFolder: Decodable {
+    let itemID: String?
+    let locations: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case itemID = "ItemId"
+        case locations = "Locations"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        itemID = try container.decodeIfPresent(String.self, forKey: .itemID)
+        locations = try container.decodeIfPresent([String].self, forKey: .locations) ?? []
     }
 }
 
@@ -2763,6 +2943,7 @@ private struct AudioItem: Decodable {
     let mediaSources: [AudioMediaSource]?
     let imageTags: [String: String]?
     let path: String?
+    let parentId: String?
     let channelType: String?
     let userData: UserItemData?
 
@@ -2786,6 +2967,7 @@ private struct AudioItem: Decodable {
         case mediaSources = "MediaSources"
         case imageTags = "ImageTags"
         case path = "Path"
+        case parentId = "ParentId"
         case channelType = "ChannelType"
         case userData = "UserData"
     }
@@ -3073,12 +3255,26 @@ private struct PlexLibraryDirectory: Decodable {
     let key: String
     let title: String
     let type: String
+    let locations: [PlexLibraryLocation]
 
     enum CodingKeys: String, CodingKey {
         case key
         case title
         case type
+        case locations = "Location"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        title = try container.decode(String.self, forKey: .title)
+        type = try container.decode(String.self, forKey: .type)
+        locations = try container.decodeIfPresent([PlexLibraryLocation].self, forKey: .locations) ?? []
+    }
+}
+
+private struct PlexLibraryLocation: Decodable {
+    let path: String
 }
 
 private struct PlexTrackResponse: Decodable {

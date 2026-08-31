@@ -318,12 +318,23 @@ actor UPnPSource: SongScanningConnector {
             let task = Task {
                 do {
                     let state = UPnPScanState()
+                    let rootLocation = ConnectorLibraryFolderLocation(
+                        rootStableID: "upnp:\(selection.serverID):container:\(selection.objectID)",
+                        rootDisplayName: selection.breadcrumbs.last,
+                        components: []
+                    )
                     try await scanContainer(
                         serverID: selection.serverID,
                         objectID: selection.objectID,
-                        state: state,
-                        continuation: continuation
+                        rootLocation: rootLocation,
+                        folderComponents: [],
+                        state: state
                     )
+                    for candidate in state.candidates.values.sorted(by: {
+                        $0.scannedSong.song.id < $1.scannedSong.song.id
+                    }) {
+                        continuation.yield(candidate.scannedSong)
+                    }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -336,8 +347,9 @@ actor UPnPSource: SongScanningConnector {
     private func scanContainer(
         serverID: String,
         objectID: String,
-        state: UPnPScanState,
-        continuation: AsyncThrowingStream<ConnectorScannedSong, Error>.Continuation
+        rootLocation: ConnectorLibraryFolderLocation,
+        folderComponents: [ConnectorLibraryFolderComponent],
+        state: UPnPScanState
     ) async throws {
         let containerKey = "\(serverID)\u{1F}\(objectID)"
         guard state.visitedContainers.insert(containerKey).inserted else { return }
@@ -375,19 +387,33 @@ actor UPnPSource: SongScanningConnector {
                     try await scanContainer(
                         serverID: serverID,
                         objectID: node.objectID,
-                        state: state,
-                        continuation: continuation
+                        rootLocation: rootLocation,
+                        folderComponents: folderComponents + [
+                            ConnectorLibraryFolderComponent(
+                                stableID: "container:\(node.objectID)",
+                                displayName: node.title
+                            ),
+                        ],
+                        state: state
                     )
                 case .item:
                     guard let song = buildSong(serverID: serverID, node: node) else {
                         continue
                     }
-                    guard state.seenResourceURLs.insert(song.filePath).inserted else { continue }
-                    continuation.yield(
-                        ConnectorScannedSong(
-                            song: song,
-                            displayName: song.title,
-                            titleMetadataInspected: false
+                    state.consider(
+                        resourceURL: song.filePath,
+                        candidate: UPnPScanCandidate(
+                            scannedSong: ConnectorScannedSong(
+                                song: song,
+                                displayName: song.title,
+                                titleMetadataInspected: false,
+                                folderLocation: ConnectorLibraryFolderLocation(
+                                    rootStableID: rootLocation.rootStableID,
+                                    rootDisplayName: rootLocation.rootDisplayName,
+                                    components: folderComponents
+                                )
+                            ),
+                            folderComponents: folderComponents
                         )
                     )
                 }
@@ -1107,10 +1133,51 @@ private func audioFormat(fromProtocolInfo protocolInfo: String?) -> AudioFormat?
     }
 }
 
+enum UPnPCanonicalFolderPlacementPolicy {
+    static func prefers(
+        candidate: [ConnectorLibraryFolderComponent],
+        over existing: [ConnectorLibraryFolderComponent]
+    ) -> Bool {
+        if candidate.count != existing.count {
+            return candidate.count > existing.count
+        }
+        let candidateIdentity = identity(candidate)
+        let existingIdentity = identity(existing)
+        if candidateIdentity != existingIdentity {
+            return candidateIdentity < existingIdentity
+        }
+        return displayIdentity(candidate) < displayIdentity(existing)
+    }
+
+    private static func identity(_ components: [ConnectorLibraryFolderComponent]) -> String {
+        components.map(\.stableID).joined(separator: "\u{1F}")
+    }
+
+    private static func displayIdentity(_ components: [ConnectorLibraryFolderComponent]) -> String {
+        components.map(\.displayName).joined(separator: "\u{1F}")
+    }
+}
+
+private struct UPnPScanCandidate: Sendable {
+    let scannedSong: ConnectorScannedSong
+    let folderComponents: [ConnectorLibraryFolderComponent]
+}
+
 private final class UPnPScanState: @unchecked Sendable {
     var visitedContainers: Set<String> = []
-    var seenResourceURLs: Set<String> = []
+    var candidates: [String: UPnPScanCandidate] = [:]
     var visitedNodeCount = 0
+
+    func consider(resourceURL: String, candidate: UPnPScanCandidate) {
+        if let existing = candidates[resourceURL],
+           !UPnPCanonicalFolderPlacementPolicy.prefers(
+               candidate: candidate.folderComponents,
+               over: existing.folderComponents
+           ) {
+            return
+        }
+        candidates[resourceURL] = candidate
+    }
 }
 
 private struct BrowsePage: Sendable {

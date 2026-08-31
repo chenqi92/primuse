@@ -263,6 +263,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                                         displayName: child.title ?? song.title,
                                         titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                                             child.title
+                                        ),
+                                        folderLocation: libraryFolderLocation(
+                                            for: child,
+                                            album: result.album
                                         )
                                     )
                                 )
@@ -504,7 +508,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     displayName: child.title ?? song.title,
                     titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                         child.title
-                    )
+                    ),
+                    folderLocation: libraryFolderLocation(for: child)
                 )
             )
         }
@@ -960,6 +965,79 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
             artistArtworkFileName: (child.artists?.first?.id ?? child.artistId)
                 .flatMap { artistArtworkReference(for: $0) }
+        )
+    }
+
+    private func libraryFolderLocation(
+        for child: SubsonicChild,
+        album: AlbumSummary? = nil
+    ) -> ConnectorLibraryFolderLocation {
+        let displayAlbumArtist = Self.cleaned(
+            child.displayAlbumArtist,
+            unknown: "[Unknown Artist]"
+        )
+        let albumArtistNames = child.albumArtists?.compactMap {
+            Self.cleaned($0.name, unknown: "[Unknown Artist]")
+        } ?? []
+        let trackArtistName = Self.cleaned(child.displayArtist, unknown: "[Unknown Artist]")
+            ?? Self.cleaned(child.artist, unknown: "[Unknown Artist]")
+        let albumSummaryArtist = Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
+        let artistName = displayAlbumArtist
+            ?? (albumArtistNames.isEmpty ? nil : albumArtistNames.joined(separator: ", "))
+            ?? albumSummaryArtist
+            ?? trackArtistName
+        let albumName = Self.cleaned(child.album, unknown: "[Unknown Album]")
+            ?? Self.cleaned(album?.name, unknown: "[Unknown Album]")
+        var fallback: [ConnectorLibraryFolderComponent] = []
+        if let artistName {
+            let artistIdentity: String
+            if displayAlbumArtist != nil {
+                let matchingID = child.albumArtists?.first { candidate in
+                    guard let name = Self.cleaned(candidate.name, unknown: "[Unknown Artist]") else {
+                        return false
+                    }
+                    return name.caseInsensitiveCompare(artistName) == .orderedSame
+                }?.id
+                let identity = matchingID
+                    ?? ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName)
+                artistIdentity = "album-artist:\(identity)"
+            } else if !albumArtistNames.isEmpty {
+                let identities = child.albumArtists?.compactMap { candidate -> String? in
+                    guard let name = Self.cleaned(candidate.name, unknown: "[Unknown Artist]") else {
+                        return nil
+                    }
+                    return candidate.id.map { "id:\($0)" }
+                        ?? "name:\(ConnectorLibraryFolderHierarchy.stableNameIdentity(name))"
+                } ?? []
+                artistIdentity = "album-artists:\(identities.joined(separator: ":"))"
+            } else if albumSummaryArtist != nil {
+                artistIdentity = "album-artist-name:\(ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName))"
+            } else {
+                let identity = child.artistId
+                    ?? ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName)
+                artistIdentity = "track-artist:\(identity)"
+            }
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: artistIdentity,
+                    displayName: artistName
+                )
+            )
+        }
+        if let albumName {
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: "album:\(child.albumId ?? album?.id ?? albumName)",
+                    displayName: albumName
+                )
+            )
+        }
+        return ConnectorLibraryFolderHierarchy.location(
+            rootStableID: "\(sourceType.rawValue):library",
+            rootDisplayName: sourceType.displayName,
+            providerFilePath: child.path,
+            acceptsProviderRelativePath: true,
+            fallbackComponents: fallback
         )
     }
 

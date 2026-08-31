@@ -177,6 +177,43 @@ struct SourceSyncStateTests {
         }
     }
 
+    @Test func serverAndUPnPTopologyRequireOneLegacyRebuild() {
+        let legacyState = SourceSyncState(
+            sourceID: "source",
+            scopeFingerprint: "scope"
+        )
+        let hierarchyRoot = SourceSyncIndexedItem(
+            stableKey: "hierarchy-root:server-root:abc",
+            path: "server-root:abc",
+            displayName: "Music",
+            parentPath: nil,
+            isDirectory: true,
+            size: 0,
+            modifiedDate: nil,
+            revision: nil
+        )
+        let currentState = SourceSyncState(
+            sourceID: "source",
+            scopeFingerprint: "scope",
+            index: [hierarchyRoot.stableKey: hierarchyRoot]
+        )
+
+        for sourceType in [MusicSourceType.emby, .plex, .navidrome, .fnMusic, .upnp] {
+            #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: nil
+            ))
+            #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: legacyState
+            ))
+            #expect(!SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: currentState
+            ))
+        }
+    }
+
     @Test func uncommittedDirectoryProgressRoundTripsIndependently() throws {
         let item = SourceSyncIndexedItem(
             stableKey: "id:1",

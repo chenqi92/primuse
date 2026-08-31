@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ImageIO
 import PrimuseKit
@@ -95,15 +96,390 @@ struct ConnectorScannedSong: Sendable {
     /// A filename/ID fallback used to build `Song.title` does not qualify: those
     /// rows still need the bounded file-header title inspection.
     let titleMetadataInspected: Bool
+    /// Provider-native folder topology kept separate from `Song.filePath`.
+    /// Server catalogues use opaque playback paths, so interpreting those IDs
+    /// as filesystem paths would either flatten the library or expose internal
+    /// identifiers. These committed index rows rebuild the visible hierarchy
+    /// without changing song identity or playback routing.
+    let providerHierarchyItems: [SourceSyncIndexedItem]
 
     init(
         song: Song,
         displayName: String,
-        titleMetadataInspected: Bool
+        titleMetadataInspected: Bool,
+        folderLocation: ConnectorLibraryFolderLocation? = nil
     ) {
         self.song = song
         self.displayName = displayName
         self.titleMetadataInspected = titleMetadataInspected
+        self.providerHierarchyItems = folderLocation.map {
+            ConnectorLibraryFolderHierarchy.indexedItems(
+                for: song,
+                displayName: displayName,
+                location: $0
+            )
+        } ?? []
+    }
+}
+
+struct ConnectorLibraryFolderComponent: Sendable, Equatable {
+    let stableID: String
+    let displayName: String
+
+    init(stableID: String, displayName: String) {
+        self.stableID = stableID
+        self.displayName = displayName
+    }
+}
+
+struct ConnectorLibraryFolderLocation: Sendable, Equatable {
+    let rootStableID: String
+    let rootDisplayName: String?
+    let components: [ConnectorLibraryFolderComponent]
+
+    init(
+        rootStableID: String,
+        rootDisplayName: String?,
+        components: [ConnectorLibraryFolderComponent]
+    ) {
+        self.rootStableID = rootStableID
+        self.rootDisplayName = rootDisplayName
+        self.components = components
+    }
+}
+
+/// A provider may expose the same audio item below several selected roots or
+/// virtual containers. Prefer the most specific placement and use only stable
+/// identities as a tie-breaker so scan order cannot move songs between roots.
+enum ConnectorProviderHierarchySelectionPolicy {
+    static func prefers(
+        candidate: [SourceSyncIndexedItem],
+        over existing: [SourceSyncIndexedItem]
+    ) -> Bool {
+        let candidateDepth = folderDepth(candidate)
+        let existingDepth = folderDepth(existing)
+        if candidateDepth != existingDepth {
+            return candidateDepth > existingDepth
+        }
+        let candidateIdentity = stableIdentity(candidate)
+        let existingIdentity = stableIdentity(existing)
+        if candidateIdentity != existingIdentity {
+            return candidateIdentity < existingIdentity
+        }
+        return displayIdentity(candidate) < displayIdentity(existing)
+    }
+
+    private static func folderDepth(_ items: [SourceSyncIndexedItem]) -> Int {
+        items.lazy.filter { $0.isDirectory && $0.parentPath != nil }.count
+    }
+
+    private static func stableIdentity(_ items: [SourceSyncIndexedItem]) -> String {
+        items.map(\.stableKey).joined(separator: "\u{1F}")
+    }
+
+    private static func displayIdentity(_ items: [SourceSyncIndexedItem]) -> String {
+        items.compactMap(\.displayName).joined(separator: "\u{1F}")
+    }
+}
+
+/// Turns provider metadata into a credential-free hierarchy snapshot. Physical
+/// paths are accepted only when they are relative to a provider-declared
+/// library root; otherwise the connector's own artist/album taxonomy is used.
+/// This lets every server keep its native scraping model without leaking a NAS
+/// mount prefix or forcing a single Primuse filename convention onto it.
+enum ConnectorLibraryFolderHierarchy {
+    private struct RelativeFolderResolution {
+        let matchedRootIdentity: String?
+        let components: [String]
+    }
+
+    static func location(
+        rootStableID: String,
+        rootDisplayName: String?,
+        providerFilePath: String?,
+        declaredLibraryRoots: [String] = [],
+        acceptsProviderRelativePath: Bool = false,
+        fallbackComponents: [ConnectorLibraryFolderComponent]
+    ) -> ConnectorLibraryFolderLocation {
+        let pathResolution = providerFilePath.flatMap {
+            relativeFolderComponents(
+                filePath: $0,
+                declaredLibraryRoots: declaredLibraryRoots,
+                acceptsProviderRelativePath: acceptsProviderRelativePath
+            )
+        }
+        let components: [ConnectorLibraryFolderComponent]
+        if let pathResolution, !pathResolution.components.isEmpty {
+            let rootIdentity = pathResolution.matchedRootIdentity ?? "provider-relative"
+            components = pathResolution.components.enumerated().map { offset, name in
+                ConnectorLibraryFolderComponent(
+                    stableID: "\(rootIdentity):path:\(pathResolution.components.prefix(offset + 1).joined(separator: "/"))",
+                    displayName: name
+                )
+            }
+        } else {
+            components = sanitizedFallbackComponents(fallbackComponents)
+        }
+        return ConnectorLibraryFolderLocation(
+            rootStableID: rootStableID,
+            rootDisplayName: safeDisplayName(rootDisplayName),
+            components: components
+        )
+    }
+
+    static func stableNameIdentity(_ value: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+            .folding(
+                options: [.caseInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            .lowercased()
+        return digest(normalized)
+    }
+
+    static func indexedItems(
+        for song: Song,
+        displayName: String,
+        location: ConnectorLibraryFolderLocation
+    ) -> [SourceSyncIndexedItem] {
+        let rootPath = "server-root:\(digest(location.rootStableID))"
+        var items = [
+            SourceSyncIndexedItem(
+                stableKey: "hierarchy-root:\(rootPath)",
+                path: rootPath,
+                displayName: safeDisplayName(location.rootDisplayName),
+                parentPath: nil,
+                isDirectory: true,
+                size: 0,
+                modifiedDate: nil,
+                revision: nil
+            ),
+        ]
+        var parentPath = rootPath
+        var identity = location.rootStableID
+        for component in location.components {
+            guard let displayName = safeDisplayName(component.displayName) else { continue }
+            identity += "\u{1F}\(component.stableID)"
+            let folderPath = "server-folder:\(digest(identity))"
+            items.append(
+                SourceSyncIndexedItem(
+                    stableKey: "hierarchy-folder:\(folderPath)",
+                    path: folderPath,
+                    displayName: displayName,
+                    parentPath: parentPath,
+                    isDirectory: true,
+                    size: 0,
+                    modifiedDate: nil,
+                    revision: nil
+                )
+            )
+            parentPath = folderPath
+        }
+        items.append(
+            SourceSyncIndexedItem(
+                stableKey: "hierarchy-song:\(song.id)",
+                path: song.filePath,
+                displayName: safeDisplayName(displayName),
+                parentPath: parentPath,
+                isDirectory: false,
+                songIDs: [song.id],
+                size: song.fileSize,
+                modifiedDate: song.lastModified,
+                revision: song.revision
+            )
+        )
+        return items
+    }
+
+    private static func relativeFolderComponents(
+        filePath: String,
+        declaredLibraryRoots: [String],
+        acceptsProviderRelativePath: Bool
+    ) -> RelativeFolderResolution? {
+        let rawPath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard pathPassesSafetyInspection(rawPath) else { return nil }
+        let normalizedPath = normalizedSeparators(filePath)
+        guard !normalizedPath.isEmpty else { return nil }
+
+        let relativePath: String?
+        let matchedRoot = declaredLibraryRoots
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter(pathPassesSafetyInspection)
+            .map(normalizedSeparators)
+            .filter { !$0.isEmpty && isAbsolutePath($0) }
+            .sorted(by: { $0.count > $1.count })
+            .first(where: { isPath(normalizedPath, inside: $0) })
+        let matchedRootIdentity: String?
+        if let matchedRoot {
+            let root = trimmedTrailingSeparators(matchedRoot)
+            relativePath = String(normalizedPath.dropFirst(root.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let canonicalRoot = isWindowsAbsolutePath(root) || isUNCAbsolutePath(root)
+                ? root.lowercased()
+                : root
+            matchedRootIdentity = "provider-root:\(digest(canonicalRoot))"
+        } else if acceptsProviderRelativePath, !isAbsolutePath(normalizedPath) {
+            relativePath = normalizedPath
+            matchedRootIdentity = nil
+        } else {
+            relativePath = nil
+            matchedRootIdentity = nil
+        }
+
+        guard let relativePath else { return nil }
+        let rawComponents = relativePath.split(separator: "/").map(String.init)
+        guard rawComponents.count > 1 else {
+            return RelativeFolderResolution(
+                matchedRootIdentity: matchedRootIdentity,
+                components: []
+            )
+        }
+        var folders: [String] = []
+        for component in rawComponents.dropLast() {
+            guard let name = safeDisplayName(component) else { return nil }
+            folders.append(name)
+        }
+        return RelativeFolderResolution(
+            matchedRootIdentity: matchedRootIdentity,
+            components: folders
+        )
+    }
+
+    private static func sanitizedFallbackComponents(
+        _ components: [ConnectorLibraryFolderComponent]
+    ) -> [ConnectorLibraryFolderComponent] {
+        var result: [ConnectorLibraryFolderComponent] = []
+        var seen = Set<String>()
+        for component in components {
+            guard let name = safeDisplayName(component.displayName),
+                  !isPlaceholder(name),
+                  seen.insert("\(component.stableID)\u{1F}\(name)").inserted else { continue }
+            result.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: component.stableID,
+                    displayName: name
+                )
+            )
+        }
+        return result
+    }
+
+    private static func safeDisplayName(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        guard value != ".",
+              value != "..",
+              !value.unicodeScalars.contains(where: {
+                  CharacterSet.controlCharacters.contains($0)
+              }) else { return nil }
+        return value
+    }
+
+    private static func pathPassesSafetyInspection(_ value: String) -> Bool {
+        let inspected = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !inspected.isEmpty,
+              !containsPercentEncodedByte(inspected),
+              !inspected.unicodeScalars.contains(where: {
+                  CharacterSet.controlCharacters.contains($0)
+              }) else { return false }
+        let separatorsNormalized = inspected.replacingOccurrences(of: "\\", with: "/")
+        guard !separatorsNormalized.contains("://") else { return false }
+        return !separatorsNormalized.split(separator: "/", omittingEmptySubsequences: false)
+            .contains { $0 == "." || $0 == ".." }
+    }
+
+    private static func containsPercentEncodedByte(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        guard bytes.count >= 3 else { return false }
+        for index in 0..<(bytes.count - 2) where bytes[index] == 0x25 {
+            if isHexadecimalByte(bytes[index + 1]), isHexadecimalByte(bytes[index + 2]) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isHexadecimalByte(_ value: UInt8) -> Bool {
+        (0x30...0x39).contains(value)
+            || (0x41...0x46).contains(value)
+            || (0x61...0x66).contains(value)
+    }
+
+    private static func isPlaceholder(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty
+            || normalized == "unknown"
+            || normalized == "[unknown artist]"
+            || normalized == "[unknown album]"
+    }
+
+    private static func normalizedSeparators(_ path: String) -> String {
+        var value = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+        let hasUNCPrefix = value.hasPrefix("//")
+        if hasUNCPrefix {
+            value.removeFirst(2)
+            while value.hasPrefix("/") { value.removeFirst() }
+        }
+        while value.contains("//") {
+            value = value.replacingOccurrences(of: "//", with: "/")
+        }
+        return hasUNCPrefix ? "//" + value : value
+    }
+
+    private static func trimmedTrailingSeparators(_ path: String) -> String {
+        var value = path
+        while value.count > 1,
+              value.hasSuffix("/"),
+              !isWindowsVolumeRoot(value) {
+            value.removeLast()
+        }
+        return value
+    }
+
+    private static func isPath(_ path: String, inside root: String) -> Bool {
+        let root = trimmedTrailingSeparators(root)
+        guard !root.isEmpty else { return false }
+        if root == "/" { return path.hasPrefix("/") && !isUNCAbsolutePath(path) }
+        if isWindowsVolumeRoot(root) {
+            return path.lowercased().hasPrefix(root.lowercased())
+        }
+        let isWindowsPath = isWindowsAbsolutePath(path) && isWindowsAbsolutePath(root)
+        let isUNCPath = isUNCAbsolutePath(path) && isUNCAbsolutePath(root)
+        let lhs = isWindowsPath || isUNCPath ? path.lowercased() : path
+        let rhs = isWindowsPath || isUNCPath ? root.lowercased() : root
+        return lhs == rhs || lhs.hasPrefix(rhs + "/")
+    }
+
+    private static func isAbsolutePath(_ path: String) -> Bool {
+        if path.hasPrefix("//") { return isUNCAbsolutePath(path) }
+        if path.hasPrefix("/") { return true }
+        return isWindowsAbsolutePath(path)
+    }
+
+    private static func isUNCAbsolutePath(_ path: String) -> Bool {
+        guard path.hasPrefix("//") else { return false }
+        let components = path.dropFirst(2).split(separator: "/")
+        return components.count >= 2
+    }
+
+    private static func isWindowsAbsolutePath(_ path: String) -> Bool {
+        let prefix = Array(path.prefix(3))
+        return prefix.count == 3
+            && prefix[0].isLetter
+            && prefix[1] == ":"
+            && prefix[2] == "/"
+    }
+
+    private static func isWindowsVolumeRoot(_ path: String) -> Bool {
+        isWindowsAbsolutePath(path) && path.count == 3
+    }
+
+    private static func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).prefix(16)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
 

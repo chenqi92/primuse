@@ -90,6 +90,11 @@ final class ScanService {
     private let syncStateURL: URL
     private let decoder = JSONDecoder()
     private var syncStates: [String: SourceSyncState] = [:]
+    /// Runs the one-time server/UPnP folder-topology migration sequentially.
+    /// The scan itself remains owned by `activeTasks`; cancelling this task only
+    /// prevents another legacy source from starting during a scene transition.
+    @ObservationIgnored private var folderTopologyRebuildTask: Task<Void, Never>?
+    private var folderTopologyRebuildGeneration = 0
     /// Invalidates folder indexes when a committed provider scan changes the
     /// ID/name/parent topology without adding or removing any songs.
     private(set) var folderHierarchyRevision = 0
@@ -114,6 +119,75 @@ final class ScanService {
         for sourceID: String
     ) -> [String: SourceSyncIndexedItem] {
         syncStates[sourceID]?.index ?? [:]
+    }
+
+    func startFolderTopologyRebuildsIfNeeded(
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?
+    ) {
+        guard folderTopologyRebuildTask == nil else { return }
+        let populatedSourceIDs = Set(library.songs.map(\.sourceID))
+        let sourceIDs = sourceStore.sources
+            .filter { source in
+                guard source.isEnabled,
+                      !source.isDeleted,
+                      source.type.isServerLibrary || source.type == .upnp,
+                      populatedSourceIDs.contains(source.id) else { return false }
+                // The checkpoint is cleared only after both the song snapshot
+                // and folder state are durable. Its presence therefore also
+                // recovers a cancellation or write failure between those two
+                // commits, even when the server kept the same song IDs.
+                if checkpoints[source.id] != nil { return true }
+                return SourceSyncFolderTopologyPolicy.requiresRebuild(
+                    sourceType: source.type,
+                    state: syncStates[source.id]
+                )
+            }
+            .map(\.id)
+        guard !sourceIDs.isEmpty else { return }
+
+        folderTopologyRebuildGeneration += 1
+        let generation = folderTopologyRebuildGeneration
+        folderTopologyRebuildTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.folderTopologyRebuildGeneration == generation {
+                    self.folderTopologyRebuildTask = nil
+                }
+            }
+            for sourceID in sourceIDs {
+                guard !Task.isCancelled,
+                      let source = sourceStore.source(id: sourceID),
+                      source.isEnabled,
+                      !source.isDeleted else { continue }
+                if self.checkpoints[sourceID] == nil,
+                   !SourceSyncFolderTopologyPolicy.requiresRebuild(
+                       sourceType: source.type,
+                       state: self.syncStates[sourceID]
+                   ) {
+                    continue
+                }
+                guard self.scanSource(
+                    source,
+                    mode: .deep,
+                    sourceManager: sourceManager,
+                    library: library,
+                    sourceStore: sourceStore,
+                    scraperService: scraperService
+                ) else { continue }
+                if let scanTask = self.activeTasks[sourceID] {
+                    await scanTask.value
+                }
+            }
+        }
+    }
+
+    func pauseFolderTopologyRebuildScheduling() {
+        folderTopologyRebuildGeneration += 1
+        folderTopologyRebuildTask?.cancel()
+        folderTopologyRebuildTask = nil
     }
 
     @discardableResult
@@ -151,20 +225,21 @@ final class ScanService {
             for: source,
             directories: normalizedDirs
         )
-        if mode == .deep {
+        // Provider-native folder rows and their songs form one snapshot. These
+        // catalogue scans are not directory-resumable, so publishing a partial
+        // song page without its completed hierarchy would flatten the library
+        // until the next successful scan.
+        let requiresAtomicCatalogCommit = source.type.isServerLibrary || source.type == .upnp
+        if mode == .deep, !requiresAtomicCatalogCommit {
             // “Deep Scan” is an explicit fresh reconciliation. The ordinary
             // scan action resumes a checkpoint; carrying that partial queue
             // into this mode would make the two operations behave identically.
             removeCheckpoint(for: source.id)
         }
-        // Feiniu Music is a fast server-catalogue enumeration with strict
-        // pagination invariants. A partial checkpoint is not resumable (the
-        // next request must restart at page 1), and restoring one would make
-        // an incomplete catalogue visible before the retry has succeeded.
-        let requiresAtomicCatalogCommit = source.type == .fnMusic || source.type == .navidrome
-        if requiresAtomicCatalogCommit {
-            removeCheckpoint(for: source.id)
-        }
+        // Atomic catalogue scans ignore the old checkpoint below, but keep its
+        // durable recovery marker until the fresh preparing checkpoint replaces
+        // it. This closes the relaunch window between detecting an interrupted
+        // song/topology commit and recording the corrective deep scan.
         let checkpoint = requiresAtomicCatalogCommit || mode == .deep
             ? nil
             : resumeCheckpoint(
@@ -1014,7 +1089,7 @@ final class ScanService {
     ) async {
         let connector = sourceManager.connector(for: source)
         let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
-        let requiresAtomicCatalogCommit = source.type == .fnMusic || source.type == .navidrome
+        let requiresAtomicCatalogCommit = source.type.isServerLibrary || source.type == .upnp
         // Pass songs from the live library (for this source) as the
         // existing-set, not just resumeSongs. Without this, re-scanning
         // a finished source would walk the full tree and yield every file

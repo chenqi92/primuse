@@ -169,7 +169,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
                                 ConnectorScannedSong(
                                     song: song,
                                     displayName: "\(track.title).\(suffix)",
-                                    titleMetadataInspected: track.hasUsableCatalogTitle
+                                    titleMetadataInspected: track.hasUsableCatalogTitle,
+                                    folderLocation: self.libraryFolderLocation(for: track)
                                 )
                             )
                         }
@@ -189,6 +190,42 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
             }
             continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
+    }
+
+    private func libraryFolderLocation(
+        for track: DaoLiYuCatalogTrack
+    ) -> ConnectorLibraryFolderLocation {
+        let albumArtistName = track.albumArtist
+        let artistName = albumArtistName ?? track.artistName
+        var fallback: [ConnectorLibraryFolderComponent] = []
+        if let artistName {
+            let artistIdentity: String
+            if albumArtistName != nil {
+                artistIdentity = "album-artist-name:\(ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName))"
+            } else {
+                artistIdentity = "track-artist-name:\(ConnectorLibraryFolderHierarchy.stableNameIdentity(artistName))"
+            }
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: artistIdentity,
+                    displayName: artistName
+                )
+            )
+        }
+        if let albumName = track.albumTitle {
+            fallback.append(
+                ConnectorLibraryFolderComponent(
+                    stableID: "album:\(track.albumID ?? albumName)",
+                    displayName: albumName
+                )
+            )
+        }
+        return ConnectorLibraryFolderHierarchy.location(
+            rootStableID: "daoliyu:catalog",
+            rootDisplayName: MusicSourceType.daoliyu.displayName,
+            providerFilePath: nil,
+            fallbackComponents: fallback
+        )
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
