@@ -1732,6 +1732,15 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue(editor.providerFooterText.contains(
             String(localized: "ai_openai_platform_billing_footer")
         ))
+        XCTAssertTrue(editor.providerListFooterText.contains(
+            String(localized: "ai_fallback_footer")
+        ))
+        XCTAssertTrue(editor.providerListFooterText.contains(
+            String(localized: "ai_openai_platform_billing_footer")
+        ))
+        XCTAssertFalse(
+            AIOpenAIAccountAccessPolicy.supportsChatGPTSubscriptionForGeneralResponses
+        )
         XCTAssertEqual(
             AISettingsEditorModel.message(
                 for: OpenAICompatibleProviderError.missingCredential,
@@ -1748,6 +1757,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             editor.providerFooterText,
             String(localized: "ai_provider_footer")
         )
+        XCTAssertTrue(editor.providerListFooterText.contains(
+            String(localized: "ai_openai_platform_billing_footer")
+        ))
         XCTAssertEqual(
             AISettingsEditorModel.message(
                 for: OpenAICompatibleProviderError.missingCredential,

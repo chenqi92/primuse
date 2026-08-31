@@ -36,6 +36,14 @@ public enum AIAuthenticationStyle: String, Codable, CaseIterable, Hashable, Send
     }
 }
 
+/// Keeps Primuse's general Responses requests separate from Codex's
+/// product-scoped ChatGPT sign-in. Revisit this only when OpenAI documents a
+/// public third-party grant for general Responses access.
+public enum AIOpenAIAccountAccessPolicy {
+    public static let supportsChatGPTSubscriptionForGeneralResponses = false
+    public static let requiresPlatformCredentialForGeneralResponses = true
+}
+
 /// User-facing compatibility choices for a custom endpoint. The detailed
 /// path and authentication fields remain part of the persisted provider
 /// configuration, while common gateways can be configured with one choice.

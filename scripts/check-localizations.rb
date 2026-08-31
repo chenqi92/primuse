@@ -15,6 +15,9 @@ REQUIRED_SIRI_INTENTS = %w[
 REQUIRED_SIRI_EXAMPLE_COUNT = 7
 
 REQUIRED_APP_LOCALIZATION_KEYS = [
+  "ai_error_missing_openai_platform_key",
+  "ai_openai_platform_api_key",
+  "ai_openai_platform_billing_footer",
   "ai_primuse_relay_enabled",
   "ai_primuse_relay_consent_required",
   "ai_primuse_relay_footer",
@@ -26,6 +29,18 @@ REQUIRED_APP_LOCALIZATION_KEYS = [
   "insecure_http_warning_message %@",
   "insecure_http_warning_title"
 ].freeze
+
+OPENAI_ACCOUNT_BOUNDARY_KEY = "ai_openai_platform_billing_footer"
+OPENAI_ACCOUNT_BOUNDARY_MARKERS = ["OpenAI Platform", "ChatGPT"].freeze
+OPENAI_ACCOUNT_BOUNDARY_BILLING_MARKERS = {
+  "en" => /separat/i,
+  "de" => /separat/i,
+  "fr" => /distinct/i,
+  "ja" => /別途/,
+  "ko" => /별도/,
+  "zh-Hans" => /单独/,
+  "zh-Hant" => /另外/
+}.freeze
 
 RESOURCE_GROUPS = [
   ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
@@ -491,6 +506,23 @@ check_siri_vocabulary(failures)
 app_localizations = localization_paths(ROOT / "Primuse/Resources", "Localizable.strings")
   .transform_values { |path| load_strings(path) }
 check_app_source_localization_coverage(app_localizations, failures)
+
+app_localizations.each do |locale, dictionary|
+  value = dictionary[OPENAI_ACCOUNT_BOUNDARY_KEY]
+  next unless value
+
+  missing_markers = OPENAI_ACCOUNT_BOUNDARY_MARKERS.reject { |marker| value.include?(marker) }
+  unless missing_markers.empty?
+    failures << "Primuse Localizable.strings #{locale}: " \
+                "#{OPENAI_ACCOUNT_BOUNDARY_KEY.inspect} must include " \
+                "#{missing_markers.join(', ')}"
+  end
+  unless value.match?(OPENAI_ACCOUNT_BOUNDARY_BILLING_MARKERS.fetch(locale))
+    failures << "Primuse Localizable.strings #{locale}: " \
+                "#{OPENAI_ACCOUNT_BOUNDARY_KEY.inspect} must distinguish " \
+                "OpenAI Platform billing from ChatGPT plans"
+  end
+end
 
 kit_localizations = localization_paths(
   ROOT / "PrimuseKit/Sources/PrimuseKit/Resources",

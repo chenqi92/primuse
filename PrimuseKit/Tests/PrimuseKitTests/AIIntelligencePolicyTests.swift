@@ -718,6 +718,11 @@ struct AIRemoteEndpointPolicyTests {
             to: AIRemoteProviderConfiguration(id: id)
         )
         #expect(preset.displayName == "OpenAI API")
+        #expect(preset.apiStyle == .responses)
+        #expect(preset.authenticationStyle == .bearer)
+        #expect(AIOpenAIAccountAccessPolicy.requiresPlatformCredentialForGeneralResponses)
+        #expect(!AIOpenAIAccountAccessPolicy
+            .supportsChatGPTSubscriptionForGeneralResponses)
 
         var legacy = preset
         legacy.displayName = "OpenAI"

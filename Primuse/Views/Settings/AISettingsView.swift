@@ -125,6 +125,15 @@ final class AISettingsEditorModel {
         return "\(general)\n\n\(String(localized: "ai_openai_platform_billing_footer"))"
     }
 
+    var providerListFooterText: String {
+        let fallback = String(localized: "ai_fallback_footer")
+        guard !AIOpenAIAccountAccessPolicy
+            .supportsChatGPTSubscriptionForGeneralResponses else {
+            return fallback
+        }
+        return "\(fallback)\n\n\(String(localized: "ai_openai_platform_billing_footer"))"
+    }
+
     var hasUnsavedChanges: Bool {
         draftProviderSet != savedProviderSet
             || primuseRelayEnabled != savedPrimuseRelayEnabled
@@ -1101,9 +1110,7 @@ struct AISettingsView: View {
         } header: {
             Text("ai_provider_list_section")
         } footer: {
-            if !usesCompactMobileLayout {
-                Text("ai_fallback_footer")
-            }
+            Text(editor.providerListFooterText)
         }
     }
 
