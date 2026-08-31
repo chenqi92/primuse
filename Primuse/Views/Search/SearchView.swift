@@ -56,6 +56,9 @@ struct SearchView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MusicIntelligenceService.self) private var intelligence
+    #if os(iOS)
+    @Environment(\.appNavigationMode) private var appNavigationMode
+    #endif
     @Binding var searchText: String
     let onShowInLibrary: (PrimuseKit.Song) -> Void
     @State private var searchResults: [LibrarySearchResult] = []
@@ -84,6 +87,14 @@ struct SearchView: View {
     ) {
         self._searchText = searchText
         self.onShowInLibrary = onShowInLibrary
+    }
+
+    private var usesMinimalNavigation: Bool {
+        #if os(iOS)
+        appNavigationMode == .minimal
+        #else
+        false
+        #endif
     }
 
     private var visibleSemanticResults: [SemanticLibrarySearchResult] {
@@ -209,8 +220,8 @@ struct SearchView: View {
                 searchResultsView
             }
         }
-        .navigationTitle("search_title")
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .navigationTitle(usesMinimalNavigation ? Text("") : Text("search_title"))
+        .toolbarTitleDisplayMode(usesMinimalNavigation ? .inline : .inlineLarge)
         .searchable(text: $searchText, prompt: Text("search_prompt"))
         .onSubmit(of: .search) { addRecentSearch(searchText) }
         .navigationDestination(for: PrimuseKit.Album.self) { AlbumDetailView(album: $0) }

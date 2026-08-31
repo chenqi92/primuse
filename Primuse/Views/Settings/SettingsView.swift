@@ -42,7 +42,9 @@ struct SettingsView: View {
                 } header: {
                     Text("navigation_mode_title")
                 } footer: {
-                    Text("minimal_mode_description")
+                    if AppNavigationMode.resolve(navigationModeRawValue) == .standard {
+                        Text("minimal_mode_description")
+                    }
                 }
                 #endif
 
@@ -285,6 +287,14 @@ struct SettingsView: View {
             }
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            #if os(iOS)
+            .toolbar(
+                AppNavigationMode.resolve(navigationModeRawValue) == .minimal
+                    ? .hidden
+                    : .automatic,
+                for: .navigationBar
+            )
+            #endif
             .navigationDestination(isPresented: Binding(
                 get: { scraperSettingsRoute.isMetadataScrapingPresented },
                 set: { scraperSettingsRoute.setMetadataScrapingPresented($0) }

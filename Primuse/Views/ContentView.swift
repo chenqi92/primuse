@@ -242,6 +242,10 @@ struct ContentView: View {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
                 HomeView(switchToSettingsTab: { selectedTab = 3 })
                     .id("primuse.tab.home")
+                    .toolbar(
+                        navigationMode == .minimal ? .hidden : .automatic,
+                        for: .tabBar
+                    )
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
@@ -252,15 +256,27 @@ struct ContentView: View {
                         minimalLibrarySection = section
                     }
                 )
+                .toolbar(
+                    navigationMode == .minimal ? .hidden : .automatic,
+                    for: .tabBar
+                )
             }
 
             Tab(value: 2, role: .search) {
                 SearchView(searchText: $searchText, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
+                    .toolbar(
+                        navigationMode == .minimal ? .hidden : .automatic,
+                        for: .tabBar
+                    )
             }
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
                 SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
+                    .toolbar(
+                        navigationMode == .minimal ? .hidden : .automatic,
+                        for: .tabBar
+                    )
             }
         }
     }
@@ -276,8 +292,7 @@ struct ContentView: View {
                     selectedTab: selectedTab,
                     activeLibrarySection: minimalLibrarySection
                 ),
-                onSelect: selectMinimalPage,
-                onOpenSettings: { selectMinimalPage(.settings) }
+                onSelect: selectMinimalPage
             )
             .allowsHitTesting(!batchSelectionActive)
             .accessibilityHidden(batchSelectionActive)
@@ -288,8 +303,7 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if miniPlayerVisible {
-                LegacyNowPlayingAccessory(onTap: presentNowPlaying)
-                    .overlay(alignment: .top) { Divider() }
+                MinimalNowPlayingAccessory(onTap: presentNowPlaying)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -735,31 +749,49 @@ private struct MinimalTopNavigationBar: View {
     let libraryPages: [MinimalNavigationPage]
     let selection: MinimalNavigationPage
     let onSelect: (MinimalNavigationPage) -> Void
-    let onOpenSettings: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var librarySelectionIndicator
 
     var body: some View {
-        HStack(spacing: 0) {
-            fixedButton(
-                page: .home,
-                systemImage: selection == .home ? "house.fill" : "house",
-                title: "home_title"
-            )
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                actionButton(
+                    page: .home,
+                    systemImage: selection == .home ? "house.fill" : "house",
+                    title: "home_title"
+                )
 
-            Divider()
-                .frame(height: 24)
+                Spacer(minLength: 12)
+
+                HStack(spacing: 2) {
+                    actionButton(
+                        page: .search,
+                        systemImage: "magnifyingglass",
+                        title: "search_title"
+                    )
+                    actionButton(
+                        page: .settings,
+                        systemImage: selection == .settings ? "gearshape.fill" : "gearshape",
+                        title: "settings_title"
+                    )
+                }
+                .padding(2)
+                .background(Color.primary.opacity(0.055), in: Capsule())
+            }
+            .padding(.horizontal, 16)
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         ForEach(libraryPages) { page in
                             libraryButton(page)
                                 .id(page.id)
                         }
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 16)
                 }
+                .frame(height: 44)
                 .onChange(of: selection.id, initial: true) { _, pageID in
                     guard libraryPages.contains(where: { $0.id == pageID }) else { return }
                     if reduceMotion {
@@ -771,59 +803,37 @@ private struct MinimalTopNavigationBar: View {
                     }
                 }
             }
-
-            Divider()
-                .frame(height: 24)
-
-            fixedButton(
-                page: .search,
-                systemImage: "magnifyingglass",
-                title: "search_title"
-            )
-
-            Button(action: onOpenSettings) {
-                Image(systemName: selection == .settings ? "gearshape.fill" : "gearshape")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(selection == .settings ? Color.accentColor : Color.secondary)
-                    .frame(width: 44, height: 44)
-                    .background {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .fill(
-                                selection == .settings
-                                    ? Color.accentColor.opacity(0.14)
-                                    : Color.clear
-                            )
-                    }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("settings_title"))
-            .accessibilityAddTraits(selection == .settings ? .isSelected : [])
-            .padding(.trailing, 4)
         }
-        .padding(.vertical, 2)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
         .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .overlay(alignment: .bottom) {
+            Divider()
+                .opacity(0.45)
+        }
     }
 
-    private func fixedButton(
+    private func actionButton(
         page: MinimalNavigationPage,
         systemImage: String,
         title: LocalizedStringKey
     ) -> some View {
         let isSelected = selection == page
         return Button {
-            onSelect(page)
+            select(page)
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
-                .overlay(alignment: .bottom) {
-                    Capsule()
-                        .fill(isSelected ? Color.accentColor : Color.clear)
-                        .frame(width: 14, height: 2)
-                        .padding(.bottom, 1)
+                .background {
+                    Circle()
+                        .fill(
+                            isSelected
+                                ? Color.accentColor.opacity(0.16)
+                                : Color.clear
+                        )
                 }
         }
         .buttonStyle(.plain)
@@ -834,25 +844,40 @@ private struct MinimalTopNavigationBar: View {
     private func libraryButton(_ page: MinimalNavigationPage) -> some View {
         let isSelected = selection == page
         return Button {
-            onSelect(page)
+            select(page)
         } label: {
-            VStack(spacing: 3) {
-                pageTitle(page)
-                    .font(.subheadline.weight(isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Capsule()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2)
-            }
-            .padding(.horizontal, 8)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            pageTitle(page)
+                .font(.footnote.weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 13)
+                .frame(height: 34)
+                .background {
+                    if isSelected {
+                        Capsule()
+                            .fill(Color.accentColor.opacity(0.16))
+                            .matchedGeometryEffect(
+                                id: "minimal-library-selection",
+                                in: librarySelectionIndicator
+                            )
+                    }
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func select(_ page: MinimalNavigationPage) {
+        if reduceMotion {
+            onSelect(page)
+        } else {
+            withAnimation(.easeOut(duration: 0.18)) {
+                onSelect(page)
+            }
+        }
     }
 
     @ViewBuilder
@@ -1095,6 +1120,26 @@ struct LegacyNowPlayingAccessory: View {
         MiniPlayerView(onTap: onTap)
             .frame(maxWidth: .infinity)
             .background(.ultraThinMaterial)
+    }
+}
+
+struct MinimalNowPlayingAccessory: View {
+    var onTap: () -> Void
+
+    var body: some View {
+        MiniPlayerView(onTap: onTap)
+            .frame(maxWidth: 620)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+            }
+            .contentShape(Capsule())
+            .shadow(color: Color.black.opacity(0.16), radius: 12, y: 6)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
     }
 }
 

@@ -276,6 +276,9 @@ private enum LibraryArtworkPreviewBuilder {
 struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
+    #if os(iOS)
+    @Environment(\.appNavigationMode) private var appNavigationMode
+    #endif
     @Binding private var deepLink: LibraryDeepLink?
     private let onActiveSectionChange: (LibrarySection?) -> Void
     @State private var navigationPath = NavigationPath()
@@ -369,10 +372,22 @@ struct LibraryView: View {
             }
             .navigationTitle("library_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            #if os(iOS)
+            .toolbar(
+                appNavigationMode == .minimal ? .hidden : .automatic,
+                for: .navigationBar
+            )
+            #endif
             .navigationDestination(for: LibrarySection.self) { section in
                 destination(for: section)
                     .navigationTitle(section.title)
                     .toolbarTitleDisplayMode(.inline)
+                    #if os(iOS)
+                    .toolbar(
+                        appNavigationMode == .minimal ? .hidden : .automatic,
+                        for: .navigationBar
+                    )
+                    #endif
                     .onAppear {
                         persistedPageID = "section:\(section.rawValue)"
                         onActiveSectionChange(section)

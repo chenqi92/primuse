@@ -167,6 +167,9 @@ struct HomeView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(ThemeService.self) private var theme
     @Environment(MusicIntelligenceService.self) private var intelligence
+    #if os(iOS)
+    @Environment(\.appNavigationMode) private var appNavigationMode
+    #endif
 
     /// 音乐态是否有内容可展示。电台不再计入 —— 它有独立模式，光有电台
     /// 不该让音乐态藏起"去添加音乐源"的引导。
@@ -281,9 +284,15 @@ struct HomeView: View {
             }
             .navigationTitle("home_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            #if os(iOS)
+            .toolbar(
+                appNavigationMode == .minimal ? .hidden : .automatic,
+                for: .navigationBar
+            )
+            #endif
             .toolbar {
                 #if os(iOS)
-                if showRadioOnHome {
+                if showRadioOnHome && appNavigationMode != .minimal {
                     if #available(iOS 26.0, *) {
                         ToolbarItem(placement: .topBarTrailing) {
                             modeToggleButton
