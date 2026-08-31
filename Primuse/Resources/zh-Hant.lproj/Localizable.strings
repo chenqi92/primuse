@@ -3339,3 +3339,11 @@
 "navigation_mode_title" = "導覽";
 "minimal_mode_title" = "極簡模式";
 "minimal_mode_description" = "隱藏底部導覽列，在頂部切換資料庫，並從側邊按鈕開啟設定。";
+
+// MARK: - Authoritative lyrics refresh
+"lyrics_reload_from_source" = "從音樂來源重新載入歌詞";
+"lyrics_source_reload_success" = "已從音樂來源重新整理歌詞。";
+"lyrics_source_reload_unchanged" = "音樂來源歌詞已與快取歌詞一致。";
+"lyrics_source_reload_empty_kept" = "音樂來源未傳回歌詞，目前歌詞未變更。";
+"lyrics_source_reload_failed_kept" = "無法從音樂來源重新載入歌詞，目前歌詞未變更。";
+"lyrics_source_reload_unsupported" = "此音樂來源不支援重新載入來源歌詞。";

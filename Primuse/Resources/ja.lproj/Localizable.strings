@@ -3363,3 +3363,11 @@
 "navigation_mode_title" = "ナビゲーション";
 "minimal_mode_title" = "ミニマルモード";
 "minimal_mode_description" = "下部のナビゲーションバーを非表示にし、ライブラリの切り替えを上部に移動して、サイドボタンから設定を開きます。";
+
+// MARK: - Authoritative lyrics refresh
+"lyrics_reload_from_source" = "音楽ソースから歌詞を再読み込み";
+"lyrics_source_reload_success" = "音楽ソースから歌詞を更新しました。";
+"lyrics_source_reload_unchanged" = "ソースの歌詞はキャッシュ済みの歌詞と一致しています。";
+"lyrics_source_reload_empty_kept" = "音楽ソースから歌詞が返されませんでした。現在の歌詞は変更されていません。";
+"lyrics_source_reload_failed_kept" = "音楽ソースから歌詞を再読み込みできませんでした。現在の歌詞は変更されていません。";
+"lyrics_source_reload_unsupported" = "この音楽ソースはソース歌詞の再読み込みに対応していません。";

@@ -3362,3 +3362,11 @@
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimalmodus";
 "minimal_mode_description" = "Blendet die untere Navigation aus, verschiebt die Mediathek-Tabs nach oben und öffnet die Einstellungen über die seitliche Taste.";
+
+// MARK: - Authoritative lyrics refresh
+"lyrics_reload_from_source" = "Liedtext aus Musikquelle neu laden";
+"lyrics_source_reload_success" = "Der Liedtext wurde aus der Musikquelle aktualisiert.";
+"lyrics_source_reload_unchanged" = "Der Liedtext der Quelle stimmt bereits mit dem zwischengespeicherten Liedtext überein.";
+"lyrics_source_reload_empty_kept" = "Die Musikquelle hat keinen Liedtext zurückgegeben. Der aktuelle Liedtext blieb unverändert.";
+"lyrics_source_reload_failed_kept" = "Der Liedtext konnte nicht aus der Musikquelle neu geladen werden. Der aktuelle Liedtext blieb unverändert.";
+"lyrics_source_reload_unsupported" = "Diese Musikquelle unterstützt das erneute Laden des Quellliedtexts nicht.";

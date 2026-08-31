@@ -23,6 +23,7 @@ struct DesktopLyricsView: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @State private var lyrics: [LyricLine] = []
@@ -709,7 +710,11 @@ struct DesktopLyricsView: View {
     private func reloadLyrics() async {
         guard let song = player.currentSong else { lyrics = []; currentIndex = -1; return }
         lyrics = []; currentIndex = -1
-        let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+        let loaded = await LyricsLoader.load(
+            for: song,
+            sourceManager: sourceManager,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
+        )
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
         _ = updateIndex(time: player.currentTime)

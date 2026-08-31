@@ -16,6 +16,7 @@ struct MacMiniPlayerView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioEngine.self) private var engine
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
@@ -803,7 +804,11 @@ struct MacMiniPlayerView: View {
             lyrics = []; currentIndex = -1; return
         }
         lyrics = []; currentIndex = -1
-        let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+        let loaded = await LyricsLoader.load(
+            for: song,
+            sourceManager: sourceManager,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
+        )
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
         _ = updateIndex(time: player.currentTime)

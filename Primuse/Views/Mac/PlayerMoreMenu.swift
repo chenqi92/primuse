@@ -36,6 +36,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var deleteErrorMessage: String?
     @State private var scrapeAlertMessage: String?
     @State private var isScrapingCurrentSong = false
+    @State private var sourceLyricsReloadAlertMessage: String?
+    @State private var sourceLyricsReloadingSongID: String?
     /// 用 Button + Popover 自己画菜单,不用 SwiftUI Menu。原因:
     /// SwiftUI Menu + .borderlessButton 在 macOS 上落到 NSPopUpButton,
     /// 它的 hit test 只覆盖可见图标,玻璃圆环空白区会穿透到下层(歌词)。
@@ -120,6 +122,17 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                                     set: { if !$0 { scrapeAlertMessage = nil } })) {
             Button("done", role: .cancel) {}
         } message: { Text(scrapeAlertMessage ?? "") }
+        .alert(
+            String(localized: "lyrics_reload_from_source"),
+            isPresented: Binding(
+                get: { sourceLyricsReloadAlertMessage != nil },
+                set: { if !$0 { sourceLyricsReloadAlertMessage = nil } }
+            )
+        ) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(sourceLyricsReloadAlertMessage ?? "")
+        }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
@@ -231,6 +244,15 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             menuRow(title: "scrape_song", symbol: "wand.and.stars",
                     disabled: player.currentSong == nil || isScrapingCurrentSong) {
                 requestScrapeOptions()
+            }
+            if canReloadLyricsFromSource {
+                menuRow(
+                    title: "lyrics_reload_from_source",
+                    symbol: "arrow.clockwise.circle",
+                    disabled: isReloadingLyricsFromSource
+                ) {
+                    reloadLyricsFromSource()
+                }
             }
             divider()
             menuRow(title: "song_info", symbol: "info.circle",
@@ -461,6 +483,69 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             onProceed: { showScrapeOptions = true },
             onRequireSource: { showNoScraperSourceAlert = true }
         )
+    }
+
+    private var canReloadLyricsFromSource: Bool {
+        guard let song = player.currentSong else { return false }
+        return LyricsAuthoritativeSourcePolicy.supportsServerDocument(
+            sourcesStore.source(id: song.sourceID)?.type
+        )
+    }
+
+    private var isReloadingLyricsFromSource: Bool {
+        sourceLyricsReloadingSongID == player.currentSong?.id
+    }
+
+    private func reloadLyricsFromSource() {
+        guard !isReloadingLyricsFromSource,
+              let song = player.currentSong else { return }
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
+        guard LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else {
+            sourceLyricsReloadAlertMessage = String(
+                localized: "lyrics_source_reload_unsupported"
+            )
+            return
+        }
+
+        sourceLyricsReloadingSongID = song.id
+        Task { @MainActor in
+            let result = await LyricsLoader.refreshFromSource(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                trigger: .explicit
+            )
+            if sourceLyricsReloadingSongID == song.id {
+                sourceLyricsReloadingSongID = nil
+            }
+            guard LyricsAuthoritativeSourcePolicy.shouldApply(
+                responseForSongID: song.id,
+                currentlyPlayingSongID: player.currentSong?.id
+            ) else { return }
+
+            switch result {
+            case .updated:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_success"
+                )
+            case .unchanged, .throttled:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_unchanged"
+                )
+            case .emptyPreservingCache:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_empty_kept"
+                )
+            case .failedPreservingCache:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_failed_kept"
+                )
+            case .unsupported:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_unsupported"
+                )
+            }
+        }
     }
 
     private func deleteCurrentSong() {

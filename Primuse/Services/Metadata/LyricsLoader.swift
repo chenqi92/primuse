@@ -10,6 +10,102 @@ import PrimuseKit
 /// Tier 3: fetch the source lyrics sidecar via an auxiliary connector
 @MainActor
 enum LyricsLoader {
+    private static let sourceRefreshCoordinator = LyricsSourceRefreshCoordinator()
+
+    /// Revalidates only against the source server's own lyrics document. It
+    /// never enters the title-based online scraping path used by ordinary
+    /// first-load fallback, so an explicit source reload cannot mis-attribute
+    /// another song's lyrics.
+    static func refreshFromSource(
+        for song: Song,
+        sourceType: MusicSourceType?,
+        sourceManager: SourceManager,
+        cachedDocument: [LyricLine]? = nil,
+        trigger: LyricsSourceRefreshTrigger
+    ) async -> LyricsSourceRefreshResult {
+        guard LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else {
+            return .unsupported
+        }
+
+        let connector: any MusicSourceConnector
+        do {
+            connector = try await sourceManager.auxiliaryConnector(for: song)
+        } catch {
+            return .failedPreservingCache
+        }
+        guard let server = connector as? any ServerLyricsConnector,
+              server.serverLyricsCapabilities.canRead else {
+            return .unsupported
+        }
+
+        return await refreshFromResolvedServer(
+            for: song,
+            server: server,
+            cachedDocument: cachedDocument,
+            trigger: trigger
+        )
+    }
+
+    /// Routes every server-document fetch, including ordinary cache misses,
+    /// through the same per-source/song single-flight coordinator.
+    static func refreshFromResolvedServer(
+        for song: Song,
+        server: any ServerLyricsConnector,
+        cachedDocument: [LyricLine]? = nil,
+        trigger: LyricsSourceRefreshTrigger
+    ) async -> LyricsSourceRefreshResult {
+        guard server.serverLyricsCapabilities.canRead else { return .unsupported }
+
+        let currentDocument: [LyricLine]?
+        if let cachedDocument {
+            currentDocument = cachedDocument
+        } else {
+            currentDocument = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        }
+        let songID = song.id
+        let sourcePath = song.filePath
+        let capturedFingerprint = currentDocument.map {
+            LyricsDocumentFingerprint(lines: $0)
+        }
+
+        return await sourceRefreshCoordinator.refresh(
+            key: LyricsSourceRefreshKey(sourceID: song.sourceID, songID: songID),
+            currentDocument: currentDocument,
+            trigger: trigger,
+            fetch: {
+                guard let raw = await server.fetchServerLyrics(for: sourcePath),
+                      !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return nil
+                }
+                let parsed = LyricsParser.parseText(raw)
+                return parsed.isEmpty ? nil : parsed
+            },
+            replace: { lines in
+                let latest = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID)
+                let latestFingerprint = latest.map {
+                    LyricsDocumentFingerprint(lines: $0)
+                }
+                guard latestFingerprint == capturedFingerprint else {
+                    return false
+                }
+                let wrote = await MetadataAssetStore.shared.cacheLyrics(
+                    lines,
+                    forSongID: songID,
+                    force: trigger != .automatic
+                )
+                if wrote {
+                    await MainActor.run {
+                        NotificationCenter.default.post(
+                            name: .primuseLyricsDidChange,
+                            object: songID
+                        )
+                    }
+                }
+                return wrote
+            }
+        )
+    }
+
     /// Loads the closest available representation of the original editable
     /// document. Source text wins so LRC/ELRC metadata and blank lines survive
     /// editing; cached line models remain the offline fallback.
@@ -69,10 +165,20 @@ enum LyricsLoader {
         return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
     }
 
-    static func load(for song: Song, sourceManager: SourceManager) async -> [LyricLine] {
+    static func load(
+        for song: Song,
+        sourceManager: SourceManager,
+        sourceType: MusicSourceType? = nil
+    ) async -> [LyricLine] {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1a")
+            scheduleAutomaticSourceRefresh(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: cached
+            )
             return cached
         }
         if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
@@ -80,6 +186,12 @@ enum LyricsLoader {
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
             guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1b")
+            scheduleAutomaticSourceRefresh(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: cached
+            )
             return cached
         }
 
@@ -90,6 +202,12 @@ enum LyricsLoader {
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
             guard !Task.isCancelled else { return [] }
             logLoaded(parsed, song: song, tier: "Tier2")
+            scheduleAutomaticSourceRefresh(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: parsed
+            )
             return parsed
         }
 
@@ -101,16 +219,20 @@ enum LyricsLoader {
             // "同目录 .lrc" 模型, 走 connector 的 ServerLyricsConnector 能力。
             if let server = connector as? ServerLyricsConnector {
                 let capabilities = server.serverLyricsCapabilities
-                if capabilities.canRead,
-                   let raw = await server.fetchServerLyrics(for: song.filePath) {
-                    guard !Task.isCancelled else { return [] }
-                    let parsed = LyricsParser.parseText(raw)
-                    if !parsed.isEmpty {
-                        await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
-                        guard !Task.isCancelled else { return [] }
-                        logLoaded(parsed, song: song, tier: "Tier2c-server")
-                        return parsed
-                    }
+                let sourceResult = await refreshFromResolvedServer(
+                    for: song,
+                    server: server,
+                    trigger: .initial
+                )
+                guard !Task.isCancelled else { return [] }
+                if case let .updated(parsed) = sourceResult {
+                    logLoaded(parsed, song: song, tier: "Tier2c-server")
+                    return parsed
+                }
+                if sourceResult == .unchanged,
+                   let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+                    logLoaded(cached, song: song, tier: "Tier2c-server-shared")
+                    return cached
                 }
 
                 // A server-side lyrics miss (notably Airsonic's external provider
@@ -163,6 +285,24 @@ enum LyricsLoader {
         }
         plog("📜 LyricsLoader '\(song.title)' empty")
         return []
+    }
+
+    private static func scheduleAutomaticSourceRefresh(
+        for song: Song,
+        sourceType: MusicSourceType?,
+        sourceManager: SourceManager,
+        cachedDocument: [LyricLine]
+    ) {
+        guard LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else { return }
+        Task { @MainActor in
+            _ = await refreshFromSource(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: cachedDocument,
+                trigger: .automatic
+            )
+        }
     }
 
     private static func logLoaded(_ lines: [LyricLine], song: Song, tier: String) {

@@ -1230,7 +1230,11 @@ struct MacNowPlayingView: View {
         installLyrics([])
         currentIndex = -1
 
-        let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+        let loaded = await LyricsLoader.load(
+            for: song,
+            sourceManager: sourceManager,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
+        )
         // 异步等待期间用户可能跳到了下一首,这时把当前结果写回去就会
         // 把"上一首的歌词"显示在新歌上。`task(id:)` 理论上会取消旧任务
         // 但 LyricsLoader 内部网络拉取不一定及时响应取消,做一道防御。

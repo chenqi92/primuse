@@ -390,6 +390,8 @@ struct NowPlayingView: View {
     @State private var isResolvingScrapeTarget = false
     @State private var scrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
+    @State private var sourceLyricsReloadAlertMessage: String?
+    @State private var sourceLyricsReloadingSongID: String?
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -454,6 +456,7 @@ struct NowPlayingView: View {
             && !showSleepTimer
             && !showDeleteConfirm
             && scrapeAlertMessage == nil
+            && sourceLyricsReloadAlertMessage == nil
             && deleteErrorMessage == nil
             && !showNoScraperSourceAlert
     }
@@ -470,6 +473,17 @@ struct NowPlayingView: View {
         isResolvingScrapeTarget
             || scraperService.isScraping
             || scraperService.isSingleScraping
+    }
+
+    private var canReloadLyricsFromSource: Bool {
+        guard let song = player.currentSong else { return false }
+        return LyricsAuthoritativeSourcePolicy.supportsServerDocument(
+            sourcesStore.source(id: song.sourceID)?.type
+        )
+    }
+
+    private var isReloadingLyricsFromSource: Bool {
+        sourceLyricsReloadingSongID == player.currentSong?.id
     }
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
@@ -1207,6 +1221,17 @@ struct NowPlayingView: View {
             Button("done", role: .cancel) {}
         } message: {
             Text(scrapeAlertMessage ?? "")
+        }
+        .alert(
+            String(localized: "lyrics_reload_from_source"),
+            isPresented: Binding(
+                get: { sourceLyricsReloadAlertMessage != nil },
+                set: { if !$0 { sourceLyricsReloadAlertMessage = nil } }
+            )
+        ) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(sourceLyricsReloadAlertMessage ?? "")
         }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
@@ -2564,6 +2589,8 @@ struct NowPlayingView: View {
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
             isScrapingCurrentSong: isScrapeActionUnavailable,
+            canReloadLyricsFromSource: canReloadLyricsFromSource,
+            isReloadingLyricsFromSource: isReloadingLyricsFromSource,
             isAppleMusicMode: player.isAppleMusicMode,
             canDeleteSourceFile: player.currentSong.map {
                 SourceFileDeletionPolicy.shouldShowDeleteAction(
@@ -2598,6 +2625,7 @@ struct NowPlayingView: View {
             immersiveChrome: immersiveChrome,
             onAddToPlaylist: { showAddToPlaylist = true },
             onScrape: { openScrapeForCurrentSong() },
+            onReloadLyricsFromSource: { reloadLyricsFromSource() },
             onShowSimilarSongs: { showSimilarSongs = true },
             onEditTags: { showTagEditor = true },
             onEditLyrics: {
@@ -2859,9 +2887,16 @@ struct NowPlayingView: View {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
             plog(String(format: "📜 loadLyrics '%@' Tier1a hit (songID hash) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
             guard setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision) else { return }
-            // NAS path 时, 后台校验 cache 是否 stale (NAS sidecar 才是真相)。
-            // 静默成功 = no-op; 若发现差异会 update UI + cache。
-            if (song.lyricsFileName ?? "").contains("/") {
+            let sourceType = sourcesStore.source(id: song.sourceID)?.type
+            if LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) {
+                runServerLyricsRevalidation(
+                    song: song,
+                    sourceType: sourceType,
+                    currentCache: cached,
+                    loadRevision: loadRevision
+                )
+            } else if (song.lyricsFileName ?? "").contains("/") {
+                // NAS sidecars retain their existing source-of-truth refresh.
                 runLyricsTier3Fetch(
                     song: song,
                     currentCache: cached,
@@ -2898,6 +2933,82 @@ struct NowPlayingView: View {
         runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
     }
 
+    private func runServerLyricsRevalidation(
+        song: Song,
+        sourceType: MusicSourceType?,
+        currentCache: [LyricLine],
+        loadRevision: UInt
+    ) {
+        let capturedSourceManager = sourceManager
+        Task { @MainActor in
+            let result = await LyricsLoader.refreshFromSource(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: capturedSourceManager,
+                cachedDocument: currentCache,
+                trigger: .automatic
+            )
+            guard isCurrentLyricsLoad(loadRevision, songID: song.id),
+                  case let .updated(updated) = result else { return }
+            setLyrics(updated)
+        }
+    }
+
+    private func reloadLyricsFromSource() {
+        guard !isReloadingLyricsFromSource,
+              let song = player.currentSong else { return }
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
+        guard LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else {
+            sourceLyricsReloadAlertMessage = String(
+                localized: "lyrics_source_reload_unsupported"
+            )
+            return
+        }
+
+        let currentDocument = lyrics.isEmpty ? nil : lyrics
+        sourceLyricsReloadingSongID = song.id
+        Task { @MainActor in
+            let result = await LyricsLoader.refreshFromSource(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: currentDocument,
+                trigger: .explicit
+            )
+            if sourceLyricsReloadingSongID == song.id {
+                sourceLyricsReloadingSongID = nil
+            }
+            guard LyricsAuthoritativeSourcePolicy.shouldApply(
+                responseForSongID: song.id,
+                currentlyPlayingSongID: player.currentSong?.id
+            ) else { return }
+
+            switch result {
+            case let .updated(updated):
+                setLyrics(updated)
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_success"
+                )
+            case .unchanged, .throttled:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_unchanged"
+                )
+            case .emptyPreservingCache:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_empty_kept"
+                )
+            case .failedPreservingCache:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_failed_kept"
+                )
+            case .unsupported:
+                sourceLyricsReloadAlertMessage = String(
+                    localized: "lyrics_source_reload_unsupported"
+                )
+            }
+        }
+    }
+
     /// Tier 3 NAS fetch + 校验。currentCache != nil 时为 stale-while-revalidate
     /// 模式: 已 setLyrics(currentCache), 这里只在 fingerprint 不一致时 update UI。
     private func runLyricsTier3Fetch(
@@ -2924,21 +3035,20 @@ struct NowPlayingView: View {
                 // 服务端源在此终结: 即使服务端没歌词也不去 fetchRange sidecar
                 // (对 Subsonic 那会拉到音频流, 既浪费又解析失败)。
                 if let server = connector as? ServerLyricsConnector {
-                    if let raw = await server.fetchServerLyrics(for: song.filePath) {
-                        guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
-                        let parsed = LyricsParser.parseText(raw)
-                        if !parsed.isEmpty {
-                            if let currentCache,
-                               Self.lyricsFingerprint(parsed) == Self.lyricsFingerprint(currentCache) {
-                                return
-                            }
-                            _ = await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: songID)
-                            plog(String(format: "📜 loadLyrics '%@' server-lyrics OK in %.0fms (%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, parsed.count))
-                            if isCurrentLyricsLoad(loadRevision, songID: songID) {
-                                setLyrics(parsed)
-                            }
-                            return
-                        }
+                    let sourceResult = await LyricsLoader.refreshFromResolvedServer(
+                        for: song,
+                        server: server,
+                        cachedDocument: currentCache,
+                        trigger: isRefresh ? .automatic : .initial
+                    )
+                    guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+                    if case let .updated(parsed) = sourceResult {
+                        plog(String(format: "📜 loadLyrics '%@' server-lyrics OK in %.0fms (%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, parsed.count))
+                        setLyrics(parsed)
+                        return
+                    }
+                    if sourceResult == .unchanged || sourceResult == .throttled {
+                        return
                     }
                     plog(String(format: "📜 loadLyrics '%@' server-lyrics empty (connect=%.0fms)", songTitle, connectMs))
 
@@ -3029,12 +3139,11 @@ struct NowPlayingView: View {
         }
     }
 
-    /// Lyrics 内容 fingerprint, 用于 stale-while-revalidate 比较。
-    /// LyricLine.id 是 UUID() 每次 parse 不同, 不能直接 ==。这里取
-    /// 行数 + 首尾 timestamp + 首尾 text, 足够区分内容差异。
+    /// Parser-generated IDs change on every load; compare the complete stable
+    /// lyrics document instead, including middle rows, timing, syllables and
+    /// structured cue metadata.
     private static func lyricsFingerprint(_ lines: [LyricLine]) -> String {
-        guard let first = lines.first, let last = lines.last else { return "empty" }
-        return "\(lines.count)|\(first.timestamp)|\(first.text)|\(last.timestamp)|\(last.text)"
+        LyricsDocumentFingerprint(lines: lines).rawValue
     }
 
     /// loadLyrics 的同步 tier (Tier1a/1b/2 + Apple Music) 在 await 之后写歌词
@@ -4408,6 +4517,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
     let hasSong: Bool
     let isScrapingCurrentSong: Bool
+    let canReloadLyricsFromSource: Bool
+    let isReloadingLyricsFromSource: Bool
     let isAppleMusicMode: Bool
     let canDeleteSourceFile: Bool
     let appleMusicCatalogURL: URL?
@@ -4439,6 +4550,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     let onAddToPlaylist: () -> Void
     let onScrape: () -> Void
+    let onReloadLyricsFromSource: () -> Void
     let onShowSimilarSongs: () -> Void
     let onEditTags: () -> Void
     let onEditLyrics: () -> Void
@@ -4475,6 +4587,16 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                 }
                 .disabled(!snapshot.hasSong || snapshot.isScrapingCurrentSong)
+
+                if snapshot.canReloadLyricsFromSource {
+                    Button(action: onReloadLyricsFromSource) {
+                        Label(
+                            String(localized: "lyrics_reload_from_source"),
+                            systemImage: "arrow.clockwise.circle"
+                        )
+                    }
+                    .disabled(snapshot.isReloadingLyricsFromSource)
+                }
 
                 Button(action: onShowSimilarSongs) {
                     Label(String(localized: "similar_songs"), systemImage: "sparkles")

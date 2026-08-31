@@ -3362,3 +3362,11 @@
 "navigation_mode_title" = "탐색";
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 보관함 탭을 상단으로 옮기며 측면 버튼에서 설정을 엽니다.";
+
+// MARK: - Authoritative lyrics refresh
+"lyrics_reload_from_source" = "음악 소스에서 가사 다시 불러오기";
+"lyrics_source_reload_success" = "음악 소스에서 가사를 새로 고쳤습니다.";
+"lyrics_source_reload_unchanged" = "소스 가사가 캐시된 가사와 이미 일치합니다.";
+"lyrics_source_reload_empty_kept" = "음악 소스에서 가사를 반환하지 않았습니다. 현재 가사는 변경되지 않았습니다.";
+"lyrics_source_reload_failed_kept" = "음악 소스에서 가사를 다시 불러오지 못했습니다. 현재 가사는 변경되지 않았습니다.";
+"lyrics_source_reload_unsupported" = "이 음악 소스는 소스 가사 다시 불러오기를 지원하지 않습니다.";

@@ -3362,3 +3362,11 @@
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure, place les onglets de la bibliothèque en haut et ouvre les réglages via le bouton latéral.";
+
+// MARK: - Authoritative lyrics refresh
+"lyrics_reload_from_source" = "Recharger les paroles depuis la source musicale";
+"lyrics_source_reload_success" = "Les paroles ont été actualisées depuis la source musicale.";
+"lyrics_source_reload_unchanged" = "Les paroles de la source correspondent déjà aux paroles en cache.";
+"lyrics_source_reload_empty_kept" = "La source musicale n’a renvoyé aucune parole. Les paroles actuelles n’ont pas été modifiées.";
+"lyrics_source_reload_failed_kept" = "Impossible de recharger les paroles depuis la source musicale. Les paroles actuelles n’ont pas été modifiées.";
+"lyrics_source_reload_unsupported" = "Cette source musicale ne permet pas de recharger ses paroles.";

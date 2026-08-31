@@ -3149,3 +3149,11 @@
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar, moves Library switching to the top, and opens Settings from the side button.";
+
+// MARK: - Authoritative lyrics refresh
+"lyrics_reload_from_source" = "Reload Lyrics from Music Source";
+"lyrics_source_reload_success" = "Lyrics were refreshed from the music source.";
+"lyrics_source_reload_unchanged" = "The source lyrics already match the cached lyrics.";
+"lyrics_source_reload_empty_kept" = "The music source returned no lyrics. Current lyrics were unchanged.";
+"lyrics_source_reload_failed_kept" = "Lyrics couldn’t be reloaded from the music source. Current lyrics were unchanged.";
+"lyrics_source_reload_unsupported" = "This music source doesn’t support reloading source lyrics.";

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// 整篇歌词的文本级操作 ── 粘贴后自动分句、去空行、剔除「作词/作曲」这类版权行。
@@ -172,5 +173,195 @@ public enum LyricsTextTools {
             // 会因为以「曲」开头被当成制作信息删掉。
             keyword.count <= 1 ? head == keyword : head.hasPrefix(keyword)
         }
+    }
+}
+public struct LyricsDocumentFingerprint: RawRepresentable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(lines: [LyricLine]) {
+        var writer = LyricsFingerprintWriter()
+        writer.append(lines)
+        rawValue = SHA256.hash(data: writer.data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
+public struct LyricsSourceRefreshKey: Hashable, Sendable {
+    public let sourceID: String
+    public let songID: String
+
+    public init(sourceID: String, songID: String) {
+        self.sourceID = sourceID
+        self.songID = songID
+    }
+}
+
+public enum LyricsSourceRefreshTrigger: Equatable, Sendable {
+    case initial
+    case automatic
+    case explicit
+}
+
+public enum LyricsSourceRefreshResult: Equatable, Sendable {
+    case updated([LyricLine])
+    case unchanged
+    case emptyPreservingCache
+    case failedPreservingCache
+    case throttled
+    case unsupported
+}
+
+/// Coalesces authoritative lyrics fetches per source and song. Transport and
+/// atomic persistence stay in the app layer so this remains usable by tvOS.
+public actor LyricsSourceRefreshCoordinator {
+    public static let defaultAutomaticRefreshInterval: TimeInterval = 15 * 60
+
+    private let minimumAutomaticRefreshInterval: TimeInterval
+    private var inFlight: [LyricsSourceRefreshKey: Task<LyricsSourceRefreshResult, Never>] = [:]
+    private var lastAutomaticAttempt: [LyricsSourceRefreshKey: Date] = [:]
+
+    public init(
+        minimumAutomaticRefreshInterval: TimeInterval = defaultAutomaticRefreshInterval
+    ) {
+        self.minimumAutomaticRefreshInterval = max(0, minimumAutomaticRefreshInterval)
+    }
+
+    public func refresh(
+        key: LyricsSourceRefreshKey,
+        currentDocument: [LyricLine]?,
+        trigger: LyricsSourceRefreshTrigger,
+        now: Date = Date(),
+        fetch: @escaping @Sendable () async throws -> [LyricLine]?,
+        replace: @escaping @Sendable ([LyricLine]) async -> Bool
+    ) async -> LyricsSourceRefreshResult {
+        if let existing = inFlight[key] {
+            return await existing.value
+        }
+        if trigger == .automatic {
+            if let lastAttempt = lastAutomaticAttempt[key],
+               now.timeIntervalSince(lastAttempt) < minimumAutomaticRefreshInterval {
+                return .throttled
+            }
+            lastAutomaticAttempt[key] = now
+        }
+
+        let task = Task<LyricsSourceRefreshResult, Never> {
+            do {
+                guard let fetched = try await fetch(), !fetched.isEmpty else {
+                    return .emptyPreservingCache
+                }
+                if let currentDocument,
+                   LyricsDocumentFingerprint(lines: currentDocument)
+                    == LyricsDocumentFingerprint(lines: fetched) {
+                    return .unchanged
+                }
+                return await replace(fetched)
+                    ? .updated(fetched)
+                    : .failedPreservingCache
+            } catch {
+                return .failedPreservingCache
+            }
+        }
+        inFlight[key] = task
+        let result = await task.value
+        inFlight[key] = nil
+        return result
+    }
+}
+
+public enum LyricsAuthoritativeSourcePolicy {
+    public static func supportsServerDocument(_ sourceType: MusicSourceType?) -> Bool {
+        switch sourceType {
+        case .jellyfin, .emby, .subsonic, .navidrome, .airsonic, .gonic,
+             .fnMusic, .daoliyu:
+            true
+        default:
+            false
+        }
+    }
+
+    public static func shouldApply(
+        responseForSongID responseSongID: String,
+        currentlyPlayingSongID: String?
+    ) -> Bool {
+        responseSongID == currentlyPlayingSongID
+    }
+}
+
+/// Length-prefixes every field so separators inside lyric text cannot collide.
+/// Parser-generated IDs are excluded; source text, timing, word cues, voices,
+/// background rows, and document metadata all participate in the hash.
+private struct LyricsFingerprintWriter {
+    fileprivate private(set) var data = Data()
+
+    mutating func append(_ lines: [LyricLine]) {
+        appendCount(lines.count)
+        for line in lines { append(line) }
+    }
+
+    private mutating func append(_ line: LyricLine) {
+        append(line.text)
+        append(line.timestamp)
+        append(line.isSynchronized)
+        append(line.syllables) { writer, syllable in
+            writer.append(syllable.text)
+            writer.append(syllable.start)
+            writer.append(syllable.end)
+            writer.append(syllable.endTiming.rawValue)
+        }
+        append(line.endTimestamp)
+        append(line.voice.rawValue)
+        append(line.background) { writer, line in writer.append(line) }
+        append(line.metadataLines) { writer, metadata in writer.append(metadata) }
+    }
+
+    private mutating func append(_ value: String) {
+        let bytes = Data(value.utf8)
+        appendCount(bytes.count)
+        data.append(bytes)
+    }
+
+    private mutating func append(_ value: Bool) {
+        data.append(value ? 1 : 0)
+    }
+
+    private mutating func append(_ value: Double) {
+        append(value.bitPattern)
+    }
+
+    private mutating func append(_ value: Double?) {
+        guard let value else {
+            data.append(0)
+            return
+        }
+        data.append(1)
+        append(value)
+    }
+
+    private mutating func append<Element>(
+        _ values: [Element]?,
+        element: (inout LyricsFingerprintWriter, Element) -> Void
+    ) {
+        guard let values else {
+            data.append(0)
+            return
+        }
+        data.append(1)
+        appendCount(values.count)
+        for value in values { element(&self, value) }
+    }
+
+    private mutating func appendCount(_ value: Int) {
+        append(UInt64(value))
+    }
+
+    private mutating func append(_ value: UInt64) {
+        var bigEndian = value.bigEndian
+        withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
     }
 }
