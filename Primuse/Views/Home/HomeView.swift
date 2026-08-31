@@ -769,7 +769,7 @@ struct HomeView: View {
 
     private func radioWallSection(_ stations: [RadioStation]) -> some View {
         let layout = Self.radioWallLayout
-        VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("home_radio_wall_title")
                     .font(.title3.weight(.bold))
