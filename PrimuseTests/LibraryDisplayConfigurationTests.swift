@@ -74,7 +74,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
                 visibleSections: [.songs, .albums, .radio]
             ),
             [
-                .library,
+                .librarySection(.recommendations),
                 .librarySection(.songs),
                 .librarySection(.albums),
                 .librarySection(.radio),
@@ -82,11 +82,28 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.libraryPages(visibleSections: []),
-            [.library]
+            [.librarySection(.recommendations)]
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.libraryPages(
+                visibleSections: [.songs, .recommendations, .albums]
+            ),
+            [
+                .librarySection(.recommendations),
+                .librarySection(.songs),
+                .librarySection(.albums),
+            ]
         )
     }
 
-    func testMinimalSelectionMirrorsExistingRootTabAndLibrarySection() {
+    func testMinimalSelectionUsesRecommendationsAsItsHomePage() {
+        XCTAssertEqual(
+            MinimalNavigationPolicy.selectedPage(
+                selectedTab: 0,
+                activeLibrarySection: nil
+            ),
+            .librarySection(.recommendations)
+        )
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
                 selectedTab: 1,
@@ -99,7 +116,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
                 selectedTab: 1,
                 activeLibrarySection: nil
             ),
-            .library
+            .librarySection(.recommendations)
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
@@ -113,7 +130,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
                 selectedTab: 99,
                 activeLibrarySection: nil
             ),
-            .home
+            .librarySection(.recommendations)
         )
     }
 

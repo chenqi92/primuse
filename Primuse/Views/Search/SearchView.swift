@@ -46,10 +46,34 @@ private struct SearchLibraryRevisionObserver: View {
     }
 }
 
-struct SearchView: View {
-    private static let recentSearchesKey = "search_recent_queries"
-    private static let recentSearchLimit = 12
+@MainActor
+enum SearchHistoryStore {
+    static let key = CloudKVSKey.recentSearches
+    static let didChangeNotification = Notification.Name("primuse.searchHistory.didChange")
+    private static let limit = 12
 
+    static func load() -> [String] {
+        UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    static func record(_ query: String) {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return }
+
+        var queries = load()
+        queries.removeAll { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }
+        queries.insert(trimmedQuery, at: 0)
+        save(Array(queries.prefix(limit)))
+    }
+
+    static func save(_ queries: [String]) {
+        UserDefaults.standard.set(queries, forKey: key)
+        CloudKVSSync.shared.markChanged(key: key)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+}
+
+struct SearchView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -170,7 +194,10 @@ struct SearchView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: CloudKVSSync.externalChangeNotification)) { note in
             guard let key = note.userInfo?["key"] as? String,
-                  key == Self.recentSearchesKey else { return }
+                  key == SearchHistoryStore.key else { return }
+            loadRecentSearches()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SearchHistoryStore.didChangeNotification)) { _ in
             loadRecentSearches()
         }
         .onChange(of: searchText) { _, newValue in
@@ -192,7 +219,18 @@ struct SearchView: View {
         .onDisappear { workCoordinator.cancelSearch() }
     }
 
+    @ViewBuilder
     private var iosBody: some View {
+        if usesMinimalNavigation {
+            iosSearchContent
+        } else {
+            iosSearchContent
+                .searchable(text: $searchText, prompt: Text("search_prompt"))
+                .onSubmit(of: .search) { addRecentSearch(searchText) }
+        }
+    }
+
+    private var iosSearchContent: some View {
         Group {
             if searchText.isEmpty {
                 if library.visibleSongs.isEmpty {
@@ -222,8 +260,6 @@ struct SearchView: View {
         }
         .navigationTitle(usesMinimalNavigation ? Text("") : Text("search_title"))
         .toolbarTitleDisplayMode(usesMinimalNavigation ? .inline : .inlineLarge)
-        .searchable(text: $searchText, prompt: Text("search_prompt"))
-        .onSubmit(of: .search) { addRecentSearch(searchText) }
         .navigationDestination(for: PrimuseKit.Album.self) { AlbumDetailView(album: $0) }
         .navigationDestination(for: PrimuseKit.Artist.self) { ArtistDetailView(artist: $0) }
     }
@@ -1580,21 +1616,11 @@ struct SearchView: View {
     }
 
     private func loadRecentSearches() {
-        recentSearches = UserDefaults.standard.stringArray(forKey: Self.recentSearchesKey) ?? []
+        recentSearches = SearchHistoryStore.load()
     }
 
     private func addRecentSearch(_ query: String) {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedQuery.isEmpty == false else { return }
-
-        recentSearches.removeAll { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }
-        recentSearches.insert(trimmedQuery, at: 0)
-
-        if recentSearches.count > Self.recentSearchLimit {
-            recentSearches = Array(recentSearches.prefix(Self.recentSearchLimit))
-        }
-
-        saveRecentSearches()
+        SearchHistoryStore.record(query)
     }
 
     private func deleteRecentSearches(at offsets: IndexSet) {
@@ -1613,8 +1639,7 @@ struct SearchView: View {
     }
 
     private func saveRecentSearches() {
-        UserDefaults.standard.set(recentSearches, forKey: Self.recentSearchesKey)
-        CloudKVSSync.shared.markChanged(key: Self.recentSearchesKey)
+        SearchHistoryStore.save(recentSearches)
     }
 }
 

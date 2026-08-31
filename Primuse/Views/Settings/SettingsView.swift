@@ -41,10 +41,6 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("navigation_mode_title")
-                } footer: {
-                    if AppNavigationMode.resolve(navigationModeRawValue) == .standard {
-                        Text("minimal_mode_description")
-                    }
                 }
                 #endif
 

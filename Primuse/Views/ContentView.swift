@@ -32,16 +32,12 @@ enum AppNavigationLayoutPolicy {
 }
 
 enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
-    case home
-    case library
     case librarySection(LibrarySection)
     case search
     case settings
 
     var id: String {
         switch self {
-        case .home: return "home"
-        case .library: return "library"
         case .librarySection(let section): return "library:\(section.rawValue)"
         case .search: return "search"
         case .settings: return "settings"
@@ -50,8 +46,11 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
 }
 
 enum MinimalNavigationPolicy {
+    static let homePage = MinimalNavigationPage.librarySection(.recommendations)
+
     static func libraryPages(visibleSections: [LibrarySection]) -> [MinimalNavigationPage] {
-        [.library] + visibleSections.map(MinimalNavigationPage.librarySection)
+        let remainingSections = visibleSections.filter { $0 != .recommendations }
+        return ([.recommendations] + remainingSections).map(MinimalNavigationPage.librarySection)
     }
 
     static func selectedPage(
@@ -59,12 +58,12 @@ enum MinimalNavigationPolicy {
         activeLibrarySection: LibrarySection?
     ) -> MinimalNavigationPage {
         switch selectedTab {
-        case 0: return .home
+        case 0: return homePage
         case 1:
-            return activeLibrarySection.map(MinimalNavigationPage.librarySection) ?? .library
+            return activeLibrarySection.map(MinimalNavigationPage.librarySection) ?? homePage
         case 2: return .search
         case 3: return .settings
-        default: return .home
+        default: return homePage
         }
     }
 
@@ -288,6 +287,7 @@ struct ContentView: View {
     private var minimalRoot: some View {
         VStack(spacing: 0) {
             MinimalTopNavigationBar(
+                searchText: $searchText,
                 libraryPages: MinimalNavigationPolicy.libraryPages(
                     visibleSections: visibleLibrarySections
                 ),
@@ -295,7 +295,8 @@ struct ContentView: View {
                     selectedTab: selectedTab,
                     activeLibrarySection: minimalLibrarySection
                 ),
-                onSelect: selectMinimalPage
+                onSelect: selectMinimalPage,
+                onSubmitSearch: submitMinimalSearch
             )
             .allowsHitTesting(!batchSelectionActive)
             .accessibilityHidden(batchSelectionActive)
@@ -505,6 +506,7 @@ struct ContentView: View {
                 selectedTab = 0
                 sidebarSelection = .home
             }
+            activateMinimalLandingPageIfNeeded()
             // 展示前就写入“一次性”标记。这样即使用户在导览期间直接杀掉
             // App，下次启动也不会再次自动弹出；设置页仍可手动重看。
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
@@ -518,7 +520,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: navigationModeRawValue) { _, _ in
-            synchronizeSidebarForCurrentSelection()
+            if navigationMode == .minimal {
+                activateMinimalLandingPageIfNeeded()
+            } else {
+                synchronizeSidebarForCurrentSelection()
+            }
         }
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
@@ -587,17 +593,23 @@ struct ContentView: View {
         scraperSettingsRoute.requestMetadataScraping()
     }
 
+    private func activateMinimalLandingPageIfNeeded() {
+        guard navigationMode == .minimal else { return }
+        guard selectedTab == 0 || (selectedTab == 1 && minimalLibrarySection == nil) else {
+            synchronizeSidebarForCurrentSelection()
+            return
+        }
+        selectMinimalPage(MinimalNavigationPolicy.homePage)
+    }
+
+    private func submitMinimalSearch() {
+        selectMinimalPage(.search)
+        SearchHistoryStore.record(searchText)
+    }
+
     private func selectMinimalPage(_ page: MinimalNavigationPage) {
         showNowPlaying = false
         switch page {
-        case .home:
-            selectedTab = 0
-            sidebarSelection = .home
-        case .library:
-            selectedTab = 1
-            sidebarSelection = .library
-            minimalLibrarySection = nil
-            libraryDeepLink = .root
         case .librarySection(let section):
             selectedTab = 1
             sidebarSelection = SidebarItem.libraryChild(for: section)
@@ -613,20 +625,21 @@ struct ContentView: View {
     }
 
     private func synchronizeSidebarForCurrentSelection() {
-        switch MinimalNavigationPolicy.selectedPage(
-            selectedTab: selectedTab,
-            activeLibrarySection: minimalLibrarySection
-        ) {
-        case .home:
+        switch selectedTab {
+        case 0:
             sidebarSelection = .home
-        case .library:
-            sidebarSelection = .library
-        case .librarySection(let section):
-            sidebarSelection = SidebarItem.libraryChild(for: section)
-        case .search:
+        case 1:
+            if navigationMode == .minimal, let minimalLibrarySection {
+                sidebarSelection = SidebarItem.libraryChild(for: minimalLibrarySection)
+            } else {
+                sidebarSelection = .library
+            }
+        case 2:
             sidebarSelection = .search
-        case .settings:
+        case 3:
             sidebarSelection = .settings
+        default:
+            sidebarSelection = .home
         }
     }
 
@@ -755,38 +768,26 @@ struct ContentView: View {
 }
 
 private struct MinimalTopNavigationBar: View {
+    @Binding var searchText: String
     let libraryPages: [MinimalNavigationPage]
     let selection: MinimalNavigationPage
     let onSelect: (MinimalNavigationPage) -> Void
+    let onSubmitSearch: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var searchFieldFocused: Bool
     @Namespace private var librarySelectionIndicator
 
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
+                searchField
+
                 actionButton(
-                    page: .home,
-                    systemImage: selection == .home ? "house.fill" : "house",
-                    title: "home_title"
+                    page: .settings,
+                    systemImage: selection == .settings ? "gearshape.fill" : "gearshape",
+                    title: "settings_title"
                 )
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 2) {
-                    actionButton(
-                        page: .search,
-                        systemImage: "magnifyingglass",
-                        title: "search_title"
-                    )
-                    actionButton(
-                        page: .settings,
-                        systemImage: selection == .settings ? "gearshape.fill" : "gearshape",
-                        title: "settings_title"
-                    )
-                }
-                .padding(2)
-                .background(Color.primary.opacity(0.055), in: Capsule())
             }
             .padding(.horizontal, 16)
 
@@ -820,6 +821,65 @@ private struct MinimalTopNavigationBar: View {
             Divider()
                 .opacity(0.45)
         }
+        .onChange(of: selection) { _, newSelection in
+            if newSelection != .search {
+                searchFieldFocused = false
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(searchFieldFocused ? Color.accentColor : Color.secondary)
+
+            TextField("search_prompt", text: $searchText)
+                .font(.body)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFieldFocused)
+                .onSubmit(onSubmitSearch)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    searchFieldFocused = true
+                    select(.search)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 28, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("clear"))
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, searchText.isEmpty ? 14 : 6)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(Color.primary.opacity(0.06), in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(
+                    searchFieldFocused
+                        ? Color.accentColor.opacity(0.55)
+                        : Color.primary.opacity(0.08),
+                    lineWidth: searchFieldFocused ? 1.5 : 1
+                )
+        }
+        .contentShape(Capsule())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                select(.search)
+                searchFieldFocused = true
+            }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("search_title"))
     }
 
     private func actionButton(
@@ -892,12 +952,8 @@ private struct MinimalTopNavigationBar: View {
     @ViewBuilder
     private func pageTitle(_ page: MinimalNavigationPage) -> some View {
         switch page {
-        case .library:
-            Text("library_title")
         case .librarySection(let section):
             Text(section.title)
-        case .home:
-            Text("home_title")
         case .search:
             Text("search_title")
         case .settings:
