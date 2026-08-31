@@ -506,6 +506,56 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
     override func stopLoading() {}
 }
 
+private final class FnMusicLargeCoverURLProtocol: URLProtocol, @unchecked Sendable {
+    static let coverByteCount = 9 * 1_024 * 1_024
+    private static let coverPayload: Data = {
+        var data = Data("GIF89a".utf8)
+        data.append(Data(repeating: 0, count: coverByteCount - data.count))
+        return data
+    }()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let isLogin = url.path.hasSuffix("/music/api/v1/user/password-login")
+        let isCover = url.path.hasSuffix("/music/api/v1/static/cover")
+        let data: Data
+        let contentType: String
+        if isLogin {
+            data = Data(#"{"code":200,"data":{"userToken":"cover-token"}}"#.utf8)
+            contentType = "application/json"
+        } else if isCover {
+            data = Self.coverPayload
+            contentType = "image/gif"
+        } else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": contentType,
+                "Content-Length": String(data.count),
+            ]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 private final class FnMusicUnauthorizedOnceURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var loginCountStorage = 0
@@ -866,6 +916,38 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(counts.encodedCookie == 2)
     #expect(counts.unexpectedAccessHeader == 0)
     #expect(counts.unexpectedServiceHeader == 0)
+}
+
+@Test func fnMusicServiceAllowsExplicitAnimatedCoverBudget() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FnMusicLargeCoverURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let source = MusicSource(
+        id: "fnmusic-large-cover",
+        name: "Feiniu Music",
+        type: .fnMusic,
+        host: "fnmusic.test",
+        port: 5666,
+        useSsl: false,
+        username: "user"
+    )
+    let client = FnMusicServiceClient(
+        source: source,
+        credential: SourceCredential(username: "user", password: "password"),
+        session: session
+    )
+    let reference = FnMusicAPIProtocol.coverReference(coverID: "animated-cover")
+
+    await #expect(throws: FnMusicServiceError.self) {
+        _ = try await client.coverData(reference: reference)
+    }
+    let data = try await client.coverData(
+        reference: reference,
+        size: 2_048,
+        maximumBytes: 10 * 1_024 * 1_024
+    )
+
+    #expect(data.count == FnMusicLargeCoverURLProtocol.coverByteCount)
 }
 
 @Test func fnMusicServiceRefreshesOnlyAnExpiredSession() async throws {

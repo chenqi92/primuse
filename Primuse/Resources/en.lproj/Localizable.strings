@@ -2726,6 +2726,9 @@
 "player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Only for Original Artwork";
 "player_animated_artwork_unmetered_only_description" = "Only download source-quality dynamic artwork on Wi-Fi or Ethernet. Cached animation remains available offline.";
+"motion_artwork_service_enabled" = "Custom Motion Artwork Service";
+"motion_artwork_service_endpoint" = "Service Endpoint";
+"motion_artwork_service_description" = "Off by default. Apple’s public APIs do not expose Apple Music Motion Artwork assets. When enabled, Primuse sends album artist, title, year, track count, and available public catalog identifiers to your configured third-party endpoint. Animated images are limited to 32 MB and requested only for visible large artwork, subject to network, motion, power, and thermal settings.";
 "player_lyrics_section" = "Lyrics";
 "player_lyrics_alignment" = "Lyrics Alignment";
 "player_lyrics_alignment_left" = "Left";

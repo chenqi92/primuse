@@ -8,6 +8,33 @@ public enum ArtworkPresentationRole: String, Codable, Equatable, Sendable {
     case animatedHero
 }
 
+/// Stable identity for static artwork memory entries and shared source fetches.
+/// Every source-defining field participates so a replacement cover for the
+/// same song cannot reuse an older decoded image or in-flight request.
+public enum ArtworkSourceRequestIdentity {
+    public static func key(
+        songID: String?,
+        artworkReference: String?,
+        sourceID: String?,
+        filePath: String?,
+        fileFormat: String?,
+        revision: String
+    ) -> String? {
+        let values = [
+            songID ?? "",
+            artworkReference ?? "",
+            sourceID ?? "",
+            filePath ?? "",
+            fileFormat ?? "",
+            revision,
+        ]
+        guard values.dropLast().contains(where: { !$0.isEmpty }) else { return nil }
+        return values.map { value in
+            "\(value.utf8.count):\(value)"
+        }.joined(separator: "|")
+    }
+}
+
 public enum ArtworkContainerFormat: String, Codable, Equatable, Sendable {
     case jpeg
     case png
@@ -90,6 +117,27 @@ public struct ArtworkDescriptor: Codable, Equatable, Sendable {
     public var isAnimated: Bool {
         format.supportsFrameAnimation && frameDurations.count > 1
     }
+
+    /// Normalized total playback count. GIF stores an additional-repeat
+    /// count, whereas APNG and animated WebP store total plays; callers should
+    /// not interpret the raw container value directly.
+    public var playbackCount: ArtworkPlaybackCount {
+        guard let loopCount else { return .finite(1) }
+        guard loopCount > 0 else { return .infinite }
+        switch format {
+        case .gif:
+            return .finite(loopCount == .max ? .max : loopCount + 1)
+        case .png, .webP:
+            return .finite(loopCount)
+        case .jpeg, .other:
+            return .finite(1)
+        }
+    }
+}
+
+public enum ArtworkPlaybackCount: Codable, Equatable, Sendable {
+    case finite(Int)
+    case infinite
 }
 
 public enum ArtworkThermalCondition: String, Codable, Equatable, Sendable {
@@ -205,7 +253,8 @@ public extension ArtworkImageCompatibility {
         _ data: Data,
         limits: ArtworkAnimationLimits = .default
     ) -> ArtworkDescriptor? {
-        guard !data.isEmpty,
+        guard !currentTaskIsCancelled(),
+              !data.isEmpty,
               data.count <= limits.maximumCompressedBytes,
               isCompleteImage(data),
               let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -249,7 +298,8 @@ public extension ArtworkImageCompatibility {
         ]
 
         for index in 0..<sourceFrameCount {
-            guard CGImageSourceGetStatusAtIndex(source, index) == .statusComplete,
+            guard !currentTaskIsCancelled(),
+                  CGImageSourceGetStatusAtIndex(source, index) == .statusComplete,
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil),
                   let size = pixelSize(from: properties),
                   size.width > 0,
@@ -295,6 +345,50 @@ public extension ArtworkImageCompatibility {
             frameDurations: frameDurations,
             loopCount: loopCount(from: globalProperties, format: format)
         )
+    }
+
+    /// Produces a bounded, single-frame mirror for list and grid caches.
+    /// Animated originals belong in the animation cache; persisting them as a
+    /// normal cover would make every static surface read the whole container.
+    static func staticFirstFrameJPEG(
+        from data: Data,
+        maximumPixelSize: Int = 1_536,
+        compressionQuality: Double = 0.86
+    ) -> Data? {
+        guard !currentTaskIsCancelled(),
+              maximumPixelSize > 0,
+              compressionQuality.isFinite,
+              (0...1).contains(compressionQuality),
+              isCompleteImage(data),
+              let source = CGImageSourceCreateWithData(data as CFData, [
+                kCGImageSourceShouldCache: false,
+              ] as CFDictionary),
+              CGImageSourceGetCount(source) > 0,
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
+              ] as CFDictionary) else {
+            return nil
+        }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, [
+            kCGImageDestinationLossyCompressionQuality: compressionQuality,
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
+    }
+
+    private static func currentTaskIsCancelled() -> Bool {
+        withUnsafeCurrentTask { $0?.isCancelled ?? false }
     }
 
     private static func containerFormat(for typeIdentifier: String) -> ArtworkContainerFormat {

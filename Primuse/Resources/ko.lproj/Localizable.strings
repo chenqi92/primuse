@@ -2939,6 +2939,9 @@
 "player_animated_artwork_description" = "소스에서 제공하는 GIF, APNG 및 애니메이션 WebP 앨범 아트를 앨범 상세 화면과 플레이어의 기본 앨범 아트에서 재생합니다. 목록은 항상 정적인 첫 프레임을 표시하며 시스템 동작 및 전원 설정을 따릅니다.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi에서만 원본 앨범 아트 다운로드";
 "player_animated_artwork_unmetered_only_description" = "Wi-Fi 또는 이더넷에서만 원본 움직이는 앨범 아트를 다운로드합니다. 캐시된 애니메이션은 오프라인에서도 사용할 수 있습니다.";
+"motion_artwork_service_enabled" = "사용자 지정 모션 아트워크 서비스";
+"motion_artwork_service_endpoint" = "서비스 엔드포인트";
+"motion_artwork_service_description" = "기본값은 꺼짐입니다. Apple 공개 API는 Apple Music Motion Artwork 리소스를 제공하지 않습니다. 활성화하면 Primuse가 앨범 아티스트, 제목, 연도, 트랙 수와 사용 가능한 공개 카탈로그 식별자를 설정한 타사 엔드포인트로 보냅니다. 애니메이션 이미지는 32MB로 제한되며 네트워크·동작·전원·온도 설정에 따라 현재 보이는 큰 앨범 아트에만 요청됩니다.";
 "player_lyrics_section" = "가사";
 "player_lyrics_alignment" = "가사 정렬";
 "player_lyrics_alignment_left" = "왼쪽";

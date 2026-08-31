@@ -2940,6 +2940,9 @@
 "player_animated_artwork_description" = "ソースが提供する GIF、APNG、アニメーション WebP をアルバム詳細とプレーヤーのメインアートワークで再生します。一覧には常に静止した先頭フレームを表示し、システムのモーション設定と電源設定に従います。";
 "player_animated_artwork_unmetered_only" = "オリジナルは Wi-Fi のみ";
 "player_animated_artwork_unmetered_only_description" = "ソース品質のダイナミックアートワークは Wi-Fi または Ethernet でのみダウンロードします。キャッシュ済みのアニメーションはオフラインでも利用できます。";
+"motion_artwork_service_enabled" = "カスタムモーションアートワークサービス";
+"motion_artwork_service_endpoint" = "サービスエンドポイント";
+"motion_artwork_service_description" = "初期設定では無効です。Apple の公開 API は Apple Music Motion Artwork の素材を提供していません。有効にすると、Primuse は設定した外部エンドポイントへアルバムアーティスト、タイトル、年、曲数、利用可能な公開カタログ識別子を送信します。アニメーション画像は最大 32 MB に制限され、ネットワーク、モーション、電力、温度の設定に従って表示中の大きなアートワークにのみ要求されます。";
 "player_lyrics_section" = "歌詞";
 "player_lyrics_alignment" = "歌詞の配置";
 "player_lyrics_alignment_left" = "左揃え";

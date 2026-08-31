@@ -2939,6 +2939,9 @@
 "player_animated_artwork_description" = "Lit les pochettes GIF, APNG et WebP animées fournies par la source dans les détails de l’album et sur la pochette principale du lecteur. Les listes affichent toujours la première image statique et respectent les réglages système et d’énergie.";
 "player_animated_artwork_unmetered_only" = "Pochette originale via Wi-Fi uniquement";
 "player_animated_artwork_unmetered_only_description" = "Télécharge les pochettes dynamiques originales uniquement via Wi-Fi ou Ethernet. Les animations en cache restent disponibles hors ligne.";
+"motion_artwork_service_enabled" = "Service personnalisé de pochettes animées";
+"motion_artwork_service_endpoint" = "Point de terminaison du service";
+"motion_artwork_service_description" = "Désactivé par défaut. Les API publiques d’Apple ne donnent pas accès aux ressources Apple Music Motion Artwork. Une fois activé, Primuse envoie l’artiste, le titre, l’année, le nombre de pistes et les identifiants de catalogue publics disponibles au point de terminaison tiers configuré. Les images animées sont limitées à 32 Mo et demandées uniquement pour les grandes pochettes visibles, selon les réglages de réseau, d’animation, d’énergie et de température.";
 "player_lyrics_section" = "Paroles";
 "player_lyrics_alignment" = "Alignement des paroles";
 "player_lyrics_alignment_left" = "À gauche";

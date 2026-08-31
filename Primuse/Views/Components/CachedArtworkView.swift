@@ -36,6 +36,8 @@ struct CachedArtworkView: View {
     /// For album/artist artwork fetched by ArtworkFetchService
     var albumID: String? = nil
     var albumTitle: String? = nil
+    var albumYear: Int? = nil
+    var albumTrackCount: Int? = nil
     var artistID: String? = nil
     var artistName: String? = nil
     var placeholderIcon: String = "music.note"
@@ -51,6 +53,7 @@ struct CachedArtworkView: View {
     var onResolutionChange: (Bool) -> Void = { _ in }
 
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(MusicLibrary.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
     @Environment(\.scenePhase) private var scenePhase
@@ -58,16 +61,24 @@ struct CachedArtworkView: View {
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @State private var image: PlatformImage?
     @State private var animatedArtworkData: Data?
     @State private var animatedArtworkDescriptor: ArtworkDescriptor?
     @State private var animatedArtworkIdentity: String?
     @State private var animatedArtworkContentKey: String?
+    @State private var animatedArtworkExpiresAt: Date?
+    @State private var animatedArtworkGeneration: String?
     @State private var resolvedAppleMusicArtwork: MusicKit.Artwork?
     @State private var resolvedAppleMusicArtworkID: String?
     @State private var loadedIdentity: String?
     @State private var cacheInvalidationRevision = 0
     @State private var animationPolicyRevision = 0
+    @State private var animationCacheMaintenanceGeneration = 0
+    @State private var animationCacheMaintenancePending = false
 
 
     /// Memory cache holds *already-decoded* PlatformImages. Cost is reported
@@ -95,9 +106,9 @@ struct CachedArtworkView: View {
         init(_ descriptor: ArtworkDescriptor) { self.descriptor = descriptor }
     }
 
-    private final class AnimationProbeFailure: NSObject {
-        let expiresAt: Date
-        init(expiresAt: Date) { self.expiresAt = expiresAt }
+    private struct AnimatedArtworkInspection: Sendable {
+        let descriptor: ArtworkDescriptor
+        let contentKey: String
     }
 
     nonisolated(unsafe) private static let animationDescriptorCache: NSCache<NSString, ArtworkDescriptorBox> = {
@@ -105,14 +116,20 @@ struct CachedArtworkView: View {
         cache.countLimit = 200
         return cache
     }()
-    nonisolated(unsafe) private static let animationFailureCache: NSCache<NSString, AnimationProbeFailure> = {
-        let cache = NSCache<NSString, AnimationProbeFailure>()
-        cache.countLimit = 1_000
-        return cache
+
+    private static let animationDiskCache: ArtworkAnimationDiskCache = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let directory = base
+            .appendingPathComponent("Primuse", isDirectory: true)
+            .appendingPathComponent("AnimatedArtwork", isDirectory: true)
+            .appendingPathComponent("v1", isDirectory: true)
+        return ArtworkAnimationDiskCache(directory: directory)
     }()
 
-    private static let staticAnimationNegativeTTL: TimeInterval = 24 * 60 * 60
-    private static let transientAnimationFailureTTL: TimeInterval = 5 * 60
+    private nonisolated static let staticAnimationNegativeTTL: TimeInterval = 24 * 60 * 60
+    private nonisolated static let transientAnimationFailureTTL: TimeInterval = 5 * 60
+    private nonisolated static let configuredMotionArtworkMaximumPositiveTTL: TimeInterval = 24 * 60 * 60
 
     /// Deduplicates in-flight source fetches: multiple views requesting the same cover
     /// share a single network request instead of each fetching independently.
@@ -217,17 +234,28 @@ struct CachedArtworkView: View {
     // Album cover init. Rendering reads cache only; multi-provider online
     // scraping is maintenance work and must never be started by a view mount.
     init(albumID: String, albumTitle: String, artistName: String?,
+         year: Int? = nil, trackCount: Int? = nil,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          showsPlaceholder: Bool = true,
+         presentationRole: ArtworkPresentationRole = .staticFirstFrame,
+         animationRequiresPlayback: Bool = false,
+         isPlaying: Bool = true,
+         isAnimationVisible: Bool = true,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = nil
         self.albumID = albumID
         self.albumTitle = albumTitle
+        self.albumYear = year
+        self.albumTrackCount = trackCount
         self.artistName = artistName
         self.size = size
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "square.stack"
         self.showsPlaceholder = showsPlaceholder
+        self.presentationRole = presentationRole
+        self.animationRequiresPlayback = animationRequiresPlayback
+        self.isPlaying = isPlaying
+        self.isAnimationVisible = isAnimationVisible
         self.onResolutionChange = onResolutionChange
     }
 
@@ -260,6 +288,9 @@ struct CachedArtworkView: View {
         .task(id: animationLoadIdentity) {
             await loadAnimatedArtwork(for: animationLoadIdentity)
         }
+        .task(id: animatedArtworkExpiryIdentity) {
+            await expireAnimatedArtwork(for: animatedArtworkExpiryIdentity)
+        }
         .task(id: appleMusicArtworkIdentity) {
             await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
         }
@@ -268,9 +299,13 @@ struct CachedArtworkView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard shouldReload(after: note) else { return }
+            let diskKey = sourceAnimationDiskKey
             Self.memoryCache.removeObject(forKey: cacheKey as NSString)
             clearAnimatedArtworkCache()
-            cacheInvalidationRevision += 1
+            performAnimationCacheMaintenance(
+                keys: diskKey.isEmpty ? [] : [diskKey],
+                removesOnlyNegativeEntries: false
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
             guard ArtworkCacheReloadPolicy.shouldReload(
@@ -287,8 +322,11 @@ struct CachedArtworkView: View {
             // visible covers retry immediately through the newly selected route
             // instead of honoring the normal five-minute failure suppression.
             Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
-            Self.animationFailureCache.removeObject(forKey: animationCacheKey as NSString)
-            cacheInvalidationRevision &+= 1
+            let diskKeys = [sourceAnimationDiskKey, motionArtworkDiskKey].filter { !$0.isEmpty }
+            performAnimationCacheMaintenance(
+                keys: diskKeys,
+                removesOnlyNegativeEntries: true
+            )
         }
         .onReceive(NotificationCenter.default.publisher(
             for: Notification.Name.NSProcessInfoPowerStateDidChange
@@ -299,6 +337,9 @@ struct CachedArtworkView: View {
             for: ProcessInfo.thermalStateDidChangeNotification
         )) { _ in
             animationPolicyRevision &+= 1
+        }
+        .onDisappear {
+            clearAnimatedArtworkCache()
         }
     }
 
@@ -317,13 +358,22 @@ struct CachedArtworkView: View {
             // 用 GeometryReader 拿到容器真实边长再喂给它, 让 Apple Music 封面
             // 跟其它来源的封面一样填满 cell。ArtworkImage 自身按 display scale
             // 解码, 所以传点数即可, 不用再乘 scale。
-            GeometryReader { geo in
-                let side = max(geo.size.width, geo.size.height, 1)
-                ArtworkImage(artwork, width: side, height: side)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
+            if let animatedArtworkData, let animatedArtworkDescriptor {
+                AnimatedArtworkDataView(
+                    data: animatedArtworkData,
+                    descriptor: animatedArtworkDescriptor,
+                    cacheKey: animatedArtworkContentKey ?? motionArtworkDiskKey,
+                    presentationRole: presentationRole,
+                    isVisible: isAnimationVisible,
+                    requiresPlayback: animationRequiresPlayback,
+                    isPlaying: isPlaying,
+                    maximumPixelSize: animationMaximumPixelSize
+                ) {
+                    appleMusicArtworkView(artwork)
+                }
+            } else {
+                appleMusicArtworkView(artwork)
             }
-            .aspectRatio(1, contentMode: .fit)
         } else if let image {
             if let animatedArtworkData, let animatedArtworkDescriptor {
                 AnimatedArtworkDataView(
@@ -350,6 +400,16 @@ struct CachedArtworkView: View {
         } else {
             Color.clear
         }
+    }
+
+    private func appleMusicArtworkView(_ artwork: MusicKit.Artwork) -> some View {
+        GeometryReader { geo in
+            let side = max(geo.size.width, geo.size.height, 1)
+            ArtworkImage(artwork, width: side, height: side)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
+        }
+        .aspectRatio(1, contentMode: .fit)
     }
 
     /// 当前歌如果是 Apple Music 来源, 从 songCache 拿 MusicKit.Artwork。
@@ -425,7 +485,15 @@ struct CachedArtworkView: View {
         if let artistID {
             return "artist_\(artistID)#\(coverRef ?? "")\(suffix)"
         }
-        return (songID ?? coverRef ?? "") + suffix
+        let songIdentity = ArtworkSourceRequestIdentity.key(
+            songID: songID,
+            artworkReference: coverRef,
+            sourceID: sourceID,
+            filePath: filePath,
+            fileFormat: fileFormat?.rawValue,
+            revision: String(revisionToken)
+        ) ?? ""
+        return songIdentity + suffix
     }
 
     private var loadIdentity: String {
@@ -435,10 +503,96 @@ struct CachedArtworkView: View {
     }
 
     private var animationCacheKey: String {
-        let components = [songID ?? "", sourceID ?? "", coverRef ?? "", filePath ?? ""]
+        let components = [
+            songID ?? "",
+            sourceID ?? "",
+            coverRef ?? "",
+            filePath ?? "",
+            albumID ?? "",
+            albumTitle ?? "",
+            artistName ?? "",
+        ]
         return components.allSatisfy(\.isEmpty)
             ? ""
             : components.joined(separator: "\u{1F}")
+    }
+
+    private var sourceAnimationDiskKey: String {
+        guard !animationCacheKey.isEmpty else { return "" }
+        let sourceRevision = songID.flatMap { library.song(id: $0)?.revision } ?? ""
+        return [
+            "source-v1",
+            animationCacheKey,
+            sourceRevision,
+            String(revisionToken),
+        ].joined(separator: "\u{1F}")
+    }
+
+    private var motionArtworkLookupInput: MotionArtworkLookupInput? {
+        guard presentationRole == .animatedHero else { return nil }
+        let song = songID.flatMap { library.song(id: $0) }
+        let musicKitSong: MusicKit.Song? = {
+            guard sourceID == AppleMusicLibraryService.systemSourceID,
+                  let filePath, !filePath.isEmpty else { return nil }
+            return AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: filePath)
+        }()
+        let musicKitAlbum = musicKitSong?.albums?.first
+        let appleAlbumIDs = MotionArtworkAppleAlbumIdentifiers(
+            rawAlbumID: musicKitAlbum?.id.rawValue
+        )
+        let resolvedAlbumID = albumID ?? song?.albumID
+        let resolvedTitle = albumTitle ?? musicKitAlbum?.title ?? song?.albumTitle
+        let resolvedArtist = musicKitAlbum?.artistName
+            ?? song?.albumArtistName
+            ?? artistName
+            ?? song?.artistName
+        let localAlbumTrackCount = resolvedAlbumID.flatMap { albumID -> Int? in
+            let count = library.songs(forAlbum: albumID).count
+            return count > 0 ? count : nil
+        }
+        let resolvedTrackCount = albumTrackCount.flatMap { $0 > 0 ? $0 : nil }
+            ?? musicKitAlbum?.trackCount
+            ?? localAlbumTrackCount
+        let resolvedYear = albumYear
+            ?? musicKitAlbum?.releaseDate.map {
+                Calendar(identifier: .gregorian).component(.year, from: $0)
+            }
+            ?? song?.year
+        guard resolvedTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              resolvedArtist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+        return MotionArtworkLookupInput(
+            appleCatalogAlbumID: appleAlbumIDs.catalogID,
+            upc: musicKitAlbum?.upc,
+            albumArtist: resolvedArtist,
+            albumTitle: resolvedTitle,
+            releaseYear: resolvedYear,
+            trackCount: resolvedTrackCount
+        )
+    }
+
+    private var normalizedMotionArtworkServiceEndpoint: String {
+        motionArtworkServiceEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var motionArtworkDiskKey: String {
+        guard let input = motionArtworkLookupInput,
+              !normalizedMotionArtworkServiceEndpoint.isEmpty else { return "" }
+        return [
+            "configured-service-v1",
+            normalizedMotionArtworkServiceEndpoint,
+            input.appleCatalogAlbumID ?? "",
+            input.appleLibraryAlbumID ?? "",
+            input.upc ?? "",
+            input.isrcs.sorted().joined(separator: ","),
+            input.musicBrainzReleaseID ?? "",
+            input.albumArtist ?? "",
+            input.albumTitle ?? "",
+            input.releaseYear.map { String($0) } ?? "",
+            input.trackCount.map { String($0) } ?? "",
+            input.storefront ?? "",
+        ].joined(separator: "\u{1F}")
     }
 
     private var animationLoadIdentity: String {
@@ -446,15 +600,50 @@ struct CachedArtworkView: View {
         return [
             loadIdentity,
             loadedIdentity ?? "",
+            resolvedAppleMusicArtworkID ?? "",
             String(animatedArtworkEnabled),
             String(animatedArtworkUnmeteredOnly),
+            String(motionArtworkServiceEnabled),
+            normalizedMotionArtworkServiceEndpoint,
+            sourceAnimationDiskKey,
+            motionArtworkDiskKey,
             String(isAnimationVisible),
+            String(animationRequiresPlayback),
+            String(isPlaying),
             String(reduceMotion),
             String(playAnimatedImages),
             String(scenePhase == .active),
+            String(ProcessInfo.processInfo.isLowPowerModeEnabled),
+            Self.thermalCondition(ProcessInfo.processInfo.thermalState).rawValue,
             String(NetworkMonitor.shared.pathGeneration),
             String(animationPolicyRevision),
+            String(animationCacheMaintenanceGeneration),
         ].joined(separator: "|")
+    }
+
+    private var animatedArtworkExpiryIdentity: String {
+        guard let animatedArtworkIdentity,
+              let animatedArtworkExpiresAt else { return "" }
+        return [
+            animatedArtworkIdentity,
+            String(animatedArtworkExpiresAt.timeIntervalSinceReferenceDate),
+            animatedArtworkGeneration ?? "uncached",
+        ].joined(separator: "|")
+    }
+
+    private var animationPlaybackPolicy: ArtworkAnimationPolicy {
+        ArtworkAnimationPolicy(
+            isEnabled: animatedArtworkEnabled,
+            presentationRole: presentationRole,
+            isVisible: isAnimationVisible,
+            isSceneActive: scenePhase == .active,
+            requiresPlayback: animationRequiresPlayback,
+            isPlaying: isPlaying,
+            reduceMotion: reduceMotion,
+            playAnimatedImages: playAnimatedImages,
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalCondition: Self.thermalCondition(ProcessInfo.processInfo.thermalState)
+        )
     }
 
     private var animationMaximumPixelSize: Int {
@@ -468,24 +657,22 @@ struct CachedArtworkView: View {
     @MainActor
     private func loadAnimatedArtwork(for identity: String) async {
         guard !identity.isEmpty,
+              !animationCacheMaintenancePending,
               loadedIdentity == loadIdentity,
-              image != nil,
-              animatedArtworkEnabled,
-              isAnimationVisible,
-              scenePhase == .active,
-              !reduceMotion,
-              playAnimatedImages,
-              sourceID != AppleMusicLibraryService.systemSourceID else {
+              animationPlaybackPolicy.shouldAnimate else {
             animatedArtworkData = nil
             animatedArtworkDescriptor = nil
             animatedArtworkIdentity = nil
             animatedArtworkContentKey = nil
+            animatedArtworkExpiresAt = nil
+            animatedArtworkGeneration = nil
             return
         }
 
         let key = animationCacheKey
-        guard !key.isEmpty else { return }
-        if animatedArtworkIdentity == key,
+        let diskKey = sourceAnimationDiskKey
+        guard !key.isEmpty, !diskKey.isEmpty else { return }
+        if animatedArtworkIdentity == diskKey,
            animatedArtworkData != nil,
            animatedArtworkDescriptor != nil {
             return
@@ -494,21 +681,60 @@ struct CachedArtworkView: View {
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil
         animatedArtworkContentKey = nil
+        animatedArtworkExpiresAt = nil
+        animatedArtworkGeneration = nil
 
-        if Self.hasRecentAnimationFailure(for: key as NSString) { return }
-
-        let cachedData = await Self.loadFromDiskCache(songID: songID, ref: coverRef)
-        if let cachedData,
-           let descriptor = await Self.animatedDescriptor(
-            for: cachedData,
-            cacheKey: key
-           ) {
+        var sourceLookupSuppressed = false
+        if let cached = try? await Self.animationDiskCache.lookup(forKey: diskKey) {
             guard !Task.isCancelled, animationLoadIdentity == identity else { return }
-            animatedArtworkData = cachedData
-            animatedArtworkDescriptor = descriptor
-            animatedArtworkIdentity = key
-            animatedArtworkContentKey = "\(key)|\(cachedData.count)|\(cachedData.hashValue)"
-            return
+            switch cached {
+            case .asset(let data):
+                if let inspection = await Self.animatedInspection(
+                    for: data,
+                    cacheKey: diskKey
+                ) {
+                    guard await prepareStaticFallbackIfNeeded(
+                        from: data,
+                        for: identity
+                    ) else { return }
+                    guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                    animatedArtworkData = data
+                    animatedArtworkDescriptor = inspection.descriptor
+                    animatedArtworkIdentity = diskKey
+                    animatedArtworkContentKey = inspection.contentKey
+                    return
+                }
+                try? await Self.animationDiskCache.removeValue(forKey: diskKey)
+            case .negative:
+                sourceLookupSuppressed = true
+            }
+        }
+
+        if !sourceLookupSuppressed {
+            // Lazily migrate an animation persisted by an older build in the
+            // ordinary static mirror, then replace that mirror with frame 0.
+            let legacyData = await Self.loadFromDiskCache(songID: songID, ref: coverRef)
+            if let legacyData,
+               let inspection = await Self.animatedInspection(
+                for: legacyData,
+                cacheKey: diskKey
+               ) {
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                _ = try? await Self.animationDiskCache.storeAsset(
+                    legacyData,
+                    forKey: diskKey
+                )
+                guard await prepareStaticFallbackIfNeeded(
+                    from: legacyData,
+                    for: identity
+                ) else { return }
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                animatedArtworkData = legacyData
+                animatedArtworkDescriptor = inspection.descriptor
+                animatedArtworkIdentity = diskKey
+                animatedArtworkContentKey = inspection.contentKey
+                return
+            }
         }
 
         let network = NetworkMonitor.shared
@@ -524,104 +750,382 @@ struct CachedArtworkView: View {
             isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
             thermalCondition: Self.thermalCondition(ProcessInfo.processInfo.thermalState)
         )
-        guard fetchPolicy.shouldFetchRemoteAnimation,
-              let coverRef, !coverRef.isEmpty,
-              let sourceID, !sourceID.isEmpty else {
-            return
-        }
-
-        let capturedManager = sourceManager
-        let fetched = await Self.inFlightTracker.deduplicated(key: "animation:\(key)") {
-            await capturedManager.artworkData(
-                for: coverRef,
-                sourceID: sourceID,
-                maximumBytes: ArtworkAnimationLimits.default.maximumCompressedBytes,
-                purpose: .originalAnimation
-            )
-        }
-        guard !Task.isCancelled, animationLoadIdentity == identity else { return }
-        guard let fetched else {
-            Self.recordAnimationFailure(
-                for: key as NSString,
-                ttl: Self.transientAnimationFailureTTL
-            )
-            return
-        }
-        guard let descriptor = await Self.animatedDescriptor(
-            for: fetched,
-            cacheKey: key
-        ) else {
-            Self.recordAnimationFailure(
-                for: key as NSString,
-                ttl: Self.staticAnimationNegativeTTL
-            )
-            return
-        }
-        guard !Task.isCancelled, animationLoadIdentity == identity else { return }
-        if let songID {
-            await MetadataAssetStore.shared.cacheCover(fetched, forSongID: songID)
-        }
-        animatedArtworkData = fetched
-        animatedArtworkDescriptor = descriptor
-        animatedArtworkIdentity = key
-        animatedArtworkContentKey = "\(key)|\(fetched.count)|\(fetched.hashValue)"
-    }
-
-    private func clearAnimatedArtworkCache() {
-        let key = animationCacheKey as NSString
-        if let animatedArtworkData {
-            Self.animationDescriptorCache.removeObject(
-                forKey: Self.animationDescriptorCacheKey(
-                    for: animatedArtworkData,
-                    cacheKey: animationCacheKey
+        let ignoredGenericFolderCover = Self.shouldIgnoreGenericFolderCover(
+            ref: coverRef,
+            filePath: filePath
+        )
+        let effectiveAnimationRef = ignoredGenericFolderCover ? nil : coverRef
+        let canFetchRemoteSource = fetchPolicy.shouldFetchRemoteAnimation
+            && effectiveAnimationRef?.isEmpty == false
+        let canReadEmbeddedSource = sourceID?.isEmpty == false
+            && filePath?.isEmpty == false
+        if !sourceLookupSuppressed,
+           sourceID != AppleMusicLibraryService.systemSourceID,
+           canFetchRemoteSource || canReadEmbeddedSource {
+            let capturedManager = sourceManager
+            let fetched = await Self.inFlightTracker.deduplicated(key: "animation:\(diskKey)") {
+                await Self.loadOriginalAnimationFromSource(
+                    ref: effectiveAnimationRef,
+                    songID: songID,
+                    sourceID: sourceID,
+                    filePath: filePath,
+                    fileFormat: fileFormat,
+                    sourceManager: capturedManager,
+                    allowsRemoteFetch: canFetchRemoteSource
+                )
+            }
+            guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+            if let fetched,
+               let inspection = await Self.animatedInspection(
+                for: fetched,
+                cacheKey: diskKey
+               ) {
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                _ = try? await Self.animationDiskCache.storeAsset(
+                    fetched,
+                    forKey: diskKey
+                )
+                guard await prepareStaticFallbackIfNeeded(
+                    from: fetched,
+                    for: identity
+                ) else { return }
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                animatedArtworkData = fetched
+                animatedArtworkDescriptor = inspection.descriptor
+                animatedArtworkIdentity = diskKey
+                animatedArtworkContentKey = inspection.contentKey
+                return
+            }
+            try? await Self.animationDiskCache.storeNegative(
+                forKey: diskKey,
+                expiresAt: Date().addingTimeInterval(
+                    fetched == nil
+                        ? Self.transientAnimationFailureTTL
+                        : Self.staticAnimationNegativeTTL
                 )
             )
         }
-        Self.animationFailureCache.removeObject(forKey: key)
+
+        guard hasResolvedArtwork else { return }
+        await loadConfiguredMotionArtwork(
+            for: identity,
+            fetchPolicy: fetchPolicy
+        )
+    }
+
+    @MainActor
+    private func prepareStaticFallbackIfNeeded(
+        from data: Data,
+        for identity: String
+    ) async -> Bool {
+        if hasResolvedArtwork { return true }
+
+        let capturedBucket = bucket
+        let capturedCacheKey = cacheKey
+        let fallbackTask = Task.detached(priority: .utility) {
+            guard let mirror = ArtworkImageCompatibility.staticFirstFrameJPEG(
+                from: data,
+                maximumPixelSize: Self.fullMaxPixel
+            ), let decoded = Self.decode(mirror, bucket: capturedBucket) else {
+                return Optional<(Data, PlatformImage)>.none
+            }
+            return (mirror, decoded)
+        }
+        let fallback = await withTaskCancellationHandler {
+            await fallbackTask.value
+        } onCancel: {
+            fallbackTask.cancel()
+        }
+        guard !Task.isCancelled,
+              animationLoadIdentity == identity,
+              let (mirror, decoded) = fallback else { return false }
+
+        Self.memoryCache.setObject(
+            decoded,
+            forKey: capturedCacheKey as NSString,
+            cost: Self.imageCost(decoded)
+        )
+        image = decoded
+        Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
+        onResolutionChange(true)
+        if let songID {
+            await MetadataAssetStore.shared.cacheCover(mirror, forSongID: songID)
+        }
+        return !Task.isCancelled && animationLoadIdentity == identity
+    }
+
+    @MainActor
+    private func loadConfiguredMotionArtwork(
+        for identity: String,
+        fetchPolicy: ArtworkAnimationFetchPolicy
+    ) async {
+        guard motionArtworkServiceEnabled,
+              hasResolvedArtwork,
+              let input = motionArtworkLookupInput,
+              !motionArtworkDiskKey.isEmpty,
+              let endpoint = URL(string: normalizedMotionArtworkServiceEndpoint),
+              MotionArtworkEndpointClient.isValidEndpoint(endpoint) else {
+            return
+        }
+        let diskKey = motionArtworkDiskKey
+
+        let cacheLookupNow = Date()
+        if let cached = try? await Self.animationDiskCache.detailedLookup(
+            forKey: diskKey,
+            now: cacheLookupNow
+        ) {
+            guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+            switch cached {
+            case .asset(let record):
+                let data = record.data
+                if let inspection = await Self.animatedInspection(
+                    for: data,
+                    cacheKey: diskKey
+                ) {
+                    let expiration = record.expiresAt
+                        ?? cacheLookupNow.addingTimeInterval(
+                            Self.configuredMotionArtworkMaximumPositiveTTL
+                        )
+                    var generation = record.generation
+                    if record.expiresAt == nil,
+                       let refreshedGeneration = try? await Self.animationDiskCache.storeAsset(
+                            data,
+                            forKey: diskKey,
+                            expiresAt: expiration
+                       ) {
+                        generation = refreshedGeneration
+                    }
+                    guard expiration > Date() else {
+                        try? await Self.animationDiskCache.removeValue(forKey: diskKey)
+                        break
+                    }
+                    guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                    animatedArtworkData = data
+                    animatedArtworkDescriptor = inspection.descriptor
+                    animatedArtworkIdentity = diskKey
+                    animatedArtworkContentKey = inspection.contentKey
+                    animatedArtworkExpiresAt = expiration
+                    animatedArtworkGeneration = generation
+                    return
+                }
+                try? await Self.animationDiskCache.removeValue(forKey: diskKey)
+            case .negative:
+                return
+            }
+        }
+
+        guard fetchPolicy.shouldFetchRemoteAnimation else { return }
+        let now = Date()
+        let allowExpensiveNetwork = !animatedArtworkUnmeteredOnly
+
+        do {
+            let resolution = try await MotionArtworkEndpointClient.shared.resolve(
+                endpoint: endpoint,
+                input: input,
+                requestKey: diskKey,
+                allowExpensiveNetwork: allowExpensiveNetwork
+            )
+            guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+            switch resolution {
+            case .downloaded(let payload):
+                let expiration = Self.configuredMotionArtworkExpiration(
+                    providerExpiration: payload.asset.expiresAt,
+                    now: Date()
+                )
+                guard expiration > Date() else {
+                    try? await storeMotionArtworkNegative(
+                        forKey: diskKey,
+                        expiresAt: Date().addingTimeInterval(
+                            Self.transientAnimationFailureTTL
+                        )
+                    )
+                    return
+                }
+                let generation = try? await Self.animationDiskCache.storeAsset(
+                    payload.data,
+                    forKey: diskKey,
+                    expiresAt: expiration
+                )
+                guard let contentKey = await Self.animationContentKey(
+                    for: payload.data,
+                    cacheKey: diskKey
+                ) else { return }
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                animatedArtworkData = payload.data
+                animatedArtworkDescriptor = payload.descriptor
+                animatedArtworkIdentity = diskKey
+                animatedArtworkContentKey = contentKey
+                animatedArtworkExpiresAt = expiration
+                animatedArtworkGeneration = generation
+            case .notFound, .ambiguous(_), .unsupported:
+                try? await storeMotionArtworkNegative(
+                    forKey: diskKey,
+                    expiresAt: now.addingTimeInterval(Self.staticAnimationNegativeTTL)
+                )
+            case .temporarilyUnavailable(let retryAfter):
+                try? await storeMotionArtworkNegative(
+                    forKey: diskKey,
+                    expiresAt: Self.transientNegativeExpiry(
+                        retryAfter: retryAfter,
+                        now: now
+                    )
+                )
+            }
+        } catch is CancellationError {
+            return
+        } catch let error as MotionArtworkEndpointClientError where error == .notAnimatedImage {
+            try? await storeMotionArtworkNegative(
+                forKey: diskKey,
+                expiresAt: now.addingTimeInterval(Self.staticAnimationNegativeTTL)
+            )
+        } catch {
+            try? await storeMotionArtworkNegative(
+                forKey: diskKey,
+                expiresAt: now.addingTimeInterval(Self.transientAnimationFailureTTL)
+            )
+        }
+    }
+
+    private func storeMotionArtworkNegative(
+        forKey key: String,
+        expiresAt: Date
+    ) async throws {
+        try await Self.animationDiskCache.storeNegative(
+            forKey: key,
+            expiresAt: expiresAt
+        )
+    }
+
+    private nonisolated static func transientNegativeExpiry(
+        retryAfter: Date?,
+        now: Date
+    ) -> Date {
+        let fallback = now.addingTimeInterval(transientAnimationFailureTTL)
+        guard let retryAfter, retryAfter > now else { return fallback }
+        return min(retryAfter, now.addingTimeInterval(staticAnimationNegativeTTL))
+    }
+
+    private nonisolated static func configuredMotionArtworkExpiration(
+        providerExpiration: Date?,
+        now: Date
+    ) -> Date {
+        let localLimit = now.addingTimeInterval(configuredMotionArtworkMaximumPositiveTTL)
+        guard let providerExpiration else { return localLimit }
+        return min(providerExpiration, localLimit)
+    }
+
+    @MainActor
+    private func expireAnimatedArtwork(for identity: String) async {
+        guard !identity.isEmpty,
+              animatedArtworkExpiryIdentity == identity,
+              let cacheKey = animatedArtworkIdentity,
+              let expiration = animatedArtworkExpiresAt else { return }
+
+        let delay = max(0, expiration.timeIntervalSinceNow)
+        do {
+            try await Task.sleep(for: .seconds(delay))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              animatedArtworkExpiryIdentity == identity else { return }
+
+        if let generation = animatedArtworkGeneration {
+            _ = try? await Self.animationDiskCache.removeAsset(
+                forKey: cacheKey,
+                matchingGeneration: generation
+            )
+        }
+        guard !Task.isCancelled,
+              animatedArtworkExpiryIdentity == identity else { return }
+        clearAnimatedArtworkCache()
+        animationPolicyRevision &+= 1
+    }
+
+    private func clearAnimatedArtworkCache() {
+        if let animatedArtworkContentKey {
+            Self.animationDescriptorCache.removeObject(
+                forKey: animatedArtworkContentKey as NSString
+            )
+        }
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil
         animatedArtworkContentKey = nil
+        animatedArtworkExpiresAt = nil
+        animatedArtworkGeneration = nil
     }
 
-    private nonisolated static func animatedDescriptor(
+    @MainActor
+    private func performAnimationCacheMaintenance(
+        keys: [String],
+        removesOnlyNegativeEntries: Bool
+    ) {
+        animationCacheMaintenanceGeneration &+= 1
+        let generation = animationCacheMaintenanceGeneration
+        animationCacheMaintenancePending = true
+        cacheInvalidationRevision &+= 1
+
+        Task {
+            for key in Set(keys) where !key.isEmpty {
+                if removesOnlyNegativeEntries {
+                    try? await Self.animationDiskCache.removeNegative(forKey: key)
+                } else {
+                    try? await Self.animationDiskCache.removeValue(forKey: key)
+                }
+            }
+            guard !Task.isCancelled,
+                  animationCacheMaintenanceGeneration == generation else { return }
+            animationCacheMaintenancePending = false
+            cacheInvalidationRevision &+= 1
+        }
+    }
+
+    private nonisolated static func animatedInspection(
         for data: Data,
         cacheKey: String
-    ) async -> ArtworkDescriptor? {
-        let key = animationDescriptorCacheKey(for: data, cacheKey: cacheKey)
+    ) async -> AnimatedArtworkInspection? {
+        guard let contentKey = await animationContentKey(
+            for: data,
+            cacheKey: cacheKey
+        ) else { return nil }
+        let key = contentKey as NSString
         if let cached = animationDescriptorCache.object(forKey: key) {
-            return cached.descriptor
+            return AnimatedArtworkInspection(
+                descriptor: cached.descriptor,
+                contentKey: contentKey
+            )
         }
-        let descriptor = await Task.detached(priority: .utility) {
+        let inspection = Task.detached(priority: .utility) {
             ArtworkImageCompatibility.inspect(data)
-        }.value
+        }
+        let descriptor = await withTaskCancellationHandler {
+            await inspection.value
+        } onCancel: {
+            inspection.cancel()
+        }
         guard let descriptor, descriptor.isAnimated else { return nil }
         animationDescriptorCache.setObject(ArtworkDescriptorBox(descriptor), forKey: key)
-        return descriptor
+        return AnimatedArtworkInspection(
+            descriptor: descriptor,
+            contentKey: contentKey
+        )
     }
 
-    private nonisolated static func animationDescriptorCacheKey(
+    private nonisolated static func animationContentKey(
         for data: Data,
         cacheKey: String
-    ) -> NSString {
-        "\(cacheKey)|\(data.count)|\(data.hashValue)" as NSString
-    }
-
-    private nonisolated static func hasRecentAnimationFailure(for key: NSString) -> Bool {
-        guard let entry = animationFailureCache.object(forKey: key) else { return false }
-        if entry.expiresAt > Date() { return true }
-        animationFailureCache.removeObject(forKey: key)
-        return false
-    }
-
-    private nonisolated static func recordAnimationFailure(
-        for key: NSString,
-        ttl: TimeInterval
-    ) {
-        animationFailureCache.setObject(
-            AnimationProbeFailure(expiresAt: Date().addingTimeInterval(ttl)),
-            forKey: key
-        )
+    ) async -> String? {
+        let hashing = Task.detached(priority: .utility) { () -> String? in
+            guard !Task.isCancelled else { return nil }
+            let key = "\(cacheKey)|\(data.count)|\(data.hashValue)"
+            return Task.isCancelled ? nil : key
+        }
+        return await withTaskCancellationHandler {
+            await hashing.value
+        } onCancel: {
+            hashing.cancel()
+        }
     }
 
     private nonisolated static func thermalCondition(
@@ -719,7 +1223,9 @@ struct CachedArtworkView: View {
             sourceID: capturedSourceID,
             filePath: capturedFilePath,
             fileFormat: capturedFileFormat,
-            sourceManager: capturedSourceManager
+            sourceManager: capturedSourceManager,
+            fetchDiscriminator: String(revisionToken),
+            animationDiskKey: sourceAnimationDiskKey
         )
         guard !Task.isCancelled, loadIdentity == identity else { return }
         loadedIdentity = identity
@@ -808,7 +1314,8 @@ struct CachedArtworkView: View {
         filePath: String?,
         fileFormat: AudioFormat?,
         sourceManager: SourceManager,
-        fetchDiscriminator: String = ""
+        fetchDiscriminator: String = "",
+        animationDiskKey: String? = nil
     ) async -> PlatformImage? {
         let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: ref, filePath: filePath)
         let effectiveRef = ignoredGenericFolderCover ? nil : ref
@@ -866,6 +1373,31 @@ struct CachedArtworkView: View {
             ref: effectiveRef
            ) {
             if let decoded = finalize(data: data, bucket: bucket, cacheKey: cacheKey) {
+                // Older builds could persist an entire GIF/APNG/WebP in the
+                // ordinary song-cover mirror. Migrate that entry lazily so
+                // list and grid mounts only read a bounded first frame.
+                if let songID,
+                   isMultiFrameImage(data),
+                   let animationDiskKey,
+                   !animationDiskKey.isEmpty {
+                    let preserved: Bool
+                    do {
+                        _ = try await animationDiskCache.storeAsset(
+                            data,
+                            forKey: animationDiskKey
+                        )
+                        preserved = true
+                    } catch {
+                        preserved = false
+                    }
+                    if preserved,
+                       let staticMirror = staticCoverCacheData(from: data) {
+                        await MetadataAssetStore.shared.cacheCover(
+                            staticMirror,
+                            forSongID: songID
+                        )
+                    }
+                }
                 return decoded
             }
             // Earlier builds accepted ImageIO's `.statusIncomplete`, so a
@@ -878,18 +1410,15 @@ struct CachedArtworkView: View {
             }
         }
 
-        let fetchKey: String
-        if let songID, !songID.isEmpty {
-            fetchKey = songID
-        } else {
-            let sourceIdentity = [sourceID ?? "", effectiveRef ?? "", filePath ?? ""]
-            guard sourceIdentity.contains(where: { !$0.isEmpty }) else { return nil }
-            fetchKey = sourceIdentity.joined(separator: "\u{1F}")
-        }
-        let deduplicationKey = fetchDiscriminator.isEmpty
-            ? fetchKey
-            : "\(fetchKey)\u{1F}\(fetchDiscriminator)"
-        let fetched = await inFlightTracker.deduplicated(key: deduplicationKey) {
+        guard let fetchKey = ArtworkSourceRequestIdentity.key(
+            songID: songID,
+            artworkReference: effectiveRef,
+            sourceID: sourceID,
+            filePath: filePath,
+            fileFormat: fileFormat?.rawValue,
+            revision: fetchDiscriminator
+        ) else { return nil }
+        let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
             await loadFromSource(
                 ref: effectiveRef,
                 songID: songID,
@@ -903,10 +1432,39 @@ struct CachedArtworkView: View {
               let decoded = finalize(data: fetched, bucket: bucket, cacheKey: cacheKey) else {
             return nil
         }
-        if let songID {
-            await MetadataAssetStore.shared.cacheCover(fetched, forSongID: songID)
+        if isMultiFrameImage(fetched),
+           let animationDiskKey,
+           !animationDiskKey.isEmpty {
+            _ = try? await animationDiskCache.storeAsset(
+                fetched,
+                forKey: animationDiskKey
+            )
+        }
+        if let songID, let staticMirror = staticCoverCacheData(from: fetched) {
+            await MetadataAssetStore.shared.cacheCover(staticMirror, forSongID: songID)
         }
         return decoded
+    }
+
+    /// Static artwork mirrors must never retain a multi-frame container. The
+    /// animation original has its own bounded cache and is only read by a
+    /// visible hero surface.
+    private nonisolated static func staticCoverCacheData(from data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary) else { return nil }
+        guard CGImageSourceGetCount(source) > 1 else { return data }
+        return ArtworkImageCompatibility.staticFirstFrameJPEG(
+            from: data,
+            maximumPixelSize: fullMaxPixel
+        )
+    }
+
+    private nonisolated static func isMultiFrameImage(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary) else { return false }
+        return CGImageSourceGetCount(source) > 1
     }
 
     /// Decode + write to memory cache. NSCache is thread-safe so this can
@@ -971,6 +1529,72 @@ struct CachedArtworkView: View {
     }
 
     // MARK: - Source Fetch
+
+    private nonisolated static func loadOriginalAnimationFromSource(
+        ref: String?,
+        songID: String?,
+        sourceID: String?,
+        filePath: String?,
+        fileFormat: AudioFormat?,
+        sourceManager: SourceManager,
+        allowsRemoteFetch: Bool
+    ) async -> Data? {
+        let maximumBytes = ArtworkAnimationLimits.default.maximumCompressedBytes
+
+        if allowsRemoteFetch, let ref, !ref.isEmpty {
+            if let sourceID, !sourceID.isEmpty {
+                if let data = await sourceManager.artworkData(
+                    for: ref,
+                    sourceID: sourceID,
+                    maximumBytes: maximumBytes,
+                    purpose: .originalAnimation
+                ) {
+                    return data
+                }
+            } else if ref.contains("://"), let url = URL(string: ref) {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 15
+                request.setValue("image/*", forHTTPHeaderField: "Accept")
+                if let (data, response) = try? await TrustedHTTPTransport.data(
+                    for: request,
+                    session: sharedArtworkSession,
+                    maxBytes: maximumBytes
+                ), let http = response as? HTTPURLResponse,
+                   (200...299).contains(http.statusCode),
+                   !data.isEmpty {
+                    return data
+                }
+            }
+        }
+
+        // Embedded artwork is read only from an already cached local audio
+        // object, so it remains available without relaxing network policy.
+        if let sourceID, !sourceID.isEmpty,
+           let filePath, !filePath.isEmpty {
+            let inferredFormat = fileFormat
+                ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
+                ?? .mp3
+            let localSong = Song(
+                id: songID ?? "",
+                title: "",
+                fileFormat: inferredFormat,
+                filePath: filePath,
+                sourceID: sourceID,
+                fileSize: 0,
+                dateAdded: Date()
+            )
+            if let cachedURL = await sourceManager.cachedURLForBackgroundRead(for: localSong) {
+                let metadata = await FileMetadataReader.read(from: cachedURL)
+                if let data = metadata.coverArtData,
+                   !data.isEmpty,
+                   data.count <= maximumBytes {
+                    return data
+                }
+            }
+        }
+
+        return nil
+    }
 
     private nonisolated static func loadFromSource(
         ref: String?, songID: String?,

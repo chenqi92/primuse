@@ -253,7 +253,8 @@ public struct FnMusicCatalogTrack: Sendable {
 /// Reusable Feiniu Music catalogue/resource client. It is intentionally
 /// separate from NAS/file connectors and only calls `/music/api/v1`.
 public actor FnMusicServiceClient {
-    private static let maximumArtworkBytes = 8 * 1_024 * 1_024
+    private static let maximumAnimatedArtworkBytes =
+        ArtworkAnimationLimits.default.maximumCompressedBytes
 
     private struct LoginOperation {
         let id: UUID
@@ -359,9 +360,17 @@ public actor FnMusicServiceClient {
         return FnMusicCatalogPage(tracks: tracks, total: total, rawCount: rawTracks.count)
     }
 
-    public func coverData(reference: String, size: Int = 640) async throws -> Data {
+    public func coverData(
+        reference: String,
+        size: Int = 640,
+        maximumBytes: Int = 8 * 1_024 * 1_024
+    ) async throws -> Data {
         guard let coverID = FnMusicAPIProtocol.coverID(from: reference) else {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidCoverReference"))
+        }
+        guard maximumBytes > 0,
+              maximumBytes <= Self.maximumAnimatedArtworkBytes else {
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
         }
         var queryItems = [
             URLQueryItem(name: "coverId", value: coverID),
@@ -373,21 +382,34 @@ public actor FnMusicServiceClient {
         try await ensureLoggedIn()
         guard let requestToken = token else { throw FnMusicServiceError.authenticationFailed }
         do {
-            return try await fetchCoverData(queryItems: queryItems, token: requestToken)
+            return try await fetchCoverData(
+                queryItems: queryItems,
+                token: requestToken,
+                maximumBytes: maximumBytes
+            )
         } catch FnMusicServiceError.authenticationFailed {
             try await ensureLoggedIn()
             guard let refreshedToken = token else { throw FnMusicServiceError.authenticationFailed }
-            return try await fetchCoverData(queryItems: queryItems, token: refreshedToken)
+            return try await fetchCoverData(
+                queryItems: queryItems,
+                token: refreshedToken,
+                maximumBytes: maximumBytes
+            )
         } catch {
             guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
             await endpointProvider.invalidate()
-            return try await fetchCoverData(queryItems: queryItems, token: requestToken)
+            return try await fetchCoverData(
+                queryItems: queryItems,
+                token: requestToken,
+                maximumBytes: maximumBytes
+            )
         }
     }
 
     private func fetchCoverData(
         queryItems: [URLQueryItem],
-        token requestToken: String
+        token requestToken: String,
+        maximumBytes: Int
     ) async throws -> Data {
         let request = try await authenticatedRequest(
             path: "/static/cover",
@@ -400,7 +422,7 @@ public actor FnMusicServiceClient {
             (data, response) = try await StreamResolverHTTPTransport.data(
                 for: request,
                 session: session,
-                maximumBytes: Self.maximumArtworkBytes + 1,
+                maximumBytes: maximumBytes + 1,
                 redirectMode: .fnMusic
             )
         } catch let error as URLError where error.code == .dataLengthExceedsMaximum {
@@ -408,10 +430,10 @@ public actor FnMusicServiceClient {
         }
         let http = try validateHTTP(response, requestToken: requestToken)
         if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
-           length > Self.maximumArtworkBytes {
+           length > maximumBytes {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
         }
-        guard !data.isEmpty, data.count <= Self.maximumArtworkBytes else {
+        guard !data.isEmpty, data.count <= maximumBytes else {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.emptyOrOversizedCover"))
         }
         try validateMediaPayload(http, data: data, requestToken: requestToken)

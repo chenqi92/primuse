@@ -7,6 +7,10 @@ enum PlayerAppearancePreferences {
     static let animatedArtworkEnabledByDefault = true
     static let animatedArtworkUnmeteredOnlyKey = "primuse.player.animatedArtworkUnmeteredOnly"
     static let animatedArtworkUnmeteredOnlyByDefault = true
+    static let motionArtworkServiceEnabledKey = "primuse.player.motionArtworkServiceEnabled"
+    static let motionArtworkServiceEnabledByDefault = false
+    static let motionArtworkServiceEndpointKey = "primuse.player.motionArtworkServiceEndpoint"
+    static let motionArtworkServiceEndpointByDefault = ""
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
     static let lyricsAlignmentKey = "primuse.player.lyricsAlignment"

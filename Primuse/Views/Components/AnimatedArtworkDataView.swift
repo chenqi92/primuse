@@ -98,21 +98,31 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
         }
 
         let totalPasses: Int?
-        if let loopCount = descriptor.loopCount, loopCount > 0 {
-            totalPasses = loopCount + 1
-        } else if descriptor.loopCount == nil {
-            totalPasses = 1
-        } else {
-            totalPasses = nil
+        switch descriptor.playbackCount {
+        case .finite(let count): totalPasses = max(1, count)
+        case .infinite: totalPasses = nil
         }
 
         var pass = 0
+        let clock = ContinuousClock()
+        var deadline = clock.now
+        let resynchronizationThreshold = max(
+            Duration.seconds(descriptor.duration),
+            Duration.milliseconds(250)
+        )
         while totalPasses.map({ pass < $0 }) ?? true {
             for index in 0..<descriptor.frameCount {
                 guard !Task.isCancelled, policy.shouldAnimate else {
                     frame = nil
                     return
                 }
+                deadline = deadline.advanced(
+                    by: .seconds(descriptor.frameDurations[index])
+                )
+                // A slow decode or a background scheduling gap must not queue
+                // stale frames. Skip overdue work and keep the timeline tied
+                // to the monotonic clock.
+                guard clock.now < deadline else { continue }
                 let decoded = await Self.decodedFrame(
                     data: data,
                     index: index,
@@ -123,11 +133,18 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
                     frame = nil
                     return
                 }
+                guard clock.now < deadline else { continue }
                 frame = decoded
-                let duration = descriptor.frameDurations[index]
-                try? await Task.sleep(for: .seconds(duration))
+                try? await clock.sleep(until: deadline)
             }
             pass += 1
+            let now = clock.now
+            if now > deadline.advanced(by: resynchronizationThreshold) {
+                // Preserve the absolute timeline across timely passes. Only a
+                // substantial scheduler gap starts a fresh timeline, bounding
+                // catch-up work without accumulating ordinary wake-up jitter.
+                deadline = now
+            }
         }
         frame = nil
     }
@@ -140,17 +157,24 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
     ) async -> CGImage? {
         let key = "\(cacheKey)|\(maximumPixelSize)|\(index)" as NSString
         if let cached = animatedArtworkFrameCache.object(forKey: key) { return cached }
-        let decoded: CGImage? = await Task.detached(priority: .utility) { () -> CGImage? in
+        let decoding = Task.detached(priority: .utility) { () -> CGImage? in
+            guard !Task.isCancelled else { return nil }
             guard let source = CGImageSourceCreateWithData(data as CFData, [
                 kCGImageSourceShouldCache: false,
             ] as CFDictionary) else { return nil }
-            return CGImageSourceCreateThumbnailAtIndex(source, index, [
+            let image = CGImageSourceCreateThumbnailAtIndex(source, index, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true,
                 kCGImageSourceThumbnailMaxPixelSize: max(1, maximumPixelSize),
             ] as CFDictionary)
-        }.value
+            return Task.isCancelled ? nil : image
+        }
+        let decoded: CGImage? = await withTaskCancellationHandler {
+            await decoding.value
+        } onCancel: {
+            decoding.cancel()
+        }
         if let decoded {
             animatedArtworkFrameCache.setObject(
                 decoded,

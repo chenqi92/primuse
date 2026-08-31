@@ -4,6 +4,7 @@ import UIKit
 import CryptoKit
 import ImageIO
 import PrimuseKit
+import UniformTypeIdentifiers
 
 /// 从真实封面提取的稳定双色主题。只保存 sRGB 分量，避免把 UIKit/CoreGraphics
 /// 对象跨并发域传递；转换成 SwiftUI Color 始终发生在主线程的 TVStore 中。
@@ -335,11 +336,40 @@ actor TVArtworkPaletteLoader {
 actor TVArtworkLoader {
     static let shared = TVArtworkLoader()
 
-    private var inFlight: [String: Task<Data?, Never>] = [:]
+    private struct StaticArtworkPreparation: Sendable {
+        let displayData: Data
+        let mayContainAnimation: Bool
+    }
+
+    private struct InFlightEntry {
+        let id: UUID
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<Data?, Never>]
+    }
+
+    private struct CachedAnimationDescriptor {
+        let generation: String
+        let descriptor: ArtworkDescriptor
+    }
+
+    private var inFlight: [String: InFlightEntry] = [:]
     private var negativeUntil: [String: Date] = [:]
+    private var animationDescriptors: [String: CachedAnimationDescriptor] = [:]
+    private var animationDescriptorLRU: [String] = []
     static let negativeCacheTTL: TimeInterval = 5 * 60
     private static let maximumRemoteArtworkBytes = 8 * 1024 * 1024
+    private static let maximumAnimatedArtworkBytes =
+        ArtworkAnimationLimits.default.maximumCompressedBytes
     private static let maximumSearchResponseBytes = 1 * 1024 * 1024
+    private static let staticAnimationNegativeTTL: TimeInterval = 24 * 60 * 60
+    private static let animationDiskCache: ArtworkAnimationDiskCache = {
+        let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let directory = base
+            .appendingPathComponent("Primuse", isDirectory: true)
+            .appendingPathComponent("TVAnimatedArtwork", isDirectory: true)
+            .appendingPathComponent("v1", isDirectory: true)
+        return ArtworkAnimationDiskCache(directory: directory)
+    }()
     private static let remoteArtworkSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 12
@@ -369,29 +399,43 @@ actor TVArtworkLoader {
 
     /// 按 (artist, album) 取专辑封面 Data;key 用于缓存去重(一般传 albumID)。
     func cover(key: String, artist: String, album: String) async -> Data? {
-        guard !key.isEmpty, !(artist.isEmpty && album.isEmpty) else { return nil }
+        guard !Task.isCancelled,
+              !key.isEmpty,
+              !(artist.isEmpty && album.isEmpty) else { return nil }
         let disk = diskURL(key)
         if let data = try? Data(contentsOf: disk) {
-            if Self.isImageData(data) { return data }
+            let displayData = await preparedStaticArtwork(data)
+            guard !Task.isCancelled else { return nil }
+            if let displayData {
+                if displayData != data {
+                    try? displayData.write(to: disk, options: .atomic)
+                }
+                return displayData
+            }
             // Old builds could persist an HTTP error body with a .jpg suffix.
             // It is disposable cache data, so remove it and recover online.
             try? FileManager.default.removeItem(at: disk)
         }
         if isTemporarilyNegative(key) { return nil }
-        if let t = inFlight[key] { return await t.value }
-        let task = Task<Data?, Never> {
-            let data = await Self.fetchITunes(term: "\(artist) \(album)".trimmingCharacters(in: .whitespaces))
-            if let data { try? data.write(to: disk, options: .atomic) }
-            return data
+        let requestKey = "static-album-search:\(key)"
+        let fetched = await deduplicatedFetch(key: requestKey) {
+            await Self.fetchITunes(
+                term: "\(artist) \(album)".trimmingCharacters(in: .whitespaces)
+            )
         }
-        inFlight[key] = task
-        let result = await task.value
-        inFlight[key] = nil
-        if result == nil {
+        guard !Task.isCancelled else { return nil }
+        guard let fetched else {
             markTemporarilyNegative(key)
-        } else {
-            negativeUntil.removeValue(forKey: key)
+            return nil
         }
+        let prepared = await preparedStaticArtwork(fetched)
+        guard !Task.isCancelled else { return nil }
+        guard let result = prepared else {
+            markTemporarilyNegative(key)
+            return nil
+        }
+        negativeUntil.removeValue(forKey: key)
+        try? result.write(to: disk, options: .atomic)
         return result
     }
 
@@ -403,9 +447,10 @@ actor TVArtworkLoader {
         songID: String,
         coverRef: String?,
         fnMusicSourceID: String? = nil,
-        fnMusicClient: FnMusicServiceClient? = nil
+        fnMusicClient: FnMusicServiceClient? = nil,
+        animationCacheKey: String? = nil
     ) async -> Data? {
-        guard !songID.isEmpty else { return nil }
+        guard !Task.isCancelled, !songID.isEmpty else { return nil }
         let ref = coverRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let fnMusicRequestKey = FnMusicAPIProtocol.coverID(from: ref).map { _ in
             "fnmusic-cover:\(fnMusicSourceID ?? songID)|\(ref)"
@@ -414,17 +459,26 @@ actor TVArtworkLoader {
         if let fnMusicRequestKey {
             let disk = diskURL(fnMusicRequestKey)
             if let data = try? Data(contentsOf: disk) {
-                if Self.isImageData(data) {
-                    let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID)
-                    if cached != data {
-                        await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
+                let displayData = await preparedSongArtwork(
+                    data,
+                    songID: songID,
+                    animationCacheKey: animationCacheKey
+                )
+                guard !Task.isCancelled else { return nil }
+                if let displayData {
+                    if displayData != data {
+                        try? displayData.write(to: disk, options: .atomic)
                     }
-                    return data
+                    return displayData
                 }
                 try? FileManager.default.removeItem(at: disk)
             }
         } else if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
-            return cached
+            return await preparedSongArtwork(
+                cached,
+                songID: songID,
+                animationCacheKey: animationCacheKey
+            )
         }
 
         guard !ref.isEmpty else { return nil }
@@ -432,39 +486,40 @@ actor TVArtworkLoader {
         if MetadataAssetStore.shared.isLegacyLocalRef(ref),
            let data = MetadataAssetStore.shared.readCoverData(named: ref),
            Self.isImageData(data) {
-            await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
-            return data
+            return await preparedSongArtwork(
+                data,
+                songID: songID,
+                animationCacheKey: animationCacheKey
+            )
         }
 
         if let fnMusicRequestKey {
             guard let fnMusicClient else { return nil }
             if isTemporarilyNegative(fnMusicRequestKey) { return nil }
-            let task: Task<Data?, Never>
-            if let running = inFlight[fnMusicRequestKey] {
-                task = running
-            } else {
-                task = Task {
-                    guard !Task.isCancelled,
-                          let data = try? await fnMusicClient.coverData(reference: ref),
-                          !Task.isCancelled,
-                          Self.isImageData(data) else {
-                        return nil
-                    }
-                    return data
+            let result = await deduplicatedFetch(
+                key: "static:\(fnMusicRequestKey)"
+            ) {
+                guard !Task.isCancelled,
+                      let data = try? await fnMusicClient.coverData(reference: ref),
+                      !Task.isCancelled,
+                      Self.isImageData(data) else {
+                    return nil
                 }
-                inFlight[fnMusicRequestKey] = task
+                return data
             }
-
-            let result = await task.value
-            inFlight[fnMusicRequestKey] = nil
+            guard !Task.isCancelled else { return nil }
             guard let result else {
                 markTemporarilyNegative(fnMusicRequestKey)
                 return nil
             }
             negativeUntil.removeValue(forKey: fnMusicRequestKey)
-            try? result.write(to: diskURL(fnMusicRequestKey), options: .atomic)
-            await MetadataAssetStore.shared.cacheCover(result, forSongID: songID)
-            return result
+            guard let displayData = await preparedSongArtwork(
+                result,
+                songID: songID,
+                animationCacheKey: animationCacheKey
+            ) else { return nil }
+            try? displayData.write(to: diskURL(fnMusicRequestKey), options: .atomic)
+            return displayData
         }
 
         guard let url = URL(string: ref),
@@ -478,25 +533,325 @@ actor TVArtworkLoader {
 
         let requestKey = "song:\(songID)|\(ref)"
         if isTemporarilyNegative(requestKey) { return nil }
-        let task: Task<Data?, Never>
-        if let running = inFlight[requestKey] {
-            task = running
-        } else {
-            task = Task {
-                await Self.fetchRemoteArtwork(from: url)
-            }
-            inFlight[requestKey] = task
+        let result = await deduplicatedFetch(key: "static:\(requestKey)") {
+            await Self.fetchRemoteArtwork(
+                from: url,
+                maximumBytes: Self.maximumRemoteArtworkBytes
+            )
         }
-
-        let result = await task.value
-        inFlight[requestKey] = nil
+        guard !Task.isCancelled else { return nil }
         guard let result else {
             markTemporarilyNegative(requestKey)
             return nil
         }
         negativeUntil.removeValue(forKey: requestKey)
-        await MetadataAssetStore.shared.cacheCover(result, forSongID: songID)
-        return result
+        return await preparedSongArtwork(
+            result,
+            songID: songID,
+            animationCacheKey: animationCacheKey
+        )
+    }
+
+    /// Reads the exact source used by an animated hero without consulting the
+    /// single-frame song cache. Direct remote references get the animation
+    /// budget; ordinary artwork requests keep their smaller static budget.
+    func originalAnimationCandidate(
+        songID: String,
+        coverRef: String?,
+        fnMusicSourceID: String? = nil,
+        fnMusicClient: FnMusicServiceClient? = nil,
+        requestKey: String
+    ) async -> Data? {
+        guard !Task.isCancelled,
+              !songID.isEmpty,
+              !requestKey.isEmpty else { return nil }
+        let ref = coverRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !ref.isEmpty else { return nil }
+
+        if MetadataAssetStore.shared.isLegacyLocalRef(ref),
+           let data = MetadataAssetStore.shared.readCoverData(named: ref),
+           data.count <= Self.maximumAnimatedArtworkBytes,
+           Self.isImageData(data) {
+            return Task.isCancelled ? nil : data
+        }
+
+        if FnMusicAPIProtocol.coverID(from: ref) != nil {
+            guard let fnMusicClient else { return nil }
+            return await deduplicatedFetch(
+                key: "hero-fnmusic:\(fnMusicSourceID ?? songID)|\(requestKey)"
+            ) {
+                guard !Task.isCancelled,
+                      let data = try? await fnMusicClient.coverData(
+                        reference: ref,
+                        size: 2_048,
+                        maximumBytes: Self.maximumAnimatedArtworkBytes
+                      ),
+                      !Task.isCancelled,
+                      data.count <= Self.maximumAnimatedArtworkBytes,
+                      Self.isImageData(data) else {
+                    return nil
+                }
+                return data
+            }
+        }
+
+        guard let url = URL(string: ref),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false,
+              url.user == nil,
+              url.password == nil else {
+            return nil
+        }
+        return await deduplicatedFetch(key: "hero-http:\(requestKey)") {
+            await Self.fetchRemoteArtwork(
+                from: url,
+                maximumBytes: Self.maximumAnimatedArtworkBytes
+            )
+        }
+    }
+
+    func cachedAnimation(
+        forKey key: String
+    ) async -> ArtworkAnimationDiskCache.DetailedLookupResult? {
+        guard !key.isEmpty else { return nil }
+        return try? await Self.animationDiskCache.detailedLookup(forKey: key)
+    }
+
+    func cacheValidatedAnimation(_ data: Data, forKey key: String) async -> String? {
+        guard !key.isEmpty else { return nil }
+        removeAnimationDescriptor(forKey: key)
+        return try? await Self.animationDiskCache.storeAsset(data, forKey: key)
+    }
+
+    func cachedAnimationDescriptor(
+        forKey key: String,
+        generation: String
+    ) -> ArtworkDescriptor? {
+        guard let cached = animationDescriptors[key],
+              cached.generation == generation else { return nil }
+        animationDescriptorLRU.removeAll(where: { $0 == key })
+        animationDescriptorLRU.append(key)
+        return cached.descriptor
+    }
+
+    func cacheAnimationDescriptor(
+        _ descriptor: ArtworkDescriptor,
+        forKey key: String,
+        generation: String
+    ) {
+        guard !key.isEmpty, !generation.isEmpty else { return }
+        animationDescriptors[key] = CachedAnimationDescriptor(
+            generation: generation,
+            descriptor: descriptor
+        )
+        animationDescriptorLRU.removeAll(where: { $0 == key })
+        animationDescriptorLRU.append(key)
+        while animationDescriptorLRU.count > 32 {
+            let evictedKey = animationDescriptorLRU.removeFirst()
+            animationDescriptors.removeValue(forKey: evictedKey)
+        }
+    }
+
+    func recordStaticAnimationResult(
+        forKey key: String,
+        matchingGeneration generation: String? = nil
+    ) async {
+        guard !key.isEmpty else { return }
+        let now = Date()
+        let expiresAt = now.addingTimeInterval(Self.staticAnimationNegativeTTL)
+        let stored: Bool
+        if let generation {
+            stored = (try? await Self.animationDiskCache.replaceAssetWithNegative(
+                forKey: key,
+                matchingGeneration: generation,
+                expiresAt: expiresAt,
+                now: now
+            )) ?? false
+        } else {
+            stored = (try? await Self.animationDiskCache.storeNegativeIfAssetMissing(
+                forKey: key,
+                expiresAt: expiresAt,
+                now: now
+            )) ?? false
+        }
+        if stored,
+           generation == nil || animationDescriptors[key]?.generation == generation {
+            removeAnimationDescriptor(forKey: key)
+        }
+    }
+
+    func removeAnimationEntry(forKey key: String) async {
+        guard !key.isEmpty else { return }
+        removeAnimationDescriptor(forKey: key)
+        try? await Self.animationDiskCache.removeValue(forKey: key)
+    }
+
+    func preparedAlbumArtwork(
+        _ data: Data,
+        albumID: String,
+        animationCacheKey: String?
+    ) async -> Data? {
+        guard let displayData = await preparedStaticArtwork(
+            data,
+            animationCacheKey: animationCacheKey
+        ) else { return nil }
+        if displayData != data {
+            _ = await MetadataAssetStore.shared.storeAlbumCover(
+                displayData,
+                forAlbumID: albumID
+            )
+        }
+        guard !Task.isCancelled else { return nil }
+        return displayData
+    }
+
+    func preparedHeroFallback(_ data: Data) async -> Data? {
+        await preparedStaticArtwork(data)
+    }
+
+    /// The ordinary artwork cache is deliberately single-frame. Static surfaces
+    /// never inspect frame metadata; animation-capable containers are retained
+    /// as bounded candidates for a hero surface and mirrored from frame zero.
+    private func preparedStaticArtwork(
+        _ data: Data,
+        animationCacheKey: String? = nil
+    ) async -> Data? {
+        let preparationTask = Task.detached(priority: .utility) {
+            Self.prepareStaticArtwork(data)
+        }
+        let preparation = await withTaskCancellationHandler {
+            await preparationTask.value
+        } onCancel: {
+            preparationTask.cancel()
+        }
+        guard !Task.isCancelled, let preparation else { return nil }
+        if preparation.mayContainAnimation,
+           let animationCacheKey,
+           !animationCacheKey.isEmpty {
+            await preserveAnimationCandidate(data, forKey: animationCacheKey)
+        }
+        guard !Task.isCancelled else { return nil }
+        return preparation.displayData
+    }
+
+    private nonisolated static func prepareStaticArtwork(
+        _ data: Data
+    ) -> StaticArtworkPreparation? {
+        guard isImageData(data) else { return nil }
+        let mayContainAnimation = isAnimationContainerCandidate(data)
+        let displayData: Data
+        if mayContainAnimation {
+            guard let mirror = ArtworkImageCompatibility.staticFirstFrameJPEG(from: data) else {
+                return nil
+            }
+            displayData = mirror
+        } else {
+            displayData = data
+        }
+        return StaticArtworkPreparation(
+            displayData: displayData,
+            mayContainAnimation: mayContainAnimation
+        )
+    }
+
+    private func preparedSongArtwork(
+        _ data: Data,
+        songID: String,
+        animationCacheKey: String?
+    ) async -> Data? {
+        guard let displayData = await preparedStaticArtwork(
+            data,
+            animationCacheKey: animationCacheKey
+        ) else { return nil }
+        let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID)
+        if cached != displayData {
+            await MetadataAssetStore.shared.cacheCover(displayData, forSongID: songID)
+        }
+        guard !Task.isCancelled else { return nil }
+        return displayData
+    }
+
+    private func preserveAnimationCandidate(_ data: Data, forKey key: String) async {
+        do {
+            _ = try await Self.animationDiskCache.storeAssetIfValueMissing(
+                data,
+                forKey: key
+            )
+        } catch {
+            // A disposable animation cache failure must not hide static artwork.
+        }
+    }
+
+    private func removeAnimationDescriptor(forKey key: String) {
+        animationDescriptors.removeValue(forKey: key)
+        animationDescriptorLRU.removeAll(where: { $0 == key })
+    }
+
+    private func deduplicatedFetch(
+        key: String,
+        operation: @Sendable @escaping () async -> Data?
+    ) async -> Data? {
+        let waiterID = UUID()
+        let result = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                registerWaiter(
+                    waiterID,
+                    for: key,
+                    operation: operation,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(waiterID, for: key) }
+        }
+        return Task.isCancelled ? nil : result
+    }
+
+    private func registerWaiter(
+        _ waiterID: UUID,
+        for key: String,
+        operation: @Sendable @escaping () async -> Data?,
+        continuation: CheckedContinuation<Data?, Never>
+    ) {
+        if var entry = inFlight[key] {
+            entry.waiters[waiterID] = continuation
+            inFlight[key] = entry
+            return
+        }
+
+        let operationID = UUID()
+        let task = Task<Void, Never> {
+            let result = await operation()
+            self.completeFetch(result, for: key, operationID: operationID)
+        }
+        inFlight[key] = InFlightEntry(
+            id: operationID,
+            task: task,
+            waiters: [waiterID: continuation]
+        )
+    }
+
+    private func cancelWaiter(_ waiterID: UUID, for key: String) {
+        guard var entry = inFlight[key],
+              let continuation = entry.waiters.removeValue(forKey: waiterID) else {
+            return
+        }
+        continuation.resume(returning: nil)
+        guard entry.waiters.isEmpty else {
+            inFlight[key] = entry
+            return
+        }
+        inFlight[key] = nil
+        entry.task.cancel()
+    }
+
+    private func completeFetch(_ result: Data?, for key: String, operationID: UUID) {
+        guard let entry = inFlight[key], entry.id == operationID else { return }
+        inFlight[key] = nil
+        for continuation in entry.waiters.values {
+            continuation.resume(returning: result)
+        }
     }
 
     private func isTemporarilyNegative(_ key: String) -> Bool {
@@ -531,7 +886,10 @@ actor TVArtworkLoader {
                   imgURL.host?.isEmpty == false,
                   imgURL.user == nil,
                   imgURL.password == nil else { return nil }
-            return await fetchRemoteArtwork(from: imgURL)
+            return await fetchRemoteArtwork(
+                from: imgURL,
+                maximumBytes: maximumRemoteArtworkBytes
+            )
         } catch {
             return nil
         }
@@ -561,7 +919,11 @@ actor TVArtworkLoader {
         return data
     }
 
-    private nonisolated static func fetchRemoteArtwork(from url: URL) async -> Data? {
+    private nonisolated static func fetchRemoteArtwork(
+        from url: URL,
+        maximumBytes: Int
+    ) async -> Data? {
+        guard maximumBytes > 0 else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
         request.httpShouldHandleCookies = false
@@ -571,7 +933,7 @@ actor TVArtworkLoader {
             let (data, response) = try await StreamResolverHTTPTransport.data(
                 for: request,
                 session: remoteArtworkSession,
-                maximumBytes: maximumRemoteArtworkBytes
+                maximumBytes: maximumBytes
             )
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode),
@@ -597,15 +959,121 @@ actor TVArtworkLoader {
     }
 
     private nonisolated static func isImageData(_ data: Data) -> Bool {
-        guard !data.isEmpty,
-              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
-        return CGImageSourceGetCount(source) > 0
+        ArtworkImageCompatibility.isCompleteImage(data)
+    }
+
+    nonisolated static func isAnimationContainerCandidate(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let identifier = CGImageSourceGetType(source) as String?,
+              let type = UTType(identifier) else { return false }
+        if type.conforms(to: .gif) { return true }
+        if type.conforms(to: .png) {
+            return pngContainsAnimationControl(data)
+        }
+        if type.conforms(to: .webP) {
+            return webPContainsAnimationChunk(data)
+        }
+        return false
+    }
+
+    private nonisolated static func pngContainsAnimationControl(_ data: Data) -> Bool {
+        data.withUnsafeBytes { rawBuffer in
+            guard let bytes = rawBuffer.bindMemory(to: UInt8.self).baseAddress,
+                  rawBuffer.count >= 20,
+                  bytes[0] == 0x89,
+                  bytes[1] == 0x50,
+                  bytes[2] == 0x4E,
+                  bytes[3] == 0x47,
+                  bytes[4] == 0x0D,
+                  bytes[5] == 0x0A,
+                  bytes[6] == 0x1A,
+                  bytes[7] == 0x0A else { return false }
+
+            var offset = 8
+            while offset <= rawBuffer.count - 12 {
+                let payloadLength = Int(readUInt32BigEndian(bytes, at: offset))
+                guard payloadLength <= rawBuffer.count - offset - 12 else { return false }
+                let typeOffset = offset + 4
+                if matchesFourCC(bytes, at: typeOffset, 0x61, 0x63, 0x54, 0x4C) {
+                    return true // acTL
+                }
+                if matchesFourCC(bytes, at: typeOffset, 0x49, 0x44, 0x41, 0x54)
+                    || matchesFourCC(bytes, at: typeOffset, 0x49, 0x45, 0x4E, 0x44) {
+                    return false // APNG requires acTL before the first IDAT.
+                }
+                offset += payloadLength + 12
+            }
+            return false
+        }
+    }
+
+    private nonisolated static func webPContainsAnimationChunk(_ data: Data) -> Bool {
+        data.withUnsafeBytes { rawBuffer in
+            guard let bytes = rawBuffer.bindMemory(to: UInt8.self).baseAddress,
+                  rawBuffer.count >= 20,
+                  matchesFourCC(bytes, at: 0, 0x52, 0x49, 0x46, 0x46), // RIFF
+                  matchesFourCC(bytes, at: 8, 0x57, 0x45, 0x42, 0x50) else { return false } // WEBP
+
+            let declaredPayloadLength = Int(readUInt32LittleEndian(bytes, at: 4))
+            guard declaredPayloadLength <= rawBuffer.count - 8 else { return false }
+            let containerEnd = declaredPayloadLength + 8
+            var offset = 12
+            while offset <= containerEnd - 8 {
+                if matchesFourCC(bytes, at: offset, 0x41, 0x4E, 0x49, 0x4D)
+                    || matchesFourCC(bytes, at: offset, 0x41, 0x4E, 0x4D, 0x46) {
+                    return true // ANIM / ANMF
+                }
+                let payloadLength = Int(readUInt32LittleEndian(bytes, at: offset + 4))
+                guard payloadLength <= containerEnd - offset - 8 else { return false }
+                offset += 8 + payloadLength + (payloadLength & 1)
+            }
+            return false
+        }
+    }
+
+    private nonisolated static func matchesFourCC(
+        _ bytes: UnsafePointer<UInt8>,
+        at offset: Int,
+        _ a: UInt8,
+        _ b: UInt8,
+        _ c: UInt8,
+        _ d: UInt8
+    ) -> Bool {
+        bytes[offset] == a
+            && bytes[offset + 1] == b
+            && bytes[offset + 2] == c
+            && bytes[offset + 3] == d
+    }
+
+    private nonisolated static func readUInt32BigEndian(
+        _ bytes: UnsafePointer<UInt8>,
+        at offset: Int
+    ) -> UInt32 {
+        (UInt32(bytes[offset]) << 24)
+            | (UInt32(bytes[offset + 1]) << 16)
+            | (UInt32(bytes[offset + 2]) << 8)
+            | UInt32(bytes[offset + 3])
+    }
+
+    private nonisolated static func readUInt32LittleEndian(
+        _ bytes: UnsafePointer<UInt8>,
+        at offset: Int
+    ) -> UInt32 {
+        UInt32(bytes[offset])
+            | (UInt32(bytes[offset + 1]) << 8)
+            | (UInt32(bytes[offset + 2]) << 16)
+            | (UInt32(bytes[offset + 3]) << 24)
     }
 }
 
 /// 封面视图:加载到真实封面就显示,否则用程序化封面占位/兜底。
 struct TVArtworkView: View {
     @Environment(TVStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
+    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
 
     var coverKey: String          // 缓存键(专辑 id)
     var songID: String? = nil
@@ -630,10 +1098,13 @@ struct TVArtworkView: View {
     @State private var animatedArtworkData: Data? = nil
     @State private var animatedArtworkDescriptor: ArtworkDescriptor? = nil
     @State private var animatedArtworkContentKey: String? = nil
+    @State private var animatedArtworkDiskKey: String? = nil
+    @State private var loadedArtworkAnimationDiskKey: String? = nil
     @State private var loadedIdentity: String? = nil
     @State private var activeIdentity: String? = nil
     @State private var paletteAppliedIdentity: String? = nil
     @State private var retryRevision = 0
+    @State private var animationPolicyRevision = 0
 
     private var artworkIdentity: String {
         let overrideSuffix = albumArtworkOverrideIdentity.map { "|override:\($0)" } ?? ""
@@ -643,6 +1114,120 @@ struct TVArtworkView: View {
         }
         guard let songID, !songID.isEmpty else { return "" }
         return "song:\(songID)|\(coverRef ?? "")"
+    }
+
+    private var animationPlaybackPolicy: ArtworkAnimationPolicy {
+        ArtworkAnimationPolicy(
+            isEnabled: animatedArtworkEnabled,
+            presentationRole: presentationRole,
+            isVisible: isAnimationVisible,
+            isSceneActive: scenePhase == .active,
+            requiresPlayback: animationRequiresPlayback,
+            isPlaying: isPlaying,
+            reduceMotion: reduceMotion,
+            playAnimatedImages: playAnimatedImages,
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalCondition: Self.thermalCondition(ProcessInfo.processInfo.thermalState)
+        )
+    }
+
+    private var artworkTaskIdentity: String {
+        var components = [
+            artworkIdentity,
+            String(retryRevision),
+            presentationRole.rawValue,
+            songSourceAnimationDiskKey,
+            albumSourceAnimationDiskKey,
+            preferredAnimationDiskKey,
+        ]
+        guard presentationRole == .animatedHero else {
+            return components.joined(separator: "|")
+        }
+        components.append(contentsOf: [
+            String(animatedArtworkEnabled),
+            String(isAnimationVisible),
+            String(animationRequiresPlayback),
+            String(isPlaying),
+            String(scenePhase == .active),
+            String(reduceMotion),
+            String(playAnimatedImages),
+            String(ProcessInfo.processInfo.isLowPowerModeEnabled),
+            Self.thermalCondition(ProcessInfo.processInfo.thermalState).rawValue,
+            String(animationPolicyRevision),
+        ])
+        return components.joined(separator: "|")
+    }
+
+    private var songSourceAnimationDiskKey: String {
+        let song = songID.flatMap { store.library.song(id: $0) }
+        return songAnimationDiskKey(
+            songID: songID,
+            sourceID: song?.sourceID,
+            coverRef: coverRef,
+            sourceRevision: song?.revision
+        )
+    }
+
+    private var albumSourceAnimationDiskKey: String {
+        guard !coverKey.isEmpty else { return "" }
+        return [
+            "tv-source-v3",
+            "album",
+            coverKey,
+            albumArtworkOverrideIdentity ?? "automatic",
+        ].joined(separator: "\u{1F}")
+    }
+
+    private var preferredAnimationDiskKey: String {
+        if let albumArtworkOverride,
+           case .uploaded(let contentID) = albumArtworkOverride {
+            return uploadedAnimationDiskKey(contentID: contentID)
+        }
+        if let albumArtworkOverride,
+           case .selectedSong(let selectedSongID) = albumArtworkOverride,
+           let selectedSong = store.library.song(id: selectedSongID) {
+            return songAnimationDiskKey(for: selectedSong)
+        }
+        let hasFnMusicCoverReference = FnMusicAPIProtocol.coverID(from: coverRef ?? "") != nil
+        if presentationRole != .animatedHero,
+           !albumSourceAnimationDiskKey.isEmpty,
+           !hasFnMusicCoverReference {
+            return albumSourceAnimationDiskKey
+        }
+        return !songSourceAnimationDiskKey.isEmpty
+            ? songSourceAnimationDiskKey
+            : albumSourceAnimationDiskKey
+    }
+
+    private func songAnimationDiskKey(for song: Song) -> String {
+        songAnimationDiskKey(
+            songID: song.id,
+            sourceID: song.sourceID,
+            coverRef: song.coverArtFileName,
+            sourceRevision: song.revision
+        )
+    }
+
+    private func songAnimationDiskKey(
+        songID: String?,
+        sourceID: String?,
+        coverRef: String?,
+        sourceRevision: String?
+    ) -> String {
+        guard let songID, !songID.isEmpty else { return "" }
+        let components = [
+            "tv-source-v3",
+            "song",
+            sourceID ?? "",
+            songID,
+            coverRef ?? "",
+            sourceRevision ?? "",
+        ]
+        return components.joined(separator: "\u{1F}")
+    }
+
+    private func uploadedAnimationDiskKey(contentID: String) -> String {
+        ["tv-source-v3", "upload", contentID].joined(separator: "\u{1F}")
     }
 
     private var paletteKey: String {
@@ -704,34 +1289,67 @@ struct TVArtworkView: View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(TVColor.cardBorder, lineWidth: 1)
         }
-        .task(id: "\(artworkIdentity)|\(retryRevision)") {
+        .task(id: artworkTaskIdentity) {
+            let taskIdentity = artworkTaskIdentity
             let identity = artworkIdentity
+            let currentAnimationKey = preferredAnimationDiskKey
+            if !animationPlaybackPolicy.shouldAnimate {
+                clearAnimatedArtworkState()
+            }
             guard !identity.isEmpty else {
                 activeIdentity = nil
                 loadedIdentity = nil
                 paletteAppliedIdentity = nil
                 image = nil
-                animatedArtworkData = nil
-                animatedArtworkDescriptor = nil
-                animatedArtworkContentKey = nil
+                loadedArtworkAnimationDiskKey = nil
+                clearAnimatedArtworkState()
                 onResolutionChange(false)
                 return
             }
-            guard loadedIdentity != identity || image == nil
-                    || paletteAppliedIdentity != identity else { return }
+            if loadedIdentity == identity,
+               image != nil,
+               paletteAppliedIdentity == identity,
+               loadedArtworkAnimationDiskKey == currentAnimationKey {
+                guard animationPlaybackPolicy.shouldAnimate else { return }
+                if await resolveAnimatedArtwork(
+                    candidateData: nil,
+                    identity: identity,
+                    taskIdentity: taskIdentity,
+                    diskKey: currentAnimationKey
+                ) {
+                    return
+                }
+            }
             // 身份变了:先清掉上一张封面,回到程序化占位再取新图。
+            let identityChanged = activeIdentity != identity
             activeIdentity = identity
-            paletteAppliedIdentity = nil
-            image = nil
-            animatedArtworkData = nil
-            animatedArtworkDescriptor = nil
-            animatedArtworkContentKey = nil
+            if identityChanged {
+                paletteAppliedIdentity = nil
+                image = nil
+                loadedArtworkAnimationDiskKey = nil
+                clearAnimatedArtworkState()
+            }
+
+            if await acceptOriginalHeroArtwork(
+                identity: identity,
+                taskIdentity: taskIdentity,
+                diskKey: currentAnimationKey
+            ) {
+                return
+            }
 
             if let albumArtworkOverride {
                 switch albumArtworkOverride {
                 case .uploaded(let contentID):
                     if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID),
-                       await accept(data, identity: identity, paletteKey: paletteKey) {
+                       await accept(
+                        data,
+                        identity: identity,
+                        taskIdentity: taskIdentity,
+                        paletteKey: paletteKey,
+                        animationDiskKey: uploadedAnimationDiskKey(contentID: contentID),
+                        animationCandidateIsOriginal: true
+                       ) {
                         return
                     }
                 case .selectedSong(let selectedSongID):
@@ -741,8 +1359,15 @@ struct TVArtworkView: View {
                             songID: selectedSong.id,
                             coverRef: selectedSong.coverArtFileName,
                             fnMusicSourceID: selectedSong.sourceID,
-                            fnMusicClient: client
-                        ), await accept(data, identity: identity, paletteKey: paletteKey) {
+                            fnMusicClient: client,
+                            animationCacheKey: songAnimationDiskKey(for: selectedSong)
+                        ), await accept(
+                            data,
+                            identity: identity,
+                            taskIdentity: taskIdentity,
+                            paletteKey: paletteKey,
+                            animationDiskKey: songAnimationDiskKey(for: selectedSong)
+                        ) {
                             return
                         }
                     }
@@ -755,8 +1380,20 @@ struct TVArtworkView: View {
             if presentationRole != .animatedHero,
                !coverKey.isEmpty, !hasFnMusicCoverReference {
                 // ① 优先使用已同步到本地的准确专辑封面。
-                if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: coverKey),
-                   await accept(data, identity: identity, paletteKey: paletteKey) {
+                if let cached = await MetadataAssetStore.shared.cachedAlbumCover(
+                    forAlbumID: coverKey
+                ), let data = await TVArtworkLoader.shared.preparedAlbumArtwork(
+                    cached,
+                    albumID: coverKey,
+                    animationCacheKey: albumSourceAnimationDiskKey
+                ),
+                   await accept(
+                    data,
+                    identity: identity,
+                    taskIdentity: taskIdentity,
+                    paletteKey: paletteKey,
+                    animationDiskKey: albumSourceAnimationDiskKey
+                   ) {
                     return
                 }
             }
@@ -764,15 +1401,19 @@ struct TVArtworkView: View {
                 // ② 再查歌曲自身缓存/安全远程引用，避免准确散曲封面被模糊专辑搜索覆盖。
                 let fnMusicSourceID = store.library.song(id: songID)?.sourceID
                 let fnMusicClient = fnMusicSourceID.flatMap(store.fnMusicClient(for:))
+                let songAnimationKey = songSourceAnimationDiskKey
                 if let data = await TVArtworkLoader.shared.songCover(
                     songID: songID,
                     coverRef: coverRef,
                     fnMusicSourceID: fnMusicSourceID,
-                    fnMusicClient: fnMusicClient
+                    fnMusicClient: fnMusicClient,
+                    animationCacheKey: songAnimationKey
                 ), await accept(
                     data,
                     identity: identity,
+                    taskIdentity: taskIdentity,
                     paletteKey: "song:\(songID)",
+                    animationDiskKey: songAnimationKey,
                     songScoped: true
                 ) {
                     return
@@ -780,8 +1421,20 @@ struct TVArtworkView: View {
             }
             if presentationRole == .animatedHero,
                !coverKey.isEmpty, !hasFnMusicCoverReference,
-               let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: coverKey),
-               await accept(data, identity: identity, paletteKey: paletteKey) {
+               let cached = await MetadataAssetStore.shared.cachedAlbumCover(
+                forAlbumID: coverKey
+               ), let data = await TVArtworkLoader.shared.preparedAlbumArtwork(
+                cached,
+                albumID: coverKey,
+                animationCacheKey: albumSourceAnimationDiskKey
+               ),
+               await accept(
+                data,
+                identity: identity,
+                taskIdentity: taskIdentity,
+                paletteKey: paletteKey,
+                animationDiskKey: albumSourceAnimationDiskKey
+               ) {
                 return
             }
             if !coverKey.isEmpty, !hasFnMusicCoverReference {
@@ -791,11 +1444,19 @@ struct TVArtworkView: View {
                     key: coverKey,
                     artist: artist,
                     album: album
-                ), await accept(data, identity: identity, paletteKey: paletteKey) {
+                ), await accept(
+                    data,
+                    identity: identity,
+                    taskIdentity: taskIdentity,
+                    paletteKey: paletteKey,
+                    animationDiskKey: albumSourceAnimationDiskKey
+                ) {
                     return
                 }
             }
-            guard activeIdentity == identity, !Task.isCancelled else { return }
+            guard activeIdentity == identity,
+                  artworkTaskIdentity == taskIdentity,
+                  !Task.isCancelled else { return }
             loadedIdentity = identity
             onResolutionChange(false)
             // A timeout or offline response is only a short-lived negative.
@@ -804,7 +1465,10 @@ struct TVArtworkView: View {
             try? await Task.sleep(
                 nanoseconds: UInt64(TVArtworkLoader.negativeCacheTTL * 1_000_000_000)
             )
-            guard activeIdentity == identity, image == nil, !Task.isCancelled else { return }
+            guard activeIdentity == identity,
+                  artworkTaskIdentity == taskIdentity,
+                  image == nil,
+                  !Task.isCancelled else { return }
             retryRevision &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
@@ -813,29 +1477,76 @@ struct TVArtworkView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard notificationMatchesCurrentArtwork(note) else { return }
-            forceArtworkReload()
+            forceArtworkReload(removingAnimationEntry: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: Notification.Name.NSProcessInfoPowerStateDidChange
+        )) { _ in
+            animationPolicyRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: ProcessInfo.thermalStateDidChangeNotification
+        )) { _ in
+            animationPolicyRevision &+= 1
         }
         .onChange(of: image != nil) { _, isResolved in
             if isResolved { onResolutionChange(true) }
         }
     }
 
-    private func forceArtworkReload() {
+    private func forceArtworkReload(removingAnimationEntry: Bool = false) {
+        let candidateDiskKeys: [String?] = [
+            animatedArtworkDiskKey,
+            loadedArtworkAnimationDiskKey,
+            preferredAnimationDiskKey,
+            songSourceAnimationDiskKey,
+            albumSourceAnimationDiskKey,
+        ]
+        let diskKeys = Set<String>(candidateDiskKeys.compactMap { key in
+            guard let key, !key.isEmpty else { return nil }
+            return key
+        })
+        let invalidatedIdentity = artworkIdentity
         loadedIdentity = nil
+        activeIdentity = nil
         paletteAppliedIdentity = nil
         image = nil
-        animatedArtworkData = nil
-        animatedArtworkDescriptor = nil
-        animatedArtworkContentKey = nil
-        retryRevision &+= 1
+        loadedArtworkAnimationDiskKey = nil
+        clearAnimatedArtworkState()
+        if removingAnimationEntry, !diskKeys.isEmpty {
+            Task { @MainActor in
+                for diskKey in diskKeys {
+                    await TVArtworkLoader.shared.removeAnimationEntry(forKey: diskKey)
+                }
+                guard artworkIdentity == invalidatedIdentity else { return }
+                retryRevision &+= 1
+            }
+        } else {
+            retryRevision &+= 1
+        }
     }
 
     private func notificationMatchesCurrentArtwork(_ note: Notification) -> Bool {
         if note.userInfo?["all"] as? Bool == true { return true }
+        var relevantSongIDs = Set<String>()
         if let songID, !songID.isEmpty {
-            if note.object as? String == songID { return true }
-            if note.userInfo?["songID"] as? String == songID { return true }
-            if (note.userInfo?["songIDs"] as? [String])?.contains(songID) == true { return true }
+            relevantSongIDs.insert(songID)
+        }
+        if let albumArtworkOverride,
+           case .selectedSong(let selectedSongID) = albumArtworkOverride {
+            relevantSongIDs.insert(selectedSongID)
+        }
+        if let notifiedSongID = note.object as? String,
+           relevantSongIDs.contains(notifiedSongID) {
+            return true
+        }
+        if let notifiedSongID = note.userInfo?["songID"] as? String,
+           relevantSongIDs.contains(notifiedSongID) {
+            return true
+        }
+        if let notifiedSongIDs = note.userInfo?["songIDs"] as? [String],
+           !relevantSongIDs.isDisjoint(with: notifiedSongIDs) {
+            return true
         }
         let tokens = note.userInfo?["tokens"] as? [String] ?? []
         if !coverKey.isEmpty, tokens.contains(coverKey) { return true }
@@ -851,33 +1562,35 @@ struct TVArtworkView: View {
     private func accept(
         _ data: Data,
         identity: String,
+        taskIdentity: String,
         paletteKey: String,
+        animationDiskKey: String,
+        animationCandidateIsOriginal: Bool = false,
         songScoped: Bool = false
     ) async -> Bool {
         guard let ui = UIImage(data: data), activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
               !Task.isCancelled else { return false }
         image = ui
         loadedIdentity = identity
-        if presentationRole == .animatedHero {
-            let descriptor = await Task.detached(priority: .utility) {
-                ArtworkImageCompatibility.inspect(data)
-            }.value
-            guard activeIdentity == identity, !Task.isCancelled else { return false }
-            if let descriptor, descriptor.isAnimated {
-                animatedArtworkData = data
-                animatedArtworkDescriptor = descriptor
-                animatedArtworkContentKey = "\(identity)|\(data.count)|\(data.hashValue)"
-            } else {
-                animatedArtworkData = nil
-                animatedArtworkDescriptor = nil
-                animatedArtworkContentKey = nil
-            }
-        }
+        loadedArtworkAnimationDiskKey = animationDiskKey
+        _ = await resolveAnimatedArtwork(
+            candidateData: data,
+            candidateIsOriginal: animationCandidateIsOriginal,
+            identity: identity,
+            taskIdentity: taskIdentity,
+            diskKey: animationDiskKey
+        )
 
+        guard activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else { return false }
         guard let palette = await TVArtworkPaletteLoader.shared.palette(
             for: data,
             artworkKey: paletteKey
-        ), activeIdentity == identity, !Task.isCancelled else { return true }
+        ), activeIdentity == identity,
+           artworkTaskIdentity == taskIdentity,
+           !Task.isCancelled else { return true }
         if songScoped, let songID, !songID.isEmpty {
             store.applyArtworkPalette(palette, forSongID: songID)
         } else if !coverKey.isEmpty {
@@ -887,6 +1600,269 @@ struct TVArtworkView: View {
         }
         paletteAppliedIdentity = identity
         return true
+    }
+
+    @MainActor
+    private func acceptOriginalHeroArtwork(
+        identity: String,
+        taskIdentity: String,
+        diskKey: String
+    ) async -> Bool {
+        guard presentationRole == .animatedHero,
+              animationPlaybackPolicy.shouldAnimate,
+              !diskKey.isEmpty else { return false }
+
+        let cacheWasConclusive = await resolveAnimatedArtwork(
+            candidateData: nil,
+            identity: identity,
+            taskIdentity: taskIdentity,
+            diskKey: diskKey
+        )
+        guard animationPlaybackPolicy.shouldAnimate,
+              activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else { return false }
+
+        let data: Data
+        let candidateIsOriginal: Bool
+        if cacheWasConclusive {
+            guard let cachedData = animatedArtworkData else { return false }
+            data = cachedData
+            candidateIsOriginal = false
+        } else {
+            guard let originalData = await originalHeroArtworkData(diskKey: diskKey),
+                  animationPlaybackPolicy.shouldAnimate,
+                  activeIdentity == identity,
+                  artworkTaskIdentity == taskIdentity,
+                  !Task.isCancelled else { return false }
+            data = originalData
+            candidateIsOriginal = true
+        }
+
+        if candidateIsOriginal {
+            _ = await resolveAnimatedArtwork(
+                candidateData: data,
+                candidateIsOriginal: true,
+                identity: identity,
+                taskIdentity: taskIdentity,
+                diskKey: diskKey
+            )
+        }
+        guard let displayData = await TVArtworkLoader.shared.preparedHeroFallback(data),
+              animationPlaybackPolicy.shouldAnimate,
+              activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else { return false }
+
+        let usesAlbumOverride: Bool
+        if let albumArtworkOverride {
+            switch albumArtworkOverride {
+            case .uploaded, .selectedSong:
+                usesAlbumOverride = true
+            case .automatic:
+                usesAlbumOverride = false
+            }
+        } else {
+            usesAlbumOverride = false
+        }
+        let targetPaletteKey = usesAlbumOverride || songID?.isEmpty != false
+            ? paletteKey
+            : "song:\(songID ?? "")"
+        return await accept(
+            displayData,
+            identity: identity,
+            taskIdentity: taskIdentity,
+            paletteKey: targetPaletteKey,
+            animationDiskKey: diskKey,
+            songScoped: !usesAlbumOverride && songID?.isEmpty == false
+        )
+    }
+
+    @MainActor
+    private func originalHeroArtworkData(diskKey: String) async -> Data? {
+        if let albumArtworkOverride {
+            switch albumArtworkOverride {
+            case .uploaded(let contentID):
+                return MetadataAssetStore.shared.customArtworkData(contentID: contentID)
+            case .selectedSong(let selectedSongID):
+                guard let selectedSong = store.library.song(id: selectedSongID) else {
+                    return nil
+                }
+                return await TVArtworkLoader.shared.originalAnimationCandidate(
+                    songID: selectedSong.id,
+                    coverRef: selectedSong.coverArtFileName,
+                    fnMusicSourceID: selectedSong.sourceID,
+                    fnMusicClient: store.fnMusicClient(for: selectedSong.sourceID),
+                    requestKey: diskKey
+                )
+            case .automatic:
+                break
+            }
+        }
+
+        guard let songID, !songID.isEmpty else { return nil }
+        let sourceID = store.library.song(id: songID)?.sourceID
+        return await TVArtworkLoader.shared.originalAnimationCandidate(
+            songID: songID,
+            coverRef: coverRef,
+            fnMusicSourceID: sourceID,
+            fnMusicClient: sourceID.flatMap(store.fnMusicClient(for:)),
+            requestKey: diskKey
+        )
+    }
+
+    /// Returns true when the animation cache had a conclusive positive or
+    /// negative result. A false result asks the caller to reload the base data,
+    /// which is needed for durable user artwork that has not been inspected yet.
+    @MainActor
+    private func resolveAnimatedArtwork(
+        candidateData: Data?,
+        candidateIsOriginal: Bool = false,
+        identity: String,
+        taskIdentity: String,
+        diskKey: String
+    ) async -> Bool {
+        guard animationPlaybackPolicy.shouldAnimate,
+              !diskKey.isEmpty,
+              activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else {
+            clearAnimatedArtworkState()
+            return true
+        }
+        if animatedArtworkDiskKey == diskKey,
+           animatedArtworkData != nil,
+           animatedArtworkDescriptor != nil {
+            return true
+        }
+
+        let cached = await TVArtworkLoader.shared.cachedAnimation(forKey: diskKey)
+        guard animationPlaybackPolicy.shouldAnimate,
+              activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else {
+            clearAnimatedArtworkState()
+            return true
+        }
+
+        let data: Data
+        let cameFromDisk: Bool
+        var assetGeneration: String?
+        switch cached {
+        case .asset(let record):
+            data = record.data
+            cameFromDisk = true
+            assetGeneration = record.generation
+        case .negative:
+            clearAnimatedArtworkState()
+            return true
+        case nil:
+            guard let candidateData else { return false }
+            guard TVArtworkLoader.isAnimationContainerCandidate(candidateData) else {
+                guard candidateIsOriginal else {
+                    clearAnimatedArtworkState()
+                    return false
+                }
+                await TVArtworkLoader.shared.recordStaticAnimationResult(forKey: diskKey)
+                clearAnimatedArtworkState()
+                return true
+            }
+            data = candidateData
+            cameFromDisk = false
+        }
+
+        if cameFromDisk,
+           let assetGeneration,
+           let descriptor = await TVArtworkLoader.shared.cachedAnimationDescriptor(
+            forKey: diskKey,
+            generation: assetGeneration
+           ) {
+            guard animationPlaybackPolicy.shouldAnimate,
+                  activeIdentity == identity,
+                  artworkTaskIdentity == taskIdentity,
+                  !Task.isCancelled else {
+                clearAnimatedArtworkState()
+                return true
+            }
+            animatedArtworkData = data
+            animatedArtworkDescriptor = descriptor
+            animatedArtworkDiskKey = diskKey
+            animatedArtworkContentKey = "\(diskKey)|\(data.count)|\(data.hashValue)"
+            return true
+        }
+
+        guard animationPlaybackPolicy.shouldAnimate else {
+            clearAnimatedArtworkState()
+            return true
+        }
+        let inspectionTask = Task.detached(priority: .utility) {
+            ArtworkImageCompatibility.inspect(data)
+        }
+        let descriptor = await withTaskCancellationHandler {
+            await inspectionTask.value
+        } onCancel: {
+            inspectionTask.cancel()
+        }
+        guard animationPlaybackPolicy.shouldAnimate,
+              activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else {
+            clearAnimatedArtworkState()
+            return true
+        }
+        guard let descriptor, descriptor.isAnimated else {
+            await TVArtworkLoader.shared.recordStaticAnimationResult(
+                forKey: diskKey,
+                matchingGeneration: assetGeneration
+            )
+            clearAnimatedArtworkState()
+            return true
+        }
+
+        if !cameFromDisk {
+            assetGeneration = await TVArtworkLoader.shared.cacheValidatedAnimation(
+                data,
+                forKey: diskKey
+            )
+        }
+        if let assetGeneration {
+            await TVArtworkLoader.shared.cacheAnimationDescriptor(
+                descriptor,
+                forKey: diskKey,
+                generation: assetGeneration
+            )
+        }
+        guard animationPlaybackPolicy.shouldAnimate,
+              activeIdentity == identity,
+              artworkTaskIdentity == taskIdentity,
+              !Task.isCancelled else {
+            clearAnimatedArtworkState()
+            return true
+        }
+        animatedArtworkData = data
+        animatedArtworkDescriptor = descriptor
+        animatedArtworkDiskKey = diskKey
+        animatedArtworkContentKey = "\(diskKey)|\(data.count)|\(data.hashValue)"
+        return true
+    }
+
+    private func clearAnimatedArtworkState() {
+        animatedArtworkData = nil
+        animatedArtworkDescriptor = nil
+        animatedArtworkContentKey = nil
+        animatedArtworkDiskKey = nil
+    }
+
+    private nonisolated static func thermalCondition(
+        _ state: ProcessInfo.ThermalState
+    ) -> ArtworkThermalCondition {
+        switch state {
+        case .nominal: .nominal
+        case .fair: .fair
+        case .serious: .serious
+        case .critical: .critical
+        @unknown default: .critical
+        }
     }
 
     init(

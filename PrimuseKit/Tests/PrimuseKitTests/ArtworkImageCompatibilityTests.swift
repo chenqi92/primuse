@@ -131,6 +131,103 @@ struct ArtworkImageCompatibilityTests {
         ) == nil)
     }
 
+    @Test func createsBoundedStaticMirrorFromAnimatedOriginal() throws {
+        let animated = try makeAnimatedGIF()
+        let mirror = try #require(ArtworkImageCompatibility.staticFirstFrameJPEG(
+            from: animated,
+            maximumPixelSize: 64
+        ))
+        let descriptor = try #require(ArtworkImageCompatibility.inspect(mirror))
+
+        #expect(descriptor.format == .jpeg)
+        #expect(!descriptor.isAnimated)
+        #expect(descriptor.frameCount == 1)
+        #expect(descriptor.pixelWidth <= 64)
+        #expect(descriptor.pixelHeight <= 64)
+    }
+
+    @Test func rejectsInvalidStaticMirrorParameters() throws {
+        let animated = try makeAnimatedGIF()
+
+        #expect(ArtworkImageCompatibility.staticFirstFrameJPEG(
+            from: animated,
+            maximumPixelSize: 0
+        ) == nil)
+        #expect(ArtworkImageCompatibility.staticFirstFrameJPEG(
+            from: animated,
+            compressionQuality: 1.1
+        ) == nil)
+    }
+
+    @Test func normalizesContainerLoopSemanticsToTotalPlaybackCount() {
+        func descriptor(format: ArtworkContainerFormat, rawLoopCount: Int?) -> ArtworkDescriptor {
+            ArtworkDescriptor(
+                typeIdentifier: "test",
+                format: format,
+                pixelWidth: 1,
+                pixelHeight: 1,
+                frameDurations: [0.1, 0.1],
+                loopCount: rawLoopCount
+            )
+        }
+
+        #expect(descriptor(format: .gif, rawLoopCount: nil).playbackCount == .finite(1))
+        #expect(descriptor(format: .gif, rawLoopCount: 0).playbackCount == .infinite)
+        #expect(descriptor(format: .gif, rawLoopCount: 2).playbackCount == .finite(3))
+        #expect(descriptor(format: .png, rawLoopCount: 2).playbackCount == .finite(2))
+        #expect(descriptor(format: .webP, rawLoopCount: 2).playbackCount == .finite(2))
+    }
+
+    @Test func sourceRequestIdentitySeparatesArtworkReplacements() throws {
+        let original = try #require(ArtworkSourceRequestIdentity.key(
+            songID: "song-1",
+            artworkReference: "cover-a.gif",
+            sourceID: "server-1",
+            filePath: "/album/song.flac",
+            fileFormat: "flac",
+            revision: "1"
+        ))
+        let replacement = try #require(ArtworkSourceRequestIdentity.key(
+            songID: "song-1",
+            artworkReference: "cover-b.gif",
+            sourceID: "server-1",
+            filePath: "/album/song.flac",
+            fileFormat: "flac",
+            revision: "1"
+        ))
+        let refreshed = try #require(ArtworkSourceRequestIdentity.key(
+            songID: "song-1",
+            artworkReference: "cover-a.gif",
+            sourceID: "server-1",
+            filePath: "/album/song.flac",
+            fileFormat: "flac",
+            revision: "2"
+        ))
+
+        #expect(original != replacement)
+        #expect(original != refreshed)
+        #expect(
+            original == ArtworkSourceRequestIdentity.key(
+                songID: "song-1",
+                artworkReference: "cover-a.gif",
+                sourceID: "server-1",
+                filePath: "/album/song.flac",
+                fileFormat: "flac",
+                revision: "1"
+            )
+        )
+        #expect(
+            ArtworkSourceRequestIdentity.key(
+                songID: nil,
+                artworkReference: nil,
+                sourceID: nil,
+                filePath: nil,
+                fileFormat: nil,
+                revision: "1"
+            ) == nil
+        )
+    }
+
     private func makeAnimatedImage(type: UTType) throws -> Data {
         let encoded = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(

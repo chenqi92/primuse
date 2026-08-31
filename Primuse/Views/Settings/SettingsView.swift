@@ -307,6 +307,10 @@ private struct PlayerAppearanceSettingsView: View {
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
@@ -408,6 +412,23 @@ private struct PlayerAppearanceSettingsView: View {
                     Text("player_animated_artwork_description")
                     Text("player_animated_artwork_unmetered_only_description")
                 }
+            }
+
+            Section {
+                Toggle(
+                    "motion_artwork_service_enabled",
+                    isOn: $motionArtworkServiceEnabled
+                )
+                TextField(
+                    "motion_artwork_service_endpoint",
+                    text: $motionArtworkServiceEndpoint
+                )
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .disabled(!motionArtworkServiceEnabled)
+            } footer: {
+                Text("motion_artwork_service_description")
             }
 
             Section {

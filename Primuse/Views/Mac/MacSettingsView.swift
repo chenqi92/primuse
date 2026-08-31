@@ -4487,6 +4487,10 @@ private struct MacSTThemeView: View {
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
 
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatches.map { swatch in
@@ -4614,9 +4618,26 @@ private struct MacSTThemeView: View {
                         .disabled(!animatedArtworkEnabled)
                 }
                 MacSTRow(
+                    String(localized: "motion_artwork_service_enabled"),
+                    hint: String(localized: "motion_artwork_service_description")
+                ) {
+                    MacSTToggle(isOn: $motionArtworkServiceEnabled)
+                }
+                MacSTRow(
+                    String(localized: "motion_artwork_service_endpoint"),
+                    divider: false,
+                    block: true
+                ) {
+                    MacSTTextField(
+                        text: $motionArtworkServiceEndpoint,
+                        prompt: "https://artwork.example.com/v1/lookup",
+                        width: 520
+                    )
+                    .disabled(!motionArtworkServiceEnabled)
+                }
+                MacSTRow(
                     String(localized: "player_volume_bar"),
-                    hint: String(localized: "player_volume_bar_description"),
-                    divider: false
+                    hint: String(localized: "player_volume_bar_description")
                 ) {
                     MacSTToggle(isOn: $showsPlayerVolumeBar)
                 }

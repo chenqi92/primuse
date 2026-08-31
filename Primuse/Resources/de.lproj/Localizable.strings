@@ -2939,6 +2939,9 @@
 "player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";
 "player_animated_artwork_unmetered_only" = "Originalcover nur über WLAN";
 "player_animated_artwork_unmetered_only_description" = "Lädt dynamische Originalcover nur über WLAN oder Ethernet. Bereits zwischengespeicherte Animationen bleiben offline verfügbar.";
+"motion_artwork_service_enabled" = "Eigener Dienst für animierte Cover";
+"motion_artwork_service_endpoint" = "Dienst-Endpunkt";
+"motion_artwork_service_description" = "Standardmäßig deaktiviert. Apples öffentliche APIs stellen Apple Music Motion Artwork nicht bereit. Nach der Aktivierung sendet Primuse Albuminterpret, Titel, Jahr, Titelanzahl und verfügbare öffentliche Katalogkennungen an den konfigurierten Drittanbieter-Endpunkt. Animierte Bilder sind auf 32 MB begrenzt und werden nur für sichtbare große Cover gemäß Netzwerk-, Bewegungs-, Energie- und Temperatureinstellungen angefordert.";
 "player_lyrics_section" = "Liedtext";
 "player_lyrics_alignment" = "Liedtextausrichtung";
 "player_lyrics_alignment_left" = "Links";

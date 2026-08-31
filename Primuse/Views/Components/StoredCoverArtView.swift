@@ -342,6 +342,7 @@ struct AlbumArtworkView: View {
 
     @Environment(MusicLibrary.self) private var library
     @State private var uploadedImage: PlatformImage?
+    @State private var resolvedFallbackArtworkIdentity: String?
     @State private var reloadRevision = 0
 
     private var owner: LibraryArtworkOwner {
@@ -405,6 +406,12 @@ struct AlbumArtworkView: View {
         selectedSong: PrimuseKit.Song?,
         uploadedContentID: String?
     ) -> some View {
+        let overrideOwnsVisibleLayer = uploadedContentID != nil || selectedSong != nil
+        let automaticAnimationVisible = isAnimationVisible && !overrideOwnsVisibleLayer
+        let fallbackOwnsAutomaticLayer = fallbackSong.map { song in
+            resolvedFallbackArtworkIdentity == fallbackArtworkIdentity(for: song)
+        } ?? false
+
         ZStack {
             if showsPlaceholder {
                 CachedArtworkView(
@@ -418,11 +425,18 @@ struct AlbumArtworkView: View {
             }
 
             if presentationRole == .animatedHero {
-                cachedAlbumArtwork(side: side)
-                sourceFallbackArtwork(side: side)
+                cachedAlbumArtwork(
+                    side: side,
+                    isAnimationVisible: automaticAnimationVisible
+                        && !fallbackOwnsAutomaticLayer
+                )
+                sourceFallbackArtwork(
+                    side: side,
+                    isAnimationVisible: automaticAnimationVisible
+                )
             } else {
-                sourceFallbackArtwork(side: side)
-                cachedAlbumArtwork(side: side)
+                sourceFallbackArtwork(side: side, isAnimationVisible: false)
+                cachedAlbumArtwork(side: side, isAnimationVisible: false)
             }
 
             if let uploadedImage, uploadedContentID != nil {
@@ -454,8 +468,12 @@ struct AlbumArtworkView: View {
     }
 
     @ViewBuilder
-    private func sourceFallbackArtwork(side: CGFloat) -> some View {
+    private func sourceFallbackArtwork(
+        side: CGFloat,
+        isAnimationVisible: Bool
+    ) -> some View {
         if let song = fallbackSong {
+            let identity = fallbackArtworkIdentity(for: song)
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
@@ -469,19 +487,46 @@ struct AlbumArtworkView: View {
                 animationRequiresPlayback: animationRequiresPlayback,
                 isPlaying: isPlaying,
                 isAnimationVisible: isAnimationVisible,
-                revisionToken: library.artworkOverrideRevision
+                revisionToken: library.artworkOverrideRevision,
+                onResolutionChange: { isResolved in
+                    if isResolved {
+                        resolvedFallbackArtworkIdentity = identity
+                    } else if resolvedFallbackArtworkIdentity == identity {
+                        resolvedFallbackArtworkIdentity = nil
+                    }
+                }
             )
         }
     }
 
-    private func cachedAlbumArtwork(side: CGFloat) -> some View {
+    private func fallbackArtworkIdentity(for song: PrimuseKit.Song) -> String {
+        ArtworkSourceRequestIdentity.key(
+            songID: song.id,
+            artworkReference: song.coverArtFileName,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat.rawValue,
+            revision: "\(song.revision ?? "")#\(library.artworkOverrideRevision)"
+        ) ?? song.id
+    }
+
+    private func cachedAlbumArtwork(
+        side: CGFloat,
+        isAnimationVisible: Bool
+    ) -> some View {
         CachedArtworkView(
             albumID: album.id,
             albumTitle: album.title,
             artistName: album.artistName,
+            year: album.year,
+            trackCount: album.songCount,
             size: side,
             cornerRadius: cornerRadius,
-            showsPlaceholder: false
+            showsPlaceholder: false,
+            presentationRole: presentationRole,
+            animationRequiresPlayback: animationRequiresPlayback,
+            isPlaying: isPlaying,
+            isAnimationVisible: isAnimationVisible
         )
     }
 }
