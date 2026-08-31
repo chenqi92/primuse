@@ -15,11 +15,17 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
     static let shared = ScrapeWindowController()
 
     private var window: NSWindow?
+    private var isApplyingChanges = false
 
     private override init() { super.init() }
 
     /// 打开刮削窗口。已经打开的窗口直接换内容并 makeKey。
     func show(song: Song, onComplete: ((Song) -> Void)? = nil) {
+        if isApplyingChanges, let win = window {
+            NSApp.activate(ignoringOtherApps: true)
+            win.makeKeyAndOrderFront(nil)
+            return
+        }
         let host = makeHost(song: song, onComplete: onComplete)
         if let win = window {
             win.contentViewController = host
@@ -64,7 +70,10 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
         let view = ScrapeOptionsView(
             song: song,
             onComplete: onComplete,
-            onCloseRequest: { [weak self] in self?.close() }
+            onCloseRequest: { [weak self] in self?.close() },
+            onApplyStateChanged: { [weak self] isApplying in
+                self?.isApplyingChanges = isApplying
+            }
         )
         .applyPrimuseEnvironments()
         return NSHostingController(rootView: view)
@@ -73,7 +82,10 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
     // MARK: - NSWindowDelegate
 
     nonisolated func windowShouldClose(_ sender: NSWindow) -> Bool {
-        Task { @MainActor in self.window?.orderOut(nil) }
+        Task { @MainActor in
+            guard !self.isApplyingChanges else { return }
+            self.window?.orderOut(nil)
+        }
         return false // 不真正销毁,只 hide,下次 show() 复用 window
     }
 }

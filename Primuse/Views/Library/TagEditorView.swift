@@ -38,6 +38,11 @@ struct TagEditorView: View {
     @State private var discText: String
     @State private var lyricsText = ""
     @State private var originalLyricsText = ""
+    @State private var initialLyricsLines: [LyricLine]?
+    @State private var pendingLyricsLines: [LyricLine]?
+    @State private var lyricsHaveSourceConflict = false
+    @State private var lyricsSourceSnapshot: LyricsWriteback.EditableSourceSnapshot = .unknown
+    @State private var lyricsCacheSnapshot: LyricsDocumentFingerprint?
     @State private var lyricsLoading = true
     @State private var lyricsWritebackMode: LyricsWriteback.Mode = .checking
     @State private var tagMetadataPersistenceMode: TagMetadataPersistenceMode?
@@ -62,6 +67,7 @@ struct TagEditorView: View {
     @State private var cachedSiblingNames: [String] = []
     @State private var cachedArtistChips: [String] = []
     @State private var cachedGenreChips: [String] = []
+    @State private var editorSongID: String
 
     init(
         song: Song,
@@ -80,6 +86,7 @@ struct TagEditorView: View {
         _yearText = State(initialValue: song.year.map { String($0) } ?? "")
         _trackText = State(initialValue: song.trackNumber.map { String($0) } ?? "")
         _discText = State(initialValue: song.discNumber.map { String($0) } ?? "")
+        _editorSongID = State(initialValue: song.id)
     }
 
     var body: some View {
@@ -91,9 +98,24 @@ struct TagEditorView: View {
             #endif
         }
         .task(id: song.id) {
+            let requestedSongID = song.id
+            if editorSongID != requestedSongID {
+                // Live-player hosts can swap their `song` value while this
+                // editor (or a picker it launched) is still open. Close that
+                // single-song session instead of ever applying A's state to B.
+                guard onNavigate != nil else {
+                    dismiss()
+                    return
+                }
+                resetEditorState(for: song)
+                editorSongID = requestedSongID
+            }
             computeCandidates()
             await loadLyricsEditor()
-            tagMetadataPersistenceMode = await sourceManager.tagMetadataPersistenceMode(for: song)
+            guard !Task.isCancelled, song.id == requestedSongID else { return }
+            let mode = await sourceManager.tagMetadataPersistenceMode(for: song)
+            guard !Task.isCancelled, song.id == requestedSongID else { return }
+            tagMetadataPersistenceMode = mode
         }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
@@ -139,7 +161,7 @@ struct TagEditorView: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "tag_editor_lyrics_delete"), role: .destructive) {
-                Task { await save(allowLyricsRemoval: true) }
+                Task { _ = await save(allowLyricsRemoval: true) }
             }
             Button(String(localized: "cancel"), role: .cancel) {}
         } message: {
@@ -147,11 +169,11 @@ struct TagEditorView: View {
         }
         #if os(iOS)
         .fullScreenCover(isPresented: $showLyricsEditor) {
-            LyricsEditorView(song: song, text: $lyricsText)
+            embeddedLyricsEditor
         }
         #else
         .sheet(isPresented: $showLyricsEditor) {
-            LyricsEditorView(song: song, text: $lyricsText)
+            embeddedLyricsEditor
         }
         #endif
         .sheet(isPresented: $showEncodingFixes) {
@@ -163,6 +185,23 @@ struct TagEditorView: View {
                     showEncodingFixes = false
                 }
             )
+        }
+    }
+
+    private var embeddedLyricsEditor: some View {
+        LyricsEditorView(
+            song: song,
+            text: $lyricsText,
+            initialLines: pendingLyricsLines ?? initialLyricsLines,
+            allowsStructuredOnlyTranslationEditing: LyricsWriteback
+                .allowsStructuredOnlyTranslationEditing(
+                    for: pendingLyricsLines ?? initialLyricsLines,
+                    mode: lyricsWritebackMode
+                )
+        ) { committed, lines in
+            lyricsText = committed
+            pendingLyricsLines = lines
+            showLyricsEditor = false
         }
     }
 
@@ -657,7 +696,7 @@ struct TagEditorView: View {
                     .background(Color.secondary.opacity(0.12), in: Circle())
             }
             .buttonStyle(.plain)
-            .disabled(previous == nil || isSaving)
+            .disabled(previous == nil || isSaving || lyricsLoading)
             .opacity(previous == nil ? 0.35 : 1)
 
             VStack(spacing: 3) {
@@ -688,7 +727,7 @@ struct TagEditorView: View {
                     .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
-            .disabled(next == nil || isSaving)
+            .disabled(next == nil || isSaving || lyricsLoading)
             .opacity(next == nil ? 0.35 : 1)
         }
         .padding(.horizontal, 20)
@@ -701,8 +740,9 @@ struct TagEditorView: View {
         guard let onNavigate else { return }
         if canSubmitChanges {
             Task {
-                await save()
-                onNavigate(target)
+                if await save() {
+                    onNavigate(target)
+                }
             }
         } else {
             onNavigate(target)
@@ -1135,12 +1175,12 @@ struct TagEditorView: View {
         case .checking:
             Label(String(localized: "tag_editor_lyrics_writeback_checking"), systemImage: "hourglass")
                 .foregroundStyle(.secondary)
-        case .sidecar(let fileName, let replacesExistingFile):
-            let template = replacesExistingFile
+        case .sidecar(let target):
+            let template = target.replacesExistingFile
                 ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
                 : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
             Label(
-                String(format: template, fileName),
+                String(format: template, target.fileName),
                 systemImage: "externaldrive.badge.checkmark"
             )
                 .foregroundStyle(.secondary)
@@ -1310,7 +1350,14 @@ struct TagEditorView: View {
 
     private var hasLyricsChanges: Bool {
         guard !lyricsLoading else { return false }
-        return LyricsWriteback.normalized(lyricsText) != LyricsWriteback.normalized(originalLyricsText)
+        let textChanged = LyricsWriteback.normalized(lyricsText)
+            != LyricsWriteback.normalized(originalLyricsText)
+        guard let pendingLyricsLines else { return textChanged }
+        let baselineLines = initialLyricsLines
+            ?? LyricsEditorDocument(parsing: originalLyricsText).lyricLines()
+        let structureChanged = LyricsDocumentFingerprint(lines: baselineLines)
+            != LyricsDocumentFingerprint(lines: pendingLyricsLines)
+        return textChanged || structureChanged
     }
 
     private var tagMetadataStatusText: String {
@@ -1369,12 +1416,12 @@ struct TagEditorView: View {
             showLyricsDeleteConfirm = true
             return
         }
-        Task { await save() }
+        Task { _ = await save() }
     }
 
     @MainActor
-    private func save(allowLyricsRemoval: Bool = false) async {
-        guard !isSaving else { return }
+    private func save(allowLyricsRemoval: Bool = false) async -> Bool {
+        guard !isSaving else { return false }
         isSaving = true
         defer { isSaving = false }
 
@@ -1421,14 +1468,14 @@ struct TagEditorView: View {
                 if report.shouldAbortLocalSave {
                     writebackErrorMessage = report.issueMessage
                         ?? String(localized: "metadata_writeback_error_invalid_state")
-                    return
+                    return false
                 }
                 updated = report.updatedSong
                 sourceMutationOccurred = report.remoteMutationOccurred
                 metadataWritebackNotice = report.issueMessage
             } catch {
                 writebackErrorMessage = error.localizedDescription
-                return
+                return false
             }
         }
 
@@ -1446,7 +1493,7 @@ struct TagEditorView: View {
                     invalidateSelectedCoverIfNeeded()
                 }
                 writebackErrorMessage = String(localized: "tag_editor_cover_cache_failed")
-                return
+                return false
             }
             updated.coverArtFileName = newFileName
         }
@@ -1460,6 +1507,9 @@ struct TagEditorView: View {
                 for: updated,
                 mode: mode,
                 allowRemoval: allowLyricsRemoval,
+                structuredLines: pendingLyricsLines ?? initialLyricsLines,
+                sourceSnapshot: lyricsSourceSnapshot,
+                cacheSnapshot: lyricsCacheSnapshot,
                 sourceManager: sourceManager,
                 library: library
             )
@@ -1472,9 +1522,16 @@ struct TagEditorView: View {
                     invalidateSelectedCoverIfNeeded()
                 }
                 lyricsErrorMessage = outcome.errorMessage
-                return
+                return false
             }
             updated = outcome.updatedSong
+            lyricsCacheSnapshot = outcome.cacheSnapshot
+            if outcome.persistence == .localOnly {
+                let lyricsNotice = String(localized: "tag_editor_lyrics_writeback_read_only")
+                metadataWritebackNotice = [metadataWritebackNotice, lyricsNotice]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+            }
             // LyricsWriteback 已经把标签与歌词一起写回 MusicLibrary；只有后面
             // 封面又发生变化时，才需要再 replace 一次。
             needsLibraryReplace = false
@@ -1487,10 +1544,11 @@ struct TagEditorView: View {
         if let metadataWritebackNotice {
             savedSongPendingNotice = updated
             writebackNoticeMessage = metadataWritebackNotice
-            return
+            return false
         }
         onSave?(updated)
         dismiss()
+        return true
     }
 
     private func invalidateSelectedCoverIfNeeded() {
@@ -1503,14 +1561,28 @@ struct TagEditorView: View {
 
     @MainActor
     private func loadLyricsEditor() async {
+        let requestedSong = song
+        let requestedSongID = requestedSong.id
         lyricsLoading = true
-        let text = await LyricsWriteback.loadEditableText(
-            for: song,
+        let payload = await LyricsWriteback.loadEditablePayload(
+            for: requestedSong,
             sourceManager: sourceManager
         )
-        _ = await resolveLyricsWritebackMode()
-        lyricsText = text
-        originalLyricsText = text
+        guard !Task.isCancelled, song.id == requestedSongID else { return }
+        let mode = await LyricsWriteback.resolveMode(
+            for: requestedSong,
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore
+        ).protectingSourceConflict(payload.hasSourceConflict)
+        guard !Task.isCancelled, song.id == requestedSongID else { return }
+        lyricsHaveSourceConflict = payload.hasSourceConflict
+        lyricsSourceSnapshot = payload.sourceSnapshot
+        lyricsCacheSnapshot = payload.cacheSnapshot
+        lyricsWritebackMode = mode
+        lyricsText = payload.text
+        originalLyricsText = payload.text
+        initialLyricsLines = payload.structuredLines
+        pendingLyricsLines = nil
         lyricsLoading = false
     }
 
@@ -1520,7 +1592,7 @@ struct TagEditorView: View {
             for: song,
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
-        )
+        ).protectingSourceConflict(lyricsHaveSourceConflict)
         lyricsWritebackMode = mode
         return mode
     }
@@ -1534,8 +1606,44 @@ struct TagEditorView: View {
         trackText = song.trackNumber.map { String($0) } ?? ""
         discText = song.discNumber.map { String($0) } ?? ""
         lyricsText = originalLyricsText
+        pendingLyricsLines = initialLyricsLines
         pickedCoverData = nil
         coverPickerItem = nil
+    }
+
+    @MainActor
+    private func resetEditorState(for song: Song) {
+        title = song.title
+        artist = song.artistName ?? ""
+        album = song.albumTitle ?? ""
+        genre = song.genre ?? ""
+        yearText = song.year.map(String.init) ?? ""
+        trackText = song.trackNumber.map(String.init) ?? ""
+        discText = song.discNumber.map(String.init) ?? ""
+        lyricsText = ""
+        originalLyricsText = ""
+        initialLyricsLines = nil
+        pendingLyricsLines = nil
+        lyricsHaveSourceConflict = false
+        lyricsSourceSnapshot = .unknown
+        lyricsCacheSnapshot = nil
+        lyricsLoading = true
+        lyricsWritebackMode = .checking
+        tagMetadataPersistenceMode = nil
+        lyricsErrorMessage = nil
+        writebackErrorMessage = nil
+        writebackNoticeMessage = nil
+        savedSongPendingNotice = nil
+        showLyricsDeleteConfirm = false
+        showLyricsEditor = false
+        showResetConfirm = false
+        showEncodingFixes = false
+        pickedCoverData = nil
+        coverPickerItem = nil
+        didApplySplit = false
+        cachedSiblingNames.removeAll(keepingCapacity: true)
+        cachedArtistChips.removeAll(keepingCapacity: true)
+        cachedGenreChips.removeAll(keepingCapacity: true)
     }
 
     private func trimmedOrNil(_ s: String) -> String? {

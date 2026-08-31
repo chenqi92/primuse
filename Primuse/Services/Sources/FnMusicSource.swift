@@ -377,15 +377,30 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     func fetchServerLyrics(for path: String) async -> String? {
-        guard let trackGUID = FnMusicAPIProtocol.trackGUID(from: path),
-              (try? await connect()) != nil else { return nil }
-        do {
-            return try await api.preferredLyrics(trackGUID: trackGUID)
-        } catch SourceError.authenticationFailed {
-            guard (try? await connect()) != nil else { return nil }
-            return try? await api.preferredLyrics(trackGUID: trackGUID)
-        } catch {
+        guard case .content(let content) = await readServerLyrics(for: path) else {
             return nil
+        }
+        return content
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        guard let trackGUID = FnMusicAPIProtocol.trackGUID(from: path) else {
+            return .unavailable
+        }
+        do {
+            try await connect()
+            return try await api.preferredLyrics(trackGUID: trackGUID)
+                .map(ServerLyricsReadResult.content) ?? .absent
+        } catch SourceError.authenticationFailed {
+            do {
+                try await connect()
+                return try await api.preferredLyrics(trackGUID: trackGUID)
+                    .map(ServerLyricsReadResult.content) ?? .absent
+            } catch {
+                return .unavailable
+            }
+        } catch {
+            return .unavailable
         }
     }
 

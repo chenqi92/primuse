@@ -331,11 +331,19 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
     }
 
     func fetchServerLyrics(for path: String) async -> String? {
+        guard case .content(let content) = await readServerLyrics(for: path) else {
+            return nil
+        }
+        return content
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
         do {
             try await connect()
             return try await client.preferredLyrics(trackPath: path)
+                .map(ServerLyricsReadResult.content) ?? .absent
         } catch {
-            return nil
+            return .unavailable
         }
     }
 }

@@ -63,6 +63,56 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(ISOBaseMediaLyricsParser.lyrics(in: mediaFile(items: item)) == expected)
     }
 
+    @Test("Keeps translated and language-tagged lyrics separate")
+    func translatedFreeformLyrics() {
+        let original = "[00:01.00]متن اصلی"
+        let translation = "[00:01.00]Manual translation"
+        let items = atom(
+            type: Data([0xA9, 0x6C, 0x79, 0x72]),
+            payload: dataAtom(Data(original.utf8))
+        ) + atom(
+            "----",
+            payload: fullBoxTextAtom("mean", value: "com.apple.iTunes")
+                + fullBoxTextAtom("name", value: "TRANSLATEDLYRICS:en")
+                + dataAtom(Data(translation.utf8))
+        )
+
+        let payload = ISOBaseMediaLyricsParser.payload(in: mediaFile(items: items))
+
+        #expect(payload?.lyrics == original)
+        #expect(payload?.translatedLyrics == translation)
+        #expect(payload?.translatedLyricsLanguageCode == "en")
+    }
+
+    @Test("Preserves every language-qualified lyrics item")
+    func multipleLanguageQualifiedLyrics() {
+        let metadata = metadataAtom(
+            keys: ["LYRICS:fas", "LYRICS:en", "TRANSLATION:zh-Hans"],
+            items: atom(
+                type: bigEndian(UInt32(1)),
+                payload: dataAtom(Data("متن اصلی".utf8))
+            ) + atom(
+                type: bigEndian(UInt32(2)),
+                payload: dataAtom(Data("English alternate".utf8))
+            ) + atom(
+                type: bigEndian(UInt32(3)),
+                payload: dataAtom(Data("中文译文".utf8))
+            )
+        )
+
+        let payload = ISOBaseMediaLyricsParser.payload(in: mediaFile(metadata: metadata))
+
+        #expect(payload?.lyrics == "متن اصلی")
+        #expect(payload?.lyricsLanguageCode == "fa")
+        #expect(payload?.translatedLyrics == "中文译文")
+        #expect(payload?.translatedLyricsLanguageCode == "zh-Hans")
+        #expect(payload?.languageTaggedLyrics == [
+            "fa": "متن اصلی",
+            "en": "English alternate",
+        ])
+        #expect(payload?.languageTaggedTranslations == ["zh-Hans": "中文译文"])
+    }
+
     @Test("Ignores unrelated and malformed metadata items")
     func rejectsInvalidMetadata() {
         let unrelated = metadataAtom(

@@ -175,6 +175,7 @@ public enum LyricsTextTools {
         }
     }
 }
+
 public struct LyricsDocumentFingerprint: RawRepresentable, Hashable, Sendable {
     public let rawValue: String
 
@@ -255,13 +256,26 @@ public actor LyricsSourceRefreshCoordinator {
                 guard let fetched = try await fetch(), !fetched.isEmpty else {
                     return .emptyPreservingCache
                 }
+                let refreshed: [LyricLine]
+                if let currentDocument {
+                    guard let preserved = LyricManualTranslationPolicy
+                        .preservingStoredTranslations(
+                            from: currentDocument,
+                            in: fetched
+                        ) else {
+                        return .failedPreservingCache
+                    }
+                    refreshed = preserved
+                } else {
+                    refreshed = fetched
+                }
                 if let currentDocument,
                    LyricsDocumentFingerprint(lines: currentDocument)
-                    == LyricsDocumentFingerprint(lines: fetched) {
+                    == LyricsDocumentFingerprint(lines: refreshed) {
                     return .unchanged
                 }
-                return await replace(fetched)
-                    ? .updated(fetched)
+                return await replace(refreshed)
+                    ? .updated(refreshed)
                     : .failedPreservingCache
             } catch {
                 return .failedPreservingCache
@@ -313,17 +327,50 @@ private struct LyricsFingerprintWriter {
             writer.append(syllable.start)
             writer.append(syllable.end)
             writer.append(syllable.endTiming.rawValue)
+            writer.append(syllable.languageCode)
         }
         append(line.endTimestamp)
         append(line.voice.rawValue)
         append(line.background) { writer, line in writer.append(line) }
         append(line.metadataLines) { writer, metadata in writer.append(metadata) }
+        append(line.languageCode)
+        append(line.documentIsLocalOverride)
+        append(line.manualTranslation)
+        append(line.alternateManualTranslations) { writer, translation in
+            writer.append(translation)
+        }
+    }
+
+    private mutating func append(_ value: LyricManualTranslation?) {
+        guard let value else {
+            data.append(0)
+            return
+        }
+        data.append(1)
+        append(value)
+    }
+
+    private mutating func append(_ value: LyricManualTranslation) {
+        // Parser-generated translation IDs are excluded for the same reason as
+        // line IDs: reparsing an unchanged authored document must be stable.
+        append(value.text)
+        append(value.languageCode)
+        append(value.source.rawValue)
     }
 
     private mutating func append(_ value: String) {
         let bytes = Data(value.utf8)
         appendCount(bytes.count)
         data.append(bytes)
+    }
+
+    private mutating func append(_ value: String?) {
+        guard let value else {
+            data.append(0)
+            return
+        }
+        data.append(1)
+        append(value)
     }
 
     private mutating func append(_ value: Bool) {

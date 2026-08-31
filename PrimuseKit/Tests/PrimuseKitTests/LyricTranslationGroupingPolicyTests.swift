@@ -16,6 +16,117 @@ struct LyricTranslationGroupingPolicyTests {
             detectedSourceLanguageCode: nil,
             targetLanguageCode: "zh-Hans"
         ))
+        #expect(!LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: "fa-Arab",
+            targetLanguageCode: "fa"
+        ))
+        #expect(LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: "fa-Latn",
+            targetLanguageCode: "fa"
+        ))
+        #expect(LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: "fa-Cyrl",
+            targetLanguageCode: "fa"
+        ))
+    }
+
+    @Test func translationTerminalPolicySeparatesNoWorkFromReadyWork() {
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 0,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 0,
+            unsupportedCandidateCount: 0
+        ) == .notNeeded)
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 3,
+            availableGroupCount: 1,
+            preparationRequiredGroupCount: 1,
+            unsupportedCandidateCount: 1
+        ) == .ready)
+    }
+
+    @Test func translationTerminalPolicyKeepsRecoverableStatesPreparatory() {
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 1,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 1,
+            unsupportedCandidateCount: 0
+        ) == .preparationRequired)
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 1,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 0,
+            unsupportedCandidateCount: 0,
+            encounteredUnknownStatus: true
+        ) == .preparationRequired)
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 1,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 0,
+            unsupportedCandidateCount: 1,
+            encounteredError: true
+        ) == .preparationRequired)
+    }
+
+    @Test func translationTerminalPolicyUsesUnavailableOnlyForConfirmedUnsupportedPairs() {
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 2,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 0,
+            unsupportedCandidateCount: 2
+        ) == .unavailable)
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 2,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 0,
+            unsupportedCandidateCount: 1
+        ) == .preparationRequired)
+        #expect(LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: 2,
+            availableGroupCount: 0,
+            preparationRequiredGroupCount: 0,
+            unsupportedCandidateCount: 0
+        ) == .preparationRequired)
+    }
+
+    @Test func translationTerminalPolicyReportsWorkRemainingAfterRunnableGroups() {
+        #expect(LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
+            preparationRequiredCandidateCount: 0,
+            unsupportedCandidateCount: 0
+        ) == .notNeeded)
+        #expect(LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
+            preparationRequiredCandidateCount: 0,
+            unsupportedCandidateCount: 2
+        ) == .unavailable)
+        #expect(LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
+            preparationRequiredCandidateCount: 1,
+            unsupportedCandidateCount: 2
+        ) == .preparationRequired)
+        #expect(LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
+            preparationRequiredCandidateCount: 0,
+            unsupportedCandidateCount: 2,
+            encounteredError: true
+        ) == .preparationRequired)
+    }
+
+    @Test func containerLanguageCodesCanonicalizeBeforeComparison() {
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("eng") == "en")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("fas") == "fa")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("per") == "fa")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("chi") == "zh")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("ger") == "de")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("fre") == "fr")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("ace") == "ace")
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("not_a_real_language") == nil)
+        #expect(LyricLanguageCodePolicy.canonicalIdentifier("zz") == nil)
+
+        #expect(LyricTranslationGroupingPolicy.languageIdentity("eng") == "en")
+        #expect(LyricTranslationGroupingPolicy.languageIdentity("fas") == "fa")
+        #expect(LyricTranslationGroupingPolicy.languageIdentity("per") == "fa")
+        #expect(!LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: "per",
+            targetLanguageCode: "fa"
+        ))
     }
 
     @Test func shortLocalizedCreditFallsBackFromNoisyTurkishDetection() {
@@ -28,6 +139,47 @@ struct LyricTranslationGroupingPolicyTests {
         )
 
         #expect(source == "zh-Hans")
+    }
+
+    @Test func shortSameScriptMisclassificationFallsBackRegardlessOfConfidence() {
+        for (text, detectedLanguage) in [("Stay", "nb"), ("Again", "da")] {
+            let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+                text: text,
+                detectedLanguageCode: detectedLanguage,
+                confidence: 0.999,
+                alternativeConfidence: 0,
+                fallbackSourceLanguageCode: "en"
+            )
+            #expect(source == "en")
+        }
+    }
+
+    @Test func shortDistinctScriptLinesKeepTheirDetectedLanguage() {
+        let english = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "Stay",
+            detectedLanguageCode: "en",
+            confidence: 0.40,
+            alternativeConfidence: 0.35,
+            fallbackSourceLanguageCode: "zh-Hans"
+        )
+        let chinese = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "再见",
+            detectedLanguageCode: "zh-Hans",
+            confidence: 0.40,
+            alternativeConfidence: 0.35,
+            fallbackSourceLanguageCode: "en"
+        )
+        let arabic = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "مرحبا",
+            detectedLanguageCode: "ar",
+            confidence: 0.40,
+            alternativeConfidence: 0.35,
+            fallbackSourceLanguageCode: "en"
+        )
+
+        #expect(english == "en")
+        #expect(chinese == "zh-Hans")
+        #expect(arabic == "ar")
     }
 
     @Test func confidentForeignLineCanOverrideWholeLyricsLanguage() {
@@ -51,6 +203,25 @@ struct LyricTranslationGroupingPolicyTests {
         )
 
         #expect(source == "fa")
+    }
+
+    @Test func persianNeverUsesTheAppleSystemTranslationRoute() {
+        #expect(!LyricTranslationGroupingPolicy.permitsAppleSystemTranslation(
+            sourceLanguageCode: "fas",
+            targetLanguageCode: "zh-Hans"
+        ))
+        #expect(!LyricTranslationGroupingPolicy.permitsAppleSystemTranslation(
+            sourceLanguageCode: "en",
+            targetLanguageCode: "fa-Arab"
+        ))
+        #expect(LyricTranslationGroupingPolicy.permitsAppleSystemTranslation(
+            sourceLanguageCode: "en",
+            targetLanguageCode: "zh-Hans"
+        ))
+        #expect(LyricTranslationGroupingPolicy.permitsAppleSystemTranslation(
+            sourceLanguageCode: nil,
+            targetLanguageCode: "de"
+        ))
     }
 
     @Test func arabicGlyphVariantsDoNotHidePersianLexicalEvidence() {
@@ -177,6 +348,15 @@ struct LyricTranslationGroupingPolicyTests {
         #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
             "[ar:Artist]", "[la:not_a_real_language]", "[la:zz]",
         ]) == nil)
+        #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
+            "[la:eng]",
+        ]) == "en")
+        #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
+            "[la:fas]",
+        ]) == "fa")
+        #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
+            "[la:per]",
+        ]) == "fa")
     }
 
     @Test func groupsDetectedLinesBySourceLanguageAndPreservesOrder() {
@@ -341,5 +521,732 @@ struct LyricTranslationGroupingPolicyTests {
             at: issuedAt.addingTimeInterval(1)
         )
         #expect(!consumption)
+    }
+
+    @Test func synchronizedManualLyricsMergeOnlyUniqueTimestampMatches() {
+        let originals = [
+            LyricLine(id: "source-1", timestamp: 1, text: "First", isSynchronized: true),
+            LyricLine(id: "source-2", timestamp: 2, text: "Second", isSynchronized: true),
+            LyricLine(id: "source-3", timestamp: 3, text: "Third", isSynchronized: true),
+        ]
+        let translations = [
+            LyricLine(id: "translation-3", timestamp: 3, text: "第三", isSynchronized: true),
+            LyricLine(id: "translation-1", timestamp: 1, text: "第一", isSynchronized: true),
+            LyricLine(id: "unmatched", timestamp: 4, text: "额外", isSynchronized: true),
+        ]
+
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: translations,
+            translationLanguageCode: "zh-Hans"
+        )
+
+        #expect(merged.map(\.id) == originals.map(\.id))
+        #expect(merged.map { $0.manualTranslation?.text } == ["第一", nil, "第三"])
+        #expect(merged[0].manualTranslation?.id == "translation-1")
+        #expect(merged[0].manualTranslation?.languageCode == "zh-Hans")
+        #expect(merged[0].manualTranslation?.source == .embeddedField)
+        #expect(!LyricManualTranslationPolicy.hasCompleteCoverage(in: merged))
+    }
+
+    @Test func ambiguousDuplicateTimestampsAreNeverGuessed() {
+        let originals = [
+            LyricLine(timestamp: 1, text: "Lead", isSynchronized: true),
+            LyricLine(timestamp: 1, text: "Backing", isSynchronized: true),
+        ]
+        let translations = [
+            LyricLine(timestamp: 1, text: "主唱", isSynchronized: true),
+            LyricLine(timestamp: 1, text: "和声", isSynchronized: true),
+        ]
+
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: translations,
+            translationLanguageCode: "zh"
+        )
+
+        #expect(merged.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test func plainManualLyricsRequireAnExactIndexShape() {
+        let originals = [
+            LyricLine(timestamp: 0, text: "First", isSynchronized: false),
+            LyricLine(timestamp: 0, text: "Second", isSynchronized: false),
+        ]
+        let translations = [
+            LyricLine(timestamp: 0, text: "第一", isSynchronized: false),
+            LyricLine(timestamp: 0, text: "第二", isSynchronized: false),
+        ]
+
+        let complete = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: translations,
+            translationLanguageCode: "zh"
+        )
+        #expect(complete.map { $0.manualTranslation?.text } == ["第一", "第二"])
+        #expect(LyricManualTranslationPolicy.hasCompleteCoverage(in: complete))
+
+        let incompleteShape = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: Array(translations.prefix(1)),
+            translationLanguageCode: "zh"
+        )
+        #expect(incompleteShape.allSatisfy { $0.manualTranslation == nil })
+
+        let mixedSynchronization = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: [
+                LyricLine(timestamp: 1, text: "第一", isSynchronized: true),
+                translations[1],
+            ],
+            translationLanguageCode: "zh"
+        )
+        #expect(mixedSynchronization.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test func additionalLanguageFieldsAreRetainedWithoutChangingThePreferredTranslation() {
+        let originals = [
+            LyricLine(timestamp: 0, text: "原文", isSynchronized: false),
+        ]
+        let english = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: [
+                LyricLine(id: "en", timestamp: 0, text: "English", isSynchronized: false),
+            ],
+            translationLanguageCode: "en"
+        )
+        let withFrenchAlternate = LyricManualTranslationPolicy.merging(
+            originalLines: english,
+            translatedLines: [
+                LyricLine(id: "fr", timestamp: 0, text: "Français", isSynchronized: false),
+            ],
+            translationLanguageCode: "fr",
+            makePreferred: false
+        )
+
+        #expect(withFrenchAlternate[0].manualTranslation?.languageCode == "en")
+        #expect(withFrenchAlternate[0].alternateManualTranslations.map(\.languageCode) == ["fr"])
+        #expect(withFrenchAlternate[0].allManualTranslations.map(\.text) == [
+            "English", "Français",
+        ])
+        #expect(LyricManualTranslationPolicy.hasCompleteCoverage(in: withFrenchAlternate))
+    }
+
+    @Test func aNonPreferredFieldCannotReplaceAnExplicitTranslationInTheSameLanguage() {
+        let originals = [
+            LyricLine(timestamp: 0, text: "原文", isSynchronized: false),
+        ]
+        let explicit = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: [
+                LyricLine(id: "explicit", timestamp: 0, text: "Explicit", isSynchronized: false),
+            ],
+            translationLanguageCode: "en"
+        )
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: explicit,
+            translatedLines: [
+                LyricLine(id: "tagged", timestamp: 0, text: "Tagged", isSynchronized: false),
+            ],
+            translationLanguageCode: "eng",
+            makePreferred: false
+        )
+
+        #expect(merged[0].manualTranslation?.text == "Explicit")
+        #expect(merged[0].alternateManualTranslations.isEmpty)
+    }
+
+    @Test func targetLanguageSelectsAnExactEmbeddedAlternate() {
+        let line = LyricLine(
+            timestamp: 0,
+            text: "Original",
+            isSynchronized: false,
+            manualTranslation: LyricManualTranslation(
+                text: "Français",
+                languageCode: "fr",
+                source: .embeddedField
+            ),
+            alternateManualTranslations: [
+                LyricManualTranslation(
+                    text: "中文",
+                    languageCode: "zh-CN",
+                    source: .embeddedField
+                ),
+            ]
+        )
+
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "zh-Hans"
+        )?.text == "中文")
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "de"
+        ) == nil)
+
+        var persian = line
+        persian.alternateManualTranslations.append(
+            LyricManualTranslation(
+                text: "فارسی",
+                languageCode: "fa-Arab",
+                source: .embeddedField
+            )
+        )
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: persian,
+            targetLanguageCode: "fa"
+        )?.text == "فارسی")
+    }
+
+    @Test func targetLanguageUsesAuthoredSourcePriorityWithinAnExactMatch() {
+        let line = LyricLine(
+            timestamp: 1,
+            text: "Original",
+            isSynchronized: true,
+            manualTranslation: .init(
+                text: "Source bilingual",
+                languageCode: "fr",
+                source: .bilingualLRC
+            ),
+            alternateManualTranslations: [
+                .init(
+                    text: "Local correction",
+                    languageCode: "fr",
+                    source: .localEditor
+                ),
+            ]
+        )
+
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "fr"
+        )?.text == "Local correction")
+    }
+
+    @Test func persianScriptAliasesOccupyOneTranslationSlot() {
+        let line = LyricLine(
+            timestamp: 1,
+            text: "Original",
+            isSynchronized: true,
+            manualTranslation: .init(
+                text: "فارسی",
+                languageCode: "fa",
+                source: .bilingualLRC
+            )
+        )
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: [line],
+            translatedLines: [
+                LyricLine(timestamp: 1, text: "فارسی", isSynchronized: true),
+            ],
+            translationLanguageCode: "fa-Arab",
+            source: .bilingualLRC,
+            makePreferred: false
+        )
+
+        #expect(merged[0].alternateManualTranslations.isEmpty)
+    }
+
+    @Test func persianArabicScriptCandidatesAreNoOpsForPersianTargets() {
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                .init(id: "fa", text: "من اینجا هستم", sourceLanguageCode: "fa-Arab"),
+            ],
+            targetLanguageCode: "fa"
+        )
+        #expect(groups.isEmpty)
+    }
+
+    @Test func untaggedBilingualRowsCoverAnyRequestedTarget() {
+        let lines = [
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: LyricManualTranslation(
+                    text: "人工译文",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+
+        #expect(LyricManualTranslationPolicy.hasCompleteCoverage(
+            in: lines,
+            targetLanguageCode: "fa"
+        ))
+    }
+
+    @Test func nonPreferredLanguageFieldRemainsSelectableByTarget() {
+        let originals = [
+            LyricLine(timestamp: 0, text: "Original", isSynchronized: false),
+        ]
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: originals,
+            translatedLines: [
+                LyricLine(timestamp: 0, text: "فارسی", isSynchronized: false),
+            ],
+            translationLanguageCode: "per",
+            makePreferred: false
+        )
+
+        #expect(merged[0].manualTranslation == nil)
+        #expect(merged[0].alternateManualTranslations.map(\.languageCode) == ["per"])
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: merged[0],
+            targetLanguageCode: "fa"
+        )?.text == "فارسی")
+        #expect(LyricManualTranslationPolicy.hasCompleteCoverage(
+            in: merged,
+            targetLanguageCode: "fa"
+        ))
+    }
+
+    @Test func aNewPreferredLanguagePreservesThePreviousAuthoredTranslation() {
+        let source = LyricLine(
+            timestamp: 0,
+            text: "原文",
+            isSynchronized: false,
+            manualTranslation: LyricManualTranslation(
+                id: "bilingual",
+                text: "English",
+                languageCode: "en",
+                source: .bilingualLRC
+            )
+        )
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: [source],
+            translatedLines: [
+                LyricLine(id: "embedded", timestamp: 0, text: "Français", isSynchronized: false),
+            ],
+            translationLanguageCode: "fr",
+            source: .embeddedField
+        )
+
+        #expect(merged[0].manualTranslation?.text == "Français")
+        #expect(merged[0].manualTranslation?.source == .embeddedField)
+        #expect(merged[0].alternateManualTranslations.first?.text == "English")
+        #expect(merged[0].alternateManualTranslations.first?.source == .bilingualLRC)
+    }
+
+    @Test func authoritativeSourceCanRestoreOnlyMatchingStoredTranslations() {
+        let stored = [
+            LyricLine(
+                timestamp: 12.3,
+                text: "The evening breeze",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "La brise du soir",
+                    languageCode: "fr",
+                    source: .embeddedField
+                ),
+                alternateManualTranslations: [
+                    .init(text: "Abendbrise", languageCode: "de", source: .embeddedField),
+                ]
+            ),
+        ]
+        let authoritative = [
+            LyricLine(
+                id: "authoritative",
+                timestamp: 12.3,
+                text: "The evening breeze",
+                isSynchronized: true,
+                endTimestamp: 15
+            ),
+        ]
+
+        let restored = LyricManualTranslationPolicy.restoringStoredTranslations(
+            from: stored,
+            into: authoritative
+        )
+
+        #expect(restored?.first?.id == "authoritative")
+        #expect(restored?.first?.manualTranslation?.text == "La brise du soir")
+        #expect(restored?.first?.alternateManualTranslations.first?.text == "Abendbrise")
+
+        let changedSource = [
+            LyricLine(timestamp: 12.3, text: "A different lyric", isSynchronized: true),
+        ]
+        #expect(LyricManualTranslationPolicy.restoringStoredTranslations(
+            from: stored,
+            into: changedSource
+        ) == nil)
+    }
+
+    @Test func knownSameScriptBilingualPairsSurvivePrefixAndTimelineChanges() throws {
+        let stored = [
+            LyricLine(
+                timestamp: 1,
+                text: "First",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Premier",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+            LyricLine(
+                timestamp: 2,
+                text: "Second",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Deuxième",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let authoritative = [
+            LyricLine(timestamp: 0.5, text: "Intro", isSynchronized: true),
+            LyricLine(timestamp: 1.1, text: "First", isSynchronized: true),
+            LyricLine(timestamp: 1.1, text: "Premier", isSynchronized: true),
+            LyricLine(timestamp: 2.1, text: "Second", isSynchronized: true),
+            LyricLine(timestamp: 2.1, text: "Deuxième", isSynchronized: true),
+        ]
+
+        let merged = try #require(
+            LyricManualTranslationPolicy.preservingStoredTranslations(
+                from: stored,
+                in: authoritative
+            )
+        )
+        #expect(merged.map(\.text) == ["Intro", "First", "Second"])
+        #expect(merged[0].manualTranslation == nil)
+        #expect(merged[1].manualTranslation?.text == "Premier")
+        #expect(merged[2].manualTranslation?.text == "Deuxième")
+        #expect(merged.dropFirst().allSatisfy {
+            $0.manualTranslation?.source == .bilingualLRC
+        })
+    }
+
+    @Test func protectedTranslationsDoNotFollowChangedLanguageOrVoiceOwners() {
+        let stored = [
+            LyricLine(
+                timestamp: 1,
+                text: "Shared text",
+                isSynchronized: true,
+                voice: .primary,
+                languageCode: "fr",
+                manualTranslation: .init(
+                    text: "Local translation",
+                    languageCode: "en",
+                    source: .localEditor
+                )
+            ),
+        ]
+        let changedLanguage = [
+            LyricLine(
+                timestamp: 1,
+                text: "Shared text",
+                isSynchronized: true,
+                voice: .primary,
+                languageCode: "de"
+            ),
+        ]
+        let changedVoice = [
+            LyricLine(
+                timestamp: 1,
+                text: "Shared text",
+                isSynchronized: true,
+                voice: .secondary,
+                languageCode: "fr"
+            ),
+        ]
+
+        #expect(LyricManualTranslationPolicy.preservingStoredTranslations(
+            from: stored,
+            in: changedLanguage
+        ) == nil)
+        #expect(LyricManualTranslationPolicy.preservingStoredTranslations(
+            from: stored,
+            in: changedVoice
+        ) == nil)
+    }
+
+    @Test func protectedTranslationsDoNotCrossChangedDocumentLanguages() {
+        let stored = [
+            LyricLine(
+                timestamp: 1,
+                text: "Shared text",
+                isSynchronized: true,
+                metadataLines: ["[la:fr]"],
+                manualTranslation: .init(
+                    text: "Local translation",
+                    languageCode: "en",
+                    source: .localEditor
+                )
+            ),
+        ]
+        let authoritative = [
+            LyricLine(
+                timestamp: 1,
+                text: "Shared text",
+                isSynchronized: true,
+                metadataLines: ["[la:de]"]
+            ),
+        ]
+
+        #expect(LyricManualTranslationPolicy.preservingStoredTranslations(
+            from: stored,
+            in: authoritative
+        ) == nil)
+    }
+
+    @Test func knownSameScriptPairsRebuildAlongsideAlreadyParsedPairs() throws {
+        let stored = [
+            LyricLine(
+                timestamp: 1,
+                text: "你好",
+                isSynchronized: true,
+                manualTranslation: .init(text: "Hello", source: .bilingualLRC)
+            ),
+            LyricLine(
+                timestamp: 2,
+                text: "Good night",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Bonne nuit",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let authoritative = [
+            LyricLine(
+                timestamp: 1,
+                text: "你好",
+                isSynchronized: true,
+                manualTranslation: .init(text: "Hello", source: .bilingualLRC)
+            ),
+            LyricLine(timestamp: 2.1, text: "Good night", isSynchronized: true),
+            LyricLine(timestamp: 2.1, text: "Bonne nuit", isSynchronized: true),
+        ]
+
+        let merged = try #require(
+            LyricManualTranslationPolicy.preservingStoredTranslations(
+                from: stored,
+                in: authoritative
+            )
+        )
+        #expect(merged.count == 2)
+        #expect(merged[0].manualTranslation?.text == "Hello")
+        #expect(merged[1].manualTranslation?.text == "Bonne nuit")
+    }
+
+    @Test func changedSameTimestampRowIsNotConsumedAsAKnownTranslation() throws {
+        let stored = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead line",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Known translation",
+                    languageCode: "en",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let authoritative = [
+            LyricLine(timestamp: 1, text: "Lead line", isSynchronized: true),
+            LyricLine(timestamp: 1, text: "New duet line", isSynchronized: true),
+        ]
+
+        let merged = try #require(
+            LyricManualTranslationPolicy.preservingStoredTranslations(
+                from: stored,
+                in: authoritative
+            )
+        )
+        #expect(merged.map(\.text) == ["Lead line", "New duet line"])
+        #expect(merged.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test func storedTranslationMergePreservesSourceBilingualTextAndPrefersEmbeddedFields() {
+        let bilingual = LyricManualTranslation(
+            text: "Source translation",
+            source: .bilingualLRC
+        )
+        let source = [
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: bilingual
+            ),
+        ]
+        let noStoredTranslation = [
+            LyricLine(timestamp: 1, text: "Original", isSynchronized: true),
+        ]
+        #expect(LyricManualTranslationPolicy.restoringStoredTranslations(
+            from: noStoredTranslation,
+            into: source
+        )?.first?.manualTranslation == bilingual)
+
+        let embedded = LyricManualTranslation(
+            text: "Embedded translation",
+            languageCode: "fr",
+            source: .embeddedField
+        )
+        let storedEmbedded = [
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: embedded
+            ),
+        ]
+        let merged = LyricManualTranslationPolicy.restoringStoredTranslations(
+            from: storedEmbedded,
+            into: source
+        )
+        #expect(merged?.first?.manualTranslation == embedded)
+        #expect(merged?.first?.alternateManualTranslations == [bilingual])
+    }
+
+    @Test func storedTranslationMergeRecursesIntoProvenBackgroundRows() {
+        let backgroundTranslation = LyricManualTranslation(
+            text: "Backing translation",
+            languageCode: "en",
+            source: .embeddedField
+        )
+        let stored = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        voice: .secondary,
+                        manualTranslation: backgroundTranslation
+                    ),
+                ]
+            ),
+        ]
+        let authoritative = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        voice: .secondary
+                    ),
+                ]
+            ),
+        ]
+
+        let restored = LyricManualTranslationPolicy.restoringStoredTranslations(
+            from: stored,
+            into: authoritative
+        )
+
+        #expect(restored?.first?.background?.first?.manualTranslation == backgroundTranslation)
+    }
+
+    @Test func bilingualLRCPersistenceRejectsAmbiguousStructuredRows() {
+        let translation = LyricManualTranslation(
+            text: "Translation",
+            source: .embeddedField
+        )
+        #expect(LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 1,
+                text: "Ordinary line",
+                isSynchronized: true,
+                manualTranslation: translation
+            ),
+        ]))
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 1,
+                text: "Word-level line",
+                isSynchronized: true,
+                syllables: [.init(text: "Word", start: 1, end: 2)],
+                manualTranslation: translation
+            ),
+        ]))
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Meet at [02:25] by the bridge",
+                    source: .embeddedField
+                )
+            ),
+        ]))
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Keep <02:25> as text",
+                    source: .embeddedField
+                )
+            ),
+        ]))
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 0,
+                text: "Plain line",
+                isSynchronized: false,
+                manualTranslation: translation
+            ),
+        ]))
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 1,
+                text: "Several translations",
+                isSynchronized: true,
+                manualTranslation: translation,
+                alternateManualTranslations: [
+                    .init(text: "Other language", languageCode: "de", source: .embeddedField),
+                ]
+            ),
+        ]))
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC([
+            LyricLine(
+                timestamp: 1,
+                text: "Ordinary line",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "First translation line\nSecond translation line",
+                    source: .embeddedField
+                )
+            ),
+        ]))
+    }
+
+    @Test func emptyOrPartialAuthoredLyricsDoNotClaimCompleteCoverage() {
+        #expect(!LyricManualTranslationPolicy.hasCompleteCoverage(in: []))
+        #expect(!LyricManualTranslationPolicy.hasCompleteCoverage(in: [
+            LyricLine(timestamp: 0, text: "Unsupported language", isSynchronized: false),
+        ]))
+
+        let partial = [
+            LyricLine(
+                timestamp: 0,
+                text: "First",
+                isSynchronized: false,
+                manualTranslation: LyricManualTranslation(
+                    text: "第一",
+                    languageCode: "zh",
+                    source: .embeddedField
+                )
+            ),
+            LyricLine(timestamp: 0, text: "Second", isSynchronized: false),
+        ]
+        #expect(!LyricManualTranslationPolicy.hasCompleteCoverage(in: partial))
+        #expect(LyricTranslationGroupingPolicy.needsTranslation(
+            detectedSourceLanguageCode: nil,
+            targetLanguageCode: "zh"
+        ))
     }
 }

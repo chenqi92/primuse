@@ -2135,7 +2135,8 @@ final class MusicScraperService {
         for song: Song,
         coverData: Data?,
         lyricsLines: [LyricLine]?,
-        lyricsContent: String? = nil
+        lyricsContent: String? = nil,
+        expectedLyricsTarget: SidecarWriteService.LyricsPreflightResult? = nil
     ) async throws -> SidecarWriteService.WriteResult {
         try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
             defer { group.cancelAll() }
@@ -2147,7 +2148,8 @@ final class MusicScraperService {
                     using: connector,
                     coverData: coverData,
                     lyricsLines: lyricsLines,
-                    lyricsContent: lyricsContent
+                    lyricsContent: lyricsContent,
+                    expectedLyricsTarget: expectedLyricsTarget
                 )
                 if writeResult.coverWritten || writeResult.lyricsWritten {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
@@ -2185,13 +2187,18 @@ final class MusicScraperService {
     nonisolated static func removeLyricsSidecarWithTimeout(
         seconds: TimeInterval,
         sourceManager: SourceManager,
-        for song: Song
+        for song: Song,
+        expectedLyricsTarget: SidecarWriteService.LyricsPreflightResult? = nil
     ) async throws -> SidecarWriteService.WriteResult {
         try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
             defer { group.cancelAll() }
             group.addTask {
                 let connector = try await sourceManager.sidecarWriteConnector(for: song)
-                let result = await SidecarWriteService.shared.removeLyrics(for: song, using: connector)
+                let result = await SidecarWriteService.shared.removeLyrics(
+                    for: song,
+                    using: connector,
+                    expectedLyricsTarget: expectedLyricsTarget
+                )
                 if result.lyricsRemoved {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
                 }

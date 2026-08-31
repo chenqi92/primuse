@@ -31,6 +31,37 @@ struct LyricsSourceRefreshCoordinatorTests {
         backgroundChanged[1].background?[0].endTimestamp = 2.8
         #expect(LyricsDocumentFingerprint(lines: original)
             != LyricsDocumentFingerprint(lines: backgroundChanged))
+
+        var localOverride = original
+        localOverride[0].documentIsLocalOverride = true
+        #expect(LyricsDocumentFingerprint(lines: original)
+            != LyricsDocumentFingerprint(lines: localOverride))
+    }
+
+    @Test func fingerprintCoversAuthoredTranslationsButIgnoresTheirParserIDs() {
+        var original = Self.document(lineIDs: ["a", "b", "c"])
+        original[1].manualTranslation = LyricManualTranslation(
+            id: "translation-a",
+            text: "译文",
+            languageCode: "zh-Hans",
+            source: .embeddedField
+        )
+        var reparsed = original
+        reparsed[1].manualTranslation?.id = "translation-b"
+        #expect(LyricsDocumentFingerprint(lines: original)
+            == LyricsDocumentFingerprint(lines: reparsed))
+
+        var changed = reparsed
+        changed[1].manualTranslation?.text = "新译文"
+        #expect(LyricsDocumentFingerprint(lines: original)
+            != LyricsDocumentFingerprint(lines: changed))
+
+        changed = reparsed
+        changed[1].alternateManualTranslations = [
+            .init(text: "Traduction", languageCode: "fr", source: .embeddedField),
+        ]
+        #expect(LyricsDocumentFingerprint(lines: original)
+            != LyricsDocumentFingerprint(lines: changed))
     }
 
     @Test func unchangedDocumentSkipsReplacement() async {
@@ -82,6 +113,376 @@ struct LyricsSourceRefreshCoordinatorTests {
         let updated = try #require(result.updatedDocument)
         #expect(updated.first?.isWordLevel == true)
         #expect(await stored.value == source)
+    }
+
+    @Test func refreshRefusesToDiscardAnUnmatchedAuthoredTranslation() async {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        var cached = Self.document(lineIDs: ["a", "b", "c"])
+        for index in cached.indices {
+            cached[index].manualTranslation = LyricManualTranslation(
+                text: "translation-\(index)",
+                source: .localEditor
+            )
+        }
+        var fetched = Self.document(lineIDs: ["x", "y", "z"])
+        fetched[0].timestamp = 0.5 // Timing-only changes retain the same authored translation.
+        fetched[1].text = "server rewrote this lyric"
+        let fetchedDocument = fetched
+        let replacementCount = Counter()
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "manual"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetchedDocument },
+            replace: { _ in
+                await replacementCount.increment()
+                return true
+            }
+        )
+
+        #expect(result == .failedPreservingCache)
+        #expect(await replacementCount.value == 0)
+    }
+
+    @Test func refreshDoesNotReviveBilingualTextDeletedByTheSource() async throws {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Old source translation",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let fetched = [
+            LyricLine(timestamp: 1, text: "Original", isSynchronized: true),
+        ]
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "removed-translation"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in true }
+        )
+
+        let updated = try #require(result.updatedDocument)
+        #expect(updated.first?.manualTranslation == nil)
+    }
+
+    @Test func exactSameScriptBilingualSourceKeepsEstablishedStructure() async {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "The evening breeze",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "La brise du soir",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let conservativelyReparsed = LyricsContentParser.parseText(
+            LyricsContentParser.serialize(cached),
+            options: .literal
+        )
+        let replacementCount = Counter()
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "same-script"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { conservativelyReparsed },
+            replace: { _ in
+                await replacementCount.increment()
+                return true
+            }
+        )
+
+        #expect(result == .unchanged)
+        #expect(await replacementCount.value == 0)
+    }
+
+    @Test func changedSameScriptSourceTranslationKeepsEstablishedPair() async throws {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "The evening breeze",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Ancienne traduction",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let fetched = [
+            LyricLine(timestamp: 1, text: "The evening breeze", isSynchronized: true),
+            LyricLine(timestamp: 1, text: "Nouvelle traduction", isSynchronized: true),
+        ]
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "same-script-changed"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in true }
+        )
+
+        let updated = try #require(result.updatedDocument)
+        #expect(updated.count == 1)
+        #expect(updated[0].manualTranslation?.text == "Nouvelle traduction")
+        #expect(updated[0].manualTranslation?.source == .bilingualLRC)
+    }
+
+    @Test func partialSameScriptSourceDeletionKeepsTheRemainingEstablishedPair() async throws {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "First original",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Première traduction",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+            LyricLine(
+                timestamp: 2,
+                text: "Second original",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Deuxième traduction",
+                    languageCode: "fr",
+                    source: .bilingualLRC
+                )
+            ),
+        ]
+        let fetched = [
+            LyricLine(timestamp: 1, text: "First original", isSynchronized: true),
+            LyricLine(timestamp: 2, text: "Second original", isSynchronized: true),
+            LyricLine(timestamp: 2, text: "Nouvelle deuxième traduction", isSynchronized: true),
+        ]
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "partial-source-pairs"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in true }
+        )
+
+        let updated = try #require(result.updatedDocument)
+        #expect(updated.count == 2)
+        #expect(updated[0].manualTranslation == nil)
+        #expect(updated[1].manualTranslation?.text == "Nouvelle deuxième traduction")
+    }
+
+    @Test func embeddedPreferredTranslationKeepsUpdatedSourceBilingualAlternate() async throws {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "The evening breeze",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "人工译文",
+                    languageCode: "zh-Hans",
+                    source: .embeddedField
+                ),
+                alternateManualTranslations: [
+                    .init(
+                        text: "Ancienne traduction",
+                        languageCode: "fr",
+                        source: .bilingualLRC
+                    ),
+                ]
+            ),
+        ]
+        let fetched = [
+            LyricLine(timestamp: 1, text: "The evening breeze", isSynchronized: true),
+            LyricLine(timestamp: 1, text: "Nouvelle traduction", isSynchronized: true),
+        ]
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "preferred-and-source"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in true }
+        )
+
+        let updated = try #require(result.updatedDocument)
+        #expect(updated.count == 1)
+        #expect(updated[0].manualTranslation?.text == "人工译文")
+        #expect(updated[0].manualTranslation?.source == .embeddedField)
+        #expect(updated[0].alternateManualTranslations.contains {
+            $0.text == "Nouvelle traduction" && $0.source == .bilingualLRC
+        })
+    }
+
+    @Test func refreshRefusesToOrphanANestedAuthoredTranslation() async {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        voice: .secondary,
+                        manualTranslation: .init(
+                            text: "Local backing translation",
+                            source: .localEditor
+                        )
+                    ),
+                ]
+            ),
+        ]
+        let fetched = [
+            LyricLine(timestamp: 1, text: "Lead", isSynchronized: true),
+        ]
+        let replacementCount = Counter()
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "nested-local"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in
+                await replacementCount.increment()
+                return true
+            }
+        )
+
+        #expect(result == .failedPreservingCache)
+        #expect(await replacementCount.value == 0)
+    }
+
+    @Test func nestedAuthoredTranslationFollowsAProvenTimingOnlyRefresh() async throws {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        voice: .secondary,
+                        manualTranslation: .init(
+                            text: "Local backing translation",
+                            source: .localEditor
+                        )
+                    ),
+                ]
+            ),
+        ]
+        let fetched = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.5,
+                        text: "Backing",
+                        isSynchronized: true,
+                        voice: .secondary
+                    ),
+                ]
+            ),
+        ]
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "nested-timing"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in true }
+        )
+
+        let updated = try #require(result.updatedDocument)
+        #expect(updated[0].background?[0].timestamp == 1.5)
+        #expect(updated[0].background?[0].manualTranslation?.text
+            == "Local backing translation")
+    }
+
+    @Test func duplicateBackgroundCuesCannotSwapAuthoredTranslations() async {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let cached = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.2,
+                        text: "Echo",
+                        isSynchronized: true,
+                        voice: .secondary,
+                        manualTranslation: .init(
+                            text: "First",
+                            source: .localEditor
+                        )
+                    ),
+                    LyricLine(
+                        timestamp: 1.6,
+                        text: "Echo",
+                        isSynchronized: true,
+                        voice: .secondary,
+                        manualTranslation: .init(
+                            text: "Second",
+                            source: .localEditor
+                        )
+                    ),
+                ]
+            ),
+        ]
+        let fetched = [
+            LyricLine(
+                timestamp: 1,
+                text: "Lead",
+                isSynchronized: true,
+                background: [
+                    LyricLine(
+                        timestamp: 1.6,
+                        text: "Echo",
+                        isSynchronized: true,
+                        voice: .secondary
+                    ),
+                    LyricLine(
+                        timestamp: 1.2,
+                        text: "Echo",
+                        isSynchronized: true,
+                        voice: .secondary
+                    ),
+                ]
+            ),
+        ]
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "ambiguous-background"),
+            currentDocument: cached,
+            trigger: .explicit,
+            fetch: { fetched },
+            replace: { _ in true }
+        )
+
+        #expect(result == .failedPreservingCache)
     }
 
     @Test func emptyAndFailedFetchesPreserveExistingCache() async {

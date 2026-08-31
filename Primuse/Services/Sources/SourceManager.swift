@@ -1870,6 +1870,15 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
             return await provider.fetchServerLyrics(for: path)
         }
     }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else {
+                return .unavailable
+            }
+            return await provider.readServerLyrics(for: path)
+        }) ?? .unavailable
+    }
 }
 
 private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
@@ -1902,6 +1911,15 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
             return await provider.fetchServerLyrics(for: path)
         }
     }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else {
+                return .unavailable
+            }
+            return await provider.readServerLyrics(for: path)
+        }) ?? .unavailable
+    }
 }
 
 private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
@@ -1926,6 +1944,15 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
             guard let provider = connector as? any ServerLyricsConnector else { return nil }
             return await provider.fetchServerLyrics(for: path)
         }
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else {
+                return .unavailable
+            }
+            return await provider.readServerLyrics(for: path)
+        }) ?? .unavailable
     }
 
 }
@@ -2058,6 +2085,15 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
             guard let provider = connector as? any ServerLyricsConnector else { return nil }
             return await provider.fetchServerLyrics(for: path)
         }
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else {
+                return .unavailable
+            }
+            return await provider.readServerLyrics(for: path)
+        }) ?? .unavailable
     }
 
 }

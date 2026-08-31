@@ -33,10 +33,12 @@ struct ScrapeOptionsView: View {
     /// `@Environment(\.dismiss)` 关不掉那个窗口。传一个回调让 view 主动通知
     /// controller 收起窗口。iOS 路径不传, 走 `dismiss()`。
     var onCloseRequest: (() -> Void)? = nil
+    var onApplyStateChanged: ((Bool) -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.dismiss) private var dismiss
 
     /// 取消按钮 / 完成时的统一收尾。优先走 onCloseRequest, 没传就走 dismiss。
@@ -58,6 +60,8 @@ struct ScrapeOptionsView: View {
     @State private var searchResults: [SearchResultItem] = []
     @State private var isSearching = false
     @State private var errorMessage: String?
+    @State private var isApplyingChanges = false
+    @State private var applyErrorMessage: String?
     @State private var manualSearchQuery = ""
     @State private var manualMatchTitle = ""
     @State private var manualMatchArtist: String?
@@ -171,6 +175,11 @@ struct ScrapeOptionsView: View {
     var body: some View {
         #if os(macOS)
         macBody
+            .alert("scrape_song_failed", isPresented: applyErrorPresented) {
+                Button("ok", role: .cancel) {}
+            } message: {
+                Text(verbatim: applyErrorMessage ?? "")
+            }
         #else
         NavigationStack {
             Group {
@@ -187,14 +196,28 @@ struct ScrapeOptionsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("cancel") { closeView() }
+                        .disabled(isApplyingChanges)
                 }
             }
+        }
+        .interactiveDismissDisabled(isApplyingChanges)
+        .alert("scrape_song_failed", isPresented: applyErrorPresented) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(verbatim: applyErrorMessage ?? "")
         }
         .onAppear { consumeAutomaticPreviewCompletion() }
         .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
             consumeAutomaticPreviewCompletion()
         }
         #endif
+    }
+
+    private var applyErrorPresented: Binding<Bool> {
+        Binding(
+            get: { applyErrorMessage != nil },
+            set: { if !$0 { applyErrorMessage = nil } }
+        )
     }
 
     #if os(macOS)
@@ -835,6 +858,9 @@ struct ScrapeOptionsView: View {
     private var macFooter: some View {
         HStack(spacing: 10) {
             Spacer()
+            if isApplyingChanges {
+                ProgressView().controlSize(.small)
+            }
             Button("cancel") { closeView() }
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.plain)
@@ -844,6 +870,7 @@ struct ScrapeOptionsView: View {
                 .frame(height: 28)
                 .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
                 .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                .disabled(isApplyingChanges)
 
             Button("apply_changes") { applySelectedChanges() }
                 .buttonStyle(.plain)
@@ -852,7 +879,7 @@ struct ScrapeOptionsView: View {
                 .padding(.horizontal, 14)
                 .frame(height: 28)
                 .background((hasAnySelectedChange ? PMColor.brand : PMColor.textFaint), in: .rect(cornerRadius: 6))
-                .disabled(!hasAnySelectedChange)
+                .disabled(!hasAnySelectedChange || isApplyingChanges)
         }
         .padding(.horizontal, 18)
         .frame(height: 56)
@@ -1086,7 +1113,7 @@ struct ScrapeOptionsView: View {
                     applySelectedChanges()
                 }
                 .fontWeight(.semibold)
-                .disabled(!hasAnySelectedChange)
+                .disabled(!hasAnySelectedChange || isApplyingChanges)
             }
         }
     }
@@ -1515,7 +1542,11 @@ struct ScrapeOptionsView: View {
     }
 
     private func applySelectedChanges() {
+        guard !isApplyingChanges else { return }
         guard let preview = previewResult else { return }
+        applyErrorMessage = nil
+        isApplyingChanges = true
+        onApplyStateChanged?(true)
         let u = preview.updatedSong
         let allowsMetadataAndCover = !isAppleMusicSong
 
@@ -1531,15 +1562,11 @@ struct ScrapeOptionsView: View {
         let coverData = preview.coverData
         let lyricsLines = preview.lyricsLines
 
-        // Compute filenames synchronously — `expected*FileName` is just a hash,
-        // cheap to call before dismiss so `final` is fully populated.
+        // Compute the cover filename synchronously; lyrics are committed by
+        // the writeback transaction after dismissal.
         let coverFileName: String? = needsCover && coverData != nil
             ? MetadataAssetStore.shared.expectedCoverFileName(for: song.id)
             : song.coverArtFileName
-        let lyricsFileName: String? = needsLyrics && lyricsLines != nil
-            ? MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
-            : song.lyricsFileName
-
         // Preserve source-specific fields (especially CUE boundaries) while
         // applying only the options the user selected.
         var final = song
@@ -1560,7 +1587,9 @@ struct ScrapeOptionsView: View {
         final.genre = (genreChanged && applyGenre) ? u.genre : song.genre
         final.year = (yearChanged && applyYear) ? u.year : song.year
         final.coverArtFileName = coverFileName
-        final.lyricsFileName = lyricsFileName
+        // Lyrics are committed below through LyricsWriteback so cache and the
+        // authoritative source share the editor's compare/write transaction.
+        final.lyricsFileName = song.lyricsFileName
 
         // 先 dismiss, 把 replaceSong (rebuildIndex/persistSnapshot/...)
         // 和 sidecar 网络写都挪到 sheet 关闭之后, 避免主线程阻塞导致用户
@@ -1568,11 +1597,12 @@ struct ScrapeOptionsView: View {
         // 强杀, 进程级清理会终结它, 不会留下半成品。
         let lib = library
         let sm = sourceManager
+        let store = sourcesStore
         let songID = song.id
         let onCompleteRef = onComplete
-        closeView()
 
         Task { @MainActor in
+            var appliedFinal = final
             // Persist assets to disk (atomic, fast)
             if needsCover, let data = coverData {
                 MetadataAssetStore.shared.storeCoverSync(data, for: songID)
@@ -1583,47 +1613,76 @@ struct ScrapeOptionsView: View {
                 // cacheKey 基于 songID, 这里主动发全局 artwork invalidation,
                 // 让全部歌曲列表、底栏播放器等已挂载封面位立即重新读取。
             }
+            let metadataChanged = appliedFinal.title != song.title
+                || appliedFinal.albumTitle != song.albumTitle
+                || appliedFinal.artistName != song.artistName
+                || appliedFinal.trackNumber != song.trackNumber
+                || appliedFinal.discNumber != song.discNumber
+                || appliedFinal.duration != song.duration
+                || appliedFinal.bitRate != song.bitRate
+                || appliedFinal.sampleRate != song.sampleRate
+                || appliedFinal.bitDepth != song.bitDepth
+                || appliedFinal.genre != song.genre
+                || appliedFinal.year != song.year
+            if metadataChanged {
+                lib.replaceSong(appliedFinal)
+            } else {
+                lib.updateAssetReferences(
+                    songID: appliedFinal.id,
+                    coverRef: appliedFinal.coverArtFileName,
+                    lyricsRef: appliedFinal.lyricsFileName
+                )
+            }
+
             if needsLyrics, let lines = lyricsLines {
                 let wordLevel = lines.filter { $0.isWordLevel }.count
                 plog("👉 ScrapeOptionsView.apply lyrics=\(lines.count) wordLevelLines=\(wordLevel) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
-                MetadataAssetStore.shared.storeLyricsSync(lines, for: songID)
-            }
-
-            let metadataChanged = final.title != song.title
-                || final.albumTitle != song.albumTitle
-                || final.artistName != song.artistName
-                || final.trackNumber != song.trackNumber
-                || final.discNumber != song.discNumber
-                || final.duration != song.duration
-                || final.bitRate != song.bitRate
-                || final.sampleRate != song.sampleRate
-                || final.bitDepth != song.bitDepth
-                || final.genre != song.genre
-                || final.year != song.year
-            if metadataChanged {
-                lib.replaceSong(final)
-            } else {
-                lib.updateAssetReferences(
-                    songID: final.id,
-                    coverRef: final.coverArtFileName,
-                    lyricsRef: final.lyricsFileName
+                let payload = await LyricsWriteback.loadEditablePayload(
+                    for: appliedFinal,
+                    sourceManager: sm
                 )
+                let writebackMode = await LyricsWriteback.resolveMode(
+                    for: appliedFinal,
+                    sourceManager: sm,
+                    sourcesStore: store
+                )
+                let outcome = await LyricsWriteback.save(
+                    text: LyricsContentParser.serialize(lines),
+                    for: appliedFinal,
+                    mode: writebackMode,
+                    allowRemoval: false,
+                    structuredLines: lines,
+                    sourceSnapshot: payload.sourceSnapshot,
+                    cacheSnapshot: payload.cacheSnapshot,
+                    sourceManager: sm,
+                    library: lib
+                )
+                if outcome.succeeded {
+                    appliedFinal = outcome.updatedSong
+                } else {
+                    let message = outcome.errorMessage ?? String(localized: "scrape_song_failed")
+                    plog("⚠️ ScrapeOptionsView.apply lyrics writeback failed: \(message)")
+                    isApplyingChanges = false
+                    onApplyStateChanged?(false)
+                    applyErrorMessage = message
+                    return
+                }
             }
-            // 通知正在播放的 mac NowPlaying / mini player / 桌面歌词刷新歌词
-            // (它们 onAppear 时只读了一次, 不重新订阅 song id 的话拿不到新歌词)。
-            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: final.id)
-            onCompleteRef?(final)
+            onCompleteRef?(appliedFinal)
+            isApplyingChanges = false
+            onApplyStateChanged?(false)
+            closeView()
 
-            let usesMediaServerWriteback = await sm.supportsMediaServerWriteback(for: final)
+            let usesMediaServerWriteback = await sm.supportsMediaServerWriteback(for: appliedFinal)
             if usesMediaServerWriteback {
                 let originalSnapshot = song
-                let finalSnapshot = final
+                let finalSnapshot = appliedFinal
                 Task.detached(priority: .utility) {
                     let result = await sm.writeScrapedMetadataToMediaServer(
                         original: originalSnapshot,
                         updated: finalSnapshot,
                         coverData: needsCover ? coverData : nil,
-                        lyricsLines: needsLyrics ? lyricsLines : nil
+                        lyricsLines: nil
                     )
                     if !result.errors.isEmpty {
                         plog("⚠️ Media-server writeback errors for '\(finalSnapshot.title)': \(result.errors)")
@@ -1651,10 +1710,12 @@ struct ScrapeOptionsView: View {
             //
             // withTimeout 兜底: 30 秒后强制取消, 即使 NAS 端有 bug 也不会无限期
             // 占用 connector actor。
-            let supportsSidecarWriteback = await sm.supportsSidecarWriting(for: final)
-            if supportsSidecarWriteback && !usesMediaServerWriteback && (needsCover || needsLyrics) {
-                let titleSnapshot = final.title
-                let finalSnapshot = final
+            let supportsSidecarWriteback = await sm.supportsSidecarWriting(for: appliedFinal)
+            if supportsSidecarWriteback
+                && !usesMediaServerWriteback
+                && needsCover {
+                let titleSnapshot = appliedFinal.title
+                let finalSnapshot = appliedFinal
                 Task.detached(priority: .utility) {
                     plog("📝 Sidecar: writing back to source for '\(titleSnapshot)'")
                     do {
@@ -1663,7 +1724,7 @@ struct ScrapeOptionsView: View {
                             sourceManager: sm,
                             song: finalSnapshot,
                             coverData: needsCover ? coverData : nil,
-                            lyricsLines: needsLyrics ? lyricsLines : nil
+                            lyricsLines: nil
                         ) { writeResult in
                             plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
 

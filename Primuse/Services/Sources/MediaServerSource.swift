@@ -1103,7 +1103,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     func fetchServerLyrics(for path: String) async -> String? {
-        guard let itemID = itemID(from: path) else { return nil }
+        guard case .content(let content) = await readServerLyrics(for: path) else {
+            return nil
+        }
+        return content
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        guard let itemID = itemID(from: path) else { return .unavailable }
         do {
             try await connect()
             switch kind {
@@ -1113,19 +1120,22 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     maximumResponseBytes: Self.maximumLyricsResponseBytes
                 )
                 let response = try decoder.decode(JellyfinLyricResponse.self, from: data)
-                return response.editableContent
+                return response.editableContent.map(ServerLyricsReadResult.content) ?? .absent
             case .emby:
-                guard let stream = try await embyLyricsStream(for: itemID) else { return nil }
+                guard let stream = try await embyLyricsStream(for: itemID) else { return .absent }
                 let data = try await performRequest(
                     path: "/Items/\(itemID)/\(stream.mediaSourceID)/Subtitles/\(stream.streamIndex)/Stream.js",
                     maximumResponseBytes: Self.maximumLyricsResponseBytes
                 )
-                return try EmbyLyricsTrackEventParser.editableText(from: data)
+                let content = try EmbyLyricsTrackEventParser.editableText(from: data)
+                return content.map(ServerLyricsReadResult.content) ?? .absent
             case .plex:
-                return nil
+                return .unavailable
             }
+        } catch SourceError.connectionFailed(let message) where message == "HTTP 404" {
+            return .absent
         } catch {
-            return nil
+            return .unavailable
         }
     }
 

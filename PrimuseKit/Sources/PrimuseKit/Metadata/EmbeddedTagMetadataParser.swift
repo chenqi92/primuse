@@ -14,6 +14,11 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
     public var year: Int?
     public var genre: String?
     public var lyrics: String?
+    public var lyricsLanguageCode: String?
+    public var translatedLyrics: String?
+    public var translatedLyricsLanguageCode: String?
+    public var languageTaggedLyrics: [String: String]
+    public var languageTaggedTranslations: [String: String]
     public var coverArtData: Data?
     public var replayGainTrackGain: Double?
     public var replayGainTrackPeak: Double?
@@ -31,6 +36,11 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         year: Int? = nil,
         genre: String? = nil,
         lyrics: String? = nil,
+        lyricsLanguageCode: String? = nil,
+        translatedLyrics: String? = nil,
+        translatedLyricsLanguageCode: String? = nil,
+        languageTaggedLyrics: [String: String] = [:],
+        languageTaggedTranslations: [String: String] = [:],
         coverArtData: Data? = nil,
         replayGainTrackGain: Double? = nil,
         replayGainTrackPeak: Double? = nil,
@@ -47,6 +57,11 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         self.year = year
         self.genre = genre
         self.lyrics = lyrics
+        self.lyricsLanguageCode = lyricsLanguageCode
+        self.translatedLyrics = translatedLyrics
+        self.translatedLyricsLanguageCode = translatedLyricsLanguageCode
+        self.languageTaggedLyrics = languageTaggedLyrics
+        self.languageTaggedTranslations = languageTaggedTranslations
         self.coverArtData = coverArtData
         self.replayGainTrackGain = replayGainTrackGain
         self.replayGainTrackPeak = replayGainTrackPeak
@@ -64,6 +79,9 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
             && year == nil
             && genre == nil
             && lyrics == nil
+            && translatedLyrics == nil
+            && languageTaggedLyrics.isEmpty
+            && languageTaggedTranslations.isEmpty
             && coverArtData == nil
             && replayGainTrackGain == nil
             && replayGainTrackPeak == nil
@@ -81,7 +99,23 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         discNumber = discNumber ?? fallback.discNumber
         year = year ?? fallback.year
         genre = genre ?? fallback.genre
-        lyrics = lyrics ?? fallback.lyrics
+        if lyrics == nil {
+            lyrics = fallback.lyrics
+            lyricsLanguageCode = fallback.lyricsLanguageCode
+        } else if lyrics == fallback.lyrics, lyricsLanguageCode == nil {
+            lyricsLanguageCode = fallback.lyricsLanguageCode
+        }
+        if translatedLyrics == nil {
+            translatedLyrics = fallback.translatedLyrics
+            translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
+        } else if translatedLyrics == fallback.translatedLyrics,
+                  translatedLyricsLanguageCode == nil {
+            translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
+        }
+        languageTaggedLyrics.merge(fallback.languageTaggedLyrics) { current, _ in current }
+        languageTaggedTranslations.merge(fallback.languageTaggedTranslations) { current, _ in
+            current
+        }
         coverArtData = coverArtData ?? fallback.coverArtData
         replayGainTrackGain = replayGainTrackGain ?? fallback.replayGainTrackGain
         replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
@@ -94,6 +128,26 @@ public enum EmbeddedTagMetadataParser {
     private static let maximumRangeByteCount = RemoteMetadataReadPolicy.maximumHeadByteCount
     private static let apeSignature = Data("APETAGEX".utf8)
     private static let id3Signature = Data("ID3".utf8)
+
+    /// Resolves already-decoded text fields with the same mapping used by the
+    /// container parsers. Callers that own a format-specific comment decoder
+    /// can therefore preserve lyric translations without reimplementing the
+    /// field-priority rules.
+    public static func metadata(
+        fromTagValues rawValues: [String: [String]]
+    ) -> EmbeddedTagMetadata {
+        var values: [String: [String]] = [:]
+        for (rawKey, rawItems) in rawValues {
+            let key = normalizedKey(rawKey)
+            let items = rawItems.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }.filter { !$0.isEmpty }
+            if !key.isEmpty, !items.isEmpty {
+                values[key, default: []].append(contentsOf: items)
+            }
+        }
+        return metadata(from: values)
+    }
 
     /// Parses format-specific tags from independently fetched ranges. The
     /// ranges are never concatenated because their absolute adjacency is not
@@ -776,6 +830,7 @@ public enum EmbeddedTagMetadataParser {
         let track = first("TRACKNUMBER", "TRACK", "WM/TRACKNUMBER", "IPRT", "ITRK")
         let disc = first("DISCNUMBER", "DISC", "WM/PARTOFSET")
         let date = first("DATE", "YEAR", "WM/YEAR", "ICRD")
+        let lyricFields = resolvedLyricFields(from: values)
         var result = EmbeddedTagMetadata(
             title: first("TITLE", "WM/TITLE", "INAM"),
             artist: artists?.joined(separator: "; "),
@@ -788,7 +843,12 @@ public enum EmbeddedTagMetadataParser {
             discNumber: disc.flatMap(leadingInteger),
             year: date.flatMap(year),
             genre: first("GENRE", "WM/GENRE", "IGNR"),
-            lyrics: first("LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "WM/LYRICS"),
+            lyrics: lyricFields.lyrics,
+            lyricsLanguageCode: lyricFields.lyricsLanguageCode,
+            translatedLyrics: lyricFields.translatedLyrics,
+            translatedLyricsLanguageCode: lyricFields.translatedLyricsLanguageCode,
+            languageTaggedLyrics: lyricFields.languageTaggedLyrics,
+            languageTaggedTranslations: lyricFields.languageTaggedTranslations,
             replayGainTrackGain: first("REPLAYGAIN_TRACK_GAIN").flatMap(replayGain),
             replayGainTrackPeak: first("REPLAYGAIN_TRACK_PEAK").flatMap(Double.init),
             replayGainAlbumGain: first("REPLAYGAIN_ALBUM_GAIN").flatMap(replayGain),
@@ -805,6 +865,141 @@ public enum EmbeddedTagMetadataParser {
             result.coverArtData = normalizedImageData(picture)
         }
         return result
+    }
+
+    private struct ResolvedLyricFields {
+        var lyrics: String?
+        var lyricsLanguageCode: String?
+        var translatedLyrics: String?
+        var translatedLyricsLanguageCode: String?
+        var languageTaggedLyrics: [String: String] = [:]
+        var languageTaggedTranslations: [String: String] = [:]
+    }
+
+    /// Keeps explicitly translated fields separate from the canonical lyric
+    /// body. Language-suffixed variants are retained even when there is not
+    /// enough information to decide which one is the source language.
+    private static func resolvedLyricFields(
+        from values: [String: [String]]
+    ) -> ResolvedLyricFields {
+        let originalRoots = [
+            "LYRICS", "SYNCEDLYRICS", "SYNCED LYRICS",
+            "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "WM/LYRICS",
+        ]
+        let translationRoots = [
+            "TRANSLATEDLYRICS", "TRANSLATED LYRICS", "TRANSLATION",
+            "LYRICS TRANSLATION", "WM/TRANSLATEDLYRICS", "WM/TRANSLATION",
+        ]
+
+        func first(_ keys: [String]) -> String? {
+            for key in keys {
+                if let value = values[normalizedKey(key)]?.first, !value.isEmpty {
+                    return value
+                }
+            }
+            return nil
+        }
+
+        func taggedValues(for roots: [String]) -> [String: String] {
+            var result: [String: String] = [:]
+            for key in values.keys.sorted() {
+                guard let languageCode = lyricLanguageSuffix(in: key, roots: roots),
+                      let value = values[key]?.first,
+                      !value.isEmpty else { continue }
+                result[languageCode] = result[languageCode] ?? value
+            }
+            return result
+        }
+
+        let taggedLyrics = taggedValues(for: originalRoots)
+        let taggedTranslations = taggedValues(for: translationRoots)
+        let declaredLyricsLanguage = normalizedLyricLanguageCode(
+            first(["LYRICS_LANGUAGE", "LYRICS LANGUAGE"])
+        )
+        let declaredTranslationLanguage = normalizedLyricLanguageCode(
+            first([
+                "TRANSLATEDLYRICS_LANGUAGE", "TRANSLATED LYRICS LANGUAGE",
+                "TRANSLATION_LANGUAGE", "TRANSLATION LANGUAGE",
+            ])
+        )
+
+        var result = ResolvedLyricFields(
+            lyrics: first(originalRoots),
+            lyricsLanguageCode: declaredLyricsLanguage,
+            translatedLyrics: first(translationRoots),
+            translatedLyricsLanguageCode: declaredTranslationLanguage,
+            languageTaggedLyrics: taggedLyrics,
+            languageTaggedTranslations: taggedTranslations
+        )
+
+        if result.lyrics == nil {
+            if let declaredLyricsLanguage,
+               let tagged = taggedLyrics[declaredLyricsLanguage] {
+                result.lyrics = tagged
+                result.lyricsLanguageCode = declaredLyricsLanguage
+            } else if taggedLyrics.count == 1,
+                      let only = taggedLyrics.first {
+                result.lyrics = only.value
+                result.lyricsLanguageCode = only.key
+            }
+        } else if result.lyricsLanguageCode == nil,
+                  let matching = taggedLyrics.first(where: { $0.value == result.lyrics }) {
+            result.lyricsLanguageCode = matching.key
+        }
+
+        if result.translatedLyrics == nil {
+            if let declaredTranslationLanguage,
+               let tagged = taggedTranslations[declaredTranslationLanguage] {
+                result.translatedLyrics = tagged
+                result.translatedLyricsLanguageCode = declaredTranslationLanguage
+            } else if taggedTranslations.count == 1,
+                      let only = taggedTranslations.first {
+                result.translatedLyrics = only.value
+                result.translatedLyricsLanguageCode = only.key
+            } else if result.lyrics != nil {
+                let distinctAlternates = taggedLyrics.filter { languageCode, text in
+                    text != result.lyrics && languageCode != result.lyricsLanguageCode
+                }
+                if distinctAlternates.count == 1,
+                   let only = distinctAlternates.first {
+                    result.translatedLyrics = only.value
+                    result.translatedLyricsLanguageCode = only.key
+                }
+            }
+        } else if result.translatedLyricsLanguageCode == nil,
+                  let matching = taggedTranslations.first(where: {
+                      $0.value == result.translatedLyrics
+                  }) {
+            result.translatedLyricsLanguageCode = matching.key
+        }
+
+        return result
+    }
+
+    private static func lyricLanguageSuffix(
+        in key: String,
+        roots: [String]
+    ) -> String? {
+        let normalized = normalizedKey(key)
+        for root in roots.sorted(by: { $0.count > $1.count }) {
+            let normalizedRoot = normalizedKey(root)
+            guard normalized != normalizedRoot,
+                  normalized.hasPrefix(normalizedRoot) else { continue }
+            let rawSuffix = normalized.dropFirst(normalizedRoot.count)
+            guard rawSuffix.first.map({ " .:_-/[".contains($0) }) == true else {
+                continue
+            }
+            let suffix = rawSuffix
+                .trimmingCharacters(in: CharacterSet(charactersIn: " .:_-/[]()"))
+            if let languageCode = normalizedLyricLanguageCode(String(suffix)) {
+                return languageCode
+            }
+        }
+        return nil
+    }
+
+    private static func normalizedLyricLanguageCode(_ value: String?) -> String? {
+        value.flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
     }
 
     private static func parseFLACPicture(_ data: Data) -> Data? {

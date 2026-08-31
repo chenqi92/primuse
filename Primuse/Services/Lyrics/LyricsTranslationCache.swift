@@ -201,17 +201,26 @@ final class LyricsTranslationCache {
     ) -> String {
         let providerVersion = provider == .system
             ? systemProviderVersion : intelligentProviderVersion
-        let raw = "\(providerVersion)|\(sourceLang ?? "auto")|\(targetLang)|\(text)"
+        let source = sourceLang.map(cacheLanguageIdentity) ?? "auto"
+        let target = cacheLanguageIdentity(targetLang)
+        let raw = "\(providerVersion)|\(source)|\(target)|\(text)"
         let digest = SHA256.hash(data: Data(raw.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func makePairKey(sourceLang: String?, targetLang: String) -> String {
-        let source = sourceLang.map(LyricTranslationGroupingPolicy.languageIdentity) ?? "auto"
-        let target = LyricTranslationGroupingPolicy.languageIdentity(targetLang)
+        let source = sourceLang.map(cacheLanguageIdentity) ?? "auto"
+        let target = cacheLanguageIdentity(targetLang)
         let raw = "\(systemProviderVersion)|pair|\(source)|\(target)"
         let digest = SHA256.hash(data: Data(raw.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func cacheLanguageIdentity(_ raw: String) -> String {
+        let identity = LyricTranslationGroupingPolicy.languageIdentity(raw)
+        return LyricTranslationGroupingPolicy.representsSameTranslationLanguage(identity, "fa")
+            ? "fa"
+            : identity
     }
 
     private func scheduleSave() {

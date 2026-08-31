@@ -2854,7 +2854,8 @@ struct NowPlayingView: View {
         // 全失败 → setLyrics([])，emptyLyricsView 仍允许用户走和 macOS 相同的
         // 在线歌词刮削链路，而不是只能跳转 Apple Music。
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
-            if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
+            let cacheSnapshot = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+            if let cached = cacheSnapshot,
                !cached.isEmpty {
                 plog(String(format: "📜 Apple Music lyrics cache hit '%@' (%d lines)",
                             song.title, cached.count))
@@ -2866,7 +2867,20 @@ struct NowPlayingView: View {
                     .fetchLyrics(forAmID: song.filePath),
                    !lyrics.isEmpty {
                     guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
-                    _ = await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: true)
+                    let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                        lyrics,
+                        forSongID: song.id,
+                        expectedFingerprint: cacheSnapshot.map(LyricsDocumentFingerprint.init(lines:)),
+                        force: false
+                    )
+                    guard wrote else {
+                        if let latest = await MetadataAssetStore.shared
+                            .cachedLyrics(forSongID: song.id),
+                           !latest.isEmpty {
+                            setLyricsIfCurrent(latest, for: song, loadRevision: loadRevision)
+                        }
+                        return
+                    }
                     plog(String(format: "📜 Apple Music lyrics fetched '%@' in %.0fms (%d lines)",
                                 song.title, Date().timeIntervalSince(loadStart) * 1000, lyrics.count))
                     setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
@@ -3050,6 +3064,15 @@ struct NowPlayingView: View {
                     if sourceResult == .unchanged || sourceResult == .throttled {
                         return
                     }
+                    guard sourceResult == .emptyPreservingCache else {
+                        if let latest = await MetadataAssetStore.shared
+                            .cachedLyrics(forSongID: songID),
+                           !latest.isEmpty,
+                           isCurrentLyricsLoad(loadRevision, songID: songID) {
+                            setLyrics(latest)
+                        }
+                        return
+                    }
                     plog(String(format: "📜 loadLyrics '%@' server-lyrics empty (connect=%.0fms)", songTitle, connectMs))
 
                     // Airsonic and other read-only servers often delegate
@@ -3064,11 +3087,23 @@ struct NowPlayingView: View {
                         duration: song.duration > 0 ? song.duration : nil
                     ), !online.isEmpty {
                         guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
-                        _ = await MetadataAssetStore.shared.cacheLyrics(
+                        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                             online,
                             forSongID: songID,
-                            force: true
+                            expectedFingerprint: currentCache.map(
+                                LyricsDocumentFingerprint.init(lines:)
+                            ),
+                            force: false
                         )
+                        guard wrote else {
+                            if let latest = await MetadataAssetStore.shared
+                                .cachedLyrics(forSongID: songID),
+                               !latest.isEmpty,
+                               isCurrentLyricsLoad(loadRevision, songID: songID) {
+                                setLyrics(latest)
+                            }
+                            return
+                        }
                         plog(String(format: "📜 loadLyrics '%@' online fallback OK in %.0fms (%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, online.count))
                         if isCurrentLyricsLoad(loadRevision, songID: songID) {
                             setLyrics(online)
@@ -3112,7 +3147,14 @@ struct NowPlayingView: View {
                     return
                 }
 
-                let wrote = await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: songID)
+                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                    parsed,
+                    forSongID: songID,
+                    expectedFingerprint: currentCache.map(
+                        LyricsDocumentFingerprint.init(lines:)
+                    ),
+                    force: false
+                )
                 if !wrote {
                     // 写入被「不降级」拦截 (现存字级, NAS 是行级 sidecar 自动
                     // 写回的) —— UI 保持原 cache 显示, 不切到行级。
@@ -4825,6 +4867,8 @@ private struct LyricsScaleEnvelopeLayout: Layout {
 /// 父 view 的 Menu / sheet 不受影响。
 private enum LyricsTranslationActivity: Equatable {
     case idle
+    /// Preparation reached a terminal state without any machine-translation work.
+    case notNeeded
     case intelligentLoading
     case intelligentCached
     case intelligentSuccess(provider: String, fallbackDepth: Int)
@@ -5081,7 +5125,7 @@ struct LyricsScrollView: View {
     @ViewBuilder
     private var translationStatusBadge: some View {
         switch translationActivity {
-        case .idle:
+        case .idle, .notNeeded:
             EmptyView()
         case .intelligentLoading:
             Label("lyrics_translation_ai_loading", systemImage: "sparkles")
@@ -5641,6 +5685,17 @@ struct LyricsScrollView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { seekToLyricLine(line) }
                         .frame(width: availableWidth, alignment: frameAlignment)
+
+                    if let translated = translatedTextByLineID[bg.id],
+                       !translated.isEmpty {
+                        Text(translated)
+                            .font(.system(size: fontSize * 0.7 * 0.65, weight: .medium))
+                            .foregroundStyle(appearance.secondary)
+                            .multilineTextAlignment(lyricsAlignment.textAlignment)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(width: availableWidth, alignment: frameAlignment)
+                            .opacity(0.7)
+                    }
                 }
             }
         }
@@ -5983,6 +6038,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
     @State private var preparedGroups: [LyricTranslationGroup] = []
     @State private var activeGroupIndex = 0
     @State private var preparedIdentity: TranslationTaskIdentity?
+    @State private var completionActivity: LyricsTranslationActivity?
 
     private struct TranslationTaskIdentity: Hashable {
         let songID: String?
@@ -6022,19 +6078,45 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
     /// 按检测到的源语言拆分歌词。Translation 的一个 batch 只能对应一个
     /// source/target 语言对，混合语言放进同一自动检测 batch 会导致整批失败。
     private func prepareTranslation(for identity: TranslationTaskIdentity) async {
+        guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+
         translationConfig = nil
         preparedGroups = []
         activeGroupIndex = 0
         preparedIdentity = nil
+        completionActivity = nil
         translatedTextByLineID = [:]
         activity = .idle
 
-        guard identity.isEnabled, !lyrics.isEmpty else { return }
+        guard identity.isEnabled, !lyrics.isEmpty else {
+            activity = .notNeeded
+            return
+        }
+
+        let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
+        let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
+            guard let manualTranslation = LyricManualTranslationPolicy.preferredTranslation(
+                for: line,
+                targetLanguageCode: identity.targetLanguageCode
+            ) else { return }
+            let text = manualTranslation.text
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            result[line.id] = text
+        }
+        translatedTextByLineID = manualTranslations
+        if LyricManualTranslationPolicy.hasCompleteCoverage(
+            in: translationLines,
+            targetLanguageCode: identity.targetLanguageCode
+        ) {
+            activity = .notNeeded
+            return
+        }
+
         let explicitlyRequested = settings.consumeSystemTranslationPreparationRequest(
             revision: identity.systemPreparationRequestRevision
         )
 
-        let lyricTexts = lyrics.map(\.text)
+        let lyricTexts = translationLines.map(\.text)
         let metadataLines = lyrics.lazy.compactMap(\.metadataLines).first ?? []
         let declaredSourceLanguageCode = LyricsTranslationSettingsStore
             .declaredLyricsLanguageCode(from: metadataLines)
@@ -6042,14 +6124,16 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             for: lyricTexts,
             metadataLines: metadataLines
         )
-        let candidates = lyrics.map { line in
-            LyricTranslationCandidate(
+        let candidates = translationLines.compactMap { line -> LyricTranslationCandidate? in
+            guard manualTranslations[line.id] == nil else { return nil }
+            let lineDeclaredLanguageCode = line.languageCode ?? declaredSourceLanguageCode
+            return LyricTranslationCandidate(
                 id: line.id,
                 text: line.text,
                 sourceLanguageCode: LyricsTranslationSettingsStore.detectedLanguageCode(
                     for: line.text,
                     fallbackLanguageCode: fallbackSourceLanguageCode,
-                    declaredLanguageCode: declaredSourceLanguageCode
+                    declaredLanguageCode: lineDeclaredLanguageCode
                 )
             )
         }
@@ -6058,14 +6142,17 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             targetLanguageCode: identity.targetLanguageCode,
             fallbackSourceLanguageCode: fallbackSourceLanguageCode
         )
-        guard !groups.isEmpty else { return }
+        guard !groups.isEmpty else {
+            activity = .notNeeded
+            return
+        }
 
         let cache = LyricsTranslationCache.shared
         let usesIntelligentProvider = identity.mode == .intelligentWithSystemFallback
             && intelligence.shouldExposeRemoteConfiguration
         let preferredCacheProvider: LyricsTranslationCache.ProviderNamespace =
             usesIntelligentProvider ? .intelligent : .system
-        var hits: [String: String] = [:]
+        var hits = manualTranslations
         var uncachedGroups: [LyricTranslationGroup] = []
 
         for group in groups {
@@ -6173,6 +6260,16 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         var systemGroups: [LyricTranslationGroup] = []
         var deferredSystemLineCount = 0
         for group in uncachedGroups {
+            if !LyricTranslationGroupingPolicy.permitsAppleSystemTranslation(
+                sourceLanguageCode: group.sourceLanguageCode,
+                targetLanguageCode: identity.targetLanguageCode
+            ) {
+                // Do not let a historical system-failure cooldown turn an
+                // explicitly unsupported Persian pair into a recoverable
+                // preparation badge. Positive cache hits were already applied.
+                systemGroups.append(group)
+                continue
+            }
             if !explicitlyRequested, cache.isPairMarkedFailed(
                 sourceLang: group.sourceLanguageCode,
                 targetLang: identity.targetLanguageCode
@@ -6214,8 +6311,22 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         var preparationRequiredGroups: [LyricTranslationGroup] = []
         var unsupportedSystemLineCount = 0
         var shouldOfferPreparation = deferredSystemLineCount > 0
+        var encounteredUnknownAvailabilityStatus = false
+        var encounteredAvailabilityError = false
         for group in systemGroups {
             guard !Task.isCancelled else { return }
+            guard LyricTranslationGroupingPolicy.permitsAppleSystemTranslation(
+                sourceLanguageCode: group.sourceLanguageCode,
+                targetLanguageCode: identity.targetLanguageCode
+            ) else {
+                unsupportedSystemLineCount += group.candidates.count
+                plog(
+                    "Lyrics translation pair unsupported by system provider: "
+                        + "\(group.sourceLanguageCode ?? "auto") -> "
+                        + identity.targetLanguageCode
+                )
+                continue
+            }
             if group.sourceLanguageCode == nil, !explicitlyRequested {
                 preparationRequiredGroups.append(group)
                 continue
@@ -6250,10 +6361,13 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                             + identity.targetLanguageCode
                     )
                 @unknown default:
-                    unsupportedSystemLineCount += group.candidates.count
+                    encounteredUnknownAvailabilityStatus = true
+                    shouldOfferPreparation = true
                     plog("Lyrics translation availability returned an unknown status")
                 }
             } catch {
+                guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+                encounteredAvailabilityError = true
                 cache.markPairFailed(
                     sourceLang: group.sourceLanguageCode,
                     targetLang: identity.targetLanguageCode
@@ -6275,16 +6389,48 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             availableGroups.append(explicitGroup)
             preparationRequiredGroups.removeAll { $0.id == explicitGroup.id }
         }
-        if !preparationRequiredGroups.isEmpty || shouldOfferPreparation {
-            activity = .systemPreparationRequired
+        let remainingState = LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
+            preparationRequiredCandidateCount: preparationRequiredGroups.reduce(0) {
+                $0 + $1.candidates.count
+            },
+            unsupportedCandidateCount: unsupportedSystemLineCount,
+            encounteredUnknownStatus: encounteredUnknownAvailabilityStatus,
+            encounteredError: encounteredAvailabilityError || shouldOfferPreparation
+        )
+        switch remainingState {
+        case .notNeeded:
+            completionActivity = .notNeeded
+        case .preparationRequired:
+            completionActivity = .systemPreparationRequired
+        case .unavailable:
+            completionActivity = .systemUnavailable
+        case .ready:
+            completionActivity = nil
         }
-        guard !availableGroups.isEmpty else {
-            if preparationRequiredGroups.isEmpty,
-               !shouldOfferPreparation,
-               unsupportedSystemLineCount > 0 {
-                activity = .systemUnavailable
-            }
+        let terminalState = LyricTranslationTerminalPolicy.resolve(
+            pendingCandidateCount: systemGroups.reduce(0) { partial, group in
+                partial + group.candidates.count
+            },
+            availableGroupCount: availableGroups.count,
+            preparationRequiredGroupCount: preparationRequiredGroups.count,
+            unsupportedCandidateCount: unsupportedSystemLineCount,
+            encounteredUnknownStatus: encounteredUnknownAvailabilityStatus,
+            encounteredError: encounteredAvailabilityError || shouldOfferPreparation
+        )
+        switch terminalState {
+        case .notNeeded:
+            activity = .notNeeded
             return
+        case .unavailable:
+            activity = .systemUnavailable
+            return
+        case .preparationRequired:
+            activity = .systemPreparationRequired
+            return
+        case .ready:
+            if !preparationRequiredGroups.isEmpty || shouldOfferPreparation {
+                activity = .systemPreparationRequired
+            }
         }
 
         preparedGroups = availableGroups
@@ -6380,7 +6526,10 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 }
             }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  preparedIdentity == identity,
+                  translationTaskIdentity == identity,
+                  activeGroupIndex == groupIndex else { return }
             translationFailed = true
             LyricsTranslationCache.shared.markFailed(
                 sources: group.candidates.compactMap { candidate in
@@ -6396,6 +6545,11 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             plog("Lyrics translation failed: \(error.localizedDescription)")
         }
 
+        guard !Task.isCancelled,
+              preparedIdentity == identity,
+              translationTaskIdentity == identity,
+              activeGroupIndex == groupIndex else { return }
+
         if !newCachePairs.isEmpty {
             LyricsTranslationCache.shared.bulkSet(
                 newCachePairs,
@@ -6409,11 +6563,6 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 targetLang: identity.targetLanguageCode
             )
         }
-
-        guard !Task.isCancelled,
-              preparedIdentity == identity,
-              translationTaskIdentity == identity,
-              activeGroupIndex == groupIndex else { return }
 
         if !newStateUpdates.isEmpty {
             translatedTextByLineID.merge(newStateUpdates) { _, new in new }
@@ -6432,6 +6581,10 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             activateGroup(at: nextIndex, identity: identity)
         } else {
             translationConfig = nil
+            activity = completionActivity ?? .notNeeded
+            completionActivity = nil
+            preparedGroups = []
+            preparedIdentity = nil
         }
     }
 }

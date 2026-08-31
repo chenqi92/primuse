@@ -18,6 +18,7 @@ actor MetadataAssetStore {
     private let artworkContentDirectory: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private var lyricsMutationReservations: [String: UUID] = [:]
 
     /// Public directory URLs for external consumers (CachedArtworkView, ThemeService, etc.)
     nonisolated let artworkDirectoryURL: URL
@@ -260,20 +261,14 @@ actor MetadataAssetStore {
     /// 语义: 用户刮削结果 = 最高权威, 自动路径不能擅自降级用户的字级数据。
     /// 但允许用户手动改 NAS .lrc 后被自动路径同步 (字→字 / 行→行 都允许)。
     func storeLyrics(_ lines: [LyricLine], for key: String, force: Bool = false) -> String? {
+        guard lyricsMutationReservations[key] == nil else { return nil }
         let fileName = hashedFileName(for: key, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        if !force && wouldDowngrade(at: fileURL, against: lines) {
-            plog("📝 storeLyrics skip downgrade key=\(key.prefix(8))")
-            return fileName
-        }
-        guard let data = try? encoder.encode(lines) else { return nil }
-        do {
-            try data.write(to: fileURL, options: .atomic)
-            Self.postLyricsCached(songID: key, lines: lines)
-            return fileName
-        } catch {
-            return nil
-        }
+        if cacheLyrics(lines, forSongID: key, force: force) { return fileName }
+        // Automatic scans deliberately retain an existing local override,
+        // authored translation, or stronger word-level cache. Keep its stable
+        // reference instead of making the caller clear a document we preserved.
+        return FileManager.default.fileExists(atPath: fileURL.path) ? fileName : nil
     }
 
     /// 「会不会让现存的字级缓存被降级成行级」—— true 表示该跳过本次写入。
@@ -340,8 +335,31 @@ actor MetadataAssetStore {
     ///   方根据返回值决定要不要更新 UI —— skip 了就 UI 保持现状。
     @discardableResult
     func cacheLyrics(_ lines: [LyricLine], forSongID songID: String, force: Bool = false) -> Bool {
+        guard lyricsMutationReservations[songID] == nil else { return false }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        if !force,
+           let stored = cachedLyrics(forSongID: songID),
+           !stored.isEmpty {
+            if stored.first?.documentIsLocalOverride == true {
+                plog("📝 cacheLyrics keep local override songID=\(songID.prefix(8))")
+                return false
+            }
+            guard let reconciled = LyricManualTranslationPolicy
+                .preservingStoredTranslations(from: stored, in: lines) else {
+                plog("📝 cacheLyrics preserve authored translation songID=\(songID.prefix(8))")
+                return false
+            }
+            if LyricsDocumentFingerprint(lines: reconciled)
+                != LyricsDocumentFingerprint(lines: lines) {
+                // Automatic callers only receive a Bool and would otherwise
+                // put the unmerged source document straight into the UI. Keep
+                // the complete cached document until a coordinator capable of
+                // returning the reconciled lines performs an explicit update.
+                plog("📝 cacheLyrics keep structured cache songID=\(songID.prefix(8))")
+                return false
+            }
+        }
         if !force && wouldDowngrade(at: fileURL, against: lines) {
             plog("📝 cacheLyrics skip downgrade songID=\(songID.prefix(8))")
             return false
@@ -354,6 +372,60 @@ actor MetadataAssetStore {
         } catch {
             return false
         }
+    }
+
+    /// Atomically replaces the editable cache only if it is still the document
+    /// the editor opened. `nil` means the editor opened with no cache; it is not
+    /// a wildcard.
+    func replaceLyricsIfUnchanged(
+        _ lines: [LyricLine],
+        forSongID songID: String,
+        expectedFingerprint: LyricsDocumentFingerprint?,
+        force: Bool = true
+    ) -> Bool {
+        guard lyricsMutationReservations[songID] == nil else { return false }
+        let currentFingerprint = cachedLyrics(forSongID: songID)
+            .map(LyricsDocumentFingerprint.init(lines:))
+        guard currentFingerprint == expectedFingerprint else { return false }
+        return cacheLyrics(lines, forSongID: songID, force: force)
+    }
+
+    /// Reserves a song's cache mutation across an external compare/write/read
+    /// transaction. Every ordinary cache writer is rejected until the holder
+    /// commits or cancels, so a stale editor cannot discover a cache race only
+    /// after it has already changed the source document.
+    func beginLyricsMutation(
+        forSongID songID: String,
+        expectedFingerprint: LyricsDocumentFingerprint?
+    ) -> UUID? {
+        guard lyricsMutationReservations[songID] == nil else { return nil }
+        let currentFingerprint = cachedLyrics(forSongID: songID)
+            .map(LyricsDocumentFingerprint.init(lines:))
+        guard currentFingerprint == expectedFingerprint else { return nil }
+        let token = UUID()
+        lyricsMutationReservations[songID] = token
+        return token
+    }
+
+    func commitLyricsMutation(
+        _ lines: [LyricLine],
+        forSongID songID: String,
+        token: UUID
+    ) -> Bool {
+        guard lyricsMutationReservations[songID] == token else { return false }
+        lyricsMutationReservations[songID] = nil
+        return cacheLyrics(lines, forSongID: songID, force: true)
+    }
+
+    func commitLyricsRemoval(forSongID songID: String, token: UUID) -> Bool {
+        guard lyricsMutationReservations[songID] == token else { return false }
+        lyricsMutationReservations[songID] = nil
+        return invalidateLyricsCache(forSongID: songID)
+    }
+
+    func cancelLyricsMutation(forSongID songID: String, token: UUID) {
+        guard lyricsMutationReservations[songID] == token else { return }
+        lyricsMutationReservations[songID] = nil
     }
 
     /// 通知 MusicLibrary 把这首歌的 lyricsText 同步到库里, 让 FTS5 全文
@@ -388,6 +460,8 @@ actor MetadataAssetStore {
     @discardableResult
     func preserveLyricsAlias(fromSongID aliasSongID: String, toSongID canonicalSongID: String) -> Bool {
         guard aliasSongID != canonicalSongID else { return false }
+        guard lyricsMutationReservations[aliasSongID] == nil,
+              lyricsMutationReservations[canonicalSongID] == nil else { return false }
         let aliasURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: aliasSongID, pathExtension: "json")
         )
@@ -398,17 +472,25 @@ actor MetadataAssetStore {
         let canonicalURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: canonicalSongID, pathExtension: "json")
         )
+        var linesToWrite = aliasLines
         if let canonicalData = try? Data(contentsOf: canonicalURL),
            let canonicalLines = try? decoder.decode([LyricLine].self, from: canonicalData),
            !canonicalLines.isEmpty {
+            guard canonicalLines.first?.documentIsLocalOverride != true else { return false }
             let aliasIsWordLevel = aliasLines.contains(where: \.containsWordLevelContent)
             let canonicalIsWordLevel = canonicalLines.contains(where: \.containsWordLevelContent)
             guard aliasIsWordLevel && !canonicalIsWordLevel else { return false }
+            guard let reconciled = LyricManualTranslationPolicy.preservingStoredTranslations(
+                from: canonicalLines,
+                in: aliasLines
+            ) else { return false }
+            linesToWrite = reconciled
         }
 
         do {
-            try aliasData.write(to: canonicalURL, options: .atomic)
-            Self.postLyricsCached(songID: canonicalSongID, lines: aliasLines)
+            let data = try encoder.encode(linesToWrite)
+            try data.write(to: canonicalURL, options: .atomic)
+            Self.postLyricsCached(songID: canonicalSongID, lines: linesToWrite)
             plog("📝 preserved Apple Music lyrics alias \(aliasSongID.prefix(8)) → \(canonicalSongID.prefix(8))")
             return true
         } catch {
@@ -468,9 +550,30 @@ actor MetadataAssetStore {
     }
 
     /// Remove cached lyrics for a specific song.
-    func invalidateLyricsCache(forSongID songID: String) {
+    @discardableResult
+    func invalidateLyricsCache(forSongID songID: String) -> Bool {
+        guard lyricsMutationReservations[songID] == nil else { return false }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
-        try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(fileName))
+        let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return true }
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Compare-and-delete counterpart used by the editor. This prevents a
+    /// stale window from removing lyrics saved by a newer window.
+    func invalidateLyricsCacheIfUnchanged(
+        forSongID songID: String,
+        expectedFingerprint: LyricsDocumentFingerprint?
+    ) -> Bool {
+        let currentFingerprint = cachedLyrics(forSongID: songID)
+            .map(LyricsDocumentFingerprint.init(lines:))
+        guard currentFingerprint == expectedFingerprint else { return false }
+        return invalidateLyricsCache(forSongID: songID)
     }
 
     /// Batch invalidation stays on this actor's executor and avoids creating
@@ -479,8 +582,10 @@ actor MetadataAssetStore {
         for songID in songIDs {
             let cover = hashedFileName(for: songID, pathExtension: "jpg")
             try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
-            let lyrics = hashedFileName(for: songID, pathExtension: "json")
-            try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+            if lyricsMutationReservations[songID] == nil {
+                let lyrics = hashedFileName(for: songID, pathExtension: "json")
+                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+            }
         }
     }
 
@@ -494,7 +599,11 @@ actor MetadataAssetStore {
                 let cover = hashedFileName(for: song.id, pathExtension: "jpg")
                 try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
             }
-            if song.lyricsFileName == nil {
+            if song.lyricsFileName == nil,
+               lyricsMutationReservations[song.id] == nil {
+                if cachedLyrics(forSongID: song.id)?.first?.documentIsLocalOverride == true {
+                    continue
+                }
                 let lyrics = hashedFileName(for: song.id, pathExtension: "json")
                 try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
             }
@@ -562,7 +671,9 @@ actor MetadataAssetStore {
         // 把它们当文件 entry 一并 removeItem (递归删整棵), 子调用 clear()
         // 时再补建即可。content/ 是 root-level 兄弟目录, 必须显式清。
         clear(directory: artworkDirectory)
-        clear(directory: lyricsDirectory)
+        if lyricsMutationReservations.isEmpty {
+            clear(directory: lyricsDirectory)
+        }
         clear(directory: albumArtworkDirectory)
         clear(directory: artistArtworkDirectory)
         clear(directory: artworkContentDirectory)
@@ -626,32 +737,6 @@ actor MetadataAssetStore {
         let fileName = expectedCoverFileName(for: key)
         let fileURL = artworkDirectoryURL.appendingPathComponent(fileName)
         try? writeContentAddressed(data, refURL: fileURL)
-    }
-
-    /// 同步版 storeLyrics, 给 ScrapeOptionsView 等不便 await actor 的同步
-    /// UI 路径用。语义跟 async 版一致 (force=false 拒绝降级)。默认 force=true
-    /// 因为现有 caller 都是用户的刮削动作。
-    nonisolated func storeLyricsSync(_ lines: [LyricLine], for key: String, force: Bool = true) {
-        let fileName = expectedLyricsFileName(for: key)
-        let fileURL = lyricsDirectoryURL.appendingPathComponent(fileName)
-        let wordLevel = lines.contains(where: \.containsWordLevelContent)
-        plog("📝 storeLyricsSync key=\(key.prefix(8)) lines=\(lines.count) wordLevel=\(wordLevel) force=\(force)")
-        if !force && wouldDowngrade(at: fileURL, against: lines) {
-            plog("📝 storeLyricsSync skip downgrade")
-            return
-        }
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(lines) else {
-            plog("⚠️ storeLyricsSync encode failed")
-            return
-        }
-        do {
-            try data.write(to: fileURL, options: .atomic)
-            plog("📝 storeLyricsSync wrote \(data.count)B → \(fileName)")
-            Self.postLyricsCached(songID: key, lines: lines)
-        } catch {
-            plog("⚠️ storeLyricsSync write failed: \(error.localizedDescription)")
-        }
     }
 
     // MARK: - One-time dedup migration

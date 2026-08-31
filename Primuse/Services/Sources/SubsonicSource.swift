@@ -797,43 +797,65 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     // MARK: - Lyrics (ServerLyricsConnector)
 
     func fetchServerLyrics(for path: String) async -> String? {
-        guard (try? await connect()) != nil, let songID = songID(from: path) else { return nil }
+        guard case .content(let content) = await readServerLyrics(for: path) else {
+            return nil
+        }
+        return content
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        guard let songID = songID(from: path) else { return .unavailable }
+        do {
+            try await connect()
+            let content = try await routedLyrics(songID: songID)
+            guard let content,
+                  !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .absent
+            }
+            return .content(content)
+        } catch {
+            return .unavailable
+        }
+    }
+
+    private func routedLyrics(songID: String) async throws -> String? {
         // getLyricsBySongId is an OpenSubsonic extension. Calling it on
         // Airsonic Advanced produces a server-side 404 exception before the
         // legacy fallback, even though playback itself succeeds. Route by the
         // capability advertised by ping so each family receives only the API
         // it implements.
         if isOpenSubsonic {
-            return await modernLyrics(songID: songID)
+            return try await modernLyrics(songID: songID)
         }
-        return await legacyLyrics(songID: songID)
+        return try await legacyLyrics(songID: songID)
     }
 
     /// OpenSubsonic getLyricsBySongId —— 结构化(可带时间轴)歌词。
-    private func modernLyrics(songID: String) async -> String? {
+    private func modernLyrics(songID: String) async throws -> String? {
         // songLyrics v2 gates cue-level karaoke timing behind enhanced=true.
         // Most older servers ignore the optional parameter and keep returning
         // the version 1 line array. If one rejects unknown parameters, retry
         // the original request so enabling karaoke does not regress lyrics.
-        let enhanced: LyricsContainer? = try? await requestJSON(
-            "getLyricsBySongId",
-            query: [
-                URLQueryItem(name: "id", value: songID),
-                URLQueryItem(name: "enhanced", value: "true"),
-            ]
-        )
         let container: LyricsContainer
-        if let enhanced {
-            container = enhanced
-        } else {
-            guard !Task.isCancelled,
-                  let versionOne: LyricsContainer = try? await requestJSON(
+        do {
+            container = try await requestJSON(
+                "getLyricsBySongId",
+                query: [
+                    URLQueryItem(name: "id", value: songID),
+                    URLQueryItem(name: "enhanced", value: "true"),
+                ]
+            )
+        } catch {
+            try Task.checkCancellation()
+            do {
+                container = try await requestJSON(
                       "getLyricsBySongId",
                       query: [URLQueryItem(name: "id", value: songID)]
-                  ) else {
-                return nil
+                )
+            } catch {
+                try Task.checkCancellation()
+                throw error
             }
-            container = versionOne
         }
         guard let tracks = container.lyricsList?.structuredLyrics else { return nil }
         return OpenSubsonicLyricsConverter.text(from: tracks)
@@ -841,21 +863,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     /// 老 Subsonic getLyrics —— 按 artist+title 匹配, 只返回无时间轴纯文本。
     /// 给非 OpenSubsonic 服务端(Airsonic 等)兜底。先 getSong 拿 artist/title。
-    private func legacyLyrics(songID: String) async -> String? {
-        guard let songContainer: GetSongContainer = try? await requestJSON(
+    private func legacyLyrics(songID: String) async throws -> String? {
+        let songContainer: GetSongContainer = try await requestJSON(
             "getSong",
             query: [URLQueryItem(name: "id", value: songID)]
-        ),
-        let child = songContainer.song, let title = child.title else {
-            return nil
-        }
+        )
+        guard let child = songContainer.song, let title = child.title else { return nil }
         var query = [URLQueryItem(name: "title", value: title)]
         if let artist = Self.cleaned(child.artist, unknown: "[Unknown Artist]")
             ?? Self.cleaned(child.displayArtist, unknown: "[Unknown Artist]") {
             query.append(URLQueryItem(name: "artist", value: artist))
         }
-        guard let container: LegacyLyricsContainer = try? await requestJSON("getLyrics", query: query),
-              let text = container.lyrics?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let container: LegacyLyricsContainer = try await requestJSON("getLyrics", query: query)
+        guard let text = container.lyrics?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
             return nil
         }

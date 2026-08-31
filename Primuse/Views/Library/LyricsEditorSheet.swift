@@ -18,6 +18,10 @@ struct LyricsEditorSheet: View {
 
     @State private var text = ""
     @State private var originalText = ""
+    @State private var initialLines: [LyricLine]?
+    @State private var pendingStructuredLines: [LyricLine]?
+    @State private var sourceSnapshot: LyricsWriteback.EditableSourceSnapshot = .unknown
+    @State private var cacheSnapshot: LyricsDocumentFingerprint?
     @State private var mode: LyricsWriteback.Mode = .checking
     @State private var isLoading = true
     @State private var isSaving = false
@@ -34,9 +38,12 @@ struct LyricsEditorSheet: View {
                 LyricsEditorView(
                     song: song,
                     text: $text,
-                    autoStartsAudioTranscription: autoStartsAudioTranscription
-                ) { committed in
-                    handleCommit(committed)
+                    initialLines: initialLines,
+                    autoStartsAudioTranscription: autoStartsAudioTranscription,
+                    allowsStructuredOnlyTranslationEditing: LyricsWriteback
+                        .allowsStructuredOnlyTranslationEditing(for: initialLines, mode: mode)
+                ) { committed, lines in
+                    handleCommit(committed, structuredLines: lines)
                 }
                 .overlay {
                     if isSaving { savingOverlay }
@@ -107,7 +114,7 @@ struct LyricsEditorSheet: View {
 
     private func load() async {
         isLoading = true
-        let loaded = await LyricsWriteback.loadEditableText(
+        let loaded = await LyricsWriteback.loadEditablePayload(
             for: song,
             sourceManager: sourceManager
         )
@@ -115,18 +122,28 @@ struct LyricsEditorSheet: View {
             for: song,
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
-        )
-        text = loaded
-        originalText = loaded
+        ).protectingSourceConflict(loaded.hasSourceConflict)
+        text = loaded.text
+        originalText = loaded.text
+        initialLines = loaded.structuredLines
+        pendingStructuredLines = nil
+        sourceSnapshot = loaded.sourceSnapshot
+        cacheSnapshot = loaded.cacheSnapshot
         isLoading = false
     }
 
     /// 编辑器点了「完成」。没改动直接关；清空了先确认；否则落盘。
-    private func handleCommit(_ committed: String) {
+    private func handleCommit(_ committed: String, structuredLines: [LyricLine]) {
         text = committed
+        pendingStructuredLines = structuredLines
 
-        guard LyricsWriteback.normalized(committed)
-                != LyricsWriteback.normalized(originalText) else {
+        let structureChanged = initialLines.map {
+            LyricsDocumentFingerprint(lines: $0)
+                != LyricsDocumentFingerprint(lines: structuredLines)
+        } ?? false
+        guard structureChanged
+                || LyricsWriteback.normalized(committed)
+                    != LyricsWriteback.normalized(originalText) else {
             dismiss()
             return
         }
@@ -149,6 +166,9 @@ struct LyricsEditorSheet: View {
             for: song,
             mode: mode,
             allowRemoval: allowRemoval,
+            structuredLines: pendingStructuredLines,
+            sourceSnapshot: sourceSnapshot,
+            cacheSnapshot: cacheSnapshot,
             sourceManager: sourceManager,
             library: library
         )
@@ -161,14 +181,15 @@ struct LyricsEditorSheet: View {
         }
 
         originalText = text
+        cacheSnapshot = outcome.cacheSnapshot
         onSave?(outcome.updatedSong)
-        if outcome.persistence == .localOnly,
-           case .localOnly(let reason) = mode,
-           let reason {
-            completionMessage = [
-                String(localized: "tag_editor_lyrics_writeback_read_only"),
-                reason
-            ].joined(separator: "\n")
+        if outcome.persistence == .localOnly {
+            let base = String(localized: "tag_editor_lyrics_writeback_read_only")
+            if case .localOnly(let reason) = mode, let reason {
+                completionMessage = [base, reason].joined(separator: "\n")
+            } else {
+                completionMessage = base
+            }
             return
         }
         dismiss()

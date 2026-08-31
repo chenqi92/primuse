@@ -68,6 +68,210 @@ struct LyricsEditorDocumentTests {
         #expect(LyricsEditorDocument(parsing: source).serialized() == source)
     }
 
+    @Test("Adjacent same-timestamp bilingual rows become separate editable fields")
+    func parsesBilingualRowsIntoManualTranslations() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:12.300]The evening breeze is soft
+        [00:12.300]晚风轻柔
+        [00:24.100]The clouds drift away
+        [00:24.100]云层散去
+        """)
+
+        #expect(document.lines.count == 2)
+        #expect(document.lines.map(\.text) == [
+            "The evening breeze is soft",
+            "The clouds drift away",
+        ])
+        #expect(document.lines[0].manualTranslation?.text == "晚风轻柔")
+        #expect(document.lines[1].manualTranslation?.text == "云层散去")
+        #expect(document.lines[0].manualTranslation?.source == .bilingualLRC)
+    }
+
+    @Test("Bilingual parsing stays inside contiguous timed blocks")
+    func bilingualPairingDoesNotCrossUnstampedLines() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:12.300]The evening breeze is soft
+        还没打轴的一句
+        [00:12.300]晚风轻柔
+        """)
+
+        #expect(document.lines.count == 3)
+        #expect(document.lines[0].manualTranslation == nil)
+        #expect(document.lines[1].timestamp == nil)
+        #expect(document.lines[2].manualTranslation == nil)
+    }
+
+    @Test("Structured input preserves same-script embedded translations")
+    func structuredInputPreservesSameScriptTranslations() {
+        let source = [
+            LyricLine(
+                timestamp: 12.3,
+                text: "The evening breeze",
+                isSynchronized: true,
+                manualTranslation: LyricManualTranslation(
+                    text: "La brise du soir",
+                    languageCode: "fr",
+                    source: .embeddedField
+                )
+            ),
+            LyricLine(
+                timestamp: 24.1,
+                text: "The clouds drift away",
+                isSynchronized: true,
+                manualTranslation: LyricManualTranslation(
+                    text: "Les nuages se dissipent",
+                    languageCode: "fr",
+                    source: .embeddedField
+                )
+            ),
+        ]
+
+        let document = LyricsEditorDocument(lyricLines: source)
+
+        #expect(document.lines.count == 2)
+        #expect(document.lines[0].manualTranslation?.text == "La brise du soir")
+        #expect(document.lines[0].manualTranslation?.languageCode == "fr")
+        #expect(document.lines[0].manualTranslation?.source == .embeddedField)
+        #expect(document.hasCompleteManualTranslation)
+    }
+
+    @Test("Structured editing preserves TTML end times, voices, and background rows")
+    func structuredInputPreservesTTMLStructure() {
+        let background = LyricLine(
+            timestamp: 12.8,
+            text: "Backing vocal",
+            isSynchronized: true,
+            endTimestamp: 14.2,
+            voice: .secondary
+        )
+        var document = LyricsEditorDocument(lyricLines: [
+            LyricLine(
+                timestamp: 12.3,
+                text: "Lead vocal",
+                isSynchronized: true,
+                endTimestamp: 15.4,
+                voice: .primary,
+                background: [background]
+            )
+        ])
+
+        #expect(document.lyricLines()[0].endTimestamp == 15.4)
+        #expect(document.lyricLines()[0].voice == .primary)
+        #expect(document.lyricLines()[0].background?.first?.voice == .secondary)
+
+        document.shift(by: 2)
+        let shifted = document.lyricLines()[0]
+        #expect(shifted.timestamp == 14.3)
+        #expect(shifted.endTimestamp == 17.4)
+        #expect(shifted.background?.first?.timestamp == 14.8)
+        #expect(shifted.background?.first?.endTimestamp == 16.2)
+        #expect(!document.lines[0].canClearStamp)
+        #expect(LyricsStructuredPersistencePolicy.requiresTTML(document.lyricLines()))
+        #expect(!LyricsStructuredPersistencePolicy.requiresTTML([
+            LyricLine(
+                timestamp: 1,
+                text: "Portable",
+                syllables: [.init(text: "Portable", start: 1, end: 2)]
+            ),
+        ]))
+        #expect(LyricsStructuredPersistencePolicy.requiresTTML([
+            LyricLine(
+                timestamp: 1,
+                text: "A B",
+                syllables: [
+                    .init(text: "A ", start: 1, end: 1.2),
+                    .init(text: "B", start: 2, end: 2.5),
+                ]
+            ),
+        ]))
+        let explicitBoundary = LyricsEditorDocument(lyricLines: [
+            LyricLine(
+                timestamp: 1,
+                text: "A B",
+                isSynchronized: true,
+                syllables: [
+                    .init(text: "A ", start: 1, end: 2, endTiming: .explicit),
+                    .init(text: "B", start: 2, end: 3, endTiming: .inferred),
+                ]
+            ),
+        ])
+        #expect(LyricsStructuredPersistencePolicy.requiresTTML(explicitBoundary.lyricLines()))
+        #expect(!explicitBoundary.permitsSourceTextEditing)
+        #expect(LyricsStructuredPersistencePolicy.requiresTTML([
+            LyricLine(
+                timestamp: 1,
+                text: "First visual line\nSecond visual line",
+                isSynchronized: true
+            ),
+        ]))
+    }
+
+    @Test("Documents with translations refuse lossy source-text replacement")
+    func structuredTranslationsDisableSourceEditing() {
+        let preferred = LyricManualTranslation(
+            text: "La brise du soir",
+            languageCode: "fr",
+            source: .embeddedField
+        )
+        let alternate = LyricManualTranslation(
+            text: "Abendbrise",
+            languageCode: "de",
+            source: .embeddedField
+        )
+        let original = LyricsEditorDocument(lyricLines: [
+            LyricLine(
+                timestamp: 12.3,
+                text: "The evening breeze",
+                isSynchronized: true,
+                manualTranslation: preferred,
+                alternateManualTranslations: [alternate]
+            )
+        ])
+
+        #expect(original.originalOnlySerialized() == "[00:12.300]The evening breeze")
+        #expect(!original.permitsSourceTextEditing)
+        let rejected = original.replacingOriginalSource(
+            with: "[00:13.000]The gentle evening breeze"
+        )
+        #expect(rejected == original)
+    }
+
+    @Test("Plain LRC source editing remains available")
+    func plainSourceEditingRemainsAvailable() {
+        let document = LyricsEditorDocument(parsing: """
+        [00:01.000]First
+        [00:02.000]Second
+        """)
+
+        #expect(document.permitsSourceTextEditing)
+        let reordered = document.replacingOriginalSource(with: """
+        [00:02.000]Second
+        [00:01.000]First
+        """)
+
+        #expect(reordered.lines.map(\.text) == ["Second", "First"])
+        #expect(reordered.lines.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test("Pasting TTML into source mode keeps structured cues")
+    func sourceModeParsesTTMLInsteadOfTreatingMarkupAsLyrics() throws {
+        let original = LyricsEditorDocument(parsing: "[00:01.000]Old line")
+        let ttml = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">
+          <body><div><p begin="1s" end="2s">
+            <span begin="1s" end="2s" xml:lang="fa">سلام</span>
+          </p></div></body>
+        </tt>
+        """
+
+        let replaced = original.replacingOriginalSource(with: ttml)
+        let line = try #require(replaced.lyricLines().first)
+        #expect(line.text == "سلام")
+        #expect(line.endTimestamp == 2)
+        #expect(line.syllables?.first?.languageCode == "fa")
+        #expect(!replaced.serialized().contains("&lt;tt"))
+    }
+
     @Test("Session identities do not count as lyric content changes")
     func ignoresSessionIdentitiesWhenComparingContent() {
         let first = LyricsEditorDocument(parsing: "[00:12.300]Same line")
@@ -125,6 +329,81 @@ struct LyricsEditorDocumentTests {
         #expect(document.lines[0].timestamp == 14.3)
         #expect(document.lines[1].timestamp == nil)
         #expect(document.lines[2].timestamp == 26.1)
+    }
+
+    @Test("Unstamped structured timing still shifts as one unit")
+    func shiftsUnstampedStructuredTiming() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(
+                timestamp: nil,
+                text: "Lead",
+                endTimestamp: 4,
+                background: [
+                    LyricLine(
+                        timestamp: 2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        endTimestamp: 3,
+                        voice: .secondary
+                    ),
+                ]
+            ),
+        ])
+
+        #expect(document.shift(by: 1) == 1)
+        #expect(document.lines[0].timestamp == nil)
+        #expect(document.lines[0].endTimestamp == 5)
+        #expect(document.lines[0].background?.first?.timestamp == 3)
+        #expect(document.lines[0].background?.first?.endTimestamp == 4)
+    }
+
+    @Test("Structured timing changes count as document edits")
+    func structuredTimingParticipatesInContentComparison() {
+        let original = LyricsEditorDocument(lines: [
+            EditableLyricLine(
+                timestamp: nil,
+                text: "Lead",
+                endTimestamp: 4,
+                background: [
+                    LyricLine(
+                        timestamp: 2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        voice: .secondary
+                    ),
+                ]
+            ),
+        ])
+        let shifted = original.shifted(by: 1)
+
+        #expect(!shifted.hasSameContent(as: original))
+        #expect(shifted.serialized() == original.serialized())
+    }
+
+    @Test("Stamping an unstamped structured row preserves relative timing")
+    func stampsUnstampedStructuredTiming() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(
+                timestamp: nil,
+                text: "Lead",
+                endTimestamp: 4,
+                background: [
+                    LyricLine(
+                        timestamp: 2,
+                        text: "Backing",
+                        isSynchronized: true,
+                        endTimestamp: 3,
+                        voice: .secondary
+                    ),
+                ]
+            ),
+        ])
+
+        document.stamp(at: 0, time: 10)
+        #expect(document.lines[0].timestamp == 10)
+        #expect(document.lines[0].background?.first?.timestamp == 10)
+        #expect(document.lines[0].background?.first?.endTimestamp == 11)
+        #expect(document.lines[0].endTimestamp == 12)
     }
 
     @Test("Backward shift clamps the whole document, never collapsing lines together")
@@ -222,6 +501,198 @@ struct LyricsEditorDocumentTests {
         #expect(document.serialized() == "[00:12.300]晚风吹过温柔的午后")
     }
 
+    @Test("Editing a translation preserves the original timeline and source provenance")
+    func editingTranslationPreservesTimelineAndProvenance() {
+        let translation = LyricManualTranslation(
+            id: "manual-translation",
+            text: "The evening breeze",
+            languageCode: "en",
+            source: .embeddedField
+        )
+        let alternate = LyricManualTranslation(
+            id: "alternate-translation",
+            text: "La brise du soir",
+            languageCode: "fr",
+            source: .embeddedField
+        )
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(
+                timestamp: 12.3,
+                text: "晚风吹过",
+                syllables: [
+                    LyricSyllable(text: "晚风", start: 12.3, end: 13.1),
+                    LyricSyllable(text: "吹过", start: 13.1, end: 14.0),
+                ],
+                manualTranslation: translation,
+                alternateManualTranslations: [alternate]
+            )
+        ])
+
+        document.updateManualTranslation("The soft evening breeze", at: 0)
+        document.clearStamp(at: 0)
+
+        #expect(document.lines[0].timestamp == 12.3)
+        #expect(document.lines[0].syllables?.map(\.start) == [12.3, 13.1])
+        #expect(document.lines[0].manualTranslation?.id == "manual-translation")
+        #expect(document.lines[0].manualTranslation?.languageCode == "en")
+        #expect(document.lines[0].manualTranslation?.source == .embeddedField)
+        #expect(document.lines[0].manualTranslation?.text == "The soft evening breeze")
+        #expect(document.lines[0].alternateManualTranslations == [alternate])
+        #expect(document.lyricLines()[0].alternateManualTranslations == [alternate])
+        #expect(document.hasCompleteManualTranslation)
+    }
+
+    @Test("A newly authored translation serializes as same-timestamp bilingual LRC")
+    func serializesNewTranslationAsBilingualLRC() {
+        var document = LyricsEditorDocument(parsing: """
+        [00:12.300]晚风吹过
+        [00:24.100]云层散去
+        """)
+        document.updateManualTranslation("The evening breeze", at: 0)
+        document.updateManualTranslation("The clouds drift away", at: 1)
+
+        #expect(document.lines[0].manualTranslation?.source == .bilingualLRC)
+        #expect(document.serialized() == """
+        [00:12.300]晚风吹过
+        [00:12.300]The evening breeze
+        [00:24.100]云层散去
+        [00:24.100]The clouds drift away
+        """)
+
+        let validation = LyricsContentParser.validateEditableText(document.serialized())
+        #expect(validation.isValid)
+        #expect(validation.lines.count == 2)
+        #expect(validation.lines[0].manualTranslation?.text == "The evening breeze")
+        #expect(validation.lines[1].manualTranslation?.text == "The clouds drift away")
+        #expect(document.hasCompleteManualTranslation)
+    }
+
+    @Test("Clearing a translation leaves the original lyric untouched")
+    func clearsTranslationOnly() {
+        var document = LyricsEditorDocument(parsing: """
+        [00:12.300]晚风吹过
+        [00:12.300]The evening breeze
+        [00:24.100]云层散去
+        [00:24.100]The clouds drift away
+        [00:36.500]星光落下
+        [00:36.500]The starlight falls
+        """)
+
+        document.updateManualTranslation("   ", at: 0)
+
+        #expect(document.lines[0].text == "晚风吹过")
+        #expect(document.lines[0].timestamp == 12.3)
+        #expect(document.lines[0].manualTranslation == nil)
+        #expect(document.serialized() == """
+        [00:12.300]晚风吹过
+        [00:24.100]云层散去
+        [00:24.100]The clouds drift away
+        [00:36.500]星光落下
+        [00:36.500]The starlight falls
+        """)
+        #expect(!document.hasCompleteManualTranslation)
+
+        let validation = LyricsContentParser.validateEditableText(document.serialized())
+        #expect(validation.lines.count == 3)
+        #expect(validation.lines[0].manualTranslation == nil)
+        #expect(validation.lines[1].manualTranslation?.text == "The clouds drift away")
+        #expect(validation.lines[2].manualTranslation?.text == "The starlight falls")
+    }
+
+    @Test("Unstamped rows reject translations that cannot round-trip as bilingual LRC")
+    func unstampedRowsRejectManualTranslations() {
+        var document = LyricsEditorDocument(parsing: "还没打轴的一句")
+        document.updateManualTranslation("An unstamped line", at: 0)
+
+        #expect(document.lines[0].manualTranslation == nil)
+        #expect(document.serialized() == "还没打轴的一句")
+    }
+
+    @Test("Word-level rows reject new bilingual-LRC translations")
+    func wordLevelRowsRejectPortableTranslations() {
+        var document = LyricsEditorDocument(
+            parsing: "[00:01.000]<00:01.000>晚<00:02.000>风<00:03.000>"
+        )
+
+        document.updateManualTranslation("Evening breeze", at: 0)
+
+        #expect(document.lines[0].manualTranslation == nil)
+    }
+
+    @Test("Local structured storage can author translations for unstamped rows")
+    func localStructuredRowsCanAuthorTranslations() {
+        var document = LyricsEditorDocument(parsing: "还没打轴的一句")
+
+        document.updateManualTranslation(
+            "An unstamped line",
+            at: 0,
+            allowsStructuredOnly: true
+        )
+
+        #expect(document.lines[0].manualTranslation?.text == "An unstamped line")
+        #expect(document.lines[0].manualTranslation?.source == .localEditor)
+    }
+
+    @Test("Local structured storage marks even portable rows as local edits")
+    func localStructuredTimedRowsKeepLocalProvenance() {
+        var document = LyricsEditorDocument(parsing: "[00:01.000]A timed line")
+
+        document.updateManualTranslation(
+            "A local translation",
+            at: 0,
+            allowsStructuredOnly: true
+        )
+
+        #expect(document.lines[0].manualTranslation?.source == .localEditor)
+    }
+
+    @Test("Editing an existing source translation locally promotes its provenance")
+    func localStructuredEditPromotesExistingTranslation() {
+        var document = LyricsEditorDocument(lyricLines: [
+            LyricLine(
+                timestamp: 1,
+                text: "Original",
+                isSynchronized: true,
+                manualTranslation: .init(
+                    text: "Source translation",
+                    source: .bilingualLRC
+                )
+            ),
+        ])
+
+        document.updateManualTranslation(
+            "Locally edited translation",
+            at: 0,
+            allowsStructuredOnly: true
+        )
+
+        #expect(document.lines[0].manualTranslation?.text == "Locally edited translation")
+        #expect(document.lines[0].manualTranslation?.source == .localEditor)
+    }
+
+    @Test("An existing structured plain-text translation remains editable")
+    func editsExistingUnstampedTranslation() {
+        var document = LyricsEditorDocument(lyricLines: [
+            LyricLine(
+                timestamp: 0,
+                text: "The evening breeze",
+                isSynchronized: false,
+                manualTranslation: LyricManualTranslation(
+                    text: "La brise du soir",
+                    languageCode: "fr",
+                    source: .embeddedField
+                )
+            )
+        ])
+
+        document.updateManualTranslation("La douce brise du soir", at: 0)
+
+        #expect(document.lines[0].timestamp == nil)
+        #expect(document.lines[0].manualTranslation?.text == "La douce brise du soir")
+        #expect(document.lines[0].manualTranslation?.source == .embeddedField)
+        #expect(document.hasCompleteManualTranslation)
+    }
+
     @Test("Stamping one syllable shifts the remaining word-level timeline")
     func stampingSyllableShiftsSuffix() {
         var document = LyricsEditorDocument(
@@ -251,6 +722,34 @@ struct LyricsEditorDocumentTests {
         #expect(document.nudgeSyllable(at: 0, syllableIndex: 1, by: 10) == 3)
         #expect(document.lines[0].syllables?.map(\.start) == [1, 3, 3])
         #expect(LyricsContentParser.validateEditableText(document.serialized()).isValid)
+    }
+
+    @Test("Explicit word ends survive suffix stamps and fine tuning")
+    func explicitWordEndsSurviveTimingEdits() {
+        let line = LyricLine(
+            timestamp: 1,
+            text: "A B",
+            isSynchronized: true,
+            syllables: [
+                .init(text: "A ", start: 1, end: 1.4, endTiming: .explicit),
+                .init(text: "B", start: 2, end: 2.6, endTiming: .explicit),
+            ],
+            endTimestamp: 3
+        )
+        var stamped = LyricsEditorDocument(lyricLines: [line])
+
+        #expect(stamped.stampSyllable(at: 0, syllableIndex: 1, time: 2.2) == 2.2)
+        #expect(stamped.lines[0].timestamp == 1)
+        #expect(stamped.lines[0].syllables?[0].end == 1.4)
+        #expect(stamped.lines[0].syllables?[0].endTiming == .explicit)
+        #expect(abs((stamped.lines[0].endTimestamp ?? 0) - 3.2) < 0.001)
+
+        var nudged = LyricsEditorDocument(lyricLines: [line])
+        #expect(nudged.nudgeSyllable(at: 0, syllableIndex: 1, by: 10) == 2.6)
+        #expect(nudged.lines[0].timestamp == 1)
+        #expect(nudged.lines[0].syllables?[0].end == 1.4)
+        #expect(nudged.lines[0].syllables?[1].end == 2.6)
+        #expect(nudged.lines[0].syllables?[1].endTiming == .explicit)
     }
 
     // MARK: - 顺序

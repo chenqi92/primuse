@@ -84,6 +84,9 @@ struct LyricsContentParserTests {
         #expect(!lines[1].isWordLevel)
 
         let roundTrip = LyricsContentParser.parse(LyricsContentParser.serializeTTML(lines))
+        let serialized = LyricsContentParser.serializeTTML(lines)
+        #expect(serialized.contains("<ttm:agent xml:id=\"v1\""))
+        #expect(serialized.contains("<ttm:agent xml:id=\"v2\""))
         #expect(LyricsContentParser.areSemanticallyEquivalent(lines, roundTrip))
         #expect(roundTrip.map(\.voice) == lines.map(\.voice))
     }
@@ -101,6 +104,320 @@ struct LyricsContentParserTests {
         #expect(line.timestamp == 0)
         #expect(line.isSynchronized)
         #expect(line.text == "Opening")
+    }
+
+    @Test("Start-only TTML remains inferred after serialization")
+    func startOnlyTTMLDoesNotInventExplicitEnds() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s">
+            <span begin="1s">A</span><span begin="5s">B</span>
+          </p></div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        let first = try #require(parsed.first?.syllables?.first)
+        #expect(first.endTiming == .inferred)
+
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(!serialized.contains("<span begin=\"00:00:01.000\" end="))
+        #expect(!serialized.contains("<p begin=\"00:00:01.000\" end="))
+        let roundTripFirst = try #require(
+            LyricsContentParser.parse(serialized).first?.syllables?.first
+        )
+        #expect(roundTripFirst.endTiming == .inferred)
+    }
+
+    @Test("TTML span duration inherits its paragraph start")
+    func preservesTTMLDurationWithInheritedBegin() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s"><span dur="1s">A</span></p></div></body>
+        </tt>
+        """
+
+        let syllable = try #require(
+            LyricsContentParser.parse(content).first?.syllables?.first
+        )
+        #expect(syllable.start == 1)
+        #expect(syllable.end == 2)
+        #expect(syllable.endTiming == .explicit)
+    }
+
+    @Test("TTML mixed content remains attached to timed words")
+    func preservesTTMLMixedContent() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s">
+            <span begin="1s">Hello</span> <span begin="2s">world</span>!
+          </p></div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        let line = try #require(parsed.first)
+        #expect(line.text == "Hello world!")
+        #expect(line.syllables?.map(\.text) == ["Hello ", "world!"])
+
+        let roundTrip = LyricsContentParser.parse(
+            LyricsContentParser.serializeTTML(parsed)
+        )
+        #expect(LyricsContentParser.areSemanticallyEquivalent(parsed, roundTrip))
+    }
+
+    @Test("Nested TTML style wrappers preserve inner word timing")
+    func preservesNestedTTMLWordTiming() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s">
+            <span style="outer"><span begin="1s">Hi</span><span begin="2s"> there</span></span>
+          </p></div></body>
+        </tt>
+        """
+
+        let line = try #require(LyricsContentParser.parse(content).first)
+        let syllables = try #require(line.syllables)
+        #expect(line.text == "Hi there")
+        #expect(syllables.map(\.text) == ["Hi", " there"])
+        #expect(syllables.map(\.start) == [1, 2])
+    }
+
+    @Test("Nested TTML keeps outer timing for leading direct text")
+    func preservesNestedTTMLOuterTextTiming() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s">
+            <span begin="1s" end="3s">A <span begin="2s" end="3s">B</span></span>
+          </p></div></body>
+        </tt>
+        """
+
+        let syllables = try #require(
+            LyricsContentParser.parse(content).first?.syllables
+        )
+        #expect(syllables.map(\.text) == ["A ", "B"])
+        #expect(syllables.map(\.start) == [1, 2])
+    }
+
+    @Test("Nested TTML keeps trailing outer text separate from the child cue")
+    func preservesNestedTTMLTrailingTextTiming() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s">
+            <span begin="1s" end="3s">A <span begin="2s" end="2.5s">B</span> C</span>
+          </p></div></body>
+        </tt>
+        """
+
+        let syllables = try #require(
+            LyricsContentParser.parse(content).first?.syllables
+        )
+        #expect(syllables.map(\.text) == ["A ", "B", " C"])
+        #expect(syllables.map(\.start) == [1, 2, 2.5])
+        #expect(syllables.last?.end == 3)
+    }
+
+    @Test("Serializer voice IDs stay stable when the secondary cue starts first")
+    func preservesVoiceRolesWhenSecondaryStartsFirst() {
+        let lines = [
+            LyricLine(
+                timestamp: 2,
+                text: "Primary",
+                isSynchronized: true,
+                endTimestamp: 4,
+                voice: .primary
+            ),
+            LyricLine(
+                timestamp: 1,
+                text: "Secondary",
+                isSynchronized: true,
+                endTimestamp: 1.5,
+                voice: .secondary
+            ),
+        ]
+        let reparsed = LyricsContentParser.parse(
+            LyricsContentParser.serializeTTML(lines)
+        )
+        #expect(reparsed.first(where: { $0.text == "Primary" })?.voice == .primary)
+        #expect(reparsed.first(where: { $0.text == "Secondary" })?.voice == .secondary)
+    }
+
+    @Test("TTML explicit line breaks survive structured serialization")
+    func preservesTTMLLineBreaks() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s">
+            <span begin="1s">Hi</span>
+            <br/>
+            <span begin="2s">there</span>
+          </p></div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        #expect(parsed.first?.text == "Hi\nthere")
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(serialized.contains("Hi<br/>"))
+        let roundTrip = try #require(LyricsContentParser.parse(serialized).first)
+        #expect(roundTrip.text == "Hi\nthere")
+        #expect(roundTrip.syllables?.map(\.text).joined() == "Hi\nthere")
+    }
+
+    @Test("TTML zero-duration line windows survive serialization")
+    func preservesZeroDurationLineWindows() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s" end="1s">Beat</p></div></body>
+        </tt>
+        """
+        let parsed = LyricsContentParser.parse(content)
+        #expect(parsed.first?.endTimestamp == 1)
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(serialized.contains("end=\"00:00:01.000\""))
+        #expect(LyricsContentParser.parse(serialized).first?.endTimestamp == 1)
+    }
+
+    @Test("TTML document language survives parsing and serialization")
+    func preservesTTMLDocumentLanguage() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xml:lang="fa-Arab">
+          <body><div><p begin="1s">سلام دنیا</p></div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        let metadata = try #require(parsed.first?.metadataLines)
+        #expect(LyricManualTranslationPolicy.declaredLanguageCode(in: metadata) == "fa-Arab")
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(serialized.contains("xml:lang=\"fa-Arab\""))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(
+            parsed,
+            LyricsContentParser.parse(serialized)
+        ))
+    }
+
+    @Test("TTML paragraph language is inherited and available to routing")
+    func preservesTTMLParagraphLanguage() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div><p begin="1s" xml:lang="fa">سلام دنیا</p></div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        #expect(parsed.first?.languageCode == "fa")
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(serialized.contains("xml:lang=\"fa\""))
+    }
+
+    @Test("Mixed TTML paragraph languages survive round-trip")
+    func preservesMixedTTMLParagraphLanguages() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div>
+            <p begin="1s" xml:lang="fa">سلام</p>
+            <p begin="2s" xml:lang="en">Hello</p>
+          </div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        #expect(parsed.count == 2)
+        #expect(parsed[0].languageCode == "fa")
+        #expect(parsed[1].languageCode == "en")
+        let roundTrip = LyricsContentParser.parse(
+            LyricsContentParser.serializeTTML(parsed)
+        )
+        #expect(LyricsContentParser.areSemanticallyEquivalent(parsed, roundTrip))
+    }
+
+    @Test("TTML root language stays distinct from a paragraph override")
+    func preservesTTMLRootLanguageWithParagraphOverride() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">
+          <body><div>
+            <p begin="1s" xml:lang="fa">سلام</p>
+            <p begin="2s">Hello</p>
+          </div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        #expect(LyricManualTranslationPolicy.declaredLanguageCode(
+            in: parsed[0].metadataLines ?? []
+        ) == "en")
+        #expect(parsed[0].languageCode == "fa")
+        #expect(parsed[1].languageCode == nil)
+        let roundTrip = LyricsContentParser.parse(
+            LyricsContentParser.serializeTTML(parsed)
+        )
+        #expect(LyricsContentParser.areSemanticallyEquivalent(parsed, roundTrip))
+    }
+
+    @Test("TTML timed span language overrides survive round-trip")
+    func preservesTTMLSpanLanguageOverrides() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">
+          <body><div>
+            <p begin="1s" end="3s">
+              <span begin="1s" end="2s">Hello </span>
+              <span begin="2s" end="3s" xml:lang="fa">دنیا</span>
+            </p>
+          </div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        let syllables = try #require(parsed.first?.syllables)
+        #expect(syllables.map(\.languageCode) == [nil, "fa"])
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(serialized.contains("<span begin=\"00:00:02.000\" end=\"00:00:03.000\" xml:lang=\"fa\">"))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(
+            parsed,
+            LyricsContentParser.parse(serialized)
+        ))
+    }
+
+    @Test("Semantic metadata comparison ignores blank separator rows")
+    func ignoresMetadataSeparatorRows() {
+        let left = [LyricLine(
+            timestamp: 1,
+            text: "Line",
+            isSynchronized: true,
+            metadataLines: ["[ar:Artist]"]
+        )]
+        let right = [LyricLine(
+            timestamp: 1,
+            text: "Line",
+            isSynchronized: true,
+            metadataLines: ["[ar:Artist]", "  "]
+        )]
+        #expect(LyricsContentParser.areSemanticallyEquivalent(left, right))
+    }
+
+    @Test("Explicit zero-duration final words keep their provenance")
+    func preservesExplicitZeroDurationWords() throws {
+        let line = LyricLine(
+            timestamp: 1,
+            text: "Beat",
+            isSynchronized: true,
+            syllables: [
+                .init(text: "Beat", start: 1, end: 1, endTiming: .explicit),
+            ]
+        )
+
+        let lrcRoundTrip = try #require(
+            LyricsContentParser.parse(LyricsContentParser.serialize([line])).first
+        )
+        #expect(lrcRoundTrip.syllables?.first?.end == 1)
+        #expect(lrcRoundTrip.syllables?.first?.endTiming == .explicit)
+
+        let ttmlRoundTrip = try #require(
+            LyricsContentParser.parse(LyricsContentParser.serializeTTML([line])).first
+        )
+        #expect(ttmlRoundTrip.syllables?.first?.end == 1)
+        #expect(ttmlRoundTrip.syllables?.first?.endTiming == .explicit)
     }
 
     @Test("Malformed TTML is not exposed as raw XML lyric lines")
@@ -241,6 +558,14 @@ struct LyricsContentParserTests {
         var changed = roundTrip
         changed[0].syllables?[0].start += 0.1
         #expect(!LyricsContentParser.areSemanticallyEquivalent(expected, changed))
+
+        var changedProvenance = roundTrip
+        changedProvenance[0].syllables?[0].endTiming = .explicit
+        #expect(!LyricsContentParser.areSemanticallyEquivalent(expected, changedProvenance))
+
+        var changedMetadata = roundTrip
+        changedMetadata[0].metadataLines = ["[la:fa]"]
+        #expect(!LyricsContentParser.areSemanticallyEquivalent(expected, changedMetadata))
     }
 
     @Test("Overlapping TTML agents share one row but keep independent word timelines")
@@ -294,5 +619,135 @@ struct LyricsContentParserTests {
         #expect(grouped.count == 2)
         #expect(background.text == "Backing")
         #expect(background.endTimestamp == 14)
+    }
+
+    @Test("Adjacent same-timestamp bilingual LRC keeps authored translations")
+    func recognizesBilingualLRCWithDocumentEvidence() throws {
+        let content = """
+        [00:01.00]想看你微笑
+        [00:01.00]I want to see you smile
+        [00:05.00]陪你走回家
+        [00:05.00]Walk home together
+        [00:09.00]今夜别离开
+        [00:09.00]Please stay tonight
+        """
+
+        let lines = LyricsContentParser.parse(content)
+        #expect(lines.map(\.text) == ["想看你微笑", "陪你走回家", "今夜别离开"])
+        #expect(lines.map { $0.manualTranslation?.text } == [
+            "I want to see you smile",
+            "Walk home together",
+            "Please stay tonight",
+        ])
+        #expect(lines.allSatisfy { $0.manualTranslation?.source == .bilingualLRC })
+
+        let serialized = LyricsContentParser.serialize(lines)
+        let reparsed = LyricsContentParser.parse(serialized)
+        #expect(serialized.contains("[00:05.000]Walk home together"))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(lines, reparsed))
+
+        let literalLines = LyricsContentParser.parse(content, options: .literal)
+        #expect(literalLines.count == 6)
+        #expect(literalLines.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test("Same-language and mixed-orientation rows are not inferred as translations")
+    func leavesAmbiguousLanguagePatternsUnpaired() {
+        let sameLanguage = """
+        [00:01.00]第一声部
+        [00:01.00]第二声部
+        [00:05.00]领唱继续
+        [00:05.00]合唱继续
+        """
+        let sameLanguageLines = LyricsContentParser.parse(sameLanguage)
+        #expect(sameLanguageLines.count == 4)
+        #expect(sameLanguageLines.allSatisfy { $0.manualTranslation == nil })
+
+        let mixedOrientations = """
+        [00:01.00]第一句歌词
+        [00:01.00]First lyric line
+        [00:05.00]Second singer
+        [00:05.00]第二位歌手
+        [00:09.00]第三句歌词
+        [00:09.00]Third lyric line
+        [00:13.00]Fourth singer
+        [00:13.00]第四位歌手
+        """
+        let mixedLines = LyricsContentParser.parse(mixedOrientations)
+        #expect(mixedLines.count == 8)
+        #expect(mixedLines.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test("Repeated chorus and multi-voice timestamps remain separate")
+    func avoidsChorusAndDuetFalsePairs() {
+        let repeatedChorus = """
+        [00:01.00]永远爱你
+        [00:01.00]Love you forever
+        [00:05.00]永远爱你
+        [00:05.00]Love you forever
+        """
+        let chorusLines = LyricsContentParser.parse(repeatedChorus)
+        #expect(chorusLines.count == 4)
+        #expect(chorusLines.allSatisfy { $0.manualTranslation == nil })
+
+        let threeVoices = """
+        [00:01.00]主唱歌词
+        [00:01.00]Backing voice
+        [00:01.00]合唱歌词
+        [00:05.00]下一句主唱
+        [00:05.00]Next backing voice
+        [00:05.00]下一句合唱
+        """
+        let voiceLines = LyricsContentParser.parse(threeVoices)
+        #expect(voiceLines.count == 6)
+        #expect(voiceLines.allSatisfy { $0.manualTranslation == nil })
+
+        let labelledDuet = """
+        [00:01.00]男：今夜别走
+        [00:01.00]B: I have to leave
+        [00:05.00]男：请再等我
+        [00:05.00]B: I cannot stay
+        """
+        let duetLines = LyricsContentParser.parse(labelledDuet)
+        #expect(duetLines.count == 4)
+        #expect(duetLines.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    @Test("Manual translations remain backward-compatible Codable data")
+    func preservesManualTranslationCodableFields() throws {
+        let line = LyricLine(
+            id: "source",
+            timestamp: 1,
+            text: "原文",
+            isSynchronized: true,
+            manualTranslation: LyricManualTranslation(
+                id: "english",
+                text: "Original",
+                languageCode: "en",
+                source: .embeddedField
+            ),
+            alternateManualTranslations: [
+                LyricManualTranslation(
+                    id: "french",
+                    text: "Texte original",
+                    languageCode: "fr",
+                    source: .embeddedField
+                ),
+            ]
+        )
+        let decoded = try JSONDecoder().decode(
+            LyricLine.self,
+            from: JSONEncoder().encode(line)
+        )
+        #expect(decoded.manualTranslation == line.manualTranslation)
+        #expect(decoded.alternateManualTranslations == line.alternateManualTranslations)
+        #expect(decoded.allManualTranslations.map(\.languageCode) == ["en", "fr"])
+
+        let legacyData = Data(
+            #"{"id":"legacy","timestamp":1,"text":"Legacy"}"#.utf8
+        )
+        let legacy = try JSONDecoder().decode(LyricLine.self, from: legacyData)
+        #expect(legacy.manualTranslation == nil)
+        #expect(legacy.alternateManualTranslations.isEmpty)
     }
 }

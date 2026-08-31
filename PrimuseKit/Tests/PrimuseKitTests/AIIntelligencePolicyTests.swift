@@ -255,6 +255,30 @@ struct AIProviderRoutingTests {
             hasExplicitRemoteConsent: true
         ).map(\.id) == [remote.id])
     }
+
+    @Test func lyricsTranslationNeverRoutesToAConfiguredProviderWithoutConsent() {
+        let configured = AIRemoteProviderConfiguration(
+            generationModel: "translation-model",
+            isEnabled: true
+        ).descriptor
+        let disabled = AIRemoteProviderConfiguration(
+            generationModel: "disabled-model",
+            isEnabled: false
+        ).descriptor
+
+        #expect(AIProviderRoutingPolicy.candidates(
+            from: [configured, disabled],
+            capability: .lyricsTranslation,
+            regionContext: international,
+            hasExplicitRemoteConsent: false
+        ).isEmpty)
+        #expect(AIProviderRoutingPolicy.candidates(
+            from: [configured, disabled],
+            capability: .lyricsTranslation,
+            regionContext: international,
+            hasExplicitRemoteConsent: true
+        ).map(\.id) == [configured.id])
+    }
 }
 
 @Suite("AI remote endpoint policy")

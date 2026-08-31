@@ -17,6 +17,7 @@ actor SidecarWriteService {
         var coverWritten: Bool = false
         var lyricsWritten: Bool = false
         var lyricsRemoved: Bool = false
+        var lyricsTargetChanged: Bool = false
         var coverError: String?
         var lyricsError: String?
         /// A credential/permission failure applies to the whole source, not
@@ -62,7 +63,8 @@ actor SidecarWriteService {
         using connector: any MusicSourceConnector,
         coverData: Data?,
         lyricsLines: [LyricLine]?,
-        lyricsContent: String? = nil
+        lyricsContent: String? = nil,
+        expectedLyricsTarget: LyricsPreflightResult? = nil
     ) async -> WriteResult {
         var result = WriteResult()
         guard connector.supportsSidecarWriting else {
@@ -107,6 +109,16 @@ actor SidecarWriteService {
             if let sidecarData = sidecarContent.data(using: .utf8) {
                 do {
                     let target = try await lyricsTarget(for: song, using: connector)
+                    let currentPreflight = LyricsPreflightResult(
+                        targetPath: target.targetPath,
+                        fileName: target.fileName,
+                        replacesExistingFile: target.exists
+                    )
+                    guard expectedLyricsTarget == nil
+                            || expectedLyricsTarget == currentPreflight else {
+                        result.lyricsTargetChanged = true
+                        return result
+                    }
                     try await connector.writeFile(
                         data: sidecarData,
                         to: target.targetPath,
@@ -132,7 +144,8 @@ actor SidecarWriteService {
 
     func removeLyrics(
         for song: Song,
-        using connector: any MusicSourceConnector
+        using connector: any MusicSourceConnector,
+        expectedLyricsTarget: LyricsPreflightResult? = nil
     ) async -> WriteResult {
         var result = WriteResult()
         guard connector.supportsSidecarWriting else {
@@ -142,6 +155,16 @@ actor SidecarWriteService {
 
         do {
             let target = try await lyricsTarget(for: song, using: connector)
+            let currentPreflight = LyricsPreflightResult(
+                targetPath: target.targetPath,
+                fileName: target.fileName,
+                replacesExistingFile: target.exists
+            )
+            guard expectedLyricsTarget == nil
+                    || expectedLyricsTarget == currentPreflight else {
+                result.lyricsTargetChanged = true
+                return result
+            }
             guard target.exists else {
                 result.lyricsRemoved = true
                 return result

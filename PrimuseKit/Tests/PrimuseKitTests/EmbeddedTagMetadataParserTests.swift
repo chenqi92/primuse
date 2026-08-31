@@ -61,6 +61,55 @@ struct EmbeddedTagMetadataParserTests {
         #expect(metadata?.trackNumber == 7)
     }
 
+    @Test func keepsExplicitTranslatedLyricsSeparateFromOriginalLyrics() {
+        let tail = makeAPEv2Tag([
+            apeTextItem("Lyrics", "[00:01.00]متن اصلی"),
+            apeTextItem("Lyrics_Language", "fa"),
+            apeTextItem("TranslatedLyrics:zh-Hans", "[00:01.00]人工译文"),
+        ])
+
+        let metadata = EmbeddedTagMetadataParser.parse(
+            head: Data(),
+            tail: tail,
+            fileExtension: "ape"
+        )
+
+        #expect(metadata?.lyrics == "[00:01.00]متن اصلی")
+        #expect(metadata?.lyricsLanguageCode == "fa")
+        #expect(metadata?.translatedLyrics == "[00:01.00]人工译文")
+        #expect(metadata?.translatedLyricsLanguageCode == "zh-Hans")
+        #expect(metadata?.languageTaggedTranslations["zh-Hans"] == "[00:01.00]人工译文")
+    }
+
+    @Test func preservesLanguageTaggedLyricsAndPairsOnlyAnUnambiguousAlternate() {
+        let identification = Data("OpusHead".utf8) + Data(repeating: 0, count: 24)
+        let comment = Data("OpusTags".utf8) + makeVorbisComments([
+            "LYRICS_LANGUAGE=per",
+            "LYRICS:fas=[00:01.00]متن اصلی",
+            "LYRICS:en=[00:01.00]Manual translation",
+        ])
+        let data = makeOggPage(packets: [identification], sequence: 0)
+            + makeOggPage(packets: [comment], sequence: 1)
+
+        let metadata = EmbeddedTagMetadataParser.parse(head: data, fileExtension: "opus")
+
+        #expect(metadata?.lyrics == "[00:01.00]متن اصلی")
+        #expect(metadata?.lyricsLanguageCode == "fa")
+        #expect(metadata?.translatedLyrics == "[00:01.00]Manual translation")
+        #expect(metadata?.translatedLyricsLanguageCode == "en")
+        #expect(metadata?.languageTaggedLyrics.count == 2)
+    }
+
+    @Test func genericTrackLanguageDoesNotDeclareTheLyricsLanguage() {
+        let metadata = EmbeddedTagMetadataParser.metadata(fromTagValues: [
+            "LANGUAGE": ["fa"],
+            "LYRICS": ["An English lyric body"],
+        ])
+
+        #expect(metadata.lyrics == "An English lyric body")
+        #expect(metadata.lyricsLanguageCode == nil)
+    }
+
     @Test func parsesStructurallyValidAPEv2OnTAKAndRawDTS() {
         let tail = Data(repeating: 0x5A, count: 96) + makeAPEv2Tag([
             apeTextItem("title", "通用尾部标签"),

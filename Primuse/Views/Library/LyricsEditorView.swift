@@ -16,10 +16,13 @@ import AppKit
 struct LyricsEditorView: View {
     let song: Song
     @Binding var text: String
-    /// 非 nil 时，「完成」把序列化结果交给它而不是自己 dismiss —— 独立入口
-    /// 需要先落盘(可能失败/需确认)再决定关不关。
-    let onCommit: ((String) -> Void)?
+    /// 非 nil 时，「完成」把序列化结果和保留译文来源的结构化行交给它，而不是
+    /// 自己 dismiss —— 独立入口需要先落盘(可能失败/需确认)再决定关不关。
+    let onCommit: ((String, [LyricLine]) -> Void)?
     let autoStartsAudioTranscription: Bool
+    /// 只有仅本地结构化缓存的模式能无损保存纯文本/字级行译文。
+    /// 外部 sidecar/媒体服务器需限制为可往返的普通双语 LRC。
+    let allowsStructuredOnlyTranslationEditing: Bool
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -66,6 +69,7 @@ struct LyricsEditorView: View {
     @State private var transcriptionMessage: String?
 
     @FocusState private var focusedLine: UUID?
+    @FocusState private var focusedTranslationLine: UUID?
     @FocusState private var liveDraftFocused: Bool
 
     enum Mode { case timing, text }
@@ -92,14 +96,21 @@ struct LyricsEditorView: View {
     init(
         song: Song,
         text: Binding<String>,
+        initialLines: [LyricLine]? = nil,
         autoStartsAudioTranscription: Bool = false,
-        onCommit: ((String) -> Void)? = nil
+        allowsStructuredOnlyTranslationEditing: Bool = false,
+        onCommit: ((String, [LyricLine]) -> Void)? = nil
     ) {
         self.song = song
         self._text = text
         self.autoStartsAudioTranscription = autoStartsAudioTranscription
+        self.allowsStructuredOnlyTranslationEditing = allowsStructuredOnlyTranslationEditing
         self.onCommit = onCommit
-        let parsed = LyricsEditorDocument(parsing: text.wrappedValue)
+        let parsed = if let initialLines, !initialLines.isEmpty {
+            LyricsEditorDocument(lyricLines: initialLines)
+        } else {
+            LyricsEditorDocument(parsing: text.wrappedValue)
+        }
         _document = State(initialValue: parsed)
         _originalDocument = State(initialValue: parsed)
         _sourceText = State(initialValue: text.wrappedValue)
@@ -167,7 +178,10 @@ struct LyricsEditorView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button(String(localized: "done")) { focusedLine = nil }
+                    Button(String(localized: "done")) {
+                        focusedLine = nil
+                        focusedTranslationLine = nil
+                    }
                 }
             }
             .navigationDestination(isPresented: $showSourceEditor) {
@@ -287,6 +301,7 @@ struct LyricsEditorView: View {
                 .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
             }
             .buttonStyle(.plain)
+            .disabled(!document.permitsSourceTextEditing)
         }
         .padding(.horizontal, PMSpace.m16)
         .padding(.vertical, PMSpace.s10)
@@ -1338,6 +1353,7 @@ struct LyricsEditorView: View {
                     systemImage: "chevron.left.forwardslash.chevron.right"
                 )
             }
+            .disabled(!document.permitsSourceTextEditing)
             Button {
                 insertLine(after: document.lines.count - 1)
             } label: {
@@ -1385,6 +1401,7 @@ struct LyricsEditorView: View {
                 guard newMode != mode else { return }
                 if newMode == .timing {
                     focusedLine = nil
+                    focusedTranslationLine = nil
                     prepareTimingSession()
                 }
                 withAnimation(.easeInOut(duration: 0.2)) { mode = newMode }
@@ -1634,6 +1651,12 @@ struct LyricsEditorView: View {
                     proxy.scrollTo(lineID, anchor: .center)
                 }
             }
+            .onChange(of: focusedTranslationLine) { _, lineID in
+                guard let lineID else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(lineID, anchor: .center)
+                }
+            }
         }
         #if os(macOS)
         .background(PMColor.card, in: .rect(cornerRadius: PMRadius.l))
@@ -1705,6 +1728,7 @@ struct LyricsEditorView: View {
                 Button(String(localized: "lyrics_editor_clear_stamp"), role: .destructive) {
                     document.clearStamp(at: index)
                 }
+                .disabled(!line.canClearStamp)
             }
             Divider()
             Button(String(localized: "lyrics_editor_insert_below")) { insertLine(after: index) }
@@ -1737,6 +1761,35 @@ struct LyricsEditorView: View {
             .frame(minHeight: 28, alignment: .center)
             .focused($focusedLine, equals: line.id)
             .environment(\.layoutDirection, layoutDirection)
+
+            if mode == .text,
+               line.manualTranslation != nil
+                || !line.alternateManualTranslations.isEmpty
+                || line.supportsBilingualLRCTranslation
+                || allowsStructuredOnlyTranslationEditing {
+                let translationLayoutDirection = manualTranslationLayoutDirection(for: line)
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+
+                    TextField(
+                        String(localized: "lyrics_translation_section"),
+                        text: manualTranslationBinding(for: index),
+                        axis: .vertical
+                    )
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(
+                        translationLayoutDirection == .rightToLeft ? .trailing : .leading
+                    )
+                    .focused($focusedTranslationLine, equals: line.id)
+                    .environment(\.layoutDirection, translationLayoutDirection)
+                    .disabled(!canEditManualTranslation(for: line))
+                }
+            }
 
             if let syllables = line.syllables, !syllables.isEmpty {
                 wordTimingStrip(
@@ -1962,6 +2015,21 @@ struct LyricsEditorView: View {
         }
     }
 
+    private func manualTranslationLayoutDirection(for line: EditableLyricLine) -> LayoutDirection {
+        guard let text = line.manualTranslation?.text,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return inheritedLayoutDirection
+        }
+        switch LyricWritingDirectionPolicy.resolvePresentationDirection(for: text) {
+        case .natural:
+            return inheritedLayoutDirection
+        case .leftToRight:
+            return .leftToRight
+        case .rightToLeft:
+            return .rightToLeft
+        }
+    }
+
     private func textBinding(for index: Int) -> Binding<String> {
         Binding(
             get: {
@@ -1976,6 +2044,26 @@ struct LyricsEditorView: View {
                 document.updateText(newValue, at: index)
             }
         )
+    }
+
+    private func manualTranslationBinding(for index: Int) -> Binding<String> {
+        Binding(
+            get: {
+                guard document.lines.indices.contains(index) else { return "" }
+                return document.lines[index].manualTranslation?.text ?? ""
+            },
+            set: { newValue in
+                document.updateManualTranslation(
+                    newValue,
+                    at: index,
+                    allowsStructuredOnly: allowsStructuredOnlyTranslationEditing
+                )
+            }
+        )
+    }
+
+    private func canEditManualTranslation(for line: EditableLyricLine) -> Bool {
+        line.supportsBilingualLRCTranslation || allowsStructuredOnlyTranslationEditing
     }
 
     private func nudgeTextSyllable(
@@ -2381,7 +2469,10 @@ struct LyricsEditorView: View {
     // MARK: - LRC / ELRC 源码
 
     private func openSourceEditor() {
-        let serialized = document.serialized()
+        guard document.permitsSourceTextEditing else { return }
+        // 译文是独立结构字段，不在这里平铺成普通歌词行再猜。
+        // 这也让同文字体系的多语译文在修改原文源码后仍原样保留。
+        let serialized = document.originalOnlySerialized()
         sourceText = serialized
         sourceBaselineText = serialized
         showSourceEditor = true
@@ -2436,7 +2527,7 @@ struct LyricsEditorView: View {
             showSourceEditor = false
             return
         }
-        document = LyricsEditorDocument(parsing: sourceText)
+        document = document.replacingOriginalSource(with: sourceText)
         selectedTextSyllable = nil
         prepareTimingSession()
         showSourceEditor = false
@@ -2696,7 +2787,7 @@ struct LyricsEditorView: View {
                 document.lines.indices.contains($0) ? $0 : nil
             }
         case .text:
-            guard let focusedLine else { return nil }
+            guard let focusedLine = focusedLine ?? focusedTranslationLine else { return nil }
             return document.lines.firstIndex { $0.id == focusedLine }
         }
     }
@@ -2713,6 +2804,7 @@ struct LyricsEditorView: View {
 
         document.removeLines(at: IndexSet(integer: index))
         if focusedLine == removedID { focusedLine = nil }
+        if focusedTranslationLine == removedID { focusedTranslationLine = nil }
         if selectedTextSyllable?.lineID == removedID { selectedTextSyllable = nil }
 
         let preferredID = selectedID == removedID ? fallbackID : selectedID
@@ -2761,7 +2853,7 @@ struct LyricsEditorView: View {
         // 也可能需要二次确认，所以由它决定何时 dismiss。嵌在标签编辑器里时
         // 没有这个回调，保持原来的"改完就关"。
         if let onCommit {
-            onCommit(committedText)
+            onCommit(committedText, preparedDocument.lyricLines())
         } else {
             dismiss()
         }

@@ -7,17 +7,74 @@ import Foundation
 /// bytes also lets the shared encoding repair recover incorrectly declared
 /// GB18030, Big5, Shift_JIS and EUC-KR text.
 public enum ISOBaseMediaLyricsParser {
+    public struct LyricsPayload: Equatable, Sendable {
+        public var lyrics: String?
+        public var lyricsLanguageCode: String?
+        public var translatedLyrics: String?
+        public var translatedLyricsLanguageCode: String?
+        public var languageTaggedLyrics: [String: String]
+        public var languageTaggedTranslations: [String: String]
+
+        public init(
+            lyrics: String? = nil,
+            lyricsLanguageCode: String? = nil,
+            translatedLyrics: String? = nil,
+            translatedLyricsLanguageCode: String? = nil,
+            languageTaggedLyrics: [String: String] = [:],
+            languageTaggedTranslations: [String: String] = [:]
+        ) {
+            self.lyrics = lyrics
+            self.lyricsLanguageCode = lyricsLanguageCode
+            self.translatedLyrics = translatedLyrics
+            self.translatedLyricsLanguageCode = translatedLyricsLanguageCode
+            self.languageTaggedLyrics = languageTaggedLyrics
+            self.languageTaggedTranslations = languageTaggedTranslations
+        }
+
+        public var isEmpty: Bool {
+            lyrics == nil
+                && translatedLyrics == nil
+                && languageTaggedLyrics.isEmpty
+                && languageTaggedTranslations.isEmpty
+        }
+
+        mutating func fillMissing(from fallback: LyricsPayload) {
+            if lyrics == nil {
+                lyrics = fallback.lyrics
+                lyricsLanguageCode = fallback.lyricsLanguageCode
+            } else if lyrics == fallback.lyrics, lyricsLanguageCode == nil {
+                lyricsLanguageCode = fallback.lyricsLanguageCode
+            }
+            if translatedLyrics == nil {
+                translatedLyrics = fallback.translatedLyrics
+                translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
+            } else if translatedLyrics == fallback.translatedLyrics,
+                      translatedLyricsLanguageCode == nil {
+                translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
+            }
+            languageTaggedLyrics.merge(fallback.languageTaggedLyrics) { current, _ in current }
+            languageTaggedTranslations.merge(fallback.languageTaggedTranslations) {
+                current, _ in current
+            }
+        }
+    }
+
     public static func lyrics(in data: Data) -> String? {
+        payload(in: data)?.lyrics
+    }
+
+    public static func payload(in data: Data) -> LyricsPayload? {
         guard !data.isEmpty else { return nil }
+        var result = LyricsPayload()
         for moov in atoms(in: data, range: data.startIndex..<data.endIndex)
             where moov.type == AtomType.moov {
             for metadata in metadataAtoms(in: data, moov: moov) {
-                if let lyrics = lyrics(in: data, metadata: metadata) {
-                    return lyrics
+                if let payload = lyricsPayload(in: data, metadata: metadata) {
+                    result.fillMissing(from: payload)
                 }
             }
         }
-        return nil
+        return result.isEmpty ? nil : result
     }
 
     private struct Atom {
@@ -60,35 +117,37 @@ public enum ISOBaseMediaLyricsParser {
         return result
     }
 
-    private static func lyrics(in data: Data, metadata: Atom) -> String? {
+    private static func lyricsPayload(in data: Data, metadata: Atom) -> LyricsPayload? {
         guard metadata.payload.count >= 4 else { return nil }
         let childrenRange = (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound
         let children = atoms(in: data, range: childrenRange)
         let keys = children.first(where: { $0.type == AtomType.keys })
             .map { metadataKeys(in: data, atom: $0) } ?? [:]
+        var result = LyricsPayload()
 
         for list in children where list.type == AtomType.ilst {
             let items = atoms(in: data, range: list.payload)
 
             for item in items where item.type == AtomType.iTunesLyrics {
                 if let text = decodedItem(in: data, item: item) {
-                    return text
+                    result.lyrics = result.lyrics ?? text
                 }
             }
 
             for item in items {
-                guard let key = keys[item.type], isLyricsKey(key),
+                guard let key = keys[item.type], let role = lyricFieldRole(key),
                       let text = decodedItem(in: data, item: item) else { continue }
-                return text
+                apply(text: text, role: role, to: &result)
             }
 
             for item in items where item.type == AtomType.freeform {
-                guard freeformName(in: data, item: item).map(isLyricsKey) == true,
+                guard let name = freeformName(in: data, item: item),
+                      let role = lyricFieldRole(name),
                       let text = decodedItem(in: data, item: item) else { continue }
-                return text
+                apply(text: text, role: role, to: &result)
             }
         }
-        return nil
+        return result.isEmpty ? nil : result
     }
 
     private static func metadataKeys(in data: Data, atom: Atom) -> [UInt32: String] {
@@ -179,12 +238,90 @@ public enum ISOBaseMediaLyricsParser {
             || (data[data.startIndex] == 0xFF && data[data.startIndex + 1] == 0xFE)
     }
 
-    private static func isLyricsKey(_ value: String) -> Bool {
-        let components = value
-            .lowercased()
-            .split(whereSeparator: { ".:/".contains($0) })
-        guard let final = components.last else { return false }
-        return final == "lyrics" || final == "unsyncedlyrics"
+    private enum LyricFieldRole {
+        case original(languageCode: String?)
+        case translation(languageCode: String?)
+    }
+
+    private static func apply(
+        text: String,
+        role: LyricFieldRole,
+        to payload: inout LyricsPayload
+    ) {
+        switch role {
+        case .original(let languageCode):
+            if let languageCode {
+                payload.languageTaggedLyrics[languageCode] = text
+            }
+            if payload.lyrics == nil {
+                payload.lyrics = text
+                payload.lyricsLanguageCode = languageCode
+            } else if payload.lyrics == text, payload.lyricsLanguageCode == nil {
+                payload.lyricsLanguageCode = languageCode
+            }
+        case .translation(let languageCode):
+            if let languageCode {
+                payload.languageTaggedTranslations[languageCode] = text
+            }
+            if payload.translatedLyrics == nil {
+                payload.translatedLyrics = text
+                payload.translatedLyricsLanguageCode = languageCode
+            } else if payload.translatedLyrics == text,
+                      payload.translatedLyricsLanguageCode == nil {
+                payload.translatedLyricsLanguageCode = languageCode
+            }
+        }
+    }
+
+    private static func lyricFieldRole(_ value: String) -> LyricFieldRole? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        let translatedRoots = [
+            "TRANSLATEDLYRICS", "TRANSLATED LYRICS", "TRANSLATION",
+            "LYRICS TRANSLATION",
+        ]
+        let originalRoots = [
+            "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "SYNCEDLYRICS",
+            "SYNCED LYRICS", "LYRICS",
+        ]
+
+        if let languageCode = matchedLyricKey(normalized, roots: translatedRoots) {
+            return .translation(languageCode: languageCode)
+        }
+        if let languageCode = matchedLyricKey(normalized, roots: originalRoots) {
+            return .original(languageCode: languageCode)
+        }
+        return nil
+    }
+
+    /// A nil outer optional means no lyric key matched. A non-nil outer
+    /// optional with a nil language is an untagged lyric key.
+    private static func matchedLyricKey(
+        _ key: String,
+        roots: [String]
+    ) -> String?? {
+        for root in roots.sorted(by: { $0.count > $1.count }) {
+            guard let range = key.range(of: root) else { continue }
+            let prefix = key[..<range.lowerBound]
+            guard prefix.isEmpty || prefix.last.map({ ".:/_- ".contains($0) }) == true else {
+                continue
+            }
+            let rawSuffix = key[range.upperBound...]
+            guard rawSuffix.isEmpty
+                    || rawSuffix.first.map({ " .:/_-[".contains($0) }) == true else {
+                continue
+            }
+            let suffix = rawSuffix
+                .trimmingCharacters(in: CharacterSet(charactersIn: " .:/_-[]()"))
+            guard !suffix.isEmpty else { return .some(nil) }
+            guard let languageCode = normalizedLanguageCode(String(suffix)) else { continue }
+            return .some(languageCode)
+        }
+        return nil
+    }
+
+    private static func normalizedLanguageCode(_ value: String) -> String? {
+        LyricLanguageCodePolicy.canonicalIdentifier(value)
     }
 
     private static func atoms(in data: Data, range: Range<Int>) -> [Atom] {

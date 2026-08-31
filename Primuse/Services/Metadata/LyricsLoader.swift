@@ -12,6 +12,12 @@ import PrimuseKit
 enum LyricsLoader {
     private static let sourceRefreshCoordinator = LyricsSourceRefreshCoordinator()
 
+    enum AuthoritativeSourceRead: Sendable {
+        case content(String)
+        case absent
+        case unavailable
+    }
+
     /// Revalidates only against the source server's own lyrics document. It
     /// never enters the title-based online scraping path used by ordinary
     /// first-load fallback, so an explicit source reload cannot mis-attribute
@@ -62,6 +68,9 @@ enum LyricsLoader {
         } else {
             currentDocument = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
         }
+        guard currentDocument?.first?.documentIsLocalOverride != true else {
+            return .failedPreservingCache
+        }
         let songID = song.id
         let sourcePath = song.filePath
         let capturedFingerprint = currentDocument.map {
@@ -73,24 +82,26 @@ enum LyricsLoader {
             currentDocument: currentDocument,
             trigger: trigger,
             fetch: {
-                guard let raw = await server.fetchServerLyrics(for: sourcePath),
-                      !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                let raw: String
+                switch await server.readServerLyrics(for: sourcePath) {
+                case .content(let content):
+                    raw = content
+                case .absent:
+                    return nil
+                case .unavailable:
+                    throw SourceError.connectionFailed("Lyrics source unavailable")
+                }
+                guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return nil
                 }
                 let parsed = LyricsParser.parseText(raw)
                 return parsed.isEmpty ? nil : parsed
             },
             replace: { lines in
-                let latest = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID)
-                let latestFingerprint = latest.map {
-                    LyricsDocumentFingerprint(lines: $0)
-                }
-                guard latestFingerprint == capturedFingerprint else {
-                    return false
-                }
-                let wrote = await MetadataAssetStore.shared.cacheLyrics(
+                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                     lines,
                     forSongID: songID,
+                    expectedFingerprint: capturedFingerprint,
                     force: trigger != .automatic
                 )
                 if wrote {
@@ -124,26 +135,56 @@ enum LyricsLoader {
     }
 
     /// Fetches only the authoritative source document. This deliberately does
-    /// not fall back to local caches so callers can use it for conflict checks
-    /// and post-write readback verification.
+    /// not expose transport failures as absence. Callers doing conflict checks
+    /// or post-write verification must use `readAuthoritativeSourceText`
+    /// directly instead of accepting the local materialized fallback.
     static func loadSourceText(for song: Song, sourceManager: SourceManager) async -> String? {
+        switch await readAuthoritativeSourceText(for: song, sourceManager: sourceManager) {
+        case .content(let content):
+            return content
+        case .absent, .unavailable:
+            return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
+        }
+    }
+
+    static func readAuthoritativeSourceText(
+        for song: Song,
+        sourceManager: SourceManager
+    ) async -> AuthoritativeSourceRead {
         do {
             let connector = try await sourceManager.auxiliaryConnector(for: song)
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled else { return .unavailable }
 
             if let server = connector as? ServerLyricsConnector {
                 let capabilities = server.serverLyricsCapabilities
-                if capabilities.canRead,
-                   let raw = await server.fetchServerLyrics(for: song.filePath),
-                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return raw
+                if capabilities.canRead {
+                    switch await server.readServerLyrics(for: song.filePath) {
+                    case .content(let raw)
+                        where !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+                        return .content(raw)
+                    case .absent where !capabilities.supportsSiblingSidecarLookup:
+                        return .absent
+                    case .unavailable where !capabilities.supportsSiblingSidecarLookup:
+                        return .unavailable
+                    case .content, .absent, .unavailable:
+                        break
+                    }
                 }
                 if !capabilities.supportsSiblingSidecarLookup {
-                    return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
+                    // The current connector API returns nil both for a missing
+                    // document and for transport/authentication failures.
+                    return .unavailable
                 }
             }
 
-            let lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
+            let lyricsPath: String
+            if let resolver = connector as? any LyricsSidecarTargetResolving {
+                let target = try await resolver.lyricsSidecarTarget(for: song)
+                guard target.exists else { return .absent }
+                lyricsPath = target.targetPath
+            } else {
+                lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
+            }
             let data = try await connector.fetchRange(
                 path: lyricsPath,
                 offset: 0,
@@ -153,16 +194,19 @@ enum LyricsLoader {
             guard !Task.isCancelled,
                   let raw = String(data: data, encoding: .utf8),
                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return nil
+                return .unavailable
             }
-            return raw
+            return .content(raw)
+        } catch let error as SourceError {
+            switch error {
+            case .pathNotFound, .fileNotFound:
+                return .absent
+            case .connectionFailed, .credentialUnavailable, .authenticationFailed, .timeout:
+                return .unavailable
+            }
         } catch {
-            // Fall through to a locally materialized source sidecar. This is
-            // the authoritative document for local/imported sources and an
-            // offline best effort for remote sources.
+            return .unavailable
         }
-
-        return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
     }
 
     static func load(
@@ -183,32 +227,48 @@ enum LyricsLoader {
         }
         if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
             guard !Task.isCancelled else { return [] }
-            await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
+            let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                cached,
+                forSongID: song.id,
+                expectedFingerprint: nil,
+                force: false
+            )
             guard !Task.isCancelled else { return [] }
-            logLoaded(cached, song: song, tier: "Tier1b")
+            let resolved = wrote
+                ? cached
+                : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? cached
+            logLoaded(resolved, song: song, tier: "Tier1b")
             scheduleAutomaticSourceRefresh(
                 for: song,
                 sourceType: sourceType,
                 sourceManager: sourceManager,
-                cachedDocument: cached
+                cachedDocument: resolved
             )
-            return cached
+            return resolved
         }
 
         if let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
             guard !Task.isCancelled else { return [] }
-            await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                parsed,
+                forSongID: song.id,
+                expectedFingerprint: nil,
+                force: false
+            )
             guard !Task.isCancelled else { return [] }
-            logLoaded(parsed, song: song, tier: "Tier2")
+            let resolved = wrote
+                ? parsed
+                : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? parsed
+            logLoaded(resolved, song: song, tier: "Tier2")
             scheduleAutomaticSourceRefresh(
                 for: song,
                 sourceType: sourceType,
                 sourceManager: sourceManager,
-                cachedDocument: parsed
+                cachedDocument: resolved
             )
-            return parsed
+            return resolved
         }
 
         do {
@@ -235,23 +295,43 @@ enum LyricsLoader {
                     return cached
                 }
 
-                // A server-side lyrics miss (notably Airsonic's external provider
-                // returning 404) should not stop the desktop/watch lyrics path.
-                if let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
-                    title: song.title,
-                    artist: song.artistName,
-                    album: song.albumTitle,
-                    duration: song.duration > 0 ? song.duration : nil
-                ), !online.isEmpty {
+                if sourceResult == .failedPreservingCache,
+                   let latest = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+                    // A concurrent editor/scraper write won the CAS while the
+                    // server request was in flight. Never route that conflict
+                    // into an online fallback that could overwrite the winner.
+                    return latest
+                }
+
+                // Only a confirmed source miss (not a transport/CAS failure)
+                // may enter the title-based online fallback.
+                if sourceResult == .emptyPreservingCache {
+                    let onlineCacheSnapshot = await MetadataAssetStore.shared
+                        .cachedLyrics(forSongID: song.id)
+                    if let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
+                        title: song.title,
+                        artist: song.artistName,
+                        album: song.albumTitle,
+                        duration: song.duration > 0 ? song.duration : nil
+                    ), !online.isEmpty {
                     guard !Task.isCancelled else { return [] }
-                    _ = await MetadataAssetStore.shared.cacheLyrics(
+                    let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                         online,
                         forSongID: song.id,
-                        force: true
+                        expectedFingerprint: onlineCacheSnapshot.map(
+                            LyricsDocumentFingerprint.init(lines:)
+                        ),
+                        force: false
                     )
                     guard !Task.isCancelled else { return [] }
+                    guard wrote else {
+                        return await MetadataAssetStore.shared.cachedLyrics(
+                            forSongID: song.id
+                        ) ?? []
+                    }
                     logLoaded(online, song: song, tier: "Tier2d-online")
                     return online
+                    }
                 }
 
                 // Media-server item IDs are opaque identifiers, not directory
@@ -262,6 +342,7 @@ enum LyricsLoader {
             }
 
             let lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
+            let cacheSnapshot = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
             let lyricsData = try await connector.fetchRange(
                 path: lyricsPath,
                 offset: 0,
@@ -274,8 +355,20 @@ enum LyricsLoader {
             }
             let parsed = LyricsParser.parse(lyricsContent)
             if !parsed.isEmpty {
-                await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                    parsed,
+                    forSongID: song.id,
+                    expectedFingerprint: cacheSnapshot.map(
+                        LyricsDocumentFingerprint.init(lines:)
+                    ),
+                    force: false
+                )
                 guard !Task.isCancelled else { return [] }
+                guard wrote else {
+                    return await MetadataAssetStore.shared.cachedLyrics(
+                        forSongID: song.id
+                    ) ?? []
+                }
                 logLoaded(parsed, song: song, tier: "Tier3")
                 return parsed
             }
@@ -310,7 +403,7 @@ enum LyricsLoader {
         plog("📜 LyricsLoader '\(song.title)' \(tier) lines=\(lines.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
     }
 
-    private static func locallyMaterializedSourceText(
+    static func locallyMaterializedSourceText(
         for song: Song,
         sourceManager: SourceManager
     ) -> String? {

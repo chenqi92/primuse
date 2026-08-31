@@ -62,7 +62,11 @@ final class LyricsTranslationSettingsStore {
         ("es", "lang_es"),
         ("fr", "lang_fr"),
         ("de", "lang_de"),
-        ("ru", "lang_ru")
+        ("ru", "lang_ru"),
+        // Persian stays reachable for the explicitly configured intelligent/
+        // custom-provider mode. Its presence here is not a claim that Apple
+        // Translation supports this target; system mode reports it unsupported.
+        ("fa", "fa")
     ]
 
     private init() {
@@ -227,7 +231,7 @@ final class LyricsTranslationLanguageCatalog {
         guard !Task.isCancelled else { return }
 
         var seen = Set<String>()
-        let codes = supported.compactMap { identifier -> String? in
+        let codes = (supported + ["fa"]).compactMap { identifier -> String? in
             let code = LyricsTranslationSettingsStore.normalizedLanguageCode(
                 identifier
             )

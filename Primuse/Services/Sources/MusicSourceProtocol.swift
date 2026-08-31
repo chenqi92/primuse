@@ -1449,13 +1449,30 @@ struct ServerLyricsCapabilities: Equatable, Sendable {
 /// 服务端直接提供歌词的能力 (Subsonic getLyricsBySongId / getLyrics，或
 /// Emby 的文本字幕流)。返回 LRC 文本(带 `[mm:ss.xx]` 时间轴)或纯文本
 /// (无时间轴), 交由 `LyricsParser` 统一解析; 没有歌词时返回 nil。
+enum ServerLyricsReadResult: Sendable {
+    case content(String)
+    case absent
+    case unavailable
+}
+
 protocol ServerLyricsConnector: MusicSourceConnector {
     var serverLyricsCapabilities: ServerLyricsCapabilities { get }
     func fetchServerLyrics(for path: String) async -> String?
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult
 }
 
 extension ServerLyricsConnector {
     var serverLyricsCapabilities: ServerLyricsCapabilities { .readOnlyDocument }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        if let content = await fetchServerLyrics(for: path) {
+            return .content(content)
+        }
+        // Legacy connectors expose absence and transport errors through the
+        // same optional. Keep that state conservative until they opt into the
+        // three-state API.
+        return .unavailable
+    }
 }
 
 /// Implemented by connectors whose `Song.filePath` is an opaque provider

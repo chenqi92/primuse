@@ -60,7 +60,12 @@ actor MetadataService {
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
-        plog("📖 FileMetadataReader: title=\(embedded.title ?? "nil") cover=\(embedded.coverArtData?.count ?? 0)bytes lyrics=\(embedded.lyricsText?.prefix(30) ?? "nil") file=\(url.lastPathComponent)")
+        plog(
+            "📖 FileMetadataReader: title=\(embedded.title ?? "nil") "
+                + "cover=\(embedded.coverArtData?.count ?? 0)bytes "
+                + "lyrics=\(embedded.lyricsText == nil ? "absent" : "present") "
+                + "file=\(url.lastPathComponent)"
+        )
 
         // url.lastPathComponent 在 scrape 路径下是 cache 的 sanitized 名
         // 丑名字。caller 传原始文件名当 fallbackTitle 优先用。
@@ -146,8 +151,8 @@ actor MetadataService {
         }
 
         // 2.5 Parse embedded lyrics when present.
-        if result.lyrics == nil, let lyricsText = embedded.lyricsText {
-            result.lyrics = LyricsParser.parseText(lyricsText)
+        if result.lyrics == nil {
+            result.lyrics = Self.parsedEmbeddedLyrics(from: embedded)
         }
 
         // 3. Try online sources as fallback
@@ -261,11 +266,8 @@ actor MetadataService {
             detectedFileSignature: signature
         )
 
-        if let lyricsText = embedded.lyricsText {
-            let lyrics = LyricsParser.parseText(lyricsText)
-            if !lyrics.isEmpty {
-                result.lyrics = lyrics
-            }
+        if let lyrics = Self.parsedEmbeddedLyrics(from: embedded) {
+            result.lyrics = lyrics
         }
 
         if let cacheKey {
@@ -277,6 +279,116 @@ actor MetadataService {
             }
         }
         return result
+    }
+
+    /// Builds the lyric document once, then attaches every authored embedded
+    /// translation without placing it in the machine-translation cache. A
+    /// dedicated translation field is preferred over language-qualified
+    /// alternates; bilingual LRC detected in the original body remains the
+    /// fallback for rows that the dedicated field does not cover.
+    private static func parsedEmbeddedLyrics(
+        from embedded: FileMetadataReader.Metadata
+    ) -> [LyricLine]? {
+        guard let originalText = embedded.lyricsText else { return nil }
+        var lines = LyricsParser.parseText(originalText)
+        guard !lines.isEmpty else { return nil }
+
+        let sourceLanguageCode = embedded.lyricsLanguageCode
+            ?? embedded.languageTaggedLyrics.first(where: {
+                $0.value == originalText
+            })?.key
+        if let sourceLanguageCode,
+           LyricTranslationGroupingPolicy.declaredLanguageCode(
+               in: lines.first?.metadataLines ?? []
+           ) == nil {
+            var metadataLines = lines[0].metadataLines ?? []
+            metadataLines.append("[la:\(sourceLanguageCode)]")
+            lines[0].metadataLines = metadataLines
+        }
+
+        struct TranslationDocument {
+            let text: String
+            let languageCode: String?
+            let makePreferred: Bool
+        }
+        var translationDocuments: [TranslationDocument] = []
+        var seenDocuments: Set<String> = []
+
+        func appendTranslation(
+            _ text: String?,
+            languageCode: String?,
+            makePreferred: Bool
+        ) {
+            guard let text else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != originalText else { return }
+            let normalizedLanguage = languageCode?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? ""
+            let identity = normalizedLanguage + "\u{0}" + trimmed
+            guard seenDocuments.insert(identity).inserted else { return }
+            translationDocuments.append(
+                TranslationDocument(
+                    text: trimmed,
+                    languageCode: languageCode,
+                    makePreferred: makePreferred
+                )
+            )
+        }
+
+        let explicitTranslationLanguage = embedded.translatedLyricsLanguageCode
+            ?? embedded.languageTaggedTranslations.first(where: {
+                $0.value == embedded.translatedLyricsText
+            })?.key
+        appendTranslation(
+            embedded.translatedLyricsText,
+            languageCode: explicitTranslationLanguage,
+            makePreferred: true
+        )
+        let taggedTranslations = embedded.languageTaggedTranslations.sorted(by: {
+            $0.key < $1.key
+        })
+        let prefersOnlyTaggedTranslation = embedded.translatedLyricsText == nil
+            && taggedTranslations.count == 1
+        for (languageCode, text) in taggedTranslations {
+            appendTranslation(
+                text,
+                languageCode: languageCode,
+                makePreferred: prefersOnlyTaggedTranslation
+            )
+        }
+        let taggedLyricAlternates = embedded.languageTaggedLyrics
+            .sorted(by: { $0.key < $1.key })
+            .filter { entry in
+                entry.key.caseInsensitiveCompare(sourceLanguageCode ?? "") != .orderedSame
+            }
+        for (languageCode, text) in taggedLyricAlternates {
+            appendTranslation(
+                text,
+                languageCode: languageCode,
+                // An alternate language-tagged original (notably a second
+                // unmarked ID3 USLT) may be a duet or romanization rather than
+                // a translation. Retain it for exact target-language lookup,
+                // but never make it the editor/presentation default.
+                makePreferred: false
+            )
+        }
+
+        for document in translationDocuments {
+            let translatedLines = LyricsContentParser.parseText(
+                document.text,
+                options: .literal
+            )
+            guard !translatedLines.isEmpty else { continue }
+            lines = LyricManualTranslationPolicy.merging(
+                originalLines: lines,
+                translatedLines: translatedLines,
+                translationLanguageCode: document.languageCode,
+                source: .embeddedField,
+                makePreferred: document.makePreferred
+            )
+        }
+        return lines
     }
 
     /// 只用已知元数据查在线源补缺,**不读音频文件**。给服务端曲库源

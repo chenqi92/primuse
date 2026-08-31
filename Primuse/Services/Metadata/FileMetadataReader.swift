@@ -24,6 +24,11 @@ enum FileMetadataReader {
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
         var lyricsText: String?
+        var lyricsLanguageCode: String?
+        var translatedLyricsText: String?
+        var translatedLyricsLanguageCode: String?
+        var languageTaggedLyrics: [String: String] = [:]
+        var languageTaggedTranslations: [String: String] = [:]
 
         var hasDescriptiveMetadata: Bool {
             func hasText(_ value: String?) -> Bool {
@@ -43,6 +48,9 @@ enum FileMetadataReader {
                 || replayGainAlbumGain != nil
                 || replayGainAlbumPeak != nil
                 || hasText(lyricsText)
+                || hasText(translatedLyricsText)
+                || !languageTaggedLyrics.isEmpty
+                || !languageTaggedTranslations.isEmpty
         }
 
         var hasTechnicalProperties: Bool {
@@ -76,9 +84,27 @@ enum FileMetadataReader {
             replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
             replayGainAlbumGain = replayGainAlbumGain ?? fallback.replayGainAlbumGain
             replayGainAlbumPeak = replayGainAlbumPeak ?? fallback.replayGainAlbumPeak
-            if lyricsText == nil
-                || lyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true {
-                lyricsText = fallback.lyricsText ?? lyricsText
+            let shouldReplaceLyrics = lyricsText == nil
+                || lyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true
+            if shouldReplaceLyrics, let fallbackLyrics = fallback.lyricsText {
+                lyricsText = fallbackLyrics
+                lyricsLanguageCode = fallback.lyricsLanguageCode
+            } else if lyricsText == fallback.lyricsText, lyricsLanguageCode == nil {
+                lyricsLanguageCode = fallback.lyricsLanguageCode
+            }
+            let shouldReplaceTranslation = translatedLyricsText == nil
+                || translatedLyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true
+            if shouldReplaceTranslation,
+               let fallbackTranslation = fallback.translatedLyricsText {
+                translatedLyricsText = fallbackTranslation
+                translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
+            } else if translatedLyricsText == fallback.translatedLyricsText,
+                      translatedLyricsLanguageCode == nil {
+                translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
+            }
+            languageTaggedLyrics.merge(fallback.languageTaggedLyrics) { current, _ in current }
+            languageTaggedTranslations.merge(fallback.languageTaggedTranslations) { current, _ in
+                current
             }
         }
     }
@@ -363,7 +389,38 @@ enum FileMetadataReader {
                             metadata.replayGainAlbumGain = parseReplayGainDB(stringValue)
                         case "replaygain_album_peak":
                             metadata.replayGainAlbumPeak = Double(stringValue ?? "")
+                        case "translatedlyrics", "translated lyrics", "translation",
+                             "lyrics translation":
+                            if let stringValue, !stringValue.isEmpty {
+                                metadata.translatedLyricsText = stringValue
+                            }
                         default:
+                            if let stringValue, !stringValue.isEmpty {
+                                if let languageCode = lyricTagLanguageCode(
+                                    in: desc,
+                                    roots: [
+                                        "translatedlyrics", "translated lyrics", "translation",
+                                    ]
+                                ) {
+                                    if metadata.translatedLyricsText == nil {
+                                        metadata.translatedLyricsText = stringValue
+                                        metadata.translatedLyricsLanguageCode = languageCode
+                                    } else if metadata.translatedLyricsText == stringValue,
+                                              metadata.translatedLyricsLanguageCode == nil {
+                                        metadata.translatedLyricsLanguageCode = languageCode
+                                    }
+                                    metadata.languageTaggedTranslations[languageCode] = stringValue
+                                } else if let languageCode = lyricTagLanguageCode(
+                                    in: desc,
+                                    roots: ["lyrics", "syncedlyrics", "unsyncedlyrics"]
+                                ) {
+                                    metadata.languageTaggedLyrics[languageCode] = stringValue
+                                    if metadata.lyricsText == nil {
+                                        metadata.lyricsText = stringValue
+                                        metadata.lyricsLanguageCode = languageCode
+                                    }
+                                }
+                            }
                             break
                         }
                     }
@@ -443,10 +500,21 @@ enum FileMetadataReader {
         fileExtension: String
     ) {
         guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
-              let lyrics = ISOBaseMediaLyricsParser.lyrics(in: data) else {
+              let payload = ISOBaseMediaLyricsParser.payload(in: data) else {
             return
         }
-        metadata.lyricsText = lyrics
+        if let lyrics = payload.lyrics {
+            metadata.lyricsText = lyrics
+            metadata.lyricsLanguageCode = payload.lyricsLanguageCode
+        }
+        if let translatedLyrics = payload.translatedLyrics {
+            metadata.translatedLyricsText = translatedLyrics
+            metadata.translatedLyricsLanguageCode = payload.translatedLyricsLanguageCode
+        }
+        metadata.languageTaggedLyrics.merge(payload.languageTaggedLyrics) { current, _ in current }
+        metadata.languageTaggedTranslations.merge(payload.languageTaggedTranslations) {
+            current, _ in current
+        }
     }
 
     private static func readISOBaseMediaMetadataFile(
@@ -592,7 +660,23 @@ enum FileMetadataReader {
         metadata.discNumber = metadata.discNumber ?? parsed.discNumber
         metadata.year = metadata.year ?? parsed.year
         metadata.genre = preferredMetadataText(current: metadata.genre, rawID3: parsed.genre)
-        metadata.lyricsText = metadata.lyricsText ?? parsed.lyrics
+        if metadata.lyricsText == nil {
+            metadata.lyricsText = parsed.lyrics
+            metadata.lyricsLanguageCode = parsed.lyricsLanguageCode
+        } else if metadata.lyricsText == parsed.lyrics, metadata.lyricsLanguageCode == nil {
+            metadata.lyricsLanguageCode = parsed.lyricsLanguageCode
+        }
+        if metadata.translatedLyricsText == nil {
+            metadata.translatedLyricsText = parsed.translatedLyrics
+            metadata.translatedLyricsLanguageCode = parsed.translatedLyricsLanguageCode
+        } else if metadata.translatedLyricsText == parsed.translatedLyrics,
+                  metadata.translatedLyricsLanguageCode == nil {
+            metadata.translatedLyricsLanguageCode = parsed.translatedLyricsLanguageCode
+        }
+        metadata.languageTaggedLyrics.merge(parsed.languageTaggedLyrics) { current, _ in current }
+        metadata.languageTaggedTranslations.merge(parsed.languageTaggedTranslations) {
+            current, _ in current
+        }
         metadata.coverArtData = metadata.coverArtData ?? parsed.coverArtData
         metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? parsed.replayGainTrackGain
         metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? parsed.replayGainTrackPeak
@@ -605,6 +689,27 @@ enum FileMetadataReader {
         let digits = value.filter(\.isNumber)
         guard digits.count >= 4 else { return nil }
         return Int(digits.prefix(4))
+    }
+
+    private static func lyricTagLanguageCode(
+        in value: String,
+        roots: [String]
+    ) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for root in roots.sorted(by: { $0.count > $1.count }) {
+            guard normalized.hasPrefix(root), normalized != root else { continue }
+            let rawSuffix = normalized.dropFirst(root.count)
+            guard rawSuffix.first.map({ " .:_-/[".contains($0) }) == true else {
+                continue
+            }
+            let suffix = rawSuffix
+                .trimmingCharacters(in: CharacterSet(charactersIn: " .:_-/[]()"))
+                .replacingOccurrences(of: "_", with: "-")
+            if let languageCode = LyricLanguageCodePolicy.canonicalIdentifier(suffix) {
+                return languageCode
+            }
+        }
+        return nil
     }
 
     private static func applyID3Fallback(
@@ -642,7 +747,28 @@ enum FileMetadataReader {
         metadata.year = metadata.year ?? text?.year
         metadata.genre = metadata.genre ?? text?.genre
         metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
-        metadata.lyricsText = metadata.lyricsText ?? artwork?.lyricsText
+        if metadata.lyricsText == nil {
+            metadata.lyricsText = artwork?.lyricsText
+            metadata.lyricsLanguageCode = artwork?.lyricsLanguageCode
+        } else if metadata.lyricsText == artwork?.lyricsText,
+                  metadata.lyricsLanguageCode == nil {
+            metadata.lyricsLanguageCode = artwork?.lyricsLanguageCode
+        }
+        if metadata.translatedLyricsText == nil {
+            metadata.translatedLyricsText = artwork?.translatedLyricsText
+            metadata.translatedLyricsLanguageCode = artwork?.translatedLyricsLanguageCode
+        } else if metadata.translatedLyricsText == artwork?.translatedLyricsText,
+                  metadata.translatedLyricsLanguageCode == nil {
+            metadata.translatedLyricsLanguageCode = artwork?.translatedLyricsLanguageCode
+        }
+        if let artwork {
+            metadata.languageTaggedLyrics.merge(artwork.languageTaggedLyrics) { current, _ in
+                current
+            }
+            metadata.languageTaggedTranslations.merge(
+                artwork.languageTaggedTranslations
+            ) { current, _ in current }
+        }
         metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? artwork?.replayGainTrackGain
         metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? artwork?.replayGainTrackPeak
         metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? artwork?.replayGainAlbumGain
@@ -712,6 +838,11 @@ enum FileMetadataReader {
     private struct ID3NativeMetadata {
         var coverArtData: Data?
         var lyricsText: String?
+        var lyricsLanguageCode: String?
+        var translatedLyricsText: String?
+        var translatedLyricsLanguageCode: String?
+        var languageTaggedLyrics: [String: String] = [:]
+        var languageTaggedTranslations: [String: String] = [:]
         var replayGainTrackGain: Double?
         var replayGainTrackPeak: Double?
         var replayGainAlbumGain: Double?
@@ -761,8 +892,8 @@ enum FileMetadataReader {
 
                 if frameID == "PIC", let picture = parseID3PictureFrame(payload, isV22PIC: true) {
                     pictures.append(picture)
-                } else if frameID == "ULT" {
-                    result.lyricsText = result.lyricsText ?? parseID3LyricsFrame(payload)
+                } else if frameID == "ULT", let lyrics = parseID3LyricsFrame(payload) {
+                    applyID3LyricsFrame(lyrics, to: &result)
                 } else if frameID == "TXX", let pair = parseID3UserTextFrame(payload) {
                     applyID3UserText(pair, to: &result)
                 }
@@ -788,8 +919,8 @@ enum FileMetadataReader {
 
                 if frameID == "APIC", let picture = parseID3PictureFrame(payload, isV22PIC: false) {
                     pictures.append(picture)
-                } else if frameID == "USLT" {
-                    result.lyricsText = result.lyricsText ?? parseID3LyricsFrame(payload)
+                } else if frameID == "USLT", let lyrics = parseID3LyricsFrame(payload) {
+                    applyID3LyricsFrame(lyrics, to: &result)
                 } else if frameID == "TXXX", let pair = parseID3UserTextFrame(payload) {
                     applyID3UserText(pair, to: &result)
                 }
@@ -800,6 +931,9 @@ enum FileMetadataReader {
         result.coverArtData = preferred?.data
         return result.coverArtData != nil
             || result.lyricsText != nil
+            || result.translatedLyricsText != nil
+            || !result.languageTaggedLyrics.isEmpty
+            || !result.languageTaggedTranslations.isEmpty
             || result.replayGainTrackGain != nil
             || result.replayGainTrackPeak != nil
             || result.replayGainAlbumGain != nil
@@ -847,7 +981,13 @@ enum FileMetadataReader {
         return ID3Picture(type: pictureType, data: imageData)
     }
 
-    private static func parseID3LyricsFrame(_ payload: Data) -> String? {
+    private struct ID3LyricsFrame {
+        let text: String
+        let languageCode: String?
+        let description: String
+    }
+
+    private static func parseID3LyricsFrame(_ payload: Data) -> ID3LyricsFrame? {
         guard payload.count >= 5 else { return nil }
         let encoding = payload[0]
         let descriptionStart = 4 // encoding + ISO-639-2 language
@@ -858,10 +998,86 @@ enum FileMetadataReader {
         ), lyricsStart < payload.count else {
             return nil
         }
-        return TextEncodingRepair.decodeID3Text(
+        let terminatorLength = (encoding == 1 || encoding == 2) ? 2 : 1
+        let descriptionEnd = lyricsStart - terminatorLength
+        let description = descriptionEnd > descriptionStart
+            ? TextEncodingRepair.decodeID3Text(
+                payload.subdata(in: descriptionStart..<descriptionEnd),
+                encodingByte: encoding
+            ) ?? ""
+            : ""
+        guard let text = TextEncodingRepair.decodeID3Text(
             payload.subdata(in: lyricsStart..<payload.count),
             encodingByte: encoding
+        ), !text.isEmpty else { return nil }
+        let rawLanguage = asciiString(payload, start: 1, length: 3)?.lowercased()
+        let languageCode = rawLanguage.flatMap { value -> String? in
+            guard value.utf8.count == 3,
+                  value.utf8.allSatisfy({ byte in
+                      (0x61...0x7A).contains(byte)
+                  }),
+                  !["und", "xxx", "zxx"].contains(value) else {
+                return nil
+            }
+            return LyricLanguageCodePolicy.canonicalIdentifier(value)
+        }
+        return ID3LyricsFrame(
+            text: text,
+            languageCode: languageCode,
+            description: description
         )
+    }
+
+    private static func applyID3LyricsFrame(
+        _ frame: ID3LyricsFrame,
+        to metadata: inout ID3NativeMetadata
+    ) {
+        let descriptor = frame.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDescriptor = descriptor.lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+        let explicitlyTranslated = [
+            "translation", "translated", "translatedlyrics", "lyricstranslation",
+        ].contains(normalizedDescriptor)
+            || lyricTagLanguageCode(
+                in: descriptor,
+                roots: ["translatedlyrics", "translated lyrics", "translation"]
+            ) != nil
+
+        if explicitlyTranslated {
+            let languageCode = lyricTagLanguageCode(
+                in: descriptor,
+                roots: ["translatedlyrics", "translated lyrics", "translation"]
+            ) ?? frame.languageCode
+            if metadata.translatedLyricsText == nil {
+                metadata.translatedLyricsText = frame.text
+                metadata.translatedLyricsLanguageCode = languageCode
+            } else if metadata.translatedLyricsText == frame.text,
+                      metadata.translatedLyricsLanguageCode == nil {
+                metadata.translatedLyricsLanguageCode = languageCode
+            }
+            if let languageCode {
+                metadata.languageTaggedTranslations[languageCode] = frame.text
+            }
+            return
+        }
+
+        if metadata.lyricsText == nil {
+            metadata.lyricsText = frame.text
+            metadata.lyricsLanguageCode = frame.languageCode
+            if let languageCode = frame.languageCode {
+                metadata.languageTaggedLyrics[languageCode] = frame.text
+            }
+            return
+        }
+
+        guard frame.text != metadata.lyricsText,
+              let languageCode = frame.languageCode,
+              languageCode != metadata.lyricsLanguageCode else { return }
+        // A second USLT language is not necessarily a translation: it may be
+        // an alternate original, romanization, or another vocal layer. Keep it
+        // language-qualified and let the document-level source/target policy
+        // decide whether it is selectable as an authored translation.
+        metadata.languageTaggedLyrics[languageCode] = frame.text
     }
 
     private static func parseID3UserTextFrame(_ payload: Data) -> (String, String)? {
@@ -895,7 +1111,8 @@ enum FileMetadataReader {
         _ pair: (String, String),
         to metadata: inout ID3NativeMetadata
     ) {
-        switch pair.0.lowercased() {
+        let description = pair.0.lowercased()
+        switch description {
         case "replaygain_track_gain":
             metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? parseReplayGainDB(pair.1)
         case "replaygain_track_peak":
@@ -904,7 +1121,31 @@ enum FileMetadataReader {
             metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? parseReplayGainDB(pair.1)
         case "replaygain_album_peak":
             metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? Double(pair.1)
+        case "translatedlyrics", "translated lyrics", "translation", "lyrics translation":
+            metadata.translatedLyricsText = metadata.translatedLyricsText ?? pair.1
         default:
+            if let languageCode = lyricTagLanguageCode(
+                in: description,
+                roots: ["translatedlyrics", "translated lyrics", "translation"]
+            ) {
+                if metadata.translatedLyricsText == nil {
+                    metadata.translatedLyricsText = pair.1
+                    metadata.translatedLyricsLanguageCode = languageCode
+                } else if metadata.translatedLyricsText == pair.1,
+                          metadata.translatedLyricsLanguageCode == nil {
+                    metadata.translatedLyricsLanguageCode = languageCode
+                }
+                metadata.languageTaggedTranslations[languageCode] = pair.1
+            } else if let languageCode = lyricTagLanguageCode(
+                in: description,
+                roots: ["lyrics", "syncedlyrics", "unsyncedlyrics"]
+            ) {
+                metadata.languageTaggedLyrics[languageCode] = pair.1
+                if metadata.lyricsText == nil {
+                    metadata.lyricsText = pair.1
+                    metadata.lyricsLanguageCode = languageCode
+                }
+            }
             break
         }
     }
@@ -1012,7 +1253,23 @@ enum FileMetadataReader {
         metadata.discNumber = metadata.discNumber ?? flac.discNumber
         metadata.year = metadata.year ?? flac.year
         metadata.genre = metadata.genre ?? flac.genre
-        metadata.lyricsText = metadata.lyricsText ?? flac.lyricsText
+        if metadata.lyricsText == nil {
+            metadata.lyricsText = flac.lyricsText
+            metadata.lyricsLanguageCode = flac.lyricsLanguageCode
+        } else if metadata.lyricsText == flac.lyricsText, metadata.lyricsLanguageCode == nil {
+            metadata.lyricsLanguageCode = flac.lyricsLanguageCode
+        }
+        if metadata.translatedLyricsText == nil {
+            metadata.translatedLyricsText = flac.translatedLyricsText
+            metadata.translatedLyricsLanguageCode = flac.translatedLyricsLanguageCode
+        } else if metadata.translatedLyricsText == flac.translatedLyricsText,
+                  metadata.translatedLyricsLanguageCode == nil {
+            metadata.translatedLyricsLanguageCode = flac.translatedLyricsLanguageCode
+        }
+        metadata.languageTaggedLyrics.merge(flac.languageTaggedLyrics) { current, _ in current }
+        metadata.languageTaggedTranslations.merge(flac.languageTaggedTranslations) {
+            current, _ in current
+        }
         metadata.coverArtData = metadata.coverArtData ?? flac.coverArtData
         metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? flac.replayGainTrackGain
         metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? flac.replayGainTrackPeak
@@ -1128,6 +1385,11 @@ enum FileMetadataReader {
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
         var lyricsText: String?
+        var lyricsLanguageCode: String?
+        var translatedLyricsText: String?
+        var translatedLyricsLanguageCode: String?
+        var languageTaggedLyrics: [String: String] = [:]
+        var languageTaggedTranslations: [String: String] = [:]
     }
 
     private static func parseFLACMetadata(from data: Data) -> FLACNativeMetadata? {
@@ -1167,6 +1429,10 @@ enum FileMetadataReader {
             || result.title != nil
             || result.artist != nil
             || result.albumTitle != nil
+            || result.lyricsText != nil
+            || result.translatedLyricsText != nil
+            || !result.languageTaggedLyrics.isEmpty
+            || !result.languageTaggedTranslations.isEmpty
             || result.coverArtData != nil
             ? result
             : nil
@@ -1296,7 +1562,32 @@ enum FileMetadataReader {
         result.discNumber = result.discNumber ?? leadingInt(first("DISCNUMBER", "DISC"))
         result.year = result.year ?? parseYear(first("DATE", "YEAR"))
         result.genre = result.genre ?? first("GENRE")
-        result.lyricsText = result.lyricsText ?? first("LYRICS", "UNSYNCEDLYRICS")
+        let repairedComments = comments.mapValues { values in
+            values.map { repairLegacyChineseMojibake($0) }
+        }
+        let lyricMetadata = EmbeddedTagMetadataParser.metadata(
+            fromTagValues: repairedComments
+        )
+        if result.lyricsText == nil {
+            result.lyricsText = lyricMetadata.lyrics
+            result.lyricsLanguageCode = lyricMetadata.lyricsLanguageCode
+        } else if result.lyricsText == lyricMetadata.lyrics,
+                  result.lyricsLanguageCode == nil {
+            result.lyricsLanguageCode = lyricMetadata.lyricsLanguageCode
+        }
+        if result.translatedLyricsText == nil {
+            result.translatedLyricsText = lyricMetadata.translatedLyrics
+            result.translatedLyricsLanguageCode = lyricMetadata.translatedLyricsLanguageCode
+        } else if result.translatedLyricsText == lyricMetadata.translatedLyrics,
+                  result.translatedLyricsLanguageCode == nil {
+            result.translatedLyricsLanguageCode = lyricMetadata.translatedLyricsLanguageCode
+        }
+        result.languageTaggedLyrics.merge(lyricMetadata.languageTaggedLyrics) {
+            current, _ in current
+        }
+        result.languageTaggedTranslations.merge(lyricMetadata.languageTaggedTranslations) {
+            current, _ in current
+        }
         result.replayGainTrackGain = result.replayGainTrackGain ?? parseReplayGainDB(first("REPLAYGAIN_TRACK_GAIN"))
         result.replayGainTrackPeak = result.replayGainTrackPeak ?? Double(first("REPLAYGAIN_TRACK_PEAK") ?? "")
         result.replayGainAlbumGain = result.replayGainAlbumGain ?? parseReplayGainDB(first("REPLAYGAIN_ALBUM_GAIN"))
