@@ -2,6 +2,9 @@
 import AudioToolbox
 import Foundation
 import PrimuseKit
+#if canImport(MusicUnderstanding)
+import MusicUnderstanding
+#endif
 
 private final class AudioSilenceIteratorBox: @unchecked Sendable {
     private var iterator: AudioBufferStream.AsyncIterator
@@ -21,6 +24,143 @@ struct AudioSilenceProfile: Sendable {
     let playableDuration: TimeInterval
 }
 
+private final class StreamingPCMSmartMixAnalyzer: @unchecked Sendable {
+    private static let envelopeSampleRate = 50.0
+    private static let maximumEnvelopeDuration: TimeInterval = 120
+    private static let firstPublicationDuration: TimeInterval = 12
+    private static let publicationInterval: TimeInterval = 8
+
+    private var sourceSampleRate: Double?
+    private var envelope: [Float] = []
+    private var pendingWindowEnergy = 0.0
+    private var pendingWindowSampleCount = 0
+    private var pendingWindowFrameCoverage = 0
+    private var totalFrameCount: Int64 = 0
+    private var nextPublicationDuration = firstPublicationDuration
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        let sampleRate = buffer.format.sampleRate
+        guard frameCount > 0,
+              channelCount > 0,
+              sampleRate.isFinite,
+              sampleRate > 0 else { return }
+
+        if let sourceSampleRate, abs(sourceSampleRate - sampleRate) > 0.5 {
+            reset(for: sampleRate)
+        } else if sourceSampleRate == nil {
+            sourceSampleRate = sampleRate
+        }
+        totalFrameCount += Int64(frameCount)
+
+        let maximumEnvelopeCount = Int(
+            Self.envelopeSampleRate * Self.maximumEnvelopeDuration
+        )
+        guard envelope.count < maximumEnvelopeCount else { return }
+
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        let isInterleaved = buffer.format.isInterleaved
+        let samplingStride = max(1, Int((sampleRate / 12_000).rounded(.down)))
+        let windowFrames = max(1, Int((sampleRate / Self.envelopeSampleRate).rounded()))
+
+        func consume<T>(
+            _: T.Type,
+            normalize: (T) -> Double
+        ) {
+            var frame = 0
+            while frame < frameCount, envelope.count < maximumEnvelopeCount {
+                var frameEnergy = 0.0
+                var validChannels = 0
+                for channel in 0..<channelCount {
+                    let sample: T
+                    if isInterleaved {
+                        guard let data = audioBuffers.first?.mData else { continue }
+                        sample = data.assumingMemoryBound(to: T.self)[
+                            frame * channelCount + channel
+                        ]
+                    } else {
+                        guard channel < audioBuffers.count,
+                              let data = audioBuffers[channel].mData else { continue }
+                        sample = data.assumingMemoryBound(to: T.self)[frame]
+                    }
+                    let normalized = normalize(sample)
+                    guard normalized.isFinite else { continue }
+                    frameEnergy += normalized * normalized
+                    validChannels += 1
+                }
+                if validChannels > 0 {
+                    pendingWindowEnergy += frameEnergy / Double(validChannels)
+                    pendingWindowSampleCount += 1
+                }
+                pendingWindowFrameCoverage += samplingStride
+                if pendingWindowFrameCoverage >= windowFrames {
+                    let rms = pendingWindowSampleCount > 0
+                        ? sqrt(pendingWindowEnergy / Double(pendingWindowSampleCount))
+                        : 0
+                    envelope.append(Float(rms))
+                    pendingWindowEnergy = 0
+                    pendingWindowSampleCount = 0
+                    pendingWindowFrameCoverage -= windowFrames
+                }
+                frame += samplingStride
+            }
+        }
+
+        func consumeInteger<T: FixedWidthInteger & SignedInteger>(
+            _: T.Type,
+            divisor: Double
+        ) {
+            consume(T.self) { Double($0) / divisor }
+        }
+
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            consume(Float.self, normalize: Double.init)
+        case .pcmFormatFloat64:
+            consume(Double.self, normalize: { $0 })
+        case .pcmFormatInt16:
+            consumeInteger(Int16.self, divisor: Double(Int16.max))
+        case .pcmFormatInt32:
+            consumeInteger(Int32.self, divisor: Double(Int32.max))
+        case .otherFormat:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    func snapshotIfNeeded(force: Bool = false) -> SmartMixTrackAnalysis? {
+        guard let sourceSampleRate, sourceSampleRate > 0 else { return nil }
+        let duration = Double(totalFrameCount) / sourceSampleRate
+        guard force || duration >= nextPublicationDuration else { return nil }
+        if !force {
+            while nextPublicationDuration <= duration {
+                nextPublicationDuration += Self.publicationInterval
+            }
+        }
+        guard let tempo = SmartMixRhythmDetector.estimateTempo(
+            rmsEnvelope: envelope,
+            envelopeSampleRate: Self.envelopeSampleRate
+        ) else { return nil }
+        return SmartMixTrackAnalysis(
+            backend: .streamingPCM,
+            analyzedDuration: duration,
+            tempo: tempo
+        )
+    }
+
+    private func reset(for sampleRate: Double) {
+        sourceSampleRate = sampleRate
+        envelope.removeAll(keepingCapacity: true)
+        pendingWindowEnergy = 0
+        pendingWindowSampleCount = 0
+        pendingWindowFrameCoverage = 0
+        totalFrameCount = 0
+        nextPublicationDuration = Self.firstPublicationDuration
+    }
+}
+
 enum AudioSilenceStream {
     private static let silenceThresholdDB = -50.0
     private static let analysisWindowDuration: TimeInterval = 0.01
@@ -33,7 +173,27 @@ enum AudioSilenceStream {
         maximumTrailingDuration: TimeInterval = 12,
         onProfile: (@Sendable (AudioSilenceProfile) -> Void)? = nil
     ) -> AudioBufferStream {
-        guard leading || trailing else { return source }
+        trimAnalyzingSmartMix(
+            source,
+            leading: leading,
+            trailing: trailing,
+            maximumLeadingDuration: maximumLeadingDuration,
+            maximumTrailingDuration: maximumTrailingDuration,
+            onSmartMixAnalysis: nil,
+            onProfile: onProfile
+        )
+    }
+
+    static func trimAnalyzingSmartMix(
+        _ source: AudioBufferStream,
+        leading: Bool,
+        trailing: Bool,
+        maximumLeadingDuration: TimeInterval = 12,
+        maximumTrailingDuration: TimeInterval = 12,
+        onSmartMixAnalysis: (@Sendable (SmartMixTrackAnalysis) -> Void)? = nil,
+        onProfile: (@Sendable (AudioSilenceProfile) -> Void)? = nil
+    ) -> AudioBufferStream {
+        guard leading || trailing || onSmartMixAnalysis != nil else { return source }
 
         let iteratorBox = AudioSilenceIteratorBox(source.makeAsyncIterator())
         return AudioBufferStreamFactory.make { continuation in
@@ -44,6 +204,9 @@ enum AudioSilenceStream {
                 var playableDuration: TimeInterval = 0
                 var pendingTail: [AVAudioPCMBuffer] = []
                 var pendingTailDuration: TimeInterval = 0
+                let smartMixAnalyzer = onSmartMixAnalysis == nil
+                    ? nil
+                    : StreamingPCMSmartMixAnalyzer()
 
                 func yield(_ buffer: AVAudioPCMBuffer) async throws {
                     guard buffer.frameLength > 0 else { return }
@@ -150,6 +313,11 @@ enum AudioSilenceStream {
                             }
                         }
 
+                        smartMixAnalyzer?.append(buffer)
+                        if let analysis = smartMixAnalyzer?.snapshotIfNeeded() {
+                            onSmartMixAnalysis?(analysis)
+                        }
+
                         guard trailing else {
                             try await yield(buffer)
                             continue
@@ -189,6 +357,9 @@ enum AudioSilenceStream {
                         trailingTrimmedDuration: trailingTrimmedDuration,
                         playableDuration: playableDuration
                     ))
+                    if let analysis = smartMixAnalyzer?.snapshotIfNeeded(force: true) {
+                        onSmartMixAnalysis?(analysis)
+                    }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
@@ -325,3 +496,52 @@ enum AudioSilenceStream {
         return destination
     }
 }
+
+#if canImport(MusicUnderstanding)
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, *)
+enum MusicUnderstandingSmartMixAnalyzer {
+    static func analyze(fileURL: URL) async throws -> SmartMixTrackAnalysis {
+        let asset = AVURLAsset(
+            url: fileURL,
+            options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+        )
+        let duration = try await asset.load(.duration).seconds
+        let session = try await MusicUnderstandingSession(asset: asset)
+        let result = try await session.analyze(for: [
+            .rhythm,
+            .structure,
+            .loudness,
+        ])
+
+        let beats = result.rhythm?.beats.compactMap(finiteSeconds) ?? []
+        let bpm = result.rhythm?.beatsPerMinute.map(Double.init)
+        let tempo = bpm.flatMap { value -> SmartMixTempoEstimate? in
+            guard value.isFinite, value > 0 else { return nil }
+            return SmartMixTempoEstimate(
+                beatsPerMinute: value,
+                confidence: beats.count >= 4 ? 1 : 0.6,
+                firstBeatTime: beats.first ?? 0
+            )
+        }
+        let barStartTimes = result.rhythm?.bars.compactMap(finiteSeconds) ?? []
+        let sectionStartTimes = result.structure?.sections.compactMap {
+            finiteSeconds($0.start)
+        } ?? []
+        let loudness = result.loudness?.integrated.value
+
+        return SmartMixTrackAnalysis(
+            backend: .musicUnderstanding,
+            analyzedDuration: duration.isFinite ? max(0, duration) : 0,
+            tempo: tempo,
+            barStartTimes: barStartTimes,
+            sectionStartTimes: sectionStartTimes,
+            integratedLoudnessDB: loudness.map(Double.init)
+        )
+    }
+
+    private static func finiteSeconds(_ time: CMTime) -> TimeInterval? {
+        let seconds = time.seconds
+        return seconds.isFinite && seconds >= 0 ? seconds : nil
+    }
+}
+#endif

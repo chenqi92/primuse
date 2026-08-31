@@ -1035,6 +1035,14 @@ final class AudioPlayerService {
     private var crossfadeTimerAttemptID: UUID?
     private var crossfadeTriggered = false
     @ObservationIgnored private var silenceProfiles: [String: AudioSilenceProfile] = [:]
+    @ObservationIgnored private var smartMixAnalyses: [String: SmartMixTrackAnalysis] = [:]
+    private struct SmartMixPlatformAnalysisTask {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+    @ObservationIgnored private var smartMixPlatformAnalysisTasks: [
+        String: SmartMixPlatformAnalysisTask
+    ] = [:]
     /// Crossfade 提交后 currentSong 已经切到淡入曲, 但 primary node 在 ramp
     /// 完成前仍属于淡出曲。进度更新据此改读 crossfade node 的独立时钟,
     /// swap 后再无缝回到 primary node。
@@ -4843,7 +4851,9 @@ final class AudioPlayerService {
                         onResolveSourceLength: onResolveLength
                     )
                 }
-                return rawStream.map { transitionPreparedStream($0, for: song) }
+                return rawStream.map {
+                    transitionPreparedStream($0, for: song, completeFileURL: cached)
+                }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
             guard let manager = sourceManager,
@@ -4872,7 +4882,9 @@ final class AudioPlayerService {
                         onResolveSourceLength: onResolveLength
                     )
                 }
-                return rawStream.map { transitionPreparedStream($0, for: song) }
+                return rawStream.map {
+                    transitionPreparedStream($0, for: song, completeFileURL: cached)
+                }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
             if SourceManager.isTranscodedStreamURL(url), assetReaderDecoder.canDecode(url: url) {
@@ -4903,12 +4915,19 @@ final class AudioPlayerService {
                 onResolveSourceLength: onResolveLength
             )
         }
-        return rawStream.map { transitionPreparedStream($0, for: song) }
+        return rawStream.map {
+            transitionPreparedStream(
+                $0,
+                for: song,
+                completeFileURL: url.isFileURL ? url : nil
+            )
+        }
     }
 
     private func transitionPreparedStream(
         _ stream: AudioBufferStream,
-        for song: Song
+        for song: Song,
+        completeFileURL: URL? = nil
     ) -> AudioBufferStream {
         let segmentedStream = segmented(stream, for: song)
         let settings = playbackSettings.snapshot()
@@ -4922,17 +4941,18 @@ final class AudioPlayerService {
             && (settings.skipTrailingSilenceEnabled || smartCrossfade)
 
         silenceProfiles[song.id] = nil
+        resetSmartMixAnalysis(for: song.id)
+        if smartCrossfade, let completeFileURL {
+            scheduleMusicUnderstandingAnalysis(
+                for: song.id,
+                completeFileURL: completeFileURL
+            )
+        }
         guard trimLeading || trimTrailing else { return segmentedStream }
 
         let songID = song.id
         let maximumTrimDuration = max(12, settings.crossfadeDuration)
-        return AudioSilenceStream.trim(
-            segmentedStream,
-            leading: trimLeading,
-            trailing: trimTrailing,
-            maximumLeadingDuration: maximumTrimDuration,
-            maximumTrailingDuration: maximumTrimDuration
-        ) { [weak self] profile in
+        let profileHandler: @Sendable (AudioSilenceProfile) -> Void = { [weak self] profile in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.silenceProfiles.count >= 64,
@@ -5119,6 +5139,112 @@ final class AudioPlayerService {
                 )
             }
         }
+
+        guard smartCrossfade else {
+            return AudioSilenceStream.trim(
+                segmentedStream,
+                leading: trimLeading,
+                trailing: trimTrailing,
+                maximumLeadingDuration: maximumTrimDuration,
+                maximumTrailingDuration: maximumTrimDuration,
+                onProfile: profileHandler
+            )
+        }
+
+        return AudioSilenceStream.trimAnalyzingSmartMix(
+            segmentedStream,
+            leading: trimLeading,
+            trailing: trimTrailing,
+            maximumLeadingDuration: maximumTrimDuration,
+            maximumTrailingDuration: maximumTrimDuration,
+            onSmartMixAnalysis: { [weak self] analysis in
+                Task { @MainActor [weak self] in
+                    self?.storeSmartMixAnalysis(analysis, for: songID)
+                }
+            },
+            onProfile: profileHandler
+        )
+    }
+
+    private func resetSmartMixAnalysis(for songID: String) {
+        smartMixPlatformAnalysisTasks[songID]?.task.cancel()
+        smartMixPlatformAnalysisTasks[songID] = nil
+        smartMixAnalyses[songID] = nil
+    }
+
+    private func storeSmartMixAnalysis(
+        _ analysis: SmartMixTrackAnalysis,
+        for songID: String
+    ) {
+        if let existing = smartMixAnalyses[songID] {
+            if existing.backend == .musicUnderstanding,
+               analysis.backend != .musicUnderstanding {
+                return
+            }
+            if existing.backend == analysis.backend {
+                let existingConfidence = existing.tempo?.confidence ?? 0
+                let incomingConfidence = analysis.tempo?.confidence ?? 0
+                guard analysis.analyzedDuration > existing.analyzedDuration + 0.1
+                        || incomingConfidence > existingConfidence else {
+                    return
+                }
+            }
+        }
+        if smartMixAnalyses.count >= 64,
+           smartMixAnalyses[songID] == nil,
+           let oldestKey = smartMixAnalyses.keys.first {
+            smartMixAnalyses[oldestKey] = nil
+        }
+        smartMixAnalyses[songID] = analysis
+    }
+
+    private func scheduleMusicUnderstandingAnalysis(
+        for songID: String,
+        completeFileURL: URL
+    ) {
+        #if canImport(MusicUnderstanding)
+        guard completeFileURL.isFileURL else { return }
+        if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
+            guard SmartMixAnalysisBackendPolicy.preferredBackend(
+                operatingSystemMajorVersion: ProcessInfo.processInfo
+                    .operatingSystemVersion.majorVersion,
+                musicUnderstandingAvailable: true,
+                assetAccess: .completeFile
+            ) == .musicUnderstanding else { return }
+
+            let taskID = UUID()
+            let task = Task { [weak self] in
+                defer {
+                    if self?.smartMixPlatformAnalysisTasks[songID]?.id == taskID {
+                        self?.smartMixPlatformAnalysisTasks[songID] = nil
+                    }
+                }
+                do {
+                    let analysis = try await MusicUnderstandingSmartMixAnalyzer.analyze(
+                        fileURL: completeFileURL
+                    )
+                    try Task.checkCancellation()
+                    guard let self,
+                          self.smartMixPlatformAnalysisTasks[songID]?.id == taskID else {
+                        return
+                    }
+                    self.storeSmartMixAnalysis(analysis, for: songID)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    plog(
+                        "Music Understanding analysis failed "
+                            + "\(String(songID.prefix(8))): \(error.localizedDescription)"
+                    )
+                }
+            }
+            smartMixPlatformAnalysisTasks[songID] = SmartMixPlatformAnalysisTask(
+                id: taskID,
+                task: task
+            )
+        }
+        #endif
     }
 
     /// 返回 queue 接下来 N 首 (考虑 shuffle / repeat all)。N 首之间不重复。
@@ -8001,13 +8127,24 @@ final class AudioPlayerService {
               playbackSettings.crossfadeEnabled,
               !crossfadeTriggered else { return }
         let settings = playbackSettings.snapshot()
-        let analyzedDuration = currentSong.flatMap { silenceProfiles[$0.id]?.playableDuration }
+        let songID = currentSong?.id
+        let silenceProfile = songID.flatMap { silenceProfiles[$0] }
+        let analyzedDuration = silenceProfile?.playableDuration
         let nominalDuration = duration > 0 ? duration : (analyzedDuration ?? 0)
-        guard let triggerTime = SmartTransitionPolicy.triggerTime(
+        let smartMixAnalysis = settings.crossfadeMode == .smart
+            ? songID.flatMap { smartMixAnalyses[$0] }
+            : nil
+        let sourceTimelineOffset = smartMixAnalysis?.backend == .musicUnderstanding
+            ? (currentSong?.cueStartTime ?? 0)
+            : 0
+        guard let transitionPlan = SmartMixTransitionPlanner.plan(
             nominalDuration: nominalDuration,
             analyzedPlayableDuration: analyzedDuration,
-            requestedOverlap: settings.crossfadeDuration
-        ), currentTime >= triggerTime else { return }
+            requestedOverlap: settings.crossfadeDuration,
+            analysis: smartMixAnalysis,
+            analysisTimelineOffset: sourceTimelineOffset
+                + (silenceProfile?.leadingTrimmedDuration ?? 0)
+        ), currentTime >= transitionPlan.triggerTime else { return }
         // "Stop after this song" owns the upcoming boundary. Let the normal
         // end callback stop playback instead of committing the next queue item.
         if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
@@ -8027,15 +8164,22 @@ final class AudioPlayerService {
 
         let attemptID = UUID()
         let sourceQueueGeneration = queueGeneration
-        let playableEndpoint = analyzedDuration.flatMap {
-            $0.isFinite && $0 > 0 && $0 <= nominalDuration ? $0 : nil
-        } ?? nominalDuration
         let effectiveDuration = SmartTransitionPolicy.effectiveOverlap(
-            requestedOverlap: settings.crossfadeDuration,
+            requestedOverlap: transitionPlan.overlapDuration,
             currentTime: currentTime,
-            playableEndpoint: playableEndpoint
+            playableEndpoint: transitionPlan.playableEndpoint
         )
         guard effectiveDuration > 0 else { return }
+        if settings.crossfadeMode == .smart {
+            plog(
+                String(
+                    format: "Smart mix %@ via %@: %.2fs overlap",
+                    transitionPlan.basis.rawValue,
+                    transitionPlan.analysisBackend?.rawValue ?? "fallback",
+                    effectiveDuration
+                )
+            )
+        }
         crossfadeAttemptID = attemptID
         crossfadeTriggered = true
         crossfadeStartupTask?.cancel()
