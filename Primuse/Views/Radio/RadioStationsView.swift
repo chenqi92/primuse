@@ -505,38 +505,256 @@ private struct RadioStationCard: View {
     }
 }
 
+private struct SendableRadioArtworkCGImage: @unchecked Sendable {
+    let value: CGImage?
+}
+
+@MainActor
+private enum RadioStationArtworkResourceResolver {
+    nonisolated(unsafe) private static let failedLoadCache: NSCache<NSString, NSDate> = {
+        let cache = NSCache<NSString, NSDate>()
+        cache.countLimit = 500
+        return cache
+    }()
+
+    private static let failedLoadCacheTTL: TimeInterval = 5 * 60
+
+    static func resolve(
+        plan: RadioStationArtworkResolutionPlan,
+        maximumPixelSize: Int,
+        networkPathGeneration: UInt64,
+        cacheRevision: UInt64,
+        sourceManager: SourceManager
+    ) async -> RadioStationArtworkResolution<PlatformRadioImage>? {
+        await RadioStationArtworkResolver.resolve(plan: plan) { candidate in
+            switch candidate {
+            case .inline(let data):
+                return await decodeInlineLogo(data, maximumPixelSize: maximumPixelSize)
+
+            case .cachedOrSource(let request):
+                let failureKey = failureKey(
+                    for: request,
+                    networkPathGeneration: networkPathGeneration
+                )
+                guard !hasRecentFailure(for: failureKey) else { return nil }
+                let image = await CachedArtworkView.resolveImage(
+                    coverRef: request.coverReference,
+                    songID: request.songID,
+                    size: CGFloat(maximumPixelSize) / 3,
+                    sourceID: request.sourceID,
+                    filePath: request.filePath,
+                    fileFormat: request.fileFormat,
+                    sourceManager: sourceManager,
+                    cacheDiscriminator: "\(request.cacheDiscriminator)#revision-\(cacheRevision)"
+                )
+                guard !Task.isCancelled else { return nil }
+                if image == nil {
+                    failedLoadCache.setObject(NSDate(), forKey: failureKey)
+                } else {
+                    failedLoadCache.removeObject(forKey: failureKey)
+                }
+                return image
+            }
+        }
+    }
+
+    static func clearFailure(
+        for request: RadioStationArtworkRemoteRequest,
+        networkPathGeneration: UInt64
+    ) {
+        failedLoadCache.removeObject(forKey: failureKey(
+            for: request,
+            networkPathGeneration: networkPathGeneration
+        ))
+    }
+
+    private static func failureKey(
+        for request: RadioStationArtworkRemoteRequest,
+        networkPathGeneration: UInt64
+    ) -> NSString {
+        "\(request.cacheDiscriminator)#network-\(networkPathGeneration)" as NSString
+    }
+
+    private static func hasRecentFailure(for key: NSString) -> Bool {
+        guard let failedAt = failedLoadCache.object(forKey: key) else { return false }
+        if abs(failedAt.timeIntervalSinceNow) < failedLoadCacheTTL {
+            return true
+        }
+        failedLoadCache.removeObject(forKey: key)
+        return false
+    }
+
+    private static func decodeInlineLogo(
+        _ data: Data,
+        maximumPixelSize: Int
+    ) async -> PlatformRadioImage? {
+        let task = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return SendableRadioArtworkCGImage(value: nil) }
+            let image = makeThumbnail(from: data, maximumPixelSize: maximumPixelSize)
+            guard !Task.isCancelled else { return SendableRadioArtworkCGImage(value: nil) }
+            return SendableRadioArtworkCGImage(value: image)
+        }
+        let decoded = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        guard !Task.isCancelled, let image = decoded.value else { return nil }
+        return PlatformRadioImage.fromCGImage(image)
+    }
+
+    private nonisolated static func makeThumbnail(
+        from data: Data,
+        maximumPixelSize: Int
+    ) -> CGImage? {
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+}
+
+private struct RadioStationArtworkLoadKey: Hashable {
+    let identity: RadioStationArtworkResolutionIdentity
+    let maximumPixelSize: Int
+    let networkPathGeneration: UInt64
+    let cacheRevision: UInt64
+}
+
+/// The layout-independent radio artwork surface. Callers own its frame, aspect
+/// ratio, clipping, and corner radius; every surface shares the same source
+/// priority, async decoding, cancellation, and stale-result protection.
+struct RadioStationArtworkContent: View {
+    let station: RadioStation
+    var decodeSize: CGFloat = 320
+    var contentMode: ContentMode = .fill
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var image: PlatformRadioImage?
+    @State private var resolvedIdentity: RadioStationArtworkResolutionIdentity?
+    @State private var cacheRevision: UInt64 = 0
+
+    private var plan: RadioStationArtworkResolutionPlan {
+        RadioStationArtworkResolutionPolicy.makePlan(for: station)
+    }
+
+    private var maximumPixelSize: Int {
+        min(max(Int(decodeSize.rounded(.up) * 3), 96), 1_536)
+    }
+
+    private var loadKey: RadioStationArtworkLoadKey {
+        RadioStationArtworkLoadKey(
+            identity: plan.identity,
+            maximumPixelSize: maximumPixelSize,
+            networkPathGeneration: NetworkMonitor.shared.pathGeneration,
+            cacheRevision: cacheRevision
+        )
+    }
+
+    private var remoteRequest: RadioStationArtworkRemoteRequest? {
+        for candidate in plan.candidates {
+            if case .cachedOrSource(let request) = candidate { return request }
+        }
+        return nil
+    }
+
+    var body: some View {
+        let currentPlan = plan
+        let currentLoadKey = loadKey
+
+        ZStack {
+            RadioStationPlaceholderArtwork()
+            if resolvedIdentity == currentPlan.identity, let image {
+                Image(platformRadioImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            }
+        }
+        .task(id: currentLoadKey) {
+            let capturedIdentity = currentPlan.identity
+            if resolvedIdentity != capturedIdentity {
+                image = nil
+                resolvedIdentity = nil
+            }
+            let resolved = await RadioStationArtworkResourceResolver.resolve(
+                plan: currentPlan,
+                maximumPixelSize: currentLoadKey.maximumPixelSize,
+                networkPathGeneration: currentLoadKey.networkPathGeneration,
+                cacheRevision: currentLoadKey.cacheRevision,
+                sourceManager: sourceManager
+            )
+            guard RadioStationArtworkResultPolicy.shouldApply(
+                completedIdentity: capturedIdentity,
+                displayedIdentity: plan.identity,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            image = resolved?.value
+            resolvedIdentity = capturedIdentity
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+            let tokens = artworkInvalidationTokens(from: note)
+            guard RadioStationArtworkCacheRevisionPolicy.shouldReloadAfterInvalidation(
+                invalidatesAll: note.userInfo?["all"] as? Bool == true,
+                invalidatedTokens: tokens,
+                request: remoteRequest
+            ), let remoteRequest else { return }
+            RadioStationArtworkResourceResolver.clearFailure(
+                for: remoteRequest,
+                networkPathGeneration: NetworkMonitor.shared.pathGeneration
+            )
+            cacheRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+            guard RadioStationArtworkCacheRevisionPolicy.shouldReloadAfterCaching(
+                cachedSongID: note.object as? String,
+                request: remoteRequest,
+                hasResolvedImage: resolvedIdentity == plan.identity && image != nil
+            ), let remoteRequest else { return }
+            RadioStationArtworkResourceResolver.clearFailure(
+                for: remoteRequest,
+                networkPathGeneration: NetworkMonitor.shared.pathGeneration
+            )
+            cacheRevision &+= 1
+        }
+    }
+
+    private func artworkInvalidationTokens(from note: Notification) -> [String] {
+        var tokens: [String] = []
+        if let token = note.object as? String, !token.isEmpty {
+            tokens.append(token)
+        }
+        for key in ["songID", "oldRef", "newRef"] {
+            if let token = note.userInfo?[key] as? String, !token.isEmpty {
+                tokens.append(token)
+            }
+        }
+        if let values = note.userInfo?["tokens"] as? [String] {
+            tokens.append(contentsOf: values)
+        }
+        if let values = note.userInfo?["songIDs"] as? [String] {
+            tokens.append(contentsOf: values)
+        }
+        return tokens
+    }
+}
+
 struct RadioStationArtworkView: View {
     let station: RadioStation
     var size: CGFloat
     var cornerRadius: CGFloat
 
     var body: some View {
-        Group {
-            if let data = station.logoData, let image = PlatformRadioImage(data: data) {
-                Image(platformRadioImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                ZStack {
-                    RadioStationPlaceholderArtwork()
-                    if station.logoFileName?.isEmpty == false {
-                        CachedArtworkView(
-                            coverRef: station.logoFileName,
-                            songID: station.playbackSong.id,
-                            size: size,
-                            cornerRadius: 0,
-                            sourceID: station.sourceID,
-                            filePath: station.sourcePlaybackPath ?? station.streamURL,
-                            fileFormat: station.streamFormat.audioFormat,
-                            placeholderIcon: "radio.fill",
-                            showsPlaceholder: false
-                        )
-                    }
-                }
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        RadioStationArtworkContent(station: station, decodeSize: size)
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 

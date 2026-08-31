@@ -208,6 +208,224 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// The source-backed half of a radio artwork request. Keeping this mapping in
+/// PrimuseKit prevents individual screens from quietly dropping the source
+/// provenance that is required to resolve server-mirrored station logos.
+public struct RadioStationArtworkRemoteRequest: Hashable, Sendable {
+    public let coverReference: String
+    public let songID: String
+    public let sourceID: String?
+    public let filePath: String?
+    public let fileFormat: AudioFormat
+
+    public init(
+        coverReference: String,
+        songID: String,
+        sourceID: String?,
+        filePath: String?,
+        fileFormat: AudioFormat
+    ) {
+        self.coverReference = coverReference
+        self.songID = songID
+        self.sourceID = sourceID
+        self.filePath = filePath
+        self.fileFormat = fileFormat
+    }
+
+    /// A versioned request discriminator prevents a late fetch for an older
+    /// reference from being reused after the same station receives a new logo.
+    public var cacheDiscriminator: String {
+        let material = [
+            songID,
+            coverReference,
+            sourceID ?? "",
+            filePath ?? "",
+            fileFormat.rawValue,
+        ].joined(separator: "\u{1F}")
+        return "\(songID)#artwork-\(String(Self.stableHash(material), radix: 16))"
+    }
+
+    private static func stableHash(_ value: String) -> UInt64 {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return hash
+    }
+}
+
+public enum RadioStationArtworkCandidate: Hashable, Sendable {
+    case inline(Data)
+    case cachedOrSource(RadioStationArtworkRemoteRequest)
+}
+
+public struct RadioStationArtworkResolutionIdentity: Hashable, Sendable {
+    public let stationID: String
+    public let candidates: [RadioStationArtworkCandidate]
+
+    public init(stationID: String, candidates: [RadioStationArtworkCandidate]) {
+        self.stationID = stationID
+        self.candidates = candidates
+    }
+}
+
+public struct RadioStationArtworkResolutionPlan: Hashable, Sendable {
+    public let identity: RadioStationArtworkResolutionIdentity
+    public let candidates: [RadioStationArtworkCandidate]
+
+    public init(
+        identity: RadioStationArtworkResolutionIdentity,
+        candidates: [RadioStationArtworkCandidate]
+    ) {
+        self.identity = identity
+        self.candidates = candidates
+    }
+
+    public var usesPlaceholderOnly: Bool { candidates.isEmpty }
+}
+
+/// Platform-neutral priority and fallback policy shared by every radio artwork
+/// surface. Inline bytes are preferred, but a corrupt inline image must still
+/// be allowed to fall through to the station's cached/source reference.
+public enum RadioStationArtworkResolutionPolicy {
+    public static func makePlan(for station: RadioStation) -> RadioStationArtworkResolutionPlan {
+        var candidates: [RadioStationArtworkCandidate] = []
+        if let data = station.logoData, !data.isEmpty {
+            candidates.append(.inline(data))
+        }
+        if let reference = cleaned(station.logoFileName) {
+            candidates.append(.cachedOrSource(RadioStationArtworkRemoteRequest(
+                coverReference: reference,
+                songID: station.playbackSong.id,
+                sourceID: station.sourceID,
+                filePath: station.sourcePlaybackPath ?? station.streamURL,
+                fileFormat: station.streamFormat.audioFormat
+            )))
+        }
+        return RadioStationArtworkResolutionPlan(
+            identity: RadioStationArtworkResolutionIdentity(
+                stationID: station.id,
+                candidates: candidates
+            ),
+            candidates: candidates
+        )
+    }
+
+    private static func cleaned(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+public struct RadioStationArtworkResolution<Value> {
+    public let candidate: RadioStationArtworkCandidate
+    public let value: Value
+
+    public init(candidate: RadioStationArtworkCandidate, value: Value) {
+        self.candidate = candidate
+        self.value = value
+    }
+}
+
+extension RadioStationArtworkResolution: Sendable where Value: Sendable {}
+
+public enum RadioStationArtworkResolver {
+    public static func resolve<Value>(
+        plan: RadioStationArtworkResolutionPlan,
+        isolation: isolated (any Actor)? = #isolation,
+        using load: (RadioStationArtworkCandidate) async -> Value?
+    ) async -> RadioStationArtworkResolution<Value>? {
+        for candidate in plan.candidates {
+            if Task.isCancelled { return nil }
+            if let value = await load(candidate) {
+                if Task.isCancelled { return nil }
+                return RadioStationArtworkResolution(candidate: candidate, value: value)
+            }
+        }
+        return nil
+    }
+}
+
+public enum RadioStationArtworkResultPolicy {
+    public static func shouldApply(
+        completedIdentity: RadioStationArtworkResolutionIdentity,
+        displayedIdentity: RadioStationArtworkResolutionIdentity,
+        isCancelled: Bool
+    ) -> Bool {
+        !isCancelled && completedIdentity == displayedIdentity
+    }
+}
+
+public enum RadioStationArtworkCacheRevisionPolicy {
+    public static func shouldReloadAfterInvalidation(
+        invalidatesAll: Bool,
+        invalidatedTokens: [String],
+        request: RadioStationArtworkRemoteRequest?
+    ) -> Bool {
+        if invalidatesAll { return request != nil }
+        guard let request else { return false }
+        let localTokens = Set([request.songID, request.coverReference])
+        return invalidatedTokens.contains { localTokens.contains($0) }
+    }
+
+    public static func shouldReloadAfterCaching(
+        cachedSongID: String?,
+        request: RadioStationArtworkRemoteRequest?,
+        hasResolvedImage: Bool
+    ) -> Bool {
+        guard let request else { return false }
+        return ArtworkCacheReloadPolicy.shouldReload(
+            cachedSongID: cachedSongID,
+            displayedSongID: request.songID,
+            hasResolvedImage: hasResolvedImage
+        )
+    }
+}
+
+public struct RadioStationArtworkGridLayout: Equatable, Sendable {
+    public struct Measurement: Equatable, Sendable {
+        public let columnCount: Int
+        public let itemWidth: Double
+
+        public init(columnCount: Int, itemWidth: Double) {
+            self.columnCount = columnCount
+            self.itemWidth = itemWidth
+        }
+    }
+
+    public let minimumItemWidth: Double
+    public let maximumItemWidth: Double
+    public let spacing: Double
+    public let horizontalPadding: Double
+
+    public init(
+        minimumItemWidth: Double = 150,
+        maximumItemWidth: Double = 220,
+        spacing: Double = 14,
+        horizontalPadding: Double = 20
+    ) {
+        self.minimumItemWidth = max(minimumItemWidth, 1)
+        self.maximumItemWidth = max(maximumItemWidth, self.minimumItemWidth)
+        self.spacing = max(spacing, 0)
+        self.horizontalPadding = max(horizontalPadding, 0)
+    }
+
+    public func measure(containerWidth: Double) -> Measurement {
+        let availableWidth = max(containerWidth - (horizontalPadding * 2), minimumItemWidth)
+        let fittedColumns = Int((availableWidth + spacing) / (minimumItemWidth + spacing))
+        let columnCount = max(fittedColumns, 1)
+        let distributedWidth = (
+            availableWidth - (Double(columnCount - 1) * spacing)
+        ) / Double(columnCount)
+        return Measurement(
+            columnCount: columnCount,
+            itemWidth: min(max(distributedWidth, minimumItemWidth), maximumItemWidth)
+        )
+    }
+}
+
 public enum RadioStationOrdering {
     public static func sorted(_ stations: [RadioStation]) -> [RadioStation] {
         stations.sorted { lhs, rhs in

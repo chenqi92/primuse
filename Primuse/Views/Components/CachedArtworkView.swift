@@ -787,7 +787,8 @@ struct CachedArtworkView: View {
             sourceID: sourceID,
             filePath: filePath,
             fileFormat: fileFormat,
-            sourceManager: sourceManager
+            sourceManager: sourceManager,
+            fetchDiscriminator: cacheDiscriminator
         )
     }
 
@@ -806,7 +807,8 @@ struct CachedArtworkView: View {
         sourceID: String?,
         filePath: String?,
         fileFormat: AudioFormat?,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        fetchDiscriminator: String = ""
     ) async -> PlatformImage? {
         let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: ref, filePath: filePath)
         let effectiveRef = ignoredGenericFolderCover ? nil : ref
@@ -884,7 +886,10 @@ struct CachedArtworkView: View {
             guard sourceIdentity.contains(where: { !$0.isEmpty }) else { return nil }
             fetchKey = sourceIdentity.joined(separator: "\u{1F}")
         }
-        let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
+        let deduplicationKey = fetchDiscriminator.isEmpty
+            ? fetchKey
+            : "\(fetchKey)\u{1F}\(fetchDiscriminator)"
+        let fetched = await inFlightTracker.deduplicated(key: deduplicationKey) {
             await loadFromSource(
                 ref: effectiveRef,
                 songID: songID,

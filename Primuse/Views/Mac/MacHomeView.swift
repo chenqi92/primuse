@@ -629,7 +629,7 @@ struct MacHomeView: View {
                 NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
             } label: {
                 HStack(spacing: PMSpace.m14) {
-                    radioTileArtwork(station)
+                    RadioStationArtworkContent(station: station, decodeSize: 54)
                         .frame(width: 54, height: 54)
                         .clipShape(RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous))
 
@@ -748,11 +748,7 @@ struct MacHomeView: View {
             toggleRadio(station)
         } label: {
             VStack(alignment: .leading, spacing: PMSpace.s10) {
-                // 不能用 `RadioStationArtworkView` —— 它内部写死了
-                // `.frame(width: size, height: size)`，塞进这种「宽度自适应、
-                // 高度固定」的横幅槽位里不会被压缩，会向两侧溢出后被裁掉，
-                // 视觉上就是卡片之间没有缝、连成一片。这里自己铺封面。
-                radioTileArtwork(station)
+                RadioStationArtworkContent(station: station, decodeSize: 260)
                     .frame(maxWidth: .infinity)
                     .frame(height: 96)
                     .clipShape(RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous))
@@ -784,19 +780,6 @@ struct MacHomeView: View {
         .overlay {
             RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
                 .strokeBorder(isCurrent ? PMColor.brand.opacity(0.55) : .clear, lineWidth: 1)
-        }
-    }
-
-    /// 台标铺满槽位。有 logo 就 `scaledToFill` 裁切，没有就用渐变占位 ——
-    /// 两种情况都不带固定 frame，交给外层决定尺寸。
-    @ViewBuilder
-    private func radioTileArtwork(_ station: RadioStation) -> some View {
-        if let data = station.logoData, let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
-        } else {
-            RadioStationPlaceholderArtwork()
         }
     }
 

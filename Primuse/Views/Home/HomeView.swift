@@ -768,6 +768,7 @@ struct HomeView: View {
     }
 
     private func radioWallSection(_ stations: [RadioStation]) -> some View {
+        let layout = Self.radioWallLayout
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("home_radio_wall_title")
@@ -787,9 +788,15 @@ struct HomeView: View {
 
             // 竖屏手机纵向有的是空间，横向反而最窄。原来做成横滑一排，
             // 结果是下面大片留白、电台却挤在一条窄带里还看不全名字。
-            // 改成网格：跟着宽度排 2 列(大屏 3 列)，向下自然延伸。
+            // 改成网格：手机通常排 2 列，宽屏自动扩展更多列并向下自然延伸。
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 14)],
+                columns: [GridItem(
+                    .adaptive(
+                        minimum: CGFloat(layout.minimumItemWidth),
+                        maximum: CGFloat(layout.maximumItemWidth)
+                    ),
+                    spacing: CGFloat(layout.spacing)
+                )],
                 alignment: .leading,
                 spacing: 16
             ) {
@@ -798,9 +805,11 @@ struct HomeView: View {
                 }
                 radioWallAddCard
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout.horizontalPadding))
         }
     }
+
+    private static let radioWallLayout = RadioStationArtworkGridLayout()
 
     /// 卡片宽度交给网格算，这里只固定文字区高度 —— 台名长短不一，
     /// 不固定的话同一行的卡底边会参差。
@@ -852,10 +861,8 @@ struct HomeView: View {
             toggleHomeRadio(station)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                // 封面跟着列宽走，不再写死 132pt —— 网格的列宽由可用宽度算出，
-                // 固定尺寸会撑不满或溢出。`RadioStationArtworkView` 内部带固定
-                // frame，所以这里自己铺。
-                radioWallArtwork(station)
+                // 封面由列宽决定，共享 content 只负责解析及绘制。
+                RadioStationArtworkContent(station: station, decodeSize: 320)
                     .frame(maxWidth: .infinity)
                     .aspectRatio(1, contentMode: .fill)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -901,19 +908,6 @@ struct HomeView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-    }
-
-    /// 台标铺满槽位。跟 Mac 侧同样的理由：`RadioStationArtworkView` 写死了
-    /// 正方形 frame，压不进「宽度自适应」的槽位。
-    @ViewBuilder
-    private func radioWallArtwork(_ station: RadioStation) -> some View {
-        if let data = station.logoData, let image = PlatformImage(data: data) {
-            Image(platformImage: image)
-                .resizable()
-                .scaledToFill()
-        } else {
-            RadioStationPlaceholderArtwork()
-        }
     }
 
     private var radioModeEmptyState: some View {
