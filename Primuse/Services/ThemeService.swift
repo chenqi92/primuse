@@ -14,7 +14,11 @@ import AppKit
 final class ThemeService {
     /// 最近一次从当前封面提取的颜色。主题色来源与播放背景分别决定是否消费它。
     private(set) var artworkAccentColor: Color = ThemeService.defaultAccent
+    private(set) var artworkSecondaryAccent: Color = ThemeService.defaultDarkAccent
+    private(set) var artworkSecondaryDarkAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkDarkAccent: Color = ThemeService.defaultDarkAccent
+    private(set) var artworkVibrancy: Double = 0
+    private(set) var artworkLuminance: Double = 0.18
 
     private(set) var colorMode = AppThemePreferences.defaultColorMode
     private(set) var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
@@ -40,7 +44,12 @@ final class ThemeService {
     /// 播放页的氛围色与全局控件主题色分别计算。这样固定主题仍可保留封面背景，
     /// 自动主题也能在关闭背景氛围时只改变按钮与选择态。
     var accentColor: Color { coverDrivenAmbient ? artworkAccentColor : baseAccent }
+    var secondaryAccent: Color { coverDrivenAmbient ? artworkSecondaryAccent : baseDarkAccent }
+    var secondaryDarkAccent: Color {
+        coverDrivenAmbient ? artworkSecondaryDarkAccent : baseDarkAccent
+    }
     var darkAccent: Color { coverDrivenAmbient ? artworkDarkAccent : baseDarkAccent }
+    var hasArtworkAmbient: Bool { coverDrivenAmbient && colorID != "default" }
     var onAccent: Color { Self.contrastingForeground(for: accentColor) }
     var uiAccentColor: Color { colorMode == .automatic ? artworkAccentColor : baseAccent }
     var uiDarkAccent: Color { colorMode == .automatic ? artworkDarkAccent : baseDarkAccent }
@@ -189,22 +198,37 @@ final class ThemeService {
             artwork.quaternaryTextColor
         ].compactMap { $0 }
 
-        var best: (hue: CGFloat, saturation: CGFloat, brightness: CGFloat, score: CGFloat)?
+        var candidates: [PaletteSample] = []
         for cgColor in colors {
             guard let hsb = hsbComponents(from: cgColor),
                   hsb.saturation >= 0.24,
                   hsb.brightness > 0.10,
                   hsb.brightness < 0.95 else { continue }
             let score = hsb.saturation * hsb.saturation * (0.55 + 0.45 * hsb.brightness)
-            if best == nil || score > best!.score {
-                best = (hsb.hue, hsb.saturation, hsb.brightness, score)
-            }
+            candidates.append(PaletteSample(
+                hue: hsb.hue,
+                saturation: hsb.saturation,
+                brightness: hsb.brightness,
+                score: score
+            ))
         }
-        guard let best else { return nil }
+        guard let primary = candidates.max(by: { $0.score < $1.score }) else { return nil }
+        let secondary = candidates
+            .filter {
+                $0.score >= primary.score * 0.08
+                    && circularHueDistance($0.hue, primary.hue) >= 0.08
+            }
+            .max {
+                secondaryScore($0, from: primary) < secondaryScore($1, from: primary)
+            }
         return makeColorResult(
-            hue: best.hue,
-            saturation: best.saturation,
-            brightness: best.brightness
+            primary: primary,
+            secondary: secondary,
+            luminance: relativeLuminance(
+                hue: primary.hue,
+                saturation: primary.saturation,
+                brightness: primary.brightness
+            )
         )
     }
 
@@ -277,7 +301,11 @@ final class ThemeService {
     private func applyFallbackTheme(animated: Bool = true) {
         applyThemeChange(animated: animated) {
             artworkAccentColor = baseAccent
+            artworkSecondaryAccent = baseDarkAccent
+            artworkSecondaryDarkAccent = baseDarkAccent
             artworkDarkAccent = baseDarkAccent
+            artworkVibrancy = 0
+            artworkLuminance = 0.18
             colorID = "default"
         }
         #if os(macOS)
@@ -288,7 +316,11 @@ final class ThemeService {
     private func applyArtworkTheme(_ result: ColorResult, identity: String) {
         withAnimation(.easeInOut(duration: 0.6)) {
             artworkAccentColor = result.accent
+            artworkSecondaryAccent = result.secondary
+            artworkSecondaryDarkAccent = result.secondaryDark
             artworkDarkAccent = result.dark
+            artworkVibrancy = result.vibrancy
+            artworkLuminance = result.luminance
             colorID = identity
         }
         #if os(macOS)
@@ -364,6 +396,8 @@ final class ThemeService {
         if colorID == "default" {
             applyThemeChange(animated: animated) {
                 artworkAccentColor = tint
+                artworkSecondaryAccent = dark
+                artworkSecondaryDarkAccent = dark
                 artworkDarkAccent = dark
             }
         }
@@ -416,7 +450,18 @@ final class ThemeService {
     /// safe to call from background tasks.
     struct ColorResult {
         let accent: Color
+        let secondary: Color
+        let secondaryDark: Color
         let dark: Color
+        let vibrancy: Double
+        let luminance: Double
+    }
+
+    private struct PaletteSample {
+        let hue: CGFloat
+        let saturation: CGFloat
+        let brightness: CGFloat
+        let score: CGFloat
     }
 
     /// Extracts the most dominant vibrant color from an image using HSB bucketing.
@@ -466,12 +511,15 @@ final class ThemeService {
         }
 
         var buckets = [[HSBPixel]](repeating: [], count: bucketCount)
+        var sampledLuminances: [CGFloat] = []
+        sampledLuminances.reserveCapacity(pixelCount)
 
         for i in 0..<pixelCount {
             let offset = i * bytesPerPixel
             let r = CGFloat(ptr[offset]) / 255.0
             let g = CGFloat(ptr[offset + 1]) / 255.0
             let b = CGFloat(ptr[offset + 2]) / 255.0
+            sampledLuminances.append(relativeLuminance(red: r, green: g, blue: b))
 
             var h: CGFloat = 0, s: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
             #if os(iOS)
@@ -494,57 +542,162 @@ final class ThemeService {
         }
 
         let minimumBucketPixels = max(8, pixelCount / 200)
-        var dominantBucketIndex: Int?
-        var dominantBucketScore: CGFloat = 0
+        var candidates: [(index: Int, sample: PaletteSample)] = []
         for index in buckets.indices where buckets[index].count >= minimumBucketPixels {
-            let score = buckets[index].reduce(CGFloat.zero) { $0 + $1.weight }
-            if score > dominantBucketScore {
-                dominantBucketScore = score
-                dominantBucketIndex = index
+            let bucket = buckets[index]
+            let score = bucket.reduce(CGFloat.zero) { $0 + $1.weight }
+            var hueX: CGFloat = 0
+            var hueY: CGFloat = 0
+            var averageSaturation: CGFloat = 0
+            var averageBrightness: CGFloat = 0
+            var totalWeight: CGFloat = 0
+            for pixel in bucket {
+                let angle = pixel.hue * 2 * .pi
+                hueX += cos(angle) * pixel.weight
+                hueY += sin(angle) * pixel.weight
+                averageSaturation += pixel.saturation * pixel.weight
+                averageBrightness += pixel.brightness * pixel.weight
+                totalWeight += pixel.weight
             }
+            guard totalWeight > 0 else { continue }
+            var hue = atan2(hueY, hueX) / (2 * .pi)
+            if hue < 0 { hue += 1 }
+            candidates.append((
+                index: index,
+                sample: PaletteSample(
+                    hue: hue,
+                    saturation: averageSaturation / totalWeight,
+                    brightness: averageBrightness / totalWeight,
+                    score: score
+                )
+            ))
         }
 
-        guard let dominantBucketIndex else {
+        guard let dominant = candidates.max(by: { $0.sample.score < $1.sample.score }) else {
             return nil
         }
-        let dominantBucket = buckets[dominantBucketIndex]
+        let secondary = candidates
+            .filter {
+                $0.index != dominant.index
+                    && $0.sample.score >= dominant.sample.score * 0.08
+                    && circularHueDistance($0.sample.hue, dominant.sample.hue) >= 0.08
+            }
+            .max {
+                secondaryScore($0.sample, from: dominant.sample)
+                    < secondaryScore($1.sample, from: dominant.sample)
+            }?
+            .sample
 
-        // Weighted circular hue averaging handles the red 0/1 boundary while
-        // keeping saturation and brightness tied to representative pixels.
-        var hueX: CGFloat = 0, hueY: CGFloat = 0
-        var avgS: CGFloat = 0, avgB: CGFloat = 0, totalWeight: CGFloat = 0
-        for pixel in dominantBucket {
-            let angle = pixel.hue * 2 * .pi
-            hueX += cos(angle) * pixel.weight
-            hueY += sin(angle) * pixel.weight
-            avgS += pixel.saturation * pixel.weight
-            avgB += pixel.brightness * pixel.weight
-            totalWeight += pixel.weight
-        }
-        guard totalWeight > 0 else {
-            return nil
-        }
-        var avgH = atan2(hueY, hueX) / (2 * .pi)
-        if avgH < 0 { avgH += 1 }
-        avgS /= totalWeight
-        avgB /= totalWeight
-
-        return makeColorResult(hue: avgH, saturation: avgS, brightness: avgB)
+        sampledLuminances.sort()
+        let medianLuminance = sampledLuminances.isEmpty
+            ? dominant.sample.brightness
+            : sampledLuminances[sampledLuminances.count / 2]
+        return makeColorResult(
+            primary: dominant.sample,
+            secondary: secondary,
+            luminance: medianLuminance
+        )
     }
 
     private nonisolated static func makeColorResult(
-        hue: CGFloat,
-        saturation: CGFloat,
-        brightness: CGFloat
+        primary: PaletteSample,
+        secondary: PaletteSample?,
+        luminance: CGFloat
     ) -> ColorResult {
         // Keep the accent vivid enough for ambient use while bounding its
         // brightness so downstream surfaces can maintain reliable contrast.
-        let accentS = min(max(saturation * 1.08, 0.35), 0.92)
-        let accentB = min(max(brightness, 0.50), 0.85)
-        let accent = Color(hue: hue, saturation: accentS, brightness: accentB)
+        let accentS = min(max(primary.saturation * 1.08, 0.35), 0.92)
+        let accentB = min(max(primary.brightness, 0.50), 0.85)
+        let accent = Color(hue: primary.hue, saturation: accentS, brightness: accentB)
+
+        let secondaryHue = secondary?.hue ?? primary.hue
+        let secondarySaturation = secondary.map {
+            min(max($0.saturation * 1.04, 0.28), 0.84)
+        } ?? accentS
+        let secondaryBrightness = secondary.map {
+            min(max($0.brightness, 0.42), 0.72)
+        } ?? accentB * 0.78
+        let secondaryAccent = Color(
+            hue: secondaryHue,
+            saturation: secondarySaturation,
+            brightness: secondaryBrightness
+        )
+        let secondaryDark = Color(
+            hue: secondaryHue,
+            saturation: secondarySaturation,
+            brightness: min(secondaryBrightness * 0.42, 0.28)
+        )
+        let accentLuminance = relativeLuminance(
+            hue: primary.hue,
+            saturation: accentS,
+            brightness: accentB
+        )
+        let secondaryLuminance = relativeLuminance(
+            hue: secondaryHue,
+            saturation: secondarySaturation,
+            brightness: secondaryBrightness
+        )
 
         // Dark variant: visible but subdued for background gradients.
-        let dark = Color(hue: hue, saturation: accentS, brightness: accentB * 0.65)
-        return ColorResult(accent: accent, dark: dark)
+        let dark = Color(hue: primary.hue, saturation: accentS, brightness: accentB * 0.65)
+        return ColorResult(
+            accent: accent,
+            secondary: secondaryAccent,
+            secondaryDark: secondaryDark,
+            dark: dark,
+            vibrancy: Double(min(max(primary.saturation, 0), 1)),
+            luminance: Double(min(max(max(luminance, accentLuminance), secondaryLuminance), 1))
+        )
+    }
+
+    private nonisolated static func secondaryScore(
+        _ candidate: PaletteSample,
+        from primary: PaletteSample
+    ) -> CGFloat {
+        candidate.score * (0.45 + 1.55 * circularHueDistance(candidate.hue, primary.hue))
+    }
+
+    private nonisolated static func circularHueDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+        let distance = abs(lhs - rhs)
+        return min(distance, 1 - distance)
+    }
+
+    private nonisolated static func relativeLuminance(
+        hue: CGFloat,
+        saturation: CGFloat,
+        brightness: CGFloat
+    ) -> CGFloat {
+        let normalizedHue = hue - floor(hue)
+        let sectorValue = normalizedHue * 6
+        let sector = Int(floor(sectorValue)) % 6
+        let fraction = sectorValue - floor(sectorValue)
+        let p = brightness * (1 - saturation)
+        let q = brightness * (1 - saturation * fraction)
+        let t = brightness * (1 - saturation * (1 - fraction))
+        let rgb: (CGFloat, CGFloat, CGFloat)
+        switch sector {
+        case 0: rgb = (brightness, t, p)
+        case 1: rgb = (q, brightness, p)
+        case 2: rgb = (p, brightness, t)
+        case 3: rgb = (p, q, brightness)
+        case 4: rgb = (t, p, brightness)
+        default: rgb = (brightness, p, q)
+        }
+        return relativeLuminance(red: rgb.0, green: rgb.1, blue: rgb.2)
+    }
+
+    private nonisolated static func relativeLuminance(
+        red: CGFloat,
+        green: CGFloat,
+        blue: CGFloat
+    ) -> CGFloat {
+        func linearized(_ component: CGFloat) -> CGFloat {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linearized(red)
+            + 0.7152 * linearized(green)
+            + 0.0722 * linearized(blue)
     }
 }

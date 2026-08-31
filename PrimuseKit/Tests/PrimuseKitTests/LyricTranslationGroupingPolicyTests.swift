@@ -42,6 +42,143 @@ struct LyricTranslationGroupingPolicyTests {
         #expect(source == "en")
     }
 
+    @Test func persianOrthographyCorrectsConfidentArabicDetection() {
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "این یک ترانه فارسی است که برای آزمون نوشته شده است",
+            detectedLanguageCode: "ar",
+            confidence: 0.999998,
+            fallbackSourceLanguageCode: nil
+        )
+
+        #expect(source == "fa")
+    }
+
+    @Test func arabicGlyphVariantsDoNotHidePersianLexicalEvidence() {
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "اين يك ترانه فارسي است كه براي آزمون نوشته شده است",
+            detectedLanguageCode: "ar",
+            confidence: 1,
+            fallbackSourceLanguageCode: nil
+        )
+
+        #expect(source == "fa")
+    }
+
+    @Test func ordinaryArabicRemainsArabic() {
+        for text in [
+            "مرحبا بالعالم هذه أغنية عربية جميلة",
+            "السلام عليكم ورحمة الله وبركاته",
+            "السلام علیکم ورحمة الله وبركاته",
+        ] {
+            let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+                text: text,
+                detectedLanguageCode: "ar",
+                confidence: 1,
+                fallbackSourceLanguageCode: nil
+            )
+            #expect(source == "ar")
+        }
+    }
+
+    @Test func persianFallbackStillRequiresLineEvidence() {
+        let persian = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "چشم من",
+            detectedLanguageCode: "ar",
+            confidence: 0.99,
+            fallbackSourceLanguageCode: "fa"
+        )
+        let arabic = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "مرحبا بالعالم",
+            detectedLanguageCode: "ar",
+            confidence: 0.99,
+            fallbackSourceLanguageCode: "fa"
+        )
+
+        #expect(persian == "fa")
+        #expect(arabic == "ar")
+    }
+
+    @Test func declaredPersianCoversSharedArabicScriptWordsButNotLatinLines() {
+        let sharedWord = LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: "سلام",
+            detectedLanguageCode: "ar",
+            declaredSourceLanguageCode: "fa"
+        )
+        let latinLine = LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: "English chorus",
+            detectedLanguageCode: "en",
+            declaredSourceLanguageCode: "fa"
+        )
+
+        #expect(sharedWord == "fa")
+        #expect(latinLine == nil)
+    }
+
+    @Test func declaredPersianScriptTagPreservesItsIdentity() {
+        #expect(LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: "سلام",
+            detectedLanguageCode: "ar",
+            declaredSourceLanguageCode: "fa-Arab"
+        ) == "fa-Arab")
+        #expect(LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: "salaam",
+            detectedLanguageCode: "en",
+            declaredSourceLanguageCode: "fa-Latn"
+        ) == nil)
+    }
+
+    @Test func urduDetectionRequiresConfirmedPersianContext() {
+        for text in [
+            "چشم من",
+            "عشق من تویی",
+            "یہ ایک خوبصورت اردو گانا ہے",
+            "میرے دوست کیسے ہیں",
+            "پیارے دوست کیسے ہو",
+            "اگر دوست ہے",
+        ] {
+            #expect(LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+                text: text,
+                detectedLanguageCode: "ur"
+            ) == nil)
+        }
+
+        #expect(LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: "چشم من",
+            detectedLanguageCode: "ur",
+            fallbackSourceLanguageCode: "fa"
+        ) == "fa")
+        #expect(LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: "سلام",
+            detectedLanguageCode: "ur",
+            declaredSourceLanguageCode: "fa"
+        ) == "fa")
+    }
+
+    @Test func shortLatinChorusDoesNotFallBackToPersian() {
+        for (text, confidence) in [("English chorus", 0.213), ("Oh no", 0.447)] {
+            let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+                text: text,
+                detectedLanguageCode: "en",
+                confidence: confidence,
+                alternativeConfidence: 0.20,
+                fallbackSourceLanguageCode: "fa"
+            )
+            #expect(source == "en")
+        }
+    }
+
+    @Test func declaredLyricsLanguageParsesAndValidatesMetadata() {
+        #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
+            "[ti:Sample]", " [LA: fa-IR] ",
+        ]) == "fa")
+        #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
+            "[la:fa_Latn]",
+        ]) == "fa-Latn")
+        #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
+            "[ar:Artist]", "[la:not_a_real_language]", "[la:zz]",
+        ]) == nil)
+    }
+
     @Test func groupsDetectedLinesBySourceLanguageAndPreservesOrder() {
         let groups = LyricTranslationGroupingPolicy.groups(
             candidates: [

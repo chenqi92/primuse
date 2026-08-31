@@ -40,9 +40,9 @@ struct KaraokeLineView: View {
     let activeStyle: AnyShapeStyle
     let inactiveColor: Color
     let textAlignment: TextAlignment
-    /// Presentation direction resolved from document metadata or lyric text.
-    /// This only mirrors the lyric subtree; syllable storage and timestamps
-    /// remain in their original order.
+    /// Document-level fallback resolved from metadata or aggregate lyric text.
+    /// Each row refines that fallback from its own text so an English row in
+    /// a Persian document keeps its natural reading order.
     let writingDirection: LyricWritingDirection
     /// 把 `TimelineView` 的 `context.date` 翻译为外推后的播放秒数。
     let timeAt: (Date) -> TimeInterval
@@ -145,8 +145,15 @@ struct KaraokeLineView: View {
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var resolvedWritingDirection: LyricWritingDirection {
+        LyricWritingDirectionPolicy.resolvePresentationDirection(
+            for: line,
+            documentFallback: writingDirection
+        )
+    }
+
     private var lyricLayoutDirection: LayoutDirection {
-        switch writingDirection {
+        switch resolvedWritingDirection {
         case .natural:
             inheritedLayoutDirection
         case .leftToRight:

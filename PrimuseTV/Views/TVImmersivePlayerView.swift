@@ -773,7 +773,8 @@ struct TVImmersivePlayerView: View {
                 offset: position - index,
                 syllables: immersiveSyllables(for: store.lyrics[position]),
                 startTime: store.lyrics[position].isSynchronized ? store.lyrics[position].time : nil,
-                endTime: immersiveLineEnd(at: position)
+                endTime: immersiveLineEnd(at: position),
+                writingDirection: store.lyrics[position].writingDirection
             )
         }
     }
@@ -785,9 +786,10 @@ struct TVImmersivePlayerView: View {
             let next = store.lyrics[position + 1].time
             if next > line.time { return next }
         }
-        return line.time + max(
-            3.5,
-            line.syllables.reduce(0) { $0 + max(0.05, $1.d) }
+        guard let lastSyllable = line.syllables.last else { return line.time + 3.5 }
+        return max(
+            line.time + 3.5,
+            LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: lastSyllable.lyricSyllable)
         )
     }
 
@@ -803,17 +805,7 @@ struct TVImmersivePlayerView: View {
 
     private func immersiveSyllables(for line: TVLyricLine) -> [LyricSyllable]? {
         guard !line.syllables.isEmpty else { return nil }
-        var start = line.time
-        return line.syllables.map { syllable in
-            let duration = max(0.05, syllable.d)
-            defer { start += duration }
-            return LyricSyllable(
-                text: syllable.w,
-                start: start,
-                end: start + duration,
-                endTiming: syllable.endTiming
-            )
-        }
+        return line.syllables.map(\.lyricSyllable)
     }
 
     private var nextLyric: String? {
@@ -856,10 +848,10 @@ struct TVImmersivePlayerView: View {
                let index,
                store.lyrics.indices.contains(index) {
                 let line = store.lyrics[index]
-                let estimatedDuration = line.syllables.isEmpty
-                    ? 3.5
-                    : line.syllables.reduce(0) { $0 + max(0.05, $1.d) }
-                isInterlude = playbackTime - (line.time + estimatedDuration) > 6
+                let estimatedEnd = line.syllables.last.map {
+                    LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: $0.lyricSyllable)
+                } ?? (line.time + 3.5)
+                isInterlude = playbackTime - estimatedEnd > 6
             } else {
                 isInterlude = false
             }

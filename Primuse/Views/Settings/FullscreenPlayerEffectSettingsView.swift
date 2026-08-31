@@ -15,7 +15,7 @@ struct FullscreenPlayerEffectSettingsView: View {
     }
 
     private var previewPalette: ImmersiveArtworkPalette {
-        ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.darkAccent)
+        ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.secondaryDarkAccent)
     }
 
     private var previewColumns: [GridItem] {

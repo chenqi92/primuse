@@ -26,6 +26,7 @@ struct LyricsEditorView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(SourceManager.self) private var sourceManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
     @State private var document: LyricsEditorDocument
     @State private var originalDocument: LyricsEditorDocument
@@ -1714,7 +1715,15 @@ struct LyricsEditorView: View {
     }
 
     private func lineTextContent(line: EditableLyricLine, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let layoutDirection = lyricLayoutDirection(for: line)
+        let horizontalAlignment: HorizontalAlignment = layoutDirection == .rightToLeft
+            ? .trailing
+            : .leading
+        let frameAlignment: Alignment = layoutDirection == .rightToLeft
+            ? .trailing
+            : .leading
+
+        return VStack(alignment: horizontalAlignment, spacing: 6) {
             TextField(
                 String(localized: "lyrics_editor_line_placeholder"),
                 text: textBinding(for: index),
@@ -1722,11 +1731,19 @@ struct LyricsEditorView: View {
             )
             .textFieldStyle(.plain)
             .font(.system(size: 13))
+            .multilineTextAlignment(
+                layoutDirection == .rightToLeft ? .trailing : .leading
+            )
             .frame(minHeight: 28, alignment: .center)
             .focused($focusedLine, equals: line.id)
+            .environment(\.layoutDirection, layoutDirection)
 
             if let syllables = line.syllables, !syllables.isEmpty {
-                wordTimingStrip(line: line, syllables: syllables)
+                wordTimingStrip(
+                    line: line,
+                    syllables: syllables,
+                    layoutDirection: layoutDirection
+                )
 
                 if let selection = selectedTextSyllable,
                    selection.lineID == line.id,
@@ -1740,14 +1757,19 @@ struct LyricsEditorView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
 
     private func wordTimingStrip(
         line: EditableLyricLine,
-        syllables: [LyricSyllable]
+        syllables: [LyricSyllable],
+        layoutDirection: LayoutDirection
     ) -> some View {
-        LyricsWordTimingFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+        LyricsWordTimingFlowLayout(
+            horizontalSpacing: 6,
+            verticalSpacing: 6,
+            layoutDirection: layoutDirection
+        ) {
             ForEach(Array(syllables.enumerated()), id: \.offset) { syllableIndex, syllable in
                 let isSelected = selectedTextSyllable == SyllableSelection(
                     lineID: line.id,
@@ -1795,7 +1817,11 @@ struct LyricsEditorView: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(
+            maxWidth: .infinity,
+            alignment: layoutDirection == .rightToLeft ? .trailing : .leading
+        )
+        .environment(\.layoutDirection, layoutDirection)
         .help(String(localized: "lyrics_editor_word_level_hint"))
     }
 
@@ -1910,6 +1936,29 @@ struct LyricsEditorView: View {
             }
             .buttonStyle(.plain)
             .disabled(!isLinkedToPlayback)
+        }
+    }
+
+    private func lyricLayoutDirection(for line: EditableLyricLine) -> LayoutDirection {
+        let documentFallback = LyricWritingDirectionPolicy.resolve(
+            metadataLines: document.metadataLines
+        )
+        let direction = LyricWritingDirectionPolicy.resolvePresentationDirection(
+            for: LyricLine(
+                timestamp: line.timestamp ?? 0,
+                text: line.text,
+                isSynchronized: line.timestamp != nil,
+                syllables: line.syllables
+            ),
+            documentFallback: documentFallback
+        )
+        switch direction {
+        case .natural:
+            return inheritedLayoutDirection
+        case .leftToRight:
+            return .leftToRight
+        case .rightToLeft:
+            return .rightToLeft
         }
     }
 
@@ -2756,6 +2805,7 @@ struct LyricsEditorView: View {
 private struct LyricsWordTimingFlowLayout: Layout {
     let horizontalSpacing: CGFloat
     let verticalSpacing: CGFloat
+    let layoutDirection: LayoutDirection
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -2778,23 +2828,35 @@ private struct LyricsWordTimingFlowLayout: Layout {
         subviews: Subviews,
         cache: inout ()
     ) {
-        var x = bounds.minX
+        var x = layoutDirection == .rightToLeft ? bounds.maxX : bounds.minX
         var y = bounds.minY
         var rowHeight: CGFloat = 0
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
+            let needsWrap = layoutDirection == .rightToLeft
+                ? (x < bounds.maxX && x - size.width < bounds.minX)
+                : (x > bounds.minX && x + size.width > bounds.maxX)
+            if needsWrap {
+                x = layoutDirection == .rightToLeft ? bounds.maxX : bounds.minX
                 y += rowHeight + verticalSpacing
                 rowHeight = 0
             }
-            subview.place(
-                at: CGPoint(x: x, y: y),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(size)
-            )
-            x += size.width + horizontalSpacing
+            if layoutDirection == .rightToLeft {
+                subview.place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topTrailing,
+                    proposal: ProposedViewSize(size)
+                )
+                x -= size.width + horizontalSpacing
+            } else {
+                subview.place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + horizontalSpacing
+            }
             rowHeight = max(rowHeight, size.height)
         }
     }

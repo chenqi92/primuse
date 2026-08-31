@@ -3358,3 +3358,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "デバイス検証は完了しましたが、内蔵サービスまたはモデルプロバイダがリクエストを完了できませんでした。";
 "ai_primuse_relay_fallback_provider_format" = "内蔵サービスを利用できません。「%@」へのフォールバックを確認しました。";
 "ai_primuse_relay_fallback_local" = "利用できるリモートのフォールバックはありません。ローカルの検索、おすすめ、再生は引き続き利用できます。";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "ナビゲーション";
+"minimal_mode_title" = "ミニマルモード";
+"minimal_mode_description" = "下部のナビゲーションバーを非表示にし、ライブラリの切り替えを上部に移動して、サイドボタンから設定を開きます。";

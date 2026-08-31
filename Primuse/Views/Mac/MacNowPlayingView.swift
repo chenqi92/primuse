@@ -29,8 +29,12 @@ struct MacNowPlayingView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
@@ -404,36 +408,73 @@ struct MacNowPlayingView: View {
     /// 高对比的 ambient backdrop；浅色用低饱和封面色斑叠在系统浅色背景上，而不是
     /// 强制显示深色播放器。
     private var backdrop: some View {
-        ZStack {
+        let strength = AppThemePreferences.normalizedAmbientStrength(preferences.ambientStrength)
+        let hasArtworkTheme = theme.hasArtworkAmbient
+        let lightOverlay = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: hasArtworkTheme,
+            usesIncreasedContrast: colorSchemeContrast == .increased,
+            strength: strength
+        )
+        let primaryOpacity = (usesLightPlayerAppearance
+            ? (hasArtworkTheme ? 0.34 : 0.12)
+            : (hasArtworkTheme ? 0.74 : 0.32)) * strength
+        let secondaryOpacity = (usesLightPlayerAppearance
+            ? (hasArtworkTheme ? 0.22 : 0.08)
+            : (hasArtworkTheme ? 0.58 : 0.24)) * strength
+        let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
+            paletteLuminance: theme.artworkLuminance,
+            primaryOpacity: primaryOpacity,
+            secondaryOpacity: secondaryOpacity,
+            usesIncreasedContrast: colorSchemeContrast == .increased
+        )
+
+        return ZStack {
+            AdaptiveNowPlayingBackdrop(
+                baseColor: usesLightPlayerAppearance ? PMColor.bg : PMColor.ambientDarkBase,
+                primaryAccent: theme.accentColor,
+                secondaryAccent: theme.secondaryAccent,
+                darkAccent: theme.darkAccent,
+                primaryOpacity: primaryOpacity,
+                secondaryOpacity: secondaryOpacity,
+                hasArtworkPalette: hasArtworkTheme,
+                isVisible: !isImmersiveStageActive && controlActiveState != .inactive,
+                isSceneActive: scenePhase == .active,
+                isPlaying: player.isPlaying,
+                paletteVibrancy: theme.artworkVibrancy,
+                paletteLuminance: theme.artworkLuminance
+            )
+
             if usesLightPlayerAppearance {
-                PMColor.bg
-                RadialGradient(
-                    colors: [theme.accentColor.opacity(0.28 * preferences.ambientStrength), .clear],
-                    center: .topLeading,
-                    startRadius: 20,
-                    endRadius: 720
-                )
-                RadialGradient(
-                    colors: [theme.darkAccent.opacity(0.14 * preferences.ambientStrength), .clear],
-                    center: .bottomTrailing,
-                    startRadius: 40,
-                    endRadius: 760
-                )
                 LinearGradient(
-                    colors: [.white.opacity(0.52), .white.opacity(0.28)],
+                    colors: [
+                        .white.opacity(lightOverlay.topOpacity),
+                        .white.opacity(lightOverlay.bottomOpacity)
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             } else {
-                PMColor.ambientDarkBase
-                AmbientBackdrop(
-                    accent: theme.accentColor,
-                    darkAccent: theme.darkAccent,
-                    strength: preferences.ambientStrength,
-                    forceDark: true
+                LinearGradient(
+                    stops: [
+                        .init(
+                            color: .black.opacity(darkOverlay.topOpacity),
+                            location: 0
+                        ),
+                        .init(
+                            color: .black.opacity(darkOverlay.middleOpacity),
+                            location: 0.55
+                        ),
+                        .init(
+                            color: .black.opacity(darkOverlay.bottomOpacity),
+                            location: 1
+                        )
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
             }
         }
+        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .ignoresSafeArea()
     }
 
@@ -497,6 +538,8 @@ struct MacNowPlayingView: View {
                         animationRequiresPlayback: true,
                         isPlaying: player.isPlaying,
                         isAnimationVisible: !showsImmersiveStage
+                            && scenePhase == .active
+                            && controlActiveState != .inactive
                     )
                     .aspectRatio(1, contentMode: .fit)
                     .frame(width: coverSize, height: coverSize)
@@ -512,6 +555,17 @@ struct MacNowPlayingView: View {
                 }
             }
             .frame(width: coverSize, height: mediaHeight)
+            .scaleEffect(
+                isShowingMusicVideo || reduceMotion || player.currentSong == nil
+                    ? 1
+                    : (player.isPlaying ? 1 : 0.975)
+            )
+            .animation(
+                reduceMotion
+                    ? nil
+                    : .spring(response: 0.38, dampingFraction: 0.88),
+                value: player.isPlaying
+            )
             .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
 
             VStack(alignment: horizontalAlignment, spacing: 0) {
@@ -949,7 +1003,7 @@ struct MacNowPlayingView: View {
                     selected: fullscreenPlayerEffect,
                     palette: ImmersiveArtworkPalette(
                         primary: theme.accentColor,
-                        secondary: theme.darkAccent
+                        secondary: theme.secondaryDarkAccent
                     )
                 ) { candidate in
                     showsNativeFullscreenEffectPicker = false

@@ -3357,3 +3357,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "Die Geräteprüfung war erfolgreich, aber der integrierte Dienst oder sein Modellanbieter konnte die Anfrage nicht abschließen.";
 "ai_primuse_relay_fallback_provider_format" = "Der integrierte Dienst ist nicht verfügbar. Der Rückgriff auf „%@“ wurde geprüft.";
 "ai_primuse_relay_fallback_local" = "Kein entfernter Ersatzdienst ist verfügbar. Lokale Suche, Empfehlungen und Wiedergabe bleiben erhalten.";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "Navigation";
+"minimal_mode_title" = "Minimalmodus";
+"minimal_mode_description" = "Blendet die untere Navigation aus, verschiebt die Mediathek-Tabs nach oben und öffnet die Einstellungen über die seitliche Taste.";

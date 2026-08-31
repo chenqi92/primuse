@@ -90,7 +90,8 @@ final class LyricsTranslationSettingsStore {
     static func detectedLanguageCode(
         for text: String,
         minimumConfidence: Double = 0.55,
-        fallbackLanguageCode: String? = nil
+        fallbackLanguageCode: String? = nil,
+        declaredLanguageCode: String? = nil
     ) -> String? {
         let sample = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sample.isEmpty else { return nil }
@@ -98,20 +99,42 @@ final class LyricsTranslationSettingsStore {
         recognizer.processString(String(sample.prefix(1_000)))
         let hypotheses = recognizer.languageHypotheses(withMaximum: 2)
             .sorted { $0.value > $1.value }
-        guard let hypothesis = hypotheses.first,
-              hypothesis.value >= minimumConfidence else {
+        guard let hypothesis = hypotheses.first else {
             return nil
         }
-        return LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+        if let corrected = LyricTranslationGroupingPolicy.correctedPersianLanguageCode(
+            text: sample,
+            detectedLanguageCode: hypothesis.key.rawValue,
+            fallbackSourceLanguageCode: fallbackLanguageCode,
+            declaredSourceLanguageCode: declaredLanguageCode
+        ) {
+            return corrected
+        }
+        let reconciled = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
             text: sample,
             detectedLanguageCode: hypothesis.key.rawValue,
             confidence: hypothesis.value,
             alternativeConfidence: hypotheses.dropFirst().first?.value ?? 0,
             fallbackSourceLanguageCode: fallbackLanguageCode
         )
+        if hypothesis.value >= minimumConfidence {
+            return reconciled
+        }
+        guard let reconciled, let fallbackLanguageCode,
+              LyricTranslationGroupingPolicy.languageIdentity(reconciled)
+                != LyricTranslationGroupingPolicy.languageIdentity(fallbackLanguageCode) else {
+            return nil
+        }
+        return reconciled
     }
 
-    static func detectedLyricsLanguageCode(for texts: [String]) -> String? {
+    static func detectedLyricsLanguageCode(
+        for texts: [String],
+        metadataLines: [String] = []
+    ) -> String? {
+        if let declared = declaredLyricsLanguageCode(from: metadataLines) {
+            return declared
+        }
         let sample = texts
             .lazy
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -123,6 +146,10 @@ final class LyricsTranslationSettingsStore {
             for: String(sample.prefix(4_000)),
             minimumConfidence: 0.65
         )
+    }
+
+    static func declaredLyricsLanguageCode(from metadataLines: [String]) -> String? {
+        LyricTranslationGroupingPolicy.declaredLanguageCode(in: metadataLines)
     }
 
     /// Returns false when the lyric body is confidently already in the target

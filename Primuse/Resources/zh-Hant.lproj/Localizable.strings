@@ -3334,3 +3334,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "裝置驗證已完成，但內建服務或模型上游未能完成請求。";
 "ai_primuse_relay_fallback_provider_format" = "內建服務無法使用，已驗證並降級至「%@」。";
 "ai_primuse_relay_fallback_local" = "沒有可用的遠端降級服務；將保留本機搜尋、推薦與播放。";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "導覽";
+"minimal_mode_title" = "極簡模式";
+"minimal_mode_description" = "隱藏底部導覽列，在頂部切換資料庫，並從側邊按鈕開啟設定。";

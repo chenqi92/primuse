@@ -11,6 +11,21 @@ import AppKit
 struct SettingsView: View {
     @Environment(MusicIntelligenceService.self) private var musicIntelligence
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
+    #if os(iOS)
+    @AppStorage(AppNavigationMode.storageKey)
+    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
+
+    private var minimalModeEnabled: Binding<Bool> {
+        Binding(
+            get: { AppNavigationMode.resolve(navigationModeRawValue) == .minimal },
+            set: { isEnabled in
+                navigationModeRawValue = (isEnabled
+                    ? AppNavigationMode.minimal
+                    : AppNavigationMode.standard).rawValue
+            }
+        )
+    }
+    #endif
 
     init(scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init())) {
         _scraperSettingsRoute = scraperSettingsRoute
@@ -19,6 +34,18 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                #if os(iOS)
+                Section {
+                    Toggle(isOn: minimalModeEnabled) {
+                        Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
+                    }
+                } header: {
+                    Text("navigation_mode_title")
+                } footer: {
+                    Text("minimal_mode_description")
+                }
+                #endif
+
                 Section("library") {
                     NavigationLink {
                         SourcesContentView()

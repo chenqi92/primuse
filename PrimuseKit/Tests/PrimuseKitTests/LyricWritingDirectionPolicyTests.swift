@@ -159,6 +159,96 @@ struct LyricWritingDirectionPolicyTests {
         #expect(LyricWritingDirectionPolicy.resolve(in: lines) == .leftToRight)
     }
 
+    @Test("Explicit language metadata stays a fallback for opposite-script rows")
+    func metadataFallbackDoesNotReverseEnglishRows() throws {
+        let lines = LyricsContentParser.parse("""
+        [la:fa-IR]
+        [00:01.000]<00:01.000>این <00:01.500>فارسی
+        [00:03.000]<00:03.000>English <00:03.500>chorus
+        """)
+        let englishLine = try #require(lines.last)
+        let documentDirection = LyricWritingDirectionPolicy.resolve(in: lines)
+
+        #expect(documentDirection == .rightToLeft)
+        #expect(
+            LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: englishLine,
+                documentFallback: documentDirection
+            ) == .leftToRight
+        )
+    }
+
+    @Test("Untagged timed rows resolve their own direction instead of aggregate RTL")
+    func untaggedRowsResolveDirectionIndependently() throws {
+        let lines = LyricsContentParser.parse("""
+        [00:01.000]<00:01.000>این <00:01.300>یک <00:01.600>ترانه <00:02.000>فارسی <00:02.400>است
+        [00:03.000]<00:03.000>وقتی <00:03.300>میای <00:03.600>صدای <00:04.000>پات
+        [00:05.000]<00:05.000>English <00:05.400>chorus
+        """)
+        let documentDirection = LyricWritingDirectionPolicy.resolve(in: lines)
+        let englishLine = try #require(lines.last)
+        let originalSyllables = englishLine.syllables
+
+        #expect(documentDirection == .rightToLeft)
+        #expect(
+            LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: englishLine,
+                documentFallback: documentDirection
+            ) == .leftToRight
+        )
+        #expect(englishLine.syllables == originalSyllables)
+        #expect(englishLine.syllables?.map(\.start) == [5, 5.4])
+    }
+
+    @Test("Mixed rows use first-strong direction and background vocals resolve independently")
+    func mixedRowsAndBackgroundVocalsResolveIndependently() throws {
+        let latinFirst = LyricLine(
+            timestamp: 1,
+            text: "Hello سلام",
+            isSynchronized: true
+        )
+        let persianFirst = LyricLine(
+            timestamp: 1.5,
+            text: "سلام OpenAI",
+            isSynchronized: true
+        )
+        let withPersianBackground = LyricLine(
+            timestamp: 2,
+            text: "♪ 2026",
+            isSynchronized: true,
+            background: [
+                LyricLine(timestamp: 2, text: "صدای پس زمینه", isSynchronized: true)
+            ]
+        )
+
+        #expect(
+            LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: latinFirst,
+                documentFallback: .rightToLeft
+            ) == .leftToRight
+        )
+        #expect(
+            LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: persianFirst,
+                documentFallback: .leftToRight
+            ) == .rightToLeft
+        )
+        let background = try #require(withPersianBackground.background?.first)
+
+        #expect(
+            LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: withPersianBackground,
+                documentFallback: .leftToRight
+            ) == .leftToRight
+        )
+        #expect(
+            LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: background,
+                documentFallback: .leftToRight
+            ) == .rightToLeft
+        )
+    }
+
     @Test("A small embedded RTL phrase does not flip an LTR document")
     func incidentalRightToLeftTextRemainsNatural() {
         let lines = [

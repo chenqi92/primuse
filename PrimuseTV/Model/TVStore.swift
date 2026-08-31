@@ -196,17 +196,29 @@ struct TVSource: Identifiable, Hashable {
 
 struct TVSyllable: Hashable {
     let w: String
-    let d: Double
+    let start: TimeInterval
+    let end: TimeInterval
     let endTiming: LyricSyllableEndTiming
 
     init(
         w: String,
-        d: Double,
+        start: TimeInterval,
+        end: TimeInterval,
         endTiming: LyricSyllableEndTiming = .legacy
     ) {
         self.w = w
-        self.d = d
+        self.start = start
+        self.end = end
         self.endTiming = endTiming
+    }
+
+    var lyricSyllable: LyricSyllable {
+        LyricSyllable(
+            text: w,
+            start: start,
+            end: end,
+            endTiming: endTiming
+        )
     }
 }
 
@@ -1360,17 +1372,26 @@ final class TVStore {
     static let immersiveEvidenceLyrics: [TVLyricLine] = ImmersiveDemoContent.lyrics
         .enumerated()
         .map { index, text in
+            let lineStart = Double(index) * 4
             let syllables: [TVSyllable]
             if index == 1 {
                 let characters = text.map(String.init)
                 let duration = 4 / Double(max(characters.count, 1))
-                syllables = characters.map { TVSyllable(w: $0, d: duration, endTiming: .explicit) }
+                syllables = characters.enumerated().map { offset, character in
+                    let start = lineStart + Double(offset) * duration
+                    return TVSyllable(
+                        w: character,
+                        start: start,
+                        end: start + duration,
+                        endTiming: .explicit
+                    )
+                }
             } else {
                 syllables = []
             }
             return TVLyricLine(
                 id: "immersive-evidence-\(index)",
-                time: Double(index) * 4,
+                time: lineStart,
                 text: text,
                 isSynchronized: true,
                 syllables: syllables,
@@ -1916,14 +1937,6 @@ final class TVStore {
             timestamp: \.time
         )
     }
-    /// 当前行内逐字进度 0...1。
-    var currentLyricProgress: Double {
-        guard let i = currentLyricIndex, i < lyrics.count else { return 0 }
-        let start = lyrics[i].time
-        let end = i + 1 < lyrics.count ? lyrics[i + 1].time : start + 3
-        return max(0, min(1, (currentTime - start) / max(0.5, end - start)))
-    }
-
     // MARK: 播放控制(AVPlayer 流式播放,真实流 URL 由 TVPlaybackCoordinator 解析)
 
     func togglePlayPause() {

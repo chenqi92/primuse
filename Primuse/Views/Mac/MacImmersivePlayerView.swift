@@ -641,7 +641,7 @@ struct MacImmersivePlayerView: View {
     // MARK: - 数据
 
     private var artworkPalette: ImmersiveArtworkPalette {
-        ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.darkAccent)
+        ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.secondaryDarkAccent)
     }
 
     private func refreshArtworkInputs() {
@@ -744,6 +744,7 @@ struct MacImmersivePlayerView: View {
               lyrics.indices.contains(index) else { return [] }
         let lower = max(0, index - 1)
         let upper = min(lyrics.count, index + 4)
+        let documentDirection = LyricWritingDirectionPolicy.resolve(in: lyrics)
         return (lower..<upper).compactMap { position in
             let text = lyrics[position].text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
@@ -754,7 +755,11 @@ struct MacImmersivePlayerView: View {
                 offset: position - index,
                 syllables: lyrics[position].syllables,
                 startTime: lyrics[position].isSynchronized ? lyrics[position].timestamp : nil,
-                endTime: immersiveLineEnd(at: position)
+                endTime: immersiveLineEnd(at: position),
+                writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
+                    for: lyrics[position],
+                    documentFallback: documentDirection
+                )
             )
         }
     }

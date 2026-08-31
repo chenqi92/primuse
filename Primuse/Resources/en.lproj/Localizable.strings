@@ -3144,3 +3144,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "Device verification completed, but the built-in service or its model provider could not finish the request.";
 "ai_primuse_relay_fallback_provider_format" = "The built-in service is unavailable. Verified fallback to “%@”.";
 "ai_primuse_relay_fallback_local" = "No remote fallback is available. Local search, recommendations, and playback remain available.";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "Navigation";
+"minimal_mode_title" = "Minimal Mode";
+"minimal_mode_description" = "Hides the bottom navigation bar, moves Library switching to the top, and opens Settings from the side button.";

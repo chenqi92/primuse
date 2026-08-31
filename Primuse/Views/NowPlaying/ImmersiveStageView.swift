@@ -11,6 +11,7 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     let syllables: [LyricSyllable]?
     let startTime: TimeInterval?
     let endTime: TimeInterval?
+    let writingDirection: LyricWritingDirection?
 
     init(
         id: Int,
@@ -20,7 +21,8 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         fillProgress: Double? = nil,
         syllables: [LyricSyllable]? = nil,
         startTime: TimeInterval? = nil,
-        endTime: TimeInterval? = nil
+        endTime: TimeInterval? = nil,
+        writingDirection: LyricWritingDirection? = nil
     ) {
         self.id = id
         self.text = text
@@ -30,6 +32,7 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         self.syllables = syllables?.isEmpty == false ? syllables : nil
         self.startTime = startTime
         self.endTime = endTime
+        self.writingDirection = writingDirection
     }
 }
 
@@ -64,8 +67,15 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
 
-    private var lyricLayoutDirection: LayoutDirection {
-        switch lyricsWritingDirection {
+    private func writingDirection(for line: ImmersiveStageLyric) -> LyricWritingDirection {
+        line.writingDirection ?? LyricWritingDirectionPolicy.resolvePresentationDirection(
+            for: line.text,
+            documentFallback: lyricsWritingDirection
+        )
+    }
+
+    private func layoutDirection(for line: ImmersiveStageLyric) -> LayoutDirection {
+        switch writingDirection(for: line) {
         case .natural: inheritedLayoutDirection
         case .leftToRight: .leftToRight
         case .rightToLeft: .rightToLeft
@@ -449,6 +459,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private var kineticTitleWallScene: some View {
         let current = resolvedCurrentStageLyric
+        let currentDirection = current.map(writingDirection(for:)) ?? lyricsWritingDirection
         let titleWidth = metrics.size.width * (metrics.isPortrait ? 0.82 : (platform == .tvOS ? 0.62 : 0.66))
         let lyricWidth = metrics.size.width * (metrics.isPortrait ? 0.82 : (platform == .tvOS ? 0.72 : 0.68))
         let titleFontSize = CGFloat(ImmersiveLyricTypographyPolicy.fieldTitleFontSize(
@@ -473,7 +484,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             metrics.size.height - controlsInset - estimatedLyricHeight / 2 - metrics.s(18)
         )
         let titleCenterX = horizontalInset + titleWidth / 2
-        let lyricCenterX = lyricsWritingDirection == .rightToLeft
+        let lyricCenterX = currentDirection == .rightToLeft
             ? metrics.size.width - horizontalInset - lyricWidth / 2
             : horizontalInset + lyricWidth / 2
 
@@ -545,12 +556,14 @@ struct ImmersiveStageView<Artwork: View>: View {
                     lineLimit: lyricTypography.currentLineLimit,
                     textAlignment: lyricTextAlignment
                 )
-                .frame(width: lyricWidth, alignment: lyricFrameAlignment)
+                .frame(
+                    width: lyricWidth,
+                    alignment: currentDirection == .rightToLeft ? .trailing : lyricFrameAlignment
+                )
                 .position(
                     x: lyricCenterX,
                     y: lyricCenterY
                 )
-                .environment(\.layoutDirection, lyricLayoutDirection)
             }
         }
     }
@@ -783,14 +796,15 @@ struct ImmersiveStageView<Artwork: View>: View {
             CGFloat(typography.adjacentFontSize),
             min(currentFontSize * 0.64, proposedCurrentFontSize)
         )
-        let resolvedAlignment: TextAlignment = lyricsWritingDirection == .rightToLeft
-            ? .leading
-            : alignment
-        let frameAlignment: Alignment = resolvedAlignment == .trailing ? .trailing : .leading
-        let stackAlignment: HorizontalAlignment = resolvedAlignment == .trailing ? .trailing : .leading
-
-        return VStack(alignment: stackAlignment, spacing: CGFloat(typography.verticalSpacing)) {
+        return VStack(alignment: .leading, spacing: CGFloat(typography.verticalSpacing)) {
             ForEach(lines) { line in
+                let direction = writingDirection(for: line)
+                let resolvedAlignment: TextAlignment = direction == .rightToLeft
+                    ? .leading
+                    : alignment
+                let frameAlignment: Alignment = resolvedAlignment == .trailing
+                    ? .trailing
+                    : (direction == .rightToLeft ? .trailing : .leading)
                 lyricLine(
                     line,
                     fontSize: line.isActive ? currentFontSize : adjacentFontSize,
@@ -802,12 +816,14 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
         }
-        .frame(maxWidth: width, alignment: frameAlignment)
+        .frame(
+            maxWidth: width,
+            alignment: alignment == .trailing ? .trailing : .leading
+        )
         .animation(
             .easeOut(duration: lyricsMotionEnabled && !reduceMotion ? 0.28 : 0.01),
             value: resolvedCurrentLyric
         )
-        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     @ViewBuilder
@@ -817,45 +833,48 @@ struct ImmersiveStageView<Artwork: View>: View {
         lineLimit: Int,
         textAlignment: TextAlignment
     ) -> some View {
-        if line.isActive, line.syllables != nil || hasLineTiming(line) {
-            TimelineView(.animation(
-                minimumInterval: reduceMotion ? 0.10 : 1 / 30,
-                paused: !playbackClockIsActive
-            )) { _ in
+        Group {
+            if line.isActive, line.syllables != nil || hasLineTiming(line) {
+                TimelineView(.animation(
+                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    paused: !playbackClockIsActive
+                )) { _ in
+                    activeLyricText(
+                        line,
+                        fontSize: fontSize,
+                        lineLimit: lineLimit,
+                        textAlignment: textAlignment,
+                        progress: activeLyricProgress(
+                            for: line,
+                            at: playbackTime?() ?? track.elapsed
+                        )
+                    )
+                }
+            } else if line.isActive {
                 activeLyricText(
                     line,
                     fontSize: fontSize,
                     lineLimit: lineLimit,
                     textAlignment: textAlignment,
-                    progress: activeLyricProgress(
-                        for: line,
-                        at: playbackTime?() ?? track.elapsed
+                    progress: line.fillProgress ?? 1
+                )
+            } else {
+                Text(line.text)
+                    .font(.system(
+                        size: fontSize,
+                        weight: line.offset < 0 ? .regular : .medium
+                    ))
+                    .foregroundStyle(
+                        ImmersiveStagePalette.text.opacity(line.offset < 0 ? 0.30 : 0.56)
                     )
-                )
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(lineLimit)
+                    .minimumScaleFactor(0.72)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
             }
-        } else if line.isActive {
-            activeLyricText(
-                line,
-                fontSize: fontSize,
-                lineLimit: lineLimit,
-                textAlignment: textAlignment,
-                progress: line.fillProgress ?? 1
-            )
-        } else {
-            Text(line.text)
-                .font(.system(
-                    size: fontSize,
-                    weight: line.offset < 0 ? .regular : .medium
-                ))
-                .foregroundStyle(
-                    ImmersiveStagePalette.text.opacity(line.offset < 0 ? 0.30 : 0.56)
-                )
-                .multilineTextAlignment(textAlignment)
-                .lineLimit(lineLimit)
-                .minimumScaleFactor(0.72)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityHidden(true)
         }
+        .environment(\.layoutDirection, layoutDirection(for: line))
     }
 
     private func hasLineTiming(_ line: ImmersiveStageLyric) -> Bool {
@@ -890,6 +909,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         progress: Double
     ) -> some View {
         let clampedProgress = min(1, max(0, progress))
+        let lineWritingDirection = writingDirection(for: line)
         let text = Text(line.text)
             .font(.system(size: fontSize, weight: .bold))
             .multilineTextAlignment(textAlignment)
@@ -909,15 +929,16 @@ struct ImmersiveStageView<Artwork: View>: View {
                     .mask {
                         GeometryReader { geometry in
                             HStack(spacing: 0) {
-                                if lyricsWritingDirection == .rightToLeft {
+                                if lineWritingDirection == .rightToLeft {
                                     Spacer(minLength: 0)
                                 }
                                 Rectangle()
                                     .frame(width: geometry.size.width * clampedProgress)
-                                if lyricsWritingDirection != .rightToLeft {
+                                if lineWritingDirection != .rightToLeft {
                                     Spacer(minLength: 0)
                                 }
                             }
+                            .environment(\.layoutDirection, .leftToRight)
                         }
                     }
             }

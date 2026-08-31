@@ -775,26 +775,30 @@ final class TVPlaybackCoordinator {
         return String(data: data, encoding: .utf8)
     }
 
-    private nonisolated static func toTVLyrics(
+    nonisolated static func toTVLyrics(
         _ lines: [LyricLine],
         duration _: TimeInterval
     ) -> [TVLyricLine] {
-        let writingDirection = LyricWritingDirectionPolicy.resolve(in: lines)
+        let documentWritingDirection = LyricWritingDirectionPolicy.resolve(in: lines)
         return lines.map { line in
             TVLyricLine(id: line.id,
                         time: line.timestamp,
                         text: line.text,
                         isSynchronized: line.isSynchronized,
-                        // start/end 是相对歌曲起点的绝对时间戳;卡拉OK扫词需要每字时长。
+                        // start/end 是相对歌曲起点的绝对时间戳；保留间隔才能避免静音期继续扫光。
                         syllables: (line.syllables ?? []).map {
                             TVSyllable(
                                 w: $0.text,
-                                d: max(0.001, $0.end - $0.start),
+                                start: $0.start,
+                                end: $0.end,
                                 endTiming: $0.endTiming
                             )
                         },
                         translation: "",
-                        writingDirection: writingDirection)
+                        writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
+                            for: line,
+                            documentFallback: documentWritingDirection
+                        ))
         }
     }
 

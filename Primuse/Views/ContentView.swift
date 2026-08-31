@@ -4,6 +4,93 @@ import MusicKit
 import PrimuseKit
 import UIKit
 
+enum AppNavigationMode: String, CaseIterable, Sendable {
+    case standard
+    case minimal
+
+    static let storageKey = "primuse.navigation.mode.v1"
+
+    static func resolve(_ rawValue: String) -> AppNavigationMode {
+        AppNavigationMode(rawValue: rawValue) ?? .standard
+    }
+}
+
+enum AppNavigationRootLayout: Equatable, Sendable {
+    case standardTabs
+    case standardSidebar
+    case minimal
+}
+
+enum AppNavigationLayoutPolicy {
+    static func rootLayout(
+        mode: AppNavigationMode,
+        usesRegularWidth: Bool
+    ) -> AppNavigationRootLayout {
+        if mode == .minimal { return .minimal }
+        return usesRegularWidth ? .standardSidebar : .standardTabs
+    }
+}
+
+enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
+    case home
+    case library
+    case librarySection(LibrarySection)
+    case search
+    case settings
+
+    var id: String {
+        switch self {
+        case .home: return "home"
+        case .library: return "library"
+        case .librarySection(let section): return "library:\(section.rawValue)"
+        case .search: return "search"
+        case .settings: return "settings"
+        }
+    }
+}
+
+enum MinimalNavigationPolicy {
+    static func libraryPages(visibleSections: [LibrarySection]) -> [MinimalNavigationPage] {
+        [.library] + visibleSections.map(MinimalNavigationPage.librarySection)
+    }
+
+    static func selectedPage(
+        selectedTab: Int,
+        activeLibrarySection: LibrarySection?
+    ) -> MinimalNavigationPage {
+        switch selectedTab {
+        case 0: return .home
+        case 1:
+            return activeLibrarySection.map(MinimalNavigationPage.librarySection) ?? .library
+        case 2: return .search
+        case 3: return .settings
+        default: return .home
+        }
+    }
+
+    static func section(for deepLink: LibraryDeepLink) -> LibrarySection? {
+        switch deepLink {
+        case .root: return nil
+        case .section(let section): return section
+        case .album: return .albums
+        case .artist: return .artists
+        case .playlist: return .playlists
+        case .song: return .songs
+        }
+    }
+}
+
+private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
+    static let defaultValue = AppNavigationMode.standard
+}
+
+extension EnvironmentValues {
+    var appNavigationMode: AppNavigationMode {
+        get { self[AppNavigationModeEnvironmentKey.self] }
+        set { self[AppNavigationModeEnvironmentKey.self] = newValue }
+    }
+}
+
 /// iPad sidebar 选中项。Library 之外的顶级项跟 iPhone TabView 一对一
 /// (rawValueTab 暴露 0/1/2/3 给 `selectedTab` mirror),Library 还细分到
 /// 子列表 (.libraryAlbums / .librarySongs 等) 直接路由 detail,少一层
@@ -100,6 +187,8 @@ struct ContentView: View {
     /// 走 TabView。Apple 推荐用 horizontalSizeClass 而不是 idiom 来判断,以
     /// 适配 Stage Manager / 分屏 / 折叠态。
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @AppStorage(AppNavigationMode.storageKey)
+    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
     /// 保持联动 (sidebar 改 → selectedTab 也改; selectedTab 改 → sidebar
@@ -111,6 +200,7 @@ struct ContentView: View {
     @State private var nowPlayingPresentationID = UUID()
     @State private var batchSelectionActive = false
     @State private var libraryDeepLink: LibraryDeepLink?
+    @State private var minimalLibrarySection: LibrarySection?
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
@@ -124,11 +214,26 @@ struct ContentView: View {
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
 
-    private var librarySidebarItems: [SidebarItem] {
+    private var navigationMode: AppNavigationMode {
+        AppNavigationMode.resolve(navigationModeRawValue)
+    }
+
+    private var rootLayout: AppNavigationRootLayout {
+        AppNavigationLayoutPolicy.rootLayout(
+            mode: navigationMode,
+            usesRegularWidth: sizeClass == .regular
+        )
+    }
+
+    private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
-        ).map(SidebarItem.libraryChild(for:))
+        )
+    }
+
+    private var librarySidebarItems: [SidebarItem] {
+        visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
 
     @ViewBuilder
@@ -140,7 +245,13 @@ struct ContentView: View {
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryView(deepLink: $libraryDeepLink)
+                LibraryView(
+                    deepLink: $libraryDeepLink,
+                    onActiveSectionChange: { section in
+                        guard navigationMode == .minimal else { return }
+                        minimalLibrarySection = section
+                    }
+                )
             }
 
             Tab(value: 2, role: .search) {
@@ -150,6 +261,36 @@ struct ContentView: View {
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
                 SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var minimalRoot: some View {
+        VStack(spacing: 0) {
+            MinimalTopNavigationBar(
+                libraryPages: MinimalNavigationPolicy.libraryPages(
+                    visibleSections: visibleLibrarySections
+                ),
+                selection: MinimalNavigationPolicy.selectedPage(
+                    selectedTab: selectedTab,
+                    activeLibrarySection: minimalLibrarySection
+                ),
+                onSelect: selectMinimalPage,
+                onOpenSettings: { selectMinimalPage(.settings) }
+            )
+            .allowsHitTesting(!batchSelectionActive)
+            .accessibilityHidden(batchSelectionActive)
+            .opacity(batchSelectionActive ? 0.42 : 1)
+
+            tabRoot
+                .toolbar(.hidden, for: .tabBar)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if miniPlayerVisible {
+                LegacyNowPlayingAccessory(onTap: presentNowPlaying)
+                    .overlay(alignment: .top) { Divider() }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
     }
@@ -276,13 +417,16 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            if sizeClass == .regular {
+            switch rootLayout {
+            case .standardSidebar:
                 padRoot
-            } else {
+            case .standardTabs:
                 playerAwareTabRoot
+            case .minimal:
+                minimalRoot
             }
 
-            if miniPlayerVisible && sizeClass != .regular {
+            if miniPlayerVisible && rootLayout == .standardTabs {
                 if #available(iOS 26.1, *) {
                     EmptyView()
                 } else {
@@ -315,6 +459,7 @@ struct ContentView: View {
                     .zIndex(2)
             }
         }
+        .environment(\.appNavigationMode, navigationMode)
         .songBatchRemovalFeedback()
         .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
             batchSelectionActive = isActive
@@ -330,6 +475,9 @@ struct ContentView: View {
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
         // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。
         .task {
+            if AppNavigationMode(rawValue: navigationModeRawValue) == nil {
+                navigationModeRawValue = AppNavigationMode.standard.rawValue
+            }
             if !(0...3).contains(selectedTab) {
                 selectedTab = 0
                 sidebarSelection = .home
@@ -345,6 +493,9 @@ struct ContentView: View {
             ) {
                 autoYearlyReport = report
             }
+        }
+        .onChange(of: navigationModeRawValue) { _, _ in
+            synchronizeSidebarForCurrentSelection()
         }
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
@@ -409,9 +560,51 @@ struct ContentView: View {
 
     private func openScraperSettings() {
         showNowPlaying = false
-        selectedTab = 3
-        sidebarSelection = .settings
+        selectMinimalPage(.settings)
         scraperSettingsRoute.requestMetadataScraping()
+    }
+
+    private func selectMinimalPage(_ page: MinimalNavigationPage) {
+        showNowPlaying = false
+        switch page {
+        case .home:
+            selectedTab = 0
+            sidebarSelection = .home
+        case .library:
+            selectedTab = 1
+            sidebarSelection = .library
+            minimalLibrarySection = nil
+            libraryDeepLink = .root
+        case .librarySection(let section):
+            selectedTab = 1
+            sidebarSelection = SidebarItem.libraryChild(for: section)
+            minimalLibrarySection = section
+            libraryDeepLink = .section(section)
+        case .search:
+            selectedTab = 2
+            sidebarSelection = .search
+        case .settings:
+            selectedTab = 3
+            sidebarSelection = .settings
+        }
+    }
+
+    private func synchronizeSidebarForCurrentSelection() {
+        switch MinimalNavigationPolicy.selectedPage(
+            selectedTab: selectedTab,
+            activeLibrarySection: minimalLibrarySection
+        ) {
+        case .home:
+            sidebarSelection = .home
+        case .library:
+            sidebarSelection = .library
+        case .librarySection(let section):
+            sidebarSelection = SidebarItem.libraryChild(for: section)
+        case .search:
+            sidebarSelection = .search
+        case .settings:
+            sidebarSelection = .settings
+        }
     }
 
     /// Always advance the presentation identity before opening. A system UI
@@ -523,12 +716,159 @@ struct ContentView: View {
 
     private func openLibraryDeepLink(_ link: LibraryDeepLink) {
         selectedTab = 1
-        sidebarSelection = .library
+        if navigationMode == .minimal,
+           let section = MinimalNavigationPolicy.section(for: link) {
+            minimalLibrarySection = section
+            sidebarSelection = SidebarItem.libraryChild(for: section)
+        } else {
+            sidebarSelection = .library
+        }
         libraryDeepLink = link
     }
 
     private func showSongInLibrary(_ song: PrimuseKit.Song) {
         openLibraryDeepLink(.song(song.id))
+    }
+}
+
+private struct MinimalTopNavigationBar: View {
+    let libraryPages: [MinimalNavigationPage]
+    let selection: MinimalNavigationPage
+    let onSelect: (MinimalNavigationPage) -> Void
+    let onOpenSettings: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 0) {
+            fixedButton(
+                page: .home,
+                systemImage: selection == .home ? "house.fill" : "house",
+                title: "home_title"
+            )
+
+            Divider()
+                .frame(height: 24)
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(libraryPages) { page in
+                            libraryButton(page)
+                                .id(page.id)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .onChange(of: selection.id, initial: true) { _, pageID in
+                    guard libraryPages.contains(where: { $0.id == pageID }) else { return }
+                    if reduceMotion {
+                        proxy.scrollTo(pageID, anchor: .center)
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(pageID, anchor: .center)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+                .frame(height: 24)
+
+            fixedButton(
+                page: .search,
+                systemImage: "magnifyingglass",
+                title: "search_title"
+            )
+
+            Button(action: onOpenSettings) {
+                Image(systemName: selection == .settings ? "gearshape.fill" : "gearshape")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(selection == .settings ? Color.accentColor : Color.secondary)
+                    .frame(width: 44, height: 44)
+                    .background {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(
+                                selection == .settings
+                                    ? Color.accentColor.opacity(0.14)
+                                    : Color.clear
+                            )
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("settings_title"))
+            .accessibilityAddTraits(selection == .settings ? .isSelected : [])
+            .padding(.trailing, 4)
+        }
+        .padding(.vertical, 2)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func fixedButton(
+        page: MinimalNavigationPage,
+        systemImage: String,
+        title: LocalizedStringKey
+    ) -> some View {
+        let isSelected = selection == page
+        return Button {
+            onSelect(page)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .overlay(alignment: .bottom) {
+                    Capsule()
+                        .fill(isSelected ? Color.accentColor : Color.clear)
+                        .frame(width: 14, height: 2)
+                        .padding(.bottom, 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func libraryButton(_ page: MinimalNavigationPage) -> some View {
+        let isSelected = selection == page
+        return Button {
+            onSelect(page)
+        } label: {
+            VStack(spacing: 3) {
+                pageTitle(page)
+                    .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                Capsule()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(height: 2)
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func pageTitle(_ page: MinimalNavigationPage) -> some View {
+        switch page {
+        case .library:
+            Text("library_title")
+        case .librarySection(let section):
+            Text(section.title)
+        case .home:
+            Text("home_title")
+        case .search:
+            Text("search_title")
+        case .settings:
+            Text("settings_title")
+        }
     }
 }
 

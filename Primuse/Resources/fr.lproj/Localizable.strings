@@ -3357,3 +3357,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "La vérification de l’appareil a réussi, mais le service intégré ou son fournisseur de modèle n’a pas pu terminer la requête.";
 "ai_primuse_relay_fallback_provider_format" = "Le service intégré est indisponible. Le repli vers « %@ » a été vérifié.";
 "ai_primuse_relay_fallback_local" = "Aucun service distant de repli n’est disponible. La recherche, les recommandations et la lecture locales restent disponibles.";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "Navigation";
+"minimal_mode_title" = "Mode minimal";
+"minimal_mode_description" = "Masque la navigation inférieure, place les onglets de la bibliothèque en haut et ouvre les réglages via le bouton latéral.";

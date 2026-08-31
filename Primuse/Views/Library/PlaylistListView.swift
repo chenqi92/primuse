@@ -9,6 +9,7 @@ struct PlaylistListView: View {
     #if os(iOS)
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
@@ -250,6 +251,7 @@ struct PlaylistListView: View {
         guard player.currentSong != nil || appleMusic.nowPlayingSong != nil else {
             return 0
         }
+        if appNavigationMode == .minimal { return 0 }
         if horizontalSizeClass == .regular { return 68 }
         if #available(iOS 26.1, *) { return 0 }
         return 52

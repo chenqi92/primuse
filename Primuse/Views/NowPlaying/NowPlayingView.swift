@@ -87,6 +87,177 @@ private struct NowPlayingAppearance {
     }
 }
 
+/// A single low-frequency color field shared by the standard iOS and macOS
+/// players. The artwork palette remains visible when motion is unavailable;
+/// only the decorative timeline is suspended.
+struct AdaptiveNowPlayingBackdrop: View {
+    let baseColor: Color
+    let primaryAccent: Color
+    let secondaryAccent: Color
+    let darkAccent: Color
+    let primaryOpacity: Double
+    let secondaryOpacity: Double
+    let hasArtworkPalette: Bool
+    let isVisible: Bool
+    let isSceneActive: Bool
+    let isPlaying: Bool
+    let paletteVibrancy: Double
+    let paletteLuminance: Double
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var runtimeRevision: UInt = 0
+    @State private var activeMotionElapsed: TimeInterval = 0
+    @State private var motionStartedAt: Date?
+
+    var body: some View {
+        let policy = motionPolicy
+        let _ = runtimeRevision
+
+        GeometryReader { geometry in
+            TimelineView(.animation(
+                minimumInterval: policy.minimumInterval ?? 1,
+                paused: !policy.shouldAnimate
+            )) { context in
+                colorField(
+                    size: geometry.size,
+                    date: context.date,
+                    policy: policy
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: Notification.Name.NSProcessInfoPowerStateDidChange
+        )) { _ in
+            runtimeRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: ProcessInfo.thermalStateDidChangeNotification
+        )) { _ in
+            runtimeRevision &+= 1
+        }
+        .onAppear {
+            updateMotionClock(isRunning: policy.shouldAnimate, at: .now)
+        }
+        .onChange(of: policy.shouldAnimate) { _, shouldAnimate in
+            updateMotionClock(isRunning: shouldAnimate, at: .now)
+        }
+        .onDisappear {
+            updateMotionClock(isRunning: false, at: .now)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var motionPolicy: NowPlayingAmbientMotionPolicy {
+        NowPlayingAmbientMotionPolicy(
+            hasArtworkPalette: hasArtworkPalette,
+            isAmbientVisible: max(primaryOpacity, secondaryOpacity) > 0.001,
+            isVisible: isVisible,
+            isSceneActive: isSceneActive,
+            isPlaying: isPlaying,
+            reduceMotion: reduceMotion,
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalCondition: Self.thermalCondition(ProcessInfo.processInfo.thermalState),
+            paletteVibrancy: paletteVibrancy
+        )
+    }
+
+    private func colorField(
+        size: CGSize,
+        date: Date,
+        policy: NowPlayingAmbientMotionPolicy
+    ) -> some View {
+        let radius = max(size.width, size.height) * 0.94
+        let phase = motionElapsed(at: date) / policy.cycleDuration * 2 * Double.pi
+        let amplitude = CGFloat(policy.motionAmplitude)
+        let primaryCenter = UnitPoint(
+            x: 0.16 + CGFloat(sin(phase)) * amplitude,
+            y: 0.13 + CGFloat(cos(phase * 0.83)) * amplitude
+        )
+        let secondaryCenter = UnitPoint(
+            x: 0.86 + CGFloat(cos(phase * 0.71 + 1.2)) * amplitude,
+            y: 0.84 + CGFloat(sin(phase * 0.91 + 0.6)) * amplitude
+        )
+        let middleCenter = UnitPoint(
+            x: 0.54 + CGFloat(sin(phase * 0.57 + 2.1)) * amplitude * 0.72,
+            y: 0.48 + CGFloat(cos(phase * 0.63 + 1.7)) * amplitude * 0.72
+        )
+        let restrainedOpacity = paletteOpacityScale
+
+        return ZStack {
+            baseColor
+
+            RadialGradient(
+                colors: [
+                    primaryAccent.opacity(primaryOpacity * restrainedOpacity),
+                    primaryAccent.opacity(primaryOpacity * restrainedOpacity * 0.34),
+                    .clear
+                ],
+                center: primaryCenter,
+                startRadius: 0,
+                endRadius: radius
+            )
+
+            RadialGradient(
+                colors: [
+                    secondaryAccent.opacity(secondaryOpacity * restrainedOpacity),
+                    secondaryAccent.opacity(secondaryOpacity * restrainedOpacity * 0.30),
+                    .clear
+                ],
+                center: secondaryCenter,
+                startRadius: 0,
+                endRadius: radius * 0.92
+            )
+
+            RadialGradient(
+                colors: [
+                    darkAccent.opacity(secondaryOpacity * 0.42),
+                    .clear
+                ],
+                center: middleCenter,
+                startRadius: 0,
+                endRadius: radius * 0.72
+            )
+        }
+    }
+
+    private func updateMotionClock(isRunning: Bool, at date: Date) {
+        if isRunning {
+            if motionStartedAt == nil {
+                motionStartedAt = date
+            }
+        } else if let motionStartedAt {
+            activeMotionElapsed += max(0, date.timeIntervalSince(motionStartedAt))
+            self.motionStartedAt = nil
+        }
+    }
+
+    private func motionElapsed(at date: Date) -> TimeInterval {
+        guard let motionStartedAt else { return activeMotionElapsed }
+        return activeMotionElapsed + max(0, date.timeIntervalSince(motionStartedAt))
+    }
+
+    private var paletteOpacityScale: Double {
+        let vibrancy = min(max(paletteVibrancy, 0), 1)
+        let luminance = min(max(paletteLuminance, 0), 1)
+        let saturationRestraint = 1 - max(0, vibrancy - 0.72) * 0.28
+        let brightnessRestraint = luminance > 0.62 ? 0.88 : 1
+        return saturationRestraint * brightnessRestraint
+    }
+
+    private static func thermalCondition(
+        _ state: ProcessInfo.ThermalState
+    ) -> ArtworkThermalCondition {
+        switch state {
+        case .nominal: .nominal
+        case .fair: .fair
+        case .serious: .serious
+        case .critical: .critical
+        @unknown default: .critical
+        }
+    }
+}
+
 #if os(iOS)
 private struct WindowSafeAreaInsetsReader: UIViewRepresentable {
     let onChange: (UIEdgeInsets) -> Void
@@ -132,6 +303,32 @@ private struct WindowSafeAreaInsetsReader: UIViewRepresentable {
         }
     }
 }
+
+private struct NowPlayingAlbumTransitionID: Hashable {
+    let albumID: String
+}
+
+private struct NowPlayingAlbumTransitionSourceModifier: ViewModifier {
+    let albumID: String?
+    let namespace: Namespace.ID
+    let cornerRadius: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let albumID {
+            content.matchedTransitionSource(
+                id: NowPlayingAlbumTransitionID(albumID: albumID),
+                in: namespace
+            ) { source in
+                source.clipShape(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+            }
+        } else {
+            content
+        }
+    }
+}
 #endif
 
 struct NowPlayingView: View {
@@ -156,6 +353,7 @@ struct NowPlayingView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.layoutDirection) private var layoutDirection
@@ -170,6 +368,12 @@ struct NowPlayingView: View {
         guard let song = player.currentSong, player.isAppleMusicMode else { return nil }
         return AppServices.shared.appleMusicLibrary.catalogURL(for: song)
     }
+    @Namespace private var lyricsArtworkNamespace
+    #if os(iOS)
+    @Namespace private var albumPresentationNamespace
+    @State private var presentedAlbum: Album?
+    @State private var albumPresentationSourceID: NowPlayingAlbumTransitionID?
+    #endif
     @State private var showLyrics = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
@@ -221,6 +425,37 @@ struct NowPlayingView: View {
         #else
         true
         #endif
+    }
+
+    private var isAlbumPresentationActive: Bool {
+        #if os(iOS)
+        presentedAlbum != nil
+        #else
+        false
+        #endif
+    }
+
+    /// Decorative artwork and ambient motion only run while the player itself
+    /// is the exposed interaction surface. Modal content retains the static
+    /// palette underneath without spending another animation clock.
+    private var isNowPlayingSurfaceExposed: Bool {
+        !isFullscreenPlayerPresented
+            && !showQueue
+            && !showsImmersiveEffectPicker
+            && scrapeTargetSong == nil
+            && !showAddToPlaylist
+            && !showSongInfo
+            && !showTagEditor
+            && lyricsEditorTargetSong == nil
+            && !showSimilarSongs
+            && !showCastPicker
+            && !showMusicVideoFullScreen
+            && !isAlbumPresentationActive
+            && !showSleepTimer
+            && !showDeleteConfirm
+            && scrapeAlertMessage == nil
+            && deleteErrorMessage == nil
+            && !showNoScraperSourceAlert
     }
 
     private var isScrapingCurrentSong: Bool {
@@ -318,6 +553,95 @@ struct NowPlayingView: View {
         }
     }
 
+    private var lyricsArtworkTransitionID: String {
+        "now-playing-lyrics-artwork:\(player.currentSong?.id ?? "none")"
+    }
+
+    private var standardLyricsAnimation: Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.16)
+            : .spring(response: 0.48, dampingFraction: 0.82, blendDuration: 0.08)
+    }
+
+    private var lyricsHeaderTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .move(edge: .top)
+            .combined(with: .scale(scale: 0.94, anchor: .top))
+            .combined(with: .opacity)
+    }
+
+    private var lyricsPanelTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .offset(y: 34)
+                .combined(with: .scale(scale: 0.965, anchor: .bottom))
+                .combined(with: .opacity),
+            removal: .offset(y: 22)
+                .combined(with: .scale(scale: 0.98, anchor: .bottom))
+                .combined(with: .opacity)
+        )
+    }
+
+    private var playerArtworkTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .offset(y: -20)
+                .combined(with: .scale(scale: 0.90, anchor: .top))
+                .combined(with: .opacity),
+            removal: .offset(y: -34)
+                .combined(with: .scale(scale: 0.86, anchor: .top))
+                .combined(with: .opacity)
+        )
+    }
+
+    private var canOpenCurrentAlbum: Bool {
+        guard currentAlbum != nil else { return false }
+        #if os(iOS)
+        return true
+        #else
+        return onOpenAlbum != nil
+        #endif
+    }
+
+    private func presentAlbum(
+        _ album: Album,
+        prefersMatchedArtworkSource: Bool
+    ) {
+        #if os(iOS)
+        if prefersMatchedArtworkSource,
+           !reduceMotion,
+           !player.isMusicVideoPlaybackActive {
+            albumPresentationSourceID = NowPlayingAlbumTransitionID(albumID: album.id)
+        } else {
+            albumPresentationSourceID = nil
+        }
+        presentedAlbum = album
+        #else
+        onOpenAlbum?(album)
+        #endif
+    }
+
+    #if os(iOS)
+    @ViewBuilder
+    private func albumDetailPresentation(_ album: Album) -> some View {
+        let detail = NavigationStack {
+            AlbumDetailView(album: album)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationContentInteraction(.scrolls)
+        .presentationCornerRadius(28)
+
+        if let sourceID = albumPresentationSourceID, !reduceMotion {
+            detail.navigationTransition(
+                .zoom(sourceID: sourceID, in: albumPresentationNamespace)
+            )
+        } else {
+            detail
+        }
+    }
+    #endif
+
     private func toggleLikedCurrent() {
         guard let songID = player.currentSong?.id else { return }
         library.toggleLiked(songID: songID)
@@ -382,7 +706,7 @@ struct NowPlayingView: View {
 
     private func setStandardLyricsVisible(_ isVisible: Bool) {
         immersiveControlsAutoHideTask?.cancel()
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withAnimation(standardLyricsAnimation) {
             showLyrics = isVisible
             isLyricsImmersive = false
             immersiveControlsState = immersiveControlsState.applying(.dismiss)
@@ -664,6 +988,7 @@ struct NowPlayingView: View {
                                 immersiveLandscapeLyricsLayout(geo: geo)
                             case .standardLyrics:
                                 standardLandscapeLyricsLayout(geo: geo)
+                                    .transition(lyricsPanelTransition)
                             case .none:
                                 switch playerLayoutMode {
                                 case .portrait:
@@ -746,6 +1071,14 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        #if os(iOS)
+        .sheet(
+            item: $presentedAlbum,
+            onDismiss: { albumPresentationSourceID = nil }
+        ) { album in
+            albumDetailPresentation(album)
+        }
+        #endif
         .sheet(item: $scrapeTargetSong) { song in
             ScrapeOptionsView(song: song) { u in
                 CachedArtworkView.invalidateCache(for: u.id)
@@ -1483,6 +1816,10 @@ struct NowPlayingView: View {
                                 fileFormat: player.currentSong?.fileFormat,
                                 revisionToken: player.coverRevision
                             )
+                            .matchedGeometryEffect(
+                                id: lyricsArtworkTransitionID,
+                                in: lyricsArtworkNamespace
+                            )
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(player.currentSong?.title ?? "")
                                     .font(.subheadline.weight(.semibold))
@@ -1670,6 +2007,10 @@ struct NowPlayingView: View {
                                         fileFormat: player.currentSong?.fileFormat,
                                         revisionToken: player.coverRevision
                                     )
+                                    .matchedGeometryEffect(
+                                        id: lyricsArtworkTransitionID,
+                                        in: lyricsArtworkNamespace
+                                    )
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(player.currentSong?.title ?? "")
@@ -1704,7 +2045,7 @@ struct NowPlayingView: View {
                             moreMenu
                             }
                             .padding(.horizontal, 20).padding(.bottom, 6)
-                            .transition(.opacity)
+                            .transition(lyricsHeaderTransition)
                         }
 
                         // Full screen lyrics
@@ -1715,7 +2056,7 @@ struct NowPlayingView: View {
                             .transition(.opacity)
                         } else {
                             lyricsFullView
-                                .transition(.opacity)
+                                .transition(lyricsPanelTransition)
                         }
                     } else {
                         // PLAYER MODE
@@ -1736,7 +2077,7 @@ struct NowPlayingView: View {
                             guard !player.isMusicVideoPlaybackActive else { return }
                             setStandardLyricsVisible(true)
                         }
-                        .transition(.opacity)
+                        .transition(playerArtworkTransition)
 
                         Spacer()
                     }
@@ -2052,9 +2393,22 @@ struct NowPlayingView: View {
                 presentationRole: .animatedHero,
                 animationRequiresPlayback: true,
                 isPlaying: player.isPlaying,
-                isAnimationVisible: !showQueue && !isFullscreenPlayerPresented,
+                isAnimationVisible: isNowPlayingSurfaceExposed,
                 revisionToken: player.coverRevision
             )
+            .matchedGeometryEffect(
+                id: lyricsArtworkTransitionID,
+                in: lyricsArtworkNamespace
+            )
+            #if os(iOS)
+            .modifier(
+                NowPlayingAlbumTransitionSourceModifier(
+                    albumID: currentAlbum?.id,
+                    namespace: albumPresentationNamespace,
+                    cornerRadius: cornerRadius
+                )
+            )
+            #endif
         }
     }
 
@@ -2194,7 +2548,7 @@ struct NowPlayingView: View {
                 selected: fullscreenPlayerEffect,
                 palette: ImmersiveArtworkPalette(
                     primary: theme.accentColor,
-                    secondary: theme.darkAccent
+                    secondary: theme.secondaryDarkAccent
                 )
             ) { candidate in
                 showsImmersiveEffectPicker = false
@@ -2220,7 +2574,7 @@ struct NowPlayingView: View {
             showsLyricsPreferences: showLyrics,
             albumID: currentAlbum?.id,
             artistID: currentArtist?.id,
-            canOpenAlbum: currentAlbum != nil && onOpenAlbum != nil,
+            canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
             shareText: player.currentSong.map {
                 "\($0.title) - \(library.artistDisplayName(for: $0) ?? "")"
@@ -2253,7 +2607,10 @@ struct NowPlayingView: View {
             onShowSongInfo: { showSongInfo = true },
             onOpenAlbum: {
                 guard let album = currentAlbum else { return }
-                onOpenAlbum?(album)
+                presentAlbum(
+                    album,
+                    prefersMatchedArtworkSource: !showLyrics
+                )
             },
             onOpenArtist: {
                 guard let artist = currentArtist else { return }
@@ -2276,63 +2633,74 @@ struct NowPlayingView: View {
     // MARK: - Ambient background from cover dominant color
 
     private var backgroundGradient: some View {
-        GeometryReader { geo in
-            let radius = max(geo.size.width, geo.size.height) * 0.82
-            let hasArtworkTheme = theme.colorID != "default"
-            let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
-            let accentOpacity = (hasArtworkTheme
-                ? appearance.artworkAccentOpacity
-                : appearance.fallbackAccentOpacity) * strength
-            let lowerAccentOpacity = (hasArtworkTheme
-                ? appearance.artworkLowerAccentOpacity
-                : appearance.fallbackLowerAccentOpacity) * strength
-            let lightOverlay = AmbientLightOverlayPolicy.resolve(
-                hasArtworkTheme: hasArtworkTheme,
-                usesIncreasedContrast: colorSchemeContrast == .increased,
-                strength: strength
+        let hasArtworkTheme = theme.hasArtworkAmbient
+        let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
+        let accentOpacity = (hasArtworkTheme
+            ? appearance.artworkAccentOpacity
+            : appearance.fallbackAccentOpacity) * strength
+        let lowerAccentOpacity = (hasArtworkTheme
+            ? appearance.artworkLowerAccentOpacity
+            : appearance.fallbackLowerAccentOpacity) * strength
+        let lightOverlay = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: hasArtworkTheme,
+            usesIncreasedContrast: colorSchemeContrast == .increased,
+            strength: strength
+        )
+        let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
+            paletteLuminance: theme.artworkLuminance,
+            primaryOpacity: accentOpacity,
+            secondaryOpacity: lowerAccentOpacity,
+            usesIncreasedContrast: colorSchemeContrast == .increased
+        )
+
+        return ZStack {
+            AdaptiveNowPlayingBackdrop(
+                baseColor: appearance.backgroundBase,
+                primaryAccent: theme.accentColor,
+                secondaryAccent: theme.secondaryAccent,
+                darkAccent: theme.darkAccent,
+                primaryOpacity: accentOpacity,
+                secondaryOpacity: lowerAccentOpacity,
+                hasArtworkPalette: hasArtworkTheme,
+                isVisible: isNowPlayingSurfaceExposed,
+                isSceneActive: isVisualSceneActive,
+                isPlaying: player.isPlaying,
+                paletteVibrancy: theme.artworkVibrancy,
+                paletteLuminance: theme.artworkLuminance
             )
 
-            ZStack {
-                appearance.backgroundBase
-
-                RadialGradient(
-                    colors: [theme.accentColor.opacity(accentOpacity), .clear],
-                    center: .topLeading,
-                    startRadius: 0,
-                    endRadius: radius
+            if appearance.isLight {
+                // Keep a stable light surface for dark controls without
+                // washing the cover-driven hue back to near-neutral.
+                LinearGradient(
+                    colors: [
+                        .white.opacity(lightOverlay.topOpacity),
+                        .white.opacity(lightOverlay.bottomOpacity)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-
-                RadialGradient(
-                    colors: [theme.accentColor.opacity(lowerAccentOpacity), .clear],
-                    center: .bottomTrailing,
-                    startRadius: 0,
-                    endRadius: radius * 0.9
+            } else {
+                // Bright covers receive a little more local protection while
+                // the extracted color field remains visible around the art.
+                LinearGradient(
+                    stops: [
+                        .init(
+                            color: .black.opacity(darkOverlay.topOpacity),
+                            location: 0
+                        ),
+                        .init(
+                            color: .black.opacity(darkOverlay.middleOpacity),
+                            location: 0.56
+                        ),
+                        .init(
+                            color: .black.opacity(darkOverlay.bottomOpacity),
+                            location: 1
+                        )
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-
-                if appearance.isLight {
-                    // Keep a stable light surface for dark controls without
-                    // washing the cover-driven hue back to near-neutral.
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(lightOverlay.topOpacity),
-                            .white.opacity(lightOverlay.bottomOpacity)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                } else {
-                    // Dark appearance keeps the immersive artwork field but
-                    // protects white lyrics and transport controls.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black.opacity(0.18), location: 0),
-                            .init(color: .black.opacity(0.22), location: 0.56),
-                            .init(color: .black.opacity(0.28), location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
             }
         }
         .animation(
@@ -2402,8 +2770,10 @@ struct NowPlayingView: View {
                 Text("·")
             }
 
-            if let album = currentAlbum, onOpenAlbum != nil {
-                Button { onOpenAlbum?(album) } label: {
+            if let album = currentAlbum, canOpenCurrentAlbum {
+                Button {
+                    presentAlbum(album, prefersMatchedArtworkSource: true)
+                } label: {
                     Text(album.title).lineLimit(1)
                 }
                 .buttonStyle(.plain)
@@ -5543,8 +5913,12 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         )
 
         let lyricTexts = lyrics.map(\.text)
+        let metadataLines = lyrics.lazy.compactMap(\.metadataLines).first ?? []
+        let declaredSourceLanguageCode = LyricsTranslationSettingsStore
+            .declaredLyricsLanguageCode(from: metadataLines)
         let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLyricsLanguageCode(
-            for: lyricTexts
+            for: lyricTexts,
+            metadataLines: metadataLines
         )
         let candidates = lyrics.map { line in
             LyricTranslationCandidate(
@@ -5552,7 +5926,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 text: line.text,
                 sourceLanguageCode: LyricsTranslationSettingsStore.detectedLanguageCode(
                     for: line.text,
-                    fallbackLanguageCode: fallbackSourceLanguageCode
+                    fallbackLanguageCode: fallbackSourceLanguageCode,
+                    declaredLanguageCode: declaredSourceLanguageCode
                 )
             )
         }

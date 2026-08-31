@@ -610,31 +610,39 @@ extension CarPlaySceneDelegate {
     }
 }
 
-// MARK: - Section indexing (A-Z + # bucket, with pinyin for CJK)
+// MARK: - Section indexing (A-Z + # bucket, with script-aware transliteration)
 
 extension CarPlaySceneDelegate {
-    /// Returns A–Z (or pinyin first letter for CJK) for the section index
-    /// strip on the right edge of CarPlay lists. Anything that doesn't
-    /// resolve to an ASCII letter falls into the "#" bucket. The bucket only
-    /// depends on the title's first character, so we compute from that
-    /// directly — lets the memo cache key on a `Character` instead of the
-    /// whole title.
+    /// Returns A–Z after transliterating the first character when needed.
+    /// This keeps Persian, Arabic, Cyrillic and CJK titles out of a single
+    /// catch-all bucket while preserving the compact Latin index required by
+    /// the CarPlay list. Characters without a Latin representation use "#".
     nonisolated private static func indexLetter(forFirstCharacter first: Character) -> String {
         if first.isASCII, first.isLetter {
             return String(first).uppercased()
         }
-        // Try CJK → Latin (pinyin), then strip diacritics.
+        // `ToLatin` also yields pinyin for CJK while supporting scripts such
+        // as Persian/Arabic and Cyrillic that the previous Mandarin-only
+        // transform sent to the catch-all bucket.
         let mutable = NSMutableString(string: String(first))
-        CFStringTransform(mutable, nil, kCFStringTransformMandarinLatin, false)
+        CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
         CFStringTransform(mutable, nil, kCFStringTransformStripDiacritics, false)
-        if let pinyinFirst = (mutable as String).first,
-           pinyinFirst.isASCII, pinyinFirst.isLetter {
-            return String(pinyinFirst).uppercased()
+        for scalar in (mutable as String).unicodeScalars {
+            switch scalar.value {
+            case 0x41...0x5A, 0x61...0x7A:
+                return String(scalar).uppercased()
+            case 0x02BE, 0x02BF:
+                // Hamza/Ayin transliterate to modifier letters without an
+                // ASCII base; group their common A-like reading under A.
+                return "A"
+            default:
+                continue
+            }
         }
         return "#"
     }
 
-    /// Memoizes the (relatively costly) pinyin `CFStringTransform` keyed by
+    /// Memoizes the (relatively costly) transliteration keyed by
     /// the title's first character. On a large library every rebuild buckets
     /// up to ~1500 rows; cache hits dominate after the first pass so we avoid
     /// re-running the transform for every "周…" / "陈…" track. Main-actor

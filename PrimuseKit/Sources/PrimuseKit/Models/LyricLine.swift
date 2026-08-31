@@ -198,6 +198,29 @@ public enum LyricWritingDirectionPolicy {
         return inferDirection(in: lines)
     }
 
+    /// Resolves one rendered row without allowing a document-wide direction to
+    /// reverse an opposite-script row. A leading `[la:]` tag supplies the
+    /// document fallback, while strongly LTR or RTL rows keep their own reading
+    /// order. Mixed rows use Unicode bidi's first-strong base direction so
+    /// separately rendered syllables keep the same order as a single text run;
+    /// rows without letters inherit the document fallback.
+    public static func resolvePresentationDirection(
+        for line: LyricLine,
+        documentFallback: LyricWritingDirection = .natural
+    ) -> LyricWritingDirection {
+        resolvePresentationDirection(
+            for: line.text,
+            documentFallback: documentFallback
+        )
+    }
+
+    public static func resolvePresentationDirection(
+        for text: String,
+        documentFallback: LyricWritingDirection = .natural
+    ) -> LyricWritingDirection {
+        return firstStrongDirection(in: text) ?? documentFallback
+    }
+
     public static func resolve(metadataLines: [String]) -> LyricWritingDirection {
         resolveMetadata(metadataLines) ?? .natural
     }
@@ -312,6 +335,15 @@ public enum LyricWritingDirectionPolicy {
                 return
             }
         }
+    }
+
+    private static func firstStrongDirection(in text: String) -> LyricWritingDirection? {
+        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
+            return rightToLeftLetterRanges.contains(where: { $0.contains(scalar.value) })
+                ? .rightToLeft
+                : .leftToRight
+        }
+        return nil
     }
 
     private static func normalizedLanguageTag(_ value: String?) -> String? {

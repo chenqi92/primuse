@@ -154,6 +154,8 @@ final class CoverTintProvider {
         }
         guard let data, let image = PlatformImage(data: data) else { return (nil, false) }
         let result = ThemeService.extractDominantColor(from: image)
-        return (result.map { ImmersiveArtworkPalette(primary: $0.accent, secondary: $0.dark) }, true)
+        return (result.map {
+            ImmersiveArtworkPalette(primary: $0.accent, secondary: $0.secondaryDark)
+        }, true)
     }
 }

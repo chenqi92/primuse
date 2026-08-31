@@ -184,6 +184,9 @@ private struct SongBatchActionsModifier: ViewModifier {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SongBatchRemovalService.self) private var removal
+    #if os(iOS)
+    @Environment(\.appNavigationMode) private var appNavigationMode
+    #endif
     let selection: SongSelectionModel
     let context: SongBatchActionContext
     let orderedIDs: () -> [String]
@@ -251,7 +254,10 @@ private struct SongBatchActionsModifier: ViewModifier {
             // bottom edge on iPhone. On iOS 26 their glass backgrounds overlap
             // and taps can fall through to a tab item. Selection temporarily
             // replaces the tab bar, then restores the parent visibility.
-            .toolbar(selection.isActive ? .hidden : .automatic, for: .tabBar)
+            .toolbar(
+                selection.isActive || appNavigationMode == .minimal ? .hidden : .automatic,
+                for: .tabBar
+            )
             .toolbar {
                 ToolbarItem(placement: .bottomBar) {
                     IOSBatchActionToolbarContent(

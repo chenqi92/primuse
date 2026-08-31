@@ -4537,7 +4537,7 @@ private struct MacSTThemeView: View {
                         selection: $fullscreenEffectRawValue,
                         palette: ImmersiveArtworkPalette(
                             primary: themeService.accentColor,
-                            secondary: themeService.darkAccent
+                            secondary: themeService.secondaryDarkAccent
                         )
                     )
                 }

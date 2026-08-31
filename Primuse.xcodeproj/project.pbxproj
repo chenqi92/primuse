@@ -217,6 +217,7 @@
 		3C4428640B01E67A1C097726 /* SessionStableSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28FEFF538F0DBE0D76205C3 /* SessionStableSnapshotCache.swift */; };
 		3C5980193B01DDF181FE0EF2 /* SongBatchRemovalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61EACF0F812C134ED35D5209 /* SongBatchRemovalService.swift */; };
 		3CC98788ADA6DA983C3AF45F /* TVSFBEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88D3209CC930468F07419E8 /* TVSFBEngine.swift */; };
+		3CD3ECB769FF0CD3EABECD42 /* ThemeServicePaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB94DFFD5CAD068763D78E9C /* ThemeServicePaletteTests.swift */; };
 		3D272D5DBC42A04A8079B80D /* SmartPlaylistEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */; };
 		3DB2D944BC6083DFCF50FC79 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
@@ -1643,6 +1644,7 @@
 		F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredCoverArtView.swift; sourceTree = "<group>"; };
 		FA44FA865D7C3D6FC4DFCC9E /* TVSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSettingsView.swift; sourceTree = "<group>"; };
 		FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicScraperService.swift; sourceTree = "<group>"; };
+		FB94DFFD5CAD068763D78E9C /* ThemeServicePaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeServicePaletteTests.swift; sourceTree = "<group>"; };
 		FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PrimuseWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC94F5ED881A05601F6B7D65 /* PMTitleBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMTitleBar.swift; sourceTree = "<group>"; };
 		FCADF5909EF82CB7F02FB896 /* AppleMusicNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicNowPlayingView.swift; sourceTree = "<group>"; };
@@ -2785,6 +2787,7 @@
 				42F091EBFBCAC0A3BC3CC1B0 /* SiriRadioIntentRoutingTests.swift */,
 				F930250B3D0D1AC8E8FD8088 /* SubsonicFavoriteWritebackTests.swift */,
 				2F2E03BE3176F3FA0271F742 /* SynologyQueryURLBuilderTests.swift */,
+				FB94DFFD5CAD068763D78E9C /* ThemeServicePaletteTests.swift */,
 			);
 			path = PrimuseTests;
 			sourceTree = "<group>";
@@ -3335,6 +3338,7 @@
 				5565613BF615F70D0DE0FD54 /* SiriRadioIntentRoutingTests.swift in Sources */,
 				ECEE25BE33784AD9E79E0CB7 /* SubsonicFavoriteWritebackTests.swift in Sources */,
 				862941FF30DA0C6CAB7626B6 /* SynologyQueryURLBuilderTests.swift in Sources */,
+				3CD3ECB769FF0CD3EABECD42 /* ThemeServicePaletteTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -3461,3 +3461,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "设备验证已完成，但内置服务或模型上游未能完成请求。";
 "ai_primuse_relay_fallback_provider_format" = "内置服务不可用，已验证并降级到“%@”。";
 "ai_primuse_relay_fallback_local" = "没有可用的远程降级服务；将保留本机搜索、推荐与播放。";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "导航";
+"minimal_mode_title" = "极简模式";
+"minimal_mode_description" = "隐藏底部导航栏，在顶部切换资料库，并从侧边按钮打开设置。";

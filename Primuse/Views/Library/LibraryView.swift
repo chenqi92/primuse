@@ -1,7 +1,7 @@
 import SwiftUI
 import PrimuseKit
 
-enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable {
+enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case recommendations, playlists, artists, albums, songs, radio
 
     var id: String { rawValue }
@@ -126,6 +126,8 @@ enum LibraryDisplayConfiguration {
 }
 
 enum LibraryDeepLink: Equatable, Sendable {
+    case root
+    case section(LibrarySection)
     case album(Album)
     case artist(Artist)
     case playlist(Playlist)
@@ -275,6 +277,7 @@ struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Binding private var deepLink: LibraryDeepLink?
+    private let onActiveSectionChange: (LibrarySection?) -> Void
     @State private var navigationPath = NavigationPath()
     @State private var songLocationRequest: SongLibraryLocationRequest?
     @State private var didRestorePersistedPage = false
@@ -347,8 +350,12 @@ struct LibraryView: View {
         ].joined(separator: "#")
     }
 
-    init(deepLink: Binding<LibraryDeepLink?> = .constant(nil)) {
+    init(
+        deepLink: Binding<LibraryDeepLink?> = .constant(nil),
+        onActiveSectionChange: @escaping (LibrarySection?) -> Void = { _ in }
+    ) {
         self._deepLink = deepLink
+        self.onActiveSectionChange = onActiveSectionChange
     }
 
     var body: some View {
@@ -368,19 +375,29 @@ struct LibraryView: View {
                     .toolbarTitleDisplayMode(.inline)
                     .onAppear {
                         persistedPageID = "section:\(section.rawValue)"
+                        onActiveSectionChange(section)
                     }
             }
             .navigationDestination(for: Album.self) { album in
                 AlbumDetailView(album: album)
-                    .onAppear { persistedPageID = "album:\(album.id)" }
+                    .onAppear {
+                        persistedPageID = "album:\(album.id)"
+                        onActiveSectionChange(.albums)
+                    }
             }
             .navigationDestination(for: Artist.self) { artist in
                 ArtistDetailView(artist: artist)
-                    .onAppear { persistedPageID = "artist:\(artist.id)" }
+                    .onAppear {
+                        persistedPageID = "artist:\(artist.id)"
+                        onActiveSectionChange(.artists)
+                    }
             }
             .navigationDestination(for: Playlist.self) { playlist in
                 PlaylistDetailView(playlist: playlist)
-                    .onAppear { persistedPageID = "playlist:\(playlist.id)" }
+                    .onAppear {
+                        persistedPageID = "playlist:\(playlist.id)"
+                        onActiveSectionChange(.playlists)
+                    }
             }
             .onAppear {
                 sanitizeStoredPins()
@@ -396,6 +413,7 @@ struct LibraryView: View {
             .onChange(of: navigationPath.count) { _, count in
                 if didRestorePersistedPage && count == 0 {
                     persistedPageID = ""
+                    onActiveSectionChange(nil)
                 }
             }
             .task(id: SongListSnapshotVersion(
@@ -450,6 +468,11 @@ struct LibraryView: View {
             LibraryArtworkPreviewSessionStore.shared.invalidateForManualRefresh()
             artworkPreviewSelection = LibraryArtworkPreviewSelection()
             await refreshArtworkPreviews(for: artworkPreviewRevision)
+        }
+        .onAppear {
+            if navigationPath.isEmpty {
+                onActiveSectionChange(nil)
+            }
         }
     }
 
@@ -1190,6 +1213,14 @@ struct LibraryView: View {
         didRestorePersistedPage = true
         var path = NavigationPath()
         switch link {
+        case .root:
+            songLocationRequest = nil
+            persistedPageID = ""
+            onActiveSectionChange(nil)
+        case .section(let section):
+            persistedPageID = "section:\(section.rawValue)"
+            path.append(section)
+            onActiveSectionChange(section)
         case .album(let album):
             path.append(album)
         case .artist(let artist):

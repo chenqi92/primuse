@@ -562,7 +562,7 @@ struct TVNowPlayingView: View {
         let size: CGFloat = 48
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
-                TVKaraokeLine(syllables: ln.syllables, progress: store.currentLyricProgress,
+                TVKaraokeLine(syllables: ln.syllables, currentTime: store.currentTime,
                               size: size, tint: store.nowPlaying.tint,
                               writingDirection: ln.writingDirection)
             } else {
@@ -591,9 +591,49 @@ struct TVNowPlayingView: View {
 
 // MARK: - 逐字卡拉OK行
 
+struct TVSyllableHighlightState: Equatable {
+    let index: Int
+    let progress: Double
+}
+
+enum TVSyllableHighlightPolicy {
+    static func state(
+        in syllables: [TVSyllable],
+        at playbackTime: TimeInterval
+    ) -> TVSyllableHighlightState {
+        guard playbackTime.isFinite else {
+            return TVSyllableHighlightState(index: 0, progress: 0)
+        }
+
+        for index in syllables.indices {
+            let syllable = syllables[index]
+            if playbackTime <= syllable.start {
+                return TVSyllableHighlightState(index: index, progress: 0)
+            }
+
+            let nextStart = syllables.indices.contains(index + 1)
+                ? syllables[index + 1].start
+                : nil
+            let duration = LyricSyllablePlaybackTimingPolicy.effectiveDuration(
+                for: syllable.lyricSyllable,
+                nextSyllableStart: nextStart
+            )
+            let effectiveEnd = syllable.start + duration
+            if playbackTime < effectiveEnd {
+                return TVSyllableHighlightState(
+                    index: index,
+                    progress: min(1, max(0, (playbackTime - syllable.start) / duration))
+                )
+            }
+        }
+
+        return TVSyllableHighlightState(index: syllables.count, progress: 0)
+    }
+}
+
 struct TVKaraokeLine: View {
     let syllables: [TVSyllable]
-    let progress: Double
+    let currentTime: TimeInterval
     let size: CGFloat
     let tint: Color
     let writingDirection: LyricWritingDirection
@@ -609,13 +649,13 @@ struct TVKaraokeLine: View {
     }
 
     var body: some View {
-        let (highlightIdx, charT) = sweep()
-        HStack(spacing: 0) {
+        let state = TVSyllableHighlightPolicy.state(in: syllables, at: currentTime)
+        TVSyllableFlowLayout(layoutDirection: lyricLayoutDirection) {
             ForEach(Array(syllables.enumerated()), id: \.offset) { i, s in
-                let active = i < highlightIdx
-                let inFlight = i == highlightIdx
-                let fillT: Double = active ? 1 : (inFlight ? charT : 0)
-                let scale = inFlight ? 1 + 0.05 * sin(charT * .pi) : 1
+                let active = i < state.index
+                let inFlight = i == state.index
+                let fillT: Double = active ? 1 : (inFlight ? state.progress : 0)
+                let scale = inFlight ? 1 + 0.05 * sin(state.progress * .pi) : 1
                 Text(s.w)
                     .foregroundStyle(TVColor.textGhost)
                     .overlay(alignment: .leading) {
@@ -643,17 +683,91 @@ struct TVKaraokeLine: View {
         .shadow(color: tint.opacity(0.4), radius: 16, y: 2)
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
+}
 
-    /// 返回(正在唱的字下标, 该字内进度 0...1)。
-    private func sweep() -> (Int, Double) {
-        let total = syllables.reduce(0) { $0 + $1.d }
-        let t = max(0, min(1, progress)) * total
-        var acc = 0.0
-        for (i, s) in syllables.enumerated() {
-            if acc + s.d > t { return (i, (t - acc) / s.d) }
-            acc += s.d
+private struct TVSyllableFlowLayout: Layout {
+    let layoutDirection: LayoutDirection
+
+    struct Cache {
+        var sizes: [CGSize]
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache(sizes: measure(subviews))
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache.sizes = measure(subviews)
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> CGSize {
+        ensureMeasurements(in: &cache, subviews: subviews)
+        let idealWidth = cache.sizes.reduce(0) { $0 + $1.width }
+        let availableWidth = max(0, proposal.width ?? idealWidth)
+        guard availableWidth > 0 else { return .zero }
+
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var widestRow: CGFloat = 0
+
+        for size in cache.sizes {
+            if rowWidth > 0, rowWidth + size.width > availableWidth {
+                widestRow = max(widestRow, rowWidth)
+                totalHeight += rowHeight
+                rowWidth = 0
+                rowHeight = 0
+            }
+            rowWidth += size.width
+            rowHeight = max(rowHeight, size.height)
         }
-        return (syllables.count, 0)
+
+        widestRow = max(widestRow, rowWidth)
+        totalHeight += rowHeight
+        return CGSize(width: min(availableWidth, widestRow), height: totalHeight)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        ensureMeasurements(in: &cache, subviews: subviews)
+        let placements = LyricFlowPlacementPolicy.placements(
+            itemSizes: cache.sizes.map {
+                LyricFlowItemSize(width: Double($0.width), height: Double($0.height))
+            },
+            containerWidth: Double(bounds.width),
+            isRightToLeft: layoutDirection == .rightToLeft,
+            alignment: .leading
+        )
+
+        for placement in placements {
+            let index = subviews.index(subviews.startIndex, offsetBy: placement.itemIndex)
+            subviews[index].place(
+                at: CGPoint(
+                    x: bounds.minX + CGFloat(placement.x),
+                    y: bounds.minY + CGFloat(placement.y)
+                ),
+                anchor: .topLeading,
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private func ensureMeasurements(in cache: inout Cache, subviews: Subviews) {
+        if cache.sizes.count != subviews.count {
+            cache.sizes = measure(subviews)
+        }
+    }
+
+    private func measure(_ subviews: Subviews) -> [CGSize] {
+        subviews.map { $0.sizeThatFits(.unspecified) }
     }
 }
 

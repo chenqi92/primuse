@@ -784,4 +784,99 @@ final class TVTrackNavigationAvailabilityTests: XCTestCase {
         )
     }
 }
+
+final class TVLyricSyllableTimingTests: XCTestCase {
+    func testConversionKeepsMixedPersianAndEnglishRowsInTheirOwnDirection() throws {
+        let source = LyricsContentParser.parse("""
+        [la:fa-IR]
+        [00:01.00]<00:01.00>این <00:01.30>فارسی
+        [00:03.00]<00:03.00>English <00:03.40>chorus
+        [00:05.00]<00:05.00>سلام <00:05.40>OpenAI
+        [00:07.00]<00:07.00>OpenAI <00:07.40>سلام
+        """)
+        let lines = TVPlaybackCoordinator.toTVLyrics(source, duration: 0)
+
+        XCTAssertEqual(lines.count, 4)
+        XCTAssertEqual(lines[0].writingDirection, .rightToLeft)
+        XCTAssertEqual(lines[1].writingDirection, .leftToRight)
+        XCTAssertEqual(lines[2].writingDirection, .rightToLeft)
+        XCTAssertEqual(lines[3].writingDirection, .leftToRight)
+    }
+
+    func testConversionPreservesAbsoluteELRCTimestampsAndProvenance() throws {
+        let sourceLine = try XCTUnwrap(
+            LyricsContentParser.parse(
+                "[00:29.30]<00:29.30>انتظار <00:29.60>و <00:31.30>انتظار"
+            ).first
+        )
+        let line = try XCTUnwrap(
+            TVPlaybackCoordinator.toTVLyrics([sourceLine], duration: 0).first
+        )
+
+        XCTAssertEqual(line.syllables.count, 3)
+        XCTAssertEqual(line.syllables[0].start, 29.30, accuracy: 0.001)
+        XCTAssertEqual(line.syllables[0].end, 29.60, accuracy: 0.001)
+        XCTAssertEqual(line.syllables[1].start, 29.60, accuracy: 0.001)
+        XCTAssertEqual(line.syllables[1].end, 31.30, accuracy: 0.001)
+        XCTAssertEqual(line.syllables[1].endTiming, .inferred)
+    }
+
+    func testOrdinaryPlayerStopsSweepingDuringInferredSilentGap() throws {
+        let syllables = try issue68Syllables()
+
+        let halfwayThroughConjunction = TVSyllableHighlightPolicy.state(
+            in: syllables,
+            at: 29.81
+        )
+        XCTAssertEqual(halfwayThroughConjunction.index, 1)
+        XCTAssertEqual(halfwayThroughConjunction.progress, 0.5, accuracy: 0.001)
+
+        let earlyGap = TVSyllableHighlightPolicy.state(in: syllables, at: 30.10)
+        let lateGap = TVSyllableHighlightPolicy.state(in: syllables, at: 31.00)
+        XCTAssertEqual(earlyGap, TVSyllableHighlightState(index: 2, progress: 0))
+        XCTAssertEqual(lateGap, earlyGap)
+    }
+
+    func testImmersiveHighlightRemainsStableDuringInferredSilentGap() throws {
+        let syllables = try issue68Syllables().map(\.lyricSyllable)
+
+        let earlyGap = ImmersiveLyricHighlightProgressPolicy.progress(
+            in: syllables,
+            at: 30.10
+        )
+        let lateGap = ImmersiveLyricHighlightProgressPolicy.progress(
+            in: syllables,
+            at: 31.00
+        )
+
+        XCTAssertGreaterThan(earlyGap, 0)
+        XCTAssertLessThan(earlyGap, 1)
+        XCTAssertEqual(lateGap, earlyGap, accuracy: 0.000_001)
+    }
+
+    func testExplicitHeldSyllableKeepsItsFullDuration() {
+        let held = TVSyllable(
+            w: "آواز",
+            start: 10,
+            end: 12.4,
+            endTiming: .explicit
+        )
+
+        let state = TVSyllableHighlightPolicy.state(in: [held], at: 11.2)
+
+        XCTAssertEqual(state.index, 0)
+        XCTAssertEqual(state.progress, 0.5, accuracy: 0.001)
+    }
+
+    private func issue68Syllables() throws -> [TVSyllable] {
+        let sourceLine = try XCTUnwrap(
+            LyricsContentParser.parse(
+                "[00:29.30]<00:29.30>انتظار <00:29.60>و <00:31.30>انتظار"
+            ).first
+        )
+        return try XCTUnwrap(
+            TVPlaybackCoordinator.toTVLyrics([sourceLine], duration: 0).first
+        ).syllables
+    }
+}
 #endif

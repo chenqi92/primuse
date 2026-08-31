@@ -3357,3 +3357,8 @@
 "ai_primuse_relay_diagnostic_upstream_detail" = "기기 검증은 완료되었지만 내장 서비스 또는 모델 제공자가 요청을 완료하지 못했습니다.";
 "ai_primuse_relay_fallback_provider_format" = "내장 서비스를 사용할 수 없습니다. ‘%@’로의 대체 연결을 확인했습니다.";
 "ai_primuse_relay_fallback_local" = "사용 가능한 원격 대체 서비스가 없습니다. 로컬 검색, 추천 및 재생은 계속 사용할 수 있습니다.";
+
+// MARK: - Navigation mode
+"navigation_mode_title" = "탐색";
+"minimal_mode_title" = "미니멀 모드";
+"minimal_mode_description" = "하단 탐색 막대를 숨기고 보관함 탭을 상단으로 옮기며 측면 버튼에서 설정을 엽니다.";

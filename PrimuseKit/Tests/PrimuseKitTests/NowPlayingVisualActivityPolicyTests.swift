@@ -102,6 +102,78 @@ struct NowPlayingVisualActivityPolicyTests {
         #expect(active.shouldPollLyrics)
     }
 
+    @Test("Artwork ambient motion uses a bounded low-frequency clock")
+    func artworkAmbientMotion() {
+        let policy = ambientPolicy(paletteVibrancy: 0.75)
+
+        #expect(policy.shouldAnimate)
+        #expect(policy.minimumInterval == 1.0 / 12.0)
+        #expect(policy.cycleDuration >= 24)
+        #expect(policy.cycleDuration <= 30)
+        #expect(policy.motionAmplitude > 0.018)
+        #expect(policy.motionAmplitude <= 0.034)
+    }
+
+    @Test("Ambient motion stops without changing its static palette")
+    func artworkAmbientMotionStopsWhenNotPresented() {
+        let active = ambientPolicy()
+
+        #expect(!ambientPolicy(active, isVisible: false).shouldAnimate)
+        #expect(!ambientPolicy(active, isSceneActive: false).shouldAnimate)
+        #expect(!ambientPolicy(active, isPlaying: false).shouldAnimate)
+        #expect(!ambientPolicy(active, hasArtworkPalette: false).shouldAnimate)
+        #expect(!ambientPolicy(active, isAmbientVisible: false).shouldAnimate)
+        #expect(ambientPolicy(active, isPlaying: false).minimumInterval == nil)
+        #expect(ambientPolicy(active, isPlaying: false).motionAmplitude > 0)
+        #expect(ambientPolicy(active, isAmbientVisible: false).motionAmplitude == 0)
+    }
+
+    @Test("Ambient motion honors accessibility, power, and thermal limits")
+    func artworkAmbientMotionResourceLimits() {
+        let active = ambientPolicy()
+
+        #expect(!ambientPolicy(active, reduceMotion: true).shouldAnimate)
+        #expect(!ambientPolicy(active, isLowPowerModeEnabled: true).shouldAnimate)
+        #expect(!ambientPolicy(active, thermalCondition: .serious).shouldAnimate)
+        #expect(!ambientPolicy(active, thermalCondition: .critical).shouldAnimate)
+    }
+
+    @Test("Fair thermal conditions lower ambient update frequency without shifting the field")
+    func artworkAmbientMotionFairThermalTier() {
+        let nominal = ambientPolicy(paletteVibrancy: 1)
+        let fair = ambientPolicy(nominal, thermalCondition: .fair)
+
+        #expect(fair.shouldAnimate)
+        #expect(fair.minimumInterval == 1.0 / 8.0)
+        #expect(fair.motionAmplitude == nominal.motionAmplitude)
+    }
+
+    @Test("Dark ambient overlay bounds bright artwork and increases contrast on request")
+    func artworkAmbientContrastProtection() {
+        let normal = NowPlayingAmbientLegibilityPolicy.darkOverlay(
+            paletteLuminance: 0.78,
+            primaryOpacity: 0.88,
+            secondaryOpacity: 0.62,
+            usesIncreasedContrast: false
+        )
+        let increased = NowPlayingAmbientLegibilityPolicy.darkOverlay(
+            paletteLuminance: 0.78,
+            primaryOpacity: 0.88,
+            secondaryOpacity: 0.62,
+            usesIncreasedContrast: true
+        )
+
+        let afterPrimary = 0.012 * (1 - 0.88) + 0.78 * 0.88
+        let estimatedField = afterPrimary * (1 - 0.62) + 0.78 * 0.62
+        let protectedField = estimatedField * (1 - normal.topOpacity)
+        let secondaryLabel = 0.72 + protectedField * 0.28
+        let secondaryLabelContrast = (secondaryLabel + 0.05) / (protectedField + 0.05)
+        #expect(protectedField <= 0.126)
+        #expect(secondaryLabelContrast >= 4.5)
+        #expect(increased.topOpacity > normal.topOpacity)
+        #expect(normal.bottomOpacity >= normal.topOpacity)
+    }
+
     @Test("Animated artwork requires an active visible hero and system permission")
     func animatedArtworkPolicy() {
         let active = ArtworkAnimationPolicy(
@@ -213,6 +285,55 @@ struct NowPlayingVisualActivityPolicyTests {
             playAnimatedImages: playAnimatedImages ?? base.playAnimatedImages,
             isLowPowerModeEnabled: isLowPowerModeEnabled ?? base.isLowPowerModeEnabled,
             thermalCondition: thermalCondition ?? base.thermalCondition
+        )
+    }
+
+    private func ambientPolicy(
+        hasArtworkPalette: Bool = true,
+        isAmbientVisible: Bool = true,
+        isVisible: Bool = true,
+        isSceneActive: Bool = true,
+        isPlaying: Bool = true,
+        reduceMotion: Bool = false,
+        isLowPowerModeEnabled: Bool = false,
+        thermalCondition: ArtworkThermalCondition = .nominal,
+        paletteVibrancy: Double = 0.6
+    ) -> NowPlayingAmbientMotionPolicy {
+        NowPlayingAmbientMotionPolicy(
+            hasArtworkPalette: hasArtworkPalette,
+            isAmbientVisible: isAmbientVisible,
+            isVisible: isVisible,
+            isSceneActive: isSceneActive,
+            isPlaying: isPlaying,
+            reduceMotion: reduceMotion,
+            isLowPowerModeEnabled: isLowPowerModeEnabled,
+            thermalCondition: thermalCondition,
+            paletteVibrancy: paletteVibrancy
+        )
+    }
+
+    private func ambientPolicy(
+        _ base: NowPlayingAmbientMotionPolicy,
+        hasArtworkPalette: Bool? = nil,
+        isAmbientVisible: Bool? = nil,
+        isVisible: Bool? = nil,
+        isSceneActive: Bool? = nil,
+        isPlaying: Bool? = nil,
+        reduceMotion: Bool? = nil,
+        isLowPowerModeEnabled: Bool? = nil,
+        thermalCondition: ArtworkThermalCondition? = nil,
+        paletteVibrancy: Double? = nil
+    ) -> NowPlayingAmbientMotionPolicy {
+        ambientPolicy(
+            hasArtworkPalette: hasArtworkPalette ?? base.hasArtworkPalette,
+            isAmbientVisible: isAmbientVisible ?? base.isAmbientVisible,
+            isVisible: isVisible ?? base.isVisible,
+            isSceneActive: isSceneActive ?? base.isSceneActive,
+            isPlaying: isPlaying ?? base.isPlaying,
+            reduceMotion: reduceMotion ?? base.reduceMotion,
+            isLowPowerModeEnabled: isLowPowerModeEnabled ?? base.isLowPowerModeEnabled,
+            thermalCondition: thermalCondition ?? base.thermalCondition,
+            paletteVibrancy: paletteVibrancy ?? base.paletteVibrancy
         )
     }
 }
