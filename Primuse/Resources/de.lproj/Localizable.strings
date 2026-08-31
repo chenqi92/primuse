@@ -2779,6 +2779,9 @@
 "lyrics_editor_no_timing_lines" = "Keine Liedtextzeilen zum Timen";
 
 /* MARK: - Siri und App Intents */
+"siri_examples_title" = "Sprachbeispiel";
+"siri_play_song_example" = "Sag „Hey Siri, spiele einen Titel in Primuse“, und nenne Siri anschließend den Titel.";
+"siri_shortcuts_hint" = "Öffne die Primuse-Kurzbefehle, um „Titel wiedergeben“ zu testen oder den Sprachbefehl anzupassen.";
 "intent_playing_album_format" = "Album %@ wird wiedergegeben.";
 "intent_playing_artist_format" = "%@ wird wiedergegeben.";
 "intent_playing_genre_format" = "%@-Musik wird wiedergegeben.";

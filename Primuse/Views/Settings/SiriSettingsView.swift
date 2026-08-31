@@ -1,4 +1,5 @@
 #if os(iOS)
+import AppIntents
 import Intents
 import SwiftUI
 import UIKit
@@ -32,6 +33,21 @@ struct SiriSettingsView: View {
                 }
             } footer: {
                 Text(usageDescription)
+            }
+
+            Section {
+                Label {
+                    Text("siri_play_song_example")
+                } icon: {
+                    Image(systemName: "quote.bubble")
+                }
+
+                ShortcutsLink()
+                    .shortcutsLinkStyle(.automaticOutline)
+            } header: {
+                Text("siri_examples_title")
+            } footer: {
+                Text("siri_shortcuts_hint")
             }
         }
         .navigationTitle("Siri")

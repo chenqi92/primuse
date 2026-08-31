@@ -2780,6 +2780,9 @@
 "lyrics_editor_no_timing_lines" = "タイミング対象の歌詞行がありません";
 
 /* MARK: - Siri と App Intent */
+"siri_examples_title" = "音声入力の例";
+"siri_play_song_example" = "「Hey Siri、Primuse で曲を再生して」と言い、続けて曲名を伝えます。";
+"siri_shortcuts_hint" = "Primuse のショートカットを開いて「曲を再生」を試すか、呼び出しフレーズをカスタマイズできます。";
 "intent_playing_album_format" = "アルバム %@ を再生しています。";
 "intent_playing_artist_format" = "%@ を再生しています。";
 "intent_playing_genre_format" = "%@ の音楽を再生しています。";

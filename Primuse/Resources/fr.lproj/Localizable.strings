@@ -2779,6 +2779,9 @@
 "lyrics_editor_no_timing_lines" = "Aucune ligne de paroles à minuter";
 
 /* MARK: - Siri et App Intents */
+"siri_examples_title" = "Exemple vocal";
+"siri_play_song_example" = "Dites « Dis Siri, lis un titre dans Primuse », puis indiquez le titre à Siri.";
+"siri_shortcuts_hint" = "Ouvrez les raccourcis Primuse pour tester « Lire un titre » ou personnaliser la phrase.";
 "intent_playing_album_format" = "Lecture de l’album %@.";
 "intent_playing_artist_format" = "Lecture de %@.";
 "intent_playing_genre_format" = "Lecture de musique %@.";

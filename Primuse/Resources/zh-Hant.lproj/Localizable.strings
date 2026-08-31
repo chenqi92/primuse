@@ -2756,6 +2756,9 @@
 "lyrics_editor_no_timing_lines" = "沒有可對時的歌詞行";
 
 /* MARK: - Siri 與 App Intents */
+"siri_examples_title" = "語音範例";
+"siri_play_song_example" = "先說「嘿 Siri，用猿音播放歌曲」，再告訴 Siri 歌曲名稱。";
+"siri_shortcuts_hint" = "開啟猿音捷徑，可以測試「播放歌曲」或自訂口令。";
 "intent_playing_album_format" = "正在播放專輯 %@。";
 "intent_playing_artist_format" = "正在播放 %@。";
 "intent_playing_genre_format" = "正在播放 %@ 類型的音樂。";

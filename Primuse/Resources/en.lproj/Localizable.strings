@@ -2607,6 +2607,9 @@
 "lyrics_editor_no_timing_lines" = "No lyric lines to time";
 
 /* MARK: - Siri and App Intents */
+"siri_examples_title" = "Voice Examples";
+"siri_play_song_example" = "Say “Hey Siri, play a song in Primuse,” then tell Siri the song title.";
+"siri_shortcuts_hint" = "Open Primuse shortcuts to test “Play Song” or customize its phrase.";
 "intent_playing_album_format" = "Playing album %@.";
 "intent_playing_artist_format" = "Playing %@.";
 "intent_playing_genre_format" = "Playing %@ music.";
