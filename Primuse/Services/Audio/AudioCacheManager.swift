@@ -9,6 +9,190 @@ struct AutomaticOfflinePinRequest: Sendable {
     let expectedByteCount: Int64
 }
 
+struct AudioCachePathLease: Hashable, Sendable {
+    fileprivate let id: UUID
+}
+
+enum AudioCacheTransferReservationApproval: Sendable, Equatable {
+    case approved(Int64)
+    case invalidLease
+    case insufficientCapacity(available: Int64)
+}
+
+enum AudioCachePathFamily {
+    static func relativePaths(for path: String) -> Set<String> {
+        let partial = path + ".partial"
+        let refresh = path + ".refresh"
+        return [
+            path,
+            path + ".installing",
+            partial,
+            partial + CloudPlaybackSource.prewarmMarkerSuffix,
+            path + ".offline",
+            refresh,
+            refresh + ".installing",
+            refresh + ".offline",
+        ]
+    }
+}
+
+enum AudioCacheTransferCapacityPolicy {
+    static func isSatisfied(
+        currentSize: Int64,
+        limitBytes: Int64,
+        reservedBytes: Int64
+    ) -> Bool {
+        guard let target = AudioCacheLimitPolicy.evictionTarget(
+            limitBytes: limitBytes,
+            reserveBytes: reservedBytes
+        ) else { return true }
+        return currentSize <= target
+    }
+}
+
+enum AutomaticOfflineArtifactPolicy {
+    static func signature(
+        sourceID: String,
+        filePath: String,
+        fileFormat: String,
+        fileSize: Int64,
+        revision: String?,
+        lastModified: Date?,
+        sourceIdentitySignature: String
+    ) -> String {
+        let components = [
+            sourceID,
+            filePath,
+            fileFormat,
+            String(fileSize),
+            revision ?? "",
+            lastModified.map { String($0.timeIntervalSince1970) } ?? "",
+            sourceIdentitySignature,
+        ]
+        let digest = SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func provenanceIsTrusted(
+        recordedArtifactSignature: String?,
+        desiredArtifactSignature: String
+    ) -> Bool {
+        recordedArtifactSignature == desiredArtifactSignature
+    }
+
+    static func refreshDisposition(
+        fileExists: Bool,
+        recordedArtifactSignature: String?,
+        desiredArtifactSignature: String,
+        recordedSourceIdentitySignature: String?,
+        desiredSourceIdentitySignature: String
+    ) -> AutomaticOfflineRefreshDisposition {
+        guard fileExists else { return .none }
+        if provenanceIsTrusted(
+            recordedArtifactSignature: recordedArtifactSignature,
+            desiredArtifactSignature: desiredArtifactSignature
+        ) {
+            return .none
+        }
+        if recordedSourceIdentitySignature == desiredSourceIdentitySignature {
+            return .preserveExisting
+        }
+        return .discardUntrusted
+    }
+}
+
+enum AutomaticOfflineSourceCooldownPolicy {
+    static func adjustedAttemptDate(
+        current: Date,
+        jobSourceID: String,
+        failedSourceID: String,
+        cooldownUntil: Date,
+        failureKind: AutomaticOfflineFailureKind
+    ) -> Date {
+        guard failureKind.requiresSourceCooldown,
+              jobSourceID == failedSourceID else { return current }
+        return max(current, cooldownUntil)
+    }
+}
+
+enum AutomaticOfflineDiskAdmissionPolicy {
+    static func adjustedAvailableBytes(
+        physicalAvailableBytes: Int64,
+        refreshDisposition: AutomaticOfflineRefreshDisposition,
+        recoverableArtifactBytes: Int64
+    ) -> Int64 {
+        guard refreshDisposition == .discardUntrusted else {
+            return physicalAvailableBytes
+        }
+        let result = physicalAvailableBytes.addingReportingOverflow(
+            max(0, recoverableArtifactBytes)
+        )
+        return result.overflow ? .max : result.partialValue
+    }
+}
+
+enum AutomaticOfflineSongPolicy {
+    static func supports(_ song: Song) -> Bool {
+        song.isStreamDescriptor || song.fileSize > 0
+    }
+}
+
+struct AutomaticOfflineJobSongSnapshot: Codable, Sendable {
+    let id: String
+    let title: String
+    let fileFormat: AudioFormat
+    let filePath: String
+    let sourceID: String
+    let fileSize: Int64
+
+    init(_ song: Song) {
+        id = song.id
+        title = song.title
+        fileFormat = song.fileFormat
+        filePath = song.filePath
+        sourceID = song.sourceID
+        fileSize = song.fileSize
+    }
+
+    var materializedSong: Song {
+        Song(
+            id: id,
+            title: title,
+            fileFormat: fileFormat,
+            filePath: filePath,
+            sourceID: sourceID,
+            fileSize: fileSize
+        )
+    }
+}
+
+struct AutomaticOfflineCompletionDeltaPayload: Codable, Sendable {
+    let completedSignatures: [String: String]
+    let artifactPath: String
+    let artifactSignature: String
+    let sourceIdentitySignature: String
+    let sourceID: String
+}
+
+enum AutomaticOfflineArtifactIndex {
+    static func key(path: String, signature: String) -> String {
+        path + "\0" + signature
+    }
+
+    static func make(
+        from desiredSongs: some Sequence<AlwaysDownloadDesiredSong>
+    ) -> [String: [String]] {
+        var songIDsByArtifact: [String: [String]] = [:]
+        for desired in desiredSongs {
+            songIDsByArtifact[
+                key(path: desired.artifactPath, signature: desired.artifactSignature),
+                default: []
+            ].append(desired.song.id)
+        }
+        return songIDsByArtifact
+    }
+}
+
 enum OfflineAudioCacheState: String, Codable, Sendable, Equatable {
     case notCached
     case cached
@@ -44,6 +228,20 @@ actor AudioCacheManager {
 
     private var accessLog: [String: Date] = [:]
     private var offlineManifest: [String: OfflineManifestEntry] = [:]
+    private var automaticPlaylistProtectedPaths: Set<String> = []
+    private var automaticPlaylistReconciliationGeneration = 0
+    private var trackedFileSizes: [String: Int64] = [:]
+    private var trackedFileModificationDates: [String: Date] = [:]
+    private var trackedTotalSize: Int64 = 0
+    private var leasedPathCounts: [String: Int] = [:]
+    private var leasedPathsByID: [UUID: Set<String>] = [:]
+    private var leasedCanonicalPathByID: [UUID: String] = [:]
+    private var reservedBytesByLeaseID: [UUID: Int64] = [:]
+    private var reservationUsesConfiguredCacheByLeaseID: [UUID: Bool] = [:]
+    private var activeReservedBytes: Int64 = 0
+    private var activeConfiguredCacheReservedBytes: Int64 = 0
+    private var sourcePurgeGenerationByPrefix: [String: Int] = [:]
+    private var completedSourcePurgeGenerationByPrefix: [String: Int] = [:]
     private let logURL: URL
     private let manifestURL: URL
     private let basePath: URL
@@ -133,12 +331,15 @@ actor AudioCacheManager {
     /// Record that a cached file was accessed (played or just created).
     func recordAccess(path: String) {
         ensureInitialized()
+        refreshTrackedPathFamily(path)
         accessLog[path] = Date()
         schedulePersist()
     }
 
     func migrateEntry(from oldPath: String, to newPath: String, byteCount: Int64?) {
         ensureInitialized()
+        refreshTrackedPathFamily(oldPath)
+        refreshTrackedPathFamily(newPath)
         if let date = accessLog.removeValue(forKey: oldPath) {
             accessLog[newPath] = max(accessLog[newPath] ?? .distantPast, date)
         } else {
@@ -179,6 +380,7 @@ actor AudioCacheManager {
 
     func markDownloaded(path: String, byteCount: Int64?, pinned: Bool) {
         ensureInitialized()
+        refreshTrackedPathFamily(path)
         accessLog[path] = Date()
         var entry = offlineManifest[path] ?? OfflineManifestEntry(
             isManuallyPinned: false,
@@ -197,6 +399,7 @@ actor AudioCacheManager {
 
     func pin(path: String, byteCount: Int64?) {
         ensureInitialized()
+        refreshTrackedPathFamily(path)
         var entry = offlineManifest[path] ?? OfflineManifestEntry(
             isManuallyPinned: true,
             byteCount: byteCount,
@@ -216,6 +419,7 @@ actor AudioCacheManager {
     func pin(path: String, byteCount: Int64?, forPlaylistIDs playlistIDs: Set<String>) {
         guard !playlistIDs.isEmpty else { return }
         ensureInitialized()
+        refreshTrackedPathFamily(path)
         var entry = offlineManifest[path] ?? OfflineManifestEntry(
             isManuallyPinned: false,
             playlistIDs: playlistIDs,
@@ -237,9 +441,13 @@ actor AudioCacheManager {
     /// files that lose their final automatic owner remain as ordinary LRU
     /// cache entries instead of being deleted immediately.
     func reconcileAutomaticPlaylistPins(
-        _ requests: [AutomaticOfflinePinRequest]
-    ) -> Set<String> {
+        _ requests: [AutomaticOfflinePinRequest],
+        generation: Int,
+        excludedPaths: Set<String> = []
+    ) -> Set<String>? {
         ensureInitialized()
+        guard generation >= automaticPlaylistReconciliationGeneration else { return nil }
+        automaticPlaylistReconciliationGeneration = generation
         var desiredByPath: [String: AutomaticOfflinePinRequest] = [:]
         for request in requests {
             if let existing = desiredByPath[request.path] {
@@ -255,12 +463,17 @@ actor AudioCacheManager {
                 desiredByPath[request.path] = request
             }
         }
+        automaticPlaylistProtectedPaths = Set(
+            desiredByPath.keys.flatMap { AudioCachePathFamily.relativePaths(for: $0) }
+        )
         var manifestChanged = false
         var missingPaths = Set<String>()
 
         for path in Array(offlineManifest.keys) {
             guard var entry = offlineManifest[path] else { continue }
-            let desiredOwners = desiredByPath[path]?.playlistIDs ?? []
+            let desiredOwners = excludedPaths.contains(path)
+                ? []
+                : (desiredByPath[path]?.playlistIDs ?? [])
             if entry.playlistIDs != desiredOwners {
                 entry.playlistIDs = desiredOwners
                 entry.pinnedAt = entry.isPinned ? (entry.pinnedAt ?? Date()) : nil
@@ -270,6 +483,10 @@ actor AudioCacheManager {
         }
 
         for request in desiredByPath.values {
+            guard !excludedPaths.contains(request.path) else {
+                missingPaths.insert(request.path)
+                continue
+            }
             let fileURL = basePath.appendingPathComponent(request.path)
             let byteCount = logicalFileSize(at: fileURL)
             let isUsable = byteCount.map { size in
@@ -332,12 +549,256 @@ actor AudioCacheManager {
         })
     }
 
+    /// Returns only paths owned by at least one Always Download playlist.
+    /// Manual pins are deliberately excluded: content-change invalidation may
+    /// replace those normally, while a playlist-owned artifact must remain
+    /// playable until its verified refresh is atomically installed.
+    func automaticPlaylistPinnedRelativePaths(
+        matching candidatePaths: Set<String>
+    ) -> Set<String> {
+        ensureInitialized()
+        return Set(candidatePaths.filter { path in
+            offlineManifest[path]?.playlistIDs.isEmpty == false
+        })
+    }
+
     func clearUnpinnedAccessEntries() {
         ensureInitialized()
         accessLog = accessLog.filter { path, _ in
             offlineManifest[path]?.isPinned == true
         }
+        rebuildTrackedInventory(migrateAccessDates: false)
         schedulePersist()
+    }
+
+    func acquirePathFamilyLease(
+        path: String,
+        reserveBytes: Int64 = 0
+    ) -> AudioCachePathLease? {
+        ensureInitialized()
+        guard !sourcePurgeGenerationByPrefix.keys.contains(where: { path.hasPrefix($0) }) else {
+            return nil
+        }
+        let lease = AudioCachePathLease(id: UUID())
+        let paths = AudioCachePathFamily.relativePaths(for: path)
+        leasedPathsByID[lease.id] = paths
+        leasedCanonicalPathByID[lease.id] = path
+        for path in paths {
+            leasedPathCounts[path, default: 0] += 1
+        }
+        let reservation = max(0, reserveBytes)
+        reservedBytesByLeaseID[lease.id] = reservation
+        reservationUsesConfiguredCacheByLeaseID[lease.id] = true
+        let reservationResult = activeReservedBytes.addingReportingOverflow(reservation)
+        activeReservedBytes = reservationResult.overflow ? .max : reservationResult.partialValue
+        let configuredResult = activeConfiguredCacheReservedBytes
+            .addingReportingOverflow(reservation)
+        activeConfiguredCacheReservedBytes = configuredResult.overflow
+            ? .max
+            : configuredResult.partialValue
+        return lease
+    }
+
+    func releasePathFamilyLease(_ lease: AudioCachePathLease) {
+        ensureInitialized()
+        guard let paths = leasedPathsByID.removeValue(forKey: lease.id) else { return }
+        if let canonicalPath = leasedCanonicalPathByID.removeValue(forKey: lease.id) {
+            refreshTrackedPathFamily(canonicalPath)
+        }
+        for path in paths {
+            let count = max(0, (leasedPathCounts[path] ?? 1) - 1)
+            leasedPathCounts[path] = count == 0 ? nil : count
+        }
+        let reservation = reservedBytesByLeaseID.removeValue(forKey: lease.id) ?? 0
+        activeReservedBytes = max(0, activeReservedBytes - reservation)
+        if reservationUsesConfiguredCacheByLeaseID.removeValue(forKey: lease.id) == true {
+            activeConfiguredCacheReservedBytes = max(
+                0,
+                activeConfiguredCacheReservedBytes - reservation
+            )
+        }
+    }
+
+    /// Atomically upgrades a provisional path lease into a physical-disk
+    /// transfer reservation. Every admission subtracts all other active
+    /// reservations before preserving the safety headroom, so two concurrent
+    /// downloads cannot both spend the same free bytes.
+    func approveTransferReservation(
+        _ lease: AudioCachePathLease,
+        expectedSize: Int64,
+        physicalAvailableBytes: Int64,
+        minimumRequiredBytes: Int64,
+        respectsConfiguredCacheLimit: Bool = true
+    ) -> AudioCacheTransferReservationApproval {
+        ensureInitialized()
+        guard leasedPathsByID[lease.id] != nil,
+              let previousReservation = reservedBytesByLeaseID[lease.id],
+              let previousUsesConfiguredCache =
+                  reservationUsesConfiguredCacheByLeaseID[lease.id] else {
+            return .invalidLease
+        }
+        let otherReservedBytes = max(0, activeReservedBytes - previousReservation)
+        let previousConfiguredReservation = previousUsesConfiguredCache
+            ? previousReservation
+            : 0
+        let otherConfiguredCacheReservedBytes = max(
+            0,
+            activeConfiguredCacheReservedBytes - previousConfiguredReservation
+        )
+        let maximum = OfflineTransferSizePolicy.maximumAllowedBytes(
+            expectedSize: expectedSize,
+            cacheLimitBytes: respectsConfiguredCacheLimit
+                ? cacheLimitBytes()
+                : AudioCacheLimitPolicy.unlimitedBytes,
+            availableDiskBytes: max(0, physicalAvailableBytes),
+            otherReservedBytes: otherReservedBytes,
+            otherConfiguredCacheReservedBytes: otherConfiguredCacheReservedBytes
+        )
+        guard previousReservation == 0
+                || previousUsesConfiguredCache == respectsConfiguredCacheLimit else {
+            return .invalidLease
+        }
+        // Re-admission of an already-live playback lease must be monotonic.
+        // A failed larger request cannot shrink the reservation protecting the
+        // current sparse writer, and bytes already written may have reduced the
+        // subsequently reported free-space value without invalidating the
+        // reservation granted before those writes began.
+        let approvedReservation = max(previousReservation, maximum)
+        guard approvedReservation > 0,
+              approvedReservation >= max(1, minimumRequiredBytes) else {
+            return .insufficientCapacity(available: approvedReservation)
+        }
+
+        activeReservedBytes = otherReservedBytes
+        reservedBytesByLeaseID[lease.id] = approvedReservation
+        reservationUsesConfiguredCacheByLeaseID[lease.id] = respectsConfiguredCacheLimit
+        let updated = activeReservedBytes.addingReportingOverflow(approvedReservation)
+        activeReservedBytes = updated.overflow ? .max : updated.partialValue
+        activeConfiguredCacheReservedBytes = otherConfiguredCacheReservedBytes
+        if respectsConfiguredCacheLimit {
+            let configured = activeConfiguredCacheReservedBytes
+                .addingReportingOverflow(approvedReservation)
+            activeConfiguredCacheReservedBytes = configured.overflow
+                ? .max
+                : configured.partialValue
+        }
+        return .approved(approvedReservation)
+    }
+
+    /// Stops charging an existing playback reservation against the configured
+    /// cache budget while preserving its full physical-disk reservation. This
+    /// is used when automatic caching is disabled during an active sparse
+    /// stream: playback may continue in temporary storage, but the file must
+    /// no longer be eligible for persistent-cache promotion.
+    func downgradeTransferReservationToPhysicalOnly(
+        _ lease: AudioCachePathLease
+    ) -> Bool {
+        ensureInitialized()
+        guard leasedPathsByID[lease.id] != nil,
+              let reservation = reservedBytesByLeaseID[lease.id],
+              let usesConfiguredCache =
+                  reservationUsesConfiguredCacheByLeaseID[lease.id] else {
+            return false
+        }
+        guard usesConfiguredCache else { return true }
+        activeConfiguredCacheReservedBytes = max(
+            0,
+            activeConfiguredCacheReservedBytes - reservation
+        )
+        reservationUsesConfiguredCacheByLeaseID[lease.id] = false
+        return true
+    }
+
+    func isPathFamilyLeased(path: String) -> Bool {
+        ensureInitialized()
+        return AudioCachePathFamily.relativePaths(for: path).contains {
+            (leasedPathCounts[$0] ?? 0) > 0
+        }
+    }
+
+    func hasLeasedPath(forSourcePrefix prefix: String) -> Bool {
+        ensureInitialized()
+        return leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
+    }
+
+    func beginSourcePurge(prefix: String, generation: Int) -> Bool {
+        ensureInitialized()
+        guard generation > (completedSourcePurgeGenerationByPrefix[prefix] ?? .min),
+              generation >= (sourcePurgeGenerationByPrefix[prefix] ?? .min) else {
+            return false
+        }
+        sourcePurgeGenerationByPrefix[prefix] = generation
+        return !leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
+    }
+
+    func sourcePurgeCanProceed(prefix: String, generation: Int) -> Bool {
+        ensureInitialized()
+        guard sourcePurgeGenerationByPrefix[prefix] == generation else { return false }
+        return !leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
+    }
+
+    func purgeSourceCacheDirectoryIfReady(
+        prefix: String,
+        generation: Int
+    ) -> Bool {
+        ensureInitialized()
+        guard sourcePurgeGenerationByPrefix[prefix] == generation,
+              !leasedCanonicalPathByID.values.contains(where: { $0.hasPrefix(prefix) }) else {
+            return false
+        }
+        let sourceRelativePath = prefix.hasSuffix("/")
+            ? String(prefix.dropLast())
+            : prefix
+        let directory = basePath.appendingPathComponent(sourceRelativePath).standardizedFileURL
+        let basePrefix = basePath.standardizedFileURL.path + "/"
+        guard directory.path.hasPrefix(basePrefix) else { return false }
+        do {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        } catch {
+            return false
+        }
+
+        let accessKeys = accessLog.keys.filter { $0.hasPrefix(prefix) }
+        for key in accessKeys { accessLog[key] = nil }
+        let manifestKeys = offlineManifest.keys.filter { $0.hasPrefix(prefix) }
+        for key in manifestKeys { offlineManifest[key] = nil }
+        let trackedKeys = trackedFileSizes.keys.filter { $0.hasPrefix(prefix) }
+        for key in trackedKeys { removeTrackedPath(key) }
+        automaticPlaylistProtectedPaths = automaticPlaylistProtectedPaths.filter {
+            !$0.hasPrefix(prefix)
+        }
+        if !accessKeys.isEmpty { schedulePersist() }
+        if !manifestKeys.isEmpty { scheduleManifestPersist() }
+        return true
+    }
+
+    func endSourcePurge(prefix: String, generation: Int) {
+        ensureInitialized()
+        completedSourcePurgeGenerationByPrefix[prefix] = max(
+            completedSourcePurgeGenerationByPrefix[prefix] ?? .min,
+            generation
+        )
+        if let activeGeneration = sourcePurgeGenerationByPrefix[prefix],
+           activeGeneration <= generation {
+            sourcePurgeGenerationByPrefix.removeValue(forKey: prefix)
+        }
+    }
+
+    func pathFamilyHasOtherLeases(
+        path: String,
+        excluding lease: AudioCachePathLease
+    ) -> Bool {
+        ensureInitialized()
+        guard leasedCanonicalPathByID[lease.id] == path,
+              let ownedPaths = leasedPathsByID[lease.id] else { return true }
+        return ownedPaths.contains { (leasedPathCounts[$0] ?? 0) > 1 }
+    }
+
+    func refreshPathFamily(path: String) {
+        ensureInitialized()
+        refreshTrackedPathFamily(path)
     }
 
     /// Evict oldest files until there is room for `reserveBytes` additional data.
@@ -348,44 +809,41 @@ actor AudioCacheManager {
     /// 看不见 .partial, 完整文件被压在 2GB 但 .partial 无限堆 —— 用户
     /// 实际见到 5GB+ 缓存。
     ///
-    /// 现在改成扫整个 cache 目录, 对没记录的 .partial / orphan 用 mtime
-    /// 当 access time 兜底, 一并参与 LRU 排序 + eviction。
-    func evictIfNeeded(reserveBytes: Int64) {
+    /// Startup builds one inventory. Normal transfers then update only their
+    /// path family, keeping the common under-limit check O(1) even for a large
+    /// always-download queue.
+    @discardableResult
+    func evictIfNeeded(reserveBytes: Int64) -> Bool {
         ensureInitialized()
-        let currentSize = totalCacheSizeSync()
+        let currentSize = trackedTotalSize
+        let combinedReservation: Int64
+        let reservationResult = activeConfiguredCacheReservedBytes
+            .addingReportingOverflow(max(0, reserveBytes))
+        combinedReservation = reservationResult.overflow ? .max : reservationResult.partialValue
         guard let target = AudioCacheLimitPolicy.evictionTarget(
             limitBytes: cacheLimitBytes(),
-            reserveBytes: reserveBytes
-        ) else { return }
+            reserveBytes: combinedReservation
+        ) else { return true }
 
-        guard currentSize > target else { return }
+        guard currentSize > target else { return true }
 
-        // 扫整个 cache 目录, 给 accessLog 没覆盖的文件 (主要是 .partial /
-        // .partial.prewarmed) 用 mtime 当 access 时间兜底。
         struct EvictCandidate { let url: URL; let relativePath: String; let size: Int64; let lastUsed: Date }
         var candidates: [EvictCandidate] = []
-        let basePathPrefix = basePath.path + "/"
-
-        if let enumerator = FileManager.default.enumerator(
-            at: basePath,
-            includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            for case let fileURL as URL in enumerator {
-                guard let values = try? fileURL.resourceValues(
-                    forKeys: [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey]
-                ), values.isRegularFile == true else { continue }
-                let size = Int64(values.totalFileAllocatedSize ?? 0)
-                guard size > 0 else { continue }
-                let relative = fileURL.path.hasPrefix(basePathPrefix)
-                    ? String(fileURL.path.dropFirst(basePathPrefix.count))
-                    : fileURL.lastPathComponent
-                let lastUsed = accessLog[relative] ?? values.contentModificationDate ?? .distantPast
-                if offlineManifest[relative]?.isPinned == true {
-                    continue
-                }
-                candidates.append(EvictCandidate(url: fileURL, relativePath: relative, size: size, lastUsed: lastUsed))
-            }
+        let protectedPaths = protectedRelativePaths()
+        let activeStreamingPaths = activeStreamingRelativePaths()
+        candidates.reserveCapacity(trackedFileSizes.count)
+        for (relative, size) in trackedFileSizes where size > 0 {
+            guard !protectedPaths.contains(relative),
+                  !activeStreamingPaths.contains(relative),
+                  (leasedPathCounts[relative] ?? 0) == 0 else { continue }
+            candidates.append(EvictCandidate(
+                url: basePath.appendingPathComponent(relative),
+                relativePath: relative,
+                size: size,
+                lastUsed: accessLog[relative]
+                    ?? trackedFileModificationDates[relative]
+                    ?? .distantPast
+            ))
         }
 
         // 最旧的优先 evict
@@ -394,9 +852,18 @@ actor AudioCacheManager {
         let needed = currentSize - target
         for cand in candidates {
             if freed >= needed { break }
+            // Playback registration and transfer leases can change after the
+            // candidate snapshot. Recheck immediately before the destructive
+            // operation so an active path family cannot be evicted.
+            guard !protectedPaths.contains(cand.relativePath),
+                  !activeStreamingRelativePaths().contains(cand.relativePath),
+                  (leasedPathCounts[cand.relativePath] ?? 0) == 0 else { continue }
             do {
                 try FileManager.default.removeItem(at: cand.url)
-                freed += cand.size
+                let removedSize = trackedFileSizes.removeValue(forKey: cand.relativePath) ?? cand.size
+                trackedFileModificationDates.removeValue(forKey: cand.relativePath)
+                trackedTotalSize = max(0, trackedTotalSize - removedSize)
+                freed += removedSize
                 accessLog[cand.relativePath] = nil
             } catch {
                 plog("⚠️ evictIfNeeded: failed to remove \(cand.relativePath): \(error.localizedDescription)")
@@ -405,10 +872,16 @@ actor AudioCacheManager {
         plog("🧹 evictIfNeeded: freed \(freed / 1024 / 1024)MB / needed \(needed / 1024 / 1024)MB")
 
         schedulePersist()
+        return AudioCacheTransferCapacityPolicy.isSatisfied(
+            currentSize: trackedTotalSize,
+            limitBytes: cacheLimitBytes(),
+            reservedBytes: combinedReservation
+        )
     }
 
     func totalCacheSize() -> Int64 {
-        totalCacheSizeSync()
+        ensureInitialized()
+        return trackedTotalSize
     }
 
     /// Remove a single cache entry by its relative path.
@@ -416,6 +889,9 @@ actor AudioCacheManager {
         ensureInitialized()
         let fileURL = basePath.appendingPathComponent(path)
         try? FileManager.default.removeItem(at: fileURL)
+        for familyPath in AudioCachePathFamily.relativePaths(for: path) {
+            removeTrackedPath(familyPath)
+        }
         accessLog[path] = nil
         offlineManifest[path] = nil
         schedulePersist()
@@ -436,6 +912,10 @@ actor AudioCacheManager {
         for key in keys { accessLog[key] = nil }
         let manifestKeys = offlineManifest.keys.filter { key in prefixes.contains { key.hasPrefix($0) } }
         for key in manifestKeys { offlineManifest[key] = nil }
+        let trackedKeys = trackedFileSizes.keys.filter { key in
+            prefixes.contains { key.hasPrefix($0) }
+        }
+        for key in trackedKeys { removeTrackedPath(key) }
         if !keys.isEmpty { schedulePersist() }
         if !manifestKeys.isEmpty { scheduleManifestPersist() }
     }
@@ -448,6 +928,9 @@ actor AudioCacheManager {
         for path in paths {
             accessChanged = accessLog.removeValue(forKey: path) != nil || accessChanged
             manifestChanged = offlineManifest.removeValue(forKey: path) != nil || manifestChanged
+            for familyPath in AudioCachePathFamily.relativePaths(for: path) {
+                removeTrackedPath(familyPath)
+            }
         }
         if accessChanged { schedulePersist() }
         if manifestChanged { scheduleManifestPersist() }
@@ -464,19 +947,6 @@ actor AudioCacheManager {
 
     // MARK: - Internal
 
-    private func totalCacheSizeSync() -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(
-            at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
-        ) else { return 0 }
-        var total: Int64 = 0
-        for case let fileURL as URL in enumerator {
-            if let size = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
-                total += Int64(size)
-            }
-        }
-        return total
-    }
-
     private func fileSize(at url: URL) -> Int64? {
         guard let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
               let size = values.totalFileAllocatedSize else { return nil }
@@ -491,19 +961,95 @@ actor AudioCacheManager {
 
     /// For files already in cache with no access log entry, use modification date.
     private func migrateExistingFiles() {
+        rebuildTrackedInventory(migrateAccessDates: true)
+    }
+
+    private func rebuildTrackedInventory(migrateAccessDates: Bool) {
+        trackedFileSizes.removeAll(keepingCapacity: true)
+        trackedFileModificationDates.removeAll(keepingCapacity: true)
+        trackedTotalSize = 0
         guard let enumerator = FileManager.default.enumerator(
-            at: basePath, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
+            at: basePath,
+            includingPropertiesForKeys: [
+                .contentModificationDateKey,
+                .totalFileAllocatedSizeKey,
+                .isRegularFileKey,
+            ],
+            options: [.skipsHiddenFiles]
         ) else { return }
         var changed = false
         for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [
+                .contentModificationDateKey,
+                .totalFileAllocatedSizeKey,
+                .isRegularFileKey,
+            ]), values.isRegularFile == true else { continue }
             let relative = fileURL.path.replacingOccurrences(of: basePath.path + "/", with: "")
-            if accessLog[relative] == nil {
-                let modified = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            let allocatedSize = Int64(values.totalFileAllocatedSize ?? 0)
+            trackedFileSizes[relative] = allocatedSize
+            trackedFileModificationDates[relative] = values.contentModificationDate ?? Date()
+            trackedTotalSize += allocatedSize
+            if migrateAccessDates, accessLog[relative] == nil {
+                let modified = values.contentModificationDate ?? Date()
                 accessLog[relative] = modified
                 changed = true
             }
         }
         if changed { persistNow() }
+    }
+
+    private func refreshTrackedPathFamily(_ path: String) {
+        for relativePath in AudioCachePathFamily.relativePaths(for: path) {
+            refreshTrackedPath(relativePath)
+        }
+    }
+
+    private func refreshTrackedPath(_ relativePath: String) {
+        let url = basePath.appendingPathComponent(relativePath)
+        guard let values = try? url.resourceValues(forKeys: [
+            .contentModificationDateKey,
+            .totalFileAllocatedSizeKey,
+            .isRegularFileKey,
+        ]), values.isRegularFile == true else {
+            removeTrackedPath(relativePath)
+            return
+        }
+        let newSize = Int64(values.totalFileAllocatedSize ?? 0)
+        let oldSize = trackedFileSizes[relativePath] ?? 0
+        trackedFileSizes[relativePath] = newSize
+        trackedFileModificationDates[relativePath] = values.contentModificationDate ?? Date()
+        trackedTotalSize = max(0, trackedTotalSize - oldSize + newSize)
+    }
+
+    private func removeTrackedPath(_ relativePath: String) {
+        trackedTotalSize = max(
+            0,
+            trackedTotalSize - (trackedFileSizes.removeValue(forKey: relativePath) ?? 0)
+        )
+        trackedFileModificationDates.removeValue(forKey: relativePath)
+    }
+
+    private func protectedRelativePaths() -> Set<String> {
+        var paths = automaticPlaylistProtectedPaths
+        for (path, entry) in offlineManifest where entry.isPinned {
+            paths.formUnion(AudioCachePathFamily.relativePaths(for: path))
+        }
+        return paths
+    }
+
+    private func activeStreamingRelativePaths() -> Set<String> {
+        let prefix = basePath.standardizedFileURL.path + "/"
+        var relativePaths = Set<String>()
+        for path in CloudPlaybackSource.activeSessionPaths() {
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard standardized.hasPrefix(prefix) else { continue }
+            var relative = String(standardized.dropFirst(prefix.count))
+            if relative.hasSuffix(".partial") {
+                relative.removeLast(".partial".count)
+            }
+            relativePaths.formUnion(AudioCachePathFamily.relativePaths(for: relative))
+        }
+        return relativePaths
     }
 
     // MARK: - Persistence
@@ -557,13 +1103,17 @@ actor AudioCacheManager {
 
 private actor AlwaysDownloadWorker {
     private struct Job: Codable, Sendable {
-        var song: Song
+        var song: AutomaticOfflineJobSongSnapshot
         var playlistIDs: Set<String>
         var contentSignature: String
         var forceRedownload: Bool
         var attemptCount: Int
         var nextAttemptAt: Date
         var enqueuedAt: Date
+        var artifactPath: String? = nil
+        var artifactSignature: String? = nil
+        var refreshDisposition: AutomaticOfflineRefreshDisposition? = nil
+        var refreshPrepared: Bool? = nil
     }
 
     private struct Journal: Codable, Sendable {
@@ -573,6 +1123,41 @@ private actor AlwaysDownloadWorker {
         /// decodable. This records the provenance of complete and partial
         /// automatic transfers even while their playlist is disabled.
         var lastKnownSignatures: [String: String]? = nil
+        /// Tags a source-wide retry deadline with the identity that created it,
+        /// so changing account/endpoint clears stale cooldown. This is not file
+        /// provenance; only the artifact maps below can authorize adoption.
+        var sourceIdentitySignatures: [String: String]? = nil
+        /// Provenance is earned only by a successful transfer of this exact
+        /// physical artifact. A successful song must never make every file in
+        /// the source/account namespace trustworthy.
+        var artifactProvenanceSignatures: [String: String]? = nil
+        /// Kept separately so a content revision from the same trusted account
+        /// can preserve its old playable bytes while an account/endpoint
+        /// switch must discard them before transfer.
+        var artifactSourceIdentitySignatures: [String: String]? = nil
+        /// A terminal login failure applies to the source, not one song. New
+        /// jobs inherit this durable cooldown instead of retrying credentials
+        /// once per playlist member.
+        var sourceRetryAfter: [String: Date]? = nil
+        /// Deltas at or below this sequence are already represented in this
+        /// full snapshot. Replaying an old append log after an atomic snapshot
+        /// write is therefore idempotent even if truncation was interrupted.
+        var lastAppliedDeltaSequence: UInt64? = nil
+    }
+
+    private struct JournalDelta: Codable, Sendable {
+        enum Kind: String, Codable, Sendable {
+            case jobUpdate
+            case completion
+        }
+
+        let sequence: UInt64
+        let kind: Kind
+        let expectedContentSignature: String?
+        let job: Job?
+        let sourceCooldownID: String?
+        let sourceCooldownUntil: Date?
+        let completion: AutomaticOfflineCompletionDeltaPayload?
     }
 
     private struct ResourceSnapshot: Sendable {
@@ -580,9 +1165,16 @@ private actor AlwaysDownloadWorker {
         let isReachable: Bool
         let isExpensive: Bool
         let isConstrained: Bool
+        let isPlaybackActive: Bool
         let isPlaybackBuffering: Bool
         let isLowPowerModeEnabled: Bool
         let hasSeriousThermalPressure: Bool
+    }
+
+    private struct JobQueueEntry: Sendable {
+        let songID: String
+        let nextAttemptAt: Date
+        let enqueuedAt: Date
     }
 
     private let sourceManager: SourceManager
@@ -590,12 +1182,22 @@ private actor AlwaysDownloadWorker {
     private let journalURL: URL
     private var journal = Journal()
     private var desiredBySongID: [String: AlwaysDownloadDesiredSong] = [:]
-    private var applicationIsActive = true
+    private var desiredSongIDsByArtifact: [String: [String]] = [:]
+    private var applicationIsActive = false
+    private var playbackIsActive = false
     private var playbackIsBuffering = false
     private var resourceConditionsAllowTransfers = false
     private var didLoadJournal = false
     private var runner: Task<Void, Never>?
     private var runnerGeneration = UUID()
+    private var jobHeap: [JobQueueEntry] = []
+    private var journalMutationCountSincePersist = 0
+    private var desiredReplacementGeneration = 0
+    private var nextJournalDeltaSequence: UInt64 = 1
+
+    private var journalDeltaURL: URL {
+        journalURL.appendingPathExtension("delta")
+    }
 
     init(
         sourceManager: SourceManager,
@@ -609,11 +1211,13 @@ private actor AlwaysDownloadWorker {
 
     func start(
         applicationIsActive: Bool,
+        playbackIsActive: Bool,
         playbackIsBuffering: Bool,
         resourceConditionsAllowTransfers: Bool
     ) {
         loadJournalIfNeeded()
         self.applicationIsActive = applicationIsActive
+        self.playbackIsActive = playbackIsActive
         self.playbackIsBuffering = playbackIsBuffering
         self.resourceConditionsAllowTransfers = resourceConditionsAllowTransfers
     }
@@ -628,12 +1232,14 @@ private actor AlwaysDownloadWorker {
     }
 
     func resourceConditionsDidChange(
+        playbackIsActive: Bool,
         playbackIsBuffering: Bool,
         allowTransfers: Bool
     ) async {
+        self.playbackIsActive = playbackIsActive
         self.playbackIsBuffering = playbackIsBuffering
         resourceConditionsAllowTransfers = allowTransfers
-        if playbackIsBuffering || !allowTransfers {
+        if playbackIsActive || playbackIsBuffering || !allowTransfers {
             await cancelRunner()
         } else {
             scheduleRunner()
@@ -642,7 +1248,11 @@ private actor AlwaysDownloadWorker {
 
     func replaceDesiredSongs(_ desiredSongs: [AlwaysDownloadDesiredSong]) async {
         loadJournalIfNeeded()
+        desiredReplacementGeneration += 1
+        let replacementGeneration = desiredReplacementGeneration
         await cancelRunner()
+        guard !Task.isCancelled,
+              desiredReplacementGeneration == replacementGeneration else { return }
 
         var nextDesired: [String: AlwaysDownloadDesiredSong] = [:]
         nextDesired.reserveCapacity(desiredSongs.count)
@@ -651,34 +1261,79 @@ private actor AlwaysDownloadWorker {
                 nextDesired[desired.song.id] = AlwaysDownloadDesiredSong(
                     song: desired.song,
                     playlistIDs: existing.playlistIDs.union(desired.playlistIDs),
-                    contentSignature: desired.contentSignature
+                    contentSignature: desired.contentSignature,
+                    sourceIdentitySignature: desired.sourceIdentitySignature,
+                    artifactPath: desired.artifactPath,
+                    artifactSignature: desired.artifactSignature
                 )
             } else {
                 nextDesired[desired.song.id] = desired
             }
         }
+        let desiredValues = Array(nextDesired.values)
+        let nextDesiredSongIDsByArtifact = AutomaticOfflineArtifactIndex.make(
+            from: desiredValues
+        )
+        let knownSourceIdentities = journal.sourceIdentitySignatures ?? [:]
+        let knownArtifactProvenance = journal.artifactProvenanceSignatures ?? [:]
+        let knownArtifactSourceIdentities = journal.artifactSourceIdentitySignatures ?? [:]
+        var preflightDispositions: [String: AutomaticOfflineRefreshDisposition] = [:]
+        preflightDispositions.reserveCapacity(desiredValues.count)
+        for desired in desiredValues {
+            let disposition = AutomaticOfflineArtifactPolicy.refreshDisposition(
+                fileExists: true,
+                recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
+                desiredArtifactSignature: desired.artifactSignature,
+                recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
+                desiredSourceIdentitySignature: desired.sourceIdentitySignature
+            )
+            preflightDispositions[desired.artifactPath] = AutomaticOfflineRefreshDisposition.strongest(
+                preflightDispositions[desired.artifactPath] ?? .none,
+                disposition
+            )
+        }
+        guard let excludedArtifactPaths = await sourceManager.reconcileAutomaticOfflineProvenance(
+            preflightDispositions,
+            generation: replacementGeneration
+        ), !Task.isCancelled,
+           desiredReplacementGeneration == replacementGeneration else { return }
+        guard let missingSongIDs = await sourceManager.reconcileAutomaticPlaylistPins(
+            desiredValues,
+            generation: replacementGeneration,
+            excludedArtifactPaths: excludedArtifactPaths
+        ), !Task.isCancelled,
+           desiredReplacementGeneration == replacementGeneration else { return }
         desiredBySongID = nextDesired
+        desiredSongIDsByArtifact = nextDesiredSongIDsByArtifact
         var knownSignatures = journal.lastKnownSignatures ?? [:]
-        for (songID, job) in journal.jobs where !job.forceRedownload {
+        for (songID, job) in journal.jobs
+        where (job.refreshDisposition ?? (job.forceRedownload ? .discardUntrusted : .none)) == .none {
             knownSignatures[songID] = job.contentSignature
         }
-
-        let desiredValues = Array(nextDesired.values)
-        let missingSongIDs = await sourceManager.reconcileAutomaticPlaylistPins(
-            desiredValues
-        )
         let desiredSignatures = nextDesired.mapValues(\.contentSignature)
 
-        // A complete file already in the ordinary playback cache can be
-        // promoted without another transfer on first enable. Once a signature
-        // has been recorded, a signature change deliberately forces refresh.
+        var sourceRetryAfter = journal.sourceRetryAfter ?? [:]
+        for desired in desiredValues
+        where knownSourceIdentities[desired.song.sourceID] != nil
+            && knownSourceIdentities[desired.song.sourceID] != desired.sourceIdentitySignature {
+            sourceRetryAfter.removeValue(forKey: desired.song.sourceID)
+        }
+        // Trust is earned per physical artifact, never by another successful
+        // file from the same source/account namespace.
         for desired in desiredValues
         where !missingSongIDs.contains(desired.song.id)
             && journal.completedSignatures[desired.song.id] == nil
+            && (journal.jobs[desired.song.id].map {
+                $0.refreshDisposition ?? ($0.forceRedownload ? .discardUntrusted : .none)
+            } ?? .none) == .none
             && AutomaticOfflineDownloadPolicy.canAdoptExistingFile(
                 desiredSignature: desired.contentSignature,
                 completedSignature: nil,
-                lastKnownSignature: knownSignatures[desired.song.id]
+                lastKnownSignature: knownSignatures[desired.song.id],
+                provenanceIsTrusted: AutomaticOfflineArtifactPolicy.provenanceIsTrusted(
+                    recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
+                    desiredArtifactSignature: desired.artifactSignature
+                )
             ) {
             journal.completedSignatures[desired.song.id] = desired.contentSignature
             knownSignatures[desired.song.id] = desired.contentSignature
@@ -693,31 +1348,75 @@ private actor AlwaysDownloadWorker {
         let now = Date()
         for songID in requiredSongIDs {
             guard let desired = nextDesired[songID] else { continue }
-            let contentChanged = AutomaticOfflineDownloadPolicy.requiresContentRefresh(
-                desiredSignature: desired.contentSignature,
-                completedSignature: journal.completedSignatures[songID],
-                lastKnownSignature: knownSignatures[songID]
-            )
+            let requestedDisposition = preflightDispositions[desired.artifactPath] == .discardUntrusted
+                ? .discardUntrusted
+                : AutomaticOfflineArtifactPolicy.refreshDisposition(
+                    fileExists: !missingSongIDs.contains(songID),
+                    recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
+                    desiredArtifactSignature: desired.artifactSignature,
+                    recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
+                    desiredSourceIdentitySignature: desired.sourceIdentitySignature
+                )
             if var existing = journal.jobs[songID],
                existing.contentSignature == desired.contentSignature {
-                existing.song = desired.song
+                existing.song = AutomaticOfflineJobSongSnapshot(desired.song)
                 existing.playlistIDs = desired.playlistIDs
-                existing.forceRedownload = existing.forceRedownload || contentChanged
+                existing.artifactPath = desired.artifactPath
+                existing.artifactSignature = desired.artifactSignature
+                let existingDisposition = existing.refreshDisposition
+                    ?? (existing.forceRedownload ? .discardUntrusted : .none)
+                let disposition = AutomaticOfflineRefreshDisposition.strongest(
+                    existingDisposition,
+                    requestedDisposition
+                )
+                if disposition != existingDisposition {
+                    existing.refreshPrepared = false
+                }
+                existing.refreshDisposition = disposition
+                existing.forceRedownload = disposition != .none
+                    && existing.refreshPrepared != true
+                if let retryAfter = sourceRetryAfter[desired.song.sourceID] {
+                    existing.nextAttemptAt = max(existing.nextAttemptAt, retryAfter)
+                }
                 journal.jobs[songID] = existing
             } else {
                 journal.jobs[songID] = Job(
-                    song: desired.song,
+                    song: AutomaticOfflineJobSongSnapshot(desired.song),
                     playlistIDs: desired.playlistIDs,
                     contentSignature: desired.contentSignature,
-                    forceRedownload: contentChanged,
+                    forceRedownload: requestedDisposition != .none,
                     attemptCount: 0,
-                    nextAttemptAt: now,
-                    enqueuedAt: now
+                    nextAttemptAt: max(
+                        now,
+                        sourceRetryAfter[desired.song.sourceID] ?? .distantPast
+                    ),
+                    enqueuedAt: now,
+                    artifactPath: desired.artifactPath,
+                    artifactSignature: desired.artifactSignature,
+                    refreshDisposition: requestedDisposition,
+                    refreshPrepared: false
                 )
             }
         }
         journal.lastKnownSignatures = knownSignatures
-        persistJournal()
+        var sourceIdentities = journal.sourceIdentitySignatures ?? [:]
+        for desired in desiredValues {
+            sourceIdentities[desired.song.sourceID] = desired.sourceIdentitySignature
+        }
+        journal.sourceIdentitySignatures = sourceIdentities
+        journal.sourceRetryAfter = sourceRetryAfter
+        let preservingArtifactPaths = Set(journal.jobs.compactMap { songID, job -> String? in
+            let disposition = job.refreshDisposition
+                ?? (job.forceRedownload ? .discardUntrusted : .none)
+            guard disposition == .preserveExisting else { return nil }
+            return job.artifactPath ?? nextDesired[songID]?.artifactPath
+        })
+        guard await sourceManager.reconcileAutomaticRefreshProtections(
+            preservingArtifactPaths,
+            generation: replacementGeneration
+        ), !Task.isCancelled,
+              desiredReplacementGeneration == replacementGeneration else { return }
+        persistJournal(force: true)
         scheduleRunner()
     }
 
@@ -731,24 +1430,33 @@ private actor AlwaysDownloadWorker {
         }
         let now = Date()
         journal.jobs[songID] = Job(
-            song: desired.song,
+            song: AutomaticOfflineJobSongSnapshot(desired.song),
             playlistIDs: desired.playlistIDs,
             contentSignature: desired.contentSignature,
             forceRedownload: false,
             attemptCount: 0,
             nextAttemptAt: now,
-            enqueuedAt: now
+            enqueuedAt: now,
+            artifactPath: desired.artifactPath,
+            artifactSignature: desired.artifactSignature,
+            refreshDisposition: AutomaticOfflineRefreshDisposition.none,
+            refreshPrepared: false
         )
-        persistJournal()
+        persistJournal(force: true)
         await restartRunner()
     }
 
     private func cancelRunner() async {
-        runnerGeneration = UUID()
+        let cancellationGeneration = UUID()
+        runnerGeneration = cancellationGeneration
         let previousRunner = runner
-        previousRunner?.cancel()
         runner = nil
-        await previousRunner?.value
+        previousRunner?.cancel()
+        // Do not wait for a connector that may take time to observe
+        // cancellation. The old runner is fenced by `runnerGeneration` after
+        // every suspension point, while a replacement reconciliation can
+        // immediately isolate paths belonging to a changed account/scope.
+        persistJournal(force: true)
     }
 
     private func restartRunner() async {
@@ -759,6 +1467,7 @@ private actor AlwaysDownloadWorker {
     private func scheduleRunner() {
         guard runner == nil,
               applicationIsActive,
+              !playbackIsActive,
               !playbackIsBuffering,
               resourceConditionsAllowTransfers,
               !journal.jobs.isEmpty else { return }
@@ -772,13 +1481,16 @@ private actor AlwaysDownloadWorker {
 
     private func runLoop(generation: UUID) async {
         defer {
+            persistJournal(force: true)
             if runnerGeneration == generation {
                 runner = nil
             }
         }
+        rebuildJobHeap()
         while !Task.isCancelled,
               runnerGeneration == generation,
               applicationIsActive,
+              !playbackIsActive,
               !playbackIsBuffering,
               resourceConditionsAllowTransfers {
             guard let job = nextJob() else { return }
@@ -790,6 +1502,14 @@ private actor AlwaysDownloadWorker {
             }
 
             let resources = await resourceSnapshot()
+            let refreshDisposition = job.refreshDisposition
+                ?? (job.forceRedownload ? .discardUntrusted : .none)
+            let recoverableArtifactBytes = await sourceManager.automaticOfflineRecoverableBytes(
+                song: job.song.materializedSong,
+                refreshDisposition: refreshDisposition
+            )
+            guard !Task.isCancelled,
+                  runnerGeneration == generation else { return }
             let eligibility = AutomaticOfflineDownloadPolicy.eligibility(
                 applicationIsActive: applicationIsActive,
                 hasDeterminedNetwork: resources.hasDeterminedNetwork,
@@ -798,8 +1518,13 @@ private actor AlwaysDownloadWorker {
                 isConstrained: resources.isConstrained,
                 isLowPowerModeEnabled: resources.isLowPowerModeEnabled,
                 hasSeriousThermalPressure: resources.hasSeriousThermalPressure,
-                availableDiskBytes: Self.availableDiskBytes(),
+                availableDiskBytes: AutomaticOfflineDiskAdmissionPolicy.adjustedAvailableBytes(
+                    physicalAvailableBytes: Self.availableDiskBytes(),
+                    refreshDisposition: refreshDisposition,
+                    recoverableArtifactBytes: recoverableArtifactBytes
+                ),
                 expectedDownloadBytes: job.song.fileSize,
+                isPlaybackActive: resources.isPlaybackActive,
                 isPlaybackBuffering: resources.isPlaybackBuffering
             )
             guard eligibility == .allowed else {
@@ -807,9 +1532,14 @@ private actor AlwaysDownloadWorker {
                 continue
             }
 
+            removeJobHeapRoot()
+
+            let needsRefreshPreparation = refreshDisposition != .none
+                && job.refreshPrepared != true
             let prepared = await sourceManager.prepareAutomaticOfflineDownload(
-                song: job.song,
-                forceRedownload: job.forceRedownload
+                song: job.song.materializedSong,
+                forceRedownload: needsRefreshPreparation,
+                refreshDisposition: refreshDisposition
             )
             guard !Task.isCancelled,
                   runnerGeneration == generation,
@@ -821,23 +1551,26 @@ private actor AlwaysDownloadWorker {
                 var deferred = journal.jobs[job.song.id] ?? job
                 deferred.nextAttemptAt = Date().addingTimeInterval(5)
                 journal.jobs[job.song.id] = deferred
-                persistJournal()
+                insertIntoJobHeap(deferred)
+                persistJobDelta(deferred)
                 continue
             }
-            if job.forceRedownload {
+            if needsRefreshPreparation {
                 var preparedJob = journal.jobs[job.song.id] ?? job
                 preparedJob.forceRedownload = false
+                preparedJob.refreshDisposition = refreshDisposition
+                preparedJob.refreshPrepared = true
                 journal.jobs[job.song.id] = preparedJob
                 journal.completedSignatures.removeValue(forKey: job.song.id)
-                var knownSignatures = journal.lastKnownSignatures ?? [:]
-                knownSignatures[job.song.id] = job.contentSignature
-                journal.lastKnownSignatures = knownSignatures
-                persistJournal()
+                persistJobDelta(preparedJob)
             }
 
             let result = await sourceManager.downloadAutomaticallyForOffline(
-                song: job.song,
-                playlistIDs: job.playlistIDs
+                song: job.song.materializedSong,
+                playlistIDs: job.playlistIDs,
+                refreshDisposition: refreshDisposition,
+                artifactSignature: job.artifactSignature
+                    ?? currentDesired.artifactSignature
             )
             guard !Task.isCancelled,
                   runnerGeneration == generation,
@@ -848,61 +1581,165 @@ private actor AlwaysDownloadWorker {
 
             switch result {
             case .completed:
-                journal.completedSignatures[job.song.id] = job.contentSignature
+                journal.sourceRetryAfter?.removeValue(forKey: job.song.sourceID)
                 var knownSignatures = journal.lastKnownSignatures ?? [:]
-                knownSignatures[job.song.id] = job.contentSignature
+                let artifactPath = job.artifactPath
+                    ?? currentDesired.artifactPath
+                let artifactSignature = job.artifactSignature
+                    ?? currentDesired.artifactSignature
+                let siblingIDs = desiredSongIDsByArtifact[
+                    AutomaticOfflineArtifactIndex.key(
+                        path: artifactPath,
+                        signature: artifactSignature
+                    )
+                ] ?? [job.song.id]
+                var completedSignatures: [String: String] = [:]
+                completedSignatures.reserveCapacity(siblingIDs.count)
+                for songID in siblingIDs {
+                    guard let sibling = desiredBySongID[songID] else { continue }
+                    journal.completedSignatures[songID] = sibling.contentSignature
+                    knownSignatures[songID] = sibling.contentSignature
+                    journal.jobs.removeValue(forKey: songID)
+                    completedSignatures[songID] = sibling.contentSignature
+                }
                 journal.lastKnownSignatures = knownSignatures
-                journal.jobs.removeValue(forKey: job.song.id)
-                persistJournal()
-                await refreshPinsAndAbsorbExistingFiles()
+                var artifactProvenance = journal.artifactProvenanceSignatures ?? [:]
+                artifactProvenance[artifactPath] = artifactSignature
+                journal.artifactProvenanceSignatures = artifactProvenance
+                var artifactSourceIdentities = journal.artifactSourceIdentitySignatures ?? [:]
+                artifactSourceIdentities[artifactPath] = currentDesired.sourceIdentitySignature
+                journal.artifactSourceIdentitySignatures = artifactSourceIdentities
+                persistCompletionDelta(AutomaticOfflineCompletionDeltaPayload(
+                    completedSignatures: completedSignatures,
+                    artifactPath: artifactPath,
+                    artifactSignature: artifactSignature,
+                    sourceIdentitySignature: currentDesired.sourceIdentitySignature,
+                    sourceID: job.song.sourceID
+                ))
             case .cancelled:
                 return
-            case .failed(let authenticationRequired, _):
+            case .failed(let failureKind, _):
                 var retry = journal.jobs[job.song.id] ?? job
                 retry.attemptCount = min(retry.attemptCount + 1, 16)
-                let exponent = min(retry.attemptCount - 1, 7)
-                let backoff = min(30 * (1 << exponent), 3_600)
-                retry.nextAttemptAt = Date().addingTimeInterval(
-                    TimeInterval(authenticationRequired ? max(backoff, 900) : backoff)
+                let authenticationLike = failureKind == .authentication
+                    || failureKind == .sourceAccessDenied
+                var retryDelay = AutomaticOfflineDownloadPolicy.retryDelay(
+                    attemptCount: retry.attemptCount,
+                    authenticationRequired: authenticationLike
                 )
+                if failureKind == .rateLimited {
+                    retryDelay = max(retryDelay, 300)
+                }
+                retry.nextAttemptAt = Date().addingTimeInterval(retryDelay)
                 journal.jobs[job.song.id] = retry
-                persistJournal()
+                if failureKind.requiresSourceCooldown {
+                    var sourceRetryAfter = journal.sourceRetryAfter ?? [:]
+                    sourceRetryAfter[job.song.sourceID] = retry.nextAttemptAt
+                    journal.sourceRetryAfter = sourceRetryAfter
+                    for (songID, var queuedJob) in journal.jobs
+                    where queuedJob.song.sourceID == job.song.sourceID {
+                        queuedJob.nextAttemptAt = AutomaticOfflineSourceCooldownPolicy.adjustedAttemptDate(
+                            current: queuedJob.nextAttemptAt,
+                            jobSourceID: queuedJob.song.sourceID,
+                            failedSourceID: job.song.sourceID,
+                            cooldownUntil: retry.nextAttemptAt,
+                            failureKind: failureKind
+                        )
+                        journal.jobs[songID] = queuedJob
+                        insertIntoJobHeap(queuedJob)
+                    }
+                } else {
+                    insertIntoJobHeap(retry)
+                }
+                // Retry deadlines and prepared refresh state are safety
+                // critical even for a tiny queue; never leave them behind the
+                // throughput-oriented completion batch.
+                persistJobDelta(
+                    retry,
+                    sourceCooldownID: failureKind.requiresSourceCooldown
+                        ? job.song.sourceID
+                        : nil,
+                    sourceCooldownUntil: failureKind.requiresSourceCooldown
+                        ? retry.nextAttemptAt
+                        : nil
+                )
             }
         }
-    }
-
-    private func refreshPinsAndAbsorbExistingFiles() async {
-        let desiredValues = Array(desiredBySongID.values)
-        let missingSongIDs = await sourceManager.reconcileAutomaticPlaylistPins(
-            desiredValues
-        )
-        for desired in desiredValues
-        where !missingSongIDs.contains(desired.song.id)
-            && journal.completedSignatures[desired.song.id] == nil
-            && AutomaticOfflineDownloadPolicy.canAdoptExistingFile(
-                desiredSignature: desired.contentSignature,
-                completedSignature: nil,
-                lastKnownSignature: journal.lastKnownSignatures?[desired.song.id]
-            ) {
-            journal.completedSignatures[desired.song.id] = desired.contentSignature
-            var knownSignatures = journal.lastKnownSignatures ?? [:]
-            knownSignatures[desired.song.id] = desired.contentSignature
-            journal.lastKnownSignatures = knownSignatures
-            journal.jobs.removeValue(forKey: desired.song.id)
-        }
-        persistJournal()
     }
 
     private func nextJob() -> Job? {
-        journal.jobs.values.min { lhs, rhs in
-            if lhs.nextAttemptAt != rhs.nextAttemptAt {
-                return lhs.nextAttemptAt < rhs.nextAttemptAt
+        while let entry = jobHeap.first {
+            guard let job = journal.jobs[entry.songID],
+                  job.nextAttemptAt == entry.nextAttemptAt,
+                  job.enqueuedAt == entry.enqueuedAt else {
+                removeJobHeapRoot()
+                continue
             }
-            if lhs.enqueuedAt != rhs.enqueuedAt {
-                return lhs.enqueuedAt < rhs.enqueuedAt
-            }
-            return lhs.song.id < rhs.song.id
+            return job
         }
+        return nil
+    }
+
+    private func rebuildJobHeap() {
+        jobHeap.removeAll(keepingCapacity: true)
+        jobHeap.reserveCapacity(journal.jobs.count)
+        for job in journal.jobs.values {
+            insertIntoJobHeap(job)
+        }
+    }
+
+    private func insertIntoJobHeap(_ job: Job) {
+        jobHeap.append(JobQueueEntry(
+            songID: job.song.id,
+            nextAttemptAt: job.nextAttemptAt,
+            enqueuedAt: job.enqueuedAt
+        ))
+        var index = jobHeap.count - 1
+        while index > 0 {
+            let parent = (index - 1) / 2
+            guard Self.jobQueueEntry(jobHeap[index], precedes: jobHeap[parent]) else {
+                break
+            }
+            jobHeap.swapAt(index, parent)
+            index = parent
+        }
+    }
+
+    private func removeJobHeapRoot() {
+        guard !jobHeap.isEmpty else { return }
+        if jobHeap.count == 1 {
+            jobHeap.removeLast()
+            return
+        }
+        jobHeap[0] = jobHeap.removeLast()
+        var index = 0
+        while true {
+            let left = index * 2 + 1
+            guard left < jobHeap.count else { return }
+            let right = left + 1
+            let candidate = right < jobHeap.count
+                && Self.jobQueueEntry(jobHeap[right], precedes: jobHeap[left])
+                ? right
+                : left
+            guard Self.jobQueueEntry(jobHeap[candidate], precedes: jobHeap[index]) else {
+                return
+            }
+            jobHeap.swapAt(index, candidate)
+            index = candidate
+        }
+    }
+
+    private static func jobQueueEntry(
+        _ lhs: JobQueueEntry,
+        precedes rhs: JobQueueEntry
+    ) -> Bool {
+        if lhs.nextAttemptAt != rhs.nextAttemptAt {
+            return lhs.nextAttemptAt < rhs.nextAttemptAt
+        }
+        if lhs.enqueuedAt != rhs.enqueuedAt {
+            return lhs.enqueuedAt < rhs.enqueuedAt
+        }
+        return lhs.songID < rhs.songID
     }
 
     private func resourceSnapshot() async -> ResourceSnapshot {
@@ -915,6 +1752,7 @@ private actor AlwaysDownloadWorker {
                 isReachable: network.isReachable,
                 isExpensive: network.isExpensive,
                 isConstrained: network.isConstrained,
+                isPlaybackActive: player.isPlaybackActive,
                 isPlaybackBuffering: player.isLoading,
                 isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
                 hasSeriousThermalPressure: thermal == .serious || thermal == .critical
@@ -925,21 +1763,182 @@ private actor AlwaysDownloadWorker {
     private func loadJournalIfNeeded() {
         guard !didLoadJournal else { return }
         didLoadJournal = true
-        guard let data = try? Data(contentsOf: journalURL) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        journal = (try? decoder.decode(Journal.self, from: data)) ?? Journal()
+        if let data = try? Data(contentsOf: journalURL),
+           let decoded = try? decoder.decode(Journal.self, from: data) {
+            journal = decoded
+        }
+
+        let snapshotSequence = journal.lastAppliedDeltaSequence ?? 0
+        var highestSequence = snapshotSequence
+        var deltaLogNeedsCompaction = false
+        if let deltaData = try? Data(contentsOf: journalDeltaURL) {
+            deltaLogNeedsCompaction = !deltaData.isEmpty && deltaData.last != 0x0A
+            for line in deltaData.split(separator: 0x0A) {
+                guard let delta = try? decoder.decode(JournalDelta.self, from: Data(line)) else {
+                    // A killed append can leave only the final line partial.
+                    deltaLogNeedsCompaction = true
+                    continue
+                }
+                highestSequence = max(highestSequence, delta.sequence)
+                guard delta.sequence > snapshotSequence else { continue }
+                applyJournalDelta(delta)
+                journal.lastAppliedDeltaSequence = delta.sequence
+            }
+        }
+        nextJournalDeltaSequence = highestSequence == .max
+            ? .max
+            : highestSequence + 1
+        if deltaLogNeedsCompaction {
+            // A subsequent append must never concatenate onto a torn final
+            // record. Fold every decodable delta into one atomic snapshot first.
+            persistJournal(force: true)
+        }
     }
 
-    private func persistJournal() {
+    private func persistJournal(force: Bool = false) {
+        journalMutationCountSincePersist += 1
+        let batchSize = max(128, journal.jobs.count / 100)
+        guard force || journalMutationCountSincePersist >= batchSize else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(journal) else { return }
-        try? FileManager.default.createDirectory(
-            at: journalURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: journalURL, options: .atomic)
+        var snapshot = journal
+        snapshot.lastAppliedDeltaSequence = nextJournalDeltaSequence > 0
+            ? nextJournalDeltaSequence - 1
+            : 0
+        guard let data = try? encoder.encode(snapshot) else { return }
+        do {
+            try FileManager.default.createDirectory(
+                at: journalURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: journalURL, options: .atomic)
+            journal = snapshot
+            journalMutationCountSincePersist = 0
+            try Data().write(to: journalDeltaURL, options: .atomic)
+        } catch {
+            // The append log remains authoritative until both the snapshot and
+            // its empty replacement are durably installed.
+        }
+    }
+
+    private func persistJobDelta(
+        _ job: Job,
+        sourceCooldownID: String? = nil,
+        sourceCooldownUntil: Date? = nil
+    ) {
+        appendJournalDelta(JournalDelta(
+            sequence: takeNextJournalDeltaSequence(),
+            kind: .jobUpdate,
+            expectedContentSignature: job.contentSignature,
+            job: job,
+            sourceCooldownID: sourceCooldownID,
+            sourceCooldownUntil: sourceCooldownUntil,
+            completion: nil
+        ))
+    }
+
+    private func persistCompletionDelta(_ completion: AutomaticOfflineCompletionDeltaPayload) {
+        appendJournalDelta(JournalDelta(
+            sequence: takeNextJournalDeltaSequence(),
+            kind: .completion,
+            expectedContentSignature: nil,
+            job: nil,
+            sourceCooldownID: nil,
+            sourceCooldownUntil: nil,
+            completion: completion
+        ))
+    }
+
+    private func takeNextJournalDeltaSequence() -> UInt64 {
+        let sequence = nextJournalDeltaSequence
+        if nextJournalDeltaSequence < .max {
+            nextJournalDeltaSequence += 1
+        }
+        return sequence
+    }
+
+    private func appendJournalDelta(_ delta: JournalDelta) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard var data = try? encoder.encode(delta) else {
+            persistJournal(force: true)
+            return
+        }
+        data.append(0x0A)
+        do {
+            try FileManager.default.createDirectory(
+                at: journalDeltaURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: journalDeltaURL.path) {
+                guard FileManager.default.createFile(
+                    atPath: journalDeltaURL.path,
+                    contents: nil
+                ) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            }
+            let handle = try FileHandle(forWritingTo: journalDeltaURL)
+            defer { try? handle.close() }
+            _ = try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+        } catch {
+            // Fall back to one atomic full snapshot if the O(1) append fails.
+            // The in-memory mutation has already been applied.
+            persistJournal(force: true)
+        }
+    }
+
+    private func applyJournalDelta(_ delta: JournalDelta) {
+        switch delta.kind {
+        case .jobUpdate:
+            guard let job = delta.job,
+                  let expected = delta.expectedContentSignature,
+                  journal.jobs[job.song.id]?.contentSignature == expected else { return }
+            journal.jobs[job.song.id] = job
+            if let sourceID = delta.sourceCooldownID,
+               let retryAfter = delta.sourceCooldownUntil {
+                var sourceRetryAfter = journal.sourceRetryAfter ?? [:]
+                sourceRetryAfter[sourceID] = max(
+                    sourceRetryAfter[sourceID] ?? .distantPast,
+                    retryAfter
+                )
+                journal.sourceRetryAfter = sourceRetryAfter
+                for (songID, var queuedJob) in journal.jobs
+                where queuedJob.song.sourceID == sourceID {
+                    queuedJob.nextAttemptAt = max(queuedJob.nextAttemptAt, retryAfter)
+                    journal.jobs[songID] = queuedJob
+                }
+            }
+        case .completion:
+            guard let completion = delta.completion else { return }
+            var appliedAny = false
+            var knownSignatures = journal.lastKnownSignatures ?? [:]
+            for (songID, signature) in completion.completedSignatures {
+                if let queued = journal.jobs[songID],
+                   queued.contentSignature != signature {
+                    continue
+                }
+                journal.completedSignatures[songID] = signature
+                knownSignatures[songID] = signature
+                if journal.jobs[songID]?.contentSignature == signature {
+                    journal.jobs.removeValue(forKey: songID)
+                }
+                appliedAny = true
+            }
+            guard appliedAny else { return }
+            journal.lastKnownSignatures = knownSignatures
+            journal.sourceRetryAfter?.removeValue(forKey: completion.sourceID)
+            var artifactProvenance = journal.artifactProvenanceSignatures ?? [:]
+            artifactProvenance[completion.artifactPath] = completion.artifactSignature
+            journal.artifactProvenanceSignatures = artifactProvenance
+            var artifactSources = journal.artifactSourceIdentitySignatures ?? [:]
+            artifactSources[completion.artifactPath] = completion.sourceIdentitySignature
+            journal.artifactSourceIdentitySignatures = artifactSources
+        }
     }
 
     private static func availableDiskBytes() -> Int64 {
@@ -965,7 +1964,7 @@ final class AlwaysDownloadCoordinator {
     @ObservationIgnored private var reconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var resourceObserverTokens: [NSObjectProtocol] = []
     @ObservationIgnored private var didStart = false
-    @ObservationIgnored private var applicationIsActive = true
+    @ObservationIgnored private var applicationIsActive = false
     private(set) var enabledPlaylistIDs: Set<String>
 
     init(
@@ -1019,6 +2018,7 @@ final class AlwaysDownloadCoordinator {
             guard let self else { return }
             await self.worker.start(
                 applicationIsActive: self.applicationIsActive,
+                playbackIsActive: self.player.isPlaybackActive,
                 playbackIsBuffering: self.player.isLoading,
                 resourceConditionsAllowTransfers: self.resourceConditionsAllowTransfers()
             )
@@ -1060,6 +2060,7 @@ final class AlwaysDownloadCoordinator {
 
     private func observeTransferConditions() {
         withObservationTracking {
+            _ = player.isPlaying
             _ = player.isLoading
             _ = NetworkMonitor.shared.pathGeneration
         } onChange: { [weak self] in
@@ -1067,6 +2068,7 @@ final class AlwaysDownloadCoordinator {
                 guard let self else { return }
                 self.observeTransferConditions()
                 await self.worker.resourceConditionsDidChange(
+                    playbackIsActive: self.player.isPlaybackActive,
                     playbackIsBuffering: self.player.isLoading,
                     allowTransfers: self.resourceConditionsAllowTransfers()
                 )
@@ -1086,6 +2088,7 @@ final class AlwaysDownloadCoordinator {
                     Task { @MainActor [weak self] in
                         guard let self else { return }
                         await self.worker.resourceConditionsDidChange(
+                            playbackIsActive: self.player.isPlaybackActive,
                             playbackIsBuffering: self.player.isLoading,
                             allowTransfers: self.resourceConditionsAllowTransfers()
                         )
@@ -1155,22 +2158,42 @@ final class AlwaysDownloadCoordinator {
             for song in songs {
                 guard let source = sourcesByID[song.sourceID],
                       source.isEnabled,
-                      !source.isDeleted else { continue }
+                      !source.isDeleted,
+                      AutomaticOfflineSongPolicy.supports(song),
+                      AutomaticOfflineDownloadPolicy.supportsSourceType(source.type) else {
+                    continue
+                }
                 let signature = contentSignature(
                     song: song,
                     source: source
+                )
+                let sourceIdentity = sourceIdentitySignature(source)
+                let artifactFileName = CacheFileNamePolicy.make(
+                    path: song.filePath,
+                    preferredExtension: song.fileFormat.rawValue
+                )
+                let artifactPath = "\(song.sourceID)/\(artifactFileName)"
+                let artifactContentSignature = artifactSignature(
+                    song: song,
+                    sourceIdentitySignature: sourceIdentity
                 )
                 if let existing = desiredBySongID[song.id] {
                     desiredBySongID[song.id] = AlwaysDownloadDesiredSong(
                         song: song,
                         playlistIDs: existing.playlistIDs.union([playlistID]),
-                        contentSignature: signature
+                        contentSignature: signature,
+                        sourceIdentitySignature: sourceIdentity,
+                        artifactPath: artifactPath,
+                        artifactSignature: artifactContentSignature
                     )
                 } else {
                     desiredBySongID[song.id] = AlwaysDownloadDesiredSong(
                         song: song,
                         playlistIDs: [playlistID],
-                        contentSignature: signature
+                        contentSignature: signature,
+                        sourceIdentitySignature: sourceIdentity,
+                        artifactPath: artifactPath,
+                        artifactSignature: artifactContentSignature
                     )
                 }
             }
@@ -1190,16 +2213,29 @@ final class AlwaysDownloadCoordinator {
             String(song.fileSize),
             song.revision ?? "",
             song.lastModified.map { String($0.timeIntervalSince1970) } ?? "",
-            source?.type.rawValue ?? "",
-            source?.host?.lowercased() ?? "",
-            source?.port.map { String($0) } ?? "",
-            source?.useSsl == true ? "1" : "0",
-            source?.basePath ?? "",
-            source?.username ?? "",
-            source?.cloudAccountID ?? "",
+            source.map { sourceIdentitySignature($0) } ?? "",
         ]
         let digest = SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func sourceIdentitySignature(_ source: MusicSource) -> String {
+        MusicSourceSecurityRevision.scopedFingerprint(for: source)
+    }
+
+    private nonisolated static func artifactSignature(
+        song: Song,
+        sourceIdentitySignature: String
+    ) -> String {
+        AutomaticOfflineArtifactPolicy.signature(
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat.rawValue,
+            fileSize: song.fileSize,
+            revision: song.revision,
+            lastModified: song.lastModified,
+            sourceIdentitySignature: sourceIdentitySignature
+        )
     }
 
     private func persistPreferences() {

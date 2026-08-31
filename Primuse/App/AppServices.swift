@@ -2,6 +2,11 @@ import CryptoKit
 import Foundation
 import Observation
 import PrimuseKit
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -15,6 +20,7 @@ final class NavidromeAutoRefreshCoordinator {
 
     private struct PersistedState: Codable, Sendable {
         var disabledSourceIDs: Set<String> = []
+        var serverScanOnLaunchSourceIDs: Set<String>?
         var markers: [String: SourceMarker] = [:]
     }
 
@@ -40,9 +46,13 @@ final class NavidromeAutoRefreshCoordinator {
     @ObservationIgnored private var pendingMarkers: [String: PendingMarker] = [:]
     @ObservationIgnored private var retryTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var deferredSourceIDs: Set<String> = []
+    @ObservationIgnored private var checkInFlightSourceIDs: Set<String> = []
+    @ObservationIgnored private var serverScanRequestFingerprints: [String: String] = [:]
+    @ObservationIgnored private var serverScanRequestInFlightSourceIDs: Set<String> = []
     @ObservationIgnored private var didScheduleColdLaunch = false
-    @ObservationIgnored private var applicationIsActive = true
+    @ObservationIgnored private var applicationIsActive = false
     private var disabledSourceIDs: Set<String>
+    private var serverScanOnLaunchSourceIDs: Set<String>
 
     init(
         sourceManager: SourceManager,
@@ -62,6 +72,7 @@ final class NavidromeAutoRefreshCoordinator {
         self.defaults = defaults
         let state = Self.loadState(from: defaults)
         disabledSourceIDs = state.disabledSourceIDs
+        serverScanOnLaunchSourceIDs = state.serverScanOnLaunchSourceIDs ?? []
         markers = state.markers
     }
 
@@ -83,6 +94,20 @@ final class NavidromeAutoRefreshCoordinator {
         Task { @MainActor [weak self] in
             await self?.checkSource(source, retryCount: 0, ignoresCooldown: true)
         }
+    }
+
+    func isServerScanOnLaunchEnabled(for sourceID: String) -> Bool {
+        serverScanOnLaunchSourceIDs.contains(sourceID)
+    }
+
+    func setServerScanOnLaunchEnabled(_ enabled: Bool, for sourceID: String) {
+        if enabled {
+            serverScanOnLaunchSourceIDs.insert(sourceID)
+            serverScanRequestFingerprints.removeValue(forKey: sourceID)
+        } else {
+            serverScanOnLaunchSourceIDs.remove(sourceID)
+        }
+        persistState()
     }
 
     func setApplicationActive(_ active: Bool) {
@@ -135,6 +160,9 @@ final class NavidromeAutoRefreshCoordinator {
 
     func sourceWasDeleted(_ sourceID: String) {
         disabledSourceIDs.remove(sourceID)
+        serverScanOnLaunchSourceIDs.remove(sourceID)
+        serverScanRequestFingerprints.removeValue(forKey: sourceID)
+        serverScanRequestInFlightSourceIDs.remove(sourceID)
         markers.removeValue(forKey: sourceID)
         pendingMarkers.removeValue(forKey: sourceID)
         deferredSourceIDs.remove(sourceID)
@@ -158,6 +186,8 @@ final class NavidromeAutoRefreshCoordinator {
             }
             return
         }
+        guard checkInFlightSourceIDs.insert(source.id).inserted else { return }
+        defer { checkInFlightSourceIDs.remove(source.id) }
 
         let identityFingerprint = Self.identityFingerprint(for: source)
         let identityChanged = markers[source.id].map {
@@ -166,7 +196,10 @@ final class NavidromeAutoRefreshCoordinator {
         let existingMarker = markers[source.id].flatMap {
             $0.identityFingerprint == identityFingerprint ? $0 : nil
         }
+        let hasPendingLaunchScanRequest = isServerScanOnLaunchEnabled(for: source.id)
+            && serverScanRequestFingerprints[source.id] != identityFingerprint
         if !ignoresCooldown,
+           !hasPendingLaunchScanRequest,
            let checkedAt = existingMarker?.lastCheckedAt,
            Date().timeIntervalSince(checkedAt) < Self.checkCooldown {
             return
@@ -195,6 +228,103 @@ final class NavidromeAutoRefreshCoordinator {
                 scheduleRetry(sourceID: source.id, retryCount: retryCount)
                 return
             }
+            if isServerScanOnLaunchEnabled(for: source.id),
+               serverScanRequestFingerprints[source.id] != identityFingerprint {
+                guard !serverScanRequestInFlightSourceIDs.contains(source.id) else {
+                    scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                    return
+                }
+                if status.isScanning {
+                    // Scan status does not reveal whether the running job is a
+                    // full scan. Wait for it to settle, then issue this launch's
+                    // explicit fullScan request.
+                    scheduleRetry(
+                        sourceID: source.id,
+                        retryCount: 0,
+                        minimumDelay: 5 * 60
+                    )
+                    return
+                } else {
+                    // Claim before suspension: MainActor methods are reentrant,
+                    // and foreground/resource callbacks may otherwise send the
+                    // same server mutation twice while this request is in flight.
+                    serverScanRequestFingerprints[source.id] = identityFingerprint
+                    serverScanRequestInFlightSourceIDs.insert(source.id)
+                    let result: ServerCatalogScanRequestResult?
+                    do {
+                        result = try await sourceManager.requestServerCatalogScan(
+                            for: currentSource
+                        )
+                    } catch {
+                        // The request may have reached the server even when its
+                        // response was lost. Re-read scan status before any
+                        // catalogue transfer instead of consuming a stale,
+                        // pre-mutation snapshot.
+                        serverScanRequestInFlightSourceIDs.remove(source.id)
+                        if let sourceError = error as? SourceError,
+                           case .authenticationFailed = sourceError {
+                            // Authentication failures are known not to have
+                            // started the scan, so a later credential recovery
+                            // may safely retry during this launch.
+                            serverScanRequestFingerprints.removeValue(forKey: source.id)
+                            SourceAuthAlert.report(
+                                sourceID: source.id,
+                                message: error.localizedDescription
+                            )
+                            scheduleRetry(
+                                sourceID: source.id,
+                                retryCount: retryCount,
+                                minimumDelay: 15 * 60
+                            )
+                            return
+                        }
+                        // A transport failure after sending startScan is
+                        // ambiguous. Keep the per-launch claim so a lost
+                        // response cannot trigger another full scan as soon as
+                        // the first one finishes. The read-only status retry
+                        // below will still refresh the local catalogue when a
+                        // server scan was actually accepted.
+                        plog("⚠️ Navidrome startScan unavailable for \(source.name): \(error.localizedDescription)")
+                        scheduleRetry(
+                            sourceID: source.id,
+                            retryCount: retryCount,
+                            minimumDelay: 60
+                        )
+                        return
+                    }
+                    serverScanRequestInFlightSourceIDs.remove(source.id)
+                    guard applicationIsActive else {
+                        deferredSourceIDs.insert(source.id)
+                        return
+                    }
+                    guard let latestSource = sourcesStore.source(id: source.id),
+                          latestSource.type == .navidrome,
+                          latestSource.isEnabled,
+                          !latestSource.isDeleted,
+                          isEnabled(for: latestSource.id) else {
+                        return
+                    }
+                    guard Self.identityFingerprint(for: latestSource) == identityFingerprint else {
+                        serverScanRequestFingerprints.removeValue(forKey: source.id)
+                        scheduleRetry(sourceID: source.id, retryCount: 0)
+                        return
+                    }
+                    guard automaticWorkIsAllowed() else {
+                        scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                        return
+                    }
+                    if case .accepted? = result {
+                        scheduleRetry(
+                            sourceID: source.id,
+                            retryCount: 0,
+                            minimumDelay: 60
+                        )
+                        return
+                    }
+                    // nil / unsupported / permissionDenied all fall through to
+                    // the read-only status path below.
+                }
+            }
             let decision = ServerCatalogRefreshPolicy.decision(
                 serverIsScanning: status.isScanning,
                 lastAppliedServerScanAt: existingMarker?.lastAppliedServerScanAt,
@@ -205,7 +335,11 @@ final class NavidromeAutoRefreshCoordinator {
                 localSongCount: currentSource.songCount
             )
             guard decision != .deferWhileScanning else {
-                scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                scheduleRetry(
+                    sourceID: source.id,
+                    retryCount: 0,
+                    minimumDelay: 5 * 60
+                )
                 return
             }
 
@@ -230,6 +364,7 @@ final class NavidromeAutoRefreshCoordinator {
             let didStart = scanService.scanSource(
                 currentSource,
                 mode: .automatic,
+                snapshotExecutionContext: .foregroundResume,
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourcesStore,
@@ -269,11 +404,13 @@ final class NavidromeAutoRefreshCoordinator {
         }
     }
 
-    private func automaticWorkIsAllowed() -> Bool {
+    func automaticWorkIsAllowed() -> Bool {
         let network = NetworkMonitor.shared
-        guard network.hasDeterminedPath,
+        guard applicationIsActive,
+              network.hasDeterminedPath,
               network.isOnUnmeteredNetwork,
               !ProcessInfo.processInfo.isLowPowerModeEnabled,
+              !player.isPlaybackActive,
               !player.isLoading else { return false }
         switch ProcessInfo.processInfo.thermalState {
         case .serious, .critical:
@@ -290,12 +427,15 @@ final class NavidromeAutoRefreshCoordinator {
         retryCount: Int,
         minimumDelay: Int = 0
     ) {
-        guard retryCount < Self.maximumRetryCount,
-              isEnabled(for: sourceID) else { return }
+        guard isEnabled(for: sourceID) else { return }
         deferredSourceIDs.insert(sourceID)
         retryTasks.removeValue(forKey: sourceID)?.cancel()
-        let exponent = min(retryCount, 3)
-        let seconds = max(minimumDelay, min(30 * (1 << exponent), 300))
+        let boundedRetryCount = min(retryCount, Self.maximumRetryCount)
+        let exponent = min(boundedRetryCount, 3)
+        let backoff = retryCount >= Self.maximumRetryCount
+            ? 300
+            : min(30 * (1 << exponent), 300)
+        let seconds = max(minimumDelay, backoff)
         retryTasks[sourceID] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled, let self,
@@ -303,7 +443,7 @@ final class NavidromeAutoRefreshCoordinator {
             self.deferredSourceIDs.remove(sourceID)
             await self.checkSource(
                 source,
-                retryCount: retryCount + 1,
+                retryCount: min(retryCount + 1, Self.maximumRetryCount),
                 ignoresCooldown: true
             )
         }
@@ -312,6 +452,7 @@ final class NavidromeAutoRefreshCoordinator {
     private func persistState() {
         let state = PersistedState(
             disabledSourceIDs: disabledSourceIDs,
+            serverScanOnLaunchSourceIDs: serverScanOnLaunchSourceIDs,
             markers: markers
         )
         let encoder = JSONEncoder()
@@ -331,18 +472,7 @@ final class NavidromeAutoRefreshCoordinator {
     }
 
     private static func identityFingerprint(for source: MusicSource) -> String {
-        let components = [
-            source.id,
-            source.type.rawValue,
-            source.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "",
-            source.port.map { String($0) } ?? "",
-            source.useSsl ? "1" : "0",
-            source.basePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            source.username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            source.cloudAccountID ?? "",
-        ]
-        let digest = SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        MusicSourceSecurityRevision.scopedFingerprint(for: source)
     }
 
     private static func availableDiskBytes() -> Int64 {
@@ -525,6 +655,10 @@ final class AppServices {
             sourceManager: manager,
             player: player
         )
+        scanService.automaticServerCatalogWorkAllowedHandler = {
+            [weak navidromeAutoRefresh] in
+            navidromeAutoRefresh?.automaticWorkIsAllowed() ?? false
+        }
         manager.automaticOfflineDownloadRemovedHandler = { [weak alwaysDownload] songID in
             alwaysDownload?.downloadedFileWasRemoved(songID: songID)
         }
@@ -545,16 +679,17 @@ final class AppServices {
             )
             alwaysDownload?.sourceScanDidComplete()
         }
-        scanService.serverRadioSyncHandler = { [weak manager, weak radioStore] source in
+        scanService.serverRadioSyncHandler = { [weak manager, weak radioStore] source, applyFence in
             guard let manager, let radioStore else { return }
             await ServerRadioSyncService.sync(
                 source: source,
                 sourceManager: manager,
-                store: radioStore
+                store: radioStore,
+                applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync] source in
-            await favoriteSync?.refresh(source: source)
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync] source, applyFence in
+            await favoriteSync?.refresh(source: source, applyFence: applyFence)
         }
         library.likedStateMutationHandler = { [weak favoriteSync] song, previous, desired in
             favoriteSync?.localLikedStateDidChange(
@@ -926,10 +1061,18 @@ final class AppServices {
         #if os(macOS)
         let becameActive = Notification.Name("NSApplicationDidBecomeActiveNotification")
         let resignedActive = Notification.Name("NSApplicationDidResignActiveNotification")
+        let isCurrentlyActive = NSApplication.shared.isActive
+        #elseif os(iOS)
+        let becameActive = Notification.Name("UIApplicationDidBecomeActiveNotification")
+        let resignedActive = Notification.Name("UIApplicationWillResignActiveNotification")
+        let isCurrentlyActive = UIApplication.shared.applicationState == .active
         #else
         let becameActive = Notification.Name("UIApplicationDidBecomeActiveNotification")
         let resignedActive = Notification.Name("UIApplicationWillResignActiveNotification")
+        let isCurrentlyActive = false
         #endif
+        navidromeAutoRefresh.setApplicationActive(isCurrentlyActive)
+        alwaysDownload.setApplicationActive(isCurrentlyActive)
         let nc = NotificationCenter.default
         sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: becameActive, object: nil, queue: .main) { [weak self] _ in

@@ -308,6 +308,8 @@
 "playlist_always_download_description" = "Hält diese Playlist über WLAN auf diesem Gerät verfügbar. Neue oder geänderte Titel werden automatisch geladen, wenn die Gerätebedingungen es zulassen; beim Ausschalten bleiben vorhandene Dateien erhalten.";
 "navidrome_auto_refresh" = "Navidrome automatisch aktualisieren";
 "navidrome_auto_refresh_description" = "Nach dem Öffnen prüft Primuse den Status der Navidrome-Mediathek und aktualisiert den lokalen Katalog nur bei Änderungen auf dem Server. Es wird kein Server-Scan gestartet.";
+"navidrome_server_scan_on_launch" = "Vollständigen Serverscan beim Start anfordern";
+"navidrome_server_scan_on_launch_description" = "Primuse fordert Navidrome beim Start zu einem vollständigen Mediathek-Scan auf. Dafür ist ein Administratorkonto erforderlich; nicht unterstützte oder abgelehnte Anfragen werden auf eine reine Statusaktualisierung zurückgestuft.";
 "welcome_title" = "Willkommen bei Primuse";
 "welcome_desc" = "Füge eine Musikquelle hinzu – dein NAS, WebDAV oder lokale Dateien – um loszuhören";
 "no_albums" = "Keine Alben";

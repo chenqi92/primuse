@@ -103,6 +103,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_media_server_cache_\(sourceID)")
+            .appendingPathComponent(
+                MusicSourceSecurityRevision.cacheNamespace(for: sourceID)
+            )
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDirectory
     }

@@ -1,6 +1,77 @@
 @preconcurrency import AVFoundation
 import Foundation
 
+final class StreamingDownloadSessionControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancellationHandler: (@Sendable () -> Void)?
+    private var cancellationRequested = false
+    private var finished = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func install(_ task: Task<Void, Never>) {
+        lock.lock()
+        let shouldCancel = cancellationRequested || finished
+        if !finished {
+            self.task = task
+        }
+        lock.unlock()
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancellationRequested = true
+        let task = task
+        let cancellationHandler = cancellationHandler
+        lock.unlock()
+        cancellationHandler?()
+        task?.cancel()
+    }
+
+    func installCancellationHandler(_ handler: @escaping @Sendable () -> Void) {
+        lock.lock()
+        let shouldCancel = cancellationRequested || finished
+        if !finished {
+            cancellationHandler = handler
+        }
+        lock.unlock()
+        if shouldCancel {
+            handler()
+        }
+    }
+
+    func waitForTermination() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if finished {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    func finish() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        task = nil
+        cancellationHandler = nil
+        let waiters = waiters
+        self.waiters.removeAll(keepingCapacity: false)
+        lock.unlock()
+        waiters.forEach { $0.resume() }
+    }
+}
+
 /// Full-download fallback for remote URLs (handles self-signed HTTPS),
 /// then decodes using the central format router (SFBAudioEngine or FFmpeg):
 /// FLAC, MP3, AAC, ALAC, WAV, AIFF, Ogg Vorbis, Ogg Opus, WavPack, APE, TTA,
@@ -32,15 +103,25 @@ final class StreamingDownloadDecoder: Sendable {
         outputFormat: AVAudioFormat,
         cacheFileURL: URL? = nil,
         fileExtension: String? = nil,
+        maximumDownloadBytes: Int? = nil,
+        sourceID: String? = nil,
+        streamEpoch: UInt64? = nil,
+        sessionControl: StreamingDownloadSessionControl? = nil,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
     ) -> AudioBufferStream {
-        AudioBufferStreamFactory.make { continuation in
+        let control = sessionControl ?? StreamingDownloadSessionControl()
+        return AudioBufferStreamFactory.make { continuation in
             let task = Task {
+                defer { control.finish() }
                 let tempPath = NSTemporaryDirectory() + "primuse_dl_\(UUID().uuidString)"
                 let tempURL = URL(fileURLWithPath: tempPath)
 
                 do {
                     // Step 1: Download the complete file
+                    try Self.ensureCurrentStreamEpoch(
+                        sourceID: sourceID,
+                        streamEpoch: streamEpoch
+                    )
                     let config = URLSessionConfiguration.default
                     config.timeoutIntervalForRequest = 30
                     config.timeoutIntervalForResource = 600
@@ -49,6 +130,9 @@ final class StreamingDownloadDecoder: Sendable {
                         delegate: SmartSSLDelegate(),
                         delegateQueue: nil
                     )
+                    control.installCancellationHandler {
+                        session.invalidateAndCancel()
+                    }
                     defer { session.finishTasksAndInvalidate() }
 
                     plog("🌊 StreamingDecoder: downloading from \(url.host ?? "?")")
@@ -64,7 +148,9 @@ final class StreamingDownloadDecoder: Sendable {
                     )
                     let (downloadedURL, response) = try await TrustedHTTPTransport.download(
                         for: request,
-                        session: session
+                        session: session,
+                        maximumRangedBodyBytes: maximumDownloadBytes,
+                        wholeResponsePrefixLimit: nil
                     )
 
                     guard let http = response as? HTTPURLResponse,
@@ -96,7 +182,11 @@ final class StreamingDownloadDecoder: Sendable {
                         }
                     }
 
-                    if Task.isCancelled { throw CancellationError() }
+                    try Task.checkCancellation()
+                    try Self.ensureCurrentStreamEpoch(
+                        sourceID: sourceID,
+                        streamEpoch: streamEpoch
+                    )
 
                     // Step 2: Decode through the central router. It selects
                     // FFmpeg for broad fallback/DTS-CD and SFBAudioEngine otherwise.
@@ -125,12 +215,13 @@ final class StreamingDownloadDecoder: Sendable {
                     let decodingURL: URL
                     if let cacheURL = cacheFileURL {
                         do {
-                            try FileManager.default.createDirectory(
-                                at: cacheURL.deletingLastPathComponent(),
-                                withIntermediateDirectories: true
+                            try Task.checkCancellation()
+                            try Self.installCacheFile(
+                                from: typedTempURL,
+                                to: cacheURL,
+                                sourceID: sourceID,
+                                streamEpoch: streamEpoch
                             )
-                            try? FileManager.default.removeItem(at: cacheURL)
-                            try FileManager.default.moveItem(at: typedTempURL, to: cacheURL)
                             decodingURL = cacheURL
                             plog("🌊 DownloadDecoder: materialized cache before decode → \(cacheURL.lastPathComponent)")
                         } catch {
@@ -194,12 +285,14 @@ final class StreamingDownloadDecoder: Sendable {
                     // intentionally retained even if playback was interrupted.
                     if let cacheURL = cacheFileURL {
                         if decodingURL.standardizedFileURL != cacheURL.standardizedFileURL {
-                            try? FileManager.default.createDirectory(
-                                at: cacheURL.deletingLastPathComponent(),
-                                withIntermediateDirectories: true
+                            try Task.checkCancellation()
+                            try Self.installCacheFile(
+                                from: decodingURL,
+                                to: cacheURL,
+                                sourceID: sourceID,
+                                streamEpoch: streamEpoch
                             )
-                            try? FileManager.default.removeItem(at: cacheURL)
-                            if (try? FileManager.default.moveItem(at: decodingURL, to: cacheURL)) != nil {
+                            if FileManager.default.fileExists(atPath: cacheURL.path) {
                                 plog("🌊 DownloadDecoder: cached after decode → \(cacheURL.lastPathComponent)")
                             }
                         }
@@ -215,16 +308,58 @@ final class StreamingDownloadDecoder: Sendable {
                     if !cleanupExt.isEmpty {
                         try? FileManager.default.removeItem(at: URL(fileURLWithPath: tempPath + ".\(cleanupExt)"))
                     }
-                    if !Task.isCancelled {
+                    if Task.isCancelled || error is CancellationError {
+                        continuation.finish(throwing: CancellationError())
+                    } else {
                         plog("⚠️ DownloadDecoder failed: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         continuation.finish(throwing: error)
                     }
                 }
             }
+            control.install(task)
             continuation.onTermination = { _ in
-                task.cancel()
+                control.cancel()
             }
         }
+    }
+
+    private static func ensureCurrentStreamEpoch(
+        sourceID: String?,
+        streamEpoch: UInt64?
+    ) throws {
+        guard let sourceID, let streamEpoch else { return }
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: sourceID,
+            ticket: streamEpoch
+        ) else { throw CancellationError() }
+    }
+
+    private static func installCacheFile(
+        from source: URL,
+        to target: URL,
+        sourceID: String?,
+        streamEpoch: UInt64?
+    ) throws {
+        if let sourceID, let streamEpoch {
+            guard try CloudPlaybackSource.withCurrentStreamEpoch(
+                sourceID: sourceID,
+                epoch: streamEpoch,
+                {
+                    try OfflineCacheAtomicReplacement.install(
+                        source: source,
+                        target: target,
+                        move: true
+                    )
+                    return ()
+                }
+            ) != nil else { throw CancellationError() }
+            return
+        }
+        try OfflineCacheAtomicReplacement.install(
+            source: source,
+            target: target,
+            move: true
+        )
     }
 }

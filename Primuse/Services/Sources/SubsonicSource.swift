@@ -15,7 +15,8 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
-    ServerCatalogChangeDetectingConnector,
+    ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
+    ResumablePagedSongCatalogConnector,
     ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector {
     let sourceID: String
@@ -50,10 +51,121 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus {
         let container: ScanStatusContainer = try await requestJSON("getScanStatus")
-        return ServerCatalogScanStatus(
-            isScanning: container.scanStatus?.scanning ?? false,
-            itemCount: container.scanStatus?.count,
-            lastCompletedScanAt: container.scanStatus?.lastScan.flatMap(Self.parseDate)
+        try Self.rejectFailedServerScan(container.scanStatus)
+        return Self.scanStatus(from: container)
+    }
+
+    func requestServerCatalogScan() async throws -> ServerCatalogScanRequestResult {
+        try await connect()
+        do {
+            let container: ScanStatusContainer = try await responseJSON(
+                "startScan",
+                query: [URLQueryItem(name: "fullScan", value: "true")]
+            )
+            guard container.status == "ok" else {
+                if container.error?.code == 50 {
+                    return .permissionDenied
+                }
+                if Self.isServerScanAPIUnavailable(container.error?.message ?? "") {
+                    return .unsupported
+                }
+                throw Self.error(from: container.error)
+            }
+            return .accepted(Self.scanStatus(from: container))
+        } catch let statusError as SubsonicHTTPStatusError {
+            switch statusError.statusCode {
+            case 403:
+                return .permissionDenied
+            case 404, 405, 410, 501:
+                return .unsupported
+            case 401:
+                throw SourceError.authenticationFailed
+            default:
+                throw SourceError.connectionFailed("HTTP \(statusError.statusCode)")
+            }
+        } catch let sourceError as SourceError {
+            if case .connectionFailed(let detail) = sourceError,
+               Self.isServerScanAPIUnavailable(detail) {
+                return .unsupported
+            }
+            throw sourceError
+        }
+    }
+
+    func stableSongCatalogRevision() async throws -> String? {
+        try await connect()
+        guard SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
+            isOpenSubsonic: isOpenSubsonic,
+            serverType: serverType
+        ) else {
+            throw PagedSongCatalogError.unavailable
+        }
+        let container: ScanStatusContainer
+        do {
+            container = try await responseJSON("getScanStatus")
+        } catch let statusError as SubsonicHTTPStatusError {
+            switch statusError.statusCode {
+            case 403, 404, 405, 410, 501:
+                throw PagedSongCatalogError.unavailable
+            case 401:
+                throw SourceError.authenticationFailed
+            default:
+                throw SourceError.connectionFailed("HTTP \(statusError.statusCode)")
+            }
+        }
+        guard container.status == "ok" else {
+            if container.error?.code == 50
+                || Self.isDirectCatalogUnavailable(container.error?.message ?? "") {
+                throw PagedSongCatalogError.unavailable
+            }
+            throw Self.error(from: container.error)
+        }
+        guard container.scanStatus?.scanning != true else {
+            throw PagedSongCatalogError.snapshotChangedDuringPagination
+        }
+        try Self.rejectFailedServerScan(container.scanStatus)
+        let lastScan = container.scanStatus?.lastScan ?? ""
+        let count = container.scanStatus?.count.map(String.init) ?? ""
+        guard !lastScan.isEmpty else {
+            throw SourceError.connectionFailed(
+                "Navidrome did not provide a stable catalog revision"
+            )
+        }
+        return "\(lastScan)|\(count)"
+    }
+
+    func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        try await connect()
+        guard SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
+            isOpenSubsonic: isOpenSubsonic,
+            serverType: serverType
+        ) else {
+            throw PagedSongCatalogError.unavailable
+        }
+
+        let children: [SubsonicChild]
+        do {
+            children = try await search3SongPage(offset: offset, path: path)
+        } catch SubsonicCompatibilityError.directCatalogUnavailable {
+            throw PagedSongCatalogError.unavailable
+        }
+        let songs = children.compactMap { child -> ConnectorScannedSong? in
+            guard child.isVideo != true else { return nil }
+            let song = buildSong(from: child)
+            return ConnectorScannedSong(
+                song: song,
+                displayName: child.title ?? song.title,
+                titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(child.title),
+                folderLocation: libraryFolderLocation(for: child)
+            )
+        }
+        return PagedSongCatalogPage(
+            songs: songs,
+            itemIDs: children.map(\.id),
+            nextOffset: SubsonicCatalogPagingPolicy.nextOffset(
+                currentOffset: offset,
+                receivedCount: children.count
+            )
         )
     }
 
@@ -113,6 +225,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_subsonic_cache_\(sourceID)")
+            .appendingPathComponent(
+                MusicSourceSecurityRevision.cacheNamespace(for: sourceID)
+            )
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDirectory
     }
@@ -1156,12 +1271,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     // MARK: - HTTP / JSON plumbing
 
-    private func requestJSON<C: SubsonicResponseContainer>(_ method: String, query: [URLQueryItem] = []) async throws -> C {
+    private func responseJSON<C: SubsonicResponseContainer>(
+        _ method: String,
+        query: [URLQueryItem] = []
+    ) async throws -> C {
         guard let url = buildRESTURL(method: method, query: query) else {
             throw SourceError.connectionFailed("Invalid URL for \(method)")
         }
         let (data, response) = try await TrustedHTTPTransport.data(from: url, session: session)
-        try validate(response)
+        try validateHTTPStatus(response)
         let decoder = JSONDecoder()
         let envelope: Envelope<C>
         do {
@@ -1170,7 +1288,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             let normalized = try SubsonicResponseCompatibility.normalizedJSONData(data)
             envelope = try decoder.decode(Envelope<C>.self, from: normalized)
         }
-        let container = envelope.subsonicResponse
+        return envelope.subsonicResponse
+    }
+
+    private func requestJSON<C: SubsonicResponseContainer>(_ method: String, query: [URLQueryItem] = []) async throws -> C {
+        let container: C
+        do {
+            container = try await responseJSON(method, query: query)
+        } catch let statusError as SubsonicHTTPStatusError {
+            if statusError.statusCode == 401 || statusError.statusCode == 403 {
+                throw SourceError.authenticationFailed
+            }
+            throw SourceError.connectionFailed("HTTP \(statusError.statusCode)")
+        }
         // Subsonic 应用层错误常以 HTTP 200 + status:"failed" 返回。统一在此校验
         // envelope, status != "ok" 时抛错 —— 否则扫描会把 failed 当作"空结果"
         // 静默结束, 触发 ConnectorScanner 的 prune 把整源曲库清空。
@@ -1187,15 +1317,23 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return container
     }
 
-    private func validate(_ response: URLResponse) throws {
+    private func validateHTTPStatus(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid server response")
         }
         guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 {
+            throw SubsonicHTTPStatusError(statusCode: http.statusCode)
+        }
+    }
+
+    private func validate(_ response: URLResponse) throws {
+        do {
+            try validateHTTPStatus(response)
+        } catch let statusError as SubsonicHTTPStatusError {
+            if statusError.statusCode == 401 || statusError.statusCode == 403 {
                 throw SourceError.authenticationFailed
             }
-            throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+            throw SourceError.connectionFailed("HTTP \(statusError.statusCode)")
         }
     }
 
@@ -1286,6 +1424,23 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return plain.date(from: value)
     }
 
+    private static func scanStatus(from container: ScanStatusContainer) -> ServerCatalogScanStatus {
+        ServerCatalogScanStatus(
+            isScanning: container.scanStatus?.scanning ?? false,
+            itemCount: container.scanStatus?.count,
+            lastCompletedScanAt: container.scanStatus?.lastScan.flatMap(parseDate)
+        )
+    }
+
+    private static func rejectFailedServerScan(
+        _ status: SubsonicScanStatus?
+    ) throws {
+        guard let detail = status?.error?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !detail.isEmpty else { return }
+        throw SourceError.connectionFailed("Navidrome server scan failed: \(detail)")
+    }
+
     private static func error(from error: SubsonicError?) -> SourceError {
         guard let error else { return .connectionFailed("Subsonic request failed") }
         if error.code == 40 || error.code == 41 { return .authenticationFailed }
@@ -1296,6 +1451,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let normalized = message.lowercased()
         return normalized == "http 404"
             || normalized == "http 405"
+            || normalized == "http 410"
             || normalized == "http 501"
             || normalized.contains("not found")
             || normalized.contains("not implemented")
@@ -1321,12 +1477,29 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             || normalized.contains("unknown method")
             || normalized.contains("unsupported method")
     }
+
+    private static func isServerScanAPIUnavailable(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized == "http 404"
+            || normalized == "http 405"
+            || normalized == "http 410"
+            || normalized == "http 501"
+            || normalized.contains("not found")
+            || normalized.contains("not implemented")
+            || normalized.contains("unknown api")
+            || normalized.contains("unknown method")
+            || normalized.contains("unsupported method")
+    }
 }
 
 private enum SubsonicCompatibilityError: Error {
     case tokenAuthenticationUnsupported
     case directCatalogUnavailable
     case catalogChangedDuringPagination
+}
+
+private struct SubsonicHTTPStatusError: Error {
+    let statusCode: Int
 }
 
 // MARK: - Subsonic JSON models
@@ -1370,6 +1543,7 @@ private struct SubsonicScanStatus: Decodable {
     let scanning: Bool
     let count: Int64?
     let lastScan: String?
+    let error: String?
 }
 
 private struct GetSongContainer: SubsonicResponseContainer {

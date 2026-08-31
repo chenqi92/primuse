@@ -1,4 +1,53 @@
+import CryptoKit
 import Foundation
+
+public enum MusicSourceScopeFingerprint {
+    /// Canonical account and endpoint identity shared by scanning, server-scan
+    /// coordination and durable offline provenance. Credentials are excluded;
+    /// every route that can change the upstream byte namespace is included.
+    public static func make(
+        for source: MusicSource,
+        directories: [String]? = nil,
+        includeSourceID: Bool = false
+    ) -> String {
+        var components: [String] = []
+        if includeSourceID { components.append(source.id) }
+        components.append(contentsOf: [
+            source.type.rawValue,
+            source.cloudAccountID ?? "",
+            source.username?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? "",
+            source.connectionConfiguration != nil && source.type.supportsEndpointSpecificPath
+                ? ""
+                : (source.basePath ?? ""),
+            source.shareName ?? "",
+            source.exportPath ?? "",
+        ])
+        if let configuration = source.connectionConfiguration {
+            for endpoint in [configuration.localEndpoint, configuration.publicEndpoint] {
+                let normalized = endpoint?.normalized
+                components.append(normalized?.host.lowercased() ?? "")
+                components.append(normalized?.port.description ?? "")
+                components.append(normalized?.useSsl == true ? "tls" : "plain")
+                components.append(normalized?.pathPrefix ?? "")
+            }
+            components.append(configuration.remoteAccessMode.rawValue)
+            components.append(configuration.vendorIdentifier?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        } else {
+            components.append(source.host?.lowercased() ?? "")
+            components.append(source.port.map(String.init) ?? "")
+            components.append(source.useSsl ? "tls" : "plain")
+        }
+        if let directories {
+            components.append(directories.sorted().joined(separator: "\u{1F}"))
+        }
+        let digest = SHA256.hash(
+            data: Data(components.joined(separator: "\u{1E}").utf8)
+        )
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
 
 public enum SourceCatalogSnapshotPolicy {
     /// Compares authoritative snapshots without exposing pagination order.
@@ -23,6 +72,107 @@ public enum SourceCatalogSnapshotPolicy {
             }
         }
         return false
+    }
+}
+
+/// Reconciles a full-metadata server row with device-local enrichment. A
+/// stable remote file refreshes only missing/suspicious server fields, keeping
+/// lyrics, replay gain, pinyin and sidecar caches intact. A real content
+/// replacement adopts the new row while preserving explicit user edits.
+public enum ServerSongCatalogMergePolicy {
+    public static func mergedSnapshot(
+        existing: [Song],
+        candidate: [Song]
+    ) -> [Song] {
+        let existingByID = Dictionary(
+            existing.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return candidate.map { incoming in
+            guard let existing = existingByID[incoming.id] else { return incoming }
+            var merged = merged(existing: existing, incoming: incoming)
+            merged.dateAdded = existing.dateAdded
+            return merged
+        }
+    }
+
+    public static func merged(existing: Song, incoming: Song) -> Song {
+        guard !contentChanged(existing: existing, incoming: incoming) else {
+            return SongUserMetadataPolicy.preservingUserEdits(
+                from: existing,
+                in: incoming
+            )
+        }
+        var refreshed = existing
+        let canRefreshCatalogText = existing.userMetadataEditedAt == nil
+        if canRefreshCatalogText && (
+            existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || MediaMetadataTextRepair.isSuspicious(existing.title)
+        ) {
+            refreshed.title = incoming.title
+        }
+        if canRefreshCatalogText && (
+            existing.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                || MediaMetadataTextRepair.isSuspicious(existing.artistName)
+        ) {
+            refreshed.artistName = incoming.artistName
+            refreshed.sourceArtistNames = incoming.sourceArtistNames
+        }
+        if canRefreshCatalogText && (
+            existing.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                || MediaMetadataTextRepair.isSuspicious(existing.albumTitle)
+        ) {
+            refreshed.albumTitle = incoming.albumTitle
+        }
+        if canRefreshCatalogText && (
+            existing.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                != false
+                || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName)
+        ) {
+            refreshed.albumArtistName = incoming.albumArtistName
+        }
+        if canRefreshCatalogText && (
+            existing.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                || MediaMetadataTextRepair.isSuspicious(existing.genre)
+        ) {
+            refreshed.genre = incoming.genre
+        }
+        if refreshed.trackNumber == nil { refreshed.trackNumber = incoming.trackNumber }
+        if refreshed.discNumber == nil { refreshed.discNumber = incoming.discNumber }
+        if refreshed.year == nil { refreshed.year = incoming.year }
+        if refreshed.duration <= 0 { refreshed.duration = incoming.duration }
+        if refreshed.fileSize <= 0 { refreshed.fileSize = incoming.fileSize }
+        if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
+        if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
+        if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
+        if refreshed.revision == nil { refreshed.revision = incoming.revision }
+        if refreshed.lastModified == nil { refreshed.lastModified = incoming.lastModified }
+        if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
+        if refreshed.coverArtFileName == nil {
+            refreshed.coverArtFileName = incoming.coverArtFileName
+        }
+        return refreshed
+    }
+
+    public static func contentChanged(existing: Song, incoming: Song) -> Bool {
+        let sizeChanged = incoming.fileSize > 0
+            && existing.fileSize > 0
+            && incoming.fileSize != existing.fileSize
+        let modifiedChanged: Bool = {
+            guard let incomingDate = incoming.lastModified,
+                  let existingDate = existing.lastModified else { return false }
+            return incomingDate != existingDate
+        }()
+        let revisionChanged: Bool = {
+            guard let incomingRevision = incoming.revision,
+                  let existingRevision = existing.revision else { return false }
+            return incomingRevision != existingRevision
+        }()
+        let cueChanged = existing.cueSheetPath != incoming.cueSheetPath
+            || existing.cueStartTime != incoming.cueStartTime
+            || existing.cueEndTime != incoming.cueEndTime
+        return sizeChanged || modifiedChanged || revisionChanged
+            || existing.fileFormat != incoming.fileFormat || cueChanged
     }
 }
 
@@ -80,6 +230,7 @@ public enum AutomaticOfflineDownloadDeferralReason: Sendable, Equatable {
     case lowPower
     case thermalPressure
     case insufficientDiskSpace
+    case playbackActive
     case playbackBuffering
 }
 
@@ -92,6 +243,10 @@ public enum AutomaticOfflineDownloadPolicy {
     public static let minimumFreeDiskBytes: Int64 = 512 * 1_024 * 1_024
     public static let diskHeadroomBytes: Int64 = 256 * 1_024 * 1_024
 
+    public static func supportsSourceType(_ sourceType: MusicSourceType) -> Bool {
+        sourceType != .appleMusic
+    }
+
     public static func eligibility(
         applicationIsActive: Bool,
         hasDeterminedNetwork: Bool,
@@ -102,6 +257,7 @@ public enum AutomaticOfflineDownloadPolicy {
         hasSeriousThermalPressure: Bool,
         availableDiskBytes: Int64,
         expectedDownloadBytes: Int64,
+        isPlaybackActive: Bool = false,
         isPlaybackBuffering: Bool
     ) -> AutomaticOfflineDownloadEligibility {
         guard applicationIsActive else { return .deferred(.applicationInactive) }
@@ -118,6 +274,7 @@ public enum AutomaticOfflineDownloadPolicy {
         guard availableDiskBytes >= requiredDiskBytes else {
             return .deferred(.insufficientDiskSpace)
         }
+        guard !isPlaybackActive else { return .deferred(.playbackActive) }
         guard !isPlaybackBuffering else { return .deferred(.playbackBuffering) }
         return .allowed
     }
@@ -141,12 +298,22 @@ public enum AutomaticOfflineDownloadPolicy {
     public static func canAdoptExistingFile(
         desiredSignature: String,
         completedSignature: String?,
-        lastKnownSignature: String?
+        lastKnownSignature: String?,
+        provenanceIsTrusted: Bool = false
     ) -> Bool {
         guard let provenance = completedSignature ?? lastKnownSignature else {
-            return true
+            return provenanceIsTrusted
         }
         return provenance == desiredSignature
+    }
+
+    public static func retryDelay(
+        attemptCount: Int,
+        authenticationRequired: Bool
+    ) -> TimeInterval {
+        let exponent = min(max(attemptCount, 1) - 1, 7)
+        let transferBackoff = min(30 * (1 << exponent), 3_600)
+        return TimeInterval(authenticationRequired ? max(transferBackoff, 900) : transferBackoff)
     }
 
     public static func requiresContentRefresh(

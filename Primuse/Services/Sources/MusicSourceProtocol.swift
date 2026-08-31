@@ -1044,10 +1044,24 @@ struct ServerCatalogScanStatus: Sendable, Equatable {
     let lastCompletedScanAt: Date?
 }
 
+enum ServerCatalogScanRequestResult: Sendable, Equatable {
+    case accepted(ServerCatalogScanStatus)
+    case unsupported
+    case permissionDenied
+}
+
 /// Read-only server state used to decide whether an authoritative local
 /// catalogue refresh is necessary. This capability never starts a server scan.
 protocol ServerCatalogChangeDetectingConnector: MusicSourceConnector {
     func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus
+}
+
+/// Explicit, opt-in server mutation used only by Navidrome's launch refresh.
+/// Unsupported implementations and non-admin accounts return a capability
+/// result so local catalogue refresh can continue without surfacing a false
+/// credential failure.
+protocol ServerCatalogScanRequestingConnector: MusicSourceConnector {
+    func requestServerCatalogScan() async throws -> ServerCatalogScanRequestResult
 }
 
 /// Resolves an OpenList `.strm` source-relative target against the connector's
@@ -1056,6 +1070,12 @@ protocol ServerCatalogChangeDetectingConnector: MusicSourceConnector {
 protocol OpenListSTRMResolvingConnector: MusicSourceConnector {
     func openListSTRMURL(for reference: String) async throws -> URL?
     func localOpenListSTRMURL(for reference: String) async throws -> URL
+    /// Downloads into a temporary file while enforcing `maximumBytes` during
+    /// transport. The caller owns and must remove or move the returned URL.
+    func downloadBoundedOpenListSTRM(
+        for reference: String,
+        maximumBytes: Int64
+    ) async throws -> URL
     func fetchOpenListSTRMMetadataRange(
         for reference: String,
         offset: Int64,
@@ -1070,6 +1090,27 @@ protocol ExistingSongAwareScanningConnector: SongScanningConnector {
         from path: String,
         existingSongs: [Song]
     ) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
+}
+
+enum PagedSongCatalogError: Error, Sendable, Equatable {
+    case unavailable
+    case snapshotChangedDuringPagination
+}
+
+struct PagedSongCatalogPage: Sendable {
+    let songs: [ConnectorScannedSong]
+    /// Includes non-audio rows that occupy the server's offset window, so
+    /// duplicate/moving-page detection remains aligned with `nextOffset`.
+    let itemIDs: [String]
+    let nextOffset: Int?
+}
+
+/// Authoritative catalogue pages that can be staged without publishing a
+/// partial source snapshot. The caller persists `resumeState` only together
+/// with all songs returned through that page.
+protocol ResumablePagedSongCatalogConnector: MusicSourceConnector {
+    func stableSongCatalogRevision() async throws -> String?
+    func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage
 }
 
 struct IncrementalSourceChanges: Sendable {

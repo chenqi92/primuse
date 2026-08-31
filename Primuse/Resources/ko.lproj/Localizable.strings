@@ -308,6 +308,8 @@
 "playlist_always_download_description" = "Wi-Fi를 통해 이 플레이리스트를 이 기기에 저장합니다. 새로 추가되거나 변경된 곡은 기기 상태가 허용될 때 자동으로 다운로드되며, 끄더라도 기존 파일은 유지됩니다.";
 "navidrome_auto_refresh" = "Navidrome 자동 새로 고침";
 "navidrome_auto_refresh_description" = "앱을 연 후 Navidrome 라이브러리 상태를 확인하고 서버 콘텐츠가 변경된 경우에만 로컬 카탈로그를 새로 고칩니다. 서버 스캔은 시작하지 않습니다.";
+"navidrome_server_scan_on_launch" = "시작할 때 전체 서버 스캔 요청";
+"navidrome_server_scan_on_launch_description" = "Primuse를 시작할 때 Navidrome에 전체 라이브러리 스캔을 요청합니다. 관리자 계정이 필요하며, 지원되지 않거나 권한이 없으면 상태만 새로 고칩니다.";
 "welcome_title" = "Primuse에 오신 것을 환영합니다";
 "welcome_desc" = "음악 소스(NAS, WebDAV 또는 로컬 파일)를 추가해 감상을 시작하세요";
 "no_albums" = "앨범 없음";

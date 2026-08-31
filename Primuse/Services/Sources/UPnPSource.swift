@@ -32,6 +32,7 @@ actor UPnPSource: SongScanningConnector {
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_upnp_cache")
             .appendingPathComponent(sourceID)
+            .appendingPathComponent(MusicSourceSecurityRevision.cacheNamespace(for: sourceID))
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDirectory
     }

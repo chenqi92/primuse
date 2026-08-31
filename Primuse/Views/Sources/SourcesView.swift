@@ -809,21 +809,40 @@ struct SourcesContentView: View {
     }
 
     private func navidromeAutoRefreshControl(for source: MusicSource) -> some View {
-        Toggle(isOn: navidromeAutoRefreshBinding(for: source.id)) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("navidrome_auto_refresh")
-                    .font(.subheadline.weight(.semibold))
-                Text("navidrome_auto_refresh_description")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 9) {
+            Toggle(isOn: navidromeAutoRefreshBinding(for: source.id)) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("navidrome_auto_refresh")
+                        .font(.subheadline.weight(.semibold))
+                    Text("navidrome_auto_refresh_description")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .toggleStyle(.switch)
+            .accessibilityLabel(Text("navidrome_auto_refresh"))
+            .accessibilityHint(Text("navidrome_auto_refresh_description"))
+
+            Divider()
+
+            Toggle(isOn: navidromeServerScanOnLaunchBinding(for: source.id)) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("navidrome_server_scan_on_launch")
+                        .font(.subheadline.weight(.semibold))
+                    Text("navidrome_server_scan_on_launch_description")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .disabled(!AppServices.shared.navidromeAutoRefresh.isEnabled(for: source.id))
+            .accessibilityLabel(Text("navidrome_server_scan_on_launch"))
+            .accessibilityHint(Text("navidrome_server_scan_on_launch_description"))
         }
-        .toggleStyle(.switch)
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-        .accessibilityLabel(Text("navidrome_auto_refresh"))
-        .accessibilityHint(Text("navidrome_auto_refresh_description"))
     }
 
     private func navidromeAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
@@ -833,6 +852,19 @@ struct SourcesContentView: View {
             },
             set: { enabled in
                 AppServices.shared.navidromeAutoRefresh.setEnabled(enabled, for: sourceID)
+            }
+        )
+    }
+
+    private func navidromeServerScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                AppServices.shared.navidromeAutoRefresh
+                    .isServerScanOnLaunchEnabled(for: sourceID)
+            },
+            set: { enabled in
+                AppServices.shared.navidromeAutoRefresh
+                    .setServerScanOnLaunchEnabled(enabled, for: sourceID)
             }
         )
     }
@@ -1681,8 +1713,28 @@ struct SourcesContentView: View {
                 onSessionReady: { api in
                     scanService.synologyAPIs[source.id] = api
                 },
+                onPasswordWillChange: {
+                    do {
+                        try sourceManager.credentialsWillChange(for: source.id)
+                        return true
+                    } catch {
+                        plog("⚠️ Synology credential revision could not be persisted source=\(source.id.prefix(8))… error=\(error.localizedDescription)")
+                        return false
+                    }
+                },
+                onPasswordSaveUncertain: {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                },
                 onPasswordSaved: {
-                    await sourceManager.refreshConnector(for: source.id)
+                    do {
+                        try sourceManager.credentialsDidChange(for: source.id)
+                        await sourceManager.refreshConnector(for: source.id)
+                        return true
+                    } catch {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                        plog("⚠️ Synology credential transition could not commit source=\(source.id.prefix(8))… error=\(error.localizedDescription)")
+                        return false
+                    }
                 }
             )
         case .smb:

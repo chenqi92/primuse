@@ -64,6 +64,8 @@
 "playlist_always_download_description" = "Keeps this playlist on this device over Wi-Fi. New or changed songs download automatically when device conditions allow; turning this off keeps existing files.";
 "navidrome_auto_refresh" = "Refresh Navidrome Automatically";
 "navidrome_auto_refresh_description" = "After launch, Primuse checks the Navidrome library status and refreshes the local catalog only when server content has changed. It does not start a server scan.";
+"navidrome_server_scan_on_launch" = "Request Full Server Scan on Launch";
+"navidrome_server_scan_on_launch_description" = "Ask Navidrome to run a full library scan when Primuse launches. An administrator account is required; unsupported or denied requests fall back to a status-only refresh.";
 "see_all" = "See All";
 "welcome_title" = "Welcome to Primuse";
 "welcome_desc" = "Add a music source — your NAS, WebDAV, or local files — to start listening";

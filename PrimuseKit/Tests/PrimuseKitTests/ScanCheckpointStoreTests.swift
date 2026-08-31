@@ -197,6 +197,39 @@ struct ScanCheckpointPreparationTests {
         #expect(decoded.baiduTelemetry?.requestCount == 4)
     }
 
+    @Test("Subsonic page progress survives a cold restart without becoming authoritative")
+    func subsonicCatalogProgressRoundTrip() throws {
+        let catalogState = SubsonicCatalogResumeState(
+            stageSessionID: "session-a",
+            catalogRevision: "2026-08-31T12:00:00Z|800",
+            nextOffset: 500,
+            completedPageCount: 1,
+            stagedSongCount: 2,
+            stagedItemCount: 2,
+            firstPageItemIDs: ["one", "two"],
+            seenItemIDs: []
+        )
+        let checkpoint = makeCheckpoint(
+            phase: .scanning,
+            intent: .automatic,
+            directories: ["/"],
+            pendingDirectories: [],
+            scopeFingerprint: "navidrome-account",
+            subsonicCatalogState: catalogState
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ScanCheckpoint.self,
+            from: JSONEncoder().encode(checkpoint)
+        )
+
+        #expect(decoded == checkpoint)
+        #expect(decoded.subsonicCatalogState == catalogState)
+        #expect(decoded.songs.isEmpty)
+        #expect(decoded.subsonicCatalogState?.isUsable(stagedSongCount: 2) == true)
+        #expect(decoded.promotedToFullScan().subsonicCatalogState == catalogState)
+    }
+
     @Test("A stale snapshot directory restarts from roots without becoming a deep scan")
     func staleBaiduDirectoryRestartsSnapshot() {
         let progress = BaiduSnapshotResumeState(
@@ -480,6 +513,79 @@ struct ScanCheckpointFileStoreTests {
     }
 }
 
+@Suite("Source sync state persistence")
+struct SourceSyncStateFileStoreTests {
+    @Test("Concurrent source commits merge instead of replacing the snapshot")
+    func concurrentSourceCommitsMerge() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let store = SourceSyncStateFileStore(url: syncURL)
+
+        async let first = store.upsert(
+            makeSourceSyncState(sourceID: "source-a", marker: "a"),
+            expectedMutationEpoch: 0
+        )
+        async let second = store.upsert(
+            makeSourceSyncState(sourceID: "source-b", marker: "b"),
+            expectedMutationEpoch: 0
+        )
+        let receipts = try await (first, second)
+
+        #expect(receipts.0 != nil)
+        #expect(receipts.1 != nil)
+        let snapshot = await store.snapshot()
+        #expect(Set(snapshot.keys) == ["source-a", "source-b"])
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let persisted = try decoder.decode(
+            [String: SourceSyncState].self,
+            from: Data(contentsOf: syncURL)
+        )
+        #expect(persisted == snapshot)
+    }
+
+    @Test("A credential epoch rejects stale writes without erasing fresh state")
+    func credentialEpochRejectsStaleWrites() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let store = SourceSyncStateFileStore(
+            url: urls.directory.appendingPathComponent("source-sync-states.json")
+        )
+        let stale = makeSourceSyncState(sourceID: "source", marker: "old")
+        let fresh = makeSourceSyncState(sourceID: "source", marker: "new")
+
+        _ = try await store.upsert(stale, expectedMutationEpoch: 0)
+        _ = try await store.invalidate(sourceID: "source", mutationEpoch: 1)
+        #expect(try await store.upsert(stale, expectedMutationEpoch: 0) == nil)
+        #expect(try await store.upsert(fresh, expectedMutationEpoch: 1) != nil)
+        #expect(try await store.invalidate(sourceID: "source", mutationEpoch: 1) == nil)
+
+        let snapshot = await store.snapshot()
+        #expect(snapshot["source"] == fresh)
+    }
+
+    @Test("Cancelling a generation fences its delayed write but keeps committed state")
+    func cancelledGenerationCannotOverwriteReplacement() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let store = SourceSyncStateFileStore(
+            url: urls.directory.appendingPathComponent("source-sync-states.json")
+        )
+        let committed = makeSourceSyncState(sourceID: "source", marker: "committed")
+        let stale = makeSourceSyncState(sourceID: "source", marker: "cancelled")
+        let replacement = makeSourceSyncState(sourceID: "source", marker: "replacement")
+
+        _ = try await store.upsert(committed, expectedMutationEpoch: 0)
+        _ = try await store.advanceMutationEpoch(sourceID: "source", mutationEpoch: 1)
+        #expect(try await store.upsert(stale, expectedMutationEpoch: 0) == nil)
+        #expect(await store.snapshot()["source"] == committed)
+        #expect(try await store.upsert(replacement, expectedMutationEpoch: 1) != nil)
+        #expect(await store.snapshot()["source"] == replacement)
+    }
+}
+
 private func makeCheckpoint(
     phase: ScanCheckpointPhase = .scanning,
     intent: ScanCheckpointIntent = .fullScan,
@@ -490,7 +596,8 @@ private func makeCheckpoint(
     baselineCursors: [String: String]? = nil,
     scopeFingerprint: String? = nil,
     baiduSnapshotState: BaiduSnapshotResumeState? = nil,
-    baiduTelemetry: SourceSyncTelemetry? = nil
+    baiduTelemetry: SourceSyncTelemetry? = nil,
+    subsonicCatalogState: SubsonicCatalogResumeState? = nil
 ) -> ScanCheckpoint {
     ScanCheckpoint(
         phase: phase,
@@ -504,7 +611,19 @@ private func makeCheckpoint(
         directoryState: SourceScanResumeState(pendingDirectories: pendingDirectories),
         baselineCursors: baselineCursors,
         baiduSnapshotState: baiduSnapshotState,
-        baiduTelemetry: baiduTelemetry
+        baiduTelemetry: baiduTelemetry,
+        subsonicCatalogState: subsonicCatalogState
+    )
+}
+
+private func makeSourceSyncState(sourceID: String, marker: String) -> SourceSyncState {
+    SourceSyncState(
+        sourceID: sourceID,
+        scopeFingerprint: "scope-\(marker)",
+        identityScopeFingerprint: "identity-\(marker)",
+        cursors: ["/": "cursor-\(marker)"],
+        index: [:],
+        scanEpoch: 1
     )
 }
 

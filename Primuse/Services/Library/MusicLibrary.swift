@@ -3460,7 +3460,9 @@ final class MusicLibrary {
         _ newSongs: [Song],
         affectedSourceIDs explicitAffectedSourceIDs: Set<String>? = nil,
         notifyRemovals: Bool = true,
-        pruneMissingSongs: Bool = true
+        pruneMissingSongs: Bool = true,
+        authoritativeIncomingIDs: Set<String>? = nil,
+        mergeServerCatalogRows: Bool = false
     ) {
         // Merge semantics:
         //
@@ -3489,15 +3491,17 @@ final class MusicLibrary {
         // Keep only compact identity sets during the first pass. Retaining a
         // second full `[Song]` snapshot here doubled the peak of every remote
         // incremental flush, even though preparation can be done lazily below.
-        var incomingIDs: Set<String> = []
+        var incomingIDs = authoritativeIncomingIDs ?? []
         var sourceIDs = explicitAffectedSourceIDs ?? []
         var appendedIDs: Set<String> = []
-        if pruneMissingSongs {
+        if pruneMissingSongs, authoritativeIncomingIDs == nil {
             incomingIDs.reserveCapacity(newSongs.count)
         }
         for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
             if pruneMissingSongs {
-                incomingIDs.insert(song.id)
+                if authoritativeIncomingIDs == nil {
+                    incomingIDs.insert(song.id)
+                }
                 if explicitAffectedSourceIDs == nil {
                     sourceIDs.insert(song.sourceID)
                 }
@@ -3563,6 +3567,15 @@ final class MusicLibrary {
 
         for song in newSongs where !deletedSongIdentities.contains(identityKey(for: song)) {
             var newSong = song
+            if mergeServerCatalogRows,
+               let idx = existingIndexByID[newSong.id] {
+                let existing = mergedSongs[idx]
+                newSong = ServerSongCatalogMergePolicy.merged(
+                    existing: existing,
+                    incoming: newSong
+                )
+                newSong.dateAdded = existing.dateAdded
+            }
             MusicLibrary.fillDerivedIDs(
                 &newSong,
                 configuration: artistNameConfiguration
@@ -3573,26 +3586,15 @@ final class MusicLibrary {
                 if !newSong.filePath.isEmpty, newSong.filePath != existing.filePath {
                     previousLocationsByID[newSong.id] = existing
                 }
-                // Detect remote replacement: same path/ID but different
-                // bytes. Conservative — only triggers when both sides
-                // populate the field. Without this, the merge below
-                // would silently keep the OLD artist/album/duration
-                // backfilled from the previous file.
-                let sizeChanged = newSong.fileSize > 0
-                    && existing.fileSize > 0
-                    && newSong.fileSize != existing.fileSize
-                let mtimeChanged: Bool = {
-                    guard let a = newSong.lastModified, let b = existing.lastModified else { return false }
-                    return a != b
-                }()
-                // Provider revision (md5/etag/content_hash) catches
-                // overwrites that don't change size and that come from
-                // sources without a usable mtime — Baidu/Aliyun/Dropbox.
-                let revisionChanged: Bool = {
-                    guard let a = newSong.revision, let b = existing.revision else { return false }
-                    return a != b
-                }()
-                if sizeChanged || mtimeChanged || revisionChanged {
+                // Use the same replacement predicate as server-catalogue
+                // merging. Format and CUE-boundary changes must invalidate
+                // cached bytes and metadata just like size, mtime or revision
+                // changes; otherwise the bare-row preservation path below can
+                // silently restore stale technical fields.
+                if ServerSongCatalogMergePolicy.contentChanged(
+                    existing: existing,
+                    incoming: newSong
+                ) {
                     mergedSongs[idx] = newSong
                     contentChanged.append(newSong)
                     replacementIDs.insert(newSong.id)
@@ -4562,12 +4564,22 @@ final class MusicLibrary {
     ) {
         guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
         let kept = songIDs.filter { songIndexByID[$0] != nil }
+        let normalizedCoverArtPath = replacesCoverArtPath
+            ? normalizedArtworkReference(mirrorCoverArtPath)
+            : allPlaylists[idx].coverArtPath
+        let hasDedicatedCoverArt = replacesCoverArtPath
+            ? normalizedCoverArtPath != nil
+            : allPlaylists[idx].hasDedicatedCoverArt
+        guard playlistSongIDs[playlistID] != kept
+                || allPlaylists[idx].coverArtPath != normalizedCoverArtPath
+                || allPlaylists[idx].hasDedicatedCoverArt != hasDedicatedCoverArt else {
+            return
+        }
         playlistSongIDs[playlistID] = kept
         allPlaylists[idx].updatedAt = Date()
         if replacesCoverArtPath {
-            let normalized = normalizedArtworkReference(mirrorCoverArtPath)
-            allPlaylists[idx].coverArtPath = normalized
-            allPlaylists[idx].hasDedicatedCoverArt = normalized != nil
+            allPlaylists[idx].coverArtPath = normalizedCoverArtPath
+            allPlaylists[idx].hasDedicatedCoverArt = hasDedicatedCoverArt
         }
         if !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) {
             allPlaylists[idx] = stampedPlaylist(allPlaylists[idx])

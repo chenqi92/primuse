@@ -674,12 +674,26 @@ struct CloudDriveConnectionView: View {
 
         Task {
             let tokenManager = CloudTokenManager(sourceID: source.id)
+            do {
+                try sourceManager.credentialsWillChange(for: source.id)
+            } catch {
+                errorMessage = String(localized: "credential_save_failed_message")
+                withAnimation { step = .failed }
+                return
+            }
             guard await tokenManager.saveTokens(.init(accessToken: token)) else {
+                sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                 errorMessage = String(localized: "credential_save_failed_message")
                 withAnimation { step = .failed }
                 return
             }
             do {
+                do {
+                    try sourceManager.credentialsDidChange(for: source.id)
+                } catch {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                    throw error
+                }
                 await sourceManager.refreshConnector(for: source.id)
                 let connector = sourceManager.connector(for: source)
                 try await connector.connect()
@@ -768,16 +782,33 @@ struct CloudDriveConnectionView: View {
                         loginIntent: loginIntent
                     )
                 } commit: { tokens in
+                    try sourceManager.credentialsWillChange(for: source.id)
                     guard await tokenManager.saveAppCredentials(creds) else {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                         throw OAuthError.tokenExchangeFailed(
                             String(localized: "credential_save_failed_message")
                         )
                     }
                     guard await tokenManager.saveTokens(tokens) else {
                         plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
+                        // App credentials may already have changed even though
+                        // the token write could not be conclusively verified.
+                        // Commit the prepared scope if possible; on commit
+                        // failure the durable pending revision remains blocked.
+                        do {
+                            try sourceManager.credentialsDidChange(for: source.id)
+                        } catch {
+                            sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                        }
                         throw OAuthError.tokenExchangeFailed(
                             String(localized: "cloud_err_token_save_failed")
                         )
+                    }
+                    do {
+                        try sourceManager.credentialsDidChange(for: source.id)
+                    } catch {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                        throw error
                     }
                 }
 

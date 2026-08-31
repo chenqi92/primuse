@@ -157,6 +157,7 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_nfs_cache")
             .appendingPathComponent(sourceID)
+            .appendingPathComponent(MusicSourceSecurityRevision.cacheNamespace(for: sourceID))
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDirectory
 

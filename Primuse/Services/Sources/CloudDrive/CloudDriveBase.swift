@@ -121,10 +121,12 @@ enum CloudDriveError: Error, LocalizedError {
 struct CloudDriveHelper: Sendable {
     let sourceID: String
     let tokenManager: CloudTokenManager
+    private let cacheNamespace: String
 
     var cacheDirectory: URL {
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_cloud_cache/\(sourceID)")
+            .appendingPathComponent(cacheNamespace)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         return cacheDir
     }
@@ -132,6 +134,7 @@ struct CloudDriveHelper: Sendable {
     init(sourceID: String) {
         self.sourceID = sourceID
         self.tokenManager = CloudTokenManager(sourceID: sourceID)
+        self.cacheNamespace = MusicSourceSecurityRevision.cacheNamespace(for: sourceID)
     }
 
     static func formURLEncodedBody(_ items: [URLQueryItem]) -> Data? {

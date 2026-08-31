@@ -49,6 +49,10 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         self.artworkCacheDirectory = root
             .appendingPathComponent("fnmusic_artwork", isDirectory: true)
             .appendingPathComponent(sourceID, isDirectory: true)
+            .appendingPathComponent(
+                MusicSourceSecurityRevision.cacheNamespace(for: sourceID),
+                isDirectory: true
+            )
         try? FileManager.default.createDirectory(at: audioCacheDirectory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: artworkCacheDirectory, withIntermediateDirectories: true)
     }

@@ -26,6 +26,9 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
     static let scheme = "primuse-mv"
 
     private let connector: any MusicSourceConnector
+    private let sourceID: String
+    private let streamEpoch: UInt64
+    private let scopeIsCurrent: @Sendable () async -> Bool
     private let path: String
     private let contentLength: Int64
     private let contentType: String?
@@ -39,12 +42,18 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
 
     init(
         connector: any MusicSourceConnector,
+        sourceID: String,
+        streamEpoch: UInt64,
+        scopeIsCurrent: @escaping @Sendable () async -> Bool,
         path: String,
         contentLength: Int64,
         cacheTarget: URL,
         chunkBytes: Int64
     ) {
         self.connector = connector
+        self.sourceID = sourceID
+        self.streamEpoch = streamEpoch
+        self.scopeIsCurrent = scopeIsCurrent
         self.path = path
         self.contentLength = contentLength
         self.cacheTarget = cacheTarget
@@ -113,8 +122,9 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
         }
 
         do {
+            try await validateScope()
             while offset < end {
-                try Task.checkCancellation()
+                try await validateScope()
                 let length = min(chunkBytes, end - offset)
                 let data: Data
                 if let local = readLocalRange(offset: offset, length: Int(length)) {
@@ -122,9 +132,16 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
                 } else {
                     data = try await connector.fetchRange(path: path, offset: offset, length: length)
                 }
+                try await validateScope()
                 if data.isEmpty { break }
-                try Task.checkCancellation()
-                dataRequest.respond(with: data)
+                guard CloudPlaybackSource.withCurrentStreamEpoch(
+                    sourceID: sourceID,
+                    epoch: streamEpoch,
+                    {
+                        dataRequest.respond(with: data)
+                        return ()
+                    }
+                ) != nil else { throw CancellationError() }
                 offset += Int64(data.count)
             }
             finish(box, error: nil)
@@ -133,6 +150,16 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
         } catch {
             plog("🎞️ MV loader fetch failed offset=\(offset): \(error.localizedDescription)")
             finish(box, error: error)
+        }
+    }
+
+    private func validateScope() async throws {
+        try Task.checkCancellation()
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: sourceID,
+                ticket: streamEpoch
+              ), await scopeIsCurrent() else {
+            throw CancellationError()
         }
     }
 
@@ -180,7 +207,11 @@ extension MusicVideoStreamingLoader: AVAssetResourceLoaderDelegate {
         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
     ) -> Bool {
         lock.lock()
-        guard !invalidated else {
+        guard !invalidated,
+              CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: sourceID,
+                ticket: streamEpoch
+              ) else {
             lock.unlock()
             return false
         }

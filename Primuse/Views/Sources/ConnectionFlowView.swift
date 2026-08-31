@@ -8,7 +8,9 @@ struct ConnectionFlowView: View {
     @Binding var selectedDirectories: [String]
     var onDeviceTrustSaved: ((Bool, String?) -> Void)?
     var onSessionReady: ((SynologyAPI) -> Void)?
-    var onPasswordSaved: (() async -> Void)?
+    var onPasswordWillChange: (() -> Bool)?
+    var onPasswordSaveUncertain: (() -> Void)?
+    var onPasswordSaved: (() async -> Bool)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var step: FlowStep = .connecting
@@ -643,8 +645,15 @@ struct ConnectionFlowView: View {
                     loginSucceeded: true,
                     browserReady: true
                 ) {
+                    guard onPasswordWillChange?() != false else {
+                        pendingPasswordCandidate = nil
+                        errorMessage = String(localized: "synology_password_update_save_failed")
+                        withAnimation { step = .password }
+                        return
+                    }
                     guard KeychainService.setPassword(validatedPassword, for: source.id) else {
-                        plog("⚠️ Synology credential replacement validated but persistence failed; existing credential retained source=\(source.id.prefix(8))…")
+                        onPasswordSaveUncertain?()
+                        plog("⚠️ Synology credential replacement could not be conclusively persisted; prepared scope remains blocked source=\(source.id.prefix(8))…")
                         pendingPasswordCandidate = nil
                         errorMessage = String(localized: "synology_password_update_save_failed")
                         withAnimation { step = .password }
@@ -654,7 +663,12 @@ struct ConnectionFlowView: View {
                     // SourceManager connectors may still hold the rejected
                     // credential. Refresh only after the validated replacement
                     // has been persisted successfully.
-                    await onPasswordSaved?()
+                    guard await onPasswordSaved?() != false else {
+                        pendingPasswordCandidate = nil
+                        errorMessage = String(localized: "synology_password_update_save_failed")
+                        withAnimation { step = .password }
+                        return
+                    }
                     plog("✅ Synology credential replacement persisted after login and browse validation source=\(source.id.prefix(8))…")
                     pendingPasswordCandidate = nil
                     passwordInput = ""

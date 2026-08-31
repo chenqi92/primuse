@@ -66,6 +66,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_smb_cache")
             .appendingPathComponent(sourceID)
+            .appendingPathComponent(MusicSourceSecurityRevision.cacheNamespace(for: sourceID))
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
     }

@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import Network
 import PrimuseKit
@@ -60,12 +61,703 @@ struct AlwaysDownloadDesiredSong: Sendable {
     let song: Song
     let playlistIDs: Set<String>
     let contentSignature: String
+    let sourceIdentitySignature: String
+    let artifactPath: String
+    let artifactSignature: String
+}
+
+enum AutomaticOfflineRefreshDisposition: String, Codable, Sendable {
+    case none
+    case preserveExisting
+    case discardUntrusted
+
+    static func strongest(
+        _ lhs: AutomaticOfflineRefreshDisposition,
+        _ rhs: AutomaticOfflineRefreshDisposition
+    ) -> AutomaticOfflineRefreshDisposition {
+        if lhs == .discardUntrusted || rhs == .discardUntrusted { return .discardUntrusted }
+        if lhs == .preserveExisting || rhs == .preserveExisting { return .preserveExisting }
+        return .none
+    }
+}
+
+enum AutomaticOfflineFailureKind: String, Sendable {
+    case authentication
+    case sourceAccessDenied
+    case rateLimited
+    case sourceUnavailable
+    case resourceDeferred
+    case transient
+
+    var authenticationRequired: Bool { self == .authentication }
+    var requiresSourceCooldown: Bool { self != .transient }
+}
+
+enum AutomaticOfflineFailureClassifier {
+    static func classify(_ error: Error) -> AutomaticOfflineFailureKind {
+        if let validationError = error as? OfflineTransferValidationError {
+            switch validationError {
+            case .invalidContentRange, .oversized:
+                // A server that violates its advertised range or the hard
+                // response bound will normally do so for every song. Stop the
+                // rest of that source instead of probing thousands of jobs.
+                return .sourceUnavailable
+            case .insufficientCapacity:
+                // Capacity is a device resource gate, not an authentication or
+                // per-song integrity failure. A source-wide delay prevents the
+                // queue from immediately repeating the same failed admission.
+                return .resourceDeferred
+            case .invalidChunk, .incomplete:
+                return .transient
+            }
+        }
+        if let deferral = error as? AutomaticOfflineTransferDeferralError {
+            switch deferral {
+            case .artifactLeased:
+                return .transient
+            case .unboundedAutomaticTransfer:
+                return .sourceUnavailable
+            }
+        }
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .authenticationFailed, .credentialUnavailable:
+                return .authentication
+            case .connectionFailed, .timeout:
+                return .sourceUnavailable
+            case .pathNotFound, .fileNotFound:
+                return .transient
+            }
+        }
+        if error is SourceConnectionTerminalError { return .authentication }
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled ? .transient : .sourceUnavailable
+        }
+        guard let cloudError = error as? CloudDriveError else { return .transient }
+        switch cloudError {
+        case .notAuthenticated,
+             .credentialTemporarilyUnavailable,
+             .credentialReadFailed,
+             .tokenExpired,
+             .tokenRefreshFailed,
+             .tokenPersistenceFailed:
+            return .authentication
+        case .permissionDenied:
+            return .sourceAccessDenied
+        case .apiError(let statusCode, _):
+            switch statusCode {
+            case 401: return .authentication
+            case 403: return .sourceAccessDenied
+            case 408, 500...599: return .sourceUnavailable
+            case 429: return .rateLimited
+            default: return .transient
+            }
+        case .rateLimited:
+            return .rateLimited
+        case .invalidResponse:
+            return .sourceUnavailable
+        case .fileNotFound:
+            return .transient
+        }
+    }
+}
+
+enum AutomaticOfflineTaskJoinPolicy {
+    static func canJoin(
+        existingArtifactSignature: String?,
+        existingDisposition: AutomaticOfflineRefreshDisposition,
+        requestedArtifactSignature: String?,
+        requestedDisposition: AutomaticOfflineRefreshDisposition
+    ) -> Bool {
+        // A manual request carries no scope provenance. It may coalesce only
+        // with another manual transfer; joining any automatic task could keep
+        // a superseded account-scoped transfer alive after its worker is
+        // cancelled, even when its refresh disposition is `.none`.
+        guard let requestedArtifactSignature else {
+            return existingDisposition == .none
+                && existingArtifactSignature == nil
+        }
+        // Automatic callers may only adopt a task bound to the exact desired
+        // artifact and an equal or stronger refresh policy.
+        return existingArtifactSignature == requestedArtifactSignature
+            && AutomaticOfflineRefreshDisposition.strongest(
+                existingDisposition,
+                requestedDisposition
+            ) == existingDisposition
+    }
+}
+
+enum AutomaticOfflineCachedReadPolicy {
+    static func allows(path: String, blockedPaths: Set<String>) -> Bool {
+        !blockedPaths.contains(path)
+    }
+}
+
+enum SourceAudioCacheScopePolicy {
+    enum Reconciliation: Equatable {
+        case allowExisting
+        case purgeExisting
+    }
+
+    static func reconciliation(
+        recordedSignature: String?,
+        currentSignature: String
+    ) -> Reconciliation {
+        recordedSignature == currentSignature ? .allowExisting : .purgeExisting
+    }
+
+    static func allowsRead(
+        sourceID: String,
+        validatedSourceIDs: Set<String>,
+        blockedSourceIDs: Set<String>
+    ) -> Bool {
+        validatedSourceIDs.contains(sourceID) && !blockedSourceIDs.contains(sourceID)
+    }
+}
+
+enum SourceConnectorScopePolicy {
+    static func allows(
+        requestedFingerprint: String,
+        requiredFingerprint: String?,
+        validationPending: Bool
+    ) -> Bool {
+        guard !validationPending else { return false }
+        return requiredFingerprint.map { $0 == requestedFingerprint } ?? true
+    }
+
+    static func canReuse(
+        cachedFingerprint: String?,
+        requestedFingerprint: String,
+        requiredFingerprint: String?,
+        validationPending: Bool
+    ) -> Bool {
+        cachedFingerprint == requestedFingerprint
+            && allows(
+                requestedFingerprint: requestedFingerprint,
+                requiredFingerprint: requiredFingerprint,
+                validationPending: validationPending
+            )
+    }
+
+    static func canEstablishDuringPendingValidation(
+        previousModifiedAt: Date?,
+        requestedModifiedAt: Date
+    ) -> Bool {
+        guard let previousModifiedAt else {
+            // A newly added source has no reusable pre-notification connector
+            // and may be used immediately by the scan kicked off by its save.
+            return true
+        }
+        // Existing sources must present the post-notification value. This
+        // keeps a caller holding the old model from repopulating the cache.
+        return requestedModifiedAt > previousModifiedAt
+    }
+}
+
+enum MusicSourceSecurityRevision {
+    private struct PersistedState: Codable {
+        var revisionsBySourceID: [String: UInt64] = [:]
+        var pendingRevisionsBySourceID: [String: UInt64] = [:]
+        var cacheNamespacesBySourceID: [String: String] = [:]
+
+        private enum CodingKeys: String, CodingKey {
+            case revisionsBySourceID
+            case pendingRevisionsBySourceID
+            case cacheNamespacesBySourceID
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            revisionsBySourceID = try container.decodeIfPresent(
+                [String: UInt64].self,
+                forKey: .revisionsBySourceID
+            ) ?? [:]
+            pendingRevisionsBySourceID = try container.decodeIfPresent(
+                [String: UInt64].self,
+                forKey: .pendingRevisionsBySourceID
+            ) ?? [:]
+            cacheNamespacesBySourceID = try container.decodeIfPresent(
+                [String: String].self,
+                forKey: .cacheNamespacesBySourceID
+            ) ?? [:]
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(revisionsBySourceID, forKey: .revisionsBySourceID)
+            if !pendingRevisionsBySourceID.isEmpty {
+                try container.encode(
+                    pendingRevisionsBySourceID,
+                    forKey: .pendingRevisionsBySourceID
+                )
+            }
+            if !cacheNamespacesBySourceID.isEmpty {
+                try container.encode(
+                    cacheNamespacesBySourceID,
+                    forKey: .cacheNamespacesBySourceID
+                )
+            }
+        }
+
+        func effectiveRevision(for sourceID: String) -> UInt64 {
+            pendingRevisionsBySourceID[sourceID]
+                ?? revisionsBySourceID[sourceID]
+                ?? 0
+        }
+    }
+
+    private static let stateFileName = "source_security_revisions.json"
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cachedState: PersistedState?
+    private static let unavailableRevision = UUID().uuidString
+
+    private static var stateURL: URL {
+        #if os(tvOS)
+        let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
+        let root = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
+        return root.appendingPathComponent(stateFileName)
+    }
+
+    static func revision(for sourceID: String) -> UInt64? {
+        try? lock.withLock {
+            try loadStateIfNeeded().effectiveRevision(for: sourceID)
+        }
+    }
+
+    static func hasPendingChange(for sourceID: String) -> Bool {
+        lock.withLock {
+            do {
+                return try loadStateIfNeeded().pendingRevisionsBySourceID[sourceID] != nil
+            } catch {
+                return true
+            }
+        }
+    }
+
+    static func cacheNamespace(for sourceID: String) -> String {
+        lock.withLock {
+            do {
+                return try loadStateIfNeeded().cacheNamespacesBySourceID[sourceID]
+                    ?? "unavailable-\(unavailableRevision)"
+            } catch {
+                return "unavailable-\(unavailableRevision)"
+            }
+        }
+    }
+
+    static func registerCacheNamespace(
+        sourceID: String,
+        scopedFingerprint: String
+    ) throws {
+        try lock.withLock {
+            var state = try loadStateIfNeeded()
+            let namespace = cacheNamespace(scopedFingerprint: scopedFingerprint)
+            guard state.cacheNamespacesBySourceID[sourceID] != namespace else {
+                return
+            }
+            state.cacheNamespacesBySourceID[sourceID] = namespace
+            try persistDurably(state)
+            cachedState = state
+        }
+    }
+
+    static func cacheNamespace(scopedFingerprint: String) -> String {
+        "s\(scopedFingerprint)"
+    }
+
+    @discardableResult
+    static func prepareChange(for sourceID: String) throws -> UInt64 {
+        try lock.withLock {
+            var state = try loadStateIfNeeded()
+            let current = max(
+                state.revisionsBySourceID[sourceID] ?? 0,
+                state.pendingRevisionsBySourceID[sourceID] ?? 0
+            )
+            let incremented = current.addingReportingOverflow(1)
+            guard !incremented.overflow, incremented.partialValue != 0 else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            let next = incremented.partialValue
+            state.pendingRevisionsBySourceID[sourceID] = next
+            try persistDurably(state)
+            cachedState = state
+            return next
+        }
+    }
+
+    @discardableResult
+    static func commitChange(for sourceID: String) throws -> UInt64 {
+        try lock.withLock {
+            var state = try loadStateIfNeeded()
+            guard let pending = state.pendingRevisionsBySourceID[sourceID] else {
+                return state.revisionsBySourceID[sourceID] ?? 0
+            }
+            state.revisionsBySourceID[sourceID] = pending
+            state.pendingRevisionsBySourceID.removeValue(forKey: sourceID)
+            try persistDurably(state)
+            cachedState = state
+            return pending
+        }
+    }
+
+    static func abortChange(for sourceID: String) throws {
+        try lock.withLock {
+            var state = try loadStateIfNeeded()
+            guard state.pendingRevisionsBySourceID.removeValue(forKey: sourceID) != nil else {
+                return
+            }
+            try persistDurably(state)
+            cachedState = state
+        }
+    }
+
+    static func scopedFingerprint(
+        for source: MusicSource,
+        revision explicitRevision: UInt64? = nil
+    ) -> String {
+        let base = MusicSourceScopeFingerprint.make(
+            for: source,
+            directories: nil,
+            includeSourceID: true
+        )
+        let revisionComponent: String
+        if let explicitRevision {
+            revisionComponent = String(explicitRevision)
+        } else {
+            revisionComponent = lock.withLock {
+                do {
+                    return String(
+                        try loadStateIfNeeded().effectiveRevision(for: source.id)
+                    )
+                } catch {
+                    // A missing/corrupt/unreadable state must never collapse to
+                    // a previously trusted epoch. A per-process fail-closed
+                    // value makes existing durable provenance mismatch.
+                    return "unavailable-\(unavailableRevision)"
+                }
+            }
+        }
+        let digest = SHA256.hash(
+            data: Data("\(base)\u{1E}\(revisionComponent)".utf8)
+        )
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    #if DEBUG
+    static func reloadPersistedStateForTesting() {
+        lock.withLock { cachedState = nil }
+    }
+    #endif
+
+    private static func loadStateIfNeeded() throws -> PersistedState {
+        if let cachedState { return cachedState }
+        let data: Data
+        do {
+            data = try Data(contentsOf: stateURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            let state = PersistedState()
+            cachedState = state
+            return state
+        }
+        let state = try JSONDecoder().decode(PersistedState.self, from: data)
+        cachedState = state
+        return state
+    }
+
+    private static func persistDurably(_ state: PersistedState) throws {
+        let url = stateURL
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let data = try JSONEncoder().encode(state)
+        try data.write(to: url, options: .atomic)
+        try synchronizeFileSystemObject(at: url, fullSync: true)
+        try synchronizeFileSystemObject(at: directory, fullSync: false)
+    }
+
+    private static func synchronizeFileSystemObject(
+        at url: URL,
+        fullSync: Bool
+    ) throws {
+        let descriptor = url.path.withCString { Darwin.open($0, O_RDONLY) }
+        guard descriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(descriptor) }
+
+        if fullSync, Darwin.fcntl(descriptor, F_FULLFSYNC) == 0 {
+            return
+        }
+        guard Darwin.fsync(descriptor) == 0 else { throw posixError() }
+    }
+
+    private static func posixError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+}
+
+enum AutomaticOfflineContentChangePolicy {
+    static func protectedPaths(
+        candidates: Set<String>,
+        livePlaylistPaths: Set<String>,
+        persistedPlaylistPaths: Set<String>,
+        blockedUntrustedPaths: Set<String>
+    ) -> Set<String> {
+        livePlaylistPaths
+            .union(persistedPlaylistPaths)
+            .intersection(candidates)
+            .subtracting(blockedUntrustedPaths)
+    }
+}
+
+enum OfflineTransferSizePolicy {
+    static let oversizeToleranceBytes: Int64 = 4 * 1_024
+
+    static func minimumAllowedBytes(expectedSize: Int64) -> Int64 {
+        guard expectedSize > 0 else { return 0 }
+        return expectedSize - (expectedSize / 20)
+    }
+
+    static func maximumAllowedBytes(expectedSize: Int64) -> Int64 {
+        guard expectedSize > 0 else { return 0 }
+        let result = expectedSize.addingReportingOverflow(oversizeToleranceBytes)
+        return result.overflow ? .max : result.partialValue
+    }
+
+    static func maximumAllowedBytes(
+        expectedSize: Int64,
+        cacheLimitBytes: Int64,
+        availableDiskBytes: Int64,
+        otherReservedBytes: Int64 = 0,
+        otherConfiguredCacheReservedBytes: Int64? = nil
+    ) -> Int64 {
+        let physicalReserved = max(0, otherReservedBytes)
+        let configuredReserved = max(
+            0,
+            otherConfiguredCacheReservedBytes ?? physicalReserved
+        )
+        let physicalBudget = max(0, availableDiskBytes - physicalReserved)
+        let diskBudget = max(
+            0,
+            physicalBudget - AutomaticOfflineDownloadPolicy.diskHeadroomBytes
+        )
+        let configuredBudget = cacheLimitBytes > 0
+            ? max(0, cacheLimitBytes - configuredReserved)
+            : diskBudget
+        let metadataBound = expectedSize > 0
+            ? maximumAllowedBytes(expectedSize: expectedSize)
+            : configuredBudget
+        return min(metadataBound, min(configuredBudget, diskBudget))
+    }
+
+    static func validate(
+        actualSize: Int64,
+        expectedSize: Int64,
+        maximumBytes: Int64? = nil
+    ) throws {
+        guard actualSize > 0 else {
+            throw OfflineTransferValidationError.incomplete(
+                actual: actualSize,
+                expected: max(1, expectedSize)
+            )
+        }
+        let minimum = minimumAllowedBytes(expectedSize: expectedSize)
+        guard actualSize >= minimum else {
+            throw OfflineTransferValidationError.incomplete(
+                actual: actualSize,
+                expected: expectedSize
+            )
+        }
+        let maximum = maximumBytes ?? maximumAllowedBytes(expectedSize: expectedSize)
+        guard maximum > 0 || actualSize == 0 else {
+            throw OfflineTransferValidationError.oversized(
+                actual: actualSize,
+                maximum: max(0, maximum)
+            )
+        }
+        guard actualSize <= maximum else {
+            throw OfflineTransferValidationError.oversized(
+                actual: actualSize,
+                maximum: maximum
+            )
+        }
+    }
+}
+
+struct OfflineHTTPContentRange: Equatable {
+    let start: Int64
+    let end: Int64
+    let total: Int64
+}
+
+enum OfflineHTTPContentRangePolicy {
+    static func parse(_ header: String?) -> OfflineHTTPContentRange? {
+        guard let header else { return nil }
+        let pieces = header.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+        guard pieces.count == 2,
+              pieces[0].lowercased() == "bytes" else { return nil }
+        let rangeAndTotal = pieces[1].split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard rangeAndTotal.count == 2,
+              rangeAndTotal[1] != "*",
+              let total = Int64(rangeAndTotal[1]),
+              total > 0 else { return nil }
+        let bounds = rangeAndTotal[0].split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard bounds.count == 2,
+              let start = Int64(bounds[0]),
+              let end = Int64(bounds[1]),
+              start >= 0,
+              end >= start,
+              end < total else { return nil }
+        return OfflineHTTPContentRange(start: start, end: end, total: total)
+    }
+
+    static func validate(
+        header: String?,
+        expectedStart: Int64,
+        contentLength: Int64,
+        maximumBytes: Int64
+    ) throws -> OfflineHTTPContentRange {
+        guard let range = parse(header),
+              range.start == expectedStart,
+              range.end == range.total - 1,
+              range.total <= maximumBytes else {
+            throw OfflineTransferValidationError.invalidContentRange
+        }
+        let interval = range.end.subtractingReportingOverflow(range.start)
+        guard !interval.overflow else {
+            throw OfflineTransferValidationError.invalidContentRange
+        }
+        let bodyLength = interval.partialValue.addingReportingOverflow(1)
+        guard !bodyLength.overflow,
+              contentLength <= 0 || bodyLength.partialValue == contentLength else {
+            throw OfflineTransferValidationError.invalidContentRange
+        }
+        return range
+    }
+}
+
+enum OfflineDirectDownloadRetryPolicy {
+    static func shouldRefreshSignedURL(after error: Error) -> Bool {
+        guard let cloudError = error as? CloudDriveError,
+              case .apiError(let statusCode, _) = cloudError else { return false }
+        return statusCode == 401
+            || statusCode == 403
+            || statusCode == 404
+            || statusCode == 410
+    }
+}
+
+enum OfflineTransferValidationError: Error, LocalizedError {
+    case invalidChunk(actual: Int, expected: Int64)
+    case incomplete(actual: Int64, expected: Int64)
+    case oversized(actual: Int64, maximum: Int64)
+    case invalidContentRange
+    case insufficientCapacity(required: Int64, available: Int64)
+
+    var errorDescription: String? {
+        String(localized: "offline_download_failed")
+    }
+}
+
+enum AutomaticOfflineTransferDeferralError: Error, LocalizedError {
+    case artifactLeased
+    case unboundedAutomaticTransfer
+
+    var errorDescription: String? {
+        String(localized: "offline_download_failed")
+    }
+}
+
+enum OfflineSTRMConnectorMaterializationPolicy {
+    /// Connector materialization has no cross-connector byte-limit contract.
+    /// Only an already-local source can be sized before the copy starts.
+    /// Remote STRM targets must use the bounded external-HTTP route instead.
+    static func permitsConnectorMaterialization(sourceType: MusicSourceType) -> Bool {
+        sourceType == .local || sourceType == .appleMusicLibrary
+    }
+}
+
+enum AutomaticOfflineUntrustedCleanupPolicy {
+    static func canonicalURLs(for canonical: URL) -> [URL] {
+        let partial = URL(fileURLWithPath: canonical.path + ".partial")
+        return [
+            canonical,
+            URL(fileURLWithPath: canonical.path + ".installing"),
+            partial,
+            URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix),
+            URL(fileURLWithPath: canonical.path + ".offline"),
+        ]
+    }
+
+
+    static func recoverableAllocatedBytes(for canonical: URL) -> Int64 {
+        canonicalURLs(for: canonical).reduce(into: Int64(0)) { total, url in
+            let values = try? url.resourceValues(forKeys: [
+                .totalFileAllocatedSizeKey,
+                .fileAllocatedSizeKey,
+            ])
+            let allocated = Int64(
+                values?.totalFileAllocatedSize
+                    ?? values?.fileAllocatedSize
+                    ?? 0
+            )
+            let result = total.addingReportingOverflow(max(0, allocated))
+            total = result.overflow ? .max : result.partialValue
+        }
+    }
+}
+
+enum OfflineCacheAtomicReplacement {
+    static func replace(staging: URL, canonical: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: canonical.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: canonical.path) {
+            _ = try fileManager.replaceItemAt(
+                canonical,
+                withItemAt: staging,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try fileManager.moveItem(at: staging, to: canonical)
+        }
+    }
+
+    static func install(source: URL, target: URL, move: Bool) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: target.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        guard source.standardizedFileURL != target.standardizedFileURL else { return }
+
+        let staging = URL(fileURLWithPath: target.path + ".installing")
+        try? fileManager.removeItem(at: staging)
+        do {
+            if move {
+                try fileManager.moveItem(at: source, to: staging)
+            } else {
+                try fileManager.copyItem(at: source, to: staging)
+            }
+            try replace(staging: staging, canonical: target)
+        } catch {
+            try? fileManager.removeItem(at: staging)
+            throw error
+        }
+    }
 }
 
 enum AutomaticOfflineDownloadResult: Sendable {
     case completed
     case cancelled
-    case failed(authenticationRequired: Bool, message: String)
+    case failed(kind: AutomaticOfflineFailureKind, message: String)
 }
 
 private struct OfflineDownloadSongResult: Sendable {
@@ -81,23 +773,27 @@ private enum OfflineDownloadPinIntent: Sendable {
 private enum OfflineDownloadTransferResult: Sendable {
     case completed(byteCount: Int64?)
     case cancelled
-    case failed(authenticationRequired: Bool, message: String)
+    case failed(kind: AutomaticOfflineFailureKind, message: String)
 }
 
 private struct OfflineDownloadTaskRecord {
     let id: UUID
     let task: Task<OfflineDownloadTransferResult, Never>
     var requesterIDs: Set<UUID>
+    let refreshDisposition: AutomaticOfflineRefreshDisposition
+    let artifactSignature: String?
 }
 
 private struct OfflineDownloadTaskHandle: Sendable {
     let task: Task<OfflineDownloadTransferResult, Never>
     let requesterID: UUID
+    let taskKey: String
 }
 
 private struct BackgroundAudioCacheTaskRecord {
     let id: UUID
     let sourceID: String
+    let taskKey: String
     let task: Task<Void, Never>
 }
 
@@ -123,7 +819,9 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
     private let partial: URL
     private let initialBytes: Int64
     private let expectedTotalBytes: Int64?
+    private let maximumBytes: Int64
     private let onProgress: @Sendable (Int64, Int64?) -> Void
+    private let trustDelegate = SmartSSLDelegate()
     private let lock = NSLock()
     private var continuation: CheckedContinuation<HTTPURLResponse, Error>?
     private var session: URLSession?
@@ -132,6 +830,8 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
     private var response: HTTPURLResponse?
     private var downloadedBytes: Int64
     private var totalBytes: Int64?
+    private var expectedResponseEndExclusive: Int64?
+    private var terminalError: Error?
     private var isFinished = false
     private var lastProgressAt = Date.distantPast
 
@@ -139,22 +839,30 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
         partial: URL,
         initialBytes: Int64,
         expectedTotalBytes: Int64?,
+        maximumBytes: Int64,
         onProgress: @escaping @Sendable (Int64, Int64?) -> Void
     ) {
         self.partial = partial
         self.initialBytes = initialBytes
         self.expectedTotalBytes = expectedTotalBytes
+        self.maximumBytes = maximumBytes
         self.onProgress = onProgress
         self.downloadedBytes = initialBytes
         self.totalBytes = expectedTotalBytes
     }
 
     func run(request: URLRequest, configuration: URLSessionConfiguration) async throws -> HTTPURLResponse {
+        try Task.checkCancellation()
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<HTTPURLResponse, Error>) in
                 lock.lock()
+                guard !Task.isCancelled else {
+                    lock.unlock()
+                    cont.resume(throwing: CancellationError())
+                    return
+                }
                 continuation = cont
                 let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
                 self.session = session
@@ -162,10 +870,51 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
                 self.task = task
                 lock.unlock()
                 task.resume()
+                if Task.isCancelled {
+                    cancelRequest()
+                }
             }
         } onCancel: { [weak self] in
-            self?.task?.cancel()
+            self?.cancelRequest()
         }
+    }
+
+    private func cancelRequest() {
+        lock.lock()
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await trustDelegate.urlSession(session, didReceive: challenge)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await trustDelegate.urlSession(session, task: task, didReceive: challenge)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        trustDelegate.urlSession(
+            session,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: request,
+            completionHandler: completionHandler
+        )
     }
 
     func urlSession(
@@ -175,24 +924,61 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
         guard let http = response as? HTTPURLResponse else {
-            finish(throwing: SourceError.connectionFailed("Offline download returned a non-HTTP response"))
+            terminalError = SourceError.connectionFailed("Offline download returned a non-HTTP response")
             completionHandler(.cancel)
             return
         }
 
-        guard (200...299).contains(http.statusCode) else {
-            finish(throwing: CloudDriveError.apiError(http.statusCode, "Offline direct download failed"))
+        guard http.statusCode == 200 || http.statusCode == 206 else {
+            terminalError = CloudDriveError.apiError(http.statusCode, "Offline direct download failed")
             completionHandler(.cancel)
             return
         }
 
         do {
+            let bodyLength = response.expectedContentLength
+            let shouldAppend: Bool
+            if http.statusCode == 206 {
+                let range = try OfflineHTTPContentRangePolicy.validate(
+                    header: http.value(forHTTPHeaderField: "Content-Range"),
+                    expectedStart: initialBytes,
+                    contentLength: bodyLength,
+                    maximumBytes: maximumBytes
+                )
+                if let expectedTotalBytes {
+                    try OfflineTransferSizePolicy.validate(
+                        actualSize: range.total,
+                        expectedSize: expectedTotalBytes,
+                        maximumBytes: maximumBytes
+                    )
+                }
+                shouldAppend = initialBytes > 0
+                totalBytes = range.total
+                expectedResponseEndExclusive = range.end + 1
+            } else {
+                if bodyLength > maximumBytes {
+                    throw OfflineTransferValidationError.oversized(
+                        actual: bodyLength,
+                        maximum: maximumBytes
+                    )
+                }
+                if bodyLength > 0, let expectedTotalBytes {
+                    try OfflineTransferSizePolicy.validate(
+                        actualSize: bodyLength,
+                        expectedSize: expectedTotalBytes,
+                        maximumBytes: maximumBytes
+                    )
+                }
+                shouldAppend = false
+                totalBytes = bodyLength > 0 ? bodyLength : expectedTotalBytes
+                expectedResponseEndExclusive = bodyLength > 0 ? bodyLength : nil
+            }
             try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
             if !FileManager.default.fileExists(atPath: partial.path) {
                 FileManager.default.createFile(atPath: partial.path, contents: nil)
             }
             let handle = try FileHandle(forWritingTo: partial)
-            if initialBytes > 0, http.statusCode == 206 {
+            if shouldAppend {
                 try handle.seekToEnd()
                 downloadedBytes = initialBytes
             } else {
@@ -201,26 +987,40 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
             }
             self.handle = handle
             self.response = http
-            totalBytes = totalBytes(from: http, fallbackBodyBytes: response.expectedContentLength)
             onProgress(downloadedBytes, totalBytes)
             completionHandler(.allow)
         } catch {
-            finish(throwing: error)
+            if initialBytes > 0, error is OfflineTransferValidationError {
+                try? FileManager.default.removeItem(at: partial)
+            }
+            terminalError = error
             completionHandler(.cancel)
         }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard terminalError == nil else {
+            dataTask.cancel()
+            return
+        }
         do {
+            let nextSize = downloadedBytes.addingReportingOverflow(Int64(data.count))
+            let responseLimit = min(expectedResponseEndExclusive ?? .max, maximumBytes)
+            guard !nextSize.overflow, nextSize.partialValue <= responseLimit else {
+                throw OfflineTransferValidationError.oversized(
+                    actual: nextSize.overflow ? .max : nextSize.partialValue,
+                    maximum: responseLimit
+                )
+            }
             try handle?.write(contentsOf: data)
-            downloadedBytes += Int64(data.count)
+            downloadedBytes = nextSize.partialValue
             let now = Date()
             if downloadedBytes >= totalBytes ?? Int64.max || now.timeIntervalSince(lastProgressAt) >= 0.25 {
                 lastProgressAt = now
                 onProgress(downloadedBytes, totalBytes)
             }
         } catch {
-            finish(throwing: error)
+            terminalError = error
             dataTask.cancel()
         }
     }
@@ -229,31 +1029,22 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
         try? handle?.close()
         handle = nil
         session.finishTasksAndInvalidate()
-        if let error {
+        if let terminalError {
+            finish(throwing: terminalError)
+        } else if let error {
             finish(throwing: error)
+        } else if let expectedResponseEndExclusive,
+                  downloadedBytes != expectedResponseEndExclusive {
+            finish(throwing: OfflineTransferValidationError.incomplete(
+                actual: downloadedBytes,
+                expected: expectedResponseEndExclusive
+            ))
         } else if let response {
             onProgress(downloadedBytes, totalBytes)
             finish(returning: response)
         } else {
             finish(throwing: SourceError.connectionFailed("Offline download completed without a response"))
         }
-    }
-
-    private func totalBytes(from response: HTTPURLResponse, fallbackBodyBytes: Int64) -> Int64? {
-        if let total = Self.totalBytesFromContentRange(response.value(forHTTPHeaderField: "Content-Range")) {
-            return total
-        }
-        if fallbackBodyBytes > 0 {
-            return downloadedBytes + fallbackBodyBytes
-        }
-        return expectedTotalBytes
-    }
-
-    private static func totalBytesFromContentRange(_ header: String?) -> Int64? {
-        guard let header, let slash = header.lastIndex(of: "/") else { return nil }
-        let value = header[header.index(after: slash)...]
-        guard value != "*" else { return nil }
-        return Int64(value)
     }
 
     private func finish(returning response: HTTPURLResponse) {
@@ -928,6 +1719,21 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
         }
     }
 
+    func downloadBoundedOpenListSTRM(
+        for reference: String,
+        maximumBytes: Int64
+    ) async throws -> URL {
+        try await routing.withRead { connector in
+            guard let resolver = connector as? any OpenListSTRMResolvingConnector else {
+                throw SourceError.connectionFailed("OpenList STRM transport unavailable")
+            }
+            return try await resolver.downloadBoundedOpenListSTRM(
+                for: reference,
+                maximumBytes: maximumBytes
+            )
+        }
+    }
+
     func fetchOpenListSTRMMetadataRange(
         for reference: String,
         offset: Int64,
@@ -947,7 +1753,8 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerCatalogChangeDetectingConnector,
+    ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
+    ResumablePagedSongCatalogConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector {
     let sourceID: String
@@ -961,6 +1768,33 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 throw SourceError.connectionFailed("Server catalogue status unavailable")
             }
             return try await provider.fetchServerCatalogScanStatus()
+        }
+    }
+
+    func requestServerCatalogScan() async throws -> ServerCatalogScanRequestResult {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerCatalogScanRequestingConnector else {
+                return .unsupported
+            }
+            return try await provider.requestServerCatalogScan()
+        }
+    }
+
+    func stableSongCatalogRevision() async throws -> String? {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.stableSongCatalogRevision()
+        }
+    }
+
+    func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.songCatalogPage(from: path, offset: offset)
         }
     }
 
@@ -1231,10 +2065,47 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
 @MainActor
 @Observable
 final class SourceManager {
+    private enum PlaybackAudioCacheReservationMode: Equatable {
+        case readOnly
+        case persistentCache
+        case canonicalPhysical
+        case temporaryPhysical
+
+        var respectsConfiguredCacheLimit: Bool {
+            self != .canonicalPhysical && self != .temporaryPhysical
+        }
+
+        var usesCanonicalStorage: Bool {
+            self != .temporaryPhysical
+        }
+    }
+
+    private struct PlaybackAudioCacheLeaseRecord {
+        let lease: AudioCachePathLease
+        let sourceID: String
+        let relativePath: String
+        var generation: UInt64
+        var mode: PlaybackAudioCacheReservationMode
+        var maximumTransferBytes: Int64?
+    }
+
+    private struct PlaybackAudioCacheLeaseFinalization {
+        let id: UUID
+        let generation: UInt64
+        let sourceID: String
+        let task: Task<Void, Never>
+    }
+
     private var connectors: [String: any MusicSourceConnector] = [:]
+    private var connectorScopeFingerprints: [String: String] = [:]
+    private var requiredConnectorScopeFingerprints: [String: String] = [:]
+    private var connectorSourceModifiedAtByID: [String: Date] = [:]
+    private var connectorScopeValidationPendingSourceIDs: Set<String> = []
+    private var connectorScopeValidationGenerationBySourceID: [String: Int] = [:]
     private struct UnavailableConnectorCacheEntry {
         let connector: any MusicSourceConnector
         let capturedAt: Date
+        let scopeFingerprint: String
     }
     /// Credential failures are intentionally not kept in the durable connector
     /// cache, but callers such as an artwork grid can request the same source
@@ -1246,6 +2117,7 @@ final class SourceManager {
     /// server rejects a write; creating one throwaway connector per song made
     /// a read-only SMB scrape reliably hit that upstream lifetime bug.
     private var sidecarConnectors: [String: any MusicSourceConnector] = [:]
+    private var sidecarConnectorScopeFingerprints: [String: String] = [:]
     /// A replaced SMB connector cannot be safely destroyed after a failed C
     /// request on AMSMB2 4.0.3. Keep the rare retired instance alive until the
     /// process exits; normal playback and scrape paths remain bounded at one
@@ -1279,28 +2151,61 @@ final class SourceManager {
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
+    @ObservationIgnored private var playbackAudioCacheLeases: [String: PlaybackAudioCacheLeaseRecord] = [:]
+    @ObservationIgnored private var playbackAudioCacheLeaseFinalizations: [String: PlaybackAudioCacheLeaseFinalization] = [:]
+    @ObservationIgnored private var activePlaybackAudioCachePaths: [String: Int] = [:]
+    @ObservationIgnored private var preservingAutomaticRefreshPaths: Set<String> = []
+    @ObservationIgnored private var contentChangeProtectionPendingPaths: Set<String> = []
+    @ObservationIgnored private var contentChangeInvalidationGenerationByPath: [String: Int] = [:]
+    @ObservationIgnored private var contentChangeInvalidationGeneration = 0
+    @ObservationIgnored private var blockedUntrustedAudioCachePaths: Set<String> = []
+    @ObservationIgnored private var automaticOfflineReconciliationGeneration = 0
+    @ObservationIgnored private var recordedAudioCacheScopeSignatures: [String: String]
+    @ObservationIgnored private var validatedAudioCacheSourceIDs: Set<String> = []
+    @ObservationIgnored private var blockedAudioCacheSourceIDs: Set<String> = []
+    @ObservationIgnored private var audioCacheScopeGenerationBySourceID: [String: Int] = [:]
+    @ObservationIgnored private var audioCacheScopeValidationTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var audioCacheScopeReconciliationsInProgress: Set<String> = []
+    @ObservationIgnored private var credentialChangesInProgress: Set<String> = []
     @ObservationIgnored private var automaticAudioCachingEnabled = true
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
     private var musicVideoCacheTargets: [String: URL] = [:]
 
     init(database: LibraryDatabase) {
+        self.recordedAudioCacheScopeSignatures = Self.loadAudioCacheScopeSignatures()
         self.sourcesProvider = {
             try await database.allSources()
         }
         self.songsProvider = { [] }
         observeLibraryInvalidations()
+        scheduleInitialAudioCacheScopeValidation()
     }
 
     init(
         sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
         songsProvider: @escaping @MainActor () -> [Song] = { [] }
     ) {
+        self.recordedAudioCacheScopeSignatures = Self.loadAudioCacheScopeSignatures()
         self.sourcesProvider = sourcesProvider
         self.songsProvider = songsProvider
         observeLibraryInvalidations()
+        scheduleInitialAudioCacheScopeValidation()
     }
 
     private func observeLibraryInvalidations() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourcesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let sourceIDs = note.userInfo?["ids"] as? [String],
+                  !sourceIDs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                self.audioCacheSourceConfigurationsDidChange(Set(sourceIDs))
+            }
+        }
+
         NotificationCenter.default.addObserver(
             forName: .primuseSongLocationChanged,
             object: nil,
@@ -1331,7 +2236,7 @@ final class SourceManager {
             let sourceIDs = Set((note.userInfo?["sourceIDs"] as? [String]) ?? [])
             MainActor.assumeIsolated {
                 if sourceIDs.isEmpty {
-                    self.deleteLocalCaches(for: songs, preserveFreshMetadataAssets: true)
+                    self.invalidateLocalCachesForContentChanges(songs)
                 } else {
                     self.deleteLocalCachesForRemovedSources(sourceIDs, songs: songs)
                 }
@@ -1364,18 +2269,78 @@ final class SourceManager {
         return try await provider.fetchServerCatalogScanStatus()
     }
 
+    func requestServerCatalogScan(for source: MusicSource) async throws -> ServerCatalogScanRequestResult {
+        let connector = connector(for: source)
+        guard let provider = connector as? any ServerCatalogScanRequestingConnector else {
+            return .unsupported
+        }
+        return try await provider.requestServerCatalogScan()
+    }
+
     private func connector(for source: MusicSource, cache: Bool) -> any MusicSourceConnector {
+        let scopeFingerprint = Self.audioCacheScopeSignature(for: source)
+        guard !credentialChangesInProgress.contains(source.id),
+              !MusicSourceSecurityRevision.hasPendingChange(for: source.id) else {
+            return NoAvailableConnectionSourceConnector(sourceID: source.id)
+        }
+        if connectorScopeValidationPendingSourceIDs.contains(source.id),
+           SourceConnectorScopePolicy.canEstablishDuringPendingValidation(
+               previousModifiedAt: connectorSourceModifiedAtByID[source.id],
+               requestedModifiedAt: source.modifiedAt
+           ) {
+            requiredConnectorScopeFingerprints[source.id] = scopeFingerprint
+            connectorSourceModifiedAtByID[source.id] = source.modifiedAt
+            connectorScopeValidationPendingSourceIDs.remove(source.id)
+        }
+        let validationPending = connectorScopeValidationPendingSourceIDs.contains(source.id)
+        let requiredFingerprint = requiredConnectorScopeFingerprints[source.id]
+        guard SourceConnectorScopePolicy.allows(
+            requestedFingerprint: scopeFingerprint,
+            requiredFingerprint: requiredFingerprint,
+            validationPending: validationPending
+        ) else {
+            return NoAvailableConnectionSourceConnector(sourceID: source.id)
+        }
+        if requiredFingerprint == nil {
+            requiredConnectorScopeFingerprints[source.id] = scopeFingerprint
+        }
+        connectorSourceModifiedAtByID[source.id] = max(
+            connectorSourceModifiedAtByID[source.id] ?? .distantPast,
+            source.modifiedAt
+        )
+        do {
+            try MusicSourceSecurityRevision.registerCacheNamespace(
+                sourceID: source.id,
+                scopedFingerprint: scopeFingerprint
+            )
+        } catch {
+            plog("⚠️ Source cache namespace could not be persisted: \(error.localizedDescription)")
+            return NoAvailableConnectionSourceConnector(sourceID: source.id)
+        }
+
         if cache, let existing = connectors[source.id] {
-            return existing
+            if SourceConnectorScopePolicy.canReuse(
+                cachedFingerprint: connectorScopeFingerprints[source.id],
+                requestedFingerprint: scopeFingerprint,
+                requiredFingerprint: requiredConnectorScopeFingerprints[source.id],
+                validationPending: false
+            ) {
+                return existing
+            }
+            connectors[source.id] = nil
+            connectorScopeFingerprints[source.id] = nil
+            retireConnectorAsynchronously(existing)
         }
         if cache, let unavailable = unavailableConnectors[source.id] {
-            if NetworkCredentialPolicy.shouldReuseUnavailableConnector(
+            if unavailable.scopeFingerprint == scopeFingerprint,
+               NetworkCredentialPolicy.shouldReuseUnavailableConnector(
                 capturedAt: unavailable.capturedAt,
                 now: Date()
             ) {
                 return unavailable.connector
             }
             unavailableConnectors.removeValue(forKey: source.id)
+            retireConnectorAsynchronously(unavailable.connector)
         }
 
         let connector = routedConnector(for: source)
@@ -1383,10 +2348,12 @@ final class SourceManager {
             if connector is CredentialUnavailableSourceConnector {
                 unavailableConnectors[source.id] = UnavailableConnectorCacheEntry(
                     connector: connector,
-                    capturedAt: Date()
+                    capturedAt: Date(),
+                    scopeFingerprint: scopeFingerprint
                 )
             } else if !(connector is NoAvailableConnectionSourceConnector) {
                 connectors[source.id] = connector
+                connectorScopeFingerprints[source.id] = scopeFingerprint
             }
         }
         return connector
@@ -1858,14 +2825,27 @@ final class SourceManager {
     ) {
         if let cached = connectors[sourceID], Self.isSameConnector(cached, connector) {
             connectors.removeValue(forKey: sourceID)
+            connectorScopeFingerprints.removeValue(forKey: sourceID)
             activeConnectionRoutes.removeValue(forKey: sourceID)
         }
         if let cached = unavailableConnectors[sourceID],
            Self.isSameConnector(cached.connector, connector) {
             unavailableConnectors.removeValue(forKey: sourceID)
         }
+        retireConnectorAsynchronously(connector)
+    }
+
+    private func retireConnectorAsynchronously(_ connector: any MusicSourceConnector) {
         Task.detached(priority: .utility) {
             await connector.disconnect()
+        }
+    }
+
+    private func retireSidecarConnector(_ connector: any MusicSourceConnector) {
+        if connector is SMBSource {
+            retiredSMBSidecarConnectors.append(connector)
+        } else {
+            retireConnectorAsynchronously(connector)
         }
     }
 
@@ -2367,9 +3347,17 @@ final class SourceManager {
 
     private func resolveSTRMTarget(
         for song: Song,
-        connector: any MusicSourceConnector
+        connector: any MusicSourceConnector,
+        playbackScope: (expectedScope: String, streamEpoch: UInt64)? = nil
     ) async throws -> ResolvedSTRMTarget {
         let descriptor = try await connector.readSTRMDescriptor(path: song.filePath)
+        if let playbackScope {
+            try await ensureCurrentPlaybackResolutionScope(
+                sourceID: song.sourceID,
+                expectedScope: playbackScope.expectedScope,
+                streamEpoch: playbackScope.streamEpoch
+            )
+        }
         switch descriptor.target {
         case .remote(let url):
             return .remote(url)
@@ -2379,17 +3367,29 @@ final class SourceManager {
             }
             if let webDAV = connector as? any OpenListSTRMResolvingConnector,
                let originURL = try await webDAV.openListSTRMURL(for: path) {
+                if let playbackScope {
+                    try await ensureCurrentPlaybackResolutionScope(
+                        sourceID: song.sourceID,
+                        expectedScope: playbackScope.expectedScope,
+                        streamEpoch: playbackScope.streamEpoch
+                    )
+                }
                 return .openListSourcePath(path, originURL)
             }
             return .sourcePath(path)
         }
     }
 
-    func resolveURL(for song: Song) async throws -> URL {
+    func resolveURL(
+        for song: Song,
+        acquirePlaybackCacheLease: Bool = true
+    ) async throws -> URL {
+        _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
         // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
         // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错。连本地
         // sourcesProvider 都不应挡在缓存前面，让完整离线文件成为真正的零网络路径。
-        if let cached = cachedURL(for: song) {
+        if acquirePlaybackCacheLease,
+           let cached = await cachedURLWithPlaybackLease(for: song) {
             return cached
         }
 
@@ -2397,15 +3397,37 @@ final class SourceManager {
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
 
         let conn = connector(for: source)
         try await conn.connect()
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
 
         let prefersAuthenticatedSubsonicWANStream =
             shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song)
 
         if song.isStreamDescriptor {
-            switch try await resolveSTRMTarget(for: song, connector: conn) {
+            let target = try await resolveSTRMTarget(
+                for: song,
+                connector: conn,
+                playbackScope: (expectedScope, streamEpoch)
+            )
+            try await ensureCurrentPlaybackResolutionScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            switch target {
             case .remote(let url):
                 return url
             case .openListSourcePath(let path, let url):
@@ -2416,13 +3438,32 @@ final class SourceManager {
                 guard let webDAV = conn as? any OpenListSTRMResolvingConnector else {
                     throw SourceError.connectionFailed("OpenList STRM transport unavailable")
                 }
-                return try await webDAV.localOpenListSTRMURL(for: path)
+                let local = try await webDAV.localOpenListSTRMURL(for: path)
+                try await ensureCurrentPlaybackResolutionScope(
+                    sourceID: source.id,
+                    expectedScope: expectedScope,
+                    streamEpoch: streamEpoch
+                )
+                return local
             case .sourcePath(let path):
-                if permitsConfiguredDirectURL(for: source, song: song),
-                   let streamURL = try await conn.streamingURL(for: path) {
-                    return streamURL
+                if permitsConfiguredDirectURL(for: source, song: song) {
+                    let streamURL = try await conn.streamingURL(for: path)
+                    try await ensureCurrentPlaybackResolutionScope(
+                        sourceID: source.id,
+                        expectedScope: expectedScope,
+                        streamEpoch: streamEpoch
+                    )
+                    if let streamURL {
+                        return streamURL
+                    }
                 }
-                return try await conn.localURL(for: path)
+                let local = try await conn.localURL(for: path)
+                try await ensureCurrentPlaybackResolutionScope(
+                    sourceID: source.id,
+                    expectedScope: expectedScope,
+                    streamEpoch: streamEpoch
+                )
+                return local
             }
         }
 
@@ -2449,30 +3490,77 @@ final class SourceManager {
         // unless their endpoint needs connector-owned TLS handling.
         if !prefersAuthenticatedSubsonicWANStream,
            !permitsConfiguredDirectURL(for: source, song: song) {
-            return try await conn.localURL(for: song.filePath)
+            let local = try await conn.localURL(for: song.filePath)
+            try await ensureCurrentPlaybackResolutionScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            return local
         }
 
         // Priority 3: plain HTTP streaming URL. For known-size audio the
         // player now wraps it in an HTTP Range InputSource; unknown-size
         // legacy rows still fall back to StreamingDownloadDecoder.
-        if let streamURL = try await conn.streamingURL(for: song.filePath) {
+        let streamURL = try await conn.streamingURL(for: song.filePath)
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
+        if let streamURL {
             return streamURL
         }
         // Priority 4: Download to local (sources without streaming URL).
-        return try await conn.localURL(for: song.filePath)
+        let local = try await conn.localURL(for: song.filePath)
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
+        return local
     }
 
     /// Resolves a complete-file playback source without losing connector
     /// transport context. Only a genuinely external STRM target may remain an
     /// HTTP(S) URL; configured source paths are materialized by their connector.
     func resolveFullDownloadSourceURL(for song: Song) async throws -> URL {
-        if let cached = cachedURL(for: song) {
+        if let cached = await cachedURLWithPlaybackLease(for: song) {
             return cached
         }
 
-        let connector = try await connectorForSong(song)
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: {
+            $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
+            throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
+        let connector = connector(for: source)
+        try await connector.connect()
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
         if song.isStreamDescriptor {
-            switch try await resolveSTRMTarget(for: song, connector: connector) {
+            let target = try await resolveSTRMTarget(
+                for: song,
+                connector: connector,
+                playbackScope: (expectedScope, streamEpoch)
+            )
+            try await ensureCurrentPlaybackResolutionScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            switch target {
             case .remote(let url):
                 return url
             case .openListSourcePath(let path, _):
@@ -2480,13 +3568,31 @@ final class SourceManager {
                       let webDAV = connector as? any OpenListSTRMResolvingConnector else {
                     throw SourceError.connectionFailed("OpenList STRM transport unavailable")
                 }
-                return try await webDAV.localOpenListSTRMURL(for: path)
+                let local = try await webDAV.localOpenListSTRMURL(for: path)
+                try await ensureCurrentPlaybackResolutionScope(
+                    sourceID: source.id,
+                    expectedScope: expectedScope,
+                    streamEpoch: streamEpoch
+                )
+                return local
             case .sourcePath(let path):
-                return try await connector.localURL(for: path)
+                let local = try await connector.localURL(for: path)
+                try await ensureCurrentPlaybackResolutionScope(
+                    sourceID: source.id,
+                    expectedScope: expectedScope,
+                    streamEpoch: streamEpoch
+                )
+                return local
             }
         }
 
-        return try await connector.localURL(for: song.filePath)
+        let local = try await connector.localURL(for: song.filePath)
+        try await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
+        return local
     }
 
     func resolveVideoAsset(for song: Song) async throws -> MusicVideoPlaybackAsset? {
@@ -2494,14 +3600,46 @@ final class SourceManager {
 
         // 独立 MV(mvPath == filePath): 文件本体已离线下载时直接本地播,
         // 不再经视频缓存重复下载同一份字节。
-        if song.isStandaloneMusicVideo, let cached = cachedURL(for: song) {
+        if song.isStandaloneMusicVideo,
+           let cached = await cachedURLWithPlaybackLease(for: song) {
             return .url(cached)
+        }
+
+        // Resolve the authoritative local source row before deriving a cache
+        // path. A process-local sourceID mapping can be stale after an endpoint
+        // or account edit and would otherwise return the previous scope's bytes.
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: { $0.id == song.sourceID && !$0.isDeleted }) else {
+            throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+        let sourceNamespace = MusicSourceSecurityRevision.cacheNamespace(
+            scopedFingerprint: expectedScope
+        )
+        try await ensureCurrentMusicVideoScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
+
+        if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
+            return .url(url)
         }
 
         // 视频缓存命中同样必须完全脱离源连接。旧路径先 connect()，NAS 关机或
         // 飞行模式时会在本地文件检查前等待超时，连已经缓存的视频也播不了。
-        let target = videoCacheURL(sourceID: song.sourceID, path: mvPath)
+        let target = videoCacheURL(
+            sourceID: song.sourceID,
+            path: mvPath,
+            namespace: sourceNamespace
+        )
         if FileManager.default.fileExists(atPath: target.path) {
+            try await ensureCurrentMusicVideoScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
             recordVideoCacheAccess(target)
             revalidateCachedVideoIfReachable(
                 path: mvPath,
@@ -2523,36 +3661,59 @@ final class SourceManager {
             return nil
         }
 
-        if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
-            return .url(url)
-        }
-
-        let sources = try await sourcesProvider()
-        guard let source = sources.first(where: { $0.id == song.sourceID }) else {
-            throw SourceError.fileNotFound("Source not found for song: \(song.title)")
-        }
-
         let conn = connector(for: source)
         try await conn.connect()
+        try await ensureCurrentMusicVideoScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
 
-        if !requiresConnectorBackedHTTPTransport(for: source),
-           let streamURL = try await conn.streamingURL(for: mvPath) {
-            return .url(streamURL)
+        if !requiresConnectorBackedHTTPTransport(for: source) {
+            let streamURL = try await conn.streamingURL(for: mvPath)
+            try await ensureCurrentMusicVideoScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            if let streamURL {
+                return .url(streamURL)
+            }
         }
 
         if source.type.category == .local {
-            return .url(try await conn.localURL(for: mvPath))
+            let localURL = try await conn.localURL(for: mvPath)
+            try await ensureCurrentMusicVideoScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            return .url(localURL)
         }
 
         // 完整缓存直接本地播, 远端 size 校验放到后台 —— 命中路径不付
         // listFiles 的网络往返, 远端文件被替换时删缓存让下次播放重下。
         // 边下边播: 知道远端大小的 range 源用 resource loader 即点即播,
         // 后台顺序下载并行把完整文件落进缓存(loader 读已覆盖的前缀省流量)。
-        if source.supportsRangeStreaming,
-           let expectedSize = try? await Self.musicVideoFileSize(path: mvPath, connector: conn),
-           expectedSize > 0 {
+        if source.supportsRangeStreaming {
+            let expectedSize = try? await Self.musicVideoFileSize(path: mvPath, connector: conn)
+            try await ensureCurrentMusicVideoScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            if let expectedSize, expectedSize > 0 {
             let loader = MusicVideoStreamingLoader(
                 connector: conn,
+                sourceID: source.id,
+                streamEpoch: streamEpoch,
+                scopeIsCurrent: { [weak self] in
+                    guard let self else { return false }
+                    return await self.sourceScopeIsCurrent(
+                        sourceID: source.id,
+                        expectedScope: expectedScope
+                    )
+                },
                 path: mvPath,
                 contentLength: expectedSize,
                 cacheTarget: target,
@@ -2561,6 +3722,7 @@ final class SourceManager {
             if let asset = loader.makeAsset() {
                 ensureMusicVideoCacheDownload(for: mvPath, source: source, connector: conn, expectedSize: expectedSize)
                 return .streaming(asset, loader)
+            }
             }
         }
 
@@ -2585,16 +3747,27 @@ final class SourceManager {
     private nonisolated static let videoCacheLimitBytes: Int64 = 10 * 1024 * 1024 * 1024
     private nonisolated static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
 
-    private func videoCacheDirectory(for sourceID: String) -> URL {
+    private func videoCacheDirectory(
+        for sourceID: String,
+        namespace explicitNamespace: String? = nil
+    ) -> URL {
         let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.videoCacheDirName)
             .appendingPathComponent(sourceID)
+            .appendingPathComponent(
+                explicitNamespace
+                    ?? MusicSourceSecurityRevision.cacheNamespace(for: sourceID)
+            )
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
-    private func videoCacheURL(sourceID: String, path: String) -> URL {
-        videoCacheDirectory(for: sourceID)
+    private func videoCacheURL(
+        sourceID: String,
+        path: String,
+        namespace: String? = nil
+    ) -> URL {
+        videoCacheDirectory(for: sourceID, namespace: namespace)
             .appendingPathComponent(Self.videoCacheFileName(sourceID: sourceID, path: path))
     }
 
@@ -2636,18 +3809,36 @@ final class SourceManager {
         expectedSize: Int64?
     ) -> Task<URL, Error> {
         let cacheKey = Self.musicVideoCacheKey(sourceID: source.id, path: path)
-        if let task = musicVideoCacheTasks[cacheKey] {
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+        let target = videoCacheURL(
+            sourceID: source.id,
+            path: path,
+            namespace: MusicSourceSecurityRevision.cacheNamespace(
+                scopedFingerprint: expectedScope
+            )
+        )
+        if let task = musicVideoCacheTasks[cacheKey],
+           musicVideoCacheTargets[cacheKey] == target {
             return task
         }
+        musicVideoCacheTasks[cacheKey]?.cancel()
+        musicVideoCacheTasks[cacheKey] = nil
+        musicVideoCacheTargets[cacheKey] = nil
 
-        let target = videoCacheURL(sourceID: source.id, path: path)
         let task = Task { [self] in
             defer {
                 self.musicVideoCacheTasks[cacheKey] = nil
                 self.musicVideoCacheTargets[cacheKey] = nil
             }
             return try await self.materializeCachedMusicVideoURL(
-                for: path, source: source, connector: connector, target: target, expectedSize: expectedSize
+                for: path,
+                source: source,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch,
+                connector: connector,
+                target: target,
+                expectedSize: expectedSize
             )
         }
         musicVideoCacheTasks[cacheKey] = task
@@ -2660,16 +3851,28 @@ final class SourceManager {
     private nonisolated func materializeCachedMusicVideoURL(
         for path: String,
         source: MusicSource,
+        expectedScope: String,
+        streamEpoch: UInt64,
         connector: any MusicSourceConnector,
         target: URL,
         expectedSize knownSize: Int64?
     ) async throws -> URL {
+        try await ensureCurrentMusicVideoScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
         let expectedSize: Int64?
         if let knownSize, knownSize > 0 {
             expectedSize = knownSize
         } else {
             expectedSize = try? await Self.musicVideoFileSize(path: path, connector: connector)
         }
+        try await ensureCurrentMusicVideoScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
         if FileManager.default.fileExists(atPath: target.path) {
             if let expectedSize, expectedSize > 0, byteSize(at: target) != expectedSize {
                 plog("🗑 MV cache: stale/incomplete cached video source=\(source.id.prefix(8)) path=\((path as NSString).lastPathComponent) actual=\(byteSize(at: target) / 1024)KB expected=\(expectedSize / 1024)KB")
@@ -2682,14 +3885,55 @@ final class SourceManager {
 
         try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         evictVideoCache(reserveBytes: expectedSize ?? 0, protectedPaths: await protectedVideoCachePaths(including: target))
+        try await ensureCurrentMusicVideoScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
 
         if source.supportsRangeStreaming {
-            try await downloadMusicVideoByRanges(path: path, connector: connector, target: target, expectedSize: expectedSize)
+            try await downloadMusicVideoByRanges(
+                path: path,
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch,
+                connector: connector,
+                target: target,
+                expectedSize: expectedSize
+            )
         } else {
             let localURL = try await connector.localURL(for: path)
-            try copyMusicVideoFile(from: localURL, to: target)
+            try await ensureCurrentMusicVideoScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            let staged = URL(
+                fileURLWithPath: target.path + ".scope-\(UUID().uuidString).partial"
+            )
+            defer { try? FileManager.default.removeItem(at: staged) }
+            try FileManager.default.copyItem(at: localURL, to: staged)
+            try await ensureCurrentMusicVideoScope(
+                sourceID: source.id,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            guard try CloudPlaybackSource.withCurrentStreamEpoch(
+                sourceID: source.id,
+                epoch: streamEpoch,
+                {
+                    try? FileManager.default.removeItem(at: target)
+                    try FileManager.default.moveItem(at: staged, to: target)
+                    return ()
+                }
+            ) != nil else { throw CancellationError() }
         }
 
+        try await ensureCurrentMusicVideoScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
         recordVideoCacheAccess(target)
         evictVideoCache(reserveBytes: 0, protectedPaths: await protectedVideoCachePaths(including: target))
         return target
@@ -2741,10 +3985,18 @@ final class SourceManager {
 
     private nonisolated func downloadMusicVideoByRanges(
         path: String,
+        sourceID: String,
+        expectedScope: String,
+        streamEpoch: UInt64,
         connector: any MusicSourceConnector,
         target: URL,
         expectedSize: Int64?
     ) async throws {
+        try await ensureCurrentMusicVideoScope(
+            sourceID: sourceID,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )
         let partial = URL(fileURLWithPath: target.path + ".partial")
         var offset = byteSize(at: partial)
         if let expectedSize, expectedSize > 0 {
@@ -2752,8 +4004,15 @@ final class SourceManager {
                 try? FileManager.default.removeItem(at: partial)
                 offset = 0
             } else if offset == expectedSize {
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: partial, to: target)
+                guard try CloudPlaybackSource.withCurrentStreamEpoch(
+                    sourceID: sourceID,
+                    epoch: streamEpoch,
+                    {
+                        try? FileManager.default.removeItem(at: target)
+                        try FileManager.default.moveItem(at: partial, to: target)
+                        return ()
+                    }
+                ) != nil else { throw CancellationError() }
                 return
             }
         }
@@ -2780,6 +4039,11 @@ final class SourceManager {
                     }
                     throw error
                 }
+                try await ensureCurrentMusicVideoScope(
+                    sourceID: sourceID,
+                    expectedScope: expectedScope,
+                    streamEpoch: streamEpoch
+                )
                 if data.isEmpty {
                     guard offset > 0 else {
                         throw SourceError.fileNotFound("Music video file is empty: \(path)")
@@ -2787,7 +4051,14 @@ final class SourceManager {
                     break
                 }
 
-                try handle.write(contentsOf: data)
+                guard try CloudPlaybackSource.withCurrentStreamEpoch(
+                    sourceID: sourceID,
+                    epoch: streamEpoch,
+                    {
+                        try handle.write(contentsOf: data)
+                        return ()
+                    }
+                ) != nil else { throw CancellationError() }
                 offset += Int64(data.count)
                 if expectedSize == nil, Int64(data.count) < length {
                     break
@@ -2799,11 +4070,40 @@ final class SourceManager {
             if let expectedSize, expectedSize > 0, finalSize < expectedSize {
                 throw SourceError.connectionFailed("Music video download incomplete: \(finalSize)/\(expectedSize)")
             }
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: partial, to: target)
+            try await ensureCurrentMusicVideoScope(
+                sourceID: sourceID,
+                expectedScope: expectedScope,
+                streamEpoch: streamEpoch
+            )
+            guard try CloudPlaybackSource.withCurrentStreamEpoch(
+                sourceID: sourceID,
+                epoch: streamEpoch,
+                {
+                    try? FileManager.default.removeItem(at: target)
+                    try FileManager.default.moveItem(at: partial, to: target)
+                    return ()
+                }
+            ) != nil else { throw CancellationError() }
         } catch {
             try? handle.close()
             throw error
+        }
+    }
+
+    private nonisolated func ensureCurrentMusicVideoScope(
+        sourceID: String,
+        expectedScope: String,
+        streamEpoch: UInt64
+    ) async throws {
+        try Task.checkCancellation()
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: sourceID,
+                ticket: streamEpoch
+              ), await sourceScopeIsCurrent(
+            sourceID: sourceID,
+            expectedScope: expectedScope
+        ) else {
+            throw CancellationError()
         }
     }
 
@@ -2812,12 +4112,6 @@ final class SourceManager {
             return code == 416
         }
         return false
-    }
-
-    private nonisolated func copyMusicVideoFile(from source: URL, to target: URL) throws {
-        if source.standardizedFileURL == target.standardizedFileURL { return }
-        try? FileManager.default.removeItem(at: target)
-        try FileManager.default.copyItem(at: source, to: target)
     }
 
     private nonisolated func recordVideoCacheAccess(_ url: URL) {
@@ -2888,9 +4182,395 @@ final class SourceManager {
     // MARK: - Audio Cache
 
     private nonisolated static let audioCacheDirName = "primuse_audio_cache"
+    private nonisolated static let audioCacheScopeStateFileName = "audio_cache_source_scopes.json"
     private static let offlineBatchConcurrency = 2
     private static let offlineSnapshotProbeConcurrency = 16
     private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+    private enum AudioCacheScopeReconciliationResult: Equatable {
+        case validated
+        case retry
+        case finishedBlocked
+    }
+
+    private nonisolated static var audioCacheScopeStateURL: URL {
+        #if os(tvOS)
+        let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
+        let root = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
+        return root.appendingPathComponent(audioCacheScopeStateFileName)
+    }
+
+    private nonisolated static func loadAudioCacheScopeSignatures() -> [String: String] {
+        guard let data = try? Data(contentsOf: audioCacheScopeStateURL),
+              let signatures = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return signatures
+    }
+
+    private func persistAudioCacheScopeSignatures() {
+        guard let data = try? JSONEncoder().encode(recordedAudioCacheScopeSignatures) else {
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.audioCacheScopeStateURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: Self.audioCacheScopeStateURL, options: .atomic)
+        } catch {
+            plog("⚠️ Audio cache source-scope state could not be persisted: \(error.localizedDescription)")
+        }
+    }
+
+    private nonisolated static func audioCacheScopeSignature(for source: MusicSource) -> String {
+        MusicSourceSecurityRevision.scopedFingerprint(for: source)
+    }
+
+    private func audioCacheReadsAreAllowed(for sourceID: String) -> Bool {
+        SourceAudioCacheScopePolicy.allowsRead(
+            sourceID: sourceID,
+            validatedSourceIDs: validatedAudioCacheSourceIDs,
+            blockedSourceIDs: blockedAudioCacheSourceIDs
+        )
+    }
+
+    private func scheduleInitialAudioCacheScopeValidation() {
+        Task { @MainActor [weak self] in
+            guard let self, let sources = try? await self.sourcesProvider() else { return }
+            for source in sources where !source.isDeleted {
+                if MusicSourceSecurityRevision.hasPendingChange(for: source.id) {
+                    self.requiredConnectorScopeFingerprints[source.id] =
+                        Self.audioCacheScopeSignature(for: source)
+                    self.connectorSourceModifiedAtByID[source.id] = source.modifiedAt
+                    self.connectorScopeValidationPendingSourceIDs.insert(source.id)
+                    self.validatedAudioCacheSourceIDs.remove(source.id)
+                    self.blockedAudioCacheSourceIDs.insert(source.id)
+                    continue
+                }
+                if !self.connectorScopeValidationPendingSourceIDs.contains(source.id) {
+                    self.requiredConnectorScopeFingerprints[source.id] =
+                        Self.audioCacheScopeSignature(for: source)
+                    self.connectorSourceModifiedAtByID[source.id] = source.modifiedAt
+                }
+                self.scheduleAudioCacheScopeValidation(for: source.id)
+            }
+        }
+    }
+
+    private func audioCacheSourceConfigurationsDidChange(
+        _ sourceIDs: Set<String>,
+        scheduleConnectorValidation: Bool = true
+    ) {
+        invalidateConnectorCachesForSourceConfigurationChange(
+            sourceIDs,
+            scheduleValidation: scheduleConnectorValidation
+        )
+        for sourceID in sourceIDs {
+            NotificationCenter.default.post(
+                name: .primuseSourceSecurityScopeWillChange,
+                object: nil,
+                userInfo: ["sourceID": sourceID]
+            )
+            let nextGeneration = (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) &+ 1
+            audioCacheScopeGenerationBySourceID[sourceID] = nextGeneration
+            validatedAudioCacheSourceIDs.remove(sourceID)
+            blockedAudioCacheSourceIDs.insert(sourceID)
+            cancelAudioCacheWorkForScopeChange(sourceID: sourceID)
+            scheduleAudioCacheScopeValidation(
+                for: sourceID,
+                generation: nextGeneration
+            )
+        }
+    }
+
+    /// The notification callback runs synchronously on MainActor. Remove every
+    /// reusable connector before yielding, then keep the source blocked until
+    /// its authoritative post-edit fingerprint has been read from the source
+    /// store. A stale caller holding the pre-edit `MusicSource` therefore cannot
+    /// repopulate the cache during the notification-to-refresh window.
+    private func invalidateConnectorCachesForSourceConfigurationChange(
+        _ sourceIDs: Set<String>,
+        scheduleValidation: Bool = true
+    ) {
+        for sourceID in sourceIDs {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            let generation = (connectorScopeValidationGenerationBySourceID[sourceID] ?? 0) &+ 1
+            connectorScopeValidationGenerationBySourceID[sourceID] = generation
+            connectorScopeValidationPendingSourceIDs.insert(sourceID)
+            activeConnectionRoutes[sourceID] = nil
+            lastSuccessfulConnectionRoutes[sourceID] = nil
+
+            if let connector = connectors.removeValue(forKey: sourceID) {
+                retireConnectorAsynchronously(connector)
+            }
+            connectorScopeFingerprints[sourceID] = nil
+            if let unavailable = unavailableConnectors.removeValue(forKey: sourceID) {
+                retireConnectorAsynchronously(unavailable.connector)
+            }
+            if let sidecar = sidecarConnectors.removeValue(forKey: sourceID) {
+                retireSidecarConnector(sidecar)
+            }
+            sidecarConnectorScopeFingerprints[sourceID] = nil
+
+            guard scheduleValidation else { continue }
+            Task { [weak self] in
+                guard let self else { return }
+                // An edit completion normally queues `refreshConnector` in the
+                // same MainActor turn. Let that security-revision bump win the
+                // generation race before an older public fingerprint can open
+                // the gate again.
+                await Task.yield()
+                await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+                guard self.connectorScopeValidationGenerationBySourceID[sourceID] == generation,
+                      !self.credentialChangesInProgress.contains(sourceID),
+                      !MusicSourceSecurityRevision.hasPendingChange(for: sourceID),
+                      let sources = try? await self.sourcesProvider(),
+                      self.connectorScopeValidationGenerationBySourceID[sourceID] == generation,
+                      let source = sources.first(where: { $0.id == sourceID && !$0.isDeleted }) else {
+                    return
+                }
+                self.requiredConnectorScopeFingerprints[sourceID] = Self.audioCacheScopeSignature(
+                    for: source
+                )
+                self.connectorSourceModifiedAtByID[sourceID] = source.modifiedAt
+                self.connectorScopeValidationPendingSourceIDs.remove(sourceID)
+            }
+        }
+    }
+
+    private func cancelAudioCacheWorkForScopeChange(sourceID: String) {
+        let prefix = "\(sourceID)/"
+        let offlineKeys = offlineDownloadTasks.keys.filter { $0.hasPrefix(prefix) }
+        for taskKey in offlineKeys {
+            offlineDownloadTasks[taskKey]?.task.cancel()
+            offlineDownloadTasks[taskKey] = nil
+        }
+        let backgroundSongIDs = backgroundAudioCacheTasks.compactMap { songID, record in
+            record.sourceID == sourceID ? songID : nil
+        }
+        for songID in backgroundSongIDs {
+            backgroundAudioCacheTasks[songID]?.task.cancel()
+            backgroundAudioCacheTasks[songID] = nil
+        }
+        let videoKeys = musicVideoCacheTasks.keys.filter { $0.hasPrefix("\(sourceID):") }
+        for key in videoKeys {
+            musicVideoCacheTasks[key]?.cancel()
+            musicVideoCacheTasks[key] = nil
+        }
+        releasePlaybackAudioCacheLeases(sourceID: sourceID)
+    }
+
+    private func scheduleAudioCacheScopeValidation(
+        for sourceID: String,
+        generation: Int? = nil
+    ) {
+        let expectedGeneration = generation
+            ?? (audioCacheScopeGenerationBySourceID[sourceID] ?? 0)
+        audioCacheScopeValidationTasks[sourceID]?.cancel()
+        audioCacheScopeValidationTasks[sourceID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // See the connector validation fence above. A synchronous source
+            // notification blocks reads immediately; the one-turn yield lets a
+            // credential-save refresh advance the durable security epoch before
+            // this generation decides whether existing bytes are trustworthy.
+            await Task.yield()
+            while !Task.isCancelled,
+                  (self.audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == expectedGeneration {
+                let result = await self.runAudioCacheScopeReconciliation(
+                    sourceID: sourceID,
+                    generation: expectedGeneration
+                )
+                switch result {
+                case .validated, .finishedBlocked:
+                    self.finishAudioCacheScopeValidation(
+                        sourceID: sourceID,
+                        generation: expectedGeneration
+                    )
+                    return
+                case .retry:
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
+        }
+    }
+
+    private func finishAudioCacheScopeValidation(sourceID: String, generation: Int) {
+        guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else { return }
+        audioCacheScopeValidationTasks[sourceID] = nil
+    }
+
+    private func ensureAudioCacheScopeValidated(for sourceID: String) async -> Bool {
+        if audioCacheReadsAreAllowed(for: sourceID) { return true }
+        let generation = audioCacheScopeGenerationBySourceID[sourceID] ?? 0
+        let result = await runAudioCacheScopeReconciliation(
+            sourceID: sourceID,
+            generation: generation
+        )
+        if result == .retry,
+           audioCacheScopeValidationTasks[sourceID] == nil {
+            scheduleAudioCacheScopeValidation(for: sourceID, generation: generation)
+        }
+        return result == .validated && audioCacheReadsAreAllowed(for: sourceID)
+    }
+
+    private func runAudioCacheScopeReconciliation(
+        sourceID: String,
+        generation: Int
+    ) async -> AudioCacheScopeReconciliationResult {
+        guard audioCacheScopeReconciliationsInProgress.insert(sourceID).inserted else {
+            return .retry
+        }
+        defer { audioCacheScopeReconciliationsInProgress.remove(sourceID) }
+        return await reconcileAudioCacheScope(
+            sourceID: sourceID,
+            generation: generation
+        )
+    }
+
+    private func reconcileAudioCacheScope(
+        sourceID: String,
+        generation: Int
+    ) async -> AudioCacheScopeReconciliationResult {
+        guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+            return .finishedBlocked
+        }
+        guard !MusicSourceSecurityRevision.hasPendingChange(for: sourceID) else {
+            blockedAudioCacheSourceIDs.insert(sourceID)
+            return .finishedBlocked
+        }
+        guard let sources = try? await sourcesProvider() else { return .retry }
+        guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+            return .finishedBlocked
+        }
+        guard let source = sources.first(where: { $0.id == sourceID && !$0.isDeleted }) else {
+            blockedAudioCacheSourceIDs.insert(sourceID)
+            return await purgeAudioCacheForUnavailableSource(
+                sourceID: sourceID,
+                generation: generation
+            )
+        }
+
+        let currentSignature = Self.audioCacheScopeSignature(for: source)
+        switch SourceAudioCacheScopePolicy.reconciliation(
+            recordedSignature: recordedAudioCacheScopeSignatures[sourceID],
+            currentSignature: currentSignature
+        ) {
+        case .allowExisting:
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            validatedAudioCacheSourceIDs.insert(sourceID)
+            blockedAudioCacheSourceIDs.remove(sourceID)
+            await AudioCacheManager.shared.endSourcePurge(
+                prefix: "\(sourceID)/",
+                generation: generation
+            )
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            return .validated
+        case .purgeExisting:
+            blockedAudioCacheSourceIDs.insert(sourceID)
+            cancelAudioCacheWorkForScopeChange(sourceID: sourceID)
+            let purged = await purgeAudioCacheDirectoryIfUnleased(
+                sourceID: sourceID,
+                generation: generation
+            )
+            guard purged else { return .retry }
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            await purgeNonAudioSourceCaches(sourceID: sourceID)
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            recordedAudioCacheScopeSignatures[sourceID] = currentSignature
+            persistAudioCacheScopeSignatures()
+            validatedAudioCacheSourceIDs.insert(sourceID)
+            blockedAudioCacheSourceIDs.remove(sourceID)
+            await AudioCacheManager.shared.endSourcePurge(
+                prefix: "\(sourceID)/",
+                generation: generation
+            )
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            return .validated
+        }
+    }
+
+    private func purgeAudioCacheForUnavailableSource(
+        sourceID: String,
+        generation: Int
+    ) async -> AudioCacheScopeReconciliationResult {
+        let purged = await purgeAudioCacheDirectoryIfUnleased(
+            sourceID: sourceID,
+            generation: generation
+        )
+        guard purged else { return .retry }
+        guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+            return .finishedBlocked
+        }
+        if recordedAudioCacheScopeSignatures.removeValue(forKey: sourceID) != nil {
+            persistAudioCacheScopeSignatures()
+        }
+        validatedAudioCacheSourceIDs.remove(sourceID)
+        blockedAudioCacheSourceIDs.insert(sourceID)
+        return .finishedBlocked
+    }
+
+    private func purgeNonAudioSourceCaches(sourceID: String) async {
+        let paths = Array(Self.perSourceCacheDirs(sourceID: sourceID).dropFirst())
+        await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            for path in paths {
+                try? fileManager.removeItem(at: path)
+            }
+        }.value
+    }
+
+    private func purgeAudioCacheDirectoryIfUnleased(
+        sourceID: String,
+        generation: Int
+    ) async -> Bool {
+        let prefix = "\(sourceID)/"
+        guard await AudioCacheManager.shared.beginSourcePurge(
+            prefix: prefix,
+            generation: generation
+        ) else {
+            return false
+        }
+        guard await AudioCacheManager.shared.purgeSourceCacheDirectoryIfReady(
+            prefix: prefix,
+            generation: generation
+        ) else {
+            return false
+        }
+        guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+            return false
+        }
+        preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter {
+            !$0.hasPrefix(prefix)
+        }
+        contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter {
+            !$0.hasPrefix(prefix)
+        }
+        contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter {
+            !$0.key.hasPrefix(prefix)
+        }
+        blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter {
+            !$0.hasPrefix(prefix)
+        }
+        automaticPlaylistPinnedSongsByID = automaticPlaylistPinnedSongsByID.filter {
+            $0.value.sourceID != sourceID
+        }
+        for song in songsProvider() where song.sourceID == sourceID {
+            removeOfflineAudioSnapshot(for: song.id)
+        }
+        return true
+    }
 
     private nonisolated static func audioCacheDirectoryURL(for sourceID: String) -> URL {
         FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -2962,6 +4642,9 @@ final class SourceManager {
 
     func cachedURL(for song: Song) -> URL? {
         let sanitized = cacheFileName(for: song)
+        let relativePath = "\(song.sourceID)/\(sanitized)"
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              !blockedUntrustedAudioCachePaths.contains(relativePath) else { return nil }
         let fileURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
         migrateLegacyAudioCacheIfUnambiguous(for: song, destination: fileURL)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
@@ -2970,7 +4653,11 @@ final class SourceManager {
         // 引擎播完触发 gapless boundary → 队列死循环。这里把不完整的
         // 缓存当作未命中, 删掉强制重下。 song.fileSize<=0 表示元数据没拿到,
         // 跳过校验避免误删。
-        if song.fileSize > 0,
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
+            || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
+        if !preservesExistingArtifact,
+           song.fileSize > 0,
            let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
            let actual = attrs[.size] as? Int64 {
             // 5% tolerance: 部分 sidecar / tag 改写后大小会差几 KB
@@ -2978,10 +4665,12 @@ final class SourceManager {
             if actual < minAcceptable {
                 plog("🗑 cachedURL: 缓存不完整 '\(song.title)' actual=\(actual / 1024)KB expected=\(song.fileSize / 1024)KB — 删除并强制重下")
                 try? FileManager.default.removeItem(at: fileURL)
+                Task {
+                    await AudioCacheManager.shared.refreshPathFamily(path: relativePath)
+                }
                 return nil
             }
         }
-        let relativePath = "\(song.sourceID)/\(sanitized)"
         Task { await AudioCacheManager.shared.recordAccess(path: relativePath) }
         return fileURL
     }
@@ -2997,9 +4686,17 @@ final class SourceManager {
         let wasPinned = offlineAudioSnapshot(for: song).state == .pinned
         let target = cacheURL(for: song)
         let partialPath = target.path + ".partial"
-        CloudPlaybackSource.cancelSessionForMaterialization(partialPath: partialPath)
-        try? FileManager.default.removeItem(atPath: partialPath)
-        try? FileManager.default.removeItem(atPath: partialPath + CloudPlaybackSource.prewarmMarkerSuffix)
+        let streamEpoch = CloudPlaybackSource.streamEpochTicket(
+            sourceID: song.sourceID
+        )
+        guard await CloudPlaybackSource.retireSessionForMaterialization(
+            sourceID: song.sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: partialPath
+        ), CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: streamEpoch
+        ) else { return nil }
 
         let result = await downloadForOfflineBatch(songs: [song])
         guard result.succeeded, let cached = cachedURL(for: song) else { return nil }
@@ -3017,7 +4714,9 @@ final class SourceManager {
 
     func cacheURL(for song: Song) -> URL {
         let url = audioCacheDirectory(for: song.sourceID).appendingPathComponent(cacheFileName(for: song))
-        migrateLegacyAudioCacheIfUnambiguous(for: song, destination: url)
+        if audioCacheReadsAreAllowed(for: song.sourceID) {
+            migrateLegacyAudioCacheIfUnambiguous(for: song, destination: url)
+        }
         return url
     }
 
@@ -3026,25 +4725,45 @@ final class SourceManager {
     /// list row must never create directories or synchronously touch disk on
     /// the main actor.
     func cachedURLForBackgroundRead(for song: Song) async -> URL? {
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else { return nil }
+        let relativePath = audioCacheRelativePath(for: song)
+        guard AutomaticOfflineCachedReadPolicy.allows(
+            path: relativePath,
+            blockedPaths: blockedUntrustedAudioCachePaths
+        ) else { return nil }
         let target = audioCacheTargetURL(for: song)
-        let expectedSize = song.fileSize
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
+        let expectedSize = preservesExistingArtifact ? 0 : song.fileSize
         let isUsable = await Task.detached(priority: .utility) {
             Self.isUsableCacheFile(at: target, expectedSize: expectedSize)
         }.value
-        guard isUsable else { return nil }
+        guard isUsable,
+              audioCacheReadsAreAllowed(for: song.sourceID),
+              AutomaticOfflineCachedReadPolicy.allows(
+                path: relativePath,
+                blockedPaths: blockedUntrustedAudioCachePaths
+              ) else { return nil }
         Task {
-            await AudioCacheManager.shared.recordAccess(path: audioCacheRelativePath(for: song))
+            await AudioCacheManager.shared.recordAccess(path: relativePath)
         }
         return target
     }
 
     func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else { return .notCached }
         if let snapshot = offlineAudioSnapshots[song.id] {
             return snapshot
         }
         let url = cacheURL(for: song)
+        let relativePath = audioCacheRelativePath(for: song)
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
         let snapshot: OfflineAudioCacheSnapshot
-        if Self.isUsableCacheFile(at: url, expectedSize: song.fileSize) {
+        if Self.isUsableCacheFile(
+            at: url,
+            expectedSize: preservesExistingArtifact ? 0 : song.fileSize
+        ) {
             snapshot = OfflineAudioCacheSnapshot(
                 state: .cached,
                 progress: nil,
@@ -3065,6 +4784,15 @@ final class SourceManager {
     /// entry from SongRowView does not make that row depend on the complete
     /// SourceManager cache dictionary.
     func offlineAudioSnapshotEntry(for song: Song) -> OfflineAudioSnapshotEntry {
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else {
+            if let entry = offlineAudioSnapshotEntries[song.id] {
+                entry.update(.notCached)
+                return entry
+            }
+            let entry = OfflineAudioSnapshotEntry(snapshot: .notCached)
+            offlineAudioSnapshotEntries[song.id] = entry
+            return entry
+        }
         if let entry = offlineAudioSnapshotEntries[song.id] {
             return entry
         }
@@ -3110,6 +4838,10 @@ final class SourceManager {
     /// Populate a row's first snapshot lazily. Negative results are cached as
     /// well, preventing repeated disk stats when the same row is recycled.
     func ensureOfflineAudioSnapshot(for song: Song) async {
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
+            setOfflineAudioSnapshot(.notCached, for: song.id)
+            return
+        }
         guard offlineAudioSnapshots[song.id] == nil else { return }
         let url = audioCacheTargetURL(for: song)
         let relativePath = audioCacheRelativePath(for: song)
@@ -3122,15 +4854,24 @@ final class SourceManager {
             byteCount: info.byteCount
         )
         // A download may have started while the disk probe was in flight.
-        guard offlineAudioSnapshots[song.id] == nil else { return }
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              offlineAudioSnapshots[song.id] == nil else { return }
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
     func refreshOfflineAudioSnapshot(for song: Song) async {
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
+            setOfflineAudioSnapshot(.notCached, for: song.id)
+            return
+        }
         let url = cacheURL(for: song)
         let info = await Task.detached(priority: .utility) {
             Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
         }.value
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else {
+            setOfflineAudioSnapshot(.notCached, for: song.id)
+            return
+        }
         let snapshot = await AudioCacheManager.shared.snapshot(
             path: audioCacheRelativePath(for: song),
             fileExists: info.exists,
@@ -3289,29 +5030,40 @@ final class SourceManager {
     }
 
     func removeOfflineDownload(song: Song) {
-        offlineDownloadTasks[song.id]?.task.cancel()
-        offlineDownloadTasks[song.id] = nil
+        let taskKey = audioCacheRelativePath(for: song)
+        offlineDownloadTasks[taskKey]?.task.cancel()
+        offlineDownloadTasks[taskKey] = nil
         deleteAudioCache(for: song)
         setOfflineAudioSnapshot(.notCached, for: song.id)
         automaticOfflineDownloadRemovedHandler?(song.id)
     }
 
     func reconcileAutomaticPlaylistPins(
-        _ desiredSongs: [AlwaysDownloadDesiredSong]
-    ) async -> Set<String> {
-        let previousDesired = automaticPlaylistPinnedSongsByID
-        automaticPlaylistPinnedSongsByID = Dictionary(
+        _ desiredSongs: [AlwaysDownloadDesiredSong],
+        generation: Int,
+        excludedArtifactPaths: Set<String> = []
+    ) async -> Set<String>? {
+        guard generation >= automaticOfflineReconciliationGeneration else { return nil }
+        automaticOfflineReconciliationGeneration = generation
+        let nextDesired = Dictionary(
             desiredSongs.map { ($0.song.id, $0.song) },
             uniquingKeysWith: { _, latest in latest }
         )
         let prepared = await Task.detached(priority: .utility) {
             Self.prepareAutomaticOfflinePinReconciliation(desiredSongs)
         }.value
-        let missingPaths = await AudioCacheManager.shared.reconcileAutomaticPlaylistPins(
-            prepared.requests
-        )
+        guard generation == automaticOfflineReconciliationGeneration else { return nil }
+        guard let missingPaths = await AudioCacheManager.shared.reconcileAutomaticPlaylistPins(
+            prepared.requests,
+            generation: generation,
+            excludedPaths: excludedArtifactPaths
+        ) else { return nil }
+        guard generation == automaticOfflineReconciliationGeneration else { return nil }
+        let previousDesired = automaticPlaylistPinnedSongsByID
+        automaticPlaylistPinnedSongsByID = nextDesired
         var missingSongIDs = Set<String>()
         for (index, desired) in desiredSongs.enumerated() {
+            guard generation == automaticOfflineReconciliationGeneration else { return nil }
             let path = prepared.pathBySongID[desired.song.id]
                 ?? audioCacheRelativePath(for: desired.song)
             if missingPaths.contains(path) {
@@ -3327,15 +5079,85 @@ final class SourceManager {
                     errorMessage: nil
                 ), for: desired.song.id)
             }
-            if index.isMultiple(of: 128) { await Task.yield() }
+            if index.isMultiple(of: 128) {
+                await Task.yield()
+                guard generation == automaticOfflineReconciliationGeneration else { return nil }
+            }
         }
         for song in previousDesired.values
         where automaticPlaylistPinnedSongsByID[song.id] == nil {
+            guard generation == automaticOfflineReconciliationGeneration else { return nil }
             if offlineAudioSnapshots[song.id]?.isDownloading != true {
                 await refreshOfflineAudioSnapshot(for: song)
+                guard generation == automaticOfflineReconciliationGeneration else { return nil }
             }
         }
         return missingSongIDs
+    }
+
+    func reconcileAutomaticRefreshProtections(
+        _ artifactPaths: Set<String>,
+        generation: Int
+    ) -> Bool {
+        guard generation == automaticOfflineReconciliationGeneration else { return false }
+        preservingAutomaticRefreshPaths = artifactPaths
+        return true
+    }
+
+    func reconcileAutomaticOfflineProvenance(
+        _ dispositionsByArtifactPath: [String: AutomaticOfflineRefreshDisposition],
+        generation: Int
+    ) async -> Set<String>? {
+        guard generation >= automaticOfflineReconciliationGeneration else { return nil }
+        automaticOfflineReconciliationGeneration = generation
+        let untrustedPaths = Set(dispositionsByArtifactPath.compactMap { path, disposition in
+            disposition == .discardUntrusted ? path : nil
+        })
+        let preservingPaths = Set(
+            dispositionsByArtifactPath.compactMap { path, disposition in
+                disposition == .preserveExisting ? path : nil
+            }
+        )
+        preservingAutomaticRefreshPaths = preservingPaths
+
+        // A newer reconciliation can immediately trust a path again. Older
+        // generations are fenced after every suspension point and cannot later
+        // delete a path that this generation accepted.
+        let staleBlockedPaths = blockedUntrustedAudioCachePaths.filter {
+            dispositionsByArtifactPath[$0] == nil
+        }
+        blockedUntrustedAudioCachePaths = staleBlockedPaths.union(untrustedPaths)
+
+        // Current untrusted artifacts are isolated from every read immediately,
+        // but their canonical inode is left in place until a verified staging
+        // download atomically replaces it. This lets an already-open playback
+        // lease finish without ever making the old account's bytes adoptable.
+        let cleanupCandidates = staleBlockedPaths
+        var remainingBlocked = untrustedPaths
+        for path in cleanupCandidates {
+            let isLeased = await AudioCacheManager.shared.isPathFamilyLeased(path: path)
+            guard generation == automaticOfflineReconciliationGeneration else { return nil }
+            if isLeased {
+                remainingBlocked.insert(path)
+                continue
+            }
+            guard generation == automaticOfflineReconciliationGeneration else { return nil }
+            let target = FileManager.default
+                .primuseDirectoryURL(for: .cachesDirectory)
+                .appendingPathComponent(Self.audioCacheDirName)
+                .appendingPathComponent(path)
+            Self.removeCacheFileFamily(at: target)
+            await AudioCacheManager.shared.refreshPathFamily(path: path)
+            guard generation == automaticOfflineReconciliationGeneration else { return nil }
+            if untrustedPaths.contains(path) {
+                // Keep blocking reads until a verified replacement completes.
+                remainingBlocked.insert(path)
+            }
+        }
+        guard generation == automaticOfflineReconciliationGeneration else { return nil }
+        preservingAutomaticRefreshPaths = preservingPaths
+        blockedUntrustedAudioCachePaths = remainingBlocked
+        return untrustedPaths
     }
 
     private nonisolated static func prepareAutomaticOfflinePinReconciliation(
@@ -3371,45 +5193,84 @@ final class SourceManager {
 
     func prepareAutomaticOfflineDownload(
         song: Song,
-        forceRedownload: Bool
-    ) -> Bool {
+        forceRedownload: Bool,
+        refreshDisposition: AutomaticOfflineRefreshDisposition = .none
+    ) async -> Bool {
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else { return false }
+        let relativePath = audioCacheRelativePath(for: song)
+        if refreshDisposition == .preserveExisting {
+            preservingAutomaticRefreshPaths.insert(relativePath)
+        } else if refreshDisposition == .discardUntrusted {
+            blockedUntrustedAudioCachePaths.insert(relativePath)
+        }
         guard forceRedownload else { return true }
         // Never relabel bytes owned by an in-flight manual request as a newer
         // content revision. Let that shared transfer finish, then the serial
         // worker will retry this preparation and replace the stale file.
-        guard offlineDownloadTasks[song.id] == nil else { return false }
-        if let backgroundTask = backgroundAudioCacheTasks[song.id]?.task {
-            backgroundTask.cancel()
+        guard offlineDownloadTasks[relativePath] == nil else { return false }
+        let conflictingBackgroundTasks = backgroundAudioCacheTasks.values.filter {
+            $0.taskKey == relativePath
+        }
+        if !conflictingBackgroundTasks.isEmpty {
+            for record in conflictingBackgroundTasks { record.task.cancel() }
             return false
         }
         let target = cacheURL(for: song)
-        Self.removeCacheFileFamily(at: target)
-        setOfflineAudioSnapshot(.notCached, for: song.id)
-        return !Self.cacheFileFamilyExists(at: target)
+        Self.removeRefreshCacheFiles(at: target)
+        if refreshDisposition == .discardUntrusted {
+            setOfflineAudioSnapshot(.notCached, for: song.id)
+        }
+        return !Self.refreshCacheFilesExist(at: target)
+    }
+
+    func automaticOfflineRecoverableBytes(
+        song: Song,
+        refreshDisposition: AutomaticOfflineRefreshDisposition
+    ) async -> Int64 {
+        guard refreshDisposition == .discardUntrusted,
+              await ensureAudioCacheScopeValidated(for: song.sourceID) else { return 0 }
+        let relativePath = audioCacheRelativePath(for: song)
+        guard !(await AudioCacheManager.shared.isPathFamilyLeased(path: relativePath)) else {
+            return 0
+        }
+        let target = cacheURL(for: song)
+        return AutomaticOfflineUntrustedCleanupPolicy.recoverableAllocatedBytes(
+            for: target
+        )
     }
 
     func downloadAutomaticallyForOffline(
         song: Song,
-        playlistIDs: Set<String>
+        playlistIDs: Set<String>,
+        refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
+        artifactSignature: String
     ) async -> AutomaticOfflineDownloadResult {
         guard !playlistIDs.isEmpty else { return .cancelled }
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
+            return .failed(
+                kind: .sourceUnavailable,
+                message: String(localized: "offline_download_failed")
+            )
+        }
         await waitForBackgroundAudioCache(for: song)
         guard !Task.isCancelled else { return .cancelled }
         let result = await waitForOfflineDownload(
             song,
-            pinIntent: .playlists(playlistIDs)
+            pinIntent: .playlists(playlistIDs),
+            refreshDisposition: refreshDisposition,
+            artifactSignature: artifactSignature
         )
         switch result {
         case .completed:
             return .completed
         case .cancelled:
             return .cancelled
-        case .failed(let authenticationRequired, let message):
-            if authenticationRequired {
+        case .failed(let kind, let message):
+            if kind.authenticationRequired {
                 SourceAuthAlert.report(sourceID: song.sourceID, message: message)
             }
             return .failed(
-                authenticationRequired: authenticationRequired,
+                kind: kind,
                 message: message
             )
         }
@@ -3417,9 +5278,21 @@ final class SourceManager {
 
     private func waitForOfflineDownload(
         _ song: Song,
-        pinIntent: OfflineDownloadPinIntent
+        pinIntent: OfflineDownloadPinIntent,
+        refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
+        artifactSignature: String? = nil
     ) async -> OfflineDownloadTransferResult {
-        let handle = offlineDownloadTask(for: song)
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
+            return .failed(
+                kind: .sourceUnavailable,
+                message: String(localized: "offline_download_failed")
+            )
+        }
+        let handle = offlineDownloadTask(
+            for: song,
+            refreshDisposition: refreshDisposition,
+            artifactSignature: artifactSignature
+        )
         return await withTaskCancellationHandler {
             let result = await handle.task.value
             guard !Task.isCancelled else { return .cancelled }
@@ -3434,7 +5307,7 @@ final class SourceManager {
         } onCancel: {
             Task { @MainActor [weak self] in
                 self?.cancelOfflineDownloadRequest(
-                    songID: song.id,
+                    taskKey: handle.taskKey,
                     requesterID: handle.requesterID
                 )
             }
@@ -3442,47 +5315,91 @@ final class SourceManager {
     }
 
     private func offlineDownloadTask(
-        for song: Song
+        for song: Song,
+        refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
+        artifactSignature: String? = nil
     ) -> OfflineDownloadTaskHandle {
         let requesterID = UUID()
-        if var record = offlineDownloadTasks[song.id] {
+        let taskKey = audioCacheRelativePath(for: song)
+        if artifactSignature != nil,
+           backgroundAudioCacheTasks.values.contains(where: { $0.taskKey == taskKey }) {
+            let deferred = Task<OfflineDownloadTransferResult, Never> {
+                .failed(
+                    kind: .transient,
+                    message: "Waiting for a background cache transfer to finish"
+                )
+            }
+            return OfflineDownloadTaskHandle(
+                task: deferred,
+                requesterID: requesterID,
+                taskKey: taskKey
+            )
+        }
+        if var record = offlineDownloadTasks[taskKey] {
+            guard AutomaticOfflineTaskJoinPolicy.canJoin(
+                existingArtifactSignature: record.artifactSignature,
+                existingDisposition: record.refreshDisposition,
+                requestedArtifactSignature: artifactSignature,
+                requestedDisposition: refreshDisposition
+            ) else {
+                let deferred = Task<OfflineDownloadTransferResult, Never> {
+                    .failed(
+                        kind: .transient,
+                        message: "Waiting for an incompatible cache transfer to finish"
+                    )
+                }
+                return OfflineDownloadTaskHandle(
+                    task: deferred,
+                    requesterID: requesterID,
+                    taskKey: taskKey
+                )
+            }
             record.requesterIDs.insert(requesterID)
-            offlineDownloadTasks[song.id] = record
+            offlineDownloadTasks[taskKey] = record
             plog("↩️ Offline: join existing download '\(song.title)'")
             return OfflineDownloadTaskHandle(
                 task: record.task,
-                requesterID: requesterID
+                requesterID: requesterID,
+                taskKey: taskKey
             )
         }
 
         let runID = UUID()
-        let songID = song.id
         let task: Task<OfflineDownloadTransferResult, Never> = Task { @MainActor [weak self] in
             guard let self else { return .cancelled }
-            let result = await self.performOfflineDownload(song)
-            self.finishOfflineDownloadTask(songID: songID, runID: runID)
+            let result = await self.performOfflineDownload(
+                song,
+                refreshDisposition: refreshDisposition
+            )
+            self.finishOfflineDownloadTask(taskKey: taskKey, runID: runID)
             return result
         }
-        offlineDownloadTasks[songID] = OfflineDownloadTaskRecord(
+        offlineDownloadTasks[taskKey] = OfflineDownloadTaskRecord(
             id: runID,
             task: task,
-            requesterIDs: [requesterID]
+            requesterIDs: [requesterID],
+            refreshDisposition: refreshDisposition,
+            artifactSignature: artifactSignature
         )
-        return OfflineDownloadTaskHandle(task: task, requesterID: requesterID)
+        return OfflineDownloadTaskHandle(
+            task: task,
+            requesterID: requesterID,
+            taskKey: taskKey
+        )
     }
 
     private func cancelOfflineDownloadRequest(
-        songID: String,
+        taskKey: String,
         requesterID: UUID
     ) {
-        guard var record = offlineDownloadTasks[songID] else { return }
+        guard var record = offlineDownloadTasks[taskKey] else { return }
         record.requesterIDs.remove(requesterID)
         guard !record.requesterIDs.isEmpty else {
             record.task.cancel()
-            offlineDownloadTasks[songID] = nil
+            offlineDownloadTasks[taskKey] = nil
             return
         }
-        offlineDownloadTasks[songID] = record
+        offlineDownloadTasks[taskKey] = record
     }
 
     private func applyOfflinePin(
@@ -3512,15 +5429,42 @@ final class SourceManager {
         ), for: song.id)
     }
 
-    private func finishOfflineDownloadTask(songID: String, runID: UUID) {
-        guard offlineDownloadTasks[songID]?.id == runID else { return }
-        offlineDownloadTasks[songID] = nil
+    private func finishOfflineDownloadTask(taskKey: String, runID: UUID) {
+        guard offlineDownloadTasks[taskKey]?.id == runID else { return }
+        offlineDownloadTasks[taskKey] = nil
     }
 
-    private func performOfflineDownload(_ song: Song) async -> OfflineDownloadTransferResult {
+    private func performOfflineDownload(
+        _ song: Song,
+        refreshDisposition: AutomaticOfflineRefreshDisposition = .none
+    ) async -> OfflineDownloadTransferResult {
         let startedAt = Date()
         let relativePath = audioCacheRelativePath(for: song)
-        let target = cacheURL(for: song)
+        let canonicalTarget = cacheURL(for: song)
+        let target = refreshDisposition != .none
+            ? Self.refreshCacheURL(for: canonicalTarget)
+            : canonicalTarget
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(
+            path: relativePath,
+            reserveBytes: 0
+        ) else {
+            return .failed(
+                kind: .sourceUnavailable,
+                message: String(localized: "offline_download_failed")
+            )
+        }
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else {
+            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            return .failed(
+                kind: .sourceUnavailable,
+                message: String(localized: "offline_download_failed")
+            )
+        }
+        defer {
+            Task {
+                await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            }
+        }
 
         setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
@@ -3531,7 +5475,24 @@ final class SourceManager {
 
         do {
             try Task.checkCancellation()
-            if let cached = cachedURL(for: song) {
+            var expectedTransferSize = song.isStreamDescriptor ? 0 : song.fileSize
+            var maximumTransferBytes: Int64 = 0
+            if refreshDisposition == .discardUntrusted {
+                let hasOtherLeases = await AudioCacheManager.shared.pathFamilyHasOtherLeases(
+                    path: relativePath,
+                    excluding: lease
+                )
+                guard !hasOtherLeases else {
+                    throw AutomaticOfflineTransferDeferralError.artifactLeased
+                }
+                for url in AutomaticOfflineUntrustedCleanupPolicy.canonicalURLs(
+                    for: canonicalTarget
+                ) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                await AudioCacheManager.shared.refreshPathFamily(path: relativePath)
+            }
+            if refreshDisposition == .none, let cached = cachedURL(for: song) {
                 let size = fileSize(at: cached)
                 setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                     state: .cached,
@@ -3541,7 +5502,6 @@ final class SourceManager {
                 ), for: song.id)
                 return .completed(byteCount: size)
             }
-
             guard !NetworkMonitor.shared.hasDeterminedPath || NetworkMonitor.shared.isReachable else {
                 throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
             }
@@ -3554,51 +5514,167 @@ final class SourceManager {
             let connector = connector(for: source)
             try await connector.connect()
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: max(song.fileSize, 10_485_760))
 
             if song.isStreamDescriptor {
                 switch try await resolveSTRMTarget(for: song, connector: connector) {
                 case .remote(let url):
-                    try await downloadOfflineFromURL(url, song: song, target: target)
+                    maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                        expectedSize: 0,
+                        lease: lease
+                    )
+                    try await downloadOfflineFromURL(
+                        url,
+                        song: song,
+                        target: target,
+                        maximumBytes: maximumTransferBytes
+                    )
                 case .openListSourcePath(let path, _):
                     guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
                         throw SourceError.connectionFailed("OpenList STRM transport unavailable")
                     }
-                    let localURL = try await webDAV.localOpenListSTRMURL(for: path)
+                    maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                        expectedSize: 0,
+                        lease: lease
+                    )
+                    let localURL = try await webDAV.downloadBoundedOpenListSTRM(
+                        for: path,
+                        maximumBytes: maximumTransferBytes
+                    )
+                    defer { try? FileManager.default.removeItem(at: localURL) }
+                    let boundedMaximum = maximumTransferBytes
                     try await Task.detached(priority: .utility) {
-                        try Self.installCacheFile(from: localURL, to: target, move: false)
+                        try Self.validateCompleteCacheFile(
+                            at: localURL,
+                            expectedSize: 0,
+                            maximumBytes: boundedMaximum
+                        )
+                        try Self.installCacheFile(from: localURL, to: target, move: true)
                     }.value
                 case .sourcePath(let path):
-                    let localURL = try await connector.localURL(for: path)
-                    try await Task.detached(priority: .utility) {
-                        try Self.installCacheFile(from: localURL, to: target, move: false)
-                    }.value
+                    if OfflineSTRMConnectorMaterializationPolicy
+                        .permitsConnectorMaterialization(sourceType: source.type) {
+                        let localURL = try await connector.localURL(for: path)
+                        expectedTransferSize = byteSize(at: localURL)
+                        maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                            expectedSize: expectedTransferSize,
+                            lease: lease
+                        )
+                        let localExpectedSize = expectedTransferSize
+                        let localMaximum = maximumTransferBytes
+                        try await Task.detached(priority: .utility) {
+                            try Self.validateCompleteCacheFile(
+                                at: localURL,
+                                expectedSize: localExpectedSize,
+                                maximumBytes: localMaximum
+                            )
+                            try Self.installCacheFile(from: localURL, to: target, move: false)
+                        }.value
+                    } else {
+                        guard source.supportsRangeStreaming || source.type == .upnp else {
+                            throw AutomaticOfflineTransferDeferralError.unboundedAutomaticTransfer
+                        }
+                        expectedTransferSize = try await remoteFileSize(
+                            at: path,
+                            connector: connector
+                        )
+                        maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                            expectedSize: expectedTransferSize,
+                            lease: lease
+                        )
+                        try await downloadOfflineByRanges(
+                            song: song,
+                            connector: connector,
+                            target: target,
+                            maximumBytes: maximumTransferBytes,
+                            sourcePath: path,
+                            expectedSize: expectedTransferSize
+                        )
+                    }
                 }
             } else if let oneDrive = connector as? OneDriveSource {
+                maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                    expectedSize: expectedTransferSize,
+                    lease: lease
+                )
                 do {
                     let directURL = try await oneDrive.publicDownloadURL(path: song.filePath)
-                    try await downloadOfflineFromDirectURL(directURL, song: song, target: target)
+                    try await downloadOfflineFromDirectURL(
+                        directURL,
+                        song: song,
+                        target: target,
+                        expectedSize: expectedTransferSize,
+                        maximumBytes: maximumTransferBytes
+                    )
                 } catch {
+                    try Task.checkCancellation()
+                    guard OfflineDirectDownloadRetryPolicy.shouldRefreshSignedURL(after: error) else {
+                        throw error
+                    }
                     await oneDrive.invalidateCachedDownloadURL(path: song.filePath)
                     plog("↩️ Offline direct retry with fresh OneDrive URL for '\(song.title)': \(error.localizedDescription)")
                     let directURL = try await oneDrive.publicDownloadURL(path: song.filePath, forceRefresh: true)
-                    try await downloadOfflineFromDirectURL(directURL, song: song, target: target)
+                    try Task.checkCancellation()
+                    try await downloadOfflineFromDirectURL(
+                        directURL,
+                        song: song,
+                        target: target,
+                        expectedSize: expectedTransferSize,
+                        maximumBytes: maximumTransferBytes
+                    )
                 }
-            } else if RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(
-                for: source.type
-            ) {
-                try await cacheCompleteFile(song: song, connector: connector)
-            } else if source.supportsRangeStreaming, song.fileSize > 0 {
-                try await downloadOfflineByRanges(song: song, connector: connector, target: target)
+            } else if (source.supportsRangeStreaming || source.type == .upnp),
+                      song.fileSize > 0 {
+                maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                    expectedSize: expectedTransferSize,
+                    lease: lease
+                )
+                try await downloadOfflineByRanges(
+                    song: song,
+                    connector: connector,
+                    target: target,
+                    maximumBytes: maximumTransferBytes
+                )
+            } else if source.type != .local,
+                      source.type != .appleMusicLibrary {
+                throw AutomaticOfflineTransferDeferralError.unboundedAutomaticTransfer
             } else {
                 let localURL = try await connector.localURL(for: song.filePath)
+                expectedTransferSize = byteSize(at: localURL)
+                maximumTransferBytes = try await prepareOfflineTransferCapacity(
+                    expectedSize: expectedTransferSize,
+                    lease: lease
+                )
+                let localExpectedSize = expectedTransferSize
+                let localMaximum = maximumTransferBytes
                 try await Task.detached(priority: .utility) {
+                    try Self.validateCompleteCacheFile(
+                        at: localURL,
+                        expectedSize: localExpectedSize,
+                        maximumBytes: localMaximum
+                    )
                     try Self.installCacheFile(from: localURL, to: target, move: false)
                 }.value
             }
 
             try Task.checkCancellation()
-            let size = fileSize(at: target)
+            try Self.validateCompleteCacheFile(
+                at: target,
+                expectedSize: expectedTransferSize,
+                maximumBytes: maximumTransferBytes
+            )
+            if refreshDisposition != .none {
+                try await Task.detached(priority: .utility) {
+                    try OfflineCacheAtomicReplacement.replace(
+                        staging: target,
+                        canonical: canonicalTarget
+                    )
+                }.value
+            }
+            let size = fileSize(at: canonicalTarget)
+            preservingAutomaticRefreshPaths.remove(relativePath)
+            contentChangeProtectionPendingPaths.remove(relativePath)
+            contentChangeInvalidationGenerationByPath[relativePath] = nil
+            blockedUntrustedAudioCachePaths.remove(relativePath)
             await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: false)
             setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                 state: .cached,
@@ -3610,51 +5686,96 @@ final class SourceManager {
             return .completed(byteCount: size)
         } catch {
             if Task.isCancelled {
-                setOfflineAudioSnapshot(.notCached, for: song.id)
+                await restoreUsableSnapshotAfterRefreshFailure(
+                    song: song,
+                    canonicalTarget: canonicalTarget,
+                    refreshDisposition: refreshDisposition,
+                    errorMessage: nil
+                )
                 plog(String(format: "↩️ Offline download cancelled for '%@' after %.1fs", song.title, Date().timeIntervalSince(startedAt)))
                 return .cancelled
             }
             let partial = URL(fileURLWithPath: target.path + ".offline")
             let partialSize = byteSize(at: partial)
+            await restoreUsableSnapshotAfterRefreshFailure(
+                song: song,
+                canonicalTarget: canonicalTarget,
+                refreshDisposition: refreshDisposition,
+                errorMessage: error.localizedDescription,
+                partialSize: partialSize
+            )
+            plog(String(format: "⚠️ Offline download failed for '%@' after %.1fs partial=%lldKB: %@", song.title, Date().timeIntervalSince(startedAt), partialSize / 1024, error.localizedDescription))
+            let failureKind = AutomaticOfflineFailureClassifier.classify(error)
+            return .failed(
+                kind: failureKind,
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func restoreUsableSnapshotAfterRefreshFailure(
+        song: Song,
+        canonicalTarget: URL,
+        refreshDisposition: AutomaticOfflineRefreshDisposition,
+        errorMessage: String?,
+        partialSize: Int64 = 0
+    ) async {
+        let relativePath = audioCacheRelativePath(for: song)
+        if refreshDisposition == .preserveExisting,
+           FileManager.default.fileExists(atPath: canonicalTarget.path) {
+            let size = fileSize(at: canonicalTarget)
+            let snapshot = await AudioCacheManager.shared.snapshot(
+                path: relativePath,
+                fileExists: true,
+                byteCount: size
+            )
+            setOfflineAudioSnapshot(snapshot, for: song.id)
+            return
+        }
+        if errorMessage == nil {
+            setOfflineAudioSnapshot(.notCached, for: song.id)
+        } else {
             setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                 state: .failed,
                 progress: nil,
                 byteCount: partialSize > 0 ? partialSize : nil,
-                errorMessage: error.localizedDescription
+                errorMessage: errorMessage
             ), for: song.id)
-            plog(String(format: "⚠️ Offline download failed for '%@' after %.1fs partial=%lldKB: %@", song.title, Date().timeIntervalSince(startedAt), partialSize / 1024, error.localizedDescription))
-            let authenticationRequired: Bool
-            if let sourceError = error as? SourceError,
-               case .authenticationFailed = sourceError {
-                authenticationRequired = true
-            } else {
-                authenticationRequired = false
-            }
-            return .failed(
-                authenticationRequired: authenticationRequired,
-                message: error.localizedDescription
-            )
         }
     }
 
     private func downloadOfflineByRanges(
         song: Song,
         connector: any MusicSourceConnector,
-        target: URL
+        target: URL,
+        maximumBytes: Int64,
+        sourcePath: String? = nil,
+        expectedSize: Int64? = nil
     ) async throws {
+        let transferPath = sourcePath ?? song.filePath
+        let transferSize = expectedSize ?? song.fileSize
+        guard transferSize > 0 else {
+            throw AutomaticOfflineTransferDeferralError.unboundedAutomaticTransfer
+        }
         let partial = URL(fileURLWithPath: target.path + ".offline")
         let existingSize = byteSize(at: partial)
-        if existingSize >= song.fileSize, song.fileSize > 0 {
-            try await Task.detached(priority: .utility) {
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: partial, to: target)
-            }.value
-            return
-        }
-        if existingSize > song.fileSize {
+        if existingSize > transferSize {
             await Task.detached(priority: .utility) {
                 try? FileManager.default.removeItem(at: partial)
             }.value
+        } else if existingSize == transferSize {
+            try await Task.detached(priority: .utility) {
+                try Self.validateCompleteCacheFile(
+                    at: partial,
+                    expectedSize: transferSize,
+                    maximumBytes: maximumBytes
+                )
+                try OfflineCacheAtomicReplacement.replace(
+                    staging: partial,
+                    canonical: target
+                )
+            }.value
+            return
         }
         if !FileManager.default.fileExists(atPath: partial.path) {
             await Task.detached(priority: .utility) {
@@ -3666,29 +5787,30 @@ final class SourceManager {
             }.value
         }
         let chunkSize: Int64 = 2 * 1024 * 1024
-        var offset: Int64 = max(0, min(byteSize(at: partial), song.fileSize))
+        var offset: Int64 = max(0, min(byteSize(at: partial), transferSize))
         if offset > 0 {
-            plog("↩️ Offline resume '\(song.title)' from \(offset / 1024)KB / \(song.fileSize / 1024)KB")
+            plog("↩️ Offline resume '\(song.title)' from \(offset / 1024)KB / \(transferSize / 1024)KB")
         }
         setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
-            progress: song.fileSize > 0 ? min(0.99, Double(offset) / Double(song.fileSize)) : nil,
-            byteCount: song.fileSize,
+            progress: min(0.99, Double(offset) / Double(transferSize)),
+            byteCount: transferSize,
             errorMessage: nil
         ), for: song.id)
 
-        while offset < song.fileSize {
+        while offset < transferSize {
             try Task.checkCancellation()
-            let length = min(chunkSize, song.fileSize - offset)
+            let length = min(chunkSize, transferSize - offset)
             let chunkOffset = offset
             let data = try await connector.fetchRange(
-                path: song.filePath,
+                path: transferPath,
                 offset: chunkOffset,
                 length: length
             )
             guard Int64(data.count) == length else {
-                throw SourceError.connectionFailed(
-                    "Offline download returned an invalid chunk: \(data.count)/\(length)"
+                throw OfflineTransferValidationError.invalidChunk(
+                    actual: data.count,
+                    expected: length
                 )
             }
             try await Task.detached(priority: .utility) {
@@ -3697,31 +5819,53 @@ final class SourceManager {
             offset += Int64(data.count)
             setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                 state: .downloading,
-                progress: min(0.99, Double(offset) / Double(song.fileSize)),
-                byteCount: song.fileSize,
+                progress: min(0.99, Double(offset) / Double(transferSize)),
+                byteCount: transferSize,
                 errorMessage: nil
             ), for: song.id)
         }
         try Task.checkCancellation()
         try await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: partial, to: target)
+            try Self.validateCompleteCacheFile(
+                at: partial,
+                expectedSize: transferSize,
+                maximumBytes: maximumBytes
+            )
+            try OfflineCacheAtomicReplacement.replace(
+                staging: partial,
+                canonical: target
+            )
         }.value
     }
 
-    private func downloadOfflineFromDirectURL(_ url: URL, song: Song, target: URL) async throws {
+    private func downloadOfflineFromDirectURL(
+        _ url: URL,
+        song: Song,
+        target: URL,
+        expectedSize: Int64,
+        maximumBytes: Int64
+    ) async throws {
         let partial = URL(fileURLWithPath: target.path + ".offline")
         let existingSize = byteSize(at: partial)
-        if existingSize >= song.fileSize, song.fileSize > 0 {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: partial, to: target)
+        if existingSize > expectedSize, expectedSize > 0 {
+            try? FileManager.default.removeItem(at: partial)
+        } else if existingSize == expectedSize, expectedSize > 0 {
+            try Self.validateCompleteCacheFile(
+                at: partial,
+                expectedSize: expectedSize,
+                maximumBytes: maximumBytes
+            )
+            try OfflineCacheAtomicReplacement.replace(
+                staging: partial,
+                canonical: target
+            )
             return
         }
-        if existingSize > song.fileSize, song.fileSize > 0 {
+        if existingSize > maximumBytes {
             try? FileManager.default.removeItem(at: partial)
         }
 
-        let resumeOffset = max(0, min(byteSize(at: partial), max(song.fileSize, 0)))
+        let resumeOffset = max(0, min(byteSize(at: partial), maximumBytes))
         if resumeOffset > 0 {
             plog("↩️ Offline direct resume '\(song.title)' from \(resumeOffset / 1024)KB / \(song.fileSize / 1024)KB")
         } else {
@@ -3741,11 +5885,12 @@ final class SourceManager {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 60 * 60
         let songID = song.id
-        let expectedTotal = song.fileSize > 0 ? song.fileSize : nil
+        let expectedTotal = expectedSize > 0 ? expectedSize : nil
         let delegate = OfflineDirectDownloadDelegate(
             partial: partial,
             initialBytes: resumeOffset,
-            expectedTotalBytes: expectedTotal
+            expectedTotalBytes: expectedTotal,
+            maximumBytes: maximumBytes
         ) { [weak self] downloadedBytes, totalBytes in
             Task { @MainActor [weak self] in
                 let total = totalBytes ?? expectedTotal
@@ -3765,15 +5910,24 @@ final class SourceManager {
         }
 
         let finalSize = byteSize(at: partial)
-        if song.fileSize > 0, finalSize < song.fileSize {
-            throw SourceError.connectionFailed("Offline direct download incomplete: \(finalSize)/\(song.fileSize)")
-        }
-        try? FileManager.default.removeItem(at: target)
-        try FileManager.default.moveItem(at: partial, to: target)
+        try Self.validateCompleteCacheFile(
+            at: partial,
+            expectedSize: expectedSize,
+            maximumBytes: maximumBytes
+        )
+        try OfflineCacheAtomicReplacement.replace(
+            staging: partial,
+            canonical: target
+        )
         plog(String(format: "✅ Offline direct download '%@' size=%lldKB elapsed=%.1fs", song.title, finalSize / 1024, Date().timeIntervalSince(startedAt)))
     }
 
-    private func downloadOfflineFromURL(_ url: URL, song: Song, target: URL) async throws {
+    private func downloadOfflineFromURL(
+        _ url: URL,
+        song: Song,
+        target: URL,
+        maximumBytes: Int64
+    ) async throws {
         guard CompleteFileTransferPolicy.route(for: .externalURL) == .genericHTTP else {
             throw SourceError.connectionFailed("External stream transfer route unavailable")
         }
@@ -3783,20 +5937,48 @@ final class SourceManager {
             byteCount: song.fileSize > 0 ? song.fileSize : nil,
             errorMessage: nil
         ), for: song.id)
+        guard TrustedHTTPTransport.requiresPlainSocket(for: url) else {
+            try await downloadOfflineFromDirectURL(
+                url,
+                song: song,
+                target: target,
+                expectedSize: 0,
+                maximumBytes: maximumBytes
+            )
+            return
+        }
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 300
+        request.setValue(Self.directDownloadUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         let (tempURL, response) = try await TrustedHTTPTransport.download(
-            from: url,
+            for: request,
             session: session,
-            timeout: 300
+            maximumRangedBodyBytes: Int(clamping: maximumBytes),
+            wholeResponsePrefixLimit: nil
         )
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+            throw CloudDriveError.apiError(
+                http.statusCode,
+                "Offline URL download failed"
+            )
         }
-        try? FileManager.default.removeItem(at: target)
-        try FileManager.default.moveItem(at: tempURL, to: target)
+        try Self.validateCompleteCacheFile(
+            at: tempURL,
+            expectedSize: 0,
+            maximumBytes: maximumBytes
+        )
+        try OfflineCacheAtomicReplacement.install(
+            source: tempURL,
+            target: target,
+            move: true
+        )
     }
 
     private nonisolated static func writeOfflineChunk(
@@ -4175,6 +6357,8 @@ final class SourceManager {
             temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_nfs_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_upnp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_media_server_cache_\(sourceID)"),
+            temp.appendingPathComponent("primuse_subsonic_cache_\(sourceID)"),
             temp.appendingPathComponent("primuse_scan_\(sourceID)"),
         ]
     }
@@ -4384,8 +6568,13 @@ final class SourceManager {
                   current.sourceID == previous.sourceID,
                   current.filePath != previous.filePath else { continue }
 
-            offlineDownloadTasks[previous.id]?.task.cancel()
-            offlineDownloadTasks[previous.id] = nil
+            let previousTaskKey = audioCacheRelativePath(for: previous)
+            offlineDownloadTasks[previousTaskKey]?.task.cancel()
+            offlineDownloadTasks[previousTaskKey] = nil
+            preservingAutomaticRefreshPaths.remove(previousTaskKey)
+            contentChangeProtectionPendingPaths.remove(previousTaskKey)
+            contentChangeInvalidationGenerationByPath[previousTaskKey] = nil
+            blockedUntrustedAudioCachePaths.remove(previousTaskKey)
             backgroundAudioCacheTasks[previous.id]?.task.cancel()
             backgroundAudioCacheTasks[previous.id] = nil
 
@@ -4406,6 +6595,9 @@ final class SourceManager {
             let cloudCacheDirectory = cachesRoot
                 .appendingPathComponent("primuse_cloud_cache")
                 .appendingPathComponent(previous.sourceID)
+                .appendingPathComponent(
+                    MusicSourceSecurityRevision.cacheNamespace(for: previous.sourceID)
+                )
             let previousCloudURL = cloudCacheDirectory.appendingPathComponent(
                 CloudDriveHelper.cacheFileName(for: previous.filePath)
             )
@@ -4461,6 +6653,10 @@ final class SourceManager {
         Self.removeCacheFileFamily(at: cacheURL)
         deleteConnectorTempCaches(for: song)
         let relativePath = audioCacheRelativePath(for: song)
+        preservingAutomaticRefreshPaths.remove(relativePath)
+        contentChangeProtectionPendingPaths.remove(relativePath)
+        contentChangeInvalidationGenerationByPath[relativePath] = nil
+        blockedUntrustedAudioCachePaths.remove(relativePath)
         Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
         setOfflineAudioSnapshot(.notCached, for: song.id)
     }
@@ -4469,14 +6665,89 @@ final class SourceManager {
         deleteLocalCaches(for: [song])
     }
 
+    /// Content revisions are different from removals: an Always Download
+    /// artifact remains a valid same-account fallback until the replacement is
+    /// fully transferred and atomically installed. Classification consults both
+    /// the live desired set and the durable playlist ownership manifest before
+    /// any canonical audio bytes are deleted.
+    private func invalidateLocalCachesForContentChanges(_ songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        contentChangeInvalidationGeneration += 1
+        let generation = contentChangeInvalidationGeneration
+        let candidatePaths = Set(songs.map { audioCacheRelativePath(for: $0) })
+        for path in candidatePaths {
+            contentChangeInvalidationGenerationByPath[path] = generation
+        }
+
+        // Fail closed against destructive invalidation while the manifest actor
+        // is being consulted. Live playlist ownership can be protected
+        // immediately; cold-start ownership is added when the durable query
+        // returns.
+        contentChangeProtectionPendingPaths.formUnion(candidatePaths)
+        preservingAutomaticRefreshPaths.formUnion(songs.compactMap { song in
+            automaticPlaylistPinnedSongsByID[song.id] == nil
+                ? nil
+                : audioCacheRelativePath(for: song)
+        })
+
+        Task { [weak self] in
+            let persistedPaths = await AudioCacheManager.shared
+                .automaticPlaylistPinnedRelativePaths(matching: candidatePaths)
+            guard let self else { return }
+            let currentPaths = Set(candidatePaths.filter {
+                self.contentChangeInvalidationGenerationByPath[$0] == generation
+            })
+            guard !currentPaths.isEmpty else { return }
+
+            let livePaths = Set(songs.compactMap { song -> String? in
+                let path = self.audioCacheRelativePath(for: song)
+                guard currentPaths.contains(path),
+                      self.automaticPlaylistPinnedSongsByID[song.id] != nil else {
+                    return nil
+                }
+                return path
+            })
+            let protectedPaths = AutomaticOfflineContentChangePolicy.protectedPaths(
+                candidates: currentPaths,
+                livePlaylistPaths: livePaths,
+                persistedPlaylistPaths: persistedPaths,
+                blockedUntrustedPaths: self.blockedUntrustedAudioCachePaths
+            )
+
+            for path in currentPaths {
+                self.contentChangeInvalidationGenerationByPath[path] = nil
+            }
+            self.contentChangeProtectionPendingPaths.subtract(currentPaths)
+            self.preservingAutomaticRefreshPaths.formUnion(protectedPaths)
+            let currentSongs = songs.filter {
+                currentPaths.contains(self.audioCacheRelativePath(for: $0))
+            }
+            self.deleteLocalCaches(
+                for: currentSongs,
+                preserveFreshMetadataAssets: true,
+                preservingAudioPaths: protectedPaths
+            )
+        }
+    }
+
     func deleteLocalCaches(
         for songs: [Song],
-        preserveFreshMetadataAssets: Bool = false
+        preserveFreshMetadataAssets: Bool = false,
+        preservingAudioPaths: Set<String> = []
     ) {
         guard songs.isEmpty == false else { return }
 
         for song in songs {
             backgroundAudioCacheTasks[song.id]?.task.cancel()
+            let relativePath = audioCacheRelativePath(for: song)
+            if preservingAudioPaths.contains(relativePath) {
+                preservingAutomaticRefreshPaths.insert(relativePath)
+            } else {
+                preservingAutomaticRefreshPaths.remove(relativePath)
+                contentChangeProtectionPendingPaths.remove(relativePath)
+                contentChangeInvalidationGenerationByPath[relativePath] = nil
+                blockedUntrustedAudioCachePaths.remove(relativePath)
+            }
         }
 
         let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -4488,45 +6759,65 @@ final class SourceManager {
 
         for song in songs {
             let audioName = cacheFileName(for: song)
-            cacheTargets.append(
-                cachesRoot
-                    .appendingPathComponent(Self.audioCacheDirName)
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(audioName)
-            )
-            audioRelativePaths.append("\(song.sourceID)/\(audioName)")
+            let audioRelativePath = "\(song.sourceID)/\(audioName)"
+            if !preservingAudioPaths.contains(audioRelativePath) {
+                cacheTargets.append(
+                    cachesRoot
+                        .appendingPathComponent(Self.audioCacheDirName)
+                        .appendingPathComponent(song.sourceID)
+                        .appendingPathComponent(audioName)
+                )
+                audioRelativePaths.append(audioRelativePath)
+            }
 
             let cacheName = CacheFileNamePolicy.make(path: song.filePath)
             let legacyName = CacheFileNamePolicy.legacySanitized(path: song.filePath)
-            cacheTargets.append(
-                tempRoot.appendingPathComponent("primuse_smb_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
+            let connectorNamespace = MusicSourceSecurityRevision.cacheNamespace(
+                for: song.sourceID
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_smb_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(legacyName)
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(connectorNamespace)
+                    .appendingPathComponent(cacheName)
+            )
+            cacheTargets.append(
+                tempRoot.appendingPathComponent("primuse_smb_cache")
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(connectorNamespace)
+                    .appendingPathComponent(legacyName)
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_ftp_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(legacyName)
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(connectorNamespace)
+                    .appendingPathComponent(legacyName)
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_sftp_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(connectorNamespace)
+                    .appendingPathComponent(cacheName)
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_webdav_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(connectorNamespace)
+                    .appendingPathComponent(cacheName)
             )
             cacheTargets.append(
                 FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
                     .appendingPathComponent("primuse_s3_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(connectorNamespace)
+                    .appendingPathComponent(cacheName)
             )
             if let nfsName = NFSSelectionPathCodec.cacheFileName(for: song.filePath) {
                 cacheTargets.append(
                     tempRoot.appendingPathComponent("primuse_nfs_cache")
-                        .appendingPathComponent(song.sourceID).appendingPathComponent(nfsName)
+                        .appendingPathComponent(song.sourceID)
+                        .appendingPathComponent(connectorNamespace)
+                        .appendingPathComponent(nfsName)
                 )
             }
             if let upnpURL = URL(string: song.filePath),
@@ -4538,7 +6829,9 @@ final class SourceManager {
                 )
                 cacheTargets.append(
                     tempRoot.appendingPathComponent("primuse_upnp_cache")
-                        .appendingPathComponent(song.sourceID).appendingPathComponent(upnpName)
+                        .appendingPathComponent(song.sourceID)
+                        .appendingPathComponent(connectorNamespace)
+                        .appendingPathComponent(upnpName)
                 )
             }
 
@@ -4551,12 +6844,15 @@ final class SourceManager {
                     cachesRoot
                         .appendingPathComponent(Self.videoCacheDirName)
                         .appendingPathComponent(song.sourceID)
+                        .appendingPathComponent(connectorNamespace)
                         .appendingPathComponent(
                             Self.videoCacheFileName(sourceID: song.sourceID, path: mvPath)
                         )
                 )
             }
-            setOfflineAudioSnapshot(.notCached, for: song.id)
+            if !preservingAudioPaths.contains(audioRelativePath) {
+                setOfflineAudioSnapshot(.notCached, for: song.id)
+            }
         }
 
         // A source deletion can remove thousands of songs. Posting one artwork
@@ -4579,8 +6875,10 @@ final class SourceManager {
             }
         }
 
-        Task {
-            await AudioCacheManager.shared.removeEntries(paths: audioRelativePaths)
+        if !audioRelativePaths.isEmpty {
+            Task {
+                await AudioCacheManager.shared.removeEntries(paths: audioRelativePaths)
+            }
         }
         let songIDs = songs.map(\.id)
         Task {
@@ -4598,6 +6896,18 @@ final class SourceManager {
     /// directory and still require per-song paths.
     private func deleteLocalCachesForRemovedSources(_ sourceIDs: Set<String>, songs: [Song]) {
         guard !sourceIDs.isEmpty else { return }
+        preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
+        contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter { path in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
+        contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter { path, _ in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
+        blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter { path in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
         for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
             record.task.cancel()
         }
@@ -4636,16 +6946,25 @@ final class SourceManager {
         let cacheName = CacheFileNamePolicy.make(path: song.filePath)
         let legacyName = CacheFileNamePolicy.legacySanitized(path: song.filePath)
         let temp = FileManager.default.temporaryDirectory
+        let namespace = MusicSourceSecurityRevision.cacheNamespace(for: song.sourceID)
+        func scoped(_ root: String) -> URL {
+            temp.appendingPathComponent(root)
+                .appendingPathComponent(song.sourceID)
+                .appendingPathComponent(namespace)
+        }
         let candidates = [
-            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
-            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(song.sourceID).appendingPathComponent(legacyName),
-            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(legacyName),
-            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
-            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(legacyName),
-            temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
+            scoped("primuse_smb_cache").appendingPathComponent(cacheName),
+            scoped("primuse_smb_cache").appendingPathComponent(legacyName),
+            scoped("primuse_ftp_cache").appendingPathComponent(legacyName),
+            scoped("primuse_sftp_cache").appendingPathComponent(cacheName),
+            scoped("primuse_sftp_cache").appendingPathComponent(legacyName),
+            scoped("primuse_webdav_cache").appendingPathComponent(cacheName),
             temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(legacyName),
             FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-                .appendingPathComponent("primuse_s3_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
+                .appendingPathComponent("primuse_s3_cache")
+                .appendingPathComponent(song.sourceID)
+                .appendingPathComponent(namespace)
+                .appendingPathComponent(cacheName),
         ]
         for url in candidates {
             Self.removeCacheFileFamily(at: url)
@@ -4666,12 +6985,39 @@ final class SourceManager {
 
     private nonisolated static func cacheFileFamilyURLs(at url: URL) -> [URL] {
         let partial = URL(fileURLWithPath: url.path + ".partial")
+        let refresh = refreshCacheURL(for: url)
         return [
             url,
+            URL(fileURLWithPath: url.path + ".installing"),
             partial,
             URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix),
             URL(fileURLWithPath: url.path + ".offline"),
+            refresh,
+            URL(fileURLWithPath: refresh.path + ".installing"),
+            URL(fileURLWithPath: refresh.path + ".offline"),
         ]
+    }
+
+    private nonisolated static func refreshCacheURL(for canonical: URL) -> URL {
+        URL(fileURLWithPath: canonical.path + ".refresh")
+    }
+
+    private nonisolated static func removeRefreshCacheFiles(at canonical: URL) {
+        let refresh = refreshCacheURL(for: canonical)
+        try? FileManager.default.removeItem(at: refresh)
+        try? FileManager.default.removeItem(
+            at: URL(fileURLWithPath: refresh.path + ".installing")
+        )
+        try? FileManager.default.removeItem(
+            at: URL(fileURLWithPath: refresh.path + ".offline")
+        )
+    }
+
+    private nonisolated static func refreshCacheFilesExist(at canonical: URL) -> Bool {
+        let refresh = refreshCacheURL(for: canonical)
+        return FileManager.default.fileExists(atPath: refresh.path)
+            || FileManager.default.fileExists(atPath: refresh.path + ".installing")
+            || FileManager.default.fileExists(atPath: refresh.path + ".offline")
     }
 
     func deleteSourceCaches(sourceID: String) {
@@ -4680,6 +7026,18 @@ final class SourceManager {
 
     func deleteSourceCaches(sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
+        preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
+        contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter { path in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
+        contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter { path, _ in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
+        blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter { path in
+            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+        }
         for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
             record.task.cancel()
         }
@@ -4803,6 +7161,18 @@ final class SourceManager {
     /// 回收磁盘, 不然 caches/primuse_audio_cache/<sourceID>/ 里的整本歌
     /// + `.partial` 半成品永远没人动。
     func purgeAudioCache(forSourceID sourceID: String) {
+        preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter {
+            !$0.hasPrefix("\(sourceID)/")
+        }
+        contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter {
+            !$0.hasPrefix("\(sourceID)/")
+        }
+        contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter {
+            !$0.key.hasPrefix("\(sourceID)/")
+        }
+        blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter {
+            !$0.hasPrefix("\(sourceID)/")
+        }
         for record in backgroundAudioCacheTasks.values where record.sourceID == sourceID {
             record.task.cancel()
         }
@@ -4866,7 +7236,9 @@ final class SourceManager {
     ) -> Task<Void, Never>? {
         guard cacheEnabled,
               automaticAudioCachingEnabled,
-              cachedURL(for: song) == nil else { return nil }
+              audioCacheReadsAreAllowed(for: song.sourceID),
+              cachedURL(for: song) == nil,
+              offlineDownloadTasks[audioCacheRelativePath(for: song)] == nil else { return nil }
         if let record = backgroundAudioCacheTasks[song.id] {
             return record.task
         }
@@ -4880,6 +7252,7 @@ final class SourceManager {
         backgroundAudioCacheTasks[song.id] = BackgroundAudioCacheTaskRecord(
             id: runID,
             sourceID: song.sourceID,
+            taskKey: audioCacheRelativePath(for: song),
             task: task
         )
         return task
@@ -4893,6 +7266,7 @@ final class SourceManager {
     private func performBackgroundAudioCache(song: Song, cacheEnabled: Bool) async {
         do {
             try Task.checkCancellation()
+            guard await ensureAudioCacheScopeValidated(for: song.sourceID) else { return }
             guard cachedURL(for: song) == nil else { return }
 
             let sources = try await sourcesProvider()
@@ -4932,7 +7306,7 @@ final class SourceManager {
             case .rangePrewarm:
                 await prewarmCloudSong(song: song, connector: conn)
             case .completeFile:
-                try await cacheCompleteFile(song: song, connector: conn)
+                _ = await performOfflineDownload(song)
             }
         } catch {
             if Task.isCancelled || (error as? URLError)?.code == .cancelled {
@@ -4943,101 +7317,106 @@ final class SourceManager {
         }
     }
 
-    private func cacheCompleteFile(
-        song: Song,
-        connector: any MusicSourceConnector
-    ) async throws {
-        guard cachedURL(for: song) == nil else { return }
-        let target = cacheURL(for: song)
-        let reserveBytes = max(song.fileSize, 10_485_760)
-        await AudioCacheManager.shared.evictIfNeeded(reserveBytes: reserveBytes)
-        try Task.checkCancellation()
-
-        if song.isStreamDescriptor {
-            switch try await resolveSTRMTarget(for: song, connector: connector) {
-            case .remote(let url):
-                guard CompleteFileTransferPolicy.route(for: .externalURL) == .genericHTTP else {
-                    throw SourceError.connectionFailed("External stream transfer route unavailable")
-                }
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 300
-                config.timeoutIntervalForResource = 60 * 60
-                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-                defer { session.finishTasksAndInvalidate() }
-                let (tempURL, response) = try await TrustedHTTPTransport.download(
-                    from: url,
-                    session: session,
-                    timeout: 300
+    private func prepareOfflineTransferCapacity(
+        expectedSize: Int64,
+        lease: AudioCachePathLease,
+        respectsConfiguredCacheLimit: Bool = true
+    ) async throws -> Int64 {
+        let maximum = try await offlineTransferMaximumBytes(
+            expectedSize: expectedSize,
+            lease: lease,
+            respectsConfiguredCacheLimit: respectsConfiguredCacheLimit
+        )
+        if respectsConfiguredCacheLimit {
+            guard await AudioCacheManager.shared.evictIfNeeded(reserveBytes: 0) else {
+                throw OfflineTransferValidationError.insufficientCapacity(
+                    required: maximum,
+                    available: 0
                 )
-                if let http = response as? HTTPURLResponse,
-                   !(200...299).contains(http.statusCode) {
-                    throw SourceError.connectionFailed("HTTP \(http.statusCode)")
-                }
-                try await Task.detached(priority: .utility) {
-                    try Self.installCacheFile(from: tempURL, to: target, move: true)
-                }.value
-            case .openListSourcePath(let path, _):
-                guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
-                    throw SourceError.connectionFailed("OpenList STRM transport unavailable")
-                }
-                plog("⬇️ Cache: connector-owned OpenList STRM transfer for '\(song.title)'")
-                let localURL = try await webDAV.localOpenListSTRMURL(for: path)
-                try Task.checkCancellation()
-                try await Task.detached(priority: .utility) {
-                    try Self.installCacheFile(from: localURL, to: target, move: false)
-                }.value
-            case .sourcePath(let path):
-                guard CompleteFileTransferPolicy.route(for: .connectorPath) == .connector else {
-                    throw SourceError.connectionFailed("Connector transfer route unavailable")
-                }
-                plog("⬇️ Cache: connector-owned complete transfer for '\(song.title)'")
-                let localURL = try await connector.localURL(for: path)
-                try Task.checkCancellation()
-                try await Task.detached(priority: .utility) {
-                    try Self.installCacheFile(from: localURL, to: target, move: false)
-                }.value
-            }
-        } else {
-            guard CompleteFileTransferPolicy.route(for: .connectorPath) == .connector else {
-                throw SourceError.connectionFailed("Connector transfer route unavailable")
-            }
-            plog("⬇️ Cache: connector-owned complete transfer for '\(song.title)'")
-            let localURL = try await connector.localURL(for: song.filePath)
-            try Task.checkCancellation()
-            try Self.validateCompleteCacheFile(at: localURL, expectedSize: song.fileSize)
-            if cachedURL(for: song) == nil {
-                try await Task.detached(priority: .utility) {
-                    try Self.installCacheFile(from: localURL, to: target, move: false)
-                }.value
             }
         }
+        return maximum
+    }
 
-        try Task.checkCancellation()
-        try Self.validateCompleteCacheFile(at: target, expectedSize: song.fileSize)
-        let byteCount = byteSize(at: target)
-        let relativePath = audioCacheRelativePath(for: song)
-        await AudioCacheManager.shared.recordAccess(path: relativePath)
-        if offlineAudioSnapshot(for: song).state != .pinned {
-            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
-                state: .cached,
-                progress: nil,
-                byteCount: byteCount,
-                errorMessage: nil
-            ), for: song.id)
+    private func remoteFileSize(
+        at path: String,
+        connector: any MusicSourceConnector
+    ) async throws -> Int64 {
+        let parent = (path as NSString).deletingLastPathComponent
+        let listingPath = parent.isEmpty ? "/" : parent
+        let targetPath = Self.normalizedRemotePath(path)
+        let targetName = (path as NSString).lastPathComponent
+        let items = try await connector.listFiles(at: listingPath)
+        guard let item = items.first(where: {
+            !$0.isDirectory && Self.normalizedRemotePath($0.path) == targetPath
+        }) ?? items.first(where: {
+            !$0.isDirectory && $0.name == targetName
+        }) else {
+            throw SourceError.fileNotFound(path)
         }
-        plog("✅ Cache: '\(song.title)' complete file cached successfully")
+        guard item.size > 0 else {
+            throw AutomaticOfflineTransferDeferralError.unboundedAutomaticTransfer
+        }
+        return item.size
+    }
+
+    private func offlineTransferMaximumBytes(
+        expectedSize: Int64,
+        lease: AudioCachePathLease,
+        respectsConfiguredCacheLimit: Bool
+    ) async throws -> Int64 {
+        let availableDiskBytes = Self.availableAudioCacheDiskBytes()
+        let minimum = OfflineTransferSizePolicy.minimumAllowedBytes(
+            expectedSize: expectedSize
+        )
+        let requiredCapacity = expectedSize > 0 ? expectedSize : max(1, minimum)
+        let approval = await AudioCacheManager.shared.approveTransferReservation(
+            lease,
+            expectedSize: expectedSize,
+            physicalAvailableBytes: availableDiskBytes,
+            minimumRequiredBytes: requiredCapacity,
+            respectsConfiguredCacheLimit: respectsConfiguredCacheLimit
+        )
+        let maximum: Int64
+        switch approval {
+        case .approved(let approved):
+            maximum = approved
+        case .invalidLease:
+            throw AutomaticOfflineTransferDeferralError.artifactLeased
+        case .insufficientCapacity(let available):
+            throw OfflineTransferValidationError.insufficientCapacity(
+                required: requiredCapacity,
+                available: available
+            )
+        }
+        guard maximum > 0, maximum >= requiredCapacity else {
+            throw OfflineTransferValidationError.insufficientCapacity(
+                required: requiredCapacity,
+                available: maximum
+            )
+        }
+        return maximum
+    }
+
+    private nonisolated static func availableAudioCacheDiskBytes() -> Int64 {
+        let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(
+            forPath: base.path
+        ), let value = attributes[.systemFreeSize] as? NSNumber else { return 0 }
+        return value.int64Value
     }
 
     private nonisolated static func validateCompleteCacheFile(
         at url: URL,
-        expectedSize: Int64
+        expectedSize: Int64,
+        maximumBytes: Int64? = nil
     ) throws {
-        guard expectedSize > 0 else { return }
         let actualSize = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int64) ?? 0
-        let minimumSize = Int64(Double(expectedSize) * 0.95)
-        guard actualSize >= minimumSize else {
-            throw SourceError.connectionFailed("Incomplete background cache: \(actualSize)/\(expectedSize)")
-        }
+        try OfflineTransferSizePolicy.validate(
+            actualSize: actualSize,
+            expectedSize: expectedSize,
+            maximumBytes: maximumBytes
+        )
     }
 
     private nonisolated static func installCacheFile(
@@ -5045,17 +7424,11 @@ final class SourceManager {
         to target: URL,
         move: Bool
     ) throws {
-        try FileManager.default.createDirectory(
-            at: target.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        try OfflineCacheAtomicReplacement.install(
+            source: source,
+            target: target,
+            move: move
         )
-        guard !FileManager.default.fileExists(atPath: target.path) else { return }
-        if source.standardizedFileURL == target.standardizedFileURL { return }
-        if move {
-            try FileManager.default.moveItem(at: source, to: target)
-        } else {
-            try FileManager.default.copyItem(at: source, to: target)
-        }
     }
 
     /// Prewarm a cloud song so the next "play" is instant:
@@ -5071,6 +7444,26 @@ final class SourceManager {
         if isPrewarmed(song: song) { return }
         let fileSize = song.fileSize
         guard fileSize > 0 else { return }
+        let seedSize = min(fileSize, Self.prewarmHeadSize + Self.prewarmTailSize)
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(
+            path: audioCacheRelativePath(for: song),
+            reserveBytes: 0
+        ) else { return }
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else {
+            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            return
+        }
+        defer {
+            Task {
+                await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            }
+        }
+        guard (try? await prepareOfflineTransferCapacity(
+            expectedSize: seedSize,
+            lease: lease
+        )) != nil else {
+            return
+        }
         do {
             // 并发拉 head + tail —— SFB.open() 必读 mp3 ID3v1 (tail 128B),
             // 不预热 tail 就会触发 1-2s 的 user-facing fetch 卡顿。
@@ -5113,6 +7506,7 @@ final class SourceManager {
     /// and would stampede the connector).
     func prewarmCloudSongPublic(song: Song) async {
         guard automaticAudioCachingEnabled,
+              await ensureAudioCacheScopeValidated(for: song.sourceID),
               let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }),
               shouldUseRangeStreamingForPlayback(source: source, song: song) else { return }
@@ -5128,16 +7522,332 @@ final class SourceManager {
     /// 走完应有的 rename 路径。缓存关闭时还要 unregister temp session,
     /// 避免 registry 持有已结束的临时流。
     func finalizeStreamingSession(for song: Song) {
+        guard playbackAudioCacheLeaseFinalizations[song.id] == nil else { return }
+
+        var trailingFills: [Task<Void, Never>] = []
         let cache = cacheURL(for: song)
-        CloudPlaybackSource.finalizeSession(partialPath: cache.path + ".partial")
+        if let fill = CloudPlaybackSource.finalizeSession(
+            partialPath: cache.path + ".partial"
+        ) {
+            trailingFills.append(fill)
+        }
 
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
         for prefix in ["primuse-stream", "primuse-http"] {
             let partialPath = tempDir
                 .appendingPathComponent("\(prefix)-\(song.id)")
                 .path + ".partial"
-            CloudPlaybackSource.finalizeSession(partialPath: partialPath)
+            if let fill = CloudPlaybackSource.finalizeSession(partialPath: partialPath) {
+                trailingFills.append(fill)
+            }
         }
+
+        guard let leaseRecord = playbackAudioCacheLeases[song.id] else { return }
+        guard !trailingFills.isEmpty else {
+            releaseAudioCacheLeaseForPlayback(
+                songID: song.id,
+                expectedGeneration: leaseRecord.generation
+            )
+            return
+        }
+
+        let finalizationID = UUID()
+        let generation = leaseRecord.generation
+        let finalizedTrailingFills = trailingFills
+        let finalizationTask = Task { @MainActor [weak self] in
+            await withTaskCancellationHandler {
+                for fill in finalizedTrailingFills {
+                    await fill.value
+                }
+            } onCancel: {
+                finalizedTrailingFills.forEach { $0.cancel() }
+            }
+            guard let self,
+                  let current = self.playbackAudioCacheLeaseFinalizations[song.id],
+                  current.id == finalizationID,
+                  current.generation == generation else { return }
+            self.playbackAudioCacheLeaseFinalizations[song.id] = nil
+            self.releaseAudioCacheLeaseForPlayback(
+                songID: song.id,
+                expectedGeneration: generation
+            )
+        }
+        playbackAudioCacheLeaseFinalizations[song.id] = PlaybackAudioCacheLeaseFinalization(
+            id: finalizationID,
+            generation: generation,
+            sourceID: song.sourceID,
+            task: finalizationTask
+        )
+    }
+
+    func cancelStreamingSessionForMaterialization(
+        for song: Song,
+        expectedStreamEpoch streamEpoch: UInt64
+    ) async -> Bool {
+        let canonical = cacheURL(for: song)
+        let cachePartial = URL(fileURLWithPath: canonical.path + ".partial")
+        guard await CloudPlaybackSource.retireSessionForMaterialization(
+            sourceID: song.sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: cachePartial.path
+        ) else { return false }
+        let tempDir = FileManager.default.temporaryDirectory
+        for prefix in ["primuse-stream", "primuse-http"] {
+            let partial = URL(fileURLWithPath: tempDir
+                .appendingPathComponent("\(prefix)-\(song.id)")
+                .path + ".partial")
+            guard await CloudPlaybackSource.retireSessionForMaterialization(
+                sourceID: song.sourceID,
+                streamEpoch: streamEpoch,
+                partialPath: partial.path
+            ) else { return false }
+        }
+        await AudioCacheManager.shared.refreshPathFamily(
+            path: audioCacheRelativePath(for: song)
+        )
+        return CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: streamEpoch
+        )
+    }
+
+    func prepareHTTPStreamingCache(
+        for song: Song,
+        prefersPersistentCache: Bool
+    ) async -> (
+        url: URL,
+        relativePath: String?,
+        persistOnComplete: Bool,
+        maximumTransferBytes: Int64
+    )? {
+        if prefersPersistentCache,
+           await ensureAudioCacheScopeValidated(for: song.sourceID),
+           await retainAudioCacheLeaseForPlayback(
+               song,
+               reserveBytes: song.fileSize,
+               mode: .persistentCache,
+               requiresTransferReservation: true
+           ),
+           let maximum = playbackAudioCacheLeases[song.id]?.maximumTransferBytes {
+            return (
+                cacheURL(for: song),
+                audioCacheRelativePath(for: song),
+                true,
+                maximum
+            )
+        }
+
+        // The sparse decoder file lives on the same data volume as Caches.
+        // Even a non-persistent playback therefore reserves its worst-case
+        // physical growth before the first byte is written; this reservation
+        // deliberately ignores the configured cache limit but still preserves
+        // global disk headroom and all concurrent reservations.
+        let physicalMode: PlaybackAudioCacheReservationMode =
+            playbackAudioCacheLeases[song.id]?.mode == .canonicalPhysical
+                || (!prefersPersistentCache
+                    && playbackAudioCacheLeases[song.id]?.mode.usesCanonicalStorage == true)
+            ? .canonicalPhysical
+            : .temporaryPhysical
+        guard await retainAudioCacheLeaseForPlayback(
+            song,
+            reserveBytes: song.fileSize,
+            mode: physicalMode,
+            requiresTransferReservation: true
+        ), let maximum = playbackAudioCacheLeases[song.id]?.maximumTransferBytes else {
+            return nil
+        }
+        return (
+            physicalMode.usesCanonicalStorage
+                ? cacheURL(for: song)
+                : FileManager.default.temporaryDirectory
+                    .appendingPathComponent("primuse-http-\(song.id)"),
+            nil,
+            false,
+            maximum
+        )
+    }
+
+    private func retainAudioCacheLeaseForPlayback(
+        _ song: Song,
+        reserveBytes: Int64 = 0,
+        mode: PlaybackAudioCacheReservationMode = .readOnly,
+        requiresTransferReservation: Bool = false
+    ) async -> Bool {
+        if var existingRecord = playbackAudioCacheLeases[song.id] {
+            // One lease protects exactly one sparse-file storage location for
+            // its lifetime. A persistent canonical writer may drop only its
+            // configured-cache charge while retaining the same physical path.
+            if existingRecord.mode != mode {
+                // Turning automatic caching off mid-track converts the live
+                // sparse writer into a temporary session. Preserve the same
+                // physical reservation and lease so an immediate seek/recovery
+                // cannot fail merely because persistence was disabled.
+                guard existingRecord.mode == .persistentCache,
+                      mode == .canonicalPhysical,
+                      await AudioCacheManager.shared
+                          .downgradeTransferReservationToPhysicalOnly(
+                              existingRecord.lease
+                          ),
+                      var currentRecord = playbackAudioCacheLeases[song.id],
+                      currentRecord.lease == existingRecord.lease,
+                      currentRecord.mode == .persistentCache
+                        || currentRecord.mode == .canonicalPhysical else {
+                    return false
+                }
+                if currentRecord.mode == .persistentCache {
+                    currentRecord.mode = .canonicalPhysical
+                    playbackAudioCacheLeases[song.id] = currentRecord
+                }
+                existingRecord = currentRecord
+            }
+            if mode != .temporaryPhysical,
+               !audioCacheReadsAreAllowed(for: song.sourceID) {
+                return false
+            }
+            var approvedMaximum = existingRecord.maximumTransferBytes
+            if reserveBytes > 0 || requiresTransferReservation {
+                guard let maximum = try? await prepareOfflineTransferCapacity(
+                   expectedSize: reserveBytes,
+                   lease: existingRecord.lease,
+                   respectsConfiguredCacheLimit: mode.respectsConfiguredCacheLimit
+                ) else { return false }
+                approvedMaximum = maximum
+            }
+            // Capacity checks above can yield. A finalizer or security-scope
+            // change may have retired the snapshot while we were waiting.
+            guard var currentRecord = playbackAudioCacheLeases[song.id],
+                  currentRecord.lease == existingRecord.lease,
+                  currentRecord.generation == existingRecord.generation,
+                  currentRecord.mode == existingRecord.mode else {
+                return false
+            }
+            var finalizationToAwait: PlaybackAudioCacheLeaseFinalization?
+            if let finalization = playbackAudioCacheLeaseFinalizations[song.id],
+               finalization.generation == currentRecord.generation {
+                playbackAudioCacheLeaseFinalizations[song.id] = nil
+                currentRecord.generation &+= 1
+                finalizationToAwait = finalization
+            }
+            currentRecord.maximumTransferBytes = approvedMaximum
+            playbackAudioCacheLeases[song.id] = currentRecord
+            if let finalizationToAwait {
+                finalizationToAwait.task.cancel()
+                await finalizationToAwait.task.value
+                guard let resumedRecord = playbackAudioCacheLeases[song.id],
+                      resumedRecord.lease == currentRecord.lease,
+                      resumedRecord.generation == currentRecord.generation,
+                      resumedRecord.mode == currentRecord.mode else {
+                    return false
+                }
+            }
+            return true
+        }
+        let relativePath = audioCacheRelativePath(for: song)
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(
+            path: relativePath,
+            reserveBytes: 0
+        ) else { return false }
+        guard !mode.usesCanonicalStorage
+                || audioCacheReadsAreAllowed(for: song.sourceID) else {
+            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            return false
+        }
+        var approvedMaximum: Int64?
+        if reserveBytes > 0 || requiresTransferReservation {
+            guard let maximum = try? await prepareOfflineTransferCapacity(
+               expectedSize: reserveBytes,
+               lease: lease,
+               respectsConfiguredCacheLimit: mode.respectsConfiguredCacheLimit
+            ) else {
+                await AudioCacheManager.shared.releasePathFamilyLease(lease)
+                return false
+            }
+            approvedMaximum = maximum
+        }
+        playbackAudioCacheLeases[song.id] = PlaybackAudioCacheLeaseRecord(
+            lease: lease,
+            sourceID: song.sourceID,
+            relativePath: relativePath,
+            generation: 1,
+            mode: mode,
+            maximumTransferBytes: approvedMaximum
+        )
+        activePlaybackAudioCachePaths[relativePath, default: 0] += 1
+        return true
+    }
+
+    private func cachedURLWithPlaybackLease(for song: Song) async -> URL? {
+        if playbackAudioCacheLeases[song.id] != nil {
+            return cachedURL(for: song)
+        }
+        let relativePath = audioCacheRelativePath(for: song)
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(path: relativePath) else {
+            return nil
+        }
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else {
+            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            return nil
+        }
+        guard let cached = cachedURL(for: song) else {
+            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            await removeBlockedArtifactIfPossible(path: relativePath)
+            return nil
+        }
+        playbackAudioCacheLeases[song.id] = PlaybackAudioCacheLeaseRecord(
+            lease: lease,
+            sourceID: song.sourceID,
+            relativePath: relativePath,
+            generation: 1,
+            mode: .readOnly,
+            maximumTransferBytes: nil
+        )
+        activePlaybackAudioCachePaths[relativePath, default: 0] += 1
+        return cached
+    }
+
+    private func releaseAudioCacheLeaseForPlayback(
+        songID: String,
+        expectedGeneration: UInt64? = nil
+    ) {
+        guard let record = playbackAudioCacheLeases[songID],
+              expectedGeneration == nil || record.generation == expectedGeneration else {
+            return
+        }
+        playbackAudioCacheLeases[songID] = nil
+        let releasedPath = record.relativePath
+        let remaining = max(0, (activePlaybackAudioCachePaths[releasedPath] ?? 1) - 1)
+        activePlaybackAudioCachePaths[releasedPath] = remaining == 0 ? nil : remaining
+        Task { @MainActor [weak self] in
+            await AudioCacheManager.shared.releasePathFamilyLease(record.lease)
+            await self?.removeBlockedArtifactIfPossible(path: releasedPath)
+        }
+    }
+
+    private func releasePlaybackAudioCacheLeases(sourceID: String) {
+        let songIDs = playbackAudioCacheLeases.compactMap { songID, record in
+            record.sourceID == sourceID ? songID : nil
+        }
+        for songID in songIDs {
+            if let finalization = playbackAudioCacheLeaseFinalizations.removeValue(
+                forKey: songID
+            ) {
+                finalization.task.cancel()
+            }
+            releaseAudioCacheLeaseForPlayback(songID: songID)
+        }
+    }
+
+    private func removeBlockedArtifactIfPossible(path: String) async {
+        guard blockedUntrustedAudioCachePaths.contains(path),
+              !(await AudioCacheManager.shared.isPathFamilyLeased(path: path)) else { return }
+        let target = FileManager.default
+            .primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(Self.audioCacheDirName)
+            .appendingPathComponent(path)
+        for url in AutomaticOfflineUntrustedCleanupPolicy.canonicalURLs(for: target) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        await AudioCacheManager.shared.refreshPathFamily(path: path)
     }
 
     /// True if `song` lives on a source that supports HTTP Range streaming
@@ -5155,6 +7865,7 @@ final class SourceManager {
     /// 才算 prewarm。head 长度检查让 prewarm head 调大后旧 partial 自然
     /// 重新 prewarm (不会被旧 256KB head 短路)。
     func isPrewarmed(song: Song) -> Bool {
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else { return false }
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
@@ -5182,7 +7893,9 @@ final class SourceManager {
     /// MetadataBackfillService (head-only, via the compatibility overload).
     /// fileSize=0 means "tail unknown, only seed head".
     func seedPrewarmCache(song: Song, head: Data, tail: Data, fileSize: Int64) {
-        guard automaticAudioCachingEnabled, !head.isEmpty else { return }
+        guard automaticAudioCachingEnabled,
+              audioCacheReadsAreAllowed(for: song.sourceID),
+              !head.isEmpty else { return }
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
@@ -5235,30 +7948,83 @@ final class SourceManager {
     /// promoted to the canonical cache path — the file is still needed
     /// during the session for SFB to read from, then it is deleted when the
     /// playback session ends.
-    func makeStreamingInputSource(for song: Song, cacheEnabled: Bool = true) async throws -> InputSource? {
+    func makeStreamingInputSource(
+        for song: Song,
+        cacheEnabled: Bool = true,
+        expectedStreamEpoch streamEpoch: UInt64
+    ) async throws -> InputSource? {
+        let scopeValidated = await ensureAudioCacheScopeValidated(for: song.sourceID)
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: streamEpoch
+        ) else { return nil }
+        var persistentCacheAllowed = cacheEnabled && scopeValidated
         let sources = try await sourcesProvider()
-        guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+        guard let source = sources.first(where: {
+            $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
         guard !song.isStreamDescriptor else { return nil }
         let conn = connector(for: source)
         try await conn.connect()
-        guard song.fileSize > 0 else { return nil }
-        let cache = cacheEnabled
-            ? cacheURL(for: song)
-            : URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("primuse-stream-\(song.id)")
-
-        // 启动 streaming 之前先按预计大小腾位置 —— Range streaming 路径以前
-        // 完全没接 LRU, 缓存可以无限胀。这里做最低限度的 evict (只在持久化
-        // 模式下), 让 2GB 上限对 NAS 也生效。注意是异步, 不阻塞首播 ——
-        // 真正写满前不一定能 evict 完, 但能保证 LRU 不再被绕过。
+        guard song.fileSize > 0,
+              await sourceScopeIsCurrent(
+                sourceID: source.id,
+                expectedScope: expectedScope
+              ),
+              CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: song.sourceID,
+                ticket: streamEpoch
+              ) else { return nil }
+        // Reserve both physical and configured-cache capacity before writing
+        // a persistent sparse file. A temporary sparse file still needs a
+        // physical-only reservation because it shares the same data volume.
         let cacheRelativePath: String?
-        if cacheEnabled {
+        var physicalMode: PlaybackAudioCacheReservationMode = .temporaryPhysical
+        if persistentCacheAllowed {
+            let retained = await retainAudioCacheLeaseForPlayback(
+                song,
+                reserveBytes: song.fileSize,
+                mode: .persistentCache
+            )
+            if !retained {
+                persistentCacheAllowed = false
+            }
+        }
+        if !persistentCacheAllowed {
+            physicalMode = playbackAudioCacheLeases[song.id]?.mode == .canonicalPhysical
+                || (playbackAudioCacheLeases[song.id]?.mode.usesCanonicalStorage == true
+                    && !cacheEnabled)
+                ? .canonicalPhysical
+                : .temporaryPhysical
+            guard await retainAudioCacheLeaseForPlayback(
+                song,
+                reserveBytes: song.fileSize,
+                mode: physicalMode
+            ) else {
+                throw OfflineTransferValidationError.insufficientCapacity(
+                    required: song.fileSize,
+                    available: 0
+                )
+            }
+        }
+        let cache: URL
+        if persistentCacheAllowed {
             cacheRelativePath = audioCacheRelativePath(for: song)
-            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
+            cache = cacheURL(for: song)
+        } else if physicalMode.usesCanonicalStorage {
+            // Keep a cache-off rebuild on the original sparse path. The
+            // writer-token replacement below then retires the old canonical
+            // writer before the new one starts, so one physical reservation
+            // never covers both canonical and NSTemporaryDirectory copies.
+            cacheRelativePath = nil
+            cache = cacheURL(for: song)
         } else {
             cacheRelativePath = nil
+            cache = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("primuse-stream-\(song.id)")
         }
 
         let prefetchAhead = RangeStreamingPrefetchPolicy.aheadCount(
@@ -5271,16 +8037,32 @@ final class SourceManager {
             plog("☁️ \(source.type.rawValue) streaming: background chunk prefetch limited to \(prefetchAhead) for '\(song.title)'")
         }
 
-        return CloudPlaybackSource.makeInputSource(
+        guard await sourceScopeIsCurrent(
+            sourceID: source.id,
+            expectedScope: expectedScope
+        ), CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: streamEpoch
+        ) else {
+            releaseAudioCacheLeaseForPlayback(songID: song.id)
+            return nil
+        }
+
+        let inputSource = CloudPlaybackSource.makeInputSource(
             song: song,
             totalLength: song.fileSize,
             connector: conn,
             cacheURL: cache,
-            persistOnComplete: cacheEnabled,
+            streamEpoch: streamEpoch,
+            persistOnComplete: persistentCacheAllowed,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
             allowsTrailingFill: allowsTrailingFill
         )
+        if inputSource == nil {
+            releaseAudioCacheLeaseForPlayback(songID: song.id)
+        }
+        return inputSource
     }
 
     /// Metadata reads use the same runtime STRM resolution as playback. This
@@ -5415,11 +8197,33 @@ final class SourceManager {
     /// 的分段 Range 会挂死,但整文件直接下载很快。
     func resolveDirectDownloadURL(for song: Song) async -> URL? {
         let sources = (try? await sourcesProvider()) ?? []
-        guard let source = sources.first(where: { $0.id == song.sourceID }) else { return nil }
+        guard let source = sources.first(where: {
+            $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted
+        }) else { return nil }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+        guard (try? await ensureCurrentPlaybackResolutionScope(
+            sourceID: source.id,
+            expectedScope: expectedScope,
+            streamEpoch: streamEpoch
+        )) != nil else { return nil }
         let conn = connector(for: source)
         if let oneDrive = conn as? OneDriveSource {
-            try? await oneDrive.connect()
-            return try? await oneDrive.publicDownloadURL(path: song.filePath)
+            guard (try? await oneDrive.connect()) != nil,
+                  (try? await ensureCurrentPlaybackResolutionScope(
+                      sourceID: source.id,
+                      expectedScope: expectedScope,
+                      streamEpoch: streamEpoch
+                  )) != nil,
+                  let url = try? await oneDrive.publicDownloadURL(
+                      path: song.filePath
+                  ),
+                  (try? await ensureCurrentPlaybackResolutionScope(
+                      sourceID: source.id,
+                      expectedScope: expectedScope,
+                      streamEpoch: streamEpoch
+                  )) != nil else { return nil }
+            return url
         }
         return nil
     }
@@ -5664,17 +8468,32 @@ final class SourceManager {
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
+        let scopeFingerprint = Self.audioCacheScopeSignature(for: source)
         if let existing = sidecarConnectors[source.id] {
-            if !(existing is SMBSource) {
-                try await existing.connect()
+            if SourceConnectorScopePolicy.canReuse(
+                cachedFingerprint: sidecarConnectorScopeFingerprints[source.id],
+                requestedFingerprint: scopeFingerprint,
+                requiredFingerprint: requiredConnectorScopeFingerprints[source.id],
+                validationPending: connectorScopeValidationPendingSourceIDs.contains(source.id)
+            ) {
+                if !(existing is SMBSource) {
+                    try await existing.connect()
+                }
+                return existing
             }
-            return existing
+            sidecarConnectors[source.id] = nil
+            sidecarConnectorScopeFingerprints[source.id] = nil
+            retireSidecarConnector(existing)
         }
         let conn = connector(for: source, cache: false)
+        guard !(conn is NoAvailableConnectionSourceConnector) else {
+            throw SourceError.connectionFailed(String(localized: "offline_download_failed"))
+        }
         // Retain before the first await. If connect/write fails, the AMSMB2
         // object must not immediately deinitialize its possibly-invalid C
         // context while the failure is unwinding.
         sidecarConnectors[source.id] = conn
+        sidecarConnectorScopeFingerprints[source.id] = scopeFingerprint
         if !(conn is SMBSource) {
             try await conn.connect()
         }
@@ -5726,9 +8545,17 @@ final class SourceManager {
     }
 
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
-        guard ServerFavoriteWritebackPolicy.supports(source.type),
-              let conn = connector(for: source) as? any ServerFavoriteConnector else { return nil }
-        return try await conn.fetchServerFavorites()
+        guard ServerFavoriteWritebackPolicy.supports(source.type) else { return nil }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope),
+              let conn = connector(for: source) as? any ServerFavoriteConnector else {
+            throw CancellationError()
+        }
+        let snapshot = try await conn.fetchServerFavorites()
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        return snapshot
     }
 
     func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot? {
@@ -5743,13 +8570,13 @@ final class SourceManager {
 
     func setServerFavorite(
         for song: Song,
+        source: MusicSource,
         isFavorite: Bool
     ) async throws -> ServerFavoriteSnapshot? {
-        let sources = try await sourcesProvider()
-        guard let source = sources.first(where: {
-            $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted
-        }) else {
-            throw SourceError.fileNotFound("Source not found for favorite update")
+        guard source.id == song.sourceID else { throw CancellationError() }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
         }
         guard ServerFavoriteWritebackPolicy.supports(source.type) else { return nil }
         guard let itemID = ServerFavoriteWritebackPolicy.songID(
@@ -5761,7 +8588,40 @@ final class SourceManager {
         guard let conn = connector(for: source) as? any ServerFavoriteConnector else {
             throw SourceError.connectionFailed("Server favorite connector unavailable")
         }
-        return try await conn.setServerFavorite(itemID: itemID, isFavorite: isFavorite)
+        let snapshot = try await conn.setServerFavorite(itemID: itemID, isFavorite: isFavorite)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        return snapshot
+    }
+
+    private func sourceScopeIsCurrent(
+        sourceID: String,
+        expectedScope: String
+    ) async -> Bool {
+        guard !credentialChangesInProgress.contains(sourceID),
+              !MusicSourceSecurityRevision.hasPendingChange(for: sourceID),
+              let sources = try? await sourcesProvider(),
+              let current = sources.first(where: {
+                  $0.id == sourceID && $0.isEnabled && !$0.isDeleted
+              }) else { return false }
+        return Self.audioCacheScopeSignature(for: current) == expectedScope
+    }
+
+    private func ensureCurrentPlaybackResolutionScope(
+        sourceID: String,
+        expectedScope: String,
+        streamEpoch: UInt64
+    ) async throws {
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: sourceID,
+            ticket: streamEpoch
+        ), await sourceScopeIsCurrent(
+            sourceID: sourceID,
+            expectedScope: expectedScope
+        ) else {
+            throw CancellationError()
+        }
     }
 
     func fetchServerRadioStations(for source: MusicSource) async throws -> ServerRadioStationSnapshot? {
@@ -5950,24 +8810,96 @@ final class SourceManager {
     }
 
     func refreshConnector(for sourceID: String) async {
+        // Ordinary reconnects, source renames and device-trust updates do not
+        // change the byte namespace. The source notification already fences
+        // endpoint/configuration edits through the public scope fingerprint.
+        invalidateConnectorCachesForSourceConfigurationChange([sourceID])
+        await finishConnectorScopeRefresh(for: sourceID)
+    }
+
+    /// Begins a durable two-phase credential transition. The pending revision
+    /// fences scans and connectors immediately, but cache reconciliation is
+    /// deliberately not scheduled until the credential write commits. A
+    /// normal persistence failure can therefore abort without deleting trusted
+    /// offline bytes; a crash leaves the durable pending revision fail-closed.
+    func credentialsWillChange(for sourceID: String) throws {
+        guard !credentialChangesInProgress.contains(sourceID) else {
+            throw POSIXError(.EBUSY)
+        }
+        try MusicSourceSecurityRevision.prepareChange(for: sourceID)
+        credentialChangesInProgress.insert(sourceID)
+        invalidateConnectorCachesForSourceConfigurationChange(
+            [sourceID],
+            scheduleValidation: false
+        )
+        let generation = (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) &+ 1
+        audioCacheScopeGenerationBySourceID[sourceID] = generation
+        validatedAudioCacheSourceIDs.remove(sourceID)
+        blockedAudioCacheSourceIDs.insert(sourceID)
+        cancelAudioCacheWorkForScopeChange(sourceID: sourceID)
+        NotificationCenter.default.post(
+            name: .primuseSourceSecurityScopeWillChange,
+            object: nil,
+            userInfo: ["sourceID": sourceID]
+        )
+    }
+
+    /// Completes a prepared transition after the new credential is durable.
+    /// The effective fingerprint is unchanged by the promotion from pending to
+    /// committed, and only now may reconciliation purge the previous scope.
+    func credentialsDidChange(for sourceID: String) throws {
+        guard credentialChangesInProgress.contains(sourceID) else {
+            throw POSIXError(.EINVAL)
+        }
+        try MusicSourceSecurityRevision.commitChange(for: sourceID)
+        credentialChangesInProgress.remove(sourceID)
+        audioCacheSourceConfigurationsDidChange([sourceID])
+    }
+
+    /// The storage API reported failure but cannot prove whether its target
+    /// value was already made durable. Keep the pending revision and every
+    /// source gate closed, while releasing only the in-process attempt lock so
+    /// a later explicit retry can allocate a strictly newer revision.
+    func credentialsChangeOutcomeUncertain(for sourceID: String) {
+        credentialChangesInProgress.remove(sourceID)
+    }
+
+    /// Cancels a prepared transition when credential persistence did not
+    /// mutate storage. Revalidation returns to the previous fingerprint and
+    /// preserves its cache instead of treating the failed attempt as rotation.
+    func credentialsDidNotChange(for sourceID: String) throws {
+        guard credentialChangesInProgress.contains(sourceID) else {
+            throw POSIXError(.EINVAL)
+        }
+        try MusicSourceSecurityRevision.abortChange(for: sourceID)
+        credentialChangesInProgress.remove(sourceID)
+        audioCacheSourceConfigurationsDidChange([sourceID])
+    }
+
+    private func finishConnectorScopeRefresh(for sourceID: String) async {
+        guard !credentialChangesInProgress.contains(sourceID),
+              !MusicSourceSecurityRevision.hasPendingChange(for: sourceID) else {
+            return
+        }
+        let generation = connectorScopeValidationGenerationBySourceID[sourceID]
         await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
-        activeConnectionRoutes.removeValue(forKey: sourceID)
-        lastSuccessfulConnectionRoutes.removeValue(forKey: sourceID)
-        unavailableConnectors.removeValue(forKey: sourceID)
-        if let connector = connectors.removeValue(forKey: sourceID) {
-            await connector.disconnect()
+        guard connectorScopeValidationGenerationBySourceID[sourceID] == generation,
+              let sources = try? await sourcesProvider(),
+              connectorScopeValidationGenerationBySourceID[sourceID] == generation,
+              let source = sources.first(where: { $0.id == sourceID && !$0.isDeleted }) else {
+            return
         }
-        if let sidecar = sidecarConnectors.removeValue(forKey: sourceID) {
-            if sidecar is SMBSource {
-                retiredSMBSidecarConnectors.append(sidecar)
-            } else {
-                await sidecar.disconnect()
-            }
-        }
+        requiredConnectorScopeFingerprints[sourceID] = Self.audioCacheScopeSignature(for: source)
+        connectorSourceModifiedAtByID[sourceID] = source.modifiedAt
+        connectorScopeValidationPendingSourceIDs.remove(sourceID)
     }
 
     func removeConnector(for sourceID: String) async {
-        await refreshConnector(for: sourceID)
+        // Cancelling a browsing session retires runtime state but does not
+        // assert that credentials changed, so it must not advance the durable
+        // security epoch or invalidate otherwise trusted offline bytes.
+        invalidateConnectorCachesForSourceConfigurationChange([sourceID])
+        await finishConnectorScopeRefresh(for: sourceID)
     }
 
     func disconnectAll() async {
@@ -5975,6 +8907,7 @@ final class SourceManager {
             await connector.disconnect()
         }
         connectors.removeAll()
+        connectorScopeFingerprints.removeAll()
         unavailableConnectors.removeAll()
 
         for (_, connector) in sidecarConnectors {
@@ -5988,6 +8921,11 @@ final class SourceManager {
             }
         }
         sidecarConnectors.removeAll()
+        sidecarConnectorScopeFingerprints.removeAll()
+        requiredConnectorScopeFingerprints.removeAll()
+        connectorSourceModifiedAtByID.removeAll()
+        connectorScopeValidationPendingSourceIDs.removeAll()
+        connectorScopeValidationGenerationBySourceID.removeAll()
         activeConnectionRoutes.removeAll()
         lastSuccessfulConnectionRoutes.removeAll()
     }
@@ -6104,6 +9042,12 @@ private extension SourceManager {
 }
 
 extension Notification.Name {
+    /// A durable credential transition has fenced the previous source scope.
+    /// userInfo: ["sourceID": String]
+    static let primuseSourceSecurityScopeWillChange = Notification.Name(
+        "primuse.sourceSecurityScopeWillChange"
+    )
+
     /// 一个音乐源遇到需要用户更新凭据的认证失败。
     /// userInfo: ["sourceID": String, "message": String]
     static let primuseSourceAuthFailed = Notification.Name("primuse.sourceAuthFailed")

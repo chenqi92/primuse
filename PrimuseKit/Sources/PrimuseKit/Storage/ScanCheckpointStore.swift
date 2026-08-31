@@ -45,6 +45,10 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     /// become authoritative for deletion, but the remaining queue can resume.
     public var baiduSnapshotState: BaiduSnapshotResumeState?
     public var baiduTelemetry: SourceSyncTelemetry?
+    /// Uncommitted, authoritative-page progress for a Subsonic search3
+    /// catalogue. `songs` contains only the staged candidate rows and is never
+    /// published to MusicLibrary until this state reaches the terminal page.
+    public var subsonicCatalogState: SubsonicCatalogResumeState?
     /// Automatic lifecycle resume failures use a durable backoff. Explicit
     /// user scans bypass this timestamp, while background transitions avoid
     /// retrying the same unavailable source in a tight loop.
@@ -66,6 +70,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         baselineCursors: [String: String]? = nil,
         baiduSnapshotState: BaiduSnapshotResumeState? = nil,
         baiduTelemetry: SourceSyncTelemetry? = nil,
+        subsonicCatalogState: SubsonicCatalogResumeState? = nil,
         automaticResumeFailureCount: Int = 0,
         automaticResumeAfter: Date? = nil
     ) {
@@ -83,6 +88,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         self.baselineCursors = baselineCursors
         self.baiduSnapshotState = baiduSnapshotState
         self.baiduTelemetry = baiduTelemetry
+        self.subsonicCatalogState = subsonicCatalogState
         self.automaticResumeFailureCount = automaticResumeFailureCount
         self.automaticResumeAfter = automaticResumeAfter
     }
@@ -135,6 +141,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         promoted.intent = .fullScan
         promoted.baiduSnapshotState = nil
         promoted.baiduTelemetry = nil
+        promoted.subsonicCatalogState = nil
         promoted.updatedAt = date
         return promoted
     }
@@ -171,6 +178,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         case baselineCursors
         case baiduSnapshotState
         case baiduTelemetry
+        case subsonicCatalogState
         case automaticResumeFailureCount
         case automaticResumeAfter
     }
@@ -213,6 +221,10 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         baiduTelemetry = try container.decodeIfPresent(
             SourceSyncTelemetry.self,
             forKey: .baiduTelemetry
+        )
+        subsonicCatalogState = try container.decodeIfPresent(
+            SubsonicCatalogResumeState.self,
+            forKey: .subsonicCatalogState
         )
         automaticResumeFailureCount = try container.decodeIfPresent(
             Int.self,
@@ -463,5 +475,124 @@ public actor ScanCheckpointFileStore {
             recovered[sourceID] = entry
         }
         return recovered
+    }
+}
+
+public struct SourceSyncStateWriteReceipt: Sendable, Equatable {
+    public let sourceID: String
+    public let mutationEpoch: UInt64
+    public let sourceRevision: UInt64
+
+    public init(sourceID: String, mutationEpoch: UInt64, sourceRevision: UInt64) {
+        self.sourceID = sourceID
+        self.mutationEpoch = mutationEpoch
+        self.sourceRevision = sourceRevision
+    }
+}
+
+/// Serializes per-source cursor/index mutations into one atomic snapshot.
+/// Each caller contributes only its source row, so concurrent scan completions
+/// cannot replace another source's freshly committed state with an older map.
+public actor SourceSyncStateFileStore {
+    public typealias AtomicWriter = @Sendable (Data, URL) throws -> Void
+
+    private let url: URL
+    private let atomicWriter: AtomicWriter
+    private var states: [String: SourceSyncState]
+    private var mutationEpochs: [String: UInt64] = [:]
+    private var sourceRevisions: [String: UInt64] = [:]
+
+    public init(
+        url: URL,
+        initialStates: [String: SourceSyncState] = [:],
+        atomicWriter: @escaping AtomicWriter = { data, url in
+            try data.write(to: url, options: .atomic)
+        }
+    ) {
+        self.url = url
+        self.states = initialStates
+        self.atomicWriter = atomicWriter
+    }
+
+    /// An epoch is advanced synchronously by the source-change observer. A
+    /// later-arriving write from the previous credential/configuration scope
+    /// is rejected even if its network task suspended before cancellation.
+    public func upsert(
+        _ state: SourceSyncState,
+        expectedMutationEpoch: UInt64
+    ) throws -> SourceSyncStateWriteReceipt? {
+        let sourceID = state.sourceID
+        let currentEpoch = mutationEpochs[sourceID, default: 0]
+        guard expectedMutationEpoch >= currentEpoch else { return nil }
+
+        var candidate = states
+        if expectedMutationEpoch > currentEpoch {
+            candidate[sourceID] = nil
+        }
+        candidate[sourceID] = state
+        let revision = sourceRevisions[sourceID, default: 0] &+ 1
+        try write(candidate)
+        states = candidate
+        mutationEpochs[sourceID] = expectedMutationEpoch
+        sourceRevisions[sourceID] = revision
+        return SourceSyncStateWriteReceipt(
+            sourceID: sourceID,
+            mutationEpoch: expectedMutationEpoch,
+            sourceRevision: revision
+        )
+    }
+
+    /// Removes stale cursor/topology state for a persisted source edit. If a
+    /// new-scope write reaches the actor first, the equal delayed invalidation
+    /// is a no-op and cannot erase that newer state.
+    public func invalidate(
+        sourceID: String,
+        mutationEpoch: UInt64
+    ) throws -> SourceSyncStateWriteReceipt? {
+        try advanceMutationEpoch(
+            sourceID: sourceID,
+            mutationEpoch: mutationEpoch,
+            discardingState: true
+        )
+    }
+
+    /// A cancelled scan advances the write fence without discarding the last
+    /// committed cursor. This prevents its suspended write from arriving after
+    /// a replacement generation while retaining safe resume state.
+    public func advanceMutationEpoch(
+        sourceID: String,
+        mutationEpoch: UInt64,
+        discardingState: Bool = false
+    ) throws -> SourceSyncStateWriteReceipt? {
+        let currentEpoch = mutationEpochs[sourceID, default: 0]
+        guard mutationEpoch > currentEpoch else { return nil }
+
+        var candidate = states
+        if discardingState {
+            candidate[sourceID] = nil
+        }
+        let revision = sourceRevisions[sourceID, default: 0] &+ 1
+        if discardingState {
+            try write(candidate)
+        }
+        states = candidate
+        mutationEpochs[sourceID] = mutationEpoch
+        sourceRevisions[sourceID] = revision
+        return SourceSyncStateWriteReceipt(
+            sourceID: sourceID,
+            mutationEpoch: mutationEpoch,
+            sourceRevision: revision
+        )
+    }
+
+    public func snapshot() -> [String: SourceSyncState] {
+        states
+    }
+
+    private func write(_ states: [String: SourceSyncState]) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try atomicWriter(try encoder.encode(states), url)
     }
 }

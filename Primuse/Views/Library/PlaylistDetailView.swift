@@ -46,6 +46,20 @@ struct PlaylistDetailView: View {
         library.songs(forPlaylist: playlist.id)
     }
 
+    private var supportsAlwaysDownload: Bool {
+        if songs.isEmpty { return true }
+        let sourceTypesByID = Dictionary(
+            sourcesStore.sources.map { ($0.id, $0.type) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return songs.contains { song in
+            guard AutomaticOfflineSongPolicy.supports(song) else { return false }
+            return sourceTypesByID[song.sourceID].map(
+                AutomaticOfflineDownloadPolicy.supportsSourceType
+            ) == true
+        }
+    }
+
     /// 空态占位图标 ── Liked 用 heart, 其它歌单用列表图标。
     private var coverPlaceholderIcon: String {
         playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list"
@@ -187,8 +201,10 @@ struct PlaylistDetailView: View {
                 }
                 .padding(.horizontal)
 
-                alwaysDownloadControl
-                    .padding(.horizontal)
+                if supportsAlwaysDownload {
+                    alwaysDownloadControl
+                        .padding(.horizontal)
+                }
 
                 // Songs
                 LazyVStack(spacing: 0) {
@@ -502,7 +518,9 @@ struct PlaylistDetailView: View {
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
-                    alwaysDownloadControl
+                    if supportsAlwaysDownload {
+                        alwaysDownloadControl
+                    }
 
                     if isCurrentPlaylistScraping {
                         batchScrapeProgressCard

@@ -106,6 +106,7 @@ enum CloudPlaybackSource {
         totalLength: Int64,
         connector: any MusicSourceConnector,
         cacheURL: URL,
+        streamEpoch: UInt64,
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = Self.prefetchAhead,
@@ -123,9 +124,11 @@ enum CloudPlaybackSource {
 
         return makeInputSource(
             label: song.title,
+            sourceID: song.sourceID,
             sourceURL: makeSourceURL(scheme: "primuse-cloud", song: song),
             totalLength: totalLength,
             cacheURL: cacheURL,
+            streamEpoch: streamEpoch,
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
@@ -143,6 +146,7 @@ enum CloudPlaybackSource {
         url: URL,
         totalLength: Int64,
         cacheURL: URL,
+        streamEpoch: UInt64,
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = Self.prefetchAhead
@@ -157,9 +161,11 @@ enum CloudPlaybackSource {
 
         return makeInputSource(
             label: song.title,
+            sourceID: song.sourceID,
             sourceURL: makeSourceURL(scheme: "primuse-http", song: song),
             totalLength: totalLength,
             cacheURL: cacheURL,
+            streamEpoch: streamEpoch,
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
@@ -170,15 +176,20 @@ enum CloudPlaybackSource {
 
     private static func makeInputSource(
         label: String,
+        sourceID: String,
         sourceURL: URL?,
         totalLength: Int64,
         cacheURL: URL,
+        streamEpoch: UInt64,
         persistOnComplete: Bool,
         cacheRelativePath: String?,
         prefetchAhead: Int,
         allowsTrailingFill: Bool,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     ) -> InputSource? {
+        guard isCurrentStreamEpoch(sourceID: sourceID, epoch: streamEpoch) else {
+            return nil
+        }
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
         let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
 
@@ -189,49 +200,82 @@ enum CloudPlaybackSource {
         // session survive the rebuild — otherwise the else-branch below would
         // wipe the .partial and force a re-download from byte 0. Close the old
         // State first so two States never write the same file concurrently.
-        var initialRanges: [Range<Int64>] = []
-        var handledByActiveState = false
-        if let priorState = lookupActiveState(key: partialURL.path) {
-            unregisterActiveState(key: partialURL.path)
-            let inheritedRanges = priorState.closeForRebuild()
-            // Validate against the current file: the prior State only ever
-            // wrote into `partialURL` (its rename to finalURL would have
-            // unregistered + switched activeURL, so a renamed session is never
-            // found here). Clamp to totalLength to stay defensive.
-            let trusted = inheritedRanges.filter { $0.lowerBound >= 0 && $0.upperBound <= totalLength }
-            if FileManager.default.fileExists(atPath: partialURL.path), !trusted.isEmpty {
-                initialRanges = trusted
-                try? FileManager.default.removeItem(at: markerURL)
-                handledByActiveState = true
+        // Claim and replace the writer atomically before inspecting, deleting,
+        // or recreating the sparse file. Initial path mutations below run under
+        // the same ownership lock used by writes, so concurrent rebuilds have a
+        // single linear order and a stale initializer cannot delete a newer
+        // owner's file.
+        guard let ownership = replacePathOwnerAndTakeState(
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: partialURL.path
+        ) else { return nil }
+        let pathWriterToken = ownership.writerToken
+        var ownershipTransferredToState = false
+        defer {
+            if !ownershipTransferredToState {
+                releasePathOwnership(
+                    partialPath: partialURL.path,
+                    writerToken: pathWriterToken
+                )
             }
         }
 
-        // Only trust .partial bytes when the prewarm marker JSON is valid
-        // and the partial file size is large enough to contain all listed
-        // ranges. Consume the marker so a future session can't pick up
-        // bytes another session may have appended past the prewarm windows.
-        if handledByActiveState {
-            // Reusing live bytes from the prior session — partial already exists.
-        } else if let marker = PrewarmMarker.read(from: markerURL),
-           FileManager.default.fileExists(atPath: partialURL.path),
-           let attrs = try? FileManager.default.attributesOfItem(atPath: partialURL.path),
-           let size = attrs[.size] as? Int64,
-           let maxEnd = marker.swiftRanges.map(\.upperBound).max(),
-           size >= maxEnd,
-           maxEnd <= totalLength {
-            initialRanges = marker.swiftRanges
-            try? FileManager.default.removeItem(at: markerURL)
-        } else {
-            // No marker, invalid JSON, or shape mismatch — start clean.
-            try? FileManager.default.removeItem(at: markerURL)
-            try? FileManager.default.removeItem(at: partialURL)
-            FileManager.default.createFile(atPath: partialURL.path, contents: nil)
-        }
+        let inheritedRanges = ownership.priorState?.closeForRebuild() ?? []
+        guard let initialRanges = withCurrentWriteOwnership(
+            sourceID: sourceID,
+            epoch: streamEpoch,
+            partialPath: partialURL.path,
+            writerToken: pathWriterToken,
+            {
+                var ranges: [Range<Int64>] = []
+                var handledByActiveState = false
+                // Validate against the current file: the prior State only ever
+                // wrote into `partialURL`. Clamp to totalLength defensively.
+                let trusted = inheritedRanges.filter {
+                    $0.lowerBound >= 0 && $0.upperBound <= totalLength
+                }
+                if FileManager.default.fileExists(atPath: partialURL.path),
+                   !trusted.isEmpty {
+                    ranges = trusted
+                    try? FileManager.default.removeItem(at: markerURL)
+                    handledByActiveState = true
+                }
+
+                // Only trust .partial bytes when the prewarm marker JSON is
+                // valid and the sparse file covers all listed ranges.
+                if handledByActiveState {
+                    // Reusing live bytes from the prior session.
+                } else if let marker = PrewarmMarker.read(from: markerURL),
+                          FileManager.default.fileExists(atPath: partialURL.path),
+                          let attrs = try? FileManager.default.attributesOfItem(
+                              atPath: partialURL.path
+                          ),
+                          let size = attrs[.size] as? Int64,
+                          let maxEnd = marker.swiftRanges.map(\.upperBound).max(),
+                          size >= maxEnd,
+                          maxEnd <= totalLength {
+                    ranges = marker.swiftRanges
+                    try? FileManager.default.removeItem(at: markerURL)
+                } else {
+                    try? FileManager.default.removeItem(at: markerURL)
+                    try? FileManager.default.removeItem(at: partialURL)
+                    FileManager.default.createFile(
+                        atPath: partialURL.path,
+                        contents: nil
+                    )
+                }
+                return ranges
+            }
+        ) else { return nil }
 
         plog("☁️ makeInputSource '\(label)' totalLength=\(totalLength) initialRanges=\(initialRanges.map { "[\($0.lowerBound)..\($0.upperBound))" }.joined(separator: ","))")
 
         let state = State(
             label: label,
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            pathWriterToken: pathWriterToken,
             partialURL: partialURL,
             finalURL: cacheURL,
             totalLength: totalLength,
@@ -242,7 +286,11 @@ enum CloudPlaybackSource {
             allowsTrailingFill: allowsTrailingFill,
             connectorFetch: connectorFetch
         )
-        registerActiveState(state, key: partialURL.path)
+        guard registerActiveState(state, key: partialURL.path) else {
+            _ = state.closeForRebuild()
+            return nil
+        }
+        ownershipTransferredToState = true
 
         let block: CloudInputFetchBlock = { offset, length, errorOut in
             return state.serve(offset: offset, length: length, errorOut: errorOut)
@@ -274,23 +322,140 @@ enum CloudPlaybackSource {
     /// decode thread / main thread 同时进入。
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var activeStates: [String: State] = [:]
-
-    private static func registerActiveState(_ state: State, key: String) {
-        registryLock.lock()
-        activeStates[key] = state
-        registryLock.unlock()
+    nonisolated(unsafe) private static var streamEpochsBySourceID: [String: UInt64] = [:]
+    nonisolated(unsafe) private static var pathWriterTokens: [String: UUID] = [:]
+    private struct FinalizingTaskRecord {
+        let sourceID: String
+        let streamEpoch: UInt64
+        let partialPath: String
+        let writerToken: UUID
+        let task: Task<Void, Never>
     }
+    nonisolated(unsafe) private static var finalizingTasks: [UUID: FinalizingTaskRecord] = [:]
 
-    private static func lookupActiveState(key: String) -> State? {
+    private static func currentStreamEpoch(sourceID: String) -> UInt64 {
         registryLock.lock()
         defer { registryLock.unlock() }
-        return activeStates[key]
+        return streamEpochsBySourceID[sourceID] ?? 0
     }
 
-    private static func unregisterActiveState(key: String) {
+    /// Capture before resolving credentials or a signed streaming URL. Passing
+    /// the ticket into the eventual InputSource prevents an old asynchronous
+    /// setup from registering itself in a newer credential epoch.
+    static func streamEpochTicket(sourceID: String) -> UInt64 {
+        currentStreamEpoch(sourceID: sourceID)
+    }
+
+    static func isStreamEpochTicketCurrent(
+        sourceID: String,
+        ticket: UInt64
+    ) -> Bool {
+        isCurrentStreamEpoch(sourceID: sourceID, epoch: ticket)
+    }
+
+    private static func registerActiveState(_ state: State, key: String) -> Bool {
         registryLock.lock()
-        activeStates[key] = nil
+        guard (streamEpochsBySourceID[state.sourceID] ?? 0) == state.streamEpoch,
+              pathWriterTokens[key] == state.pathWriterToken else {
+            registryLock.unlock()
+            return false
+        }
+        activeStates[key] = state
         registryLock.unlock()
+        return true
+    }
+
+    private static func takeActiveState(key: String) -> State? {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return activeStates.removeValue(forKey: key)
+    }
+
+    private struct PathOwnershipClaim {
+        let writerToken: UUID
+        let priorState: State?
+    }
+
+    private static func replacePathOwnerAndTakeState(
+        sourceID: String,
+        streamEpoch: UInt64,
+        partialPath: String
+    ) -> PathOwnershipClaim? {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        guard (streamEpochsBySourceID[sourceID] ?? 0) == streamEpoch else {
+            return nil
+        }
+        let token = UUID()
+        let priorState = activeStates.removeValue(forKey: partialPath)
+        pathWriterTokens[partialPath] = token
+        return PathOwnershipClaim(
+            writerToken: token,
+            priorState: priorState
+        )
+    }
+
+    private static func releasePathOwnership(
+        partialPath: String,
+        writerToken: UUID
+    ) {
+        registryLock.lock()
+        if pathWriterTokens[partialPath] == writerToken {
+            pathWriterTokens[partialPath] = nil
+        }
+        registryLock.unlock()
+    }
+
+    fileprivate static func withCurrentWriteOwnership<T>(
+        sourceID: String,
+        epoch: UInt64,
+        partialPath: String,
+        writerToken: UUID,
+        _ operation: () throws -> T
+    ) rethrows -> T? {
+        registryLock.lock()
+        guard (streamEpochsBySourceID[sourceID] ?? 0) == epoch,
+              pathWriterTokens[partialPath] == writerToken else {
+            registryLock.unlock()
+            return nil
+        }
+        defer { registryLock.unlock() }
+        return try operation()
+    }
+
+    private static func finishTrackedTrailingFill(id: UUID) {
+        registryLock.lock()
+        finalizingTasks[id] = nil
+        registryLock.unlock()
+    }
+
+    fileprivate static func makeTrackedTrailingFillTask(
+        sourceID: String,
+        streamEpoch: UInt64,
+        partialPath: String,
+        writerToken: UUID,
+        operation: @escaping @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let id = UUID()
+        let startGate = StreamingTaskStartGate()
+        let task = Task {
+            startGate.wait()
+            if !Task.isCancelled {
+                await operation()
+            }
+            finishTrackedTrailingFill(id: id)
+        }
+        registryLock.lock()
+        finalizingTasks[id] = FinalizingTaskRecord(
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: partialPath,
+            writerToken: writerToken,
+            task: task
+        )
+        registryLock.unlock()
+        startGate.open()
+        return task
     }
 
     /// AudioPlayerService 在切歌 / 停止时调, 主动结束对应的 streaming session:
@@ -300,20 +465,116 @@ enum CloudPlaybackSource {
     ///   后续清理
     /// 核心目的: 不再依赖 writeToCache 被反复触发, 让会话结束后 .partial
     /// 能确定性地走完该走的路径。
-    static func finalizeSession(partialPath: String) {
-        guard let state = lookupActiveState(key: partialPath) else { return }
-        unregisterActiveState(key: partialPath)
-        state.finalizeSession()
+    @discardableResult
+    static func finalizeSession(partialPath: String) -> Task<Void, Never>? {
+        guard let state = takeActiveState(key: partialPath) else { return nil }
+        guard let fill = state.finalizeSession() else {
+            releasePathOwnership(
+                partialPath: partialPath,
+                writerToken: state.pathWriterToken
+            )
+            return nil
+        }
+        return Task {
+            await withTaskCancellationHandler {
+                await fill.value
+            } onCancel: {
+                fill.cancel()
+            }
+            releasePathOwnership(
+                partialPath: partialPath,
+                writerToken: state.pathWriterToken
+            )
+        }
     }
 
-    /// Stop a range-streaming session before a foreground full-file
-    /// materialization (for example, a large seek). Unlike `finalizeSession`,
-    /// this deliberately does not launch a trailing-range fill: the full-file
-    /// downloader is about to become the sole writer for this song.
-    static func cancelSessionForMaterialization(partialPath: String) {
-        guard let state = lookupActiveState(key: partialPath) else { return }
-        unregisterActiveState(key: partialPath)
-        _ = state.closeForRebuild()
+    private struct MaterializationRetirement {
+        let state: State?
+        let fills: [Task<Void, Never>]
+    }
+
+    private static func takeMaterializationRetirement(
+        sourceID: String,
+        streamEpoch: UInt64,
+        partialPath: String
+    ) -> MaterializationRetirement? {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        guard (streamEpochsBySourceID[sourceID] ?? 0) == streamEpoch else {
+            return nil
+        }
+        let state = activeStates[partialPath]
+        guard state == nil
+                || (state?.sourceID == sourceID && state?.streamEpoch == streamEpoch) else {
+            return nil
+        }
+        let allPathFills = finalizingTasks.filter {
+            $0.value.partialPath == partialPath
+        }
+        guard allPathFills.values.allSatisfy({
+            $0.sourceID == sourceID && $0.streamEpoch == streamEpoch
+        }) else { return nil }
+        let matchingFills = allPathFills
+        if let token = pathWriterTokens[partialPath] {
+            let stateOwnsToken = state?.pathWriterToken == token
+            let fillOwnsToken = matchingFills.values.contains {
+                $0.writerToken == token
+            }
+            // A token with no registered owner is an initializer currently
+            // claiming the path. Do not delete underneath that newer owner.
+            guard stateOwnsToken || fillOwnsToken else { return nil }
+        }
+        activeStates[partialPath] = nil
+        for id in matchingFills.keys {
+            finalizingTasks[id] = nil
+        }
+        if let token = pathWriterTokens[partialPath] {
+            let stateOwnsToken = state?.pathWriterToken == token
+            let fillOwnsToken = matchingFills.values.contains {
+                $0.writerToken == token
+            }
+            if stateOwnsToken || fillOwnsToken {
+                pathWriterTokens[partialPath] = nil
+            }
+        }
+        // Path ownership has been revoked while holding the same lock every
+        // writer must pass. Delete before reopening the registry so a newer
+        // epoch cannot claim the path and then lose its file to this caller.
+        try? FileManager.default.removeItem(atPath: partialPath)
+        try? FileManager.default.removeItem(
+            atPath: partialPath + prewarmMarkerSuffix
+        )
+        return MaterializationRetirement(
+            state: state,
+            fills: matchingFills.values.map(\.task)
+        )
+    }
+
+    /// Retire every writer for a sparse path before a foreground full-file
+    /// materialization. The writer token is revoked before cancellation and
+    /// all connector tasks are awaited, so even cancellation-insensitive
+    /// transports cannot recreate the partial after the caller deletes it.
+    static func retireSessionForMaterialization(
+        sourceID: String,
+        streamEpoch: UInt64,
+        partialPath: String
+    ) async -> Bool {
+        guard let retirement = takeMaterializationRetirement(
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: partialPath
+        ) else { return false }
+        if let state = retirement.state {
+            _ = state.closeForRebuild()
+        }
+        retirement.fills.forEach { $0.cancel() }
+        for fill in retirement.fills {
+            await fill.value
+        }
+        return isStreamEpochTicketCurrent(
+            sourceID: sourceID,
+            ticket: streamEpoch
+        )
     }
 
     /// Stops live range streams from being promoted into persistent cache
@@ -322,8 +583,59 @@ enum CloudPlaybackSource {
     static func disablePersistenceForActiveSessions() {
         registryLock.lock()
         let states = Array(activeStates.values)
+        let fills = finalizingTasks.values.map(\.task)
+        finalizingTasks.removeAll()
         registryLock.unlock()
         states.forEach { $0.disablePersistence() }
+        fills.forEach { $0.cancel() }
+    }
+
+    /// Retires every decoder session that still owns a connector from the
+    /// previous credential or endpoint scope. Removing that connector from
+    /// SourceManager alone is insufficient because the InputSource closure
+    /// retains it for the decoder's lifetime.
+    static func cancelSessions(sourceID: String) {
+        registryLock.lock()
+        streamEpochsBySourceID[sourceID, default: 0] &+= 1
+        let matching = activeStates.filter { $0.value.sourceID == sourceID }
+        for key in matching.keys {
+            activeStates[key] = nil
+        }
+        let matchingFills = finalizingTasks.filter { $0.value.sourceID == sourceID }
+        for id in matchingFills.keys {
+            finalizingTasks[id] = nil
+        }
+        for state in matching.values
+        where pathWriterTokens[state.partialURL.path] == state.pathWriterToken {
+            pathWriterTokens[state.partialURL.path] = nil
+        }
+        for record in matchingFills.values
+        where pathWriterTokens[record.partialPath] == record.writerToken {
+            pathWriterTokens[record.partialPath] = nil
+        }
+        registryLock.unlock()
+        matching.values.forEach { _ = $0.closeForRebuild() }
+        matchingFills.values.forEach { $0.task.cancel() }
+    }
+
+    static func withCurrentStreamEpoch<T>(
+        sourceID: String,
+        epoch: UInt64,
+        _ operation: () throws -> T
+    ) rethrows -> T? {
+        registryLock.lock()
+        guard (streamEpochsBySourceID[sourceID] ?? 0) == epoch else {
+            registryLock.unlock()
+            return nil
+        }
+        defer { registryLock.unlock() }
+        return try operation()
+    }
+
+    fileprivate static func isCurrentStreamEpoch(sourceID: String, epoch: UInt64) -> Bool {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return (streamEpochsBySourceID[sourceID] ?? 0) == epoch
     }
 
     /// 当前所有活跃 streaming session 的 .partial 绝对路径集合。
@@ -332,7 +644,19 @@ enum CloudPlaybackSource {
     static func activeSessionPaths() -> Set<String> {
         registryLock.lock()
         defer { registryLock.unlock() }
-        return Set(activeStates.keys)
+        return Set(activeStates.keys).union(finalizingTasks.values.map(\.partialPath))
+    }
+}
+
+private final class StreamingTaskStartGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func wait() {
+        semaphore.wait()
+    }
+
+    func open() {
+        semaphore.signal()
     }
 }
 
@@ -426,7 +750,10 @@ private final class HTTPRangeFetcher: @unchecked Sendable {
 /// capture; lives as long as the InputSource itself.
 private final class State: @unchecked Sendable {
     private let label: String
-    private let partialURL: URL
+    fileprivate let sourceID: String
+    fileprivate let streamEpoch: UInt64
+    fileprivate let pathWriterToken: UUID
+    fileprivate let partialURL: URL
     private let finalURL: URL
     /// File path currently used for read+write. Starts as `partialURL`,
     /// switches to `finalURL` after the atomic rename triggered when
@@ -459,6 +786,7 @@ private final class State: @unchecked Sendable {
     /// us from racing two prefetches against the same range when SFB
     /// asks repeatedly while a prefetch is still in flight.
     private var prefetchInFlight: Set<Int64> = []
+    private var prefetchTasks: [Int64: Task<Void, Never>] = [:]
     /// Set after a fetch failure (auth-revoked dlink, network down) to
     /// stop the prefetch path from hammering the connector. Without
     /// this, a single 403 spawns dozens of parallel retries in seconds
@@ -509,6 +837,13 @@ private final class State: @unchecked Sendable {
     /// 「补全 trailing 缺口」任务是否已经派出去过。每个 session 只跑一次,
     /// 防止 writeToCache 反复触发 + 多个 in-flight fill 互相打架。
     private var trailingFillScheduled: Bool = false
+    /// Retained until the final missing-range write has either promoted the
+    /// cache file or failed. SourceManager waits for this task before releasing
+    /// the playback path lease and its disk reservation.
+    private var trailingFillTask: Task<Void, Never>?
+    /// A fill that finishes after an ordinary track-finalize may promote the
+    /// closed state. Seek rebuilds and security cancellation leave this false.
+    private var finalizedForPlaybackEnd: Bool = false
 
     /// 自动补齐缺口的阈值 — 缺口比这个小才主动拉。50MB 覆盖大部分
     /// 「播完但 trailing 没读到」的真实场景, 同时避免给那些 user 实际
@@ -517,6 +852,9 @@ private final class State: @unchecked Sendable {
 
     init(
         label: String,
+        sourceID: String,
+        streamEpoch: UInt64,
+        pathWriterToken: UUID,
         partialURL: URL,
         finalURL: URL,
         totalLength: Int64,
@@ -528,6 +866,9 @@ private final class State: @unchecked Sendable {
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     ) {
         self.label = label
+        self.sourceID = sourceID
+        self.streamEpoch = streamEpoch
+        self.pathWriterToken = pathWriterToken
         self.partialURL = partialURL
         self.finalURL = finalURL
         self.activeURL = partialURL
@@ -716,6 +1057,24 @@ private final class State: @unchecked Sendable {
                 return nil
             }
 
+            // A credential/source transition may close the session while an
+            // underlying transport ignores Task cancellation. Discard any
+            // late success before it can re-enable prefetching, write bytes,
+            // or return old-scope content to the decoder.
+            guard !isClosed(),
+                  CloudPlaybackSource.isCurrentStreamEpoch(
+                      sourceID: sourceID,
+                      epoch: streamEpoch
+                  ) else {
+                fetchTask.cancel()
+                errorOut?.pointee = NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: Int(ECANCELED),
+                    userInfo: [NSLocalizedDescriptionKey: "Cloud stream session closed"]
+                )
+                return nil
+            }
+
             if let error = result.error {
                 if error is CancellationError {
                     lock.lock(); fetchDisabled = true; lock.unlock()
@@ -791,7 +1150,11 @@ private final class State: @unchecked Sendable {
         // round-trip. Without this, every cache miss every ~6s of audio
         // (256KB at typical mp3 bitrate) sat synchronously waiting on a
         // Baidu Range request while the audio queue drained.
-        if let served, !served.isEmpty {
+        guard CloudPlaybackSource.isCurrentStreamEpoch(
+            sourceID: sourceID,
+            epoch: streamEpoch
+        ) else { return nil }
+        if let served, !served.isEmpty, !isClosed() {
             let nextStart = offset + Int64(served.count)
             prefetchIfNeeded(startOffset: nextStart)
         }
@@ -828,15 +1191,19 @@ private final class State: @unchecked Sendable {
 
             guard tryClaimPrefetch(offset: nextChunkStart, endOffset: endOffset) else { continue }
 
-            Task { [weak self, connectorFetch] in
+            let startGate = StreamingTaskStartGate()
+            let task = Task { [weak self, connectorFetch] in
+                startGate.wait()
                 guard let self else { return }
                 defer { self.releasePrefetch(offset: nextChunkStart) }
+                guard !Task.isCancelled else { return }
                 do {
                     let data = try await connectorFetch(
                         nextChunkStart,
                         want,
                         .background
                     )
+                    guard !Task.isCancelled else { return }
                     guard !data.isEmpty else { return }
                     guard !self.isClosed() else { return }
                     self.writeToCache(offset: nextChunkStart, data: data)
@@ -847,6 +1214,10 @@ private final class State: @unchecked Sendable {
                     self.markFetchDisabled()
                 }
             }
+            if !registerPrefetchTask(task, offset: nextChunkStart) {
+                task.cancel()
+            }
+            startGate.open()
         }
     }
 
@@ -872,7 +1243,22 @@ private final class State: @unchecked Sendable {
     private func releasePrefetch(offset: Int64) {
         lock.lock()
         prefetchInFlight.remove(offset)
+        prefetchTasks[offset] = nil
         lock.unlock()
+    }
+
+    private func registerPrefetchTask(
+        _ task: Task<Void, Never>,
+        offset: Int64
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else {
+            prefetchInFlight.remove(offset)
+            return false
+        }
+        prefetchTasks[offset] = task
+        return true
     }
 
     private func markFetchDisabled() {
@@ -907,7 +1293,10 @@ private final class State: @unchecked Sendable {
         closed = true
         fetchDisabled = true
         let tasks = Array(foregroundFetchTasks.values)
+            + Array(prefetchTasks.values)
         foregroundFetchTasks.removeAll()
+        prefetchTasks.removeAll()
+        prefetchInFlight.removeAll()
         lock.unlock()
         return tasks
     }
@@ -997,6 +1386,25 @@ private final class State: @unchecked Sendable {
     }
 
     private func writeToCache(offset: Int64, data: Data, allowClosedPromotion: Bool = false) {
+        _ = CloudPlaybackSource.withCurrentWriteOwnership(
+            sourceID: sourceID,
+            epoch: streamEpoch,
+            partialPath: partialURL.path,
+            writerToken: pathWriterToken
+        ) {
+            writeToCacheInCurrentEpoch(
+                offset: offset,
+                data: data,
+                allowClosedPromotion: allowClosedPromotion
+            )
+        }
+    }
+
+    private func writeToCacheInCurrentEpoch(
+        offset: Int64,
+        data: Data,
+        allowClosedPromotion: Bool
+    ) {
         lock.lock()
         let url = activeURL
         lock.unlock()
@@ -1022,7 +1430,6 @@ private final class State: @unchecked Sendable {
         // When `persistOnComplete` is off (Audio Cache disabled), skip the
         // rename. `finalizeSession` discards the partial deterministically.
         var renamedRelativePath: String?
-        var fillRequest: (offset: Int64, length: Int64)?
         // A State retired by closeForRebuild() / finalizeSession() (`closed`)
         // no longer owns the .partial — a newer same-session seek State may
         // already be writing it. Never rename or schedule trailing fill from a
@@ -1061,36 +1468,21 @@ private final class State: @unchecked Sendable {
             if cachedRanges.count == 1,
                firstUpper < totalLength,
                (totalLength - firstUpper) < Self.autoFillThreshold {
-                fillRequest = (firstUpper, totalLength - firstUpper)
+                let request = (offset: firstUpper, length: totalLength - firstUpper)
                 trailingFillScheduled = true
+                trailingFillTask = makeTrailingFillTask(request: request)
             } else if cachedRanges.count == 2,
                       cachedRanges[1].upperBound == totalLength,
                       (cachedRanges[1].lowerBound - firstUpper) < Self.autoFillThreshold {
-                fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
+                let request = (
+                    offset: firstUpper,
+                    length: cachedRanges[1].lowerBound - firstUpper
+                )
                 trailingFillScheduled = true
+                trailingFillTask = makeTrailingFillTask(request: request)
             }
         }
         lock.unlock()
-
-        if let req = fillRequest {
-            // background 跑, 不阻塞当前 serve / SFB read。失败也不要紧 ——
-            // 下次播这首歌走 stream 再尝试, 或者被 pruneStalePartialFiles 清掉。
-            Task { [weak self, connectorFetch, label] in
-                guard let self else { return }
-                do {
-                    let data = try await connectorFetch(
-                        req.offset,
-                        req.length,
-                        .background
-                    )
-                    if !data.isEmpty {
-                        self.writeToCache(offset: req.offset, data: data)
-                    }
-                } catch {
-                    plog("⚠️ Cloud stream '\(label)' trailing fill failed: \(error.localizedDescription)")
-                }
-            }
-        }
 
         // 完整下完 + rename 成功后给 LRU 打访问时间戳, 这样后续的
         // evictIfNeeded 才知道这个文件最近被访问过, 不会优先把它淘汰。
@@ -1101,6 +1493,45 @@ private final class State: @unchecked Sendable {
         }
     }
 
+    private func makeTrailingFillTask(
+        request: (offset: Int64, length: Int64)
+    ) -> Task<Void, Never> {
+        let fetch = connectorFetch
+        let stateLabel = label
+        return CloudPlaybackSource.makeTrackedTrailingFillTask(
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: partialURL.path,
+            writerToken: pathWriterToken
+        ) { [weak self, fetch, stateLabel] in
+            guard let self else { return }
+            do {
+                let data = try await fetch(
+                    request.offset,
+                    request.length,
+                    .background
+                )
+                guard !Task.isCancelled else { return }
+                if !data.isEmpty {
+                    self.writeToCache(
+                        offset: request.offset,
+                        data: data,
+                        allowClosedPromotion: self.closedPromotionIsAllowed()
+                    )
+                }
+            } catch {
+                plog("⚠️ Cloud stream '\(stateLabel)' trailing fill failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func closedPromotionIsAllowed() -> Bool {
+        lock.lock()
+        let allowed = finalizedForPlaybackEnd
+        lock.unlock()
+        return allowed
+    }
+
     /// 由 AudioPlayerService 切歌 / 停止时通过 finalizeSession(partialPath:)
     /// 触发, 主动结束这个 session 的 .partial 状态。三种结果:
     /// - 已经是 final: 啥也不做
@@ -1108,11 +1539,14 @@ private final class State: @unchecked Sendable {
     ///   会自动 rename。这里只触发, 不等待。
     /// - 缺口太大 (用户跳过没听到那段): 不动, .partial 留着 LRU / pruneStale
     ///   后续清理。
-    fileprivate func finalizeSession() {
+    fileprivate func finalizeSession() -> Task<Void, Never>? {
         // 不论结果如何, finalize 时机一律输出一次 session summary, 用来对照
         // 本首歌的 fetch / cache / prefetch 表现。emitSessionSummary 内部
         // dedupe, 多次调用只输出一次。
         emitSessionSummary()
+        lock.lock()
+        finalizedForPlaybackEnd = true
+        lock.unlock()
         closeAndCancelForegroundFetches().forEach { $0.cancel() }
         // Audio Cache 关闭时 streaming 文件只作为本次 SFB 解码的 sparse
         // 临时数据。会话结束后立即删除, 不依赖系统稍后回收；也不要
@@ -1122,29 +1556,30 @@ private final class State: @unchecked Sendable {
         lock.unlock()
         guard shouldPersist else {
             discardUnpersistedPartial()
-            return
+            return nil
         }
-        guard allowsTrailingFill else { return }
+        guard allowsTrailingFill else { return nil }
         lock.lock()
         guard persistOnComplete else {
             lock.unlock()
             discardUnpersistedPartial()
-            return
+            return nil
         }
         // 已经 rename 过了, 啥也不做。
         if activeURL == finalURL {
             lock.unlock()
-            return
+            return nil
         }
         // 已经派发过 trailing fill task, 不重复触发。
         if trailingFillScheduled {
+            let task = trailingFillTask
             lock.unlock()
-            return
+            return task
         }
         guard !cachedRanges.isEmpty,
               cachedRanges[0].lowerBound == 0 else {
             lock.unlock()
-            return
+            return nil
         }
         var fillRequest: (offset: Int64, length: Int64)?
         let firstUpper = cachedRanges[0].upperBound
@@ -1159,29 +1594,15 @@ private final class State: @unchecked Sendable {
             fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
             trailingFillScheduled = true
         }
+        if let fillRequest {
+            trailingFillTask = makeTrailingFillTask(request: fillRequest)
+        }
+        let task = trailingFillTask
         lock.unlock()
 
-        guard let req = fillRequest else { return }
+        guard let req = fillRequest else { return task }
         plog("☁️ finalizeSession '\(label)' fill missing range [\(req.offset)..\(req.offset + req.length)) (\(req.length / 1024)KB)")
-        Task { [weak self, connectorFetch, label] in
-            guard let self else { return }
-            do {
-                let data = try await connectorFetch(
-                    req.offset,
-                    req.length,
-                    .background
-                )
-                if !data.isEmpty {
-                    // finalizeSession deliberately closes decoder reads before
-                    // this background fill finishes. This write is still the
-                    // final owner of the partial file and must be allowed to
-                    // promote a now-complete file to the canonical cache path.
-                    self.writeToCache(offset: req.offset, data: data, allowClosedPromotion: true)
-                }
-            } catch {
-                plog("⚠️ Cloud stream '\(label)' finalize fill failed: \(error.localizedDescription)")
-            }
-        }
+        return task
     }
 
     /// The canonical file may already have completed before caching was
@@ -1206,7 +1627,10 @@ private final class State: @unchecked Sendable {
         closeAndCancelForegroundFetches().forEach { $0.cancel() }
         lock.lock()
         let ranges = cachedRanges
+        let trailingFill = trailingFillTask
+        trailingFillTask = nil
         lock.unlock()
+        trailingFill?.cancel()
         return ranges
     }
 

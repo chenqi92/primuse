@@ -88,6 +88,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_s3_cache/\(sourceID)")
+            .appendingPathComponent(MusicSourceSecurityRevision.cacheNamespace(for: sourceID))
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
     }

@@ -22,6 +22,7 @@ enum AddSourceSubmitIntent {
 struct AddSourceView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeService.self) private var theme
+    @Environment(SourceManager.self) private var sourceManager
     let sourceType: MusicSourceType
     var editingSource: MusicSource?
     var prefillDevice: DiscoveredDevice?
@@ -1435,13 +1436,46 @@ struct AddSourceView: View {
                 source: source,
                 secret: password,
                 persistCredential: { sourceID, secret in
-                    if secret.isEmpty {
-                        return KeychainService.deletePassword(for: sourceID)
+                    guard (try? sourceManager.credentialsWillChange(for: sourceID)) != nil else {
+                        return false
                     }
-                    return KeychainService.setPassword(secret, for: sourceID)
+                    let persisted: Bool
+                    if secret.isEmpty {
+                        persisted = KeychainService.deletePassword(for: sourceID)
+                    } else {
+                        persisted = KeychainService.setPassword(secret, for: sourceID)
+                    }
+                    guard persisted else {
+                        // Bool cannot distinguish an unchanged failure from a
+                        // durable target write followed by cleanup failure.
+                        // Keep the prepared scope blocked in either case.
+                        sourceManager.credentialsChangeOutcomeUncertain(for: sourceID)
+                        return false
+                    }
+                    do {
+                        try sourceManager.credentialsDidChange(for: sourceID)
+                        return true
+                    } catch {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: sourceID)
+                        return false
+                    }
                 },
                 removeCredential: { sourceID in
-                    KeychainService.deletePassword(for: sourceID)
+                    // Rollback is itself a credential mutation. If the failed
+                    // write left a prepared transition active, commit that
+                    // transition after deletion instead of trusting old bytes.
+                    _ = try? sourceManager.credentialsWillChange(for: sourceID)
+                    guard KeychainService.deletePassword(for: sourceID) else {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: sourceID)
+                        return false
+                    }
+                    do {
+                        try sourceManager.credentialsDidChange(for: sourceID)
+                        return true
+                    } catch {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: sourceID)
+                        return false
+                    }
                 },
                 persistSource: { source in
                     guard let onValidatedMediaServerSave else {
@@ -1457,9 +1491,26 @@ struct AddSourceView: View {
         }
 
         // Save credentials
+        var preparedCredentialChange = false
+        func prepareCredentialChange() -> Bool {
+            guard !preparedCredentialChange else { return true }
+            do {
+                try sourceManager.credentialsWillChange(for: source.id)
+                preparedCredentialChange = true
+                return true
+            } catch {
+                plog("⚠️ Source credential revision could not be persisted source=\(source.id.prefix(8))… error=\(error.localizedDescription)")
+                showCredentialSaveError = true
+                return false
+            }
+        }
         if sourceType == .drime {
             let tm = CloudTokenManager(sourceID: source.id)
             let token = password.trimmingCharacters(in: .whitespacesAndNewlines)
+            let changesCredential = !token.isEmpty || editingSource == nil
+            if changesCredential {
+                guard prepareCredentialChange() else { return }
+            }
             Task { @MainActor in
                 let persisted: Bool
                 if !token.isEmpty {
@@ -1470,8 +1521,20 @@ struct AddSourceView: View {
                     persisted = true
                 }
                 guard persisted else {
+                    if changesCredential {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                    }
                     showCredentialSaveError = true
                     return
+                }
+                if changesCredential {
+                    do {
+                        try sourceManager.credentialsDidChange(for: source.id)
+                    } catch {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                        showCredentialSaveError = true
+                        return
+                    }
                 }
                 completeSave(source)
             }
@@ -1479,6 +1542,10 @@ struct AddSourceView: View {
         } else if sourceType.isCloudDrive {
             // Store client_id + client_secret via CloudTokenManager
             let tm = CloudTokenManager(sourceID: source.id)
+            let changesCredential = !BuiltInCloudCredentials.hasBuiltIn(for: sourceType)
+            if changesCredential {
+                guard prepareCredentialChange() else { return }
+            }
             Task { @MainActor in
                 let persisted: Bool
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
@@ -1495,8 +1562,20 @@ struct AddSourceView: View {
                     persisted = await tm.deleteAppCredentials()
                 }
                 guard persisted else {
+                    if changesCredential {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                    }
                     showCredentialSaveError = true
                     return
+                }
+                if changesCredential {
+                    do {
+                        try sourceManager.credentialsDidChange(for: source.id)
+                    } catch {
+                        sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                        showCredentialSaveError = true
+                        return
+                    }
                 }
                 completeSave(source)
             }
@@ -1504,13 +1583,21 @@ struct AddSourceView: View {
         } else if authType == .none {
             // 从账号登录切换到访客模式时必须删除旧 Keychain 项；否则连接器仍会
             // 读到旧密码，表面显示“访客”却继续以旧账号认证。
+            if editingSource?.authType != .none {
+                guard prepareCredentialChange() else { return }
+            }
             guard KeychainService.deletePassword(for: source.id) else {
+                if preparedCredentialChange {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                }
                 showCredentialSaveError = true
                 return
             }
         } else if sourceType == .s3 || authType == .password || authType == .apiKey || authType == .cookie || authType == .oauth {
             if !password.isEmpty {
+                guard prepareCredentialChange() else { return }
                 guard KeychainService.setPassword(password, for: source.id) else {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                     showCredentialSaveError = true
                     return
                 }
@@ -1518,7 +1605,9 @@ struct AddSourceView: View {
         } else if authType == .sshKey {
             let trimmedKey = sshKey.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedKey.isEmpty {
+                guard prepareCredentialChange() else { return }
                 guard KeychainService.setPassword(trimmedKey, for: source.id) else {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                     showCredentialSaveError = true
                     return
                 }
@@ -1528,10 +1617,22 @@ struct AddSourceView: View {
         if sourceType == .fnMusic,
            fnMusicConnectionMode == .fnConnect,
            !fnConnectAccessCode.isEmpty {
+            guard prepareCredentialChange() else { return }
             guard KeychainService.setPassword(
                 fnConnectAccessCode,
                 for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
             ) else {
+                sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                showCredentialSaveError = true
+                return
+            }
+        }
+
+        if preparedCredentialChange {
+            do {
+                try sourceManager.credentialsDidChange(for: source.id)
+            } catch {
+                sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                 showCredentialSaveError = true
                 return
             }

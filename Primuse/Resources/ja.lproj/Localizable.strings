@@ -309,6 +309,8 @@
 "playlist_always_download_description" = "Wi-Fi 経由でこのプレイリストをこのデバイスに保存します。新規または変更された曲はデバイスの状態が許すときに自動ダウンロードされ、オフにしても既存のファイルは保持されます。";
 "navidrome_auto_refresh" = "Navidrome を自動更新";
 "navidrome_auto_refresh_description" = "App の起動後に Navidrome のライブラリ状態を確認し、サーバー側に変更がある場合だけローカルカタログを更新します。サーバースキャンは開始しません。";
+"navidrome_server_scan_on_launch" = "起動時にサーバー全体のスキャンを要求";
+"navidrome_server_scan_on_launch_description" = "Primuse の起動時に Navidrome へライブラリ全体のスキャンを要求します。管理者アカウントが必要です。未対応または権限がない場合は、状態確認のみの更新に切り替わります。";
 "welcome_title" = "Primuse へようこそ";
 "welcome_desc" = "音楽ソース（NAS、WebDAV、ローカルファイル）を追加して再生を始めましょう";
 "no_albums" = "アルバムなし";

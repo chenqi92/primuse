@@ -51,6 +51,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_webdav_cache")
             .appendingPathComponent(sourceID)
+            .appendingPathComponent(MusicSourceSecurityRevision.cacheNamespace(for: sourceID))
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
         self.directorySession = Self.makeRangeSession(
@@ -680,12 +681,14 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     private func downloadFollowingMediaRedirects(
-        for request: URLRequest
+        for request: URLRequest,
+        maximumBytes: Int? = nil
     ) async throws -> (URL, URLResponse) {
         for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
             let initial = try await TrustedHTTPTransport.download(
                 for: request,
-                session: rangeSession
+                session: rangeSession,
+                maximumRangedBodyBytes: maximumBytes
             )
             guard let redirected = redirectedMediaRequest(
                 from: request,
@@ -697,7 +700,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             do {
                 let result = try await TrustedHTTPTransport.download(
                     for: redirected,
-                    session: redirectedMediaSession
+                    session: redirectedMediaSession,
+                    maximumRangedBodyBytes: maximumBytes
                 )
                 if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
                    let http = result.1 as? HTTPURLResponse,
@@ -1317,6 +1321,33 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             try? FileManager.default.removeItem(at: temporaryTarget)
             throw error
         }
+    }
+
+    func downloadBoundedOpenListSTRM(
+        for reference: String,
+        maximumBytes: Int64
+    ) async throws -> URL {
+        guard maximumBytes > 0,
+              let remoteURL = try openListSTRMURL(for: reference) else {
+            throw SourceError.fileNotFound(reference)
+        }
+        let request = try makeWebDAVRequest(url: remoteURL, method: "GET")
+        let (downloadedURL, response) = try await downloadFollowingMediaRedirects(
+            for: request,
+            maximumBytes: Int(clamping: maximumBytes)
+        )
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: downloadedURL)
+            if let status = (response as? HTTPURLResponse)?.statusCode,
+               status == 401 || status == 403 {
+                throw SourceError.authenticationFailed
+            }
+            throw SourceError.connectionFailed(
+                "OpenList STRM download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+            )
+        }
+        return downloadedURL
     }
 
     func fetchOpenListSTRMMetadataRange(

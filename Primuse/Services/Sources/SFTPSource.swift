@@ -42,6 +42,7 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_sftp_cache")
             .appendingPathComponent(sourceID)
+            .appendingPathComponent(MusicSourceSecurityRevision.cacheNamespace(for: sourceID))
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDirectory
     }

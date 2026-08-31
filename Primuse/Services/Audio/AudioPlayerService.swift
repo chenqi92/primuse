@@ -1003,6 +1003,19 @@ final class AudioPlayerService {
     }
     private let assetReaderDecoder = AssetReaderDecoder()
     private let streamingDecoder = StreamingDownloadDecoder()
+    private struct ActiveStreamingDownloadPreparation {
+        let id: UUID
+        let song: Song
+        let control: StreamingDownloadSessionControl
+    }
+    private struct StreamingDownloadRetirement {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+    @ObservationIgnored private var activeStreamingDownloadPreparation:
+        ActiveStreamingDownloadPreparation?
+    @ObservationIgnored private var streamingDownloadRetirement:
+        StreamingDownloadRetirement?
     private var decodingTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var gaplessPreparationTask: Task<Void, Never>?
@@ -1198,6 +1211,19 @@ final class AudioPlayerService {
                 self.artistNameConfiguration = configuration.normalized()
                 self.updateNowPlayingInfo()
                 self.updatePlaybackState()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourceSecurityScopeWillChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let sourceID = notification.userInfo?["sourceID"] as? String else {
+                return
+            }
+            MainActor.assumeIsolated {
+                guard let self, self.currentSong?.sourceID == sourceID else { return }
+                self.stop()
             }
         }
         #if os(iOS)
@@ -2633,7 +2659,10 @@ final class AudioPlayerService {
         AppServices.shared.appleMusic.stopAppleMusic()
         isPrimuseManagingAppleMusicQueue = false
 
-        if let previous = currentSong, !isLiveRadio {
+        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
+        if let previous = currentSong,
+           !isLiveRadio,
+           previous.id != deferredStreamingDownloadSongID {
             sourceManager?.finalizeStreamingSession(for: previous)
             ScrobbleService.shared.handlePlaybackStopped()
             PlayHistoryStore.shared.endSession()
@@ -3165,6 +3194,9 @@ final class AudioPlayerService {
             itemID: song.id,
             reason: "play-request"
         )
+        _ = retireStreamingDownloadPreparation()
+        await awaitStreamingDownloadRetirement()
+        guard playID == id else { return }
         resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
@@ -3287,6 +3319,9 @@ final class AudioPlayerService {
         if case .cancelled = musicVideoStartResult { return }
 
         do {
+            let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
+                sourceID: song.sourceID
+            )
             await sourceManager?.waitForBackgroundAudioCache(for: song)
             guard isLocalTransportStartAuthorized(
                 playID: id,
@@ -3302,7 +3337,12 @@ final class AudioPlayerService {
                 trigger: "play-after-url-resolution",
                 expectedTicket: transportTicket
             ) else { return }
-            await playFromURL(song: song, url: url, playID: id)
+            await playFromURL(
+                song: song,
+                url: url,
+                playID: id,
+                sourceStreamEpoch: sourceStreamEpoch
+            )
             if case .needsAudioFallback = musicVideoStartResult {
                 markMusicVideoAudioFallbackIfNeeded(playID: id)
             }
@@ -3645,6 +3685,9 @@ final class AudioPlayerService {
 
     func play(song: Song, from url: URL) async {
         registerPlayIntent()
+        let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
+            sourceID: song.sourceID
+        )
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)
         }
@@ -3708,13 +3751,19 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         stopTimeUpdater()
         stopMusicVideoPlayback(clearPlayer: true)
-        await playFromURL(song: song, url: url, playID: id)
+        await playFromURL(
+            song: song,
+            url: url,
+            playID: id,
+            sourceStreamEpoch: sourceStreamEpoch
+        )
     }
 
     private func playFromURL(
         song: Song,
         url: URL,
         playID id: UUID,
+        sourceStreamEpoch: UInt64,
         formatRecoveryAttempt: Int = 0
     ) async {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
@@ -3732,6 +3781,14 @@ final class AudioPlayerService {
 
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
         let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
+        guard !isRemoteURL && !isCloudStream
+                || CloudPlaybackSource.isStreamEpochTicketCurrent(
+                    sourceID: song.sourceID,
+                    ticket: sourceStreamEpoch
+                ) else {
+            isLoading = false
+            return
+        }
         let remoteWAVProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
         if (isRemoteURL || isCloudStream), song.fileFormat == .wav {
             remoteWAVProbeOutcome = await probeRemoteWAVPayload(for: song)
@@ -3794,7 +3851,8 @@ final class AudioPlayerService {
                         url: completeURL,
                         outputFormat: outputFormat,
                         playID: id,
-                        cacheURL: cacheURL
+                        cacheURL: cacheURL,
+                        sourceStreamEpoch: sourceStreamEpoch
                     )
                     return
                 }
@@ -3810,7 +3868,7 @@ final class AudioPlayerService {
                         : "custom formats require a local seekable stream"
                     plog("▶️ Decoder: full-download (\(reason))")
                     let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
                     return
                 }
                 if SourceManager.isTranscodedStreamURL(url), assetReaderDecoder.canDecode(url: url) {
@@ -3821,10 +3879,21 @@ final class AudioPlayerService {
                     await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
                     return
                 }
-                if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+                if let inputSource = await makeHTTPStreamingInputSource(
+                    for: song,
+                    url: url,
+                    sourceStreamEpoch: sourceStreamEpoch
+                ) {
                     plog("▶️ Decoder: HTTPRangePlaybackSource (reason: scheme=\(url.scheme ?? "?"), range-based HTTP streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     activeDecoderKind = .httpStream
                     stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
+                } else if song.fileSize > 0 {
+                    guard playID == id else { return }
+                    plog("⚠️ HTTP range cache admission denied for known-size media; refusing unreserved full download")
+                    showPlaybackError(String(localized: "offline_download_failed"))
+                    isLoading = false
+                    republishNowPlayingSurfaces()
+                    return
                 } else if isDLNACast(song), assetReaderDecoder.canDecode(url: url) {
                     // DLNA control points often push CGI/progressive URLs
                     // with no Content-Length. Full-download fallback waits
@@ -3840,7 +3909,7 @@ final class AudioPlayerService {
                     // that startup waits for a full download.
                     plog("▶️ Decoder: StreamingDownloadDecoder (reason: HTTP range unavailable or fileSize unknown, full-download fallback) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
                     return
                 }
             } else if let completeRemoteWAVLocalURL {
@@ -3869,11 +3938,32 @@ final class AudioPlayerService {
                         onResolveSourceLength: makeResolveLengthCallback(for: song)
                     )
                 }
-            } else if isCloudStream, let manager = sourceManager,
-               let inputSource = try? await manager.makeStreamingInputSource(
-                   for: song,
-                   cacheEnabled: playbackSettings.audioCacheEnabled
-               ) {
+            } else if isCloudStream, let manager = sourceManager {
+                let inputSource: InputSource?
+                do {
+                    inputSource = try await manager.makeStreamingInputSource(
+                        for: song,
+                        cacheEnabled: playbackSettings.audioCacheEnabled,
+                        expectedStreamEpoch: sourceStreamEpoch
+                    )
+                } catch is CancellationError {
+                    isLoading = false
+                    return
+                } catch let error as OfflineTransferValidationError {
+                    plog("⚠️ Cloud range cache admission failed: \(error.localizedDescription)")
+                    showPlaybackError(String(localized: "offline_download_failed"))
+                    isLoading = false
+                    return
+                } catch {
+                    plog("⚠️ Cloud range setup failed: \(error.localizedDescription)")
+                    showPlaybackError(String(localized: "playback_error_connection"))
+                    isLoading = false
+                    return
+                }
+                guard let inputSource else {
+                    isLoading = false
+                    return
+                }
                 // 解码器选型: 自定义 cloudStreamingScheme (primuse-stream://)
                 // 走 CloudPlaybackSource。它包装一层 SFBInputSource, SFB read
                 // 时按需走 HTTP Range fetch, 配合 sparse cache 实现"边下边播"。
@@ -3884,10 +3974,7 @@ final class AudioPlayerService {
                 activeDecoderKind = .cloudStream
                 stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
             } else {
-                // Local file path (or fallback when streaming setup failed)
-                let reason = isCloudStream
-                    ? "primuse-stream URL but inputSource setup failed, fallback to file path"
-                    : "local file path (file:// scheme)"
+                let reason = "local file path (file:// scheme)"
                 if await usesFFmpegDecoder(for: song, url: url) {
                     activeDecoderKind = .ffmpeg
                     plog("▶️ Decoder: FFmpeg (reason: \(reason)) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
@@ -3934,7 +4021,7 @@ final class AudioPlayerService {
                 guard !Task.isCancelled, playID == id else { return }
                 // 云盘大文件逐 chunk 流式卡死(连接饥饿 / 冷文件 hydration)时,
                 // 退回整文件渐进下载再试一次, 而不是直接报错跳过。
-                if isCloudStream, await cloudFullDownloadFallback(song: song, outputFormat: outputFormat, playID: id) {
+                if isCloudStream, await cloudFullDownloadFallback(song: song, outputFormat: outputFormat, playID: id, sourceStreamEpoch: sourceStreamEpoch) {
                     return
                 }
                 plog("⚠️ '\(song.title)' first-buffer timeout (35s) — likely cloud fetch stalled")
@@ -3955,8 +4042,12 @@ final class AudioPlayerService {
                         await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
                     } else {
                         plog("↳ HTTP range decode failed before first buffer; falling back to full download")
+                        guard await sourceManager?.cancelStreamingSessionForMaterialization(
+                            for: song,
+                            expectedStreamEpoch: sourceStreamEpoch
+                        ) != false else { return }
                         let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                        await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+                        await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
                     }
                 } else if !isCloudStream {
                     let safeOutputFormat = preparePCMOutputAfterDoPFailure(
@@ -3966,12 +4057,20 @@ final class AudioPlayerService {
                     ) ?? outputFormat
                     activeDSDPlaybackMode = .pcm
                     await playWithFallbackDecoder(song: song, url: url, outputFormat: safeOutputFormat, playID: id)
-                } else if await cloudFullDownloadFallback(song: song, outputFormat: outputFormat, playID: id) {
+                } else if await cloudFullDownloadFallback(song: song, outputFormat: outputFormat, playID: id, sourceStreamEpoch: sourceStreamEpoch) {
                     return
                 } else {
                     isLoading = false
                     republishNowPlayingSurfaces()
                 }
+                return
+            }
+            guard !isRemoteURL && !isCloudStream
+                    || CloudPlaybackSource.isStreamEpochTicketCurrent(
+                        sourceID: song.sourceID,
+                        ticket: sourceStreamEpoch
+                    ) else {
+                isLoading = false
                 return
             }
 
@@ -4011,6 +4110,7 @@ final class AudioPlayerService {
                         song: song,
                         url: url,
                         playID: id,
+                        sourceStreamEpoch: sourceStreamEpoch,
                         formatRecoveryAttempt: formatRecoveryAttempt + 1
                     )
                 }
@@ -4218,7 +4318,12 @@ final class AudioPlayerService {
     /// OneDrive 预授权直链渐进下载；WebDAV / NAS 等 connector 则通过统一的
     /// 完整文件缓存下载后重新打开，避免继续重复失败的 Range 请求。
     /// 返回 true 表示已接管(发起了下载或已切歌), 调用方不应再走默认错误分支。
-    private func cloudFullDownloadFallback(song: Song, outputFormat: AVAudioFormat, playID id: UUID) async -> Bool {
+    private func cloudFullDownloadFallback(
+        song: Song,
+        outputFormat: AVAudioFormat,
+        playID id: UUID,
+        sourceStreamEpoch: UInt64
+    ) async -> Bool {
         guard let manager = sourceManager,
               let fallbackTicket = localPipelineAdvanceTicket else { return false }
         if let directURL = await manager.resolveDirectDownloadURL(for: song) {
@@ -4229,8 +4334,12 @@ final class AudioPlayerService {
                 expectedTicket: fallbackTicket
             ) else { return true }
             plog("↳ cloud chunked-stream failed; falling back to full progressive download (\(song.fileSize / 1_048_576)MB) via \(directURL.host ?? "?")")
+            guard await manager.cancelStreamingSessionForMaterialization(
+                for: song,
+                expectedStreamEpoch: sourceStreamEpoch
+            ) else { return true }
             let cacheURL = playbackSettings.audioCacheEnabled ? manager.cacheURL(for: song) : nil
-            await playWithStreamingDownload(song: song, url: directURL, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+            await playWithStreamingDownload(song: song, url: directURL, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
             return true
         }
 
@@ -4331,18 +4440,114 @@ final class AudioPlayerService {
         }
     }
 
+    @discardableResult
+    private func retireStreamingDownloadPreparation(
+        matchingID: UUID? = nil
+    ) -> String? {
+        guard let active = activeStreamingDownloadPreparation,
+              matchingID == nil || active.id == matchingID else { return nil }
+        activeStreamingDownloadPreparation = nil
+        active.control.cancel()
+
+        let retirementID = UUID()
+        let preceding = streamingDownloadRetirement?.task
+        let manager = sourceManager
+        let task = Task { @MainActor [weak self] in
+            if let preceding {
+                await preceding.value
+            }
+            await active.control.waitForTermination()
+            manager?.finalizeStreamingSession(for: active.song)
+            guard let self,
+                  self.streamingDownloadRetirement?.id == retirementID else { return }
+            self.streamingDownloadRetirement = nil
+        }
+        streamingDownloadRetirement = StreamingDownloadRetirement(
+            id: retirementID,
+            task: task
+        )
+        return active.song.id
+    }
+
+    private func awaitStreamingDownloadRetirement() async {
+        while let retirement = streamingDownloadRetirement {
+            await retirement.task.value
+            if streamingDownloadRetirement?.id == retirement.id {
+                streamingDownloadRetirement = nil
+            }
+        }
+    }
+
+    private func cancelAndAwaitStreamingDownloadPreparation(id: UUID) async {
+        guard retireStreamingDownloadPreparation(matchingID: id) != nil else { return }
+        await awaitStreamingDownloadRetirement()
+    }
+
+    private func completeStreamingDownloadPreparation(id: UUID) {
+        guard activeStreamingDownloadPreparation?.id == id else { return }
+        activeStreamingDownloadPreparation = nil
+    }
+
     /// Full-download fallback for remote URLs whose length is unknown or
     /// whose server rejects Range reads. Handles self-signed HTTPS
     /// certificates that AVAssetReader cannot.
     private func playWithStreamingDownload(
         song: Song, url: URL, outputFormat: AVAudioFormat,
-        playID id: UUID, cacheURL: URL?
+        playID id: UUID, cacheURL: URL?, sourceStreamEpoch: UInt64
     ) async {
+        _ = retireStreamingDownloadPreparation()
+        await awaitStreamingDownloadRetirement()
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: sourceStreamEpoch
+        ), playID == id else { return }
+
+        guard let prepared = await sourceManager?.prepareHTTPStreamingCache(
+            for: song,
+            prefersPersistentCache: cacheURL != nil
+        ) else {
+            guard playID == id else { return }
+            showPlaybackError(String(localized: "offline_download_failed"))
+            isLoading = false
+            return
+        }
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: sourceStreamEpoch
+        ) else {
+            sourceManager?.finalizeStreamingSession(for: song)
+            return
+        }
+        guard await sourceManager?.cancelStreamingSessionForMaterialization(
+            for: song,
+            expectedStreamEpoch: sourceStreamEpoch
+        ) != false,
+              self.playID == id,
+              CloudPlaybackSource.isStreamEpochTicketCurrent(
+                  sourceID: song.sourceID,
+                  ticket: sourceStreamEpoch
+              ) else {
+            sourceManager?.finalizeStreamingSession(for: song)
+            return
+        }
+        let admittedCacheURL = prepared.persistOnComplete ? prepared.url : nil
+        let admittedMaximumBytes = Int(clamping: prepared.maximumTransferBytes)
+        let preparationID = UUID()
+        let sessionControl = StreamingDownloadSessionControl()
+        activeStreamingDownloadPreparation = ActiveStreamingDownloadPreparation(
+            id: preparationID,
+            song: song,
+            control: sessionControl
+        )
         let rawStream = streamingDecoder.decode(
             from: url,
             outputFormat: outputFormat,
-            cacheFileURL: cacheURL,
+            cacheFileURL: admittedCacheURL,
             fileExtension: song.fileFormat.rawValue,
+            maximumDownloadBytes: admittedMaximumBytes,
+            sourceID: song.sourceID,
+            streamEpoch: sourceStreamEpoch,
+            sessionControl: sessionControl,
             onResolveSourceLength: makeResolveLengthCallback(for: song)
         )
         let stream = segmented(rawStream, for: song)
@@ -4353,13 +4558,18 @@ final class AudioPlayerService {
                 from: iteratorBox,
                 timeoutSeconds: Self.remoteFallbackFirstBufferTimeoutSeconds
             ) else {
+                await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
                 guard playID == id else { return }
                 plog("⚠️ StreamingDownload: empty stream for '\(song.title)'")
                 isLoading = false
                 await autoAdvanceAfterFailure()
                 return
             }
-            guard playID == id else { return }
+            guard playID == id else {
+                await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
+                return
+            }
+            completeStreamingDownloadPreparation(id: preparationID)
 
             plog("🌊 StreamingDownload firstBuffer: frames=\(firstBuffer.frameLength) sr=\(firstBuffer.format.sampleRate)")
             plog("🌊 Engine diagnostics before play: \(audioEngine.diagnosticInfo())")
@@ -4476,12 +4686,14 @@ final class AudioPlayerService {
                 }
             }
         } catch is CancellationError {
+            await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload first-buffer timeout for '\(song.title)' after \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
             await autoAdvanceAfterFailure()
         } catch {
+            await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload failed for '\(song.title)': \(error.localizedDescription)")
             if isNetworkTimeout(error) {
@@ -4601,8 +4813,17 @@ final class AudioPlayerService {
     private func decodeStream(
         for song: Song,
         url: URL,
-        outputFormat: AVAudioFormat
+        outputFormat: AVAudioFormat,
+        sourceStreamEpoch: UInt64
     ) async -> AudioBufferStream? {
+        if url.scheme == SourceManager.cloudStreamingScheme
+            || url.scheme == "http"
+            || url.scheme == "https" {
+            guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: song.sourceID,
+                ticket: sourceStreamEpoch
+            ) else { return nil }
+        }
         let onResolveLength = makeResolveLengthCallback(for: song)
 
         let rawStream: AudioBufferStream?
@@ -4628,7 +4849,8 @@ final class AudioPlayerService {
             guard let manager = sourceManager,
                   let inputSource = try? await manager.makeStreamingInputSource(
                       for: song,
-                      cacheEnabled: playbackSettings.audioCacheEnabled
+                      cacheEnabled: playbackSettings.audioCacheEnabled,
+                      expectedStreamEpoch: sourceStreamEpoch
                   ) else {
                 return nil
             }
@@ -4658,18 +4880,15 @@ final class AudioPlayerService {
                 rawStream = assetReaderDecoder.decode(from: url, outputFormat: outputFormat)
                 return rawStream.map { transitionPreparedStream($0, for: song) }
             }
-            if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+            if let inputSource = await makeHTTPStreamingInputSource(
+                for: song,
+                url: url,
+                sourceStreamEpoch: sourceStreamEpoch
+            ) {
                 rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
                 return rawStream.map { transitionPreparedStream($0, for: song) }
             }
-            rawStream = streamingDecoder.decode(
-                from: url,
-                outputFormat: outputFormat,
-                cacheFileURL: nil,
-                fileExtension: song.fileFormat.rawValue,
-                onResolveSourceLength: onResolveLength
-            )
-            return rawStream.map { transitionPreparedStream($0, for: song) }
+            return nil
         }
         if await usesFFmpegDecoder(for: song, url: url) {
             rawStream = ffmpegDecoder.decode(
@@ -4748,32 +4967,47 @@ final class AudioPlayerService {
         )
     }
 
-    private func makeHTTPStreamingInputSource(for song: Song, url: URL) async -> InputSource? {
+    private func makeHTTPStreamingInputSource(
+        for song: Song,
+        url: URL,
+        sourceStreamEpoch: UInt64
+    ) async -> InputSource? {
         guard song.fileSize > 0,
-              url.scheme == "http" || url.scheme == "https" else { return nil }
+              url.scheme == "http" || url.scheme == "https",
+              CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: song.sourceID,
+                ticket: sourceStreamEpoch
+              ) else { return nil }
 
-        let cacheEnabled = playbackSettings.audioCacheEnabled
-        let cacheURL: URL
-        let cacheRelativePath: String?
-        if cacheEnabled, let sourceManager {
-            cacheURL = sourceManager.cacheURL(for: song)
-            let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
-            cacheRelativePath = "\(song.sourceID)/\(sanitized)"
-            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
-        } else {
-            cacheURL = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("primuse-http-\(song.id)")
-            cacheRelativePath = nil
+        guard let prepared = await sourceManager?.prepareHTTPStreamingCache(
+            for: song,
+            prefersPersistentCache: playbackSettings.audioCacheEnabled
+        ) else { return nil }
+        let cacheURL = prepared.url
+        let cacheRelativePath = prepared.relativePath
+        let persistentCacheAllowed = prepared.persistOnComplete
+
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(
+            sourceID: song.sourceID,
+            ticket: sourceStreamEpoch
+        ) else {
+            sourceManager?.finalizeStreamingSession(for: song)
+            return nil
         }
 
-        return CloudPlaybackSource.makeHTTPInputSource(
+        let inputSource = CloudPlaybackSource.makeHTTPInputSource(
             song: song,
             url: url,
             totalLength: song.fileSize,
             cacheURL: cacheURL,
-            persistOnComplete: cacheEnabled && sourceManager != nil,
+            streamEpoch: sourceStreamEpoch,
+            persistOnComplete: persistentCacheAllowed,
             cacheRelativePath: cacheRelativePath
         )
+        if inputSource == nil {
+            sourceManager?.finalizeStreamingSession(for: song)
+        }
+        return inputSource
     }
 
     /// Standalone music videos are commonly scanned before their container
@@ -6010,7 +6244,8 @@ final class AudioPlayerService {
         }
         // 主动结束当前 streaming session (切走 / 用户点停止时), 让 .partial
         // 有机会转 final。
-        if let cur = currentSong {
+        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
+        if let cur = currentSong, cur.id != deferredStreamingDownloadSongID {
             sourceManager?.finalizeStreamingSession(for: cur)
         }
         // Invalidate buffer completion callbacks before stop/reset fires them.
@@ -6215,6 +6450,10 @@ final class AudioPlayerService {
             }
             return
         }
+        guard activeStreamingDownloadPreparation == nil else {
+            plog("⚠️ Seek ignored while a bounded full-download startup is still active")
+            return
+        }
         // A full-download streaming decoder can only seek after its completed
         // file has entered the playback cache. A user scrub must leave the
         // still-running node untouched, but interruption recovery cannot be
@@ -6342,6 +6581,9 @@ final class AudioPlayerService {
                 }
             }
             do {
+                let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
+                    sourceID: song.sourceID
+                )
                 let url = try await resolvedURL(for: song)
                 guard !Task.isCancelled, playID == id else { return }
                 let resolvedDecoderKind = await decoderKind(for: song, url: url)
@@ -6481,7 +6723,11 @@ final class AudioPlayerService {
                             startingAt: physicalSeekTime,
                             onResolveSourceLength: onResolveLength
                         )
-                    } else if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+                    } else if let inputSource = await makeHTTPStreamingInputSource(
+                        for: song,
+                        url: url,
+                        sourceStreamEpoch: sourceStreamEpoch
+                    ) {
                         guard !Task.isCancelled, playID == id else { return }
                         decoderPerformedSeek = true
                         decoderSourceStartTime = physicalSeekTime
@@ -6524,7 +6770,8 @@ final class AudioPlayerService {
                     } else if let manager = sourceManager,
                               let inputSource = try? await manager.makeStreamingInputSource(
                                   for: song,
-                                  cacheEnabled: playbackSettings.audioCacheEnabled
+                                  cacheEnabled: playbackSettings.audioCacheEnabled,
+                                  expectedStreamEpoch: sourceStreamEpoch
                               ) {
                         guard !Task.isCancelled, playID == id else { return }
                         decoderPerformedSeek = true
@@ -7477,11 +7724,18 @@ final class AudioPlayerService {
               shouldAttemptGapless(settings: playbackSettings.snapshot()),
               let nextEntry = nextQueueEntryInQueue() else { return }
         let nextSong = nextEntry.song
+        guard nextSong.id != currentSong?.id else { return }
+        let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
+            sourceID: nextSong.sourceID
+        )
 
         var nextURL: URL
         var nextDecoderKind: DecoderKind
         do {
-            nextURL = try await resolvedURL(for: nextSong)
+            nextURL = try await resolvedURL(
+                for: nextSong,
+                forContinuousPreparation: true
+            )
             nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
         } catch {
             plog("Gapless prepare URL error: \(error.localizedDescription)")
@@ -7491,11 +7745,26 @@ final class AudioPlayerService {
         guard playID == id,
               queueGeneration == transition.queueGeneration,
               !transition.shouldCancelPreparation,
-              nextDecoderKind == .native || nextDecoderKind == .ffmpeg || nextDecoderKind == .httpStream || nextDecoderKind == .cloudStream,
+              nextDecoderKind == .native || nextDecoderKind == .ffmpeg,
               nextDecoderKind != .native || nativeDecoder.canDecode(url: nextURL),
               let outputFormat = audioEngine.outputFormat else { return }
+        if nextSong.id == currentSong?.id,
+           activeDecoderKind == .cloudStream
+                || activeDecoderKind == .httpStream
+                || nextDecoderKind == .cloudStream
+                || nextDecoderKind == .httpStream {
+            // Two same-song range decoders share one sparse path. Keep repeat
+            // playback serial so the prepared successor cannot retire or
+            // finalize the still-audible writer.
+            return
+        }
 
-        guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
+        guard let stream = await decodeStream(
+            for: nextSong,
+            url: nextURL,
+            outputFormat: outputFormat,
+            sourceStreamEpoch: sourceStreamEpoch
+        ) else {
             return
         }
 
@@ -7753,6 +8022,7 @@ final class AudioPlayerService {
               let sourcePlayID = playID,
               let nextEntry = nextQueueEntryInQueue() else { return }
         let nextSong = nextEntry.song
+        guard nextSong.id != currentSong?.id else { return }
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else { return }
 
         let attemptID = UUID()
@@ -7806,10 +8076,16 @@ final class AudioPlayerService {
             failCrossfadeAttempt(attemptID)
             return
         }
+        let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
+            sourceID: nextSong.sourceID
+        )
 
         let preparationDeadline = Date().addingTimeInterval(Double(Self.firstBufferTimeoutSeconds))
         do {
-            let nextURL = try await resolvedURL(for: nextSong)
+            let nextURL = try await resolvedURL(
+                for: nextSong,
+                forContinuousPreparation: true
+            )
             let nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
             guard isCurrentCrossfadeAttempt(
                 attemptID,
@@ -7818,12 +8094,18 @@ final class AudioPlayerService {
                 nextEntryID: nextEntryID
             ) else { return }
             guard nextDecoderKind == .native
-                    || nextDecoderKind == .ffmpeg
-                    || nextDecoderKind == .httpStream
-                    || nextDecoderKind == .cloudStream,
+                    || nextDecoderKind == .ffmpeg,
                   nextDecoderKind != .native
                     || nativeDecoder.canDecode(url: nextURL),
                   let outputFormat = audioEngine.outputFormat else {
+                failCrossfadeAttempt(attemptID)
+                return
+            }
+            if nextSong.id == currentSong?.id,
+               activeDecoderKind == .cloudStream
+                    || activeDecoderKind == .httpStream
+                    || nextDecoderKind == .cloudStream
+                    || nextDecoderKind == .httpStream {
                 failCrossfadeAttempt(attemptID)
                 return
             }
@@ -7840,7 +8122,12 @@ final class AudioPlayerService {
             // For now, apply after swap
 
             // Decode into crossfade node — 先确保能解码并拿到首个 buffer。
-            guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
+            guard let stream = await decodeStream(
+                for: nextSong,
+                url: nextURL,
+                outputFormat: outputFormat,
+                sourceStreamEpoch: sourceStreamEpoch
+            ) else {
                 failCrossfadeAttempt(attemptID)
                 return
             }
@@ -8842,7 +9129,10 @@ final class AudioPlayerService {
         return hadQuery ? base + "?…" : base
     }
 
-    private func resolvedURL(for song: Song) async throws -> URL {
+    private func resolvedURL(
+        for song: Song,
+        forContinuousPreparation: Bool = false
+    ) async throws -> URL {
         // DLNA renderer items are ephemeral and intentionally never registered
         // with SourceManager. Their filePath is the controller-provided HTTP(S)
         // URI, so seeking must reuse it directly instead of asking the library
@@ -8856,7 +9146,10 @@ final class AudioPlayerService {
         }
         if let sourceManager {
             do {
-                let url = try await sourceManager.resolveURL(for: song)
+                let url = try await sourceManager.resolveURL(
+                    for: song,
+                    acquirePlaybackCacheLease: !forContinuousPreparation
+                )
                 plog("🔗 resolvedURL for '\(song.title)': \(url.isFileURL ? "LOCAL" : url.scheme?.uppercased() ?? "?") → \(redactedURL(url))")
                 return url
             } catch {

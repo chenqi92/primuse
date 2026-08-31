@@ -8,6 +8,8 @@ import UIKit
 #endif
 #endif
 
+typealias ServerMirrorApplyFence = @MainActor () -> Bool
+
 /// Manages music source scanning state and tasks.
 /// Lives in the SwiftUI environment so scan progress persists across navigation.
 @MainActor
@@ -22,11 +24,14 @@ final class ScanService {
     /// AppServices injects the radio store without making every scan call site
     /// carry another dependency. Invoked only after a successful server-library
     /// catalogue commit, alongside server playlist mirroring.
-    @ObservationIgnored var serverRadioSyncHandler: ((MusicSource) async -> Void)?
+    @ObservationIgnored var serverRadioSyncHandler: ((MusicSource, ServerMirrorApplyFence) async -> Void)?
     /// Emby favorites are user annotations rather than ordinary playlists.
     /// Refresh them only after the authoritative song catalogue has committed,
     /// so server item IDs can be reconciled to stable local song IDs.
-    @ObservationIgnored var serverFavoriteSyncHandler: ((MusicSource) async -> Void)?
+    @ObservationIgnored var serverFavoriteSyncHandler: ((MusicSource, ServerMirrorApplyFence) async -> Void)?
+    /// AppServices supplies live playback/network/power pressure for automatic
+    /// paged server catalogues. Explicit user scans keep their existing policy.
+    @ObservationIgnored var automaticServerCatalogWorkAllowedHandler: (() -> Bool)?
     struct ScanState: Equatable {
         var isScanning: Bool = false
         var currentFile: String = ""
@@ -87,9 +92,13 @@ final class ScanService {
     #endif
 
     private let checkpointStore: ScanCheckpointFileStore
+    private let pagedCatalogStore: PagedSongCatalogStagingStore?
     private let syncStateURL: URL
     private let decoder = JSONDecoder()
     private var syncStates: [String: SourceSyncState] = [:]
+    private var syncStateStore: SourceSyncStateFileStore!
+    private var syncStateMutationEpochs: [String: UInt64] = [:]
+    private var syncStateAppliedRevisions: [String: UInt64] = [:]
     /// Runs the one-time server/UPnP folder-topology migration sequentially.
     /// The scan itself remains owned by `activeTasks`; cancelling this task only
     /// prevents another legacy source from starting during a scene transition.
@@ -109,10 +118,81 @@ final class ScanService {
             checkpointURL: resolvedCheckpointURL,
             initialCheckpoints: loadedCheckpoints
         )
+        do {
+            pagedCatalogStore = try PagedSongCatalogStagingStore(
+                path: directory.appendingPathComponent("paged-catalog-staging.sqlite").path
+            )
+        } catch {
+            pagedCatalogStore = nil
+            plog("⚠️ Navidrome staging unavailable; compatibility scans will be merge-only: \(error.localizedDescription)")
+        }
         syncStateURL = directory.appendingPathComponent("source-sync-states.json")
         decoder.dateDecodingStrategy = .iso8601
         loadCheckpoints(loadedCheckpoints)
         loadSyncStates()
+        syncStateStore = SourceSyncStateFileStore(
+            url: syncStateURL,
+            initialStates: syncStates
+        )
+        observeSourceConfigurationChanges()
+    }
+
+    /// Any persisted source edit can also represent a credential-only change
+    /// whose secret is stored outside `MusicSource`. Cancel the active
+    /// generation synchronously so an old authenticated request cannot commit
+    /// after the source row has switched accounts with an otherwise identical
+    /// public fingerprint.
+    private func observeSourceConfigurationChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourcesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let sourceIDs = note.userInfo?["ids"] as? [String] else { return }
+            MainActor.assumeIsolated {
+                for sourceID in sourceIDs {
+                    if self.activeTasks[sourceID] != nil {
+                        self.cancelScan(for: sourceID)
+                    }
+                    self.removeCheckpoint(for: sourceID)
+                    self.invalidateSyncState(for: sourceID)
+                }
+            }
+        }
+    }
+
+    private func invalidateSyncState(for sourceID: String) {
+        advanceSyncStateMutationEpoch(for: sourceID, discardingState: true)
+    }
+
+    private func advanceSyncStateMutationEpoch(
+        for sourceID: String,
+        discardingState: Bool
+    ) {
+        let mutationEpoch = syncStateMutationEpochs[sourceID, default: 0] &+ 1
+        syncStateMutationEpochs[sourceID] = mutationEpoch
+        if discardingState, syncStates.removeValue(forKey: sourceID) != nil {
+            folderHierarchyRevision &+= 1
+        }
+        guard let syncStateStore else { return }
+        Task {
+            do {
+                if discardingState {
+                    _ = try await syncStateStore.invalidate(
+                        sourceID: sourceID,
+                        mutationEpoch: mutationEpoch
+                    )
+                } else {
+                    _ = try await syncStateStore.advanceMutationEpoch(
+                        sourceID: sourceID,
+                        mutationEpoch: mutationEpoch
+                    )
+                }
+            } catch {
+                plog("⛔ Source sync state invalidation failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func libraryFolderSyncIndex(
@@ -128,6 +208,10 @@ final class ScanService {
         scraperService: MusicScraperService?
     ) {
         guard folderTopologyRebuildTask == nil else { return }
+        guard !Self.shouldDeferAutomaticServerCatalogWork(
+            context: .foregroundResume,
+            resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+        ) else { return }
         let populatedSourceIDs = Set(library.songs.map(\.sourceID))
         let sourceIDs = sourceStore.sources
             .filter { source in
@@ -158,6 +242,10 @@ final class ScanService {
                 }
             }
             for sourceID in sourceIDs {
+                guard !Self.shouldDeferAutomaticServerCatalogWork(
+                    context: .foregroundResume,
+                    resourcesAllowWork: self.automaticServerCatalogWorkAllowedHandler?() ?? true
+                ) else { return }
                 guard !Task.isCancelled,
                       let source = sourceStore.source(id: sourceID),
                       source.isEnabled,
@@ -172,6 +260,7 @@ final class ScanService {
                 guard self.scanSource(
                     source,
                     mode: .deep,
+                    snapshotExecutionContext: .foregroundResume,
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
@@ -200,6 +289,7 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService? = nil
     ) -> Bool {
+        let source = sourceStore.source(id: source.id) ?? source
         guard activeTasks[source.id] == nil else { return false }
         guard !source.isDeleted else {
             removeCheckpoint(for: source.id)
@@ -207,6 +297,14 @@ final class ScanService {
             return false
         }
         guard source.isEnabled else { return false }
+        if Self.requiresAutomaticServerCatalogResourceGate(source.type),
+           Self.shouldDeferAutomaticServerCatalogWork(
+               context: snapshotExecutionContext,
+               resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+           ) {
+            recordScanInterruption(sourceID: source.id)
+            return false
+        }
 
         // 整库来源没有额外的目录选择步骤。Local 已由用户选择的 basePath
         // 确定范围；媒体服务器与 Apple Music Library 也天然是完整资料库。
@@ -225,10 +323,9 @@ final class ScanService {
             for: source,
             directories: normalizedDirs
         )
-        // Provider-native folder rows and their songs form one snapshot. These
-        // catalogue scans are not directory-resumable, so publishing a partial
-        // song page without its completed hierarchy would flatten the library
-        // until the next successful scan.
+        // Provider-native folder rows and their songs form one snapshot. They
+        // remain atomic, but Navidrome can stage complete search3 pages in a
+        // private checkpoint and resume without publishing a partial library.
         let requiresAtomicCatalogCommit = source.type.isServerLibrary || source.type == .upnp
         if mode == .deep, !requiresAtomicCatalogCommit {
             // “Deep Scan” is an explicit fresh reconciliation. The ordinary
@@ -240,7 +337,9 @@ final class ScanService {
         // durable recovery marker until the fresh preparing checkpoint replaces
         // it. This closes the relaunch window between detecting an interrupted
         // song/topology commit and recording the corrective deep scan.
-        let checkpoint = requiresAtomicCatalogCommit || mode == .deep
+        let supportsAtomicCatalogResume = source.type == .navidrome
+        let checkpoint = mode == .deep
+            || (requiresAtomicCatalogCommit && !supportsAtomicCatalogResume)
             ? nil
             : resumeCheckpoint(
                 for: source.id,
@@ -248,6 +347,7 @@ final class ScanService {
                 scopeFingerprint: checkpointScopeFingerprint
             )
         let resumeSongs = checkpoint?.songs ?? []
+        let resumesPagedCatalog = checkpoint?.subsonicCatalogState != nil
         let resumedSnapshotProgress = checkpoint?.baiduSnapshotState.map {
             BaiduSnapshotProgressPolicy.progress(for: $0)
         }
@@ -258,7 +358,7 @@ final class ScanService {
             ?? checkpoint?.totalCount
             ?? 0
 
-        if !resumeSongs.isEmpty {
+        if !resumeSongs.isEmpty, !resumesPagedCatalog {
             // resume 阶段恢复 checkpoint 内容, 是部分扫描结果, 不应触发"已删除"
             // 通知 (otherwise listener 会把还没扫到的歌的本地缓存全清)。
             // 同样要带上 library 中该源的全部已知歌曲再 addSongs: 否则
@@ -420,6 +520,7 @@ final class ScanService {
                     generation: generation,
                     directories: normalizedDirs,
                     resumeSongs: resumeSongs,
+                    snapshotExecutionContext: snapshotExecutionContext,
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
@@ -771,6 +872,7 @@ final class ScanService {
         // Invalidate the cancelled task's generation so its still-suspended
         // body can't run terminal cleanup/state writes once it resumes.
         scanGenerations[sourceID, default: 0] += 1
+        advanceSyncStateMutationEpoch(for: sourceID, discardingState: false)
         scanStates[sourceID]?.isScanning = false
         persistCheckpoints(force: true)
         endBackgroundTask(for: sourceID)
@@ -804,8 +906,17 @@ final class ScanService {
     }
 
     func removeCheckpoint(for sourceID: String) {
+        let stageSessionID = checkpoints[sourceID]?.subsonicCatalogState?.stageSessionID
         checkpoints[sourceID] = nil
         persistCheckpoints(force: true)
+        if let stageSessionID, let pagedCatalogStore {
+            Task.detached(priority: .utility) {
+                try? pagedCatalogStore.discard(
+                    sourceID: sourceID,
+                    stageSessionID: stageSessionID
+                )
+            }
+        }
         if scanStates[sourceID]?.canResume == true {
             scanStates[sourceID] = nil
         }
@@ -822,12 +933,17 @@ final class ScanService {
         generation: Int,
         directories: [String],
         resumeSongs: [Song],
+        snapshotExecutionContext: BaiduSnapshotExecutionContext,
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
         checkpoint: ScanCheckpoint?
     ) async {
+        let scopeFingerprint = Self.scopeFingerprint(
+            for: source,
+            directories: directories
+        )
         let api: SynologyAPI
         if let existing = synologyAPIs[source.id] {
             api = existing
@@ -843,7 +959,19 @@ final class ScanService {
             api = created
         }
 
-        if await api.isLoggedIn == false {
+        let isLoggedIn = await api.isLoggedIn
+        do {
+            try checkScanCommitFence(
+                sourceID: source.id,
+                generation: generation,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
+                sourceStore: sourceStore
+            )
+        } catch {
+            return
+        }
+        if !isLoggedIn {
             let password: String
             switch KeychainService.passwordLookup(for: source.id) {
             case .found(let savedPassword):
@@ -875,8 +1003,17 @@ final class ScanService {
                 deviceName: source.rememberDevice ? AppConstants.trustedDeviceName : nil,
                 deviceId: source.rememberDevice ? source.deviceId : nil
             )
-
-            guard isCurrentScan(source.id, generation: generation) else { return }
+            do {
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+            } catch {
+                return
+            }
 
             if loginResult.needs2FA {
                 recordScanFailure(
@@ -890,14 +1027,25 @@ final class ScanService {
                 // Check if login failure is due to SSL certificate issue
                 if let error = loginResult.underlyingError {
                     let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                    do {
+                        try checkScanCommitFence(
+                            sourceID: source.id,
+                            generation: generation,
+                            expectedScopeFingerprint: scopeFingerprint,
+                            expectedScopeDirectories: directories,
+                            sourceStore: sourceStore
+                        )
+                    } catch {
+                        return
+                    }
                     if trusted {
-                        guard isCurrentScan(source.id, generation: generation) else { return }
                         scanStates[source.id] = ScanState(isScanning: true)
                         await scanSynology(
                             source: source,
                             generation: generation,
                             directories: directories,
                             resumeSongs: resumeSongs,
+                            snapshotExecutionContext: snapshotExecutionContext,
                             sourceManager: sourceManager,
                             library: library,
                             sourceStore: sourceStore,
@@ -932,7 +1080,21 @@ final class ScanService {
         // (incl. Liked) and recents. Carrying the known set through keeps the
         // flush sets complete; genuine deletions are still reconciled at the
         // scanner's terminal yield after a full walk.
-        let knownExisting = library.songs.filter { $0.sourceID == source.id }
+        let librarySongsSnapshot = library.songs
+        let knownExisting = await Task.detached(priority: .utility) {
+            librarySongsSnapshot.filter { $0.sourceID == source.id }
+        }.value
+        do {
+            try checkScanCommitFence(
+                sourceID: source.id,
+                generation: generation,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
+                sourceStore: sourceStore
+            )
+        } catch {
+            return
+        }
         // On resume, merge the known set in too (checkpoint entries win on id
         // collision) — passing only resumeSongs would drop the rest on the
         // first flush, exactly the stripping the comment above warns about.
@@ -963,9 +1125,42 @@ final class ScanService {
             var lastProgressPublishedAt = Date.distantPast
             var lastDirectoryState = resumableDirectoryState
             for try await update in stream {
-                try Task.checkCancellation()
-                try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
-                metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
+                if Self.requiresAutomaticServerCatalogResourceGate(source.type),
+                   Self.shouldDeferAutomaticServerCatalogWork(
+                    context: snapshotExecutionContext,
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                ) {
+                    try await waitForCheckpointPersistence()
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    recordScanInterruption(
+                        sourceID: source.id,
+                        scannedCount: update.scannedCount,
+                        totalCount: update.totalCount
+                    )
+                    return
+                }
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                metadataInspectionHandler?(metadataInspectedSongIDs)
                 publishScanProgress(
                     sourceID: source.id,
                     scannedCount: update.scannedCount,
@@ -1017,25 +1212,34 @@ final class ScanService {
                 }
             }
 
-            try Task.checkCancellation()
-            try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
-            metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
+            let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+            try checkScanCommitFence(
+                sourceID: source.id,
+                generation: generation,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
+                sourceStore: sourceStore
+            )
+            metadataInspectionHandler?(metadataInspectedSongIDs)
             // Synology doesn't go through CloudPlaybackSource — skip prewarm sweep.
             try await completeScan(
                 sourceID: source.id,
                 generation: generation,
                 songs: lastSongs,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
                 library: library,
                 sourceStore: sourceStore,
                 scraperService: scraperService,
                 syncState: SourceSyncState(
                     sourceID: source.id,
-                    scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories),
+                    scopeFingerprint: scopeFingerprint,
                     index: lastDirectoryState?.index ?? [:],
                     scanEpoch: nextScanEpoch,
                     lastFullScanAt: Date(),
                     lastSuccessfulSyncAt: Date()
-                )
+                ),
+                source: source
             )
         } catch let error where OperationCancellationPolicy.isCancellation(error) {
             // Scan was cancelled (e.g. source deleted) — clean up silently.
@@ -1045,10 +1249,30 @@ final class ScanService {
                 recordScanInterruption(sourceID: source.id)
             }
         } catch {
-            guard isCurrentScan(source.id, generation: generation) else { return }
+            do {
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+            } catch {
+                return
+            }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+            do {
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+            } catch {
+                return
+            }
             if trusted {
-                guard isCurrentScan(source.id, generation: generation) else { return }
                 // Retry scan after user trusted the domain
                 scanStates[source.id] = ScanState(isScanning: true)
                 await scanSynology(
@@ -1056,6 +1280,7 @@ final class ScanService {
                     generation: generation,
                     directories: directories,
                     resumeSongs: resumeSongs,
+                    snapshotExecutionContext: snapshotExecutionContext,
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
@@ -1099,20 +1324,95 @@ final class ScanService {
         // listFiles-stream level and `addedCount` tracks just the actual
         // delta.
         let knownExisting = library.songs.filter { $0.sourceID == source.id }
+        let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
+        let identityScopeFingerprint = Self.scopeFingerprint(for: source, directories: [])
+        let scanFenceIsValid: () -> Bool = {
+            do {
+                try self.checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        var activeCheckpoint = checkpoint
+        // Navidrome deletion authority is earned only by the durable paged
+        // path. Any compatibility fallback (including an unavailable staging
+        // database) is merge-only and cannot prune the live library.
+        var allowsAuthoritativeCatalogPrune = source.type != .navidrome
+        if source.type == .navidrome,
+           let pagedConnector = connector as? any ResumablePagedSongCatalogConnector,
+           let pagedCatalogStore {
+            let handled = await scanPagedServerCatalog(
+                source: source,
+                generation: generation,
+                directories: directories,
+                connector: pagedConnector,
+                stagingStore: pagedCatalogStore,
+                existingSongs: knownExisting,
+                sourceManager: sourceManager,
+                library: library,
+                sourceStore: sourceStore,
+                scraperService: scraperService,
+                mode: mode,
+                snapshotExecutionContext: snapshotExecutionContext,
+                scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint,
+                checkpoint: activeCheckpoint
+            )
+            if handled { return }
+            guard scanFenceIsValid() else { return }
+            // `unavailable` means this compatibility walk has no strong,
+            // immutable server revision. It may safely add/refresh rows, but
+            // it must never turn a moving/partial listing into deletions.
+            allowsAuthoritativeCatalogPrune = false
+            activeCheckpoint = checkpoints[source.id]
+        } else if activeCheckpoint?.subsonicCatalogState != nil {
+            do {
+                try await resetPagedServerCatalogCheckpoint(
+                    sourceID: source.id,
+                    generation: generation,
+                    directories: directories,
+                    mode: mode,
+                    scopeFingerprint: scopeFingerprint,
+                    catalogRevision: nil,
+                    replacingStageSessionID: activeCheckpoint?.subsonicCatalogState?.stageSessionID,
+                    stagingStore: pagedCatalogStore,
+                    sourceStore: sourceStore
+                )
+                guard scanFenceIsValid() else { return }
+                activeCheckpoint = checkpoints[source.id]
+            } catch {
+                guard scanFenceIsValid() else { return }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
+                return
+            }
+        }
+
         // On resume, the scanner must start from the *full* known set (seeded
         // into the library above), not just the checkpoint slice — otherwise
         // the first intermediate flush below drops every not-yet-rewalked song
         // and cleanPlaylistEntries() permanently un-playlists them.
         let existingForScan: [Song]
-        if resumeSongs.isEmpty {
+        let genericResumeSongs = activeCheckpoint?.subsonicCatalogState == nil
+            ? (activeCheckpoint?.songs ?? [])
+            : []
+        if genericResumeSongs.isEmpty {
             existingForScan = knownExisting
         } else {
-            let resumeIDs = Set(resumeSongs.map(\.id))
-            existingForScan = resumeSongs + knownExisting.filter { !resumeIDs.contains($0.id) }
+            let resumeIDs = Set(genericResumeSongs.map(\.id))
+            existingForScan = genericResumeSongs + knownExisting.filter { !resumeIDs.contains($0.id) }
         }
 
-        let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
-        let identityScopeFingerprint = Self.scopeFingerprint(for: source, directories: [])
         let storedState = syncStates[source.id]
         let scopedState = storedState.flatMap { state in
             state.matchesScope(sourceID: source.id, scopeFingerprint: scopeFingerprint)
@@ -1165,14 +1465,17 @@ final class ScanService {
                     configuredRoots: directories,
                     previous: rootIdentities
                 )
+                guard scanFenceIsValid() else { return }
                 effectiveDirectories = resolution.effectiveRoots
                 rootIdentities = resolution.identities
             } catch SourceRootResolutionError.requiresReselection(let path) {
+                guard scanFenceIsValid() else { return }
                 do {
                     try await clearCheckpointAndWait(for: source.id)
                 } catch {
                     plog("⛔ Unable to clear relocated-root checkpoint for \(source.name): \(error.localizedDescription)")
                 }
+                guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(
@@ -1182,9 +1485,12 @@ final class ScanService {
                 )
                 return
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
-                recordScanInterruption(sourceID: source.id)
+                if scanFenceIsValid() {
+                    recordScanInterruption(sourceID: source.id)
+                }
                 return
             } catch {
+                guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(for: error, source: source)
@@ -1193,11 +1499,11 @@ final class ScanService {
             }
         }
 
-        let quickOnly = checkpoint?.isQuickOnly == true
-            || (checkpoint == nil && mode == .quick)
+        let quickOnly = activeCheckpoint?.isQuickOnly == true
+            || (activeCheckpoint == nil && mode == .quick)
         let supportsStatefulRefresh = connector is any IncrementalMusicSourceConnector
             || connector is any ResumableSnapshotMusicSourceConnector
-        if checkpoint?.permitsStatefulRefresh != false,
+        if activeCheckpoint?.permitsStatefulRefresh != false,
            mode != .deep,
            supportsStatefulRefresh,
            let state = workingState,
@@ -1208,7 +1514,7 @@ final class ScanService {
            ),
            !state.cursors.isEmpty
                 || (connector is any ResumableSnapshotMusicSourceConnector
-                    && (!state.index.isEmpty || checkpoint?.baiduSnapshotState != nil)) {
+                    && (!state.index.isEmpty || activeCheckpoint?.baiduSnapshotState != nil)) {
             var snapshotRestartCount = 0
             quickSyncLoop: while true {
                 do {
@@ -1226,20 +1532,23 @@ final class ScanService {
                         sourceManager: sourceManager,
                         rootIdentities: rootIdentities,
                         snapshotExecutionContext: snapshotExecutionContext,
-                        checkpoint: checkpoints[source.id] ?? checkpoint
+                        checkpoint: checkpoints[source.id] ?? activeCheckpoint
                     ) {
                         return
                     }
                     break quickSyncLoop
                 } catch let error where OperationCancellationPolicy.isCancellation(error) {
-                    if isCurrentScan(source.id, generation: generation) {
+                    if scanFenceIsValid() {
                         if connector is any ResumableSnapshotMusicSourceConnector {
                             try? await waitForCheckpointPersistence()
                         }
-                        recordScanInterruption(sourceID: source.id)
+                        if scanFenceIsValid() {
+                            recordScanInterruption(sourceID: source.id)
+                        }
                     }
                     return
                 } catch BaiduSnapshotExecutionError.snapshotRestartRequired(let telemetry) {
+                    guard scanFenceIsValid() else { return }
                     if let checkpoint = checkpoints[source.id] {
                         checkpoints[source.id] = checkpoint.restartingSnapshotTraversal(
                             telemetry: telemetry
@@ -1248,12 +1557,14 @@ final class ScanService {
                     do {
                         try await waitForCheckpointPersistence()
                     } catch {
+                        guard scanFenceIsValid() else { return }
                         recordScanFailure(
                             sourceID: source.id,
                             message: sourceManager.scanFailureMessage(for: error, source: source)
                         )
                         return
                     }
+                    guard scanFenceIsValid() else { return }
                     snapshotRestartCount += 1
                     guard snapshotRestartCount <= 2,
                           BaiduSnapshotExecutionPolicy.shouldContinueImmediately(
@@ -1271,13 +1582,31 @@ final class ScanService {
                     await Task.yield()
                     continue quickSyncLoop
                 } catch BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(let telemetry) {
-                    if var diagnosticState = syncStates[source.id] {
-                        diagnosticState.lastTelemetry = telemetry
-                        try? await persistSyncState(diagnosticState)
-                    }
+                    guard scanFenceIsValid() else { return }
                     do {
+                        if var diagnosticState = syncStates[source.id] {
+                            diagnosticState.lastTelemetry = telemetry
+                            try await persistSyncState(diagnosticState)
+                        }
+                        try checkScanCommitFence(
+                            sourceID: source.id,
+                            generation: generation,
+                            expectedScopeFingerprint: scopeFingerprint,
+                            expectedScopeDirectories: directories,
+                            sourceStore: sourceStore
+                        )
                         try await clearCheckpointAndWait(for: source.id)
+                        try checkScanCommitFence(
+                            sourceID: source.id,
+                            generation: generation,
+                            expectedScopeFingerprint: scopeFingerprint,
+                            expectedScopeDirectories: directories,
+                            sourceStore: sourceStore
+                        )
+                    } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                        return
                     } catch {
+                        guard isCurrentScan(source.id, generation: generation) else { return }
                         recordScanFailure(
                             sourceID: source.id,
                             message: sourceManager.scanFailureMessage(for: error, source: source)
@@ -1290,6 +1619,7 @@ final class ScanService {
                     )
                     return
                 } catch BaiduSnapshotExecutionError.budgetExhausted(_, let telemetry) {
+                    guard scanFenceIsValid() else { return }
                     if var checkpoint = checkpoints[source.id] {
                         checkpoint.baiduTelemetry = telemetry
                         checkpoint.updatedAt = Date()
@@ -1298,12 +1628,14 @@ final class ScanService {
                     do {
                         try await waitForCheckpointPersistence()
                     } catch {
+                        guard scanFenceIsValid() else { return }
                         recordScanFailure(
                             sourceID: source.id,
                             message: sourceManager.scanFailureMessage(for: error, source: source)
                         )
                         return
                     }
+                    guard scanFenceIsValid() else { return }
                     guard BaiduSnapshotExecutionPolicy.shouldContinueImmediately(
                         context: snapshotExecutionContext
                     ), canContinueBaiduSnapshot(
@@ -1320,6 +1652,7 @@ final class ScanService {
                     await Task.yield()
                     continue quickSyncLoop
                 } catch {
+                    guard scanFenceIsValid() else { return }
                     plog("⚠️ Quick sync failed for \(source.name); keeping committed cursor: \(error.localizedDescription)")
                     recordScanFailure(
                         sourceID: source.id,
@@ -1336,11 +1669,12 @@ final class ScanService {
                     deepRequiredState.requiresDeepScan = true
                     try await persistSyncState(deepRequiredState)
                 }
+                guard scanFenceIsValid() else { return }
                 try await clearCheckpointAndWait(for: source.id)
-                guard isCurrentScan(source.id, generation: generation) else { return }
+                guard scanFenceIsValid() else { return }
                 scanStates[source.id] = nil
             } catch {
-                guard isCurrentScan(source.id, generation: generation) else { return }
+                guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(for: error, source: source)
@@ -1354,8 +1688,9 @@ final class ScanService {
             // promotion so an explicit deep scan or an automatic deep fallback
             // cannot turn back into a provider quick sync after cold launch.
             try await promoteCheckpointToFullScanAndWait(for: source.id)
+            guard scanFenceIsValid() else { return }
         } catch {
-            guard isCurrentScan(source.id, generation: generation) else { return }
+            guard scanFenceIsValid() else { return }
             recordScanFailure(
                 sourceID: source.id,
                 message: sourceManager.scanFailureMessage(for: error, source: source)
@@ -1363,7 +1698,7 @@ final class ScanService {
             return
         }
 
-        var baselineCursors = checkpoint?.baselineCursors ?? [:]
+        var baselineCursors = activeCheckpoint?.baselineCursors ?? [:]
         if baselineCursors.isEmpty, supportsStatefulRefresh {
             do {
                 if let snapshot = connector as? any ResumableSnapshotMusicSourceConnector {
@@ -1375,10 +1710,23 @@ final class ScanService {
                         for: effectiveDirectories
                     )
                 }
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                return
             } catch {
                 // The full scan is still useful. Mark the state for another
                 // deep scan rather than claiming stateful refresh coverage.
                 plog("⚠️ Unable to capture synchronization baseline for \(source.name): \(error.localizedDescription)")
+            }
+            do {
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+            } catch {
+                return
             }
         }
         if !baselineCursors.isEmpty {
@@ -1387,8 +1735,9 @@ final class ScanService {
                     baselineCursors,
                     sourceID: source.id
                 )
+                guard scanFenceIsValid() else { return }
             } catch {
-                guard isCurrentScan(source.id, generation: generation) else { return }
+                guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(for: error, source: source)
@@ -1398,8 +1747,8 @@ final class ScanService {
         }
         let nextScanEpoch = (workingState?.scanEpoch ?? 0) + 1
         let resumableDirectoryState: SourceScanResumeState? = {
-            guard (checkpoint?.resolvedDirectories ?? directories) == effectiveDirectories,
-                  let state = checkpoint?.directoryState,
+            guard (activeCheckpoint?.resolvedDirectories ?? directories) == effectiveDirectories,
+                  let state = activeCheckpoint?.directoryState,
                   state.isUsable else { return nil }
             return state
         }()
@@ -1423,9 +1772,36 @@ final class ScanService {
             var lastFlushAt = Date()
             var lastProgressPublishedAt = Date.distantPast
             for try await update in stream {
-                try Task.checkCancellation()
-                try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
-                metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
+                if Self.requiresAutomaticServerCatalogResourceGate(source.type),
+                   Self.shouldDeferAutomaticServerCatalogWork(
+                    context: snapshotExecutionContext,
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                ) {
+                    try await waitForCheckpointPersistence()
+                    guard scanFenceIsValid() else { return }
+                    recordScanInterruption(
+                        sourceID: source.id,
+                        scannedCount: update.scannedCount,
+                        totalCount: update.totalCount
+                    )
+                    return
+                }
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                metadataInspectionHandler?(metadataInspectedSongIDs)
                 publishScanProgress(
                     sourceID: source.id,
                     scannedCount: update.scannedCount,
@@ -1489,9 +1865,15 @@ final class ScanService {
                 }
             }
 
-            try Task.checkCancellation()
-            try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
-            metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
+            let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+            try checkScanCommitFence(
+                sourceID: source.id,
+                generation: generation,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
+                sourceStore: sourceStore
+            )
+            metadataInspectionHandler?(metadataInspectedSongIDs)
             let scanIndex = await scanner.syncIndexSnapshot()
             let scanReconciliation = await scanner.syncReconciliationSnapshot()
             let candidateState = SourceSyncState(
@@ -1514,11 +1896,14 @@ final class ScanService {
                 sourceID: source.id,
                 generation: generation,
                 songs: lastSongs,
+                pruneMissingSongs: allowsAuthoritativeCatalogPrune,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
                 library: library,
                 sourceStore: sourceStore,
                 scraperService: scraperService,
                 sourceManager: sourceManager,
-                syncState: candidateState,
+                syncState: allowsAuthoritativeCatalogPrune ? candidateState : nil,
                 source: source
             )
         } catch let error where OperationCancellationPolicy.isCancellation(error) {
@@ -1529,7 +1914,7 @@ final class ScanService {
                 recordScanInterruption(sourceID: source.id)
             }
         } catch {
-            guard isCurrentScan(source.id, generation: generation) else { return }
+            guard scanFenceIsValid() else { return }
             if Self.isMissingConnectorRootError(error) {
                 // ConnectorScanner only lets a missing-path error escape for
                 // a selected root. Clear its durable resume intent so the UI
@@ -1539,6 +1924,7 @@ final class ScanService {
                 } catch {
                     plog("⛔ Unable to clear missing-root checkpoint for \(source.name): \(error.localizedDescription)")
                 }
+                guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(for: error, source: source)
@@ -1547,8 +1933,8 @@ final class ScanService {
                 return
             }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+            guard scanFenceIsValid() else { return }
             if trusted {
-                guard isCurrentScan(source.id, generation: generation) else { return }
                 // Retry scan after user trusted the domain
                 scanStates[source.id] = ScanState(isScanning: true)
                 await scanConnectorSource(
@@ -1566,12 +1952,586 @@ final class ScanService {
                 )
                 return
             }
+            guard scanFenceIsValid() else { return }
             recordScanFailure(
                 sourceID: source.id,
                 message: sourceManager.scanFailureMessage(for: error, source: source)
             )
             Self.notifyScanFailed(sourceName: source.name, error: error)
         }
+    }
+
+    /// Stages Navidrome's authoritative `search3` pages in the durable scan
+    /// checkpoint. The live library is changed only after the first page and
+    /// server revision still match at the terminal boundary.
+    private func scanPagedServerCatalog(
+        source: MusicSource,
+        generation: Int,
+        directories: [String],
+        connector: any ResumablePagedSongCatalogConnector,
+        stagingStore: PagedSongCatalogStagingStore,
+        existingSongs: [Song],
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?,
+        mode: SourceSyncMode,
+        snapshotExecutionContext: BaiduSnapshotExecutionContext,
+        scopeFingerprint: String,
+        identityScopeFingerprint: String,
+        checkpoint: ScanCheckpoint?
+    ) async -> Bool {
+        let catalogPath = directories.first ?? "/"
+        let existingByID = await Task.detached(priority: .utility) {
+            Dictionary(
+                existingSongs.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }.value
+        let pagedFenceIsValid: () -> Bool = {
+            do {
+                try self.checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
+        var resumeCheckpoint = checkpoint
+        var activeStageSessionID = checkpoint?.subsonicCatalogState?.stageSessionID
+        var snapshotRestartCount = 0
+
+        pagedSnapshotLoop: while snapshotRestartCount < 2 {
+            do {
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                if Self.shouldDeferAutomaticServerCatalogWork(
+                    context: snapshotExecutionContext,
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                ) {
+                    try await waitForCheckpointPersistence()
+                    guard pagedFenceIsValid() else { return true }
+                    recordScanInterruption(sourceID: source.id)
+                    return true
+                }
+
+                let initialRevision = try await connector.stableSongCatalogRevision()
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                let persistedState = resumeCheckpoint?.subsonicCatalogState
+                let storedSnapshot = try await Task.detached(priority: .utility) {
+                    try stagingStore.snapshot(sourceID: source.id)
+                }.value
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                let canResume: Bool = {
+                    guard let persistedState,
+                          let storedSnapshot,
+                          initialRevision?.isEmpty == false,
+                          persistedState.schemaVersion
+                            == SubsonicCatalogResumeState.currentSchemaVersion,
+                          persistedState.pageSize == SubsonicCatalogPagingPolicy.pageSize,
+                          persistedState.stageSessionID == storedSnapshot.stageSessionID,
+                          persistedState.catalogRevision == initialRevision,
+                          storedSnapshot.scopeFingerprint == scopeFingerprint,
+                          storedSnapshot.catalogRevision == initialRevision,
+                          storedSnapshot.completedPageCount >= persistedState.completedPageCount,
+                          storedSnapshot.stagedSongCount >= persistedState.stagedSongCount,
+                          storedSnapshot.stagedItemCount >= (persistedState.stagedItemCount ?? 0),
+                          storedSnapshot.firstPageItemIDs == persistedState.firstPageItemIDs,
+                          resumeCheckpoint?.directoryState?.isUsable == true else {
+                        return false
+                    }
+                    return true
+                }()
+
+                var stageSnapshot: PagedSongCatalogStageSnapshot
+                if canResume, let storedSnapshot {
+                    let verificationPage = try await connector.songCatalogPage(
+                        from: catalogPath,
+                        offset: 0
+                    )
+                    let confirmedRevision = try await connector.stableSongCatalogRevision()
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    guard verificationPage.itemIDs == storedSnapshot.firstPageItemIDs,
+                          confirmedRevision == initialRevision else {
+                        throw PagedSongCatalogError.snapshotChangedDuringPagination
+                    }
+                    stageSnapshot = storedSnapshot
+                } else {
+                    try await resetPagedServerCatalogCheckpoint(
+                        sourceID: source.id,
+                        generation: generation,
+                        directories: directories,
+                        mode: mode,
+                        scopeFingerprint: scopeFingerprint,
+                        catalogRevision: initialRevision,
+                        replacingStageSessionID: storedSnapshot?.stageSessionID,
+                        stagingStore: stagingStore,
+                        sourceStore: sourceStore
+                    )
+                    resumeCheckpoint = checkpoints[source.id]
+                    let resetSnapshot = try await Task.detached(priority: .utility) {
+                        try stagingStore.snapshot(sourceID: source.id)
+                    }.value
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    guard let resetSnapshot else {
+                        throw PagedSongCatalogStagingError.missingStage
+                    }
+                    stageSnapshot = resetSnapshot
+                }
+                activeStageSessionID = stageSnapshot.stageSessionID
+
+                var lastProgressPublishedAt = Date.distantPast
+                var terminalProbeOffset = stageSnapshot.nextOffset == nil
+                    ? stageSnapshot.stagedItemCount
+                    : nil
+                while let offset = stageSnapshot.nextOffset {
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    if Self.shouldDeferAutomaticServerCatalogWork(
+                        context: snapshotExecutionContext,
+                        resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                    ) {
+                        try await waitForCheckpointPersistence()
+                        guard pagedFenceIsValid() else { return true }
+                        recordScanInterruption(
+                            sourceID: source.id,
+                            scannedCount: stageSnapshot.stagedSongCount
+                        )
+                        return true
+                    }
+
+                    let page = try await connector.songCatalogPage(
+                        from: catalogPath,
+                        offset: offset
+                    )
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    if offset == 0, page.itemIDs.isEmpty {
+                        // Empty-query search is not universally implemented.
+                        // The legacy album walk is the only compatible path
+                        // that can distinguish an unsupported empty query from
+                        // a genuinely empty library without pruning live data.
+                        throw PagedSongCatalogError.unavailable
+                    }
+                    guard page.itemIDs.count <= SubsonicCatalogPagingPolicy.pageSize else {
+                        throw PagedSongCatalogError.snapshotChangedDuringPagination
+                    }
+                    if let expectedNextOffset = page.nextOffset {
+                        guard page.itemIDs.count >= SubsonicCatalogPagingPolicy.pageSize,
+                              expectedNextOffset == offset + page.itemIDs.count else {
+                            throw PagedSongCatalogError.snapshotChangedDuringPagination
+                        }
+                    }
+                    guard SubsonicCatalogPagingPolicy.isWithinSongLimit(
+                        stageSnapshot.stagedItemCount + page.itemIDs.count
+                    ) else {
+                        throw SourceError.connectionFailed(
+                            "Subsonic song catalog exceeded the safety limit"
+                        )
+                    }
+
+                    let inspectedSongIDs = Set(page.songs.compactMap { scannedSong in
+                        scannedSong.titleMetadataInspected ? scannedSong.song.id : nil
+                    })
+                    let stagedPageSongs = page.songs.map { scannedSong -> Song in
+                        var incoming = scannedSong.song
+                        if let existing = existingByID[incoming.id] {
+                            incoming.dateAdded = existing.dateAdded
+                            incoming = ServerSongCatalogMergePolicy.merged(
+                                existing: existing,
+                                incoming: incoming
+                            )
+                        }
+                        return incoming
+                    }
+                    let hierarchyItems = page.songs.flatMap(\.providerHierarchyItems)
+                    let addedOnPage = stagedPageSongs.reduce(into: 0) { count, song in
+                        if existingByID[song.id] == nil { count += 1 }
+                    }
+                    let stageSessionID = stageSnapshot.stageSessionID
+                    let updatedStageSnapshot: PagedSongCatalogStageSnapshot
+                    do {
+                        updatedStageSnapshot = try await Task.detached(priority: .utility) {
+                            try stagingStore.stagePage(
+                                sourceID: source.id,
+                                stageSessionID: stageSessionID,
+                                scopeFingerprint: scopeFingerprint,
+                                catalogRevision: initialRevision,
+                                offset: offset,
+                                nextOffset: page.nextOffset,
+                                itemIDs: page.itemIDs,
+                                songs: stagedPageSongs,
+                                metadataInspectedSongIDs: inspectedSongIDs,
+                                hierarchyItems: hierarchyItems,
+                                addedSongCount: addedOnPage
+                            )
+                        }.value
+                    } catch is PagedSongCatalogStagingError {
+                        throw PagedSongCatalogError.snapshotChangedDuringPagination
+                    }
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    stageSnapshot = updatedStageSnapshot
+                    terminalProbeOffset = SubsonicCatalogPagingPolicy
+                        .terminalVerificationOffset(
+                            currentOffset: offset,
+                            receivedCount: page.itemIDs.count,
+                            nextOffset: page.nextOffset
+                        ) ?? terminalProbeOffset
+                    let nextState = SubsonicCatalogResumeState(
+                        stageSessionID: stageSnapshot.stageSessionID,
+                        catalogRevision: initialRevision,
+                        nextOffset: stageSnapshot.nextOffset,
+                        completedPageCount: stageSnapshot.completedPageCount,
+                        stagedSongCount: stageSnapshot.stagedSongCount,
+                        stagedItemCount: stageSnapshot.stagedItemCount,
+                        firstPageItemIDs: stageSnapshot.firstPageItemIDs
+                    )
+                    let directoryState = SourceScanResumeState(
+                        pendingDirectories: [],
+                        encounteredSongIDs: [],
+                        index: [:]
+                    )
+                    persistCheckpoint(
+                        sourceID: source.id,
+                        directories: directories,
+                        songs: [],
+                        totalCount: stageSnapshot.stagedSongCount,
+                        currentFile: page.songs.last?.displayName ?? "",
+                        directoryState: directoryState,
+                        subsonicCatalogState: nextState
+                    )
+                    publishScanProgress(
+                        sourceID: source.id,
+                        scannedCount: stageSnapshot.stagedSongCount,
+                        addedCount: stageSnapshot.addedSongCount,
+                        totalCount: 0,
+                        currentFile: page.songs.last?.displayName ?? "",
+                        lastPublishedAt: &lastProgressPublishedAt
+                    )
+                }
+
+                let finalRevisionBeforePage = try await connector.stableSongCatalogRevision()
+                if let terminalProbeOffset {
+                    let terminalProbe = try await connector.songCatalogPage(
+                        from: catalogPath,
+                        offset: terminalProbeOffset
+                    )
+                    guard terminalProbe.itemIDs.isEmpty,
+                          terminalProbe.songs.isEmpty else {
+                        // A short page is only authoritative when the next
+                        // offset is truly empty. This catches servers that
+                        // silently truncate search3 while keeping a stable
+                        // scan revision.
+                        throw PagedSongCatalogError.snapshotChangedDuringPagination
+                    }
+                }
+                let finalFirstPage = try await connector.songCatalogPage(
+                    from: catalogPath,
+                    offset: 0
+                )
+                let finalRevisionAfterPage = try await connector.stableSongCatalogRevision()
+                guard finalRevisionBeforePage == initialRevision,
+                      finalRevisionAfterPage == initialRevision,
+                      finalFirstPage.itemIDs == stageSnapshot.firstPageItemIDs else {
+                    throw PagedSongCatalogError.snapshotChangedDuringPagination
+                }
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                if Self.shouldDeferAutomaticServerCatalogWork(
+                    context: snapshotExecutionContext,
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                ) {
+                        try await waitForCheckpointPersistence()
+                        guard pagedFenceIsValid() else { return true }
+                        recordScanInterruption(
+                            sourceID: source.id,
+                            scannedCount: stageSnapshot.stagedSongCount
+                        )
+                        return true
+                    }
+
+                let liveSongsSnapshot = library.songs
+                let finalExistingByID = await Task.detached(priority: .utility) {
+                    Dictionary(
+                        liveSongsSnapshot.lazy
+                            .filter { $0.sourceID == source.id }
+                            .map { ($0.id, $0) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                }.value
+                let stagedCommit = try await Task.detached(priority: .utility) {
+                    let delta = try stagingStore.delta(
+                        sourceID: source.id,
+                        existingByID: finalExistingByID
+                    )
+                    let index = try stagingStore.loadHierarchyIndex(sourceID: source.id)
+                    return (delta, index)
+                }.value
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+
+                let previousState = syncStates[source.id]
+                let committedAt = Date()
+                let candidateState = SourceSyncState(
+                    sourceID: source.id,
+                    scopeFingerprint: scopeFingerprint,
+                    identityScopeFingerprint: identityScopeFingerprint,
+                    index: stagedCommit.1,
+                    scanEpoch: (previousState?.scanEpoch ?? 0) + 1,
+                    lastFullScanAt: committedAt,
+                    lastSuccessfulSyncAt: committedAt,
+                    identityAliases: previousState?.identityAliases ?? [:],
+                    rootIdentities: previousState?.rootIdentities ?? []
+                )
+                try await completeScan(
+                    sourceID: source.id,
+                    generation: generation,
+                    songs: stagedCommit.0.upserts,
+                    authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
+                    pruneMissingSongs: SubsonicCatalogPagingPolicy
+                        .authorizesMissingSongDeletion,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    library: library,
+                    sourceStore: sourceStore,
+                    scraperService: scraperService,
+                    sourceManager: sourceManager,
+                    syncState: candidateState,
+                    source: source
+                )
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                if !stagedCommit.0.metadataInspectedSongIDs.isEmpty {
+                    metadataInspectionHandler?(stagedCommit.0.metadataInspectedSongIDs)
+                }
+                try? await Task.detached(priority: .utility) {
+                    try stagingStore.discard(
+                        sourceID: source.id,
+                        stageSessionID: stageSnapshot.stageSessionID
+                    )
+                }.value
+                return true
+            } catch PagedSongCatalogError.unavailable {
+                guard pagedFenceIsValid() else { return true }
+                do {
+                    if let activeStageSessionID {
+                        try await Task.detached(priority: .utility) {
+                            try stagingStore.discard(
+                                sourceID: source.id,
+                                stageSessionID: activeStageSessionID
+                            )
+                        }.value
+                        guard pagedFenceIsValid() else { return true }
+                    }
+                    try await resetPagedServerCatalogCheckpoint(
+                        sourceID: source.id,
+                        generation: generation,
+                        directories: directories,
+                        mode: mode,
+                        scopeFingerprint: scopeFingerprint,
+                        catalogRevision: nil,
+                        replacingStageSessionID: nil,
+                        stagingStore: nil,
+                        sourceStore: sourceStore
+                    )
+                } catch {
+                    guard !OperationCancellationPolicy.isCancellation(error),
+                          pagedFenceIsValid() else {
+                        return true
+                    }
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return true
+                }
+                return pagedFenceIsValid() ? false : true
+            } catch PagedSongCatalogError.snapshotChangedDuringPagination {
+                guard pagedFenceIsValid() else { return true }
+                snapshotRestartCount += 1
+                do {
+                    try await resetPagedServerCatalogCheckpoint(
+                        sourceID: source.id,
+                        generation: generation,
+                        directories: directories,
+                        mode: mode,
+                        scopeFingerprint: scopeFingerprint,
+                        catalogRevision: nil,
+                        replacingStageSessionID: activeStageSessionID,
+                        stagingStore: stagingStore,
+                        sourceStore: sourceStore
+                    )
+                    guard pagedFenceIsValid() else { return true }
+                    resumeCheckpoint = checkpoints[source.id]
+                    activeStageSessionID = nil
+                } catch {
+                    guard !OperationCancellationPolicy.isCancellation(error),
+                          pagedFenceIsValid() else {
+                        return true
+                    }
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return true
+                }
+                guard pagedFenceIsValid() else { return true }
+                guard snapshotRestartCount < 2 else {
+                    let error = SourceError.connectionFailed(
+                        "Navidrome catalog changed during pagination"
+                    )
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return true
+                }
+                await Task.yield()
+                continue pagedSnapshotLoop
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                if pagedFenceIsValid() {
+                    try? await waitForCheckpointPersistence()
+                    if pagedFenceIsValid() {
+                        recordScanInterruption(
+                            sourceID: source.id,
+                            scannedCount: 0
+                        )
+                    }
+                }
+                return true
+            } catch {
+                guard pagedFenceIsValid() else { return true }
+                try? await waitForCheckpointPersistence()
+                guard pagedFenceIsValid() else { return true }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source),
+                    scannedCount: 0
+                )
+                Self.notifyScanFailed(sourceName: source.name, error: error)
+                return true
+            }
+        }
+        return true
+    }
+
+    private func resetPagedServerCatalogCheckpoint(
+        sourceID: String,
+        generation: Int,
+        directories: [String],
+        mode: SourceSyncMode,
+        scopeFingerprint: String,
+        catalogRevision: String?,
+        replacingStageSessionID: String?,
+        stagingStore: PagedSongCatalogStagingStore?,
+        sourceStore: SourcesStore
+    ) async throws {
+        try checkScanCommitFence(
+            sourceID: sourceID,
+            generation: generation,
+            expectedScopeFingerprint: scopeFingerprint,
+            expectedScopeDirectories: directories,
+            sourceStore: sourceStore
+        )
+        if let stagingStore {
+            let nextSessionID = UUID().uuidString
+            try await Task.detached(priority: .utility) {
+                try stagingStore.reset(
+                    sourceID: sourceID,
+                    stageSessionID: nextSessionID,
+                    ownerGeneration: generation,
+                    replacingStageSessionID: replacingStageSessionID,
+                    scopeFingerprint: scopeFingerprint,
+                    catalogRevision: catalogRevision
+                )
+            }.value
+        }
+        try checkScanCommitFence(
+            sourceID: sourceID,
+            generation: generation,
+            expectedScopeFingerprint: scopeFingerprint,
+            expectedScopeDirectories: directories,
+            sourceStore: sourceStore
+        )
+        checkpoints[sourceID] = ScanCheckpointPreparationPolicy.preparingCheckpoint(
+            existing: nil,
+            directories: normalizedDirectories(directories),
+            mode: mode,
+            scopeFingerprint: scopeFingerprint
+        )
+        try await waitForCheckpointPersistence()
+        try checkScanCommitFence(
+            sourceID: sourceID,
+            generation: generation,
+            expectedScopeFingerprint: scopeFingerprint,
+            expectedScopeDirectories: directories,
+            sourceStore: sourceStore
+        )
     }
 
     /// Build & post the "scan failed" error notification. Only the
@@ -1778,6 +2738,11 @@ final class ScanService {
             sourceID: source.id,
             generation: generation,
             songs: result.songs,
+            expectedScopeFingerprint: Self.scopeFingerprint(
+                for: source,
+                directories: directories
+            ),
+            expectedScopeDirectories: directories,
             library: library,
             sourceStore: sourceStore,
             scraperService: scraperService,
@@ -1792,6 +2757,10 @@ final class ScanService {
         sourceID: String,
         generation: Int,
         songs: [Song],
+        authoritativeSongIDs: Set<String>? = nil,
+        pruneMissingSongs: Bool = true,
+        expectedScopeFingerprint: String? = nil,
+        expectedScopeDirectories: [String] = [],
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
@@ -1802,17 +2771,57 @@ final class ScanService {
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
         }
+        if let expectedScopeFingerprint {
+            try checkSourceScope(
+                sourceID: sourceID,
+                directories: expectedScopeDirectories,
+                scopeFingerprint: expectedScopeFingerprint,
+                sourceStore: sourceStore
+            )
+        }
+        var catalogSongs = songs
         let commitsCatalogSnapshot: Bool
-        if source?.type == .navidrome {
+        if let authoritativeSongIDs, source?.type == .navidrome {
+            let librarySongsSnapshot = library.songs
+            let existingIDs = await Task.detached(priority: .utility) {
+                Set(
+                    librarySongsSnapshot.lazy
+                        .filter { $0.sourceID == sourceID }
+                        .map(\.id)
+                )
+            }.value
+            commitsCatalogSnapshot = !songs.isEmpty || existingIDs != authoritativeSongIDs
+        } else if source?.type == .navidrome {
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
-            commitsCatalogSnapshot = await Task.detached(priority: .utility) {
-                SourceCatalogSnapshotPolicy.hasChanges(
+            let prepared = await Task.detached(priority: .utility) {
+                let merged = ServerSongCatalogMergePolicy.mergedSnapshot(
                     existing: existingSongs,
                     candidate: songs
                 )
+                return (
+                    merged,
+                    SourceCatalogSnapshotPolicy.hasChanges(
+                        existing: existingSongs,
+                        candidate: merged
+                    )
+                )
             }.value
+            catalogSongs = prepared.0
+            commitsCatalogSnapshot = prepared.1
         } else {
             commitsCatalogSnapshot = true
+        }
+        try Task.checkCancellation()
+        guard isCurrentScan(sourceID, generation: generation) else {
+            throw CancellationError()
+        }
+        if let expectedScopeFingerprint {
+            try checkSourceScope(
+                sourceID: sourceID,
+                directories: expectedScopeDirectories,
+                scopeFingerprint: expectedScopeFingerprint,
+                sourceStore: sourceStore
+            )
         }
 
         // #64's artwork topology has its own deterministic equality guard.
@@ -1828,20 +2837,38 @@ final class ScanService {
             )
         }
         if commitsCatalogSnapshot {
-            library.addSongs(songs, affectedSourceIDs: Set([sourceID]))
-            guard case .success = await library.persistIncrementalNowAndWait() else {
-                throw SourceError.connectionFailed("Unable to persist the music library")
-            }
+            library.addSongs(
+                catalogSongs,
+                affectedSourceIDs: Set([sourceID]),
+                pruneMissingSongs: pruneMissingSongs,
+                authoritativeIncomingIDs: authoritativeSongIDs,
+                mergeServerCatalogRows: source?.type == .navidrome
+            )
         }
-        guard isCurrentScan(sourceID, generation: generation) else {
-            throw CancellationError()
+        // A previous attempt may have updated live memory but failed both its
+        // incremental song-store write and full recovery. Its retry can now be
+        // a catalogue no-op, yet must still flush the pending durable state
+        // before the checkpoint is cleared.
+        guard case .success = await library.persistIncrementalNowAndWait() else {
+            throw SourceError.connectionFailed("Unable to persist the music library")
         }
+        try checkScanCommitFence(
+            sourceID: sourceID,
+            generation: generation,
+            expectedScopeFingerprint: expectedScopeFingerprint,
+            expectedScopeDirectories: expectedScopeDirectories,
+            sourceStore: sourceStore
+        )
         if let syncState {
             try await persistSyncState(syncState)
         }
-        guard isCurrentScan(sourceID, generation: generation) else {
-            throw CancellationError()
-        }
+        try checkScanCommitFence(
+            sourceID: sourceID,
+            generation: generation,
+            expectedScopeFingerprint: expectedScopeFingerprint,
+            expectedScopeDirectories: expectedScopeDirectories,
+            sourceStore: sourceStore
+        )
         // Use the post-tombstone count from the library, not the raw scan
         // count — otherwise a deleted-then-rescanned song shows as still
         // present in the source card while the library actually filters it.
@@ -1851,7 +2878,7 @@ final class ScanService {
             $0.lastScannedAt = Date()
         }
         if commitsCatalogSnapshot {
-            scraperService?.enqueueBackgroundEnrichment(for: songs, in: library)
+            scraperService?.enqueueBackgroundEnrichment(for: catalogSongs, in: library)
         }
         // 注意: 这里不做整库 prewarm。之前会一首歌拉 1MB head + 256KB tail,
         // 818 首 ~ 1GB 后台流量, 大部分歌用户根本不会听。删掉, 让 prewarm
@@ -1863,9 +2890,13 @@ final class ScanService {
         // always 0 since we removed Phase 1 counting) and the UI would
         // show "click to resume scan" on a finished source.
         try await clearCheckpointAndWait(for: sourceID)
-        guard isCurrentScan(sourceID, generation: generation) else {
-            throw CancellationError()
-        }
+        try checkScanCommitFence(
+            sourceID: sourceID,
+            generation: generation,
+            expectedScopeFingerprint: expectedScopeFingerprint,
+            expectedScopeDirectories: expectedScopeDirectories,
+            sourceStore: sourceStore
+        )
         scanStates[sourceID] = Self.completedScanState(
             reconciliation: syncState?.reconciliation
         )
@@ -1879,13 +2910,49 @@ final class ScanService {
         // persistIncrementalNowAndWait), serverItemID → Song.id 的索引才是完整的;
         // 而且这一步的网络往返不会推迟"扫描完成"在 UI 上的呈现。
         if let source, let sourceManager, source.type.isServerLibrary {
+            let applyFence: ServerMirrorApplyFence = {
+                do {
+                    try self.checkScanCommitFence(
+                        sourceID: sourceID,
+                        generation: generation,
+                        expectedScopeFingerprint: expectedScopeFingerprint,
+                        expectedScopeDirectories: expectedScopeDirectories,
+                        sourceStore: sourceStore
+                    )
+                    return true
+                } catch {
+                    return false
+                }
+            }
             await ServerPlaylistSyncService.sync(
                 source: source,
                 sourceManager: sourceManager,
-                library: library
+                library: library,
+                applyFence: applyFence
             )
-            await serverFavoriteSyncHandler?(source)
-            await serverRadioSyncHandler?(source)
+            try checkScanCommitFence(
+                sourceID: sourceID,
+                generation: generation,
+                expectedScopeFingerprint: expectedScopeFingerprint,
+                expectedScopeDirectories: expectedScopeDirectories,
+                sourceStore: sourceStore
+            )
+            await serverFavoriteSyncHandler?(source, applyFence)
+            try checkScanCommitFence(
+                sourceID: sourceID,
+                generation: generation,
+                expectedScopeFingerprint: expectedScopeFingerprint,
+                expectedScopeDirectories: expectedScopeDirectories,
+                sourceStore: sourceStore
+            )
+            await serverRadioSyncHandler?(source, applyFence)
+            try checkScanCommitFence(
+                sourceID: sourceID,
+                generation: generation,
+                expectedScopeFingerprint: expectedScopeFingerprint,
+                expectedScopeDirectories: expectedScopeDirectories,
+                sourceStore: sourceStore
+            )
         }
         publishSuccessfulScanLifecycle(
             sourceID: sourceID,
@@ -2035,27 +3102,32 @@ final class ScanService {
     }
 
     private func persistSyncState(_ state: SourceSyncState) async throws {
-        var snapshot = syncStates
-        snapshot[state.sourceID] = state
-        let url = syncStateURL
-        let succeeded = await Task.detached(priority: .utility) {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            do {
-                let data = try encoder.encode(snapshot)
-                try data.write(to: url, options: .atomic)
-                return true
-            } catch {
-                plog("⛔ Source sync state persistence failed: \(error.localizedDescription)")
-                return false
-            }
-        }.value
-        guard succeeded else {
-            throw SourceError.connectionFailed("Unable to persist source sync state")
+        let sourceID = state.sourceID
+        let mutationEpoch = syncStateMutationEpochs[sourceID, default: 0]
+        guard let receipt = try await syncStateStore.upsert(
+            state,
+            expectedMutationEpoch: mutationEpoch
+        ) else {
+            throw CancellationError()
         }
-        syncStates = snapshot
-        folderHierarchyRevision &+= 1
+        guard syncStateMutationEpochs[sourceID, default: 0] == mutationEpoch,
+              receipt.sourceRevision > syncStateAppliedRevisions[sourceID, default: 0] else {
+            throw CancellationError()
+        }
+
+        let previousState = syncStates[sourceID]
+        let changesFolderHierarchy = previousState == nil
+            || previousState?.scopeFingerprint != state.scopeFingerprint
+            || previousState?.identityScopeFingerprint != state.identityScopeFingerprint
+            || previousState?.index != state.index
+            || previousState?.identityAliases != state.identityAliases
+            || previousState?.rootIdentities != state.rootIdentities
+            || previousState?.reconciliation != state.reconciliation
+        syncStateAppliedRevisions[sourceID] = receipt.sourceRevision
+        syncStates[sourceID] = state
+        if changesFolderHierarchy {
+            folderHierarchyRevision &+= 1
+        }
     }
 
     private func persistBaiduSnapshotProgress(
@@ -2097,7 +3169,8 @@ final class ScanService {
         currentFile: String,
         directoryState: SourceScanResumeState? = nil,
         baselineCursors: [String: String]? = nil,
-        resolvedDirectories: [String]? = nil
+        resolvedDirectories: [String]? = nil,
+        subsonicCatalogState: SubsonicCatalogResumeState? = nil
     ) {
         let existing = checkpoints[sourceID]
         checkpoints[sourceID] = ScanCheckpoint(
@@ -2114,10 +3187,11 @@ final class ScanService {
             baselineCursors: baselineCursors ?? existing?.baselineCursors,
             baiduSnapshotState: existing?.baiduSnapshotState,
             baiduTelemetry: existing?.baiduTelemetry,
+            subsonicCatalogState: subsonicCatalogState ?? existing?.subsonicCatalogState,
             automaticResumeFailureCount: 0,
             automaticResumeAfter: nil
         )
-        persistCheckpoints()
+        persistCheckpoints(force: subsonicCatalogState != nil)
     }
 
     @discardableResult
@@ -2223,36 +3297,74 @@ final class ScanService {
         SynologyScanner.deduplicateDirectories(directories).sorted()
     }
 
-    private nonisolated static func scopeFingerprint(
+    nonisolated static func scopeFingerprint(
         for source: MusicSource,
         directories: [String]
     ) -> String {
-        var components = [
-            source.type.rawValue,
-            source.cloudAccountID ?? "",
-            source.connectionConfiguration != nil && source.type.supportsEndpointSpecificPath
-                ? ""
-                : (source.basePath ?? ""),
-            source.shareName ?? "",
-            source.exportPath ?? "",
-            directories.sorted().joined(separator: "\u{1F}"),
-        ]
-        if let configuration = source.connectionConfiguration {
-            for endpoint in [configuration.localEndpoint, configuration.publicEndpoint] {
-                let normalized = endpoint?.normalized
-                components.append(normalized?.host.lowercased() ?? "")
-                components.append(normalized?.port.description ?? "")
-                components.append(normalized?.useSsl == true ? "tls" : "plain")
-                components.append(normalized?.pathPrefix ?? "")
-            }
-            components.append(configuration.vendorIdentifier?.lowercased() ?? "")
-        } else {
-            components.append(source.host?.lowercased() ?? "")
-            components.append(source.port.map(String.init) ?? "")
-            components.append(source.useSsl ? "tls" : "plain")
-        }
-        let digest = SHA256.hash(data: Data(components.joined(separator: "\u{1E}").utf8))
+        let identity = MusicSourceScopeFingerprint.make(
+            for: source,
+            directories: directories
+        )
+        // SourcesStore persists ISO-8601 timestamps at whole-second precision.
+        // Canonicalize to that same representation so a cold launch does not
+        // discard a valid checkpoint solely because Date lost sub-seconds.
+        let sourceRevision = Int64(source.modifiedAt.timeIntervalSince1970.rounded(.down))
+        let securityRevision = MusicSourceSecurityRevision.revision(for: source.id)
+        let digest = SHA256.hash(
+            data: Data("\(identity)\u{1E}\(sourceRevision)\u{1E}\(securityRevision)".utf8)
+        )
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static func shouldDeferAutomaticServerCatalogWork(
+        context: BaiduSnapshotExecutionContext,
+        resourcesAllowWork: Bool
+    ) -> Bool {
+        context != .userInitiatedForeground && !resourcesAllowWork
+    }
+
+    nonisolated static func requiresAutomaticServerCatalogResourceGate(
+        _ sourceType: MusicSourceType
+    ) -> Bool {
+        sourceType.isServerLibrary || sourceType == .upnp || sourceType == .synology
+    }
+
+    private func checkSourceScope(
+        sourceID: String,
+        directories: [String],
+        scopeFingerprint: String,
+        sourceStore: SourcesStore
+    ) throws {
+        guard let currentSource = sourceStore.source(id: sourceID),
+              currentSource.isEnabled,
+              !currentSource.isDeleted,
+              Self.scopeFingerprint(
+                for: currentSource,
+                directories: normalizedDirectories(directories)
+              ) == scopeFingerprint else {
+            throw CancellationError()
+        }
+    }
+
+    private func checkScanCommitFence(
+        sourceID: String,
+        generation: Int,
+        expectedScopeFingerprint: String?,
+        expectedScopeDirectories: [String],
+        sourceStore: SourcesStore
+    ) throws {
+        try Task.checkCancellation()
+        guard isCurrentScan(sourceID, generation: generation) else {
+            throw CancellationError()
+        }
+        if let expectedScopeFingerprint {
+            try checkSourceScope(
+                sourceID: sourceID,
+                directories: expectedScopeDirectories,
+                scopeFingerprint: expectedScopeFingerprint,
+                sourceStore: sourceStore
+            )
+        }
     }
 
     /// Builds the conservative bridge for libraries created before Baidu

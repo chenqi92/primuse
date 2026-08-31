@@ -49,6 +49,185 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
         XCTAssertTrue(library.isLiked(songID: local.id))
     }
 
+    func testStaleRefreshCannotOverwriteMutationCompletedWhileFetchIsInFlight() async {
+        let source = makeSource(type: .navidrome)
+        let song = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
+        let manager = BlockingRefreshFavoriteManager()
+        let library = FavoriteLibraryFake(songs: [song])
+        let service = makeService(source: source, manager: manager, library: library)
+
+        let refreshTask = Task { @MainActor in
+            await service.refresh(source: source)
+        }
+        await manager.waitForRefresh()
+
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+        await service.waitForPendingMutations(sourceID: source.id)
+        XCTAssertTrue(library.isLiked(songID: song.id))
+
+        manager.releaseRefresh()
+        await refreshTask.value
+
+        XCTAssertTrue(library.isLiked(songID: song.id))
+    }
+
+    func testAccountSwitchPreservesQueuedNewScopeStateAndBookkeeping() async {
+        let accountA = makeSource(type: .navidrome, username: "account-a")
+        var accountB = accountA
+        accountB.username = "account-b"
+        let song = makeSong(sourceID: accountA.id, path: "/songs/song-1.flac")
+        let manager = ControlledFavoriteManager()
+        let library = FavoriteLibraryFake(songs: [song])
+        let sources = FavoriteSourcesFake(sources: [accountA])
+        let service = makeService(
+            source: accountA,
+            manager: manager,
+            library: library,
+            sourcesStore: sources
+        )
+
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+        await manager.waitForWrite(1)
+
+        sources.replace(accountB)
+        library.setLocalLiked(song.id, false)
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+
+        manager.releaseWrite(1)
+        await manager.waitForWrite(2)
+
+        XCTAssertTrue(library.isLiked(songID: song.id))
+        XCTAssertEqual(manager.setCalls.map(\.sourceUsername), ["account-a", "account-b"])
+
+        manager.releaseWrite(2)
+        await service.waitForPendingMutations(sourceID: accountA.id)
+
+        XCTAssertTrue(library.isLiked(songID: song.id))
+        XCTAssertTrue(library.errorMessages.isEmpty)
+    }
+
+    func testOldScopeResponseDoesNotRollbackNewAccountState() async {
+        let accountA = makeSource(type: .navidrome, username: "account-a")
+        var accountB = accountA
+        accountB.username = "account-b"
+        let song = makeSong(sourceID: accountA.id, path: "/songs/song-1.flac")
+        let manager = ControlledFavoriteManager()
+        let library = FavoriteLibraryFake(songs: [song])
+        let sources = FavoriteSourcesFake(sources: [accountA])
+        let service = makeService(
+            source: accountA,
+            manager: manager,
+            library: library,
+            sourcesStore: sources
+        )
+
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+        await manager.waitForWrite(1)
+
+        sources.replace(accountB)
+        library.setLocalLiked(song.id, true)
+        manager.releaseWrite(1)
+        await service.waitForPendingMutations(sourceID: accountA.id)
+
+        XCTAssertTrue(library.isLiked(songID: song.id))
+        XCTAssertEqual(manager.setCalls.map(\.sourceUsername), ["account-a"])
+        XCTAssertTrue(library.errorMessages.isEmpty)
+    }
+
+    func testCancelledOldScopeMutationDoesNotRollbackNewAccountState() async {
+        let accountA = makeSource(type: .navidrome, username: "account-a")
+        var accountB = accountA
+        accountB.username = "account-b"
+        let song = makeSong(sourceID: accountA.id, path: "/songs/song-1.flac")
+        let manager = ControlledFavoriteManager()
+        manager.cancelledWriteOrdinals = [1]
+        let library = FavoriteLibraryFake(songs: [song])
+        let sources = FavoriteSourcesFake(sources: [accountA])
+        let service = makeService(
+            source: accountA,
+            manager: manager,
+            library: library,
+            sourcesStore: sources
+        )
+
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+        await manager.waitForWrite(1)
+
+        sources.replace(accountB)
+        library.setLocalLiked(song.id, true)
+        manager.releaseWrite(1)
+        await service.waitForPendingMutations(sourceID: accountA.id)
+
+        XCTAssertTrue(library.isLiked(songID: song.id))
+        XCTAssertTrue(library.errorMessages.isEmpty)
+    }
+
+    func testRecoveryReadsCapturedAccountAndDoesNotApplyAfterAccountSwitch() async {
+        let accountA = makeSource(type: .navidrome, username: "account-a")
+        var accountB = accountA
+        accountB.username = "account-b"
+        let song = makeSong(sourceID: accountA.id, path: "/songs/song-1.flac")
+        let manager = ControlledFavoriteManager()
+        manager.failedWriteOrdinals = [1]
+        manager.blocksFetches = true
+        let library = FavoriteLibraryFake(songs: [song])
+        let sources = FavoriteSourcesFake(sources: [accountA])
+        let service = makeService(
+            source: accountA,
+            manager: manager,
+            library: library,
+            sourcesStore: sources
+        )
+
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+        await manager.waitForWrite(1)
+        manager.releaseWrite(1)
+        await manager.waitForFetch(1)
+
+        XCTAssertEqual(manager.fetchForSources.map(\.username), ["account-a"])
+        XCTAssertEqual(manager.fetchBySourceIDCount, 0)
+
+        sources.replace(accountB)
+        library.setLocalLiked(song.id, true)
+        manager.releaseFetch(1)
+        await service.waitForPendingMutations(sourceID: accountA.id)
+
+        XCTAssertTrue(library.isLiked(songID: song.id))
+        XCTAssertTrue(library.errorMessages.isEmpty)
+    }
+
+    func testRefreshIsSkippedWhileMutationIsInFlight() async {
+        let source = makeSource(type: .navidrome, username: "account-a")
+        let song = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
+        let manager = ControlledFavoriteManager()
+        let library = FavoriteLibraryFake(songs: [song])
+        let sources = FavoriteSourcesFake(sources: [source])
+        let service = makeService(
+            source: source,
+            manager: manager,
+            library: library,
+            sourcesStore: sources
+        )
+
+        library.setLocalLiked(song.id, true)
+        service.localLikedStateDidChange(song: song, previous: false, desired: true)
+        await manager.waitForWrite(1)
+
+        await service.refresh(source: source)
+
+        XCTAssertTrue(manager.fetchForSources.isEmpty)
+        XCTAssertEqual(manager.fetchBySourceIDCount, 0)
+
+        manager.releaseWrite(1)
+        await service.waitForPendingMutations(sourceID: source.id)
+    }
+
     func testSupportedSourceMatrixPreservesEmbyAndExcludesEveryOtherSource() async {
         for sourceType in MusicSourceType.allCases {
             let source = makeSource(type: sourceType)
@@ -119,7 +298,8 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
 
         XCTAssertTrue(library.isLiked(songID: song.id))
         XCTAssertTrue(library.errorMessages.isEmpty)
-        XCTAssertEqual(manager.fetchBySourceIDCount, 1)
+        XCTAssertEqual(manager.fetchForSourceCount, 1)
+        XCTAssertEqual(manager.fetchBySourceIDCount, 0)
     }
 
     func testOfflineTimeoutAuthenticationAndRemovedSourceFailuresRollbackClearly() async {
@@ -189,11 +369,12 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
     private func makeService(
         source: MusicSource,
         manager: any ServerFavoriteManaging,
-        library: FavoriteLibraryFake
+        library: FavoriteLibraryFake,
+        sourcesStore: FavoriteSourcesFake? = nil
     ) -> ServerFavoriteSyncService {
         ServerFavoriteSyncService(
             sourceManager: manager,
-            sourcesStore: FavoriteSourcesFake(sources: [source]),
+            sourcesStore: sourcesStore ?? FavoriteSourcesFake(sources: [source]),
             library: library,
             player: FavoritePublisherFake()
         )
@@ -202,13 +383,15 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
     private func makeSource(
         id: String = UUID().uuidString,
         type: MusicSourceType,
-        isDeleted: Bool = false
+        isDeleted: Bool = false,
+        username: String? = nil
     ) -> MusicSource {
         MusicSource(
             id: id,
             name: "QA",
             type: type,
             host: "127.0.0.1",
+            username: username,
             isDeleted: isDeleted,
             deletedAt: isDeleted ? Date() : nil
         )
@@ -242,9 +425,11 @@ private final class FavoriteManagerFake: ServerFavoriteManaging {
     var setError: Error?
     var fetchError: Error?
     private(set) var setCalls: [SetCall] = []
+    private(set) var fetchForSourceCount = 0
     private(set) var fetchBySourceIDCount = 0
 
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
+        fetchForSourceCount += 1
         if let fetchError { throw fetchError }
         return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
     }
@@ -255,7 +440,11 @@ private final class FavoriteManagerFake: ServerFavoriteManaging {
         return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
     }
 
-    func setServerFavorite(for song: Song, isFavorite: Bool) async throws -> ServerFavoriteSnapshot? {
+    func setServerFavorite(
+        for song: Song,
+        source: MusicSource,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot? {
         let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) ?? ""
         setCalls.append(SetCall(itemID: itemID, desired: isFavorite))
         if let setError { throw setError }
@@ -301,7 +490,11 @@ private final class BlockingFavoriteManager: ServerFavoriteManaging {
         throw FavoriteTestError.rejected
     }
 
-    func setServerFavorite(for song: Song, isFavorite: Bool) async throws -> ServerFavoriteSnapshot? {
+    func setServerFavorite(
+        for song: Song,
+        source: MusicSource,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot? {
         setCalls.append(isFavorite)
         if setCalls.count == 1 {
             firstWriteStarted = true
@@ -320,8 +513,166 @@ private final class BlockingFavoriteManager: ServerFavoriteManaging {
 }
 
 @MainActor
+private final class BlockingRefreshFavoriteManager: ServerFavoriteManaging {
+    private var refreshStarted = false
+    private var refreshStartWaiter: CheckedContinuation<Void, Never>?
+    private var refreshRelease: CheckedContinuation<Void, Never>?
+    private var serverItemIDs = Set<String>()
+
+    func waitForRefresh() async {
+        if refreshStarted { return }
+        await withCheckedContinuation { continuation in
+            refreshStartWaiter = continuation
+        }
+    }
+
+    func releaseRefresh() {
+        refreshRelease?.resume()
+        refreshRelease = nil
+    }
+
+    func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
+        let staleSnapshot = ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+        refreshStarted = true
+        refreshStartWaiter?.resume()
+        refreshStartWaiter = nil
+        await withCheckedContinuation { continuation in
+            refreshRelease = continuation
+        }
+        return staleSnapshot
+    }
+
+    func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot? {
+        ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+    }
+
+    func setServerFavorite(
+        for song: Song,
+        source: MusicSource,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot? {
+        let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) ?? ""
+        if isFavorite {
+            serverItemIDs.insert(itemID)
+        } else {
+            serverItemIDs.remove(itemID)
+        }
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+    }
+}
+
+@MainActor
+private final class ControlledFavoriteManager: ServerFavoriteManaging {
+    struct SetCall {
+        let itemID: String
+        let sourceUsername: String?
+        let desired: Bool
+    }
+
+    var failedWriteOrdinals = Set<Int>()
+    var cancelledWriteOrdinals = Set<Int>()
+    var blocksFetches = false
+    private(set) var setCalls: [SetCall] = []
+    private(set) var fetchForSources: [MusicSource] = []
+    private(set) var fetchBySourceIDCount = 0
+
+    private var serverItemIDs = Set<String>()
+    private var startedWrites = Set<Int>()
+    private var releasedWrites = Set<Int>()
+    private var writeStartWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var writeReleaseWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var startedFetches = Set<Int>()
+    private var releasedFetches = Set<Int>()
+    private var fetchStartWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var fetchReleaseWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    func waitForWrite(_ ordinal: Int) async {
+        guard !startedWrites.contains(ordinal) else { return }
+        await withCheckedContinuation { continuation in
+            if startedWrites.contains(ordinal) {
+                continuation.resume()
+            } else {
+                writeStartWaiters[ordinal] = continuation
+            }
+        }
+    }
+
+    func releaseWrite(_ ordinal: Int) {
+        releasedWrites.insert(ordinal)
+        writeReleaseWaiters.removeValue(forKey: ordinal)?.resume()
+    }
+
+    func waitForFetch(_ ordinal: Int) async {
+        guard !startedFetches.contains(ordinal) else { return }
+        await withCheckedContinuation { continuation in
+            if startedFetches.contains(ordinal) {
+                continuation.resume()
+            } else {
+                fetchStartWaiters[ordinal] = continuation
+            }
+        }
+    }
+
+    func releaseFetch(_ ordinal: Int) {
+        releasedFetches.insert(ordinal)
+        fetchReleaseWaiters.removeValue(forKey: ordinal)?.resume()
+    }
+
+    func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
+        fetchForSources.append(source)
+        let ordinal = fetchForSources.count
+        startedFetches.insert(ordinal)
+        fetchStartWaiters.removeValue(forKey: ordinal)?.resume()
+        if blocksFetches, !releasedFetches.contains(ordinal) {
+            await withCheckedContinuation { continuation in
+                fetchReleaseWaiters[ordinal] = continuation
+            }
+        }
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+    }
+
+    func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot? {
+        fetchBySourceIDCount += 1
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+    }
+
+    func setServerFavorite(
+        for song: Song,
+        source: MusicSource,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot? {
+        let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) ?? ""
+        setCalls.append(SetCall(
+            itemID: itemID,
+            sourceUsername: source.username,
+            desired: isFavorite
+        ))
+        let ordinal = setCalls.count
+        startedWrites.insert(ordinal)
+        writeStartWaiters.removeValue(forKey: ordinal)?.resume()
+        if !releasedWrites.contains(ordinal) {
+            await withCheckedContinuation { continuation in
+                writeReleaseWaiters[ordinal] = continuation
+            }
+        }
+        if cancelledWriteOrdinals.contains(ordinal) {
+            throw CancellationError()
+        }
+        if failedWriteOrdinals.contains(ordinal) {
+            throw FavoriteTestError.rejected
+        }
+        if isFavorite {
+            serverItemIDs.insert(itemID)
+        } else {
+            serverItemIDs.remove(itemID)
+        }
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+    }
+}
+
+@MainActor
 private final class FavoriteSourcesFake: ServerFavoriteSourcesProviding {
-    private let sourcesByID: [String: MusicSource]
+    private var sourcesByID: [String: MusicSource]
 
     init(sources: [MusicSource]) {
         sourcesByID = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0) })
@@ -329,6 +680,10 @@ private final class FavoriteSourcesFake: ServerFavoriteSourcesProviding {
 
     func source(id: String) -> MusicSource? {
         sourcesByID[id]
+    }
+
+    func replace(_ source: MusicSource) {
+        sourcesByID[source.id] = source
     }
 }
 

@@ -443,12 +443,14 @@ enum ServerRadioSyncService {
     static func sync(
         source: MusicSource,
         sourceManager: SourceManager,
-        store: RadioStationsStore
+        store: RadioStationsStore,
+        applyFence: ServerMirrorApplyFence = { true }
     ) async -> ServerRadioSyncResult {
         do {
             guard let snapshot = try await sourceManager.fetchServerRadioStations(for: source) else {
                 return ServerRadioSyncResult()
             }
+            guard applyFence() else { return ServerRadioSyncResult() }
             let result = store.reconcileServerStations(source: source, snapshot: snapshot)
             plog(
                 "📻 Server radio '\(source.name)' synchronized "
