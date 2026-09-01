@@ -193,57 +193,38 @@ enum CloudPlaybackSource {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
         let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
 
-        // Same-session seek: AudioPlayerService.seek (.cloudStream / .httpStream
-        // 分支) rebuilds the InputSource while an earlier State for the same
-        // .partial is still registered (seek 不走 finalizeSession)。Adopt that
-        // State's in-memory cachedRanges so the bytes already fetched this
-        // session survive the rebuild — otherwise the else-branch below would
-        // wipe the .partial and force a re-download from byte 0. Close the old
-        // State first so two States never write the same file concurrently.
-        // Claim and replace the writer atomically before inspecting, deleting,
-        // or recreating the sparse file. Initial path mutations below run under
-        // the same ownership lock used by writes, so concurrent rebuilds have a
-        // single linear order and a stale initializer cannot delete a newer
-        // owner's file.
-        guard let ownership = replacePathOwnerAndTakeState(
+        // Same-session seek rebuilds the InputSource while an earlier State for
+        // the same sparse path may still be registered. Serialize ownership
+        // replacement, the old State snapshot, and initial file inspection on
+        // the path coordinator. This preserves every completed old-owner write
+        // without keeping the global registry locked across disk I/O.
+        guard let state = replacePathOwnerAndRegisterState(
             sourceID: sourceID,
             streamEpoch: streamEpoch,
-            partialPath: partialURL.path
-        ) else { return nil }
-        let pathWriterToken = ownership.writerToken
-        var ownershipTransferredToState = false
-        defer {
-            if !ownershipTransferredToState {
-                releasePathOwnership(
-                    partialPath: partialURL.path,
-                    writerToken: pathWriterToken
-                )
-            }
-        }
-
-        let inheritedRanges = ownership.priorState?.closeForRebuild() ?? []
-        guard let initialRanges = withCurrentWriteOwnership(
-            sourceID: sourceID,
-            epoch: streamEpoch,
             partialPath: partialURL.path,
-            writerToken: pathWriterToken,
-            {
-                var ranges: [Range<Int64>] = []
+            makeState: { pathWriterToken, priorState in
+                let inheritedRanges: [Range<Int64>]
+                if let priorState {
+                    let canInherit = priorState.sourceID == sourceID
+                        && priorState.streamEpoch == streamEpoch
+                        && priorState.totalLength == totalLength
+                    let priorRanges = priorState.closeForRebuild()
+                    inheritedRanges = canInherit ? priorRanges : []
+                } else {
+                    inheritedRanges = []
+                }
+                var initialRanges: [Range<Int64>] = []
                 var handledByActiveState = false
-                // Validate against the current file: the prior State only ever
-                // wrote into `partialURL`. Clamp to totalLength defensively.
                 let trusted = inheritedRanges.filter {
                     $0.lowerBound >= 0 && $0.upperBound <= totalLength
                 }
                 if FileManager.default.fileExists(atPath: partialURL.path),
                    !trusted.isEmpty {
-                    ranges = trusted
+                    initialRanges = trusted
                     try? FileManager.default.removeItem(at: markerURL)
                     handledByActiveState = true
                 }
 
-                // Only trust .partial bytes when the prewarm marker JSON is
-                // valid and the sparse file covers all listed ranges.
                 if handledByActiveState {
                     // Reusing live bytes from the prior session.
                 } else if let marker = PrewarmMarker.read(from: markerURL),
@@ -255,7 +236,7 @@ enum CloudPlaybackSource {
                           let maxEnd = marker.swiftRanges.map(\.upperBound).max(),
                           size >= maxEnd,
                           maxEnd <= totalLength {
-                    ranges = marker.swiftRanges
+                    initialRanges = marker.swiftRanges
                     try? FileManager.default.removeItem(at: markerURL)
                 } else {
                     try? FileManager.default.removeItem(at: markerURL)
@@ -265,32 +246,26 @@ enum CloudPlaybackSource {
                         contents: nil
                     )
                 }
-                return ranges
+
+                plog("☁️ makeInputSource '\(label)' totalLength=\(totalLength) initialRanges=\(initialRanges.map { "[\($0.lowerBound)..\($0.upperBound))" }.joined(separator: ","))")
+
+                return State(
+                    label: label,
+                    sourceID: sourceID,
+                    streamEpoch: streamEpoch,
+                    pathWriterToken: pathWriterToken,
+                    partialURL: partialURL,
+                    finalURL: cacheURL,
+                    totalLength: totalLength,
+                    initialRanges: initialRanges,
+                    persistOnComplete: persistOnComplete,
+                    cacheRelativePath: cacheRelativePath,
+                    prefetchAhead: prefetchAhead,
+                    allowsTrailingFill: allowsTrailingFill,
+                    connectorFetch: connectorFetch
+                )
             }
         ) else { return nil }
-
-        plog("☁️ makeInputSource '\(label)' totalLength=\(totalLength) initialRanges=\(initialRanges.map { "[\($0.lowerBound)..\($0.upperBound))" }.joined(separator: ","))")
-
-        let state = State(
-            label: label,
-            sourceID: sourceID,
-            streamEpoch: streamEpoch,
-            pathWriterToken: pathWriterToken,
-            partialURL: partialURL,
-            finalURL: cacheURL,
-            totalLength: totalLength,
-            initialRanges: initialRanges,
-            persistOnComplete: persistOnComplete,
-            cacheRelativePath: cacheRelativePath,
-            prefetchAhead: prefetchAhead,
-            allowsTrailingFill: allowsTrailingFill,
-            connectorFetch: connectorFetch
-        )
-        guard registerActiveState(state, key: partialURL.path) else {
-            _ = state.closeForRebuild()
-            return nil
-        }
-        ownershipTransferredToState = true
 
         let block: CloudInputFetchBlock = { offset, length, errorOut in
             return state.serve(offset: offset, length: length, errorOut: errorOut)
@@ -323,15 +298,82 @@ enum CloudPlaybackSource {
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var activeStates: [String: State] = [:]
     nonisolated(unsafe) private static var streamEpochsBySourceID: [String: UInt64] = [:]
-    nonisolated(unsafe) private static var pathWriterTokens: [String: UUID] = [:]
+    private struct PathWriterOwnership {
+        let sourceID: String
+        let streamEpoch: UInt64
+        let writerToken: UUID
+    }
+    nonisolated(unsafe) private static var pathWriterOwnerships: [String: PathWriterOwnership] = [:]
+
+    /// File mutations are serialized per sparse path. The registry only owns
+    /// coordinator lifecycle and ownership metadata; it is never held during
+    /// file I/O. `reservationCount` is guarded by `registryLock`.
+    private final class PathMutationCoordinator: @unchecked Sendable {
+        let lock = NSLock()
+        var reservationCount = 0
+    }
+    private struct PathMutationReservation {
+        let partialPath: String
+        let coordinator: PathMutationCoordinator
+    }
+    nonisolated(unsafe) private static var pathMutationCoordinators: [String: PathMutationCoordinator] = [:]
+
     private struct FinalizingTaskRecord {
         let sourceID: String
         let streamEpoch: UInt64
         let partialPath: String
         let writerToken: UUID
+        let disablePersistence: @Sendable () -> Void
         let task: Task<Void, Never>
     }
     nonisolated(unsafe) private static var finalizingTasks: [UUID: FinalizingTaskRecord] = [:]
+
+    private static func reservePathMutation(
+        partialPath: String
+    ) -> PathMutationReservation {
+        registryLock.lock()
+        let coordinator: PathMutationCoordinator
+        if let existing = pathMutationCoordinators[partialPath] {
+            coordinator = existing
+        } else {
+            coordinator = PathMutationCoordinator()
+            pathMutationCoordinators[partialPath] = coordinator
+        }
+        coordinator.reservationCount += 1
+        registryLock.unlock()
+        return PathMutationReservation(
+            partialPath: partialPath,
+            coordinator: coordinator
+        )
+    }
+
+    private static func releasePathMutation(
+        _ reservation: PathMutationReservation
+    ) {
+        registryLock.lock()
+        reservation.coordinator.reservationCount -= 1
+        if reservation.coordinator.reservationCount == 0,
+           pathWriterOwnerships[reservation.partialPath] == nil,
+           pathMutationCoordinators[reservation.partialPath] === reservation.coordinator {
+            pathMutationCoordinators[reservation.partialPath] = nil
+        }
+        registryLock.unlock()
+    }
+
+    private static func ownershipIsCurrentLocked(
+        sourceID: String,
+        streamEpoch: UInt64,
+        partialPath: String,
+        writerToken: UUID
+    ) -> Bool {
+        guard (streamEpochsBySourceID[sourceID] ?? 0) == streamEpoch,
+              let ownership = pathWriterOwnerships[partialPath] else {
+            return false
+        }
+        return ownership.sourceID == sourceID
+            && ownership.streamEpoch == streamEpoch
+            && ownership.writerToken == writerToken
+    }
 
     private static func currentStreamEpoch(sourceID: String) -> UInt64 {
         registryLock.lock()
@@ -353,57 +395,76 @@ enum CloudPlaybackSource {
         isCurrentStreamEpoch(sourceID: sourceID, epoch: ticket)
     }
 
-    private static func registerActiveState(_ state: State, key: String) -> Bool {
-        registryLock.lock()
-        guard (streamEpochsBySourceID[state.sourceID] ?? 0) == state.streamEpoch,
-              pathWriterTokens[key] == state.pathWriterToken else {
-            registryLock.unlock()
-            return false
-        }
-        activeStates[key] = state
-        registryLock.unlock()
-        return true
-    }
-
-    private static func takeActiveState(key: String) -> State? {
+    private static func activeState(key: String) -> State? {
         registryLock.lock()
         defer { registryLock.unlock() }
-        return activeStates.removeValue(forKey: key)
+        return activeStates[key]
     }
 
-    private struct PathOwnershipClaim {
-        let writerToken: UUID
-        let priorState: State?
-    }
-
-    private static func replacePathOwnerAndTakeState(
+    private static func replacePathOwnerAndRegisterState(
         sourceID: String,
         streamEpoch: UInt64,
-        partialPath: String
-    ) -> PathOwnershipClaim? {
+        partialPath: String,
+        makeState: (_ writerToken: UUID, _ priorState: State?) -> State
+    ) -> State? {
+        let reservation = reservePathMutation(partialPath: partialPath)
+        reservation.coordinator.lock.lock()
+        defer {
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
+        }
+
         registryLock.lock()
-        defer { registryLock.unlock() }
         guard (streamEpochsBySourceID[sourceID] ?? 0) == streamEpoch else {
+            registryLock.unlock()
             return nil
         }
         let token = UUID()
         let priorState = activeStates.removeValue(forKey: partialPath)
-        pathWriterTokens[partialPath] = token
-        return PathOwnershipClaim(
-            writerToken: token,
-            priorState: priorState
+        let staleFills = finalizingTasks.filter {
+            $0.value.partialPath == partialPath
+        }
+        for id in staleFills.keys {
+            finalizingTasks[id] = nil
+        }
+        pathWriterOwnerships[partialPath] = PathWriterOwnership(
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            writerToken: token
         )
-    }
+        registryLock.unlock()
 
-    private static func releasePathOwnership(
-        partialPath: String,
-        writerToken: UUID
-    ) {
+        // A quick replay of the same path must not leave the previous fill in
+        // activeSessionPaths or let it race the new owner's sparse file.
+        staleFills.values.forEach { $0.task.cancel() }
+        let state = makeState(token, priorState)
+
         registryLock.lock()
-        if pathWriterTokens[partialPath] == writerToken {
-            pathWriterTokens[partialPath] = nil
+        let canRegister = ownershipIsCurrentLocked(
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            partialPath: partialPath,
+            writerToken: token
+        )
+        if canRegister {
+            activeStates[partialPath] = state
+        } else if pathWriterOwnerships[partialPath]?.writerToken == token {
+            pathWriterOwnerships[partialPath] = nil
         }
         registryLock.unlock()
+
+        guard canRegister else {
+            _ = state.closeForRebuild()
+            // The path lock prevents a newer owner from being initialized
+            // underneath this cleanup. A cancelled initializer must not leave
+            // bytes that a later epoch could mistake for a trusted partial.
+            try? FileManager.default.removeItem(atPath: partialPath)
+            try? FileManager.default.removeItem(
+                atPath: partialPath + prewarmMarkerSuffix
+            )
+            return nil
+        }
+        return state
     }
 
     fileprivate static func withCurrentWriteOwnership<T>(
@@ -413,29 +474,68 @@ enum CloudPlaybackSource {
         writerToken: UUID,
         _ operation: () throws -> T
     ) rethrows -> T? {
-        registryLock.lock()
-        guard (streamEpochsBySourceID[sourceID] ?? 0) == epoch,
-              pathWriterTokens[partialPath] == writerToken else {
-            registryLock.unlock()
-            return nil
+        let reservation = reservePathMutation(partialPath: partialPath)
+        reservation.coordinator.lock.lock()
+        defer {
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
         }
-        defer { registryLock.unlock() }
+
+        registryLock.lock()
+        let isCurrent = ownershipIsCurrentLocked(
+            sourceID: sourceID,
+            streamEpoch: epoch,
+            partialPath: partialPath,
+            writerToken: writerToken
+        )
+        registryLock.unlock()
+        guard isCurrent else { return nil }
         return try operation()
     }
 
     private static func finishTrackedTrailingFill(id: UUID) {
         registryLock.lock()
-        finalizingTasks[id] = nil
+        let record = finalizingTasks[id]
         registryLock.unlock()
+        guard let record else { return }
+
+        let reservation = reservePathMutation(partialPath: record.partialPath)
+        reservation.coordinator.lock.lock()
+        registryLock.lock()
+        if let current = finalizingTasks[id],
+           current.writerToken == record.writerToken,
+           current.partialPath == record.partialPath {
+            finalizingTasks[id] = nil
+            let activeOwner = activeStates[record.partialPath]
+            if activeOwner?.pathWriterToken != record.writerToken,
+               pathWriterOwnerships[record.partialPath]?.writerToken == record.writerToken {
+                pathWriterOwnerships[record.partialPath] = nil
+            }
+        }
+        registryLock.unlock()
+        reservation.coordinator.lock.unlock()
+        releasePathMutation(reservation)
     }
 
-    fileprivate static func makeTrackedTrailingFillTask(
+    fileprivate struct PreparedTrailingFill {
+        let id: UUID
+        let sourceID: String
+        let streamEpoch: UInt64
+        let partialPath: String
+        let writerToken: UUID
+        let disablePersistence: @Sendable () -> Void
+        let startGate: StreamingTaskStartGate
+        let task: Task<Void, Never>
+    }
+
+    fileprivate static func prepareTrackedTrailingFillTask(
         sourceID: String,
         streamEpoch: UInt64,
         partialPath: String,
         writerToken: UUID,
+        disablePersistence: @escaping @Sendable () -> Void,
         operation: @escaping @Sendable () async -> Void
-    ) -> Task<Void, Never> {
+    ) -> PreparedTrailingFill {
         let id = UUID()
         let startGate = StreamingTaskStartGate()
         let task = Task {
@@ -445,17 +545,43 @@ enum CloudPlaybackSource {
             }
             finishTrackedTrailingFill(id: id)
         }
-        registryLock.lock()
-        finalizingTasks[id] = FinalizingTaskRecord(
+        return PreparedTrailingFill(
+            id: id,
             sourceID: sourceID,
             streamEpoch: streamEpoch,
             partialPath: partialPath,
             writerToken: writerToken,
+            disablePersistence: disablePersistence,
+            startGate: startGate,
             task: task
         )
+    }
+
+    fileprivate static func registerPreparedTrailingFill(
+        _ prepared: PreparedTrailingFill
+    ) {
+        registryLock.lock()
+        let canRegister = ownershipIsCurrentLocked(
+            sourceID: prepared.sourceID,
+            streamEpoch: prepared.streamEpoch,
+            partialPath: prepared.partialPath,
+            writerToken: prepared.writerToken
+        )
+        if canRegister {
+            finalizingTasks[prepared.id] = FinalizingTaskRecord(
+                sourceID: prepared.sourceID,
+                streamEpoch: prepared.streamEpoch,
+                partialPath: prepared.partialPath,
+                writerToken: prepared.writerToken,
+                disablePersistence: prepared.disablePersistence,
+                task: prepared.task
+            )
+        }
         registryLock.unlock()
-        startGate.open()
-        return task
+        if !canRegister {
+            prepared.task.cancel()
+        }
+        prepared.startGate.open()
     }
 
     /// AudioPlayerService 在切歌 / 停止时调, 主动结束对应的 streaming session:
@@ -467,24 +593,38 @@ enum CloudPlaybackSource {
     /// 能确定性地走完该走的路径。
     @discardableResult
     static func finalizeSession(partialPath: String) -> Task<Void, Never>? {
-        guard let state = takeActiveState(key: partialPath) else { return nil }
-        guard let fill = state.finalizeSession() else {
-            releasePathOwnership(
-                partialPath: partialPath,
-                writerToken: state.pathWriterToken
-            )
-            return nil
+        // Keep the State registered while it transitions to a tracked fill.
+        // Materialization and cache-policy changes can therefore always find
+        // either the live State or its registered trailing task; there is no
+        // owner-token-only window between those two registry states.
+        guard let state = activeState(key: partialPath) else { return nil }
+        let fill = state.finalizeSession()
+
+        let reservation = reservePathMutation(partialPath: partialPath)
+        reservation.coordinator.lock.lock()
+        registryLock.lock()
+        if activeStates[partialPath] === state {
+            activeStates[partialPath] = nil
         }
+        let hasTrackedFill = finalizingTasks.values.contains {
+            $0.partialPath == partialPath
+                && $0.writerToken == state.pathWriterToken
+        }
+        if !hasTrackedFill,
+           pathWriterOwnerships[partialPath]?.writerToken == state.pathWriterToken {
+            pathWriterOwnerships[partialPath] = nil
+        }
+        registryLock.unlock()
+        reservation.coordinator.lock.unlock()
+        releasePathMutation(reservation)
+
+        guard let fill else { return nil }
         return Task {
             await withTaskCancellationHandler {
                 await fill.value
             } onCancel: {
                 fill.cancel()
             }
-            releasePathOwnership(
-                partialPath: partialPath,
-                writerToken: state.pathWriterToken
-            )
         }
     }
 
@@ -498,14 +638,22 @@ enum CloudPlaybackSource {
         streamEpoch: UInt64,
         partialPath: String
     ) -> MaterializationRetirement? {
+        let reservation = reservePathMutation(partialPath: partialPath)
+        reservation.coordinator.lock.lock()
+        defer {
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
+        }
+
         registryLock.lock()
-        defer { registryLock.unlock() }
         guard (streamEpochsBySourceID[sourceID] ?? 0) == streamEpoch else {
+            registryLock.unlock()
             return nil
         }
         let state = activeStates[partialPath]
         guard state == nil
                 || (state?.sourceID == sourceID && state?.streamEpoch == streamEpoch) else {
+            registryLock.unlock()
             return nil
         }
         let allPathFills = finalizingTasks.filter {
@@ -513,33 +661,45 @@ enum CloudPlaybackSource {
         }
         guard allPathFills.values.allSatisfy({
             $0.sourceID == sourceID && $0.streamEpoch == streamEpoch
-        }) else { return nil }
+        }) else {
+            registryLock.unlock()
+            return nil
+        }
         let matchingFills = allPathFills
-        if let token = pathWriterTokens[partialPath] {
-            let stateOwnsToken = state?.pathWriterToken == token
+        if let ownership = pathWriterOwnerships[partialPath] {
+            guard ownership.sourceID == sourceID,
+                  ownership.streamEpoch == streamEpoch else {
+                registryLock.unlock()
+                return nil
+            }
+            let stateOwnsToken = state?.pathWriterToken == ownership.writerToken
             let fillOwnsToken = matchingFills.values.contains {
-                $0.writerToken == token
+                $0.writerToken == ownership.writerToken
             }
             // A token with no registered owner is an initializer currently
             // claiming the path. Do not delete underneath that newer owner.
-            guard stateOwnsToken || fillOwnsToken else { return nil }
+            guard stateOwnsToken || fillOwnsToken else {
+                registryLock.unlock()
+                return nil
+            }
         }
         activeStates[partialPath] = nil
         for id in matchingFills.keys {
             finalizingTasks[id] = nil
         }
-        if let token = pathWriterTokens[partialPath] {
-            let stateOwnsToken = state?.pathWriterToken == token
+        if let ownership = pathWriterOwnerships[partialPath] {
+            let stateOwnsToken = state?.pathWriterToken == ownership.writerToken
             let fillOwnsToken = matchingFills.values.contains {
-                $0.writerToken == token
+                $0.writerToken == ownership.writerToken
             }
             if stateOwnsToken || fillOwnsToken {
-                pathWriterTokens[partialPath] = nil
+                pathWriterOwnerships[partialPath] = nil
             }
         }
-        // Path ownership has been revoked while holding the same lock every
-        // writer must pass. Delete before reopening the registry so a newer
-        // epoch cannot claim the path and then lose its file to this caller.
+        registryLock.unlock()
+
+        // Ownership is revoked before deletion while the per-path coordinator
+        // excludes old writers and newer initializers.
         try? FileManager.default.removeItem(atPath: partialPath)
         try? FileManager.default.removeItem(
             atPath: partialPath + prewarmMarkerSuffix
@@ -583,11 +743,13 @@ enum CloudPlaybackSource {
     static func disablePersistenceForActiveSessions() {
         registryLock.lock()
         let states = Array(activeStates.values)
-        let fills = finalizingTasks.values.map(\.task)
-        finalizingTasks.removeAll()
+        let fills = Array(finalizingTasks.values)
         registryLock.unlock()
         states.forEach { $0.disablePersistence() }
-        fills.forEach { $0.cancel() }
+        fills.forEach {
+            $0.disablePersistence()
+            $0.task.cancel()
+        }
     }
 
     /// Retires every decoder session that still owns a connector from the
@@ -597,6 +759,7 @@ enum CloudPlaybackSource {
     static func cancelSessions(sourceID: String) {
         registryLock.lock()
         streamEpochsBySourceID[sourceID, default: 0] &+= 1
+        let currentEpoch = streamEpochsBySourceID[sourceID] ?? 0
         let matching = activeStates.filter { $0.value.sourceID == sourceID }
         for key in matching.keys {
             activeStates[key] = nil
@@ -605,17 +768,34 @@ enum CloudPlaybackSource {
         for id in matchingFills.keys {
             finalizingTasks[id] = nil
         }
-        for state in matching.values
-        where pathWriterTokens[state.partialURL.path] == state.pathWriterToken {
-            pathWriterTokens[state.partialURL.path] = nil
-        }
-        for record in matchingFills.values
-        where pathWriterTokens[record.partialPath] == record.writerToken {
-            pathWriterTokens[record.partialPath] = nil
-        }
+        let matchingPaths = Set(matching.values.map { $0.partialURL.path })
+            .union(matchingFills.values.map(\.partialPath))
+            .union(pathWriterOwnerships.compactMap { path, ownership in
+                ownership.sourceID == sourceID && ownership.streamEpoch < currentEpoch
+                    ? path
+                    : nil
+            })
         registryLock.unlock()
+
         matching.values.forEach { _ = $0.closeForRebuild() }
         matchingFills.values.forEach { $0.task.cancel() }
+
+        // Drain every mutation that passed validation before the epoch bump,
+        // then revoke only the old epoch owner. A concurrently-created owner
+        // in the new epoch remains valid and uses the same coordinator.
+        for path in matchingPaths {
+            let reservation = reservePathMutation(partialPath: path)
+            reservation.coordinator.lock.lock()
+            registryLock.lock()
+            if let ownership = pathWriterOwnerships[path],
+               ownership.sourceID == sourceID,
+               ownership.streamEpoch < currentEpoch {
+                pathWriterOwnerships[path] = nil
+            }
+            registryLock.unlock()
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
+        }
     }
 
     static func withCurrentStreamEpoch<T>(
@@ -644,11 +824,13 @@ enum CloudPlaybackSource {
     static func activeSessionPaths() -> Set<String> {
         registryLock.lock()
         defer { registryLock.unlock() }
-        return Set(activeStates.keys).union(finalizingTasks.values.map(\.partialPath))
+        return Set(activeStates.keys)
+            .union(finalizingTasks.values.map(\.partialPath))
+            .union(pathWriterOwnerships.keys)
     }
 }
 
-private final class StreamingTaskStartGate: @unchecked Sendable {
+fileprivate final class StreamingTaskStartGate: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
 
     func wait() {
@@ -749,6 +931,16 @@ private final class HTTPRangeFetcher: @unchecked Sendable {
 /// Per-source mutable state. Held by the fetch block via the closure
 /// capture; lives as long as the InputSource itself.
 private final class State: @unchecked Sendable {
+    private struct CacheWriteOutcome {
+        var preparedTrailingFill: CloudPlaybackSource.PreparedTrailingFill?
+        var renamedRelativePath: String?
+
+        static let noChange = CacheWriteOutcome(
+            preparedTrailingFill: nil,
+            renamedRelativePath: nil
+        )
+    }
+
     private let label: String
     fileprivate let sourceID: String
     fileprivate let streamEpoch: UInt64
@@ -759,7 +951,7 @@ private final class State: @unchecked Sendable {
     /// switches to `finalURL` after the atomic rename triggered when
     /// every byte has been fetched (only when `persistOnComplete` is on).
     private var activeURL: URL
-    private let totalLength: Int64
+    fileprivate let totalLength: Int64
     /// When false, fetched bytes stay at `partialURL` for the live session,
     /// are never promoted to the canonical cache path, and are discarded when
     /// playback ends — used when the user has Audio Cache disabled.
@@ -1304,7 +1496,13 @@ private final class State: @unchecked Sendable {
     fileprivate func disablePersistence() {
         lock.lock()
         persistOnComplete = false
+        let trailingFill = trailingFillTask
+        let shouldDiscard = finalizedForPlaybackEnd && activeURL == partialURL
         lock.unlock()
+        trailingFill?.cancel()
+        if shouldDiscard {
+            discardUnpersistedPartial()
+        }
     }
 
     /// 把 cacheHit 累计字段加锁更新成原子动作。serve 多入口都要计数, 抽出
@@ -1386,17 +1584,31 @@ private final class State: @unchecked Sendable {
     }
 
     private func writeToCache(offset: Int64, data: Data, allowClosedPromotion: Bool = false) {
-        _ = CloudPlaybackSource.withCurrentWriteOwnership(
+        guard let outcome = CloudPlaybackSource.withCurrentWriteOwnership(
             sourceID: sourceID,
             epoch: streamEpoch,
             partialPath: partialURL.path,
-            writerToken: pathWriterToken
-        ) {
-            writeToCacheInCurrentEpoch(
-                offset: offset,
-                data: data,
-                allowClosedPromotion: allowClosedPromotion
-            )
+            writerToken: pathWriterToken,
+            {
+                let outcome = writeToCacheInCurrentEpoch(
+                    offset: offset,
+                    data: data,
+                    allowClosedPromotion: allowClosedPromotion
+                )
+                // Keep the active-State → tracked-fill transition inside the
+                // same path transaction as the write that requested it. A
+                // concurrent finalize can then observe either the active
+                // State or the registered task, never a gate-only Prepared
+                // task whose writer token has already been retired.
+                if let prepared = outcome.preparedTrailingFill {
+                    CloudPlaybackSource.registerPreparedTrailingFill(prepared)
+                }
+                return outcome
+            }
+        ) else { return }
+
+        if let path = outcome.renamedRelativePath {
+            Task { await AudioCacheManager.shared.recordAccess(path: path) }
         }
     }
 
@@ -1404,19 +1616,21 @@ private final class State: @unchecked Sendable {
         offset: Int64,
         data: Data,
         allowClosedPromotion: Bool
-    ) {
+    ) -> CacheWriteOutcome {
         lock.lock()
         let url = activeURL
         lock.unlock()
 
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        guard let handle = try? FileHandle(forWritingTo: url) else {
+            return .noChange
+        }
         do {
             try handle.seek(toOffset: UInt64(offset))
             try handle.write(contentsOf: data)
             try? handle.close()
         } catch {
             try? handle.close()
-            return
+            return .noChange
         }
 
         lock.lock()
@@ -1429,7 +1643,7 @@ private final class State: @unchecked Sendable {
         // hit the SourceManager Priority-1 local-cache fast path.
         // When `persistOnComplete` is off (Audio Cache disabled), skip the
         // rename. `finalizeSession` discards the partial deterministically.
-        var renamedRelativePath: String?
+        var outcome = CacheWriteOutcome.noChange
         // A State retired by closeForRebuild() / finalizeSession() (`closed`)
         // no longer owns the .partial — a newer same-session seek State may
         // already be writing it. Never rename or schedule trailing fill from a
@@ -1446,7 +1660,7 @@ private final class State: @unchecked Sendable {
             do {
                 try FileManager.default.moveItem(at: partialURL, to: finalURL)
                 activeURL = finalURL
-                renamedRelativePath = cacheRelativePath
+                outcome.renamedRelativePath = cacheRelativePath
             } catch {
                 // Stay on partialURL — next play will re-stream from scratch.
             }
@@ -1470,7 +1684,9 @@ private final class State: @unchecked Sendable {
                (totalLength - firstUpper) < Self.autoFillThreshold {
                 let request = (offset: firstUpper, length: totalLength - firstUpper)
                 trailingFillScheduled = true
-                trailingFillTask = makeTrailingFillTask(request: request)
+                let prepared = prepareTrailingFillTask(request: request)
+                trailingFillTask = prepared.task
+                outcome.preparedTrailingFill = prepared
             } else if cachedRanges.count == 2,
                       cachedRanges[1].upperBound == totalLength,
                       (cachedRanges[1].lowerBound - firstUpper) < Self.autoFillThreshold {
@@ -1479,30 +1695,28 @@ private final class State: @unchecked Sendable {
                     length: cachedRanges[1].lowerBound - firstUpper
                 )
                 trailingFillScheduled = true
-                trailingFillTask = makeTrailingFillTask(request: request)
+                let prepared = prepareTrailingFillTask(request: request)
+                trailingFillTask = prepared.task
+                outcome.preparedTrailingFill = prepared
             }
         }
         lock.unlock()
-
-        // 完整下完 + rename 成功后给 LRU 打访问时间戳, 这样后续的
-        // evictIfNeeded 才知道这个文件最近被访问过, 不会优先把它淘汰。
-        // 之前 Range streaming 路径完全不通知 AudioCacheManager, 所以
-        // 2GB 上限对 NAS 全失效。
-        if let path = renamedRelativePath {
-            Task { await AudioCacheManager.shared.recordAccess(path: path) }
-        }
+        return outcome
     }
 
-    private func makeTrailingFillTask(
+    private func prepareTrailingFillTask(
         request: (offset: Int64, length: Int64)
-    ) -> Task<Void, Never> {
+    ) -> CloudPlaybackSource.PreparedTrailingFill {
         let fetch = connectorFetch
         let stateLabel = label
-        return CloudPlaybackSource.makeTrackedTrailingFillTask(
+        return CloudPlaybackSource.prepareTrackedTrailingFillTask(
             sourceID: sourceID,
             streamEpoch: streamEpoch,
             partialPath: partialURL.path,
-            writerToken: pathWriterToken
+            writerToken: pathWriterToken,
+            disablePersistence: { [self] in
+                disablePersistence()
+            }
         ) { [weak self, fetch, stateLabel] in
             guard let self else { return }
             do {
@@ -1582,6 +1796,7 @@ private final class State: @unchecked Sendable {
             return nil
         }
         var fillRequest: (offset: Int64, length: Int64)?
+        var preparedTrailingFill: CloudPlaybackSource.PreparedTrailingFill?
         let firstUpper = cachedRanges[0].upperBound
         if cachedRanges.count == 1,
            firstUpper < totalLength,
@@ -1595,10 +1810,16 @@ private final class State: @unchecked Sendable {
             trailingFillScheduled = true
         }
         if let fillRequest {
-            trailingFillTask = makeTrailingFillTask(request: fillRequest)
+            let prepared = prepareTrailingFillTask(request: fillRequest)
+            trailingFillTask = prepared.task
+            preparedTrailingFill = prepared
         }
         let task = trailingFillTask
         lock.unlock()
+
+        if let preparedTrailingFill {
+            CloudPlaybackSource.registerPreparedTrailingFill(preparedTrailingFill)
+        }
 
         guard let req = fillRequest else { return task }
         plog("☁️ finalizeSession '\(label)' fill missing range [\(req.offset)..\(req.offset + req.length)) (\(req.length / 1024)KB)")
@@ -1613,7 +1834,14 @@ private final class State: @unchecked Sendable {
         let ownsPartial = activeURL == partialURL
         lock.unlock()
         guard ownsPartial else { return }
-        try? FileManager.default.removeItem(at: partialURL)
+        _ = CloudPlaybackSource.withCurrentWriteOwnership(
+            sourceID: sourceID,
+            epoch: streamEpoch,
+            partialPath: partialURL.path,
+            writerToken: pathWriterToken
+        ) {
+            try? FileManager.default.removeItem(at: partialURL)
+        }
     }
 
     /// 同 session seek 时, makeInputSource 重建一个新 State 来替换本 State。
