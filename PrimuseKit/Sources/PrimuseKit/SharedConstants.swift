@@ -4636,6 +4636,25 @@ public enum PlaybackRequestGenerationPolicy {
     }
 }
 
+public enum PlaybackURLRequestPolicy {
+    public static func canBegin<RequestID: Equatable>(
+        requestID: RequestID,
+        activeRequestID: RequestID,
+        isCancelled: Bool,
+        requiresCurrentStreamEpoch: Bool,
+        streamEpochIsCurrent: Bool
+    ) -> Bool {
+        guard PlaybackRequestGenerationPolicy.shouldApplyResult(
+            requestID: requestID,
+            activeRequestID: activeRequestID,
+            isCancelled: isCancelled
+        ) else {
+            return false
+        }
+        return !requiresCurrentStreamEpoch || streamEpochIsCurrent
+    }
+}
+
 /// Keeps playback-owner transitions consistent without depending on any Apple
 /// framework types. A pending Apple Music request already owns the upcoming
 /// audio session even before its song has reached the shared now-playing UI.

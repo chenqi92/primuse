@@ -3945,6 +3945,23 @@ final class AudioPlayerService {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
         plog("▶️   URL: \(redactedURL(url))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
+        let isRemoteURL = url.scheme == "http" || url.scheme == "https"
+        let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
+        let requiresCurrentStreamEpoch = isRemoteURL || isCloudStream
+        let streamEpochIsCurrent = !requiresCurrentStreamEpoch
+            || CloudPlaybackSource.isStreamEpochTicketCurrent(
+                sourceID: song.sourceID,
+                ticket: sourceStreamEpoch
+            )
+        guard PlaybackURLRequestPolicy.canBegin(
+            requestID: id,
+            activeRequestID: playID,
+            isCancelled: Task.isCancelled,
+            requiresCurrentStreamEpoch: requiresCurrentStreamEpoch,
+            streamEpochIsCurrent: streamEpochIsCurrent
+        ) else {
+            return
+        }
         currentSong = song
         duration = song.duration.sanitizedDuration
         isLoading = true
@@ -3955,16 +3972,6 @@ final class AudioPlayerService {
         activeDecoderKind = .native
         var activeDSDMode: DSDPlaybackMode = .pcm
 
-        let isRemoteURL = url.scheme == "http" || url.scheme == "https"
-        let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
-        guard !isRemoteURL && !isCloudStream
-                || CloudPlaybackSource.isStreamEpochTicketCurrent(
-                    sourceID: song.sourceID,
-                    ticket: sourceStreamEpoch
-                ) else {
-            isLoading = false
-            return
-        }
         let remoteWAVProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
         if (isRemoteURL || isCloudStream), song.fileFormat == .wav {
             remoteWAVProbeOutcome = await probeRemoteWAVPayload(for: song)
@@ -4282,7 +4289,21 @@ final class AudioPlayerService {
                 // and its decoder task is cancelled before the replacement
                 // pipeline begins on the next MainActor turn.
                 Task { @MainActor [weak self] in
-                    await self?.playFromURL(
+                    guard let self,
+                          PlaybackURLRequestPolicy.canBegin(
+                            requestID: id,
+                            activeRequestID: self.playID,
+                            isCancelled: Task.isCancelled,
+                            requiresCurrentStreamEpoch: requiresCurrentStreamEpoch,
+                            streamEpochIsCurrent: !requiresCurrentStreamEpoch
+                                || CloudPlaybackSource.isStreamEpochTicketCurrent(
+                                    sourceID: song.sourceID,
+                                    ticket: sourceStreamEpoch
+                                )
+                          ) else {
+                        return
+                    }
+                    await self.playFromURL(
                         song: song,
                         url: url,
                         playID: id,
