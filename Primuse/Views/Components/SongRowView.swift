@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
 struct SongRowView: View {
     @Environment(SourceManager.self) private var sourceManager
@@ -254,6 +257,12 @@ struct SongRowView: View {
                 .accessibilityLabel("a11y_more_actions")
             }
         }
+        .songRowSwipeActions(
+            songID: song.id,
+            isEnabled: song.isPlayable && selection?.isActive != true,
+            onInsertNext: { player.insertNextInQueue([song]) },
+            onAppendToQueue: { player.appendToQueue([song]) }
+        )
         .contentShape(Rectangle())
         .task(id: song.id) {
             guard supportsOfflineAudioCache else { return }
@@ -675,6 +684,367 @@ struct SongRowView: View {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         duration.formattedDuration
+    }
+}
+
+#if os(iOS)
+private extension Notification.Name {
+    static let songRowSwipeDidOpen = Notification.Name("Primuse.songRowSwipeDidOpen")
+}
+
+private enum SongRowPanPhase {
+    case began
+    case changed
+    case ended
+    case cancelled
+}
+
+private struct SongRowPanEvent {
+    var phase: SongRowPanPhase
+    var translationX: CGFloat
+    var velocityX: CGFloat
+}
+
+private struct SongRowSwipeModifier: ViewModifier {
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let songID: String
+    let isEnabled: Bool
+    let onInsertNext: () -> Void
+    let onAppendToQueue: () -> Void
+
+    @State private var offset: CGFloat = 0
+    @State private var dragOriginOffset: CGFloat = 0
+    @State private var settledAction: SongRowSwipeAction?
+
+    private var isRightToLeft: Bool { layoutDirection == .rightToLeft }
+    private var revealWidth: CGFloat { CGFloat(SongRowSwipePolicy.revealWidth) }
+    private var visibleAction: SongRowSwipeAction? {
+        SongRowSwipePolicy.action(
+            forOffset: Double(offset),
+            isRightToLeft: isRightToLeft
+        )
+    }
+
+    func body(content: Content) -> some View {
+        ZStack {
+            actionLayer
+
+            content
+                .offset(x: offset)
+                .gesture(
+                    SongRowHorizontalPanGesture(
+                        isEnabled: isEnabled,
+                        isRightToLeft: isRightToLeft,
+                        onEvent: handlePan
+                    )
+                )
+        }
+        .clipped()
+        .onChange(of: songID) { _, _ in
+            close(animated: false)
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled {
+                close(animated: false)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .songRowSwipeDidOpen)) { notification in
+            guard let openedSongID = notification.object as? String,
+                  openedSongID != songID,
+                  settledAction != nil else { return }
+            close(animated: true)
+        }
+        .accessibilityAction(named: Text("insert_next")) {
+            guard isEnabled else { return }
+            perform(.insertNext)
+        }
+        .accessibilityAction(named: Text("add_to_queue")) {
+            guard isEnabled else { return }
+            perform(.appendToQueue)
+        }
+    }
+
+    @ViewBuilder
+    private var actionLayer: some View {
+        if let visibleAction {
+            let positiveOffset = offset > 0
+            actionButton(visibleAction, positiveOffset: positiveOffset)
+                .frame(width: revealWidth)
+                .frame(maxWidth: .infinity, alignment: physicalAlignment(positiveOffset: positiveOffset))
+                .mask(alignment: physicalAlignment(positiveOffset: positiveOffset)) {
+                    Rectangle()
+                        .frame(width: min(abs(offset), revealWidth))
+                }
+                .allowsHitTesting(
+                    settledAction == visibleAction
+                        && abs(offset) >= revealWidth - 1
+                )
+        }
+    }
+
+    private func actionButton(
+        _ action: SongRowSwipeAction,
+        positiveOffset: Bool
+    ) -> some View {
+        Button {
+            perform(action)
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: actionSystemImage(action))
+                    .font(.callout.weight(.semibold))
+                Text(verbatim: actionTitle(action))
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(actionTint(action), in: .rect(cornerRadius: 10))
+            .padding(.vertical, 4)
+            .padding(outerEdge(positiveOffset: positiveOffset), 4)
+            .padding(contentFacingEdge(positiveOffset: positiveOffset), 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: actionTitle(action)))
+    }
+
+    private func handlePan(_ event: SongRowPanEvent) {
+        guard isEnabled else { return }
+        switch event.phase {
+        case .began:
+            dragOriginOffset = offset
+        case .changed:
+            let proposed = dragOriginOffset + event.translationX
+            offset = CGFloat(SongRowSwipePolicy.interactiveOffset(Double(proposed)))
+        case .ended:
+            let proposed = dragOriginOffset + event.translationX
+            let action = SongRowSwipePolicy.settledAction(
+                offset: Double(proposed),
+                velocityX: Double(event.velocityX),
+                isRightToLeft: isRightToLeft
+            )
+            settle(on: action, animated: true)
+        case .cancelled:
+            settle(on: settledAction, animated: true)
+        }
+    }
+
+    private func settle(on action: SongRowSwipeAction?, animated: Bool) {
+        settledAction = action
+        let target = CGFloat(SongRowSwipePolicy.restingOffset(
+            for: action,
+            isRightToLeft: isRightToLeft
+        ))
+        let animation: Animation? = animated && !reduceMotion
+            ? .spring(response: 0.3, dampingFraction: 0.86)
+            : nil
+        withAnimation(animation) {
+            offset = target
+        }
+        if action != nil {
+            NotificationCenter.default.post(name: .songRowSwipeDidOpen, object: songID)
+        }
+    }
+
+    private func close(animated: Bool) {
+        settle(on: nil, animated: animated)
+    }
+
+    private func perform(_ action: SongRowSwipeAction) {
+        switch action {
+        case .insertNext:
+            onInsertNext()
+        case .appendToQueue:
+            onAppendToQueue()
+        }
+
+        let actionName = actionTitle(action)
+        let countMessage = String(format: String(localized: "new_songs_added"), 1)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "\(actionName), \(countMessage)"
+        )
+        close(animated: true)
+    }
+
+    private func physicalAlignment(positiveOffset: Bool) -> Alignment {
+        if positiveOffset {
+            return isRightToLeft ? .trailing : .leading
+        }
+        return isRightToLeft ? .leading : .trailing
+    }
+
+    private func outerEdge(positiveOffset: Bool) -> Edge.Set {
+        if positiveOffset {
+            return isRightToLeft ? .trailing : .leading
+        }
+        return isRightToLeft ? .leading : .trailing
+    }
+
+    private func contentFacingEdge(positiveOffset: Bool) -> Edge.Set {
+        if positiveOffset {
+            return isRightToLeft ? .leading : .trailing
+        }
+        return isRightToLeft ? .trailing : .leading
+    }
+
+    private func actionTitle(_ action: SongRowSwipeAction) -> String {
+        switch action {
+        case .insertNext: String(localized: "insert_next")
+        case .appendToQueue: String(localized: "add_to_queue")
+        }
+    }
+
+    private func actionSystemImage(_ action: SongRowSwipeAction) -> String {
+        switch action {
+        case .insertNext: "text.line.first.and.arrowtriangle.forward"
+        case .appendToQueue: "text.line.last.and.arrowtriangle.forward"
+        }
+    }
+
+    private func actionTint(_ action: SongRowSwipeAction) -> Color {
+        switch action {
+        case .insertNext: .accentColor
+        case .appendToQueue: .green
+        }
+    }
+}
+
+private struct SongRowHorizontalPanGesture: UIGestureRecognizerRepresentable {
+    let isEnabled: Bool
+    let isRightToLeft: Bool
+    let onEvent: (SongRowPanEvent) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator(isEnabled: isEnabled, isRightToLeft: isRightToLeft)
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.minimumNumberOfTouches = 1
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(
+        _ recognizer: UIPanGestureRecognizer,
+        context: Context
+    ) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.isRightToLeft = isRightToLeft
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(
+        _ recognizer: UIPanGestureRecognizer,
+        context: Context
+    ) {
+        guard let view = recognizer.view else { return }
+        let translation = recognizer.translation(in: view)
+        let velocity = recognizer.velocity(in: view)
+        let phase: SongRowPanPhase
+        switch recognizer.state {
+        case .began:
+            phase = .began
+        case .changed:
+            phase = .changed
+        case .ended:
+            phase = .ended
+        case .cancelled, .failed:
+            phase = .cancelled
+        default:
+            return
+        }
+        onEvent(SongRowPanEvent(
+            phase: phase,
+            translationX: translation.x,
+            velocityX: velocity.x
+        ))
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var isEnabled: Bool
+        var isRightToLeft: Bool
+
+        init(isEnabled: Bool, isRightToLeft: Bool) {
+            self.isEnabled = isEnabled
+            self.isRightToLeft = isRightToLeft
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard isEnabled,
+                  let recognizer = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = recognizer.view else { return false }
+            let translation = recognizer.translation(in: view)
+            let velocity = recognizer.velocity(in: view)
+            let location = recognizer.location(in: view)
+            let sample = SongRowSwipeSample(
+                translationX: Double(translation.x),
+                translationY: Double(translation.y),
+                velocityX: Double(velocity.x),
+                velocityY: Double(velocity.y),
+                startX: Double(location.x - translation.x),
+                containerWidth: Double(view.bounds.width),
+                isRightToLeft: isRightToLeft
+            )
+            return SongRowSwipePolicy.shouldBegin(sample)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            isScrollViewPan(otherGestureRecognizer)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            otherGestureRecognizer is UIScreenEdgePanGestureRecognizer
+        }
+
+        private func isScrollViewPan(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            var view = gestureRecognizer.view
+            while let current = view {
+                if let scrollView = current as? UIScrollView,
+                   gestureRecognizer === scrollView.panGestureRecognizer {
+                    return true
+                }
+                view = current.superview
+            }
+            return false
+        }
+    }
+}
+#endif
+
+private extension View {
+    @ViewBuilder
+    func songRowSwipeActions(
+        songID: String,
+        isEnabled: Bool,
+        onInsertNext: @escaping () -> Void,
+        onAppendToQueue: @escaping () -> Void
+    ) -> some View {
+        #if os(iOS)
+        modifier(SongRowSwipeModifier(
+            songID: songID,
+            isEnabled: isEnabled,
+            onInsertNext: onInsertNext,
+            onAppendToQueue: onAppendToQueue
+        ))
+        #else
+        self
+        #endif
     }
 }
 
