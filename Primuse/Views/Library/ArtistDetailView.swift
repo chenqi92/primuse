@@ -80,6 +80,9 @@ struct ArtistDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
         }
+        #if os(iOS)
+        .minimalNavigationDetail()
+        #endif
         .songBatchActions(
             selection: selection,
             orderedIDs: { selectableSongIDs },

@@ -149,6 +149,38 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
             .songs
         )
     }
+
+    func testMinimalChromeHidesOnlyForTheSelectedDetailScope() {
+        XCTAssertTrue(
+            MinimalNavigationChromePolicy.hidesTopNavigation(
+                mode: .minimal,
+                selectedTab: 1,
+                detailScopes: [.library]
+            )
+        )
+        XCTAssertFalse(
+            MinimalNavigationChromePolicy.hidesTopNavigation(
+                mode: .minimal,
+                selectedTab: 2,
+                detailScopes: [.library]
+            )
+        )
+        XCTAssertFalse(
+            MinimalNavigationChromePolicy.hidesTopNavigation(
+                mode: .standard,
+                selectedTab: 1,
+                detailScopes: [.library]
+            )
+        )
+        XCTAssertFalse(
+            MinimalNavigationChromePolicy.hidesTopNavigation(
+                mode: .minimal,
+                selectedTab: 1,
+                detailScopes: [.library],
+                returningScopes: [.library]
+            )
+        )
+    }
 }
 
 final class SongSelectionLayoutTests: XCTestCase {

@@ -106,6 +106,9 @@ struct PlaylistDetailView: View {
             legacyPlaylistDetail
         #endif
         }
+        #if os(iOS)
+        .minimalNavigationDetail()
+        #endif
         .overlay(alignment: .bottom) {
             scrapeFeedbackToast
         }

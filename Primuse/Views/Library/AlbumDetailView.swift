@@ -34,6 +34,9 @@ struct AlbumDetailView: View {
             legacyBody
             #endif
         }
+        #if os(iOS)
+        .minimalNavigationDetail()
+        #endif
         .songBatchActions(
             selection: selection,
             orderedIDs: { orderedSongIDs },

@@ -79,14 +79,218 @@ enum MinimalNavigationPolicy {
     }
 }
 
+enum MinimalNavigationDetailScope: Hashable, Sendable {
+    case home
+    case library
+    case search
+    case settings
+
+    init?(selectedTab: Int) {
+        switch selectedTab {
+        case 0: self = .home
+        case 1: self = .library
+        case 2: self = .search
+        case 3: self = .settings
+        default: return nil
+        }
+    }
+}
+
+enum MinimalNavigationChromePolicy {
+    static func hidesTopNavigation(
+        mode: AppNavigationMode,
+        selectedTab: Int,
+        detailScopes: Set<MinimalNavigationDetailScope>,
+        returningScopes: Set<MinimalNavigationDetailScope> = []
+    ) -> Bool {
+        guard mode == .minimal,
+              let selectedScope = MinimalNavigationDetailScope(selectedTab: selectedTab) else {
+            return false
+        }
+        return detailScopes.contains(selectedScope)
+            && !returningScopes.contains(selectedScope)
+    }
+}
+
 private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
     static let defaultValue = AppNavigationMode.standard
+}
+
+private struct MinimalNavigationDetailScopeEnvironmentKey: EnvironmentKey {
+    static let defaultValue: MinimalNavigationDetailScope? = nil
+}
+
+private struct MinimalNavigationDetailTransitionHandlerEnvironmentKey: EnvironmentKey {
+    static let defaultValue:
+        (@MainActor (UUID, MinimalNavigationDetailScope, Bool) -> Void)? = nil
+}
+
+private struct MinimalNavigationDetailScopesPreferenceKey: PreferenceKey {
+    static let defaultValue: Set<MinimalNavigationDetailScope> = []
+
+    static func reduce(
+        value: inout Set<MinimalNavigationDetailScope>,
+        nextValue: () -> Set<MinimalNavigationDetailScope>
+    ) {
+        value.formUnion(nextValue())
+    }
 }
 
 extension EnvironmentValues {
     var appNavigationMode: AppNavigationMode {
         get { self[AppNavigationModeEnvironmentKey.self] }
         set { self[AppNavigationModeEnvironmentKey.self] = newValue }
+    }
+
+    var minimalNavigationDetailScope: MinimalNavigationDetailScope? {
+        get { self[MinimalNavigationDetailScopeEnvironmentKey.self] }
+        set { self[MinimalNavigationDetailScopeEnvironmentKey.self] = newValue }
+    }
+
+    var minimalNavigationDetailTransitionHandler:
+        (@MainActor (UUID, MinimalNavigationDetailScope, Bool) -> Void)? {
+        get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
+        set { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] = newValue }
+    }
+}
+
+extension View {
+    func minimalNavigationDetail() -> some View {
+        modifier(MinimalNavigationDetailModifier())
+    }
+}
+
+private struct MinimalNavigationDetailModifier: ViewModifier {
+    @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.minimalNavigationDetailScope) private var detailScope
+    @Environment(\.minimalNavigationDetailTransitionHandler) private var transitionHandler
+    @State private var transitionID = UUID()
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if appNavigationMode == .minimal, let detailScope {
+            content
+                .preference(
+                    key: MinimalNavigationDetailScopesPreferenceKey.self,
+                    value: Set([detailScope])
+                )
+                .background {
+                    MinimalNavigationDetailTransitionReporter { isVisible in
+                        transitionHandler?(transitionID, detailScope, isVisible)
+                    }
+                    .frame(width: 0, height: 0)
+                }
+                .toolbar(.visible, for: .navigationBar)
+                .navigationBarBackButtonHidden(false)
+        } else {
+            content
+        }
+    }
+}
+
+private struct MinimalNavigationDetailTransitionReporter: UIViewControllerRepresentable {
+    let onVisibilityChange: @MainActor (Bool) -> Void
+
+    func makeUIViewController(context: Context) -> ReporterViewController {
+        ReporterViewController(onVisibilityChange: onVisibilityChange)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: ReporterViewController,
+        context: Context
+    ) {
+        uiViewController.onVisibilityChange = onVisibilityChange
+    }
+
+    @MainActor
+    final class ReporterViewController: UIViewController {
+        var onVisibilityChange: @MainActor (Bool) -> Void
+        private var reportsVisible = false
+
+        init(onVisibilityChange: @escaping @MainActor (Bool) -> Void) {
+            self.onVisibilityChange = onVisibilityChange
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func loadView() {
+            let view = UIView(frame: .zero)
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+            self.view = view
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            reportVisible()
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            guard let coordinator = navigationPopCoordinator() else { return }
+
+            reportsVisible = false
+            onVisibilityChange(false)
+            coordinator.animate(alongsideTransition: nil) { [weak self] context in
+                guard context.isCancelled else { return }
+                self?.reportVisible()
+            }
+        }
+
+        private func reportVisible() {
+            guard !reportsVisible else { return }
+            reportsVisible = true
+            onVisibilityChange(true)
+        }
+
+        private func navigationPopCoordinator() -> UIViewControllerTransitionCoordinator? {
+            guard let navigationController = enclosingNavigationController,
+                  let coordinator = transitionCoordinator
+                    ?? navigationController.transitionCoordinator,
+                  let fromViewController = coordinator.viewController(forKey: .from),
+                  let toViewController = coordinator.viewController(forKey: .to),
+                  isPop(
+                    from: fromViewController,
+                    to: toViewController,
+                    in: navigationController
+                  ) else {
+                return nil
+            }
+            return coordinator
+        }
+
+        private var enclosingNavigationController: UINavigationController? {
+            var ancestor = parent
+            while let viewController = ancestor {
+                if let navigationController = viewController as? UINavigationController {
+                    return navigationController
+                }
+                if let navigationController = viewController.navigationController {
+                    return navigationController
+                }
+                ancestor = viewController.parent
+            }
+            return nil
+        }
+
+        private func isPop(
+            from fromViewController: UIViewController,
+            to toViewController: UIViewController,
+            in navigationController: UINavigationController
+        ) -> Bool {
+            let stack = navigationController.viewControllers
+            let fromIndex = stack.firstIndex { $0 === fromViewController }
+            let toIndex = stack.firstIndex { $0 === toViewController }
+
+            if let fromIndex, let toIndex {
+                return toIndex < fromIndex
+            }
+            return fromIndex == nil && toIndex != nil
+        }
     }
 }
 
@@ -186,6 +390,7 @@ struct ContentView: View {
     /// 走 TabView。Apple 推荐用 horizontalSizeClass 而不是 idiom 来判断,以
     /// 适配 Stage Manager / 分屏 / 折叠态。
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
@@ -200,6 +405,12 @@ struct ContentView: View {
     @State private var batchSelectionActive = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var minimalLibrarySection: LibrarySection?
+    @State private var minimalDetailScopes: Set<MinimalNavigationDetailScope> = []
+    @State private var minimalPresentedDetailScopes:
+        [UUID: MinimalNavigationDetailScope] = [:]
+    @State private var minimalReturningDetailScopes:
+        Set<MinimalNavigationDetailScope> = []
+    @State private var minimalNavigationCategoriesCollapsed = false
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
@@ -231,6 +442,17 @@ struct ContentView: View {
         )
     }
 
+    private var minimalTopNavigationHidden: Bool {
+        var effectiveDetailScopes = minimalDetailScopes
+        effectiveDetailScopes.formUnion(minimalPresentedDetailScopes.values)
+        return MinimalNavigationChromePolicy.hidesTopNavigation(
+            mode: navigationMode,
+            selectedTab: selectedTab,
+            detailScopes: effectiveDetailScopes,
+            returningScopes: minimalReturningDetailScopes
+        )
+    }
+
     private var librarySidebarItems: [SidebarItem] {
         visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
@@ -244,6 +466,7 @@ struct ContentView: View {
                     openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
                 )
                     .id("primuse.tab.home")
+                    .environment(\.minimalNavigationDetailScope, .home)
                     .toolbar(
                         navigationMode == .minimal ? .hidden : .automatic,
                         for: .tabBar
@@ -258,6 +481,7 @@ struct ContentView: View {
                         minimalLibrarySection = section
                     }
                 )
+                .environment(\.minimalNavigationDetailScope, .library)
                 .toolbar(
                     navigationMode == .minimal ? .hidden : .automatic,
                     for: .tabBar
@@ -267,6 +491,7 @@ struct ContentView: View {
             Tab(value: 2, role: .search) {
                 SearchView(searchText: $searchText, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
+                    .environment(\.minimalNavigationDetailScope, .search)
                     .toolbar(
                         navigationMode == .minimal ? .hidden : .automatic,
                         for: .tabBar
@@ -275,35 +500,74 @@ struct ContentView: View {
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
                 SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
+                    .environment(\.minimalNavigationDetailScope, .settings)
                     .toolbar(
                         navigationMode == .minimal ? .hidden : .automatic,
                         for: .tabBar
                     )
             }
         }
+        .environment(\.minimalNavigationDetailTransitionHandler) {
+            transitionID, detailScope, isVisible in
+            updateMinimalNavigationDetailTransition(
+                id: transitionID,
+                scope: detailScope,
+                isVisible: isVisible
+            )
+        }
     }
 
     @ViewBuilder
     private var minimalRoot: some View {
         VStack(spacing: 0) {
-            MinimalTopNavigationBar(
-                searchText: $searchText,
-                libraryPages: MinimalNavigationPolicy.libraryPages(
-                    visibleSections: visibleLibrarySections
-                ),
-                selection: MinimalNavigationPolicy.selectedPage(
-                    selectedTab: selectedTab,
-                    activeLibrarySection: minimalLibrarySection
-                ),
-                onSelect: selectMinimalPage,
-                onSubmitSearch: submitMinimalSearch
+            MinimalNavigationChromeLayout(
+                visibility: minimalTopNavigationHidden ? 0 : 1
+            ) {
+                MinimalTopNavigationBar(
+                    searchText: $searchText,
+                    categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
+                    libraryPages: MinimalNavigationPolicy.libraryPages(
+                        visibleSections: visibleLibrarySections
+                    ),
+                    selection: MinimalNavigationPolicy.selectedPage(
+                        selectedTab: selectedTab,
+                        activeLibrarySection: minimalLibrarySection
+                    ),
+                    onSelect: selectMinimalPage,
+                    onSubmitSearch: submitMinimalSearch
+                )
+                .opacity(
+                    minimalTopNavigationHidden
+                        ? 0
+                        : (batchSelectionActive ? 0.42 : 1)
+                )
+                .scaleEffect(
+                    x: 1,
+                    y: minimalTopNavigationHidden ? 0.985 : 1,
+                    anchor: .top
+                )
+            }
+            .clipped()
+            .allowsHitTesting(!minimalTopNavigationHidden && !batchSelectionActive)
+            .accessibilityHidden(minimalTopNavigationHidden || batchSelectionActive)
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.26, extraBounce: 0),
+                value: minimalTopNavigationHidden
             )
-            .allowsHitTesting(!batchSelectionActive)
-            .accessibilityHidden(batchSelectionActive)
-            .opacity(batchSelectionActive ? 0.42 : 1)
 
             tabRoot
                 .toolbar(.hidden, for: .tabBar)
+                .background {
+                    MinimalNavigationScrollObserver(
+                        categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
+                        isEnabled: !minimalTopNavigationHidden,
+                        refreshID: selectedTab
+                    )
+                }
+        }
+        .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
+            minimalDetailScopes = scopes
+            minimalReturningDetailScopes.formIntersection(scopes)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if miniPlayerVisible {
@@ -765,10 +1029,268 @@ struct ContentView: View {
     private func showSongInLibrary(_ song: PrimuseKit.Song) {
         openLibraryDeepLink(.song(song.id))
     }
+
+    private func updateMinimalNavigationDetailTransition(
+        id: UUID,
+        scope: MinimalNavigationDetailScope,
+        isVisible: Bool
+    ) {
+        if isVisible {
+            minimalPresentedDetailScopes[id] = scope
+            minimalReturningDetailScopes.remove(scope)
+            return
+        }
+
+        minimalPresentedDetailScopes[id] = nil
+        if !minimalPresentedDetailScopes.values.contains(scope) {
+            minimalReturningDetailScopes.insert(scope)
+        }
+    }
+}
+
+/// Keeps the top chrome mounted while its occupied height animates. Removing
+/// the view outright makes a completed navigation pop push the root page down
+/// in a separate layout pass.
+private struct MinimalNavigationChromeLayout: Layout {
+    var visibility: CGFloat
+
+    var animatableData: CGFloat {
+        get { visibility }
+        set { visibility = newValue }
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let fullSize = subview.sizeThatFits(proposal)
+        return CGSize(
+            width: proposal.width ?? fullSize.width,
+            height: fullSize.height * clampedVisibility
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard let subview = subviews.first else { return }
+        let contentProposal = ProposedViewSize(width: bounds.width, height: nil)
+        let fullSize = subview.sizeThatFits(contentProposal)
+        let travel = min(14, fullSize.height * 0.16)
+        subview.place(
+            at: CGPoint(
+                x: bounds.minX,
+                y: bounds.minY - travel * (1 - clampedVisibility)
+            ),
+            anchor: .topLeading,
+            proposal: contentProposal
+        )
+    }
+
+    private var clampedVisibility: CGFloat {
+        min(max(visibility, 0), 1)
+    }
+}
+
+/// Watches the active vertical scroller without coupling every existing page
+/// to minimal-mode chrome. This keeps List, ScrollView, and UIKit-backed search
+/// results on their current implementations while the header follows real
+/// content offset changes.
+private struct MinimalNavigationScrollObserver: UIViewRepresentable {
+    @Binding var categoriesCollapsed: Bool
+    let isEnabled: Bool
+    let refreshID: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> ScopeView {
+        let view = ScopeView()
+        view.coordinator = context.coordinator
+        context.coordinator.scopeView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: ScopeView, context: Context) {
+        let collapsedBinding = $categoriesCollapsed
+        context.coordinator.onCollapsedChange = { collapsed in
+            collapsedBinding.wrappedValue = collapsed
+        }
+        let observationStateChanged = uiView.observesScrolling != isEnabled
+        uiView.observesScrolling = isEnabled
+        guard isEnabled else {
+            context.coordinator.detachAll()
+            return
+        }
+        let pageChanged = uiView.refreshID != refreshID
+        uiView.refreshID = refreshID
+        uiView.scheduleRefresh()
+        if observationStateChanged || pageChanged {
+            uiView.scheduleRefresh(after: 0.25)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: ScopeView, coordinator: Coordinator) {
+        coordinator.detachAll()
+    }
+
+    final class ScopeView: UIView {
+        weak var coordinator: Coordinator?
+        var refreshID = Int.min
+        var observesScrolling = true
+        private var refreshScheduled = false
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scheduleRefresh()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            scheduleRefresh()
+        }
+
+        func scheduleRefresh() {
+            guard observesScrolling, !refreshScheduled else { return }
+            refreshScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                refreshScheduled = false
+                coordinator?.refresh()
+            }
+        }
+
+        func scheduleRefresh(after delay: TimeInterval) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, observesScrolling else { return }
+                coordinator?.refresh()
+            }
+        }
+    }
+
+    @MainActor
+    final class Coordinator {
+        private final class Observation {
+            weak var scrollView: UIScrollView?
+            let token: NSKeyValueObservation
+
+            init(scrollView: UIScrollView, token: NSKeyValueObservation) {
+                self.scrollView = scrollView
+                self.token = token
+            }
+        }
+
+        weak var scopeView: ScopeView?
+        var onCollapsedChange: ((Bool) -> Void)?
+        private var observations: [ObjectIdentifier: Observation] = [:]
+
+        func refresh() {
+            guard let scopeView,
+                  scopeView.observesScrolling,
+                  let window = scopeView.window,
+                  !scopeView.bounds.isEmpty else {
+                detachAll()
+                return
+            }
+
+            let scopeRect = scopeView.convert(scopeView.bounds, to: window)
+            let candidates = verticalScrollViews(in: window).filter {
+                isVisible($0, inside: scopeRect, window: window)
+            }
+            let candidateIDs = Set(candidates.map(ObjectIdentifier.init))
+
+            for id in Array(observations.keys) where !candidateIDs.contains(id) {
+                observations[id] = nil
+            }
+
+            for scrollView in candidates {
+                let id = ObjectIdentifier(scrollView)
+                guard observations[id] == nil else { continue }
+                let token = scrollView.observe(\.contentOffset, options: [.initial, .new]) {
+                    [weak self] _, _ in
+                    Task { @MainActor [weak self] in
+                        self?.updateCollapsedState()
+                    }
+                }
+                observations[id] = Observation(scrollView: scrollView, token: token)
+            }
+
+            updateCollapsedState()
+        }
+
+        func detachAll() {
+            observations.removeAll()
+        }
+
+        private func updateCollapsedState() {
+            guard let scopeView,
+                  let window = scopeView.window else { return }
+            let scopeRect = scopeView.convert(scopeView.bounds, to: window)
+            let shouldCollapse = observations.values.contains { observation in
+                guard let scrollView = observation.scrollView,
+                      isVisible(scrollView, inside: scopeRect, window: window) else {
+                    return false
+                }
+                let topOffset = -scrollView.adjustedContentInset.top
+                return scrollView.contentOffset.y - topOffset > 24
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.onCollapsedChange?(shouldCollapse)
+            }
+        }
+
+        private func verticalScrollViews(in view: UIView) -> [UIScrollView] {
+            var result: [UIScrollView] = []
+            if let scrollView = view as? UIScrollView,
+               scrollView.bounds.height > 80,
+               scrollView.contentSize.height + scrollView.adjustedContentInset.top
+                   + scrollView.adjustedContentInset.bottom > scrollView.bounds.height + 1 {
+                result.append(scrollView)
+            }
+            for subview in view.subviews {
+                result.append(contentsOf: verticalScrollViews(in: subview))
+            }
+            return result
+        }
+
+        private func isVisible(
+            _ scrollView: UIScrollView,
+            inside scopeRect: CGRect,
+            window: UIWindow
+        ) -> Bool {
+            guard scrollView.window === window,
+                  !scrollView.isHidden,
+                  scrollView.alpha > 0.01 else { return false }
+            let visibleRect = scrollView.convert(scrollView.bounds, to: window)
+            let intersection = visibleRect.intersection(scopeRect)
+            return !intersection.isNull
+                && intersection.width > min(80, visibleRect.width * 0.5)
+                && intersection.height > min(80, visibleRect.height * 0.25)
+        }
+    }
 }
 
 private struct MinimalTopNavigationBar: View {
     @Binding var searchText: String
+    @Binding var categoriesCollapsed: Bool
     let libraryPages: [MinimalNavigationPage]
     let selection: MinimalNavigationPage
     let onSelect: (MinimalNavigationPage) -> Void
@@ -779,48 +1301,79 @@ private struct MinimalTopNavigationBar: View {
     @Namespace private var librarySelectionIndicator
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 0) {
             HStack(spacing: 8) {
+                homeButton
+
                 searchField
+
+                if categoriesCollapsed,
+                   let selectedLibraryPage {
+                    collapsedLibraryButton(selectedLibraryPage)
+                        .transition(.scale(scale: 0.86).combined(with: .opacity))
+                }
 
                 actionButton(
                     page: .settings,
-                    systemImage: selection == .settings ? "gearshape.fill" : "gearshape",
+                    systemImage: "gearshape",
                     title: "settings_title"
                 )
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
 
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(libraryPages) { page in
-                            libraryButton(page)
-                                .id(page.id)
+            if !categoriesCollapsed {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(libraryPages) { page in
+                                libraryButton(page)
+                                    .id(page.id)
+                            }
                         }
+                        .padding(.horizontal, 12)
                     }
-                    .padding(.horizontal, 16)
-                }
-                .frame(height: 44)
-                .onChange(of: selection.id, initial: true) { _, pageID in
-                    guard libraryPages.contains(where: { $0.id == pageID }) else { return }
-                    if reduceMotion {
-                        proxy.scrollTo(pageID, anchor: .center)
-                    } else {
-                        withAnimation(.easeOut(duration: 0.2)) {
+                    .frame(height: 37)
+                    .padding(.top, 9)
+                    .onChange(of: selection.id, initial: true) { _, pageID in
+                        guard libraryPages.contains(where: { $0.id == pageID }) else { return }
+                        if reduceMotion {
                             proxy.scrollTo(pageID, anchor: .center)
+                        } else {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(pageID, anchor: .center)
+                            }
                         }
                     }
                 }
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .padding(.top, 2)
-        .padding(.bottom, 6)
-        .background(.bar)
-        .overlay(alignment: .bottom) {
-            Divider()
-                .opacity(0.45)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color(uiColor: .systemBackground).opacity(0.72),
+                            Color(uiColor: .systemBackground).opacity(0.42),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .ignoresSafeArea(edges: .top)
         }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.5)
+        }
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86),
+            value: categoriesCollapsed
+        )
         .onChange(of: selection) { _, newSelection in
             if newSelection != .search {
                 searchFieldFocused = false
@@ -831,11 +1384,11 @@ private struct MinimalTopNavigationBar: View {
     private var searchField: some View {
         HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(searchFieldFocused ? Color.accentColor : Color.secondary)
 
-            TextField("search_prompt", text: $searchText)
-                .font(.body)
+            TextField("search_title", text: $searchText)
+                .font(.system(size: 15.5))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -861,7 +1414,8 @@ private struct MinimalTopNavigationBar: View {
         .padding(.leading, 14)
         .padding(.trailing, searchText.isEmpty ? 14 : 6)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(Color.primary.opacity(0.06), in: Capsule())
+        .background(.thinMaterial, in: Capsule())
+        .background(Color.secondary.opacity(0.08), in: Capsule())
         .overlay {
             Capsule()
                 .stroke(
@@ -871,6 +1425,7 @@ private struct MinimalTopNavigationBar: View {
                     lineWidth: searchFieldFocused ? 1.5 : 1
                 )
         }
+        .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
         .contentShape(Capsule())
         .simultaneousGesture(
             TapGesture().onEnded {
@@ -880,6 +1435,27 @@ private struct MinimalTopNavigationBar: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("search_title"))
+    }
+
+    private var homeButton: some View {
+        Button {
+            select(MinimalNavigationPolicy.homePage)
+        } label: {
+            Image(systemName: "house")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .background(.thinMaterial, in: Circle())
+                .background(Color.secondary.opacity(0.08), in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                }
+                .shadow(color: Color.black.opacity(0.08), radius: 5, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("home_title"))
     }
 
     private func actionButton(
@@ -893,17 +1469,19 @@ private struct MinimalTopNavigationBar: View {
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
                 .background {
                     Circle()
-                        .fill(
-                            isSelected
-                                ? Color.accentColor.opacity(0.16)
-                                : Color.clear
-                        )
+                        .fill(Color.accentColor.opacity(isSelected ? 0.2 : 0.14))
                 }
+                .background(.thinMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 0.5)
+                }
+                .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
@@ -916,11 +1494,11 @@ private struct MinimalTopNavigationBar: View {
             select(page)
         } label: {
             pageTitle(page)
-                .font(.footnote.weight(isSelected ? .semibold : .medium))
+                .font(.system(size: 14.5, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 13)
+                .padding(.horizontal, 15)
                 .frame(height: 34)
                 .background {
                     if isSelected {
@@ -930,13 +1508,54 @@ private struct MinimalTopNavigationBar: View {
                                 id: "minimal-library-selection",
                                 in: librarySelectionIndicator
                             )
+                    } else {
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.1))
                     }
                 }
-                .frame(minHeight: 44)
+                .overlay {
+                    Capsule()
+                        .strokeBorder(
+                            isSelected
+                                ? Color.accentColor.opacity(0.38)
+                                : Color.primary.opacity(0.06),
+                            lineWidth: 0.5
+                        )
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func collapsedLibraryButton(_ page: MinimalNavigationPage) -> some View {
+        Button {
+            categoriesCollapsed = false
+        } label: {
+            HStack(spacing: 5) {
+                pageTitle(page)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .background(Color.accentColor.opacity(0.16), in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(Color.accentColor.opacity(0.38), lineWidth: 0.5)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var selectedLibraryPage: MinimalNavigationPage? {
+        libraryPages.first(where: { $0 == selection })
     }
 
     private func select(_ page: MinimalNavigationPage) {

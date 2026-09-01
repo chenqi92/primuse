@@ -43,7 +43,11 @@ struct SmartPlaylistDetailView: View {
         #if os(macOS)
         return AnyView(macBody(matched).scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
         #else
-        return AnyView(legacyBody(matched).scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
+        return AnyView(
+            legacyBody(matched)
+                .minimalNavigationDetail()
+                .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        )
         #endif
     }
 
