@@ -160,6 +160,9 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/LyricsTextTools.swift" => [
     /作词|作曲|编曲|填词|制作人|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|录音|出品|发行|策划|统筹|演唱|原唱|翻唱/
   ],
+  "PrimuseKit/Sources/PrimuseKit/LyricTranslationGroupingPolicy.swift" => [
+    /"男", "女", "主唱", "副唱", "合唱", "和声", "独唱", "对唱"/
+  ],
   "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
     /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],
