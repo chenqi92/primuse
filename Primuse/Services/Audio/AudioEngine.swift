@@ -29,6 +29,9 @@ final class AudioEngine {
     private(set) var outputMode: AudioOutputMode = .effects
 
     private var isSetUp = false
+    private var playbackClockReadsSuspended = true
+    private var playerTimeline = PlaybackTimelineTracker()
+    private var crossfadePlayerTimeline = PlaybackTimelineTracker()
     private var directSourceFormat: AVAudioFormat?
     private var headphoneMotionManager: CMHeadphoneMotionManager?
     private var transportFadeTask: Task<Void, Never>?
@@ -93,6 +96,8 @@ final class AudioEngine {
     private func tearDownGraph() {
         cancelTransportFade(restoreVolume: false)
         stopSilenceKeepAlive()
+        playerTimeline.reset()
+        crossfadePlayerTimeline.reset()
         playerNode?.stop()
         crossfadePlayerNode?.stop()
         engine?.stop()
@@ -109,11 +114,15 @@ final class AudioEngine {
         outputFormat = nil
         isSetUp = false
         isPlaying = false
+        playbackClockReadsSuspended = true
         sampleTimeOffset = 0
     }
 
     func setUp() throws {
         guard !isSetUp else { return }
+
+        playerTimeline.reset()
+        crossfadePlayerTimeline.reset()
 
         let eng = AVAudioEngine()
         let playerA = AVAudioPlayerNode()
@@ -238,6 +247,10 @@ final class AudioEngine {
     }
 
     func stop() {
+        playbackClockReadsSuspended = true
+        playerTimeline.reset()
+        crossfadePlayerTimeline.reset()
+        sampleTimeOffset = 0
         playerNode?.stop()
         crossfadePlayerNode?.stop()
         engine?.stop()
@@ -524,35 +537,55 @@ final class AudioEngine {
 
     // MARK: - Buffer Scheduling (Primary Node)
 
-    func scheduleBuffer(_ buffer: AVAudioPCMBuffer) {
-        playerNode?.scheduleBuffer(buffer)
+    @discardableResult
+    func scheduleBuffer(
+        _ buffer: AVAudioPCMBuffer
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        guard let playerNode else { return nil }
+        playerNode.scheduleBuffer(buffer)
+        return playerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
     }
 
     /// Schedule buffer with completion callback — use `.dataPlayedBack` for precise track-end detection.
+    @discardableResult
     func scheduleBuffer(
         _ buffer: AVAudioPCMBuffer,
         completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
         completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
-    ) {
-        playerNode?.scheduleBuffer(buffer, completionCallbackType: completionCallbackType, completionHandler: completionHandler)
-    }
-
-    // MARK: - Buffer Scheduling (Crossfade Node)
-
-    func scheduleCrossfadeBuffer(_ buffer: AVAudioPCMBuffer) {
-        crossfadePlayerNode?.scheduleBuffer(buffer)
-    }
-
-    func scheduleCrossfadeBuffer(
-        _ buffer: AVAudioPCMBuffer,
-        completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
-        completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
-    ) {
-        crossfadePlayerNode?.scheduleBuffer(
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        guard let playerNode else { return nil }
+        playerNode.scheduleBuffer(
             buffer,
             completionCallbackType: completionCallbackType,
             completionHandler: completionHandler
         )
+        return playerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
+    }
+
+    // MARK: - Buffer Scheduling (Crossfade Node)
+
+    @discardableResult
+    func scheduleCrossfadeBuffer(
+        _ buffer: AVAudioPCMBuffer
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        guard let crossfadePlayerNode else { return nil }
+        crossfadePlayerNode.scheduleBuffer(buffer)
+        return crossfadePlayerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
+    }
+
+    @discardableResult
+    func scheduleCrossfadeBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
+        completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        guard let crossfadePlayerNode else { return nil }
+        crossfadePlayerNode.scheduleBuffer(
+            buffer,
+            completionCallbackType: completionCallbackType,
+            completionHandler: completionHandler
+        )
+        return crossfadePlayerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
     }
 
     func playCrossfadeNode() {
@@ -560,6 +593,7 @@ final class AudioEngine {
     }
 
     func stopCrossfadeNode() {
+        crossfadePlayerTimeline.reset()
         crossfadePlayerNode?.stop()
         crossfadePlayerNode?.reset()
     }
@@ -590,6 +624,7 @@ final class AudioEngine {
         }
         playerNode?.play()
         isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
+        playbackClockReadsSuspended = !isPlaying
         return isPlaying
     }
 
@@ -633,6 +668,7 @@ final class AudioEngine {
     }
 
     private func pauseImmediately() {
+        playbackClockReadsSuspended = true
         playerNode?.pause()
         crossfadePlayerNode?.pause()
         // Pausing every player node leaves AVAudioEngine and the audio hardware
@@ -709,11 +745,15 @@ final class AudioEngine {
             crossfadePlayerNode?.play()
         }
         isPlaying = playerNode?.isPlaying ?? false
+        playbackClockReadsSuspended = !isPlaying
         return isPlaying
     }
 
     func stopPlayback() {
         cancelTransportFade(restoreVolume: true)
+        playbackClockReadsSuspended = true
+        playerTimeline.reset()
+        sampleTimeOffset = 0
         playerNode?.stop()
         playerNode?.reset()
         isPlaying = false
@@ -738,7 +778,15 @@ final class AudioEngine {
         }
         playerNode?.play()
         isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
+        playbackClockReadsSuspended = !isPlaying
         return isPlaying
+    }
+
+    /// Prevents lifecycle callbacks from sampling a render clock whose engine
+    /// may already have been stopped by AVFAudio. A successful play/resume
+    /// re-enables reads after the node is running again.
+    func suspendPlaybackClockReads() {
+        playbackClockReadsSuspended = true
     }
 
     // MARK: - Playback Rate
@@ -845,8 +893,11 @@ final class AudioEngine {
         let temp = playerNode
         playerNode = crossfadePlayerNode
         crossfadePlayerNode = temp
+        swap(&playerTimeline, &crossfadePlayerTimeline)
+        sampleTimeOffset = 0
 
         // Reset the now-inactive crossfade node
+        crossfadePlayerTimeline.reset()
         crossfadePlayerNode?.stop()
         crossfadePlayerNode?.reset()
         crossfadePlayerNode?.volume = 0
@@ -945,22 +996,47 @@ final class AudioEngine {
         for node: AVAudioPlayerNode?,
         sampleTimeOffset: Int64
     ) -> TimeInterval? {
-        guard let node,
-              let nodeTime = node.lastRenderTime,
-              let playerTime = node.playerTime(forNodeTime: nodeTime),
-              playerTime.sampleRate > 0 else {
+        guard let playerTime = playbackClockSample(for: node) else {
             return nil
         }
-        let adjustedSampleTime = playerTime.sampleTime - sampleTimeOffset
-        return Double(adjustedSampleTime) / playerTime.sampleRate
+        let (adjustedSampleTime, overflow) = playerTime.sampleTime
+            .subtractingReportingOverflow(sampleTimeOffset)
+        guard !overflow else { return nil }
+        let time = Double(adjustedSampleTime) / playerTime.sampleRate
+        return time.isFinite ? time : nil
     }
 
-    /// Record current sample time as the new zero point (for gapless transitions).
-    func markTrackBoundary() {
-        guard let playerNode,
-              let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else { return }
-        sampleTimeOffset = playerTime.sampleTime
+    private func playbackClockSample(for node: AVAudioPlayerNode?) -> AVAudioTime? {
+        guard !playbackClockReadsSuspended,
+              let engine,
+              let node,
+              node.engine === engine,
+              engine.isRunning,
+              node.isPlaying,
+              let playerTime = PrimusePlayerTimeForNode(node),
+              playerTime.sampleRate.isFinite,
+              playerTime.sampleRate > 0,
+              node.engine === engine,
+              engine.isRunning,
+              node.isPlaying else {
+            return nil
+        }
+        return playerTime
+    }
+
+    /// Moves the gapless zero point to a previously scheduled final buffer.
+    /// This never queries AVFAudio from a completion callback, where the
+    /// render graph may already be transitioning to another lifecycle state.
+    @discardableResult
+    func markTrackBoundary(
+        _ boundary: PlaybackTimelineTracker.BoundaryToken?
+    ) -> Bool {
+        guard let boundary,
+              let frameCursor = playerTimeline.commitBoundary(boundary) else {
+            return false
+        }
+        sampleTimeOffset = frameCursor
+        return true
     }
 
     private static let volumeKey = "primuse_volume"
@@ -1025,14 +1101,13 @@ final class AudioEngine {
         let mainVol: Float = outputMode == .effects
             ? (engine?.mainMixerNode.outputVolume ?? -1)
             : 1
-        let hasTime = (playerNode?.lastRenderTime) != nil
+        let hasTime = playerNode.map { PrimusePlayerNodeHasRenderTime($0) } ?? false
         return "mode=\(outputMode.rawValue) eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
     }
 
     func scheduleBufferStream(_ stream: AudioBufferStream) async throws {
-        guard let playerNode else { return }
         for try await buffer in stream {
-            await playerNode.scheduleBuffer(buffer)
+            scheduleBuffer(buffer)
         }
     }
 

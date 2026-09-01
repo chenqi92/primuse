@@ -6,13 +6,13 @@ final class AudioSessionManager {
     static let shared = AudioSessionManager()
 
     /// Called when an interruption begins — UI should show "paused" state
-    var onInterruptionBegan: (() -> Void)?
+    var onInterruptionBegan: ((Date) -> Void)?
     /// Called whenever an interruption ends, carrying the system resume grant.
     /// Delivering denied endings is required so stale resume intent can be
     /// cleared instead of being revived by a later lifecycle callback.
     var onInterruptionEnded: ((Bool) -> Void)?
     /// Called when the audio engine's hardware configuration changes (route change, etc.)
-    var onConfigurationChange: (() -> Void)?
+    var onConfigurationChange: ((Date) -> Void)?
 
     private var isConfigured = false
 
@@ -131,13 +131,14 @@ final class AudioSessionManager {
             let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             return AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
         }()
+        let eventTime = Date()
         Task { @MainActor [weak self] in
             guard let self else { return }
             switch type {
             case .began:
                 // Another app took audio focus. Sync UI to paused state.
                 plog("🔇 Audio interruption began")
-                self.onInterruptionBegan?()
+                self.onInterruptionBegan?(eventTime)
 
             case .ended:
                 // Always forward the ending. The player owns user intent and
@@ -159,9 +160,10 @@ final class AudioSessionManager {
         // NSNotificationCenter 用 selector 在 AVAudioEngine 的 engine 队列(非主线程)
         // 调本方法; @MainActor 方法入口的 executor 断言会 trap(iOS 26 默认 fatal)。
         // 标 nonisolated 让入口任意线程, 内部 Task 再 hop 回主线程访问 @MainActor 状态。
+        let eventTime = Date()
         Task { @MainActor [weak self] in
             plog("🔧 Audio engine configuration changed")
-            self?.onConfigurationChange?()
+            self?.onConfigurationChange?(eventTime)
         }
     }
 
