@@ -61,15 +61,10 @@ struct FullscreenPlayerEffectSettingsView: View {
 
     private var lyricsMotionCard: some View {
         Toggle(isOn: $lyricsMotionEnabled) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("immersive_lyrics_motion_title")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("immersive_lyrics_motion_subtitle")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("immersive_lyrics_motion_title")
+                .font(.system(size: 16, weight: .semibold))
         }
+        .accessibilityHint(Text("immersive_lyrics_motion_subtitle"))
         .tint(previewPalette.primary)
         .padding(16)
         .background(

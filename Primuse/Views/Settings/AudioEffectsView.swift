@@ -11,6 +11,7 @@ struct AudioEffectsView: View {
 
             Section {
                 Toggle("reverb_enabled", isOn: $fx.reverbEnabled)
+                    .accessibilityHint(Text("reverb_desc"))
 
                 if effects.reverbEnabled {
                     // Preset picker
@@ -53,14 +54,13 @@ struct AudioEffectsView: View {
                 }
             } header: {
                 Text("reverb")
-            } footer: {
-                Text("reverb_desc")
             }
 
             // MARK: - Compressor / Limiter Section
 
             Section {
                 Toggle("compressor_enabled", isOn: $fx.compressorEnabled)
+                    .accessibilityHint(Text("compressor_desc"))
 
                 if effects.compressorEnabled {
                     // Preset picker
@@ -163,8 +163,6 @@ struct AudioEffectsView: View {
                 }
             } header: {
                 Text("compressor_limiter")
-            } footer: {
-                Text("compressor_desc")
             }
         }
         #if os(macOS)

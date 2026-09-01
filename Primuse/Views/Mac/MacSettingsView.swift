@@ -1339,7 +1339,7 @@ private struct MacSTPlaybackView: View {
 
         MacSTSection(Lz("Playback Rate & Quality")) {
             MacSTGroup {
-                MacSTRow(Lz("Playback Rate"), hint: Lz("0.5x – 2.0x · Preserve Pitch"), divider: false) {
+                MacSTRow(Lz("Playback Rate"), divider: false) {
                     MacSTSlider(
                         value: Binding(
                             get: { Double(s.playbackRate * 100) },
@@ -1348,14 +1348,17 @@ private struct MacSTPlaybackView: View {
                         in: 50...200,
                         formatter: { String(format: "%.2fx", $0 / 100) }
                     )
+                    .accessibilityHint(Text(verbatim: Lz("0.5x – 2.0x · Preserve Pitch")))
                 }
                 .disabled(s.outputMode == .highFidelity)
-                MacSTRow(Lz("Spatial Audio"), hint: Lz("Apple AirPods · Head Tracking")) {
+                MacSTRow(Lz("Spatial Audio")) {
                     MacSTToggle(isOn: $s.spatialAudioEnabled)
+                        .accessibilityHint(Text(verbatim: Lz("Apple AirPods · Head Tracking")))
                 }
                 .disabled(s.outputMode == .highFidelity)
-                MacSTRow(String(localized: "replay_gain"), hint: Lz("Automatic Volume Balancing")) {
+                MacSTRow(String(localized: "replay_gain")) {
                     MacSTToggle(isOn: $s.replayGainEnabled)
+                        .accessibilityHint(Text(verbatim: Lz("Automatic Volume Balancing")))
                 }
                 .disabled(s.outputMode == .highFidelity)
                 if s.replayGainEnabled {
@@ -1372,11 +1375,13 @@ private struct MacSTPlaybackView: View {
 
         MacSTSection(Lz("Transitions & Gapless")) {
             MacSTGroup {
-                MacSTRow(Lz("Gapless Playback"), hint: Lz("P-16 · On by Default"), divider: false) {
+                MacSTRow(Lz("Gapless Playback"), divider: false) {
                     MacSTToggle(isOn: $s.gaplessEnabled)
+                        .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
-                MacSTRow(String(localized: "crossfade"), hint: Lz("Mutually exclusive with Gapless")) {
+                MacSTRow(String(localized: "crossfade")) {
                     MacSTToggle(isOn: $s.crossfadeEnabled)
+                        .accessibilityHint(Text(verbatim: Lz("Mutually exclusive with Gapless")))
                 }
                 .disabled(s.outputMode == .highFidelity)
                 if s.crossfadeEnabled {
@@ -3160,7 +3165,6 @@ private struct MacSTLyricsView: View {
                     }
                     MacSTRow(
                         String(localized: "player_tap_lyrics_to_seek"),
-                        hint: String(localized: "player_tap_lyrics_to_seek_description"),
                         divider: false
                     ) {
                         MacSTToggle(isOn: $tapLyricsToSeek)
@@ -4605,16 +4609,16 @@ private struct MacSTThemeView: View {
         MacSTSection(String(localized: "player_appearance_title")) {
             MacSTGroup {
                 MacSTRow(
-                    String(localized: "player_animated_artwork"),
-                    hint: String(localized: "player_animated_artwork_description")
+                    String(localized: "player_animated_artwork")
                 ) {
                     MacSTToggle(isOn: $animatedArtworkEnabled)
+                        .accessibilityHint(Text("player_animated_artwork_description"))
                 }
                 MacSTRow(
-                    String(localized: "player_animated_artwork_unmetered_only"),
-                    hint: String(localized: "player_animated_artwork_unmetered_only_description")
+                    String(localized: "player_animated_artwork_unmetered_only")
                 ) {
                     MacSTToggle(isOn: $animatedArtworkUnmeteredOnly)
+                        .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
                         .disabled(!animatedArtworkEnabled)
                 }
                 MacSTRow(
@@ -4636,10 +4640,10 @@ private struct MacSTThemeView: View {
                     .disabled(!motionArtworkServiceEnabled)
                 }
                 MacSTRow(
-                    String(localized: "player_volume_bar"),
-                    hint: String(localized: "player_volume_bar_description")
+                    String(localized: "player_volume_bar")
                 ) {
                     MacSTToggle(isOn: $showsPlayerVolumeBar)
+                        .accessibilityHint(Text("player_volume_bar_description"))
                 }
             }
         }
@@ -4770,10 +4774,10 @@ private struct MacSTThemeView: View {
             MacSTGroup {
                 MacSTRow(
                     String(localized: "radio_home_visibility"),
-                    hint: String(localized: "radio_home_visibility_description"),
                     divider: false
                 ) {
                     MacSTToggle(isOn: $showRadioOnHome)
+                        .accessibilityHint(Text("radio_home_visibility_description"))
                 }
             }
         }
@@ -4782,7 +4786,6 @@ private struct MacSTThemeView: View {
             MacSTGroup {
                 MacSTRow(
                     String(localized: "library_quick_access_count"),
-                    hint: String(localized: "library_quick_access_count_description"),
                     divider: false
                 ) {
                     MacSTSlider(
@@ -4792,12 +4795,13 @@ private struct MacSTThemeView: View {
                         ),
                         formatter: { "\(Int($0.rounded()))" }
                     )
+                    .accessibilityHint(Text("library_quick_access_count_description"))
                 }
                 MacSTRow(
-                    String(localized: "library_default_flat_view"),
-                    hint: String(localized: "library_default_flat_view_description")
+                    String(localized: "library_default_flat_view")
                 ) {
                     MacSTToggle(isOn: defaultFlatBrowseBinding)
+                        .accessibilityHint(Text("library_default_flat_view_description"))
                 }
             }
 
@@ -4830,14 +4834,14 @@ private struct MacSTThemeView: View {
                 }
 
                 MacSTRow(
-                    String(localized: "library_sections_settings_label"),
-                    hint: String(localized: "library_sections_settings_footer")
+                    String(localized: "library_sections_settings_label")
                 ) {
                     MacSTButton(title: String(localized: "library_sections_restore_default_order")) {
                         librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(
                             LibraryDisplayConfiguration.defaultSectionOrder
                         )
                     }
+                    .accessibilityHint(Text("library_sections_settings_footer"))
                 }
             }
 

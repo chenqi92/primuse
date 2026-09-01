@@ -384,15 +384,9 @@ struct MacSourcesView: View {
         isOn: Binding<Bool>
     ) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Text(description)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(PMColor.text)
             Spacer(minLength: 10)
             Toggle("", isOn: isOn)
                 .labelsHidden()

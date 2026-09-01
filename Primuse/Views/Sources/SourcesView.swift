@@ -640,10 +640,6 @@ struct SourcesContentView: View {
                         }
                         .font(.caption2).foregroundStyle(.secondary)
                     }
-                    // 安抚: 让用户明确知道扫描在后台跑, 可以离开当前页面继续用 app。
-                    Text("scan_runs_in_background_hint")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
                 }
             } else if scanning?.failureMessage == nil,
                       scanning?.reconciliationMessage == nil {
@@ -811,14 +807,8 @@ struct SourcesContentView: View {
     private func navidromeAutoRefreshControl(for source: MusicSource) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Toggle(isOn: navidromeAutoRefreshBinding(for: source.id)) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("navidrome_auto_refresh")
-                        .font(.subheadline.weight(.semibold))
-                    Text("navidrome_auto_refresh_description")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text("navidrome_auto_refresh")
+                    .font(.subheadline.weight(.semibold))
             }
             .toggleStyle(.switch)
             .accessibilityLabel(Text("navidrome_auto_refresh"))
@@ -827,14 +817,8 @@ struct SourcesContentView: View {
             Divider()
 
             Toggle(isOn: navidromeServerScanOnLaunchBinding(for: source.id)) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("navidrome_server_scan_on_launch")
-                        .font(.subheadline.weight(.semibold))
-                    Text("navidrome_server_scan_on_launch_description")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text("navidrome_server_scan_on_launch")
+                    .font(.subheadline.weight(.semibold))
             }
             .toggleStyle(.switch)
             .disabled(!AppServices.shared.navidromeAutoRefresh.isEnabled(for: source.id))

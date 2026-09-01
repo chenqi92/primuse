@@ -178,8 +178,6 @@ struct ThemeColorSettingsView: View {
                 }
             } header: {
                 Text("theme_color_custom")
-            } footer: {
-                Text("theme_color_custom_footer")
             }
 
             Section {

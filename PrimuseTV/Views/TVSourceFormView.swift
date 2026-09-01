@@ -457,8 +457,6 @@ struct TVSourceFormView: View {
 
     @ViewBuilder
     private var adaptiveConnectionFields: some View {
-        connectionHint("source_connection_intro")
-
         TVEyebrow(text: PMString("source_connection_local_optional"))
         TVFormField(label: PMString("source_connection_local_address"), text: $host, mono: true)
         TVFormField(label: PMString("source_connection_local_port"), text: $portText, mono: true)
@@ -518,7 +516,6 @@ struct TVSourceFormView: View {
                     mono: true
                 )
             }
-            connectionHint("source_connection_public_hint")
         }
     }
 

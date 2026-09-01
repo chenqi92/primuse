@@ -674,7 +674,6 @@ struct AddSourceView: View {
     @ViewBuilder
     private var macAdaptiveConnectionSections: some View {
         macSection("source_connection_local_optional") {
-            macInfoRow("source_connection_intro")
             macTextRow("source_connection_local_address", text: $host, focus: .host)
             macTextRow("source_connection_local_port", text: $port, focus: .port, width: 120)
             if supportsSSLToggle {
@@ -736,7 +735,6 @@ struct AddSourceView: View {
                         focus: .publicBasePath
                     )
                 }
-                macInfoRow("source_connection_public_hint")
             }
         }
     }
@@ -993,12 +991,6 @@ struct AddSourceView: View {
 
     @ViewBuilder
     private var adaptiveConnectionFormSections: some View {
-        Section {
-            Text("source_connection_intro")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-
         Section("source_connection_local_optional") {
             TextField("source_connection_local_address", text: $host)
                 .focused($focusedField, equals: .host)
@@ -1073,9 +1065,6 @@ struct AddSourceView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 }
-                Text("source_connection_public_hint")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }

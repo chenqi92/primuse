@@ -106,8 +106,7 @@ struct HomeSectionsSettingsView: View {
                 Toggle(isOn: $showRadio) {
                     Label("radio_home_visibility", systemImage: "radio")
                 }
-            } footer: {
-                Text("radio_home_visibility_description")
+                .accessibilityHint(Text("radio_home_visibility_description"))
             }
 
             Section {
@@ -115,12 +114,11 @@ struct HomeSectionsSettingsView: View {
                     Toggle(isOn: visibilityBinding(for: section)) {
                         Label(section.title, systemImage: section.icon)
                     }
+                    .accessibilityHint(Text("home_settings_sections_footer"))
                 }
                 .onMove(perform: moveSections)
             } header: {
                 Text("home_settings_sections_label")
-            } footer: {
-                Text("home_settings_sections_footer")
             }
 
             Section {

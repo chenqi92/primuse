@@ -277,8 +277,6 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("about")
-                } footer: {
-                    Text("github_feedback_hint")
                 }
             }
             .navigationTitle("settings_title")
@@ -402,16 +400,13 @@ private struct PlayerAppearanceSettingsView: View {
         Form {
             Section {
                 Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
+                    .accessibilityHint(Text("player_animated_artwork_description"))
                 Toggle(
                     "player_animated_artwork_unmetered_only",
                     isOn: $animatedArtworkUnmeteredOnly
                 )
                 .disabled(!animatedArtworkEnabled)
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("player_animated_artwork_description")
-                    Text("player_animated_artwork_unmetered_only_description")
-                }
+                .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
             }
 
             Section {
@@ -433,8 +428,7 @@ private struct PlayerAppearanceSettingsView: View {
 
             Section {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
-            } footer: {
-                Text("player_volume_bar_description")
+                    .accessibilityHint(Text("player_volume_bar_description"))
             }
 
             Section {
@@ -445,6 +439,7 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .accessibilityHint(Text("player_current_lyric_color_description"))
                 .accessibilityIdentifier("playerLyricsColorModePicker")
 
                 switch selectedLyricsColorMode {
@@ -492,6 +487,7 @@ private struct PlayerAppearanceSettingsView: View {
                 .pickerStyle(.segmented)
 
                 Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
+                    .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
 
                 Toggle(
                     "player_keep_screen_awake_for_lyrics",
@@ -505,13 +501,6 @@ private struct PlayerAppearanceSettingsView: View {
                     .accessibilityIdentifier("playerTapLyricsToSeekToggle")
             } header: {
                 Text("player_lyrics_section")
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("player_current_lyric_color_description")
-                    Text("player_blur_inactive_lyrics_description")
-                    Text("player_keep_screen_awake_for_lyrics_description")
-                    Text("player_tap_lyrics_to_seek_description")
-                }
             }
         }
         .navigationTitle("player_appearance_title")
@@ -635,12 +624,11 @@ private struct LibraryDisplaySettingsView: View {
                     )
                     .accessibilityLabel(Text("library_quick_access_count"))
                     .accessibilityValue(Text("\(quickAccessLimit)"))
+                    .accessibilityHint(Text("library_quick_access_count_description"))
                 }
                 .padding(.vertical, 4)
             } header: {
                 Text("library_quick_access")
-            } footer: {
-                Text("library_quick_access_count_description")
             }
 
             Section {
@@ -648,12 +636,11 @@ private struct LibraryDisplaySettingsView: View {
                     Toggle(isOn: visibilityBinding(for: section)) {
                         Label(section.title, systemImage: section.icon)
                     }
+                    .accessibilityHint(Text("library_sections_settings_footer"))
                 }
                 .onMove(perform: moveSections)
             } header: {
                 Text("library_sections_settings_label")
-            } footer: {
-                Text("library_sections_settings_footer")
             }
 
             Section {
@@ -764,8 +751,7 @@ private struct LibraryDisplaySettingsView: View {
 
             Section {
                 Toggle("library_default_flat_view", isOn: defaultFlatBrowseBinding)
-            } footer: {
-                Text("library_default_flat_view_description")
+                    .accessibilityHint(Text("library_default_flat_view_description"))
             }
         }
         #if os(iOS)
@@ -1521,8 +1507,7 @@ struct PlaybackSettingsView: View {
                     .onChange(of: settings.gaplessEnabled) { _, enabled in
                         if enabled { settings.crossfadeEnabled = false }
                     }
-            } footer: {
-                Text("gapless_desc")
+                    .accessibilityHint(Text("gapless_desc"))
             }
 
             Section {
@@ -1530,6 +1515,7 @@ struct PlaybackSettingsView: View {
                     .onChange(of: settings.crossfadeEnabled) { _, enabled in
                         if enabled { settings.gaplessEnabled = false }
                     }
+                    .accessibilityHint(Text("crossfade_desc"))
 
                 if settings.crossfadeEnabled {
                     Picker("crossfade_mode", selection: $settings.crossfadeMode) {
@@ -1551,8 +1537,6 @@ struct PlaybackSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            } footer: {
-                Text("crossfade_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 
@@ -1566,6 +1550,7 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("replay_gain", isOn: $settings.replayGainEnabled)
+                    .accessibilityHint(Text("replay_gain_desc"))
 
                 if settings.replayGainEnabled {
                     Picker("rg_mode", selection: $settings.replayGainMode) {
@@ -1574,23 +1559,16 @@ struct PlaybackSettingsView: View {
                         }
                     }
                 }
-            } footer: {
-                Text("replay_gain_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 
             Section {
                 Toggle("spatial_audio", isOn: $settings.spatialAudioEnabled)
+                    .accessibilityHint(Text("spatial_audio_desc"))
 
                 if settings.spatialAudioEnabled {
                     Toggle("spatial_head_tracking", isOn: $settings.spatialHeadTrackingEnabled)
-                }
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("spatial_audio_desc")
-                    if settings.spatialAudioEnabled {
-                        Text("spatial_head_tracking_desc")
-                    }
+                        .accessibilityHint(Text("spatial_head_tracking_desc"))
                 }
             }
             .disabled(settings.outputMode == .highFidelity)
@@ -1614,6 +1592,7 @@ struct PlaybackSettingsView: View {
                 } maximumValueLabel: {
                     Text("2.0x").font(.caption2)
                 }
+                .accessibilityHint(Text("playback_rate_desc"))
                 if settings.playbackRate != 1.0 {
                     Button("playback_rate_reset") {
                         settings.playbackRate = 1.0
@@ -1622,8 +1601,6 @@ struct PlaybackSettingsView: View {
                 }
             } header: {
                 Text("playback_rate_section")
-            } footer: {
-                Text("playback_rate_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 
