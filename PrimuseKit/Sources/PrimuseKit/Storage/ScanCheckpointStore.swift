@@ -493,6 +493,9 @@ public struct SourceSyncStateWriteReceipt: Sendable, Equatable {
 /// Serializes per-source cursor/index mutations into one atomic snapshot.
 /// Each caller contributes only its source row, so concurrent scan completions
 /// cannot replace another source's freshly committed state with an older map.
+/// While a write is in flight, later mutations are folded into one follow-up
+/// snapshot; every caller still waits until its revision (or a newer one) is
+/// durable before receiving a receipt.
 public actor SourceSyncStateFileStore {
     public typealias AtomicWriter = @Sendable (Data, URL) throws -> Void
 
@@ -501,16 +504,22 @@ public actor SourceSyncStateFileStore {
     private var states: [String: SourceSyncState]
     private var mutationEpochs: [String: UInt64] = [:]
     private var sourceRevisions: [String: UInt64] = [:]
+    private var persistenceRevision: UInt64 = 0
+    private var persistedRevision: UInt64 = 0
+    private var hasPersistedSnapshot: Bool
+    private var persistenceTask: Task<Void, Error>?
 
     public init(
         url: URL,
         initialStates: [String: SourceSyncState] = [:],
+        initialSnapshotIsPersisted: Bool = false,
         atomicWriter: @escaping AtomicWriter = { data, url in
             try data.write(to: url, options: .atomic)
         }
     ) {
         self.url = url
         self.states = initialStates
+        self.hasPersistedSnapshot = initialSnapshotIsPersisted
         self.atomicWriter = atomicWriter
     }
 
@@ -520,21 +529,22 @@ public actor SourceSyncStateFileStore {
     public func upsert(
         _ state: SourceSyncState,
         expectedMutationEpoch: UInt64
-    ) throws -> SourceSyncStateWriteReceipt? {
+    ) async throws -> SourceSyncStateWriteReceipt? {
         let sourceID = state.sourceID
         let currentEpoch = mutationEpochs[sourceID, default: 0]
         guard expectedMutationEpoch >= currentEpoch else { return nil }
 
-        var candidate = states
-        if expectedMutationEpoch > currentEpoch {
-            candidate[sourceID] = nil
+        let contentChanged = states[sourceID] != state
+        if contentChanged {
+            states[sourceID] = state
+            persistenceRevision &+= 1
+        } else if !hasPersistedSnapshot, persistenceRevision == persistedRevision {
+            persistenceRevision &+= 1
         }
-        candidate[sourceID] = state
         let revision = sourceRevisions[sourceID, default: 0] &+ 1
-        try write(candidate)
-        states = candidate
         mutationEpochs[sourceID] = expectedMutationEpoch
         sourceRevisions[sourceID] = revision
+        try await persistLatestStateIfNeeded()
         return SourceSyncStateWriteReceipt(
             sourceID: sourceID,
             mutationEpoch: expectedMutationEpoch,
@@ -548,8 +558,8 @@ public actor SourceSyncStateFileStore {
     public func invalidate(
         sourceID: String,
         mutationEpoch: UInt64
-    ) throws -> SourceSyncStateWriteReceipt? {
-        try advanceMutationEpoch(
+    ) async throws -> SourceSyncStateWriteReceipt? {
+        try await advanceMutationEpoch(
             sourceID: sourceID,
             mutationEpoch: mutationEpoch,
             discardingState: true
@@ -563,21 +573,21 @@ public actor SourceSyncStateFileStore {
         sourceID: String,
         mutationEpoch: UInt64,
         discardingState: Bool = false
-    ) throws -> SourceSyncStateWriteReceipt? {
+    ) async throws -> SourceSyncStateWriteReceipt? {
         let currentEpoch = mutationEpochs[sourceID, default: 0]
         guard mutationEpoch > currentEpoch else { return nil }
 
-        var candidate = states
-        if discardingState {
-            candidate[sourceID] = nil
+        if discardingState, states.removeValue(forKey: sourceID) != nil {
+            persistenceRevision &+= 1
+        } else if discardingState,
+                  !hasPersistedSnapshot,
+                  persistenceRevision == persistedRevision {
+            persistenceRevision &+= 1
         }
         let revision = sourceRevisions[sourceID, default: 0] &+ 1
-        if discardingState {
-            try write(candidate)
-        }
-        states = candidate
         mutationEpochs[sourceID] = mutationEpoch
         sourceRevisions[sourceID] = revision
+        try await persistLatestStateIfNeeded()
         return SourceSyncStateWriteReceipt(
             sourceID: sourceID,
             mutationEpoch: mutationEpoch,
@@ -589,10 +599,37 @@ public actor SourceSyncStateFileStore {
         states
     }
 
-    private func write(_ states: [String: SourceSyncState]) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try atomicWriter(try encoder.encode(states), url)
+    private func persistLatestStateIfNeeded() async throws {
+        let requiredRevision = persistenceRevision
+        while persistedRevision < requiredRevision {
+            if persistenceTask == nil {
+                persistenceTask = Task<Void, Error> { [self] in
+                    try await flushLatestStates()
+                }
+            }
+            try await persistenceTask?.value
+        }
+    }
+
+    private func flushLatestStates() async throws {
+        defer { persistenceTask = nil }
+        await Task.yield()
+
+        while persistedRevision < persistenceRevision {
+            let revision = persistenceRevision
+            let snapshot = states
+            let url = url
+            let atomicWriter = atomicWriter
+            let writeTask = Task.detached(priority: .utility) {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                try atomicWriter(try encoder.encode(snapshot), url)
+            }
+            try await writeTask.value
+            persistedRevision = revision
+            hasPersistedSnapshot = true
+            await Task.yield()
+        }
     }
 }

@@ -129,10 +129,11 @@ final class ScanService {
         syncStateURL = directory.appendingPathComponent("source-sync-states.json")
         decoder.dateDecodingStrategy = .iso8601
         loadCheckpoints(loadedCheckpoints)
-        loadSyncStates()
+        let loadedSyncStateSnapshot = loadSyncStates()
         syncStateStore = SourceSyncStateFileStore(
             url: syncStateURL,
-            initialStates: syncStates
+            initialStates: syncStates,
+            initialSnapshotIsPersisted: loadedSyncStateSnapshot
         )
         observeSourceConfigurationChanges()
     }
@@ -3076,11 +3077,11 @@ final class ScanService {
         }
     }
 
-    private func loadSyncStates() {
+    private func loadSyncStates() -> Bool {
         guard let data = try? Data(contentsOf: syncStateURL),
               let decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
             syncStates = [:]
-            return
+            return false
         }
         syncStates = decoded
         for (sourceID, state) in decoded
@@ -3089,6 +3090,7 @@ final class ScanService {
                 reconciliation: state.reconciliation
             )
         }
+        return true
     }
 
     private static func completedScanState(

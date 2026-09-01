@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import Testing
 @testable import PrimuseKit
 
@@ -515,6 +516,118 @@ struct ScanCheckpointFileStoreTests {
 
 @Suite("Source sync state persistence")
 struct SourceSyncStateFileStoreTests {
+    @Test("Loaded snapshots skip duplicates while unverified state is repaired")
+    func loadedSnapshotSkipsDuplicateWrite() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let state = makeSourceSyncState(sourceID: "source", marker: "loaded")
+        let durableRecorder = SourceSyncStateWriteRecorder()
+        let durableStore = SourceSyncStateFileStore(
+            url: syncURL,
+            initialStates: ["source": state],
+            initialSnapshotIsPersisted: true,
+            atomicWriter: durableRecorder.write
+        )
+
+        _ = try await durableStore.upsert(state, expectedMutationEpoch: 0)
+        #expect(durableRecorder.writeCount == 0)
+
+        let repairRecorder = SourceSyncStateWriteRecorder()
+        let repairStore = SourceSyncStateFileStore(
+            url: syncURL,
+            initialStates: ["source": state],
+            atomicWriter: repairRecorder.write
+        )
+        _ = try await repairStore.upsert(state, expectedMutationEpoch: 0)
+
+        #expect(repairRecorder.writeCount == 1)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": state])
+    }
+
+    @Test("Identical state and absent invalidation do not rewrite the snapshot")
+    func unchangedStateDoesNotRewrite() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let recorder = SourceSyncStateWriteRecorder()
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let store = SourceSyncStateFileStore(
+            url: syncURL,
+            atomicWriter: recorder.write
+        )
+        let state = makeSourceSyncState(sourceID: "source", marker: "stable")
+
+        _ = try await store.upsert(state, expectedMutationEpoch: 0)
+        _ = try await store.upsert(state, expectedMutationEpoch: 0)
+        _ = try await store.invalidate(sourceID: "missing", mutationEpoch: 1)
+
+        #expect(recorder.writeCount == 1)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": state])
+    }
+
+    @Test("Burst updates retain only the latest follow-up snapshot")
+    func burstUpdatesPersistLatestState() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let recorder = SourceSyncStateWriteRecorder(blocksFirstWrite: true)
+        defer { recorder.releaseFirstWrite() }
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let store = SourceSyncStateFileStore(
+            url: syncURL,
+            atomicWriter: recorder.write
+        )
+        let initial = makeSourceSyncState(sourceID: "source", marker: "initial")
+        let intermediate = makeSourceSyncState(sourceID: "source", marker: "intermediate")
+        let latest = makeSourceSyncState(sourceID: "source", marker: "latest")
+
+        let initialTask = Task {
+            try await store.upsert(initial, expectedMutationEpoch: 0)
+        }
+        await recorder.waitForFirstWrite()
+        let intermediateTask = Task {
+            try await store.upsert(intermediate, expectedMutationEpoch: 0)
+        }
+        while await store.snapshot()["source"] != intermediate {
+            await Task.yield()
+        }
+        let latestTask = Task {
+            try await store.upsert(latest, expectedMutationEpoch: 0)
+        }
+        while await store.snapshot()["source"] != latest {
+            await Task.yield()
+        }
+        recorder.releaseFirstWrite()
+
+        #expect(try await initialTask.value != nil)
+        #expect(try await intermediateTask.value != nil)
+        #expect(try await latestTask.value != nil)
+        #expect(recorder.writeCount == 2)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": latest])
+    }
+
+    @Test("A failed atomic write remains pending and is retried")
+    func failedWriteIsRetried() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let recorder = SourceSyncStateWriteRecorder(failuresBeforeSuccess: 1)
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let store = SourceSyncStateFileStore(
+            url: syncURL,
+            atomicWriter: recorder.write
+        )
+        let state = makeSourceSyncState(sourceID: "source", marker: "retry")
+
+        await #expect(throws: (any Error).self) {
+            try await store.upsert(state, expectedMutationEpoch: 0)
+        }
+        #expect(recorder.writeCount == 1)
+        #expect(!FileManager.default.fileExists(atPath: syncURL.path))
+
+        #expect(try await store.upsert(state, expectedMutationEpoch: 0) != nil)
+        #expect(recorder.writeCount == 2)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": state])
+    }
+
     @Test("Concurrent source commits merge instead of replacing the snapshot")
     func concurrentSourceCommitsMerge() async throws {
         let urls = try makeTemporaryURLs()
@@ -625,6 +738,66 @@ private func makeSourceSyncState(sourceID: String, marker: String) -> SourceSync
         index: [:],
         scanEpoch: 1
     )
+}
+
+private func decodeSourceSyncStates(from url: URL) throws -> [String: SourceSyncState] {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(
+        [String: SourceSyncState].self,
+        from: Data(contentsOf: url)
+    )
+}
+
+private final class SourceSyncStateWriteRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstWriteStarted = DispatchSemaphore(value: 0)
+    private let firstWriteRelease = DispatchSemaphore(value: 0)
+    private let blocksFirstWrite: Bool
+    private var failuresBeforeSuccess: Int
+    private var writes = 0
+
+    init(
+        blocksFirstWrite: Bool = false,
+        failuresBeforeSuccess: Int = 0
+    ) {
+        self.blocksFirstWrite = blocksFirstWrite
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+    }
+
+    var writeCount: Int {
+        lock.withLock { writes }
+    }
+
+    func write(_ data: Data, _ url: URL) throws {
+        let attempt = lock.withLock { () -> (number: Int, shouldFail: Bool) in
+            writes += 1
+            let shouldFail = failuresBeforeSuccess > 0
+            failuresBeforeSuccess = max(0, failuresBeforeSuccess - 1)
+            return (writes, shouldFail)
+        }
+        if blocksFirstWrite, attempt.number == 1 {
+            firstWriteStarted.signal()
+            firstWriteRelease.wait()
+        }
+        if attempt.shouldFail {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try data.write(to: url, options: .atomic)
+    }
+
+    func waitForFirstWrite() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async { [firstWriteStarted] in
+                firstWriteStarted.wait()
+                continuation.resume()
+            }
+        }
+    }
+
+    func releaseFirstWrite() {
+        firstWriteRelease.signal()
+    }
 }
 
 private func makeTemporaryURLs() throws -> (directory: URL, checkpoint: URL, backup: URL) {
