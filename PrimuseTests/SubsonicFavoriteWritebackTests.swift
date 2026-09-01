@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 import XCTest
@@ -363,6 +364,34 @@ final class SubsonicServerScanTests: XCTestCase {
         XCTAssertEqual(
             before,
             ScanService.scopeFingerprint(for: decoded, directories: ["/"])
+        )
+    }
+
+    func testScanScopeKeepsLegacySecurityRevisionRepresentation() throws {
+        var source = MusicSource(
+            id: "scope-security-revision-\(UUID().uuidString)",
+            name: "Navidrome",
+            type: .navidrome,
+            host: "music.example.com",
+            username: "user"
+        )
+        source.modifiedAt = Date(timeIntervalSince1970: 1_788_200_000)
+        let identity = MusicSourceScopeFingerprint.make(
+            for: source,
+            directories: ["/"]
+        )
+        let revision = try XCTUnwrap(
+            MusicSourceSecurityRevision.revision(for: source.id)
+        )
+        let sourceRevision = Int64(source.modifiedAt.timeIntervalSince1970)
+        let legacyValue = "\(identity)\u{1E}\(sourceRevision)\u{1E}Optional(\(revision))"
+        let expected = SHA256.hash(data: Data(legacyValue.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+
+        XCTAssertEqual(
+            ScanService.scopeFingerprint(for: source, directories: ["/"]),
+            expected
         )
     }
 

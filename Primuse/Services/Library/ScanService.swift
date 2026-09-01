@@ -3310,8 +3310,13 @@ final class ScanService {
         // discard a valid checkpoint solely because Date lost sub-seconds.
         let sourceRevision = Int64(source.modifiedAt.timeIntervalSince1970.rounded(.down))
         let securityRevision = MusicSourceSecurityRevision.revision(for: source.id)
+        // Keep the previously persisted fingerprint representation stable while
+        // avoiding Optional's debug interpolation, which is not a data format.
+        let securityRevisionComponent = securityRevision
+            .map { "Optional(\($0))" }
+            ?? "nil"
         let digest = SHA256.hash(
-            data: Data("\(identity)\u{1E}\(sourceRevision)\u{1E}\(securityRevision)".utf8)
+            data: Data("\(identity)\u{1E}\(sourceRevision)\u{1E}\(securityRevisionComponent)".utf8)
         )
         return digest.map { String(format: "%02x", $0) }.joined()
     }

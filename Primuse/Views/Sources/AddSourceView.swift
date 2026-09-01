@@ -1583,7 +1583,7 @@ struct AddSourceView: View {
         } else if authType == .none {
             // 从账号登录切换到访客模式时必须删除旧 Keychain 项；否则连接器仍会
             // 读到旧密码，表面显示“访客”却继续以旧账号认证。
-            if editingSource?.authType != .none {
+            if let editingSource, editingSource.authType != .none {
                 guard prepareCredentialChange() else { return }
             }
             guard KeychainService.deletePassword(for: source.id) else {
