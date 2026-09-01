@@ -5150,6 +5150,112 @@ final class AudioPlayerService {
                 }
             }
         }
+
+        guard smartCrossfade else {
+            return AudioSilenceStream.trim(
+                segmentedStream,
+                leading: trimLeading,
+                trailing: trimTrailing,
+                maximumLeadingDuration: maximumTrimDuration,
+                maximumTrailingDuration: maximumTrimDuration,
+                onProfile: profileHandler
+            )
+        }
+
+        return AudioSilenceStream.trimAnalyzingSmartMix(
+            segmentedStream,
+            leading: trimLeading,
+            trailing: trimTrailing,
+            maximumLeadingDuration: maximumTrimDuration,
+            maximumTrailingDuration: maximumTrimDuration,
+            onSmartMixAnalysis: { [weak self] analysis in
+                Task { @MainActor [weak self] in
+                    self?.storeSmartMixAnalysis(analysis, for: songID)
+                }
+            },
+            onProfile: profileHandler
+        )
+    }
+
+    private func resetSmartMixAnalysis(for songID: String) {
+        smartMixPlatformAnalysisTasks[songID]?.task.cancel()
+        smartMixPlatformAnalysisTasks[songID] = nil
+        smartMixAnalyses[songID] = nil
+    }
+
+    private func storeSmartMixAnalysis(
+        _ analysis: SmartMixTrackAnalysis,
+        for songID: String
+    ) {
+        if let existing = smartMixAnalyses[songID] {
+            if existing.backend == .musicUnderstanding,
+               analysis.backend != .musicUnderstanding {
+                return
+            }
+            if existing.backend == analysis.backend {
+                let existingConfidence = existing.tempo?.confidence ?? 0
+                let incomingConfidence = analysis.tempo?.confidence ?? 0
+                guard analysis.analyzedDuration > existing.analyzedDuration + 0.1
+                        || incomingConfidence > existingConfidence else {
+                    return
+                }
+            }
+        }
+        if smartMixAnalyses.count >= 64,
+           smartMixAnalyses[songID] == nil,
+           let oldestKey = smartMixAnalyses.keys.first {
+            smartMixAnalyses[oldestKey] = nil
+        }
+        smartMixAnalyses[songID] = analysis
+    }
+
+    private func scheduleMusicUnderstandingAnalysis(
+        for songID: String,
+        completeFileURL: URL
+    ) {
+        #if canImport(MusicUnderstanding)
+        guard completeFileURL.isFileURL else { return }
+        if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
+            guard SmartMixAnalysisBackendPolicy.preferredBackend(
+                operatingSystemMajorVersion: ProcessInfo.processInfo
+                    .operatingSystemVersion.majorVersion,
+                musicUnderstandingAvailable: true,
+                assetAccess: .completeFile
+            ) == .musicUnderstanding else { return }
+
+            let taskID = UUID()
+            let task = Task { [weak self] in
+                defer {
+                    if self?.smartMixPlatformAnalysisTasks[songID]?.id == taskID {
+                        self?.smartMixPlatformAnalysisTasks[songID] = nil
+                    }
+                }
+                do {
+                    let analysis = try await MusicUnderstandingSmartMixAnalyzer.analyze(
+                        fileURL: completeFileURL
+                    )
+                    try Task.checkCancellation()
+                    guard let self,
+                          self.smartMixPlatformAnalysisTasks[songID]?.id == taskID else {
+                        return
+                    }
+                    self.storeSmartMixAnalysis(analysis, for: songID)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    plog(
+                        "Music Understanding analysis failed "
+                            + "\(String(songID.prefix(8))): \(error.localizedDescription)"
+                    )
+                }
+            }
+            smartMixPlatformAnalysisTasks[songID] = SmartMixPlatformAnalysisTask(
+                id: taskID,
+                task: task
+            )
+        }
+        #endif
     }
 
     private func segmented(
@@ -5316,112 +5422,6 @@ final class AudioPlayerService {
                 )
             }
         }
-
-        guard smartCrossfade else {
-            return AudioSilenceStream.trim(
-                segmentedStream,
-                leading: trimLeading,
-                trailing: trimTrailing,
-                maximumLeadingDuration: maximumTrimDuration,
-                maximumTrailingDuration: maximumTrimDuration,
-                onProfile: profileHandler
-            )
-        }
-
-        return AudioSilenceStream.trimAnalyzingSmartMix(
-            segmentedStream,
-            leading: trimLeading,
-            trailing: trimTrailing,
-            maximumLeadingDuration: maximumTrimDuration,
-            maximumTrailingDuration: maximumTrimDuration,
-            onSmartMixAnalysis: { [weak self] analysis in
-                Task { @MainActor [weak self] in
-                    self?.storeSmartMixAnalysis(analysis, for: songID)
-                }
-            },
-            onProfile: profileHandler
-        )
-    }
-
-    private func resetSmartMixAnalysis(for songID: String) {
-        smartMixPlatformAnalysisTasks[songID]?.task.cancel()
-        smartMixPlatformAnalysisTasks[songID] = nil
-        smartMixAnalyses[songID] = nil
-    }
-
-    private func storeSmartMixAnalysis(
-        _ analysis: SmartMixTrackAnalysis,
-        for songID: String
-    ) {
-        if let existing = smartMixAnalyses[songID] {
-            if existing.backend == .musicUnderstanding,
-               analysis.backend != .musicUnderstanding {
-                return
-            }
-            if existing.backend == analysis.backend {
-                let existingConfidence = existing.tempo?.confidence ?? 0
-                let incomingConfidence = analysis.tempo?.confidence ?? 0
-                guard analysis.analyzedDuration > existing.analyzedDuration + 0.1
-                        || incomingConfidence > existingConfidence else {
-                    return
-                }
-            }
-        }
-        if smartMixAnalyses.count >= 64,
-           smartMixAnalyses[songID] == nil,
-           let oldestKey = smartMixAnalyses.keys.first {
-            smartMixAnalyses[oldestKey] = nil
-        }
-        smartMixAnalyses[songID] = analysis
-    }
-
-    private func scheduleMusicUnderstandingAnalysis(
-        for songID: String,
-        completeFileURL: URL
-    ) {
-        #if canImport(MusicUnderstanding)
-        guard completeFileURL.isFileURL else { return }
-        if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
-            guard SmartMixAnalysisBackendPolicy.preferredBackend(
-                operatingSystemMajorVersion: ProcessInfo.processInfo
-                    .operatingSystemVersion.majorVersion,
-                musicUnderstandingAvailable: true,
-                assetAccess: .completeFile
-            ) == .musicUnderstanding else { return }
-
-            let taskID = UUID()
-            let task = Task { [weak self] in
-                defer {
-                    if self?.smartMixPlatformAnalysisTasks[songID]?.id == taskID {
-                        self?.smartMixPlatformAnalysisTasks[songID] = nil
-                    }
-                }
-                do {
-                    let analysis = try await MusicUnderstandingSmartMixAnalyzer.analyze(
-                        fileURL: completeFileURL
-                    )
-                    try Task.checkCancellation()
-                    guard let self,
-                          self.smartMixPlatformAnalysisTasks[songID]?.id == taskID else {
-                        return
-                    }
-                    self.storeSmartMixAnalysis(analysis, for: songID)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    plog(
-                        "Music Understanding analysis failed "
-                            + "\(String(songID.prefix(8))): \(error.localizedDescription)"
-                    )
-                }
-            }
-            smartMixPlatformAnalysisTasks[songID] = SmartMixPlatformAnalysisTask(
-                id: taskID,
-                task: task
-            )
-        }
-        #endif
     }
 
     /// 返回 queue 接下来 N 首 (考虑 shuffle / repeat all)。N 首之间不重复。
