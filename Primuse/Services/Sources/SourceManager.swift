@@ -2153,12 +2153,15 @@ final class SourceManager {
         let task: Task<Void, Never>
     }
 
-    private var connectors: [String: any MusicSourceConnector] = [:]
-    private var connectorScopeFingerprints: [String: String] = [:]
-    private var requiredConnectorScopeFingerprints: [String: String] = [:]
-    private var connectorSourceModifiedAtByID: [String: Date] = [:]
-    private var connectorScopeValidationPendingSourceIDs: Set<String> = []
-    private var connectorScopeValidationGenerationBySourceID: [String: Int] = [:]
+    /// Connector lifecycle and scope validation are internal bookkeeping. Directory
+    /// browser views resolve a connector while SwiftUI is evaluating `body`; tracking
+    /// these mutations would invalidate that same body and create a render loop.
+    @ObservationIgnored private var connectors: [String: any MusicSourceConnector] = [:]
+    @ObservationIgnored private var connectorScopeFingerprints: [String: String] = [:]
+    @ObservationIgnored private var requiredConnectorScopeFingerprints: [String: String] = [:]
+    @ObservationIgnored private var connectorSourceModifiedAtByID: [String: Date] = [:]
+    @ObservationIgnored private var connectorScopeValidationPendingSourceIDs: Set<String> = []
+    @ObservationIgnored private var connectorScopeValidationGenerationBySourceID: [String: Int] = [:]
     private struct UnavailableConnectorCacheEntry {
         let connector: any MusicSourceConnector
         let capturedAt: Date
@@ -2168,18 +2171,18 @@ final class SourceManager {
     /// cache, but callers such as an artwork grid can request the same source
     /// many times in one render pass. Coalesce that short burst and retry after
     /// a bounded delay so unlocking the device still recovers automatically.
-    private var unavailableConnectors: [String: UnavailableConnectorCacheEntry] = [:]
+    @ObservationIgnored private var unavailableConnectors: [String: UnavailableConnectorCacheEntry] = [:]
     /// Sidecar I/O uses a connector separate from playback, but it must remain
     /// retained. AMSMB2 4.0.3 can crash in its C-context deinitializer after a
     /// server rejects a write; creating one throwaway connector per song made
     /// a read-only SMB scrape reliably hit that upstream lifetime bug.
-    private var sidecarConnectors: [String: any MusicSourceConnector] = [:]
-    private var sidecarConnectorScopeFingerprints: [String: String] = [:]
+    @ObservationIgnored private var sidecarConnectors: [String: any MusicSourceConnector] = [:]
+    @ObservationIgnored private var sidecarConnectorScopeFingerprints: [String: String] = [:]
     /// A replaced SMB connector cannot be safely destroyed after a failed C
     /// request on AMSMB2 4.0.3. Keep the rare retired instance alive until the
     /// process exits; normal playback and scrape paths remain bounded at one
     /// active connector per source.
-    private var retiredSMBSidecarConnectors: [any MusicSourceConnector] = []
+    @ObservationIgnored private var retiredSMBSidecarConnectors: [any MusicSourceConnector] = []
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
     private let songsProvider: @MainActor () -> [Song]
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
@@ -2361,10 +2364,13 @@ final class SourceManager {
         if requiredFingerprint == nil {
             requiredConnectorScopeFingerprints[source.id] = scopeFingerprint
         }
-        connectorSourceModifiedAtByID[source.id] = max(
+        let latestModifiedAt = max(
             connectorSourceModifiedAtByID[source.id] ?? .distantPast,
             source.modifiedAt
         )
+        if connectorSourceModifiedAtByID[source.id] != latestModifiedAt {
+            connectorSourceModifiedAtByID[source.id] = latestModifiedAt
+        }
         do {
             try MusicSourceSecurityRevision.registerCacheNamespace(
                 sourceID: source.id,

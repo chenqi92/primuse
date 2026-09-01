@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import PrimuseKit
 import XCTest
 import SwiftUI
@@ -1165,6 +1166,47 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
 
         XCTAssertFalse(connector is NoAvailableConnectionSourceConnector)
         await manager.disconnectAll()
+    }
+
+    @MainActor
+    func testDirectoryConnectorLookupDoesNotPublishInternalCacheMutations() async {
+        let sourceTypes: [MusicSourceType] = [
+            .smb, .webdav, .ftp, .sftp, .nfs, .qnap, .ugreen, .fnos, .s3,
+            .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115,
+            .pan123,
+        ]
+
+        for sourceType in sourceTypes {
+            let source = MusicSource(
+                id: "directory-observation-\(sourceType.rawValue)-\(UUID().uuidString)",
+                name: sourceType.displayName,
+                type: sourceType,
+                host: "source.invalid",
+                useSsl: false,
+                username: "",
+                basePath: "/music",
+                shareName: "music",
+                exportPath: "/music",
+                authType: .none,
+                modifiedAt: Date(timeIntervalSinceReferenceDate: 100)
+            )
+            let manager = SourceManager(sourcesProvider: { [source] in [source] })
+            _ = manager.connector(for: source)
+
+            let unexpectedInvalidation = expectation(
+                description: "connector cache invalidated \(sourceType.rawValue) observation"
+            )
+            unexpectedInvalidation.isInverted = true
+            withObservationTracking {
+                _ = manager.connector(for: source)
+            } onChange: {
+                unexpectedInvalidation.fulfill()
+            }
+
+            await manager.removeConnector(for: source.id)
+            await fulfillment(of: [unexpectedInvalidation], timeout: 0.05)
+            await manager.disconnectAll()
+        }
     }
 
     func testValidationErrorsThatApplyToWholeEndpointUseSourceCooldown() {
