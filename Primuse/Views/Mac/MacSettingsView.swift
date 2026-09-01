@@ -3148,7 +3148,7 @@ private struct MacSTLyricsView: View {
 
             MacSTSection(String(localized: "lyrics_display_section")) {
                 MacSTGroup {
-                    MacSTRow(String(localized: "lyrics_font_size"), divider: false) {
+                    MacSTRow(String(localized: "lyrics_font_size")) {
                         MacSTSlider(
                             value: Binding(
                                 get: { lyricsFontScale * 100 },

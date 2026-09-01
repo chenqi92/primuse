@@ -137,6 +137,10 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     func testMinimalDeepLinksSelectTheirLibraryCategory() {
         XCTAssertNil(MinimalNavigationPolicy.section(for: .root))
         XCTAssertEqual(
+            MinimalNavigationPolicy.section(for: .section(.songs)),
+            .songs
+        )
+        XCTAssertEqual(
             MinimalNavigationPolicy.section(for: .section(.radio)),
             .radio
         )
