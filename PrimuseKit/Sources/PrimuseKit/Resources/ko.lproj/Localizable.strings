@@ -676,3 +676,9 @@
 "shuffle" = "셔플";
 "ext.tv.search.aiSupplement" = "지능형 보조 결과";
 "ext.tv.search.path" = "경로: %@";
+"serverShare.error.unsupported" = "이 서버는 공개 미디어 링크를 지원하지 않거나 공유 기능이 꺼져 있습니다.";
+"serverShare.error.permissionDenied" = "이 계정에는 공개 미디어 링크를 만들 권한이 없습니다.";
+"serverShare.error.invalidTarget" = "선택한 미디어에 하나의 지원 서버에서 온 안정적인 ID가 없습니다.";
+"serverShare.error.invalidExpiration" = "선택한 만료 날짜를 서버에 안전하게 보낼 수 없습니다.";
+"serverShare.error.unsafeURL" = "서버가 스트림 URL 또는 계정 자격 증명이 포함된 링크를 반환했습니다.";
+"serverShare.error.malformedResponse" = "서버가 유효한 공개 미디어 링크를 반환하지 않았습니다.";

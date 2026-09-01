@@ -198,6 +198,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     @State private var showNoScraperSourceAlert = false
     @State private var queueFeedback: String?
     @State private var queueFeedbackTask: Task<Void, Never>?
+    @State private var serverMediaShareTarget: ServerMediaShareTarget?
 
     private struct PendingDeletion: Identifiable {
         let id = UUID()
@@ -216,6 +217,9 @@ private struct SongBatchActionsModifier: ViewModifier {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 #endif
+            }
+            .sheet(item: $serverMediaShareTarget) { target in
+                ServerMediaShareSheet(target: target)
             }
             .alert(
                 deletionAlertTitle,
@@ -423,6 +427,14 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
             .disabled(scraperService.isScraping)
 
+            if let target = selectedServerMediaShareTarget {
+                Button {
+                    serverMediaShareTarget = target
+                } label: {
+                    Label("server_share_action", systemImage: "link.badge.plus")
+                }
+            }
+
             #if os(macOS)
             Button {
                 selection.clear()
@@ -474,6 +486,18 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     private func playableSelection() -> [Song] {
         selectedSongs().filteredPlayable()
+    }
+
+    private var selectedServerMediaShareTarget: ServerMediaShareTarget? {
+        let songs = selectedSongs()
+        guard let sourceID = songs.first?.sourceID,
+              let source = sourcesStore.source(id: sourceID) else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .selection,
+            title: String(localized: "server_share_kind_selection"),
+            songs: songs,
+            source: source
+        )
     }
 
     private func appendSelectionToQueue() {

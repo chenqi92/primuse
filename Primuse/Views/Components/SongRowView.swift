@@ -28,6 +28,7 @@ struct SongRowView: View {
     var sourceName: String? = nil
     var sourceIconName: String? = nil
     var canDeleteSourceFile = false
+    var serverMediaShareTarget: ServerMediaShareTarget? = nil
 
     /// 非 nil 时由外层列表接管长按，直接进入多选并选中这一行。
     var selection: SongSelectionModel? = nil
@@ -51,6 +52,7 @@ struct SongRowView: View {
     @State private var deleteErrorMessage: String?
     @State private var sourceCheckMessage: String?
     @State private var tagReadMessage: String?
+    @State private var presentedServerMediaShareTarget: ServerMediaShareTarget?
 
     /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
     /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
@@ -232,6 +234,17 @@ struct SongRowView: View {
 
                     // Group 2: Share
                     Section {
+                        if let serverMediaShareTarget {
+                            Button {
+                                presentedServerMediaShareTarget = serverMediaShareTarget
+                            } label: {
+                                Label(
+                                    String(localized: "server_share_action"),
+                                    systemImage: "link.badge.plus"
+                                )
+                            }
+                        }
+
                         ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
                             Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                         }
@@ -353,6 +366,17 @@ struct SongRowView: View {
 
             // Group 2: Share
             Section {
+                if let serverMediaShareTarget {
+                    Button {
+                        presentedServerMediaShareTarget = serverMediaShareTarget
+                    } label: {
+                        Label(
+                            String(localized: "server_share_action"),
+                            systemImage: "link.badge.plus"
+                        )
+                    }
+                }
+
                 ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
                     Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                 }
@@ -406,6 +430,9 @@ struct SongRowView: View {
             AddToPlaylistSheet(song: song)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $presentedServerMediaShareTarget) { target in
+            ServerMediaShareSheet(target: target)
         }
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
         .sheet(isPresented: $showSongInfo) {
@@ -1447,6 +1474,7 @@ extension SongRowView {
         var sourceIconName: String?
         var detailsState: SongDetailsState
         var canDeleteSourceFile: Bool
+        var serverMediaShareTarget: ServerMediaShareTarget?
     }
 
     static func context(
@@ -1456,6 +1484,14 @@ extension SongRowView {
     ) -> RowContext {
         let showBadge = sourcesStore.sources.count > 1
         let source = sourcesStore.source(id: song.sourceID)
+        let serverMediaShareTarget = source.flatMap { source in
+            try? ServerMediaShareTargetPolicy.makeTarget(
+                kind: .song,
+                title: song.title,
+                songs: [song],
+                source: source
+            )
+        }
         return RowContext(
             sourceName: showBadge ? source?.name : nil,
             sourceIconName: showBadge ? source?.type.iconName : nil,
@@ -1465,7 +1501,8 @@ extension SongRowView {
             ),
             canDeleteSourceFile: SourceFileDeletionPolicy.shouldShowDeleteAction(
                 for: source?.type
-            )
+            ),
+            serverMediaShareTarget: serverMediaShareTarget
         )
     }
 
@@ -1486,5 +1523,6 @@ extension SongRowView {
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
+        self.serverMediaShareTarget = context.serverMediaShareTarget
     }
 }

@@ -674,3 +674,9 @@
 "shuffle" = "Shuffle";
 "ext.tv.search.aiSupplement" = "Intelligent supplemental results";
 "ext.tv.search.path" = "Path: %@";
+"serverShare.error.unsupported" = "This server does not support public media links, or sharing is disabled.";
+"serverShare.error.permissionDenied" = "This account does not have permission to create public media links.";
+"serverShare.error.invalidTarget" = "The selected media does not have stable IDs from one supported server.";
+"serverShare.error.invalidExpiration" = "The selected expiration date cannot be sent to the server.";
+"serverShare.error.unsafeURL" = "The server returned a link that looks like a stream URL or contains account credentials.";
+"serverShare.error.malformedResponse" = "The server did not return a valid public media link.";

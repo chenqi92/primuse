@@ -676,3 +676,9 @@
 "shuffle" = "Aléatoire";
 "ext.tv.search.aiSupplement" = "Résultats intelligents complémentaires";
 "ext.tv.search.path" = "Chemin : %@";
+"serverShare.error.unsupported" = "Ce serveur ne prend pas en charge les liens multimédias publics, ou le partage est désactivé.";
+"serverShare.error.permissionDenied" = "Ce compte n’est pas autorisé à créer des liens multimédias publics.";
+"serverShare.error.invalidTarget" = "Les médias sélectionnés n’ont pas d’identifiants stables provenant d’un seul serveur compatible.";
+"serverShare.error.invalidExpiration" = "La date d’expiration choisie ne peut pas être envoyée au serveur en toute sécurité.";
+"serverShare.error.unsafeURL" = "Le serveur a renvoyé un lien de flux ou un lien contenant des identifiants de compte.";
+"serverShare.error.malformedResponse" = "Le serveur n’a pas renvoyé de lien multimédia public valide.";

@@ -4,6 +4,7 @@ import PrimuseKit
 struct PlaylistListView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     #if os(iOS)
@@ -22,6 +23,7 @@ struct PlaylistListView: View {
     @State private var isManagingPlaylists = false
     @State private var playlistSelection: Set<String> = []
     @State private var showBatchDeleteConfirm = false
+    @State private var serverMediaShareTarget: ServerMediaShareTarget?
 
     /// 系统歌单（Apple Music 镜像 / 「我喜欢」）不参与批量删除，理由同
     /// `isSystemPlaylist`：删完下次 sync 或 heart toggle 又会重建。
@@ -74,6 +76,9 @@ struct PlaylistListView: View {
             #else
             PlaylistImportView()
             #endif
+        }
+        .sheet(item: $serverMediaShareTarget) { target in
+            ServerMediaShareSheet(target: target)
         }
     }
 
@@ -131,6 +136,9 @@ struct PlaylistListView: View {
                                             Label("hide_playlist_from_primuse", systemImage: "eye.slash")
                                         }
                                     }
+                                }
+                                .contextMenu {
+                                    serverMediaShareButton(for: playlist)
                                 }
                             }
                         } header: {
@@ -675,6 +683,8 @@ struct PlaylistListView: View {
         }
         .disabled(playlistSongs.isEmpty || scraperService.isScraping)
 
+        serverMediaShareButton(for: playlist)
+
         if !isSystemPlaylist(playlist.id) {
             Divider()
             Button(role: .destructive) {
@@ -692,6 +702,31 @@ struct PlaylistListView: View {
         }
     }
     #endif
+
+    private func makeServerMediaShareTarget(
+        for playlist: Playlist
+    ) -> ServerMediaShareTarget? {
+        let songs = library.songs(forPlaylist: playlist.id)
+        guard let sourceID = songs.first?.sourceID,
+              let source = sourcesStore.source(id: sourceID) else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .playlist,
+            title: playlist.name,
+            songs: songs,
+            source: source
+        )
+    }
+
+    @ViewBuilder
+    private func serverMediaShareButton(for playlist: Playlist) -> some View {
+        if let target = makeServerMediaShareTarget(for: playlist) {
+            Button {
+                serverMediaShareTarget = target
+            } label: {
+                Label("server_share_action", systemImage: "link.badge.plus")
+            }
+        }
+    }
 
     private func createPlaylist() {
         let trimmedName = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)

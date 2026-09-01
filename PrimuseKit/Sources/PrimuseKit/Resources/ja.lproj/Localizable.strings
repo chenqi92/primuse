@@ -676,3 +676,9 @@
 "shuffle" = "シャッフル";
 "ext.tv.search.aiSupplement" = "AI による補足結果";
 "ext.tv.search.path" = "パス：%@";
+"serverShare.error.unsupported" = "このサーバーは公開メディアリンクに対応していないか、共有機能が無効です。";
+"serverShare.error.permissionDenied" = "このアカウントには公開メディアリンクを作成する権限がありません。";
+"serverShare.error.invalidTarget" = "選択したメディアには、単一の対応サーバーから取得した安定した ID がありません。";
+"serverShare.error.invalidExpiration" = "選択した有効期限をサーバーへ安全に送信できません。";
+"serverShare.error.unsafeURL" = "サーバーからストリーム URL またはアカウント認証情報を含むリンクが返されました。";
+"serverShare.error.malformedResponse" = "サーバーから有効な公開メディアリンクが返されませんでした。";

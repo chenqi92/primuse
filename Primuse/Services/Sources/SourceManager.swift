@@ -1755,7 +1755,8 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
-    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
+    ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -1804,6 +1805,26 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func serverMediaSharingAvailability() async throws -> ServerMediaSharingAvailability {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerMediaSharingConnector else {
+                return .unsupported
+            }
+            return try await provider.serverMediaSharingAvailability()
+        }
+    }
+
+    func createServerMediaShare(
+        _ request: ServerMediaShareRequest
+    ) async throws -> ServerMediaShare {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerMediaSharingConnector else {
+                throw ServerMediaSharingError.unsupported
+            }
+            return try await provider.createServerMediaShare(request)
         }
     }
 
@@ -8560,6 +8581,61 @@ final class SourceManager {
     func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
         return try await conn.fetchServerPlaylists()
+    }
+
+    func serverMediaSharingAvailability(
+        for target: ServerMediaShareTarget
+    ) async throws -> ServerMediaSharingAvailability {
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: {
+            $0.id == target.sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
+            throw SourceError.fileNotFound("Source not found for media share")
+        }
+        guard ServerMediaShareTargetPolicy.supports(source.type) else {
+            return .unsupported
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope),
+              let provider = connector(for: source) as? any ServerMediaSharingConnector else {
+            throw CancellationError()
+        }
+        let availability = try await provider.serverMediaSharingAvailability()
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        return availability
+    }
+
+    func createServerMediaShare(
+        for target: ServerMediaShareTarget,
+        description: String?,
+        expiresAt: Date?
+    ) async throws -> ServerMediaShare {
+        try Task.checkCancellation()
+        let request = try ServerMediaShareRequest(
+            itemIDs: target.itemIDs,
+            description: description,
+            expiresAt: expiresAt
+        )
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: {
+            $0.id == target.sourceID && $0.isEnabled && !$0.isDeleted
+        }) else {
+            throw SourceError.fileNotFound("Source not found for media share")
+        }
+        guard ServerMediaShareTargetPolicy.supports(source.type) else {
+            throw ServerMediaSharingError.unsupported
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope),
+              let provider = connector(for: source) as? any ServerMediaSharingConnector else {
+            throw CancellationError()
+        }
+        // `withMutation` deliberately never replays this call on an alternate
+        // route: a lost response cannot prove that the first route did not
+        // already create a public link.
+        return try await provider.createServerMediaShare(request)
     }
 
     func fetchServerListeningStats(

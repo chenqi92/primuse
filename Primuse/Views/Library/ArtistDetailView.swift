@@ -67,6 +67,7 @@ struct ArtistDetailView: View {
 
     @State private var selection = SongSelectionModel()
     @State private var showArtworkEditor = false
+    @State private var serverMediaShareTarget: ServerMediaShareTarget?
 
     var body: some View {
         Group {
@@ -92,10 +93,21 @@ struct ArtistDetailView: View {
                 songs: songs
             )
         }
+        .sheet(item: $serverMediaShareTarget) { target in
+            ServerMediaShareSheet(target: target)
+        }
         #endif
         #if os(iOS)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let target = artistServerMediaShareTarget {
+                    Button {
+                        serverMediaShareTarget = target
+                    } label: {
+                        Image(systemName: "link.badge.plus")
+                    }
+                    .accessibilityLabel(Text("server_share_action"))
+                }
                 Button("artwork_edit") {
                     showArtworkEditor = true
                 }
@@ -112,6 +124,17 @@ struct ArtistDetailView: View {
         #else
         songs.map(\.id)
         #endif
+    }
+
+    private var artistServerMediaShareTarget: ServerMediaShareTarget? {
+        guard let sourceID = songs.first?.sourceID,
+              let source = sourcesStore.source(id: sourceID) else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .artist,
+            title: displayArtistName,
+            songs: songs,
+            source: source
+        )
     }
 
     #if os(macOS)
@@ -171,14 +194,23 @@ struct ArtistDetailView: View {
     }
 
     private var artistMoreMenu: AnyView {
-        AnyView(MacHeaderMoreMenu(sections: [[
+        var items: [MacHeaderMoreMenu.Item] = [
             .init(
                 icon: "photo.badge.plus",
                 title: String(localized: "artwork_edit")
             ) {
                 showArtworkEditor = true
             },
-        ]]))
+        ]
+        if let target = artistServerMediaShareTarget {
+            items.append(.init(
+                icon: "link.badge.plus",
+                title: String(localized: "server_share_action")
+            ) {
+                serverMediaShareTarget = target
+            })
+        }
+        return AnyView(MacHeaderMoreMenu(sections: [items]))
     }
 
     private var macTopSongs: some View {

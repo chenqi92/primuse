@@ -1345,6 +1345,14 @@ protocol ServerPlaylistConnector: MusicSourceConnector {
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
 }
 
+/// Public-link creation exposed by a media server. Capability probing is a
+/// real authenticated endpoint call because a compatible server may disable
+/// sharing globally or deny it for the current account at runtime.
+protocol ServerMediaSharingConnector: MusicSourceConnector {
+    func serverMediaSharingAvailability() async throws -> ServerMediaSharingAvailability
+    func createServerMediaShare(_ request: ServerMediaShareRequest) async throws -> ServerMediaShare
+}
+
 /// Authoritative favorite item IDs for one media-server account. Favorites are
 /// user data rather than ordinary playlists, so mutations must round-trip to
 /// the server and return a refreshed snapshot before the local liked state is

@@ -14,6 +14,7 @@ struct AlbumDetailView: View {
 
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
+    @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var selection = SongSelectionModel()
 
     init(album: Album, onMacInlineBack: (() -> Void)? = nil) {
@@ -46,6 +47,9 @@ struct AlbumDetailView: View {
                 songs: songs
             )
         }
+        .sheet(item: $serverMediaShareTarget) { target in
+            ServerMediaShareSheet(target: target)
+        }
     }
 
     /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
@@ -55,6 +59,17 @@ struct AlbumDetailView: View {
         #else
         songs.map(\.id)
         #endif
+    }
+
+    private var albumServerMediaShareTarget: ServerMediaShareTarget? {
+        guard let sourceID = songs.first?.sourceID,
+              let source = sourcesStore.source(id: sourceID) else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .album,
+            title: album.title,
+            songs: songs,
+            source: source
+        )
     }
 
     private var legacyBody: some View {
@@ -157,7 +172,15 @@ struct AlbumDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let target = albumServerMediaShareTarget {
+                    Button {
+                        serverMediaShareTarget = target
+                    } label: {
+                        Image(systemName: "link.badge.plus")
+                    }
+                    .accessibilityLabel(Text("server_share_action"))
+                }
                 Button {
                     showArtworkEditor = true
                 } label: {
@@ -239,6 +262,14 @@ struct AlbumDetailView: View {
         if let artist = albumArtist {
             second.append(.init(icon: "music.mic", title: String(localized: "go_to_artist")) {
                 NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+            })
+        }
+        if let target = albumServerMediaShareTarget {
+            second.append(.init(
+                icon: "link.badge.plus",
+                title: String(localized: "server_share_action")
+            ) {
+                serverMediaShareTarget = target
             })
         }
 

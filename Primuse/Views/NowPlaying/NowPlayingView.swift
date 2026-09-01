@@ -456,6 +456,7 @@ struct NowPlayingView: View {
     /// save the chosen lyrics under a different song on each presentation.
     @State private var scrapeTargetSong: Song?
     @State private var showAddToPlaylist = false
+    @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
@@ -500,6 +501,7 @@ struct NowPlayingView: View {
             || showsImmersiveEffectPicker
             || scrapeTargetSong != nil
             || showAddToPlaylist
+            || serverMediaShareTarget != nil
             || showSongInfo
             || showTagEditor
             || lyricsEditorTargetSong != nil
@@ -610,6 +612,17 @@ struct NowPlayingView: View {
 
     private var currentArtist: Artist? {
         currentArtists.first
+    }
+
+    private var currentSongServerShareTarget: ServerMediaShareTarget? {
+        guard let song = player.currentSong,
+              let source = sourcesStore.source(id: song.sourceID) else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .song,
+            title: song.title,
+            songs: [song],
+            source: source
+        )
     }
 
     private var currentArtistDisplayName: String {
@@ -1186,6 +1199,9 @@ struct NowPlayingView: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
+        }
+        .sheet(item: $serverMediaShareTarget) { target in
+            ServerMediaShareSheet(target: target)
         }
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
@@ -2686,6 +2702,7 @@ struct NowPlayingView: View {
             artistID: currentArtist?.id,
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
+            canCreateServerShare: currentSongServerShareTarget != nil,
             shareText: player.currentSong.map {
                 "\($0.title) - \(library.artistDisplayName(for: $0) ?? "")"
             },
@@ -2730,6 +2747,9 @@ struct NowPlayingView: View {
             onOpenInAppleMusic: {
                 guard let url = appleMusicCatalogURL else { return }
                 openURL(url)
+            },
+            onCreateServerShare: {
+                serverMediaShareTarget = currentSongServerShareTarget
             },
             onShowCastPicker: { showCastPicker = true },
             onToggleLyricsTranslation: {
@@ -4754,6 +4774,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let artistID: String?
     let canOpenAlbum: Bool
     let canOpenArtist: Bool
+    let canCreateServerShare: Bool
     let shareText: String?
     let castingRendererName: String?
     let isSleepTimerActive: Bool
@@ -4785,6 +4806,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenAlbum: () -> Void
     let onOpenArtist: () -> Void
     let onOpenInAppleMusic: () -> Void
+    let onCreateServerShare: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
@@ -4866,6 +4888,15 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(
                             String(localized: "apple_music_open_in_app"),
                             systemImage: "arrow.up.right.square"
+                        )
+                    }
+                }
+
+                if snapshot.canCreateServerShare {
+                    Button(action: onCreateServerShare) {
+                        Label(
+                            String(localized: "server_share_action"),
+                            systemImage: "link.badge.plus"
                         )
                     }
                 }

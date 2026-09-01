@@ -31,6 +31,7 @@ struct PlaylistDetailView: View {
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
+    @State private var serverMediaShareTarget: ServerMediaShareTarget?
 
     /// 镜像歌单 (Apple Music 资料库 / 服务端曲库) 里的条目不给移除入口 —— 我们
     /// 没法把改动推回服务端，下次 sync 又会把它们带回来，视觉上就是"删了又出现"。
@@ -44,6 +45,17 @@ struct PlaylistDetailView: View {
 
     private var songs: [Song] {
         library.songs(forPlaylist: playlist.id)
+    }
+
+    private var playlistServerMediaShareTarget: ServerMediaShareTarget? {
+        guard let sourceID = songs.first?.sourceID,
+              let source = sourcesStore.source(id: sourceID) else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .playlist,
+            title: currentPlaylist?.name ?? playlist.name,
+            songs: songs,
+            source: source
+        )
     }
 
     private var supportsAlwaysDownload: Bool {
@@ -110,6 +122,9 @@ struct PlaylistDetailView: View {
                 title: String(localized: "artwork_editor_title"),
                 songs: songs
             )
+        }
+        .sheet(item: $serverMediaShareTarget) { target in
+            ServerMediaShareSheet(target: target)
         }
         .onChange(of: scraperService.completionRevision) { _, _ in
             showScrapeCompletion()
@@ -304,6 +319,13 @@ struct PlaylistDetailView: View {
                         Label("scrape_missing_metadata", systemImage: "wand.and.stars")
                     }
                     .disabled(songs.isEmpty || scraperService.isScraping)
+                    if let target = playlistServerMediaShareTarget {
+                        Button {
+                            serverMediaShareTarget = target
+                        } label: {
+                            Label("server_share_action", systemImage: "link.badge.plus")
+                        }
+                    }
                     Button {
                         export(format: .m3u8)
                     } label: {
@@ -655,6 +677,14 @@ struct PlaylistDetailView: View {
                             enabled: !songs.isEmpty && !scraperService.isScraping) {
             startPlaylistScrape()
         })
+        if let target = playlistServerMediaShareTarget {
+            middle.append(.init(
+                icon: "link.badge.plus",
+                title: String(localized: "server_share_action")
+            ) {
+                serverMediaShareTarget = target
+            })
+        }
 
         return AnyView(MacHeaderMoreMenu(sections: [
             [

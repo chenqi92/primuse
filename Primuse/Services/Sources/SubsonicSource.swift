@@ -17,7 +17,7 @@ import PrimuseKit
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
-    ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
+    ServerPlaylistConnector, ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector {
     let sourceID: String
 
@@ -426,6 +426,77 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             throw ServerListeningStatsConnectorError.invalidSnapshot
         }
         return payload
+    }
+
+    // MARK: - Public media sharing
+
+    func serverMediaSharingAvailability() async throws -> ServerMediaSharingAvailability {
+        try Task.checkCancellation()
+        try await connect()
+        do {
+            let container: EmptyContainer = try await responseJSON("getShares")
+            try Task.checkCancellation()
+            return try Self.mediaSharingAvailability(
+                status: container.status,
+                error: container.error
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch let statusError as SubsonicHTTPStatusError {
+            return try Self.mediaSharingAvailability(httpStatus: statusError.statusCode)
+        }
+    }
+
+    func createServerMediaShare(
+        _ request: ServerMediaShareRequest
+    ) async throws -> ServerMediaShare {
+        let query = try OpenSubsonicMediaShareCodec.queryItems(for: request)
+        try Task.checkCancellation()
+        try await connect()
+        do {
+            let container: MediaSharesContainer = try await responseJSON(
+                "createShare",
+                query: query
+            )
+            switch try Self.mediaSharingAvailability(
+                status: container.status,
+                error: container.error
+            ) {
+            case .available:
+                guard let share = container.shares?.values.first else {
+                    throw ServerMediaSharingError.malformedResponse
+                }
+                return share
+            case .unsupported:
+                throw ServerMediaSharingError.unsupported
+            case .permissionDenied:
+                throw ServerMediaSharingError.permissionDenied
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch let statusError as SubsonicHTTPStatusError {
+            switch try Self.mediaSharingAvailability(httpStatus: statusError.statusCode) {
+            case .available:
+                throw ServerMediaSharingError.malformedResponse
+            case .unsupported:
+                throw ServerMediaSharingError.unsupported
+            case .permissionDenied:
+                throw ServerMediaSharingError.permissionDenied
+            }
+        } catch let sharingError as ServerMediaSharingError {
+            throw sharingError
+        } catch let decodingError as DecodingError {
+            if let sharingError = OpenSubsonicMediaShareCodec.mediaSharingError(
+                from: decodingError
+            ) {
+                throw sharingError
+            }
+            throw ServerMediaSharingError.malformedResponse
+        }
     }
 
     /// Statistics are published only after the complete catalogue has been read.
@@ -1510,6 +1581,57 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             || normalized.contains("unknown method")
             || normalized.contains("unsupported method")
     }
+
+    private static func mediaSharingAvailability(
+        httpStatus: Int
+    ) throws -> ServerMediaSharingAvailability {
+        switch httpStatus {
+        case 401:
+            throw SourceError.authenticationFailed
+        case 403:
+            return .permissionDenied
+        case 404, 405, 410, 501:
+            return .unsupported
+        default:
+            throw SourceError.connectionFailed("HTTP \(httpStatus)")
+        }
+    }
+
+    private static func mediaSharingAvailability(
+        status: String,
+        error: SubsonicError?
+    ) throws -> ServerMediaSharingAvailability {
+        if status == "ok" {
+            return .available(.openSubsonic)
+        }
+        if error?.code == 40 || error?.code == 41 {
+            throw SourceError.authenticationFailed
+        }
+        let message = error?.message ?? ""
+        if isMediaSharingAPIUnavailable(message) {
+            return .unsupported
+        }
+        if error?.code == 50 {
+            return .permissionDenied
+        }
+        throw Self.error(from: error)
+    }
+
+    private static func isMediaSharingAPIUnavailable(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized == "http 404"
+            || normalized == "http 405"
+            || normalized == "http 410"
+            || normalized == "http 501"
+            || normalized.contains("sharing is disabled")
+            || normalized.contains("sharing disabled")
+            || normalized.contains("share feature is disabled")
+            || normalized.contains("not found")
+            || normalized.contains("not implemented")
+            || normalized.contains("unknown api")
+            || normalized.contains("unknown method")
+            || normalized.contains("unsupported method")
+    }
 }
 
 private enum SubsonicCompatibilityError: Error {
@@ -1551,6 +1673,12 @@ private struct PingContainer: SubsonicResponseContainer {
 private struct EmptyContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
+}
+
+private struct MediaSharesContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let shares: OpenSubsonicMediaShareList?
 }
 
 private struct ScanStatusContainer: SubsonicResponseContainer {

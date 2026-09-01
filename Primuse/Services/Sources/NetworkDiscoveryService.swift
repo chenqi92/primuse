@@ -35,13 +35,13 @@ enum NetworkURLBuilder {
         } else if isLikelyIPv6Literal(trimmedHost) {
             components = URLComponents()
             components.scheme = defaultScheme
-            components.host = sanitizedHost(trimmedHost)
+            assignHost(trimmedHost, to: &components)
         } else if let parsed = URLComponents(string: "\(defaultScheme)://\(trimmedHost)") {
             components = parsed
         } else {
             components = URLComponents()
             components.scheme = defaultScheme
-            components.host = sanitizedHost(trimmedHost)
+            assignHost(trimmedHost, to: &components)
         }
 
         if forceScheme || components.scheme?.isEmpty != false {
@@ -49,9 +49,9 @@ enum NetworkURLBuilder {
         }
 
         if let parsedHost = components.host, parsedHost.isEmpty == false {
-            components.host = sanitizedHost(parsedHost)
+            assignHost(parsedHost, to: &components)
         } else if hostContainsURL == false {
-            components.host = sanitizedHost(trimmedHost)
+            assignHost(trimmedHost, to: &components)
         }
 
         // 用户输入里已带端口时优先使用它（完整 URL 和 `host:port` 都支持），
@@ -98,6 +98,15 @@ enum NetworkURLBuilder {
             && sanitized.filter({ $0 == ":" }).count >= 2
             && sanitized.contains("/") == false
             && sanitized.contains("?") == false
+    }
+
+    private static func assignHost(_ host: String, to components: inout URLComponents) {
+        let sanitized = sanitizedHost(host)
+        if isLikelyIPv6Literal(sanitized) {
+            components.percentEncodedHost = "[\(sanitized)]"
+        } else {
+            components.host = sanitized
+        }
     }
 }
 

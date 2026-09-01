@@ -673,3 +673,9 @@
 "shuffle" = "随机播放";
 "ext.tv.search.aiSupplement" = "智能补充结果";
 "ext.tv.search.path" = "路径：%@";
+"serverShare.error.unsupported" = "此服务器不支持公开媒体链接，或已关闭分享功能。";
+"serverShare.error.permissionDenied" = "当前账户没有创建公开媒体链接的权限。";
+"serverShare.error.invalidTarget" = "所选媒体不具备来自同一受支持服务器的稳定 ID。";
+"serverShare.error.invalidExpiration" = "所选过期时间无法安全发送到服务器。";
+"serverShare.error.unsafeURL" = "服务器返回的链接疑似播放流地址或包含账户凭据。";
+"serverShare.error.malformedResponse" = "服务器未返回有效的公开媒体链接。";

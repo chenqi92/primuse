@@ -676,3 +676,9 @@
 "shuffle" = "Zufall";
 "ext.tv.search.aiSupplement" = "Intelligente Ergänzungen";
 "ext.tv.search.path" = "Pfad: %@";
+"serverShare.error.unsupported" = "Dieser Server unterstützt keine öffentlichen Medienlinks oder die Freigabe ist deaktiviert.";
+"serverShare.error.permissionDenied" = "Dieses Konto darf keine öffentlichen Medienlinks erstellen.";
+"serverShare.error.invalidTarget" = "Die ausgewählten Medien haben keine stabilen IDs von einem einzigen unterstützten Server.";
+"serverShare.error.invalidExpiration" = "Das gewählte Ablaufdatum kann nicht sicher an den Server gesendet werden.";
+"serverShare.error.unsafeURL" = "Der Server hat einen Stream-Link oder einen Link mit Zugangsdaten zurückgegeben.";
+"serverShare.error.malformedResponse" = "Der Server hat keinen gültigen öffentlichen Medienlink zurückgegeben.";
